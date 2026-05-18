@@ -165,7 +165,7 @@ class RLM(Module):
         # Edge predictions follow learned causal chains; geometric neighbors are noise.
         token_norms = self.token_embed.weight.data
         token_norms = token_norms / (np.linalg.norm(token_norms, axis=1, keepdims=True) + 1e-15)
-        scores = np.zeros(self.vocab_size, dtype=np.float32)
+        scores = -np.ones(self.vocab_size, dtype=np.float32) * 1e9
         for nid in edge_pred:
             if nid >= self.vocab_size:
                 continue
@@ -173,7 +173,9 @@ class RLM(Module):
             if node and node.activation > 0.01:
                 norm = np.sqrt(np.dot(node.vector, node.vector) + 1e-15)
                 vec_norm = node.vector / norm
-                scores += token_norms @ vec_norm * node.activation * node.confidence
+                local = token_norms @ vec_norm * node.activation
+                scores = np.maximum(scores, local)
+        scores = np.maximum(scores, -1e8)
         logits = StateTensor(scores[np.newaxis, :] * 15.0)
         return logits[0] if logits.shape[0] == 1 else logits
 
