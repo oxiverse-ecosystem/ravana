@@ -204,7 +204,7 @@ class RLM(Module):
         self._last_predicted_concepts = [n.id for n in all_active][:5]
         self._last_edge_pred = self.propagation.get_prediction(self._last_predicted_concepts, top_k=5)
 
-        # ── Context Priming ──
+        # ── Context Priming with Temporal Decay ──
         if T > 1:
             for tok_id in range(self.vocab_size):
                 if tok_id == int(token_ids[0, -1]):
@@ -215,14 +215,19 @@ class RLM(Module):
                     x_tok = self.token_embed(StateTensor(np.array([tok_id]))).data[0]
                     tok_concept = self._nearest_concept(x_tok)
                 
-                for ctx_nid in context_concepts:
+                for i, ctx_nid in enumerate(context_concepts):
                     ce = self.graph.get_edge(ctx_nid, tok_concept)
                     if ce is not None and ce.weight > 0.01:
-                        # Boost the score if there is a context edge
+                        # Temporal decay: more recent context is stronger
+                        # i ranges from 0 to T-1. Context tokens are from 0 to T-1.
+                        dist = T - 1 - i
+                        decay = 0.8 ** dist
+                        
+                        boost = ce.weight * decay
                         if concept_scores[tok_id] < -1e8:
-                            concept_scores[tok_id] = ce.weight * 0.5
+                            concept_scores[tok_id] = boost * 0.5
                         else:
-                            concept_scores[tok_id] *= (1.0 + ce.weight)
+                            concept_scores[tok_id] *= (1.0 + boost)
         
 
         concept_scores = np.maximum(concept_scores, -1e8)
