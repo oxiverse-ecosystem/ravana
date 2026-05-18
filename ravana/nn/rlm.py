@@ -59,6 +59,7 @@ class RLM(Module):
         self._token_trace: List[int] = []
         self._last_predicted_concepts: List[int] = []
         self._last_input_concepts: List[int] = []
+        self._last_edge_pred: List[int] = []
         self.sleep_cycles_completed = 0
         self.total_pressure = 0.0
         self.conceptual_accuracy = 0.0
@@ -160,6 +161,7 @@ class RLM(Module):
         predicted = list(dict.fromkeys(edge_pred + all_active + input_concepts))[:5]
         self._last_input_concepts = input_concepts
         self._last_predicted_concepts = predicted
+        self._last_edge_pred = edge_pred
 
         # For DECODING: use only edge-predicted concepts (interpolated ones excluded).
         # Edge predictions follow learned causal chains; geometric neighbors are noise.
@@ -212,10 +214,11 @@ class RLM(Module):
             edge = self.graph.get_or_create_edge(input_concept, output_concept, weight=0.3)
             edge.weight = min(1.0, edge.weight + 0.05)
             edge.confidence = min(1.0, edge.confidence + 0.03)
+            edge.prediction_count += 1
             self._edges_learned += 1
 
         # ════════════════════════════════════════════════════════════
-        # SECONDARY: Conceptual prediction error (for pressure)
+        # SECONDARY: Conceptual prediction error + contradiction tracking
         # ════════════════════════════════════════════════════════════
 
         predicted_set = set(self._last_predicted_concepts)
@@ -227,7 +230,21 @@ class RLM(Module):
         conceptual_error = 1.0 - overlap_ratio
         self.pressure.accumulate_semantic(conceptual_error * 1.5, salience=0.5)
 
-        single_correct = output_concept in predicted_set
+        # Use strict edge-based prediction for contradiction marking
+        edge_pred_set = set(self._last_edge_pred)
+        single_correct = output_concept in edge_pred_set
+
+        if not single_correct and input_concept >= 0:
+            inode = self.graph.get_node(input_concept)
+            if inode:
+                inode.contradiction_count += 1
+                inode.pressure += 0.5
+
+        if single_correct and input_concept >= 0:
+            inode = self.graph.get_node(input_concept)
+            if inode and inode.contradiction_count > 0:
+                inode.contradiction_count = max(0, inode.contradiction_count - 1)
+                inode.pressure = max(0.0, inode.pressure - 0.3)
 
         # ════════════════════════════════════════════════════════════
         # Expression pressure (token confidence)
@@ -259,18 +276,40 @@ class RLM(Module):
         if self.pressure.total < self.pressure_threshold * 0.25:
             return None
 
-        stages = {'hotspots': 0, 'reconciled': 0, 'pruned': 0, 'formed': 0, 'vector_adj': 0}
+        stages = {'hotspots': 0, 'reconciled': 0, 'pruned': 0, 'formed': 0,
+                  'vector_adj': 0, 'edge_decay': 0, 'pressure_applied': 0}
 
+        # 1) Apply accumulator pressure to contradicted nodes
+        self.pressure.apply_to_graph()
+        stages['pressure_applied'] = sum(1 for n in self.graph.nodes.values()
+                                         if n.contradiction_count > 2)
+
+        # 2) Mark contradiction hotspots
         hotspots = self.graph.get_hotspots(threshold=2.0)
         stages['hotspots'] = len(hotspots)
 
+        # 3) Reconcile contradictions (driven by contradiction_count)
         reconciled = self.graph.reconcile_contradictions()
         stages['reconciled'] = reconciled
 
+        # 4) Edge metabolism: decay unused edges
+        edge_decay = 0
+        for (s, t), edge in list(self.graph.edges.items()):
+            if edge.prediction_count == 0 and edge.stability < 0.5:
+                edge.weight *= 0.9
+                edge.confidence *= 0.9
+                if edge.weight < 0.01:
+                    self.graph.remove_edge(s, t)
+                    edge_decay += 1
+            edge.prediction_count = 0  # reset counter
+        stages['edge_decay'] = edge_decay
+
+        # 5) Structural plasticity (now pressure-aware)
         pruned, formed = self.structural.step()
         stages['pruned'] = pruned
         stages['formed'] = formed
 
+        # 6) Vector drift for token-aligned concepts
         vec_adj = 0
         token_vecs = self.token_embed.weight.data
         for i in range(min(len(token_vecs), len(self.graph.nodes))):
@@ -284,6 +323,7 @@ class RLM(Module):
                 vec_adj += 1
         stages['vector_adj'] = vec_adj
 
+        # 7) Global pressure decay
         self.pressure.decay(rate=0.3)
         self.total_pressure = self.pressure.total
         self.sleep_cycles_completed += 1
