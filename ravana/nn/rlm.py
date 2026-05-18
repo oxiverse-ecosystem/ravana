@@ -141,9 +141,9 @@ class RLM(Module):
         if hidden.ndim == 1:
             hidden = hidden[np.newaxis, :]
 
-        # Use raw token embedding (first token) for concept binding, not the hidden state.
-        # This preserves the structured embedding topology.
-        bind_vec = tok_plus_pos[:, -1, :].data if tok_plus_pos.ndim == 3 else tok_plus_pos.data
+        # Use raw token embedding (no position) for concept binding.
+        # Position embedding corrupts the structured topology (random weights, large norm).
+        bind_vec = raw_tok[:, -1, :].data if raw_tok.ndim == 3 else raw_tok.data
         if bind_vec.ndim == 1:
             bind_vec = bind_vec[np.newaxis, :]
 
@@ -151,25 +151,30 @@ class RLM(Module):
         input_concepts = self.graph.bind_input(bind_vec[0], k=5)
 
         self.graph.spread_activation(steps=2, k_active=7, decay=0.5)
-        predicted = self.propagation.get_prediction(input_concepts, top_k=5)
+        edge_pred = self.propagation.get_prediction(input_concepts, top_k=5)
         all_active = [n.id for n in sorted(self.graph.nodes.values(),
                                             key=lambda n: n.activation, reverse=True)
                       if n.activation > 0.01][:5]
-        predicted = list(dict.fromkeys(predicted + all_active + input_concepts))[:5]
 
+        # For tracking: full prediction set (edge + geometric + input)
+        predicted = list(dict.fromkeys(edge_pred + all_active + input_concepts))[:5]
         self._last_input_concepts = input_concepts
         self._last_predicted_concepts = predicted
 
-        predicted_vecs = []
-        for nid in predicted:
+        # For DECODING: use only edge-predicted concepts (interpolated ones excluded).
+        # Edge predictions follow learned causal chains; geometric neighbors are noise.
+        token_norms = self.token_embed.weight.data
+        token_norms = token_norms / (np.linalg.norm(token_norms, axis=1, keepdims=True) + 1e-15)
+        scores = np.zeros(self.vocab_size, dtype=np.float32)
+        for nid in edge_pred:
+            if nid >= self.vocab_size:
+                continue
             node = self.graph.get_node(nid)
             if node and node.activation > 0.01:
-                predicted_vecs.append(node.vector * node.activation)
-        if not predicted_vecs:
-            predicted_vecs = [np.zeros(self.concept_dim, dtype=np.float32)]
-
-        concept_activation = np.mean(predicted_vecs, axis=0)
-        logits = self.out_proj(StateTensor(concept_activation[np.newaxis, :]))
+                norm = np.sqrt(np.dot(node.vector, node.vector) + 1e-15)
+                vec_norm = node.vector / norm
+                scores += token_norms @ vec_norm * node.activation * node.confidence
+        logits = StateTensor(scores[np.newaxis, :] * 15.0)
         return logits[0] if logits.shape[0] == 1 else logits
 
     # ──────────────────────────────────────────────────────────────
@@ -208,16 +213,7 @@ class RLM(Module):
             self._edges_learned += 1
 
         # ════════════════════════════════════════════════════════════
-        # SECONDARY: Decoder pressure (train out_proj to decode concepts → tokens)
-        # ════════════════════════════════════════════════════════════
-
-        # Token-level prediction error: negative log-likelihood of the correct token
-        logit_dist = F.softmax(logits, dim=-1).data.flatten()
-        token_logprob = -np.log(logit_dist[next_id] + 1e-15)
-        self.out_proj.accumulate_pressure(StateTensor(np.array([token_logprob])))
-
-        # ════════════════════════════════════════════════════════════
-        # TERTIARY: Conceptual prediction error (for pressure)
+        # SECONDARY: Conceptual prediction error (for pressure)
         # ════════════════════════════════════════════════════════════
 
         predicted_set = set(self._last_predicted_concepts)
@@ -232,7 +228,7 @@ class RLM(Module):
         single_correct = output_concept in predicted_set
 
         # ════════════════════════════════════════════════════════════
-        # TERTIARY: Expression pressure (token decoding)
+        # Expression pressure (token confidence)
         # ════════════════════════════════════════════════════════════
 
         logit_dist = F.softmax(logits, dim=-1).data.flatten()
@@ -301,7 +297,7 @@ class RLM(Module):
     # ──────────────────────────────────────────────────────────────
 
     def generate(self, prompt_ids: List[int], max_tokens: int = 50,
-                 temperature: float = 0.8) -> List[int]:
+                 temperature: float = 0.8, learn_on_fly: bool = False) -> List[int]:
         generated = list(prompt_ids)
         for _ in range(max_tokens):
             if len(generated) > self.max_seq_len:
@@ -313,8 +309,6 @@ class RLM(Module):
             probs /= probs.sum()
             next_id = int(np.random.choice(self.vocab_size, p=probs))
             generated.append(next_id)
-            if len(generated) > 1:
-                self.learn(np.array([generated[-2:-1]]), np.array([next_id]))
             if next_id == 0:
                 break
         return generated

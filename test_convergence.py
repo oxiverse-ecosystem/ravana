@@ -104,25 +104,31 @@ for i in range(len(TRAIN_SEQ) - 1):
 
 print(f"\n  Concept prediction accuracy: {correct}/{total_transitions}")
 
-# ── Test generation ──────────────────────────────────────────────────
-print(f"\nGeneration test:")
-gen = rlm.generate([TRAIN_SEQ[0]], max_tokens=5, temperature=0.3)
-true_next = TRAIN_SEQ[1:6]
-print(f"  Prompt [{TRAIN_SEQ[0]}] → {gen[1:6]}")
-print(f"  Expected:                 {true_next}")
-hits = sum(1 for i, g in enumerate(gen[1:6]) if i < len(true_next) and g == true_next[i])
-print(f"  Exact match: {hits}/5")
+# ── Test teacher-forced prediction (greedy, ground-truth input) ──────
+print(f"\nTeacher-forced prediction (greedy):")
+forced_correct = 0
+for i in range(len(TRAIN_SEQ) - 1):
+    src, tgt = TRAIN_SEQ[i], TRAIN_SEQ[i + 1]
+    logits = rlm.forward(np.array([src], dtype=np.int64))
+    pred_id = int(np.argmax(logits.data))
+    hit = pred_id == tgt
+    print(f"  {src} → predicted={pred_id}, expected={tgt} → {hit}")
+    if hit:
+        forced_correct += 1
+print(f"  Teacher-forced accuracy: {forced_correct}/{total_transitions}")
 
-# Near-miss in embedding space
-prox = 0
-for idx, g in enumerate(gen[1:6]):
-    if idx >= len(true_next): break
-    g_emb = rlm.token_embed(StateTensor(np.array([g]))).data[0]
-    t_emb = rlm.token_embed(StateTensor(np.array([true_next[idx]]))).data[0]
-    sim = float(np.dot(g_emb, t_emb) / (np.linalg.norm(g_emb) * np.linalg.norm(t_emb) + 1e-15))
-    if sim > 0.8:
-        prox += 1
-print(f"  Near-miss (sim>0.8): {prox}/5")
+# ── Test open-loop generation (greedy) ──────────────────────────────
+print(f"\nGreedy generation test:")
+gen = [TRAIN_SEQ[0]]
+for _ in range(5):
+    logits = rlm.forward(np.array([gen], dtype=np.int64))
+    next_id = int(np.argmax(logits.data))
+    gen.append(next_id)
+true_next = TRAIN_SEQ[1:6]
+print(f"  Prompt [{TRAIN_SEQ[0]}] → {gen[1:]}")
+print(f"  Expected:                 {true_next}")
+hits = sum(1 for i, g in enumerate(gen[1:]) if i < len(true_next) and g == true_next[i])
+print(f"  Exact match: {hits}/5")
 
 converged = edges_matched >= total_transitions * 0.75
 print(f"\n  Converged (≥75% edges learned): {converged}")
