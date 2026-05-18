@@ -135,18 +135,29 @@ class Linear(Module):
         self._trace_x = x_data.copy()
         return StateTensor(result)
 
+    def backprop(self, error_data):
+        """Compute input error from output error. Returns error for previous layer."""
+        w = self.weight.data
+        return error_data @ w
+
     def accumulate_pressure(self, error):
         if self._trace_x is None:
             super().accumulate_pressure(error)
-            return
+            return 0.0
         error_data = error.data if isinstance(error, RawTensor) else np.array(error)
         x_data = self._trace_x
+        # Flatten batch+time dims for correct matmul with .T
+        if x_data.ndim > 2:
+            x_data = x_data.reshape(-1, x_data.shape[-1])
+        if error_data.ndim > 2:
+            error_data = error_data.reshape(-1, error_data.shape[-1])
         salience = getattr(error, '_salience', 0.3) if isinstance(error, StateTensor) else 0.3
         hebbian = (x_data.T @ error_data) * salience * 0.01
         self._weight_pressure.data += hebbian.T
         if self.bias is not None:
             self._bias_pressure.data += error_data.mean(axis=0) * salience * 0.01
         super().accumulate_pressure(error)
+        return float(np.mean(np.abs(hebbian)))
 
     def sleep_cycle(self):
         plasticity = 1.0 - float(np.mean(self.weight.stability))

@@ -44,16 +44,35 @@ class PropagationEngine:
             return 0.0
         return float(np.mean(activations))
 
-    def get_prediction(self, nids: List[int], top_k: int = 3) -> List[int]:
+    def get_prediction(self, nids: List[int], top_k: int = 3,
+                       context_field: Optional[np.ndarray] = None,
+                       context_bias: float = 0.3,
+                       context_concepts: Optional[List[int]] = None) -> List[int]:
         scores = {}
         for nid in nids:
             node = self.graph.get_node(nid)
             if node is None or node.activation < 0.01:
                 continue
             outgoing = [(t, e) for (s, t), e in self.graph.edges.items()
-                        if s == nid and t not in nids]
+                        if s == nid and t != nid]
             for target_id, edge in outgoing:
                 pred = node.activation * edge.weight
+                if context_field is not None:
+                    tnode = self.graph.get_node(target_id)
+                    if tnode is not None:
+                        cf_norm = np.linalg.norm(context_field)
+                        tv_norm = np.linalg.norm(tnode.vector)
+                        if cf_norm > 1e-15 and tv_norm > 1e-15:
+                            ctx_sim = float(np.dot(context_field, tnode.vector) /
+                                            (cf_norm * tv_norm))
+                            pred *= (1.0 + context_bias * ctx_sim)
+                # Context-concept edge boost: target directly reachable from context
+                if context_concepts is not None:
+                    for ctx_nid in context_concepts:
+                        ce = self.graph.get_edge(ctx_nid, target_id)
+                        if ce is not None:
+                            pred *= (1.0 + context_bias * ce.weight)
                 scores[target_id] = scores.get(target_id, 0.0) + pred
         ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+        self._last_scores = scores
         return [nid for nid, _ in ranked[:top_k]]

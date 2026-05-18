@@ -34,7 +34,7 @@ class ConceptNode:
 
 
 class ConceptEdge:
-    def __init__(self, source: int, target: int, weight: float = 0.5):
+    def __init__(self, source: int, target: int, weight: float = 0.5, shortcut: bool = False):
         self.source = source
         self.target = target
         self.weight = max(0.0, min(1.0, weight))
@@ -43,13 +43,14 @@ class ConceptEdge:
         self.stability = 0.3
         self.timestamp = time.time()
         self.prediction_count = 0
+        self.shortcut = shortcut  # context→target edges are exempt from competition
 
     @property
     def plasticity(self):
         return 1.0 - self.stability
 
     def __repr__(self):
-        return f"<Edge {self.source}→{self.target} w={self.weight:.3f} conf={self.confidence:.3f}>"
+        return f"<Edge {self.source}→{self.target} w={self.weight:.3f} conf={self.confidence:.3f} {'[S]' if self.shortcut else ''}>"
 
 
 class ConceptGraph:
@@ -84,12 +85,15 @@ class ConceptGraph:
 
     # ── edge management ──
 
-    def add_edge(self, source: int, target: int, weight: float = 0.5) -> ConceptEdge:
+    def add_edge(self, source: int, target: int, weight: float = 0.5, shortcut: bool = False) -> ConceptEdge:
         key = (source, target)
         if key in self.edges:
-            self.edges[key].weight = max(0.0, min(1.0, weight))
-            return self.edges[key]
-        edge = ConceptEdge(source, target, weight)
+            edge = self.edges[key]
+            edge.weight = max(0.0, min(1.0, weight))
+            if shortcut:
+                edge.shortcut = True
+            return edge
+        edge = ConceptEdge(source, target, weight, shortcut=shortcut)
         self.edges[key] = edge
         return edge
 
@@ -172,11 +176,14 @@ class ConceptGraph:
         if norm > 0:
             node.vector /= norm
 
-    def get_or_create_edge(self, source: int, target: int, weight: float = 0.3) -> ConceptEdge:
+    def get_or_create_edge(self, source: int, target: int, weight: float = 0.3, shortcut: bool = False) -> ConceptEdge:
         key = (source, target)
         if key in self.edges:
-            return self.edges[key]
-        return self.add_edge(source, target, weight)
+            edge = self.edges[key]
+            if shortcut:
+                edge.shortcut = True
+            return edge
+        return self.add_edge(source, target, weight, shortcut=shortcut)
 
     # ── plasticity ──
 
