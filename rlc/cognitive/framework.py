@@ -349,7 +349,8 @@ class CognitiveFramework:
         # Decay graph pressure
         self.graph_pressure.decay(rate=0.3)
 
-        # Human memory: decay + consolidation
+        # Human memory: replay, decay, consolidation
+        self.human_memory_engine.sleep_replay(state_snapshot=self.state_manager.state.snapshot())
         self.human_memory_engine.apply_decay()
         self.human_memory_engine.consolidate()
 

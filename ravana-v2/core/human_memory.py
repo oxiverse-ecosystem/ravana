@@ -69,6 +69,12 @@ class HumanMemoryConfig:
     access_weight: float = 0.15  # weight of access frequency
     coherence_weight: float = 0.15  # weight of coherence in persistence
 
+    # Identity interaction
+    identity_importance_boost: float = 0.2  # importance boost when identity is strong
+    identity_emotional_boost: float = 0.15  # emotional boost when identity is under pressure
+    identity_strength_threshold: float = 0.7  # above this = strong identity
+    identity_pressure_threshold: float = -0.1  # below this delta = under pressure
+
     # Synonym map for semantic search (optional)
     synonym_map: Optional[Dict[str, List[str]]] = None
 
@@ -658,6 +664,20 @@ class HumanMemoryEngine:
         meaning = episode_data.get("meaning", 0.0)
         emotional = min(1.0, max(0.1, 0.5 + abs(meaning) * 0.5))
 
+        # Identity interaction: shape memory by identity state
+        cfg = self.config
+        pre_identity = episode_data.get("pre_identity", 0.5)
+        post_identity = episode_data.get("post_identity", 0.5)
+        identity_delta = post_identity - pre_identity
+
+        # Strong identity boosts importance (coherent self makes memories stickier)
+        if pre_identity >= cfg.identity_strength_threshold:
+            importance = min(1.0, importance + cfg.identity_importance_boost * pre_identity)
+
+        # Identity under pressure boosts emotional weight (crisis memories are vivid)
+        if identity_delta <= cfg.identity_pressure_threshold:
+            emotional = min(1.0, emotional + cfg.identity_emotional_boost * abs(identity_delta))
+
         # Build content string
         content = (
             f"Episode {episode}: dissonance {pre_d:.3f}->{post_d:.3f}, "
@@ -678,6 +698,13 @@ class HumanMemoryEngine:
         gw = episode_data.get("gw_broadcast", {})
         if gw and gw.get("source"):
             tags_parts.append(f"gw:{gw['source']}")
+        # Identity-derived tags
+        if pre_identity >= cfg.identity_strength_threshold:
+            tags_parts.append("identity_strong")
+        if identity_delta <= cfg.identity_pressure_threshold:
+            tags_parts.append("identity_pressure")
+        elif identity_delta >= 0.05:
+            tags_parts.append("identity_growth")
         tags = ",".join(tags_parts)
 
         memory_type = "experience"
@@ -889,6 +916,120 @@ class HumanMemoryEngine:
         ))
         return reconstructed[:limit]
 
+    def fragment_memory(self, memory_id: int,
+                        min_divergence: float = 0.3) -> Dict[str, Any]:
+        """Split a memory into fragments under cognitive pressure.
+
+        When a memory has high associative divergence and connects to
+        contradictory clusters, it fragments into sub-memories with
+        shared provenance.
+        """
+        original = self._get(memory_id)
+        if not original:
+            return {"fragmented": False, "reason": "memory_not_found"}
+        if original.get("suppressed"):
+            return {"fragmented": False, "reason": "already_suppressed"}
+
+        divergence = original.get("associative_divergence", 0.0)
+        coherence = original.get("coherence", 1.0)
+        content = original.get("content", "")
+        tags = original.get("tags", "")
+
+        # Fragmentation conditions
+        if divergence < min_divergence and coherence > 0.5:
+            return {"fragmented": False, "reason": "insufficient_pressure",
+                    "divergence": divergence, "coherence": coherence}
+
+        # Check for contradictory connections
+        nid = self._node_id(memory_id)
+        activated = self._spreading_activation([nid])
+
+        # Find connected memories with opposing characteristics
+        contradictory_neighbors = []
+        aligned_neighbors = []
+        for (node_id, score) in activated:
+            if node_id == nid or score < 0.05:
+                continue
+            try:
+                neighbor_mid = int(node_id.split("-")[1])
+            except (ValueError, IndexError):
+                continue
+            neighbor = self._get(neighbor_mid)
+            if not neighbor:
+                continue
+
+            # Check opposition: emotional valence or importance mismatch
+            emo_diff = abs(original.get("emotional", 0.5) - neighbor.get("emotional", 0.5))
+            if emo_diff > 0.4:
+                contradictory_neighbors.append(neighbor)
+            else:
+                aligned_neighbors.append(neighbor)
+
+        if not contradictory_neighbors:
+            return {"fragmented": False, "reason": "no_contradictions",
+                    "divergence": divergence}
+
+        # Fragment: create sub-memories for each contradictory cluster
+        fragment_ids = []
+        content_parts = content.split(",") if "," in content else [content]
+
+        # Fragment 1: aligned content (preserve the coherent part)
+        aligned_content = content_parts[0] if content_parts else content
+        if aligned_neighbors:
+            aligned_context = "; ".join(n.get("content", "")[:50] for n in aligned_neighbors[:2])
+            aligned_content += f" [aligned: {aligned_context}]"
+
+        frag1_id = self._store(
+            content=aligned_content,
+            memory_type=original.get("memory_type", "experience"),
+            tags=tags + ",fragment,aligned",
+            importance=original.get("importance", 0.5) * 0.8,
+            emotional=original.get("emotional", 0.5),
+        )
+        self._add_node(frag1_id, content=aligned_content,
+                       memory_type=original.get("memory_type", "experience"),
+                       tags=tags + ",fragment", decay_score=0.0)
+        fragment_ids.append(frag1_id)
+
+        # Fragment 2: contradictory content (the tension)
+        if contradictory_neighbors:
+            contra_context = "; ".join(n.get("content", "")[:50] for n in contradictory_neighbors[:2])
+            contra_content = f"Contradiction fragment of mem-{memory_id}: {contra_context}"
+            frag2_id = self._store(
+                content=contra_content,
+                memory_type="reflection",
+                tags=tags + ",fragment,contradiction",
+                importance=original.get("importance", 0.5) * 0.6,
+                emotional=min(1.0, original.get("emotional", 0.5) + 0.2),
+            )
+            self._add_node(frag2_id, content=contra_content,
+                           memory_type="reflection",
+                           tags=tags + ",fragment,contradiction",
+                           decay_score=0.0)
+            fragment_ids.append(frag2_id)
+
+        # Link fragments to each other and to original
+        for i in range(len(fragment_ids)):
+            for j in range(i + 1, len(fragment_ids)):
+                self._link_memories(fragment_ids[i], fragment_ids[j], weight=2.0)
+            # Link each fragment back to original
+            self._link_memories(fragment_ids[i], memory_id, weight=1.5)
+
+        # Suppress the original (it has been fragmented)
+        self._forget(memory_id, hard=False)
+
+        self._save_graph()
+
+        return {
+            "fragmented": True,
+            "original_id": memory_id,
+            "fragment_ids": fragment_ids,
+            "divergence": divergence,
+            "coherence": coherence,
+            "contradictory_neighbors": len(contradictory_neighbors),
+            "aligned_neighbors": len(aligned_neighbors),
+        }
+
     def find_contradictions(self, limit: int = 20) -> List[Dict[str, Any]]:
         """Detect memories that contradict each other.
 
@@ -986,6 +1127,201 @@ class HumanMemoryEngine:
                 return "keep_b_consolidated"
             return "merge_and_reconcile"
         return "flag_for_review"
+
+    def stitch_narratives(self, window: int = 20) -> Dict[str, Any]:
+        """Link sequential episodes into coherent narratives.
+
+        Detects episode sequences with shared context/tags and creates
+        narrative chain edges with temporal ordering.
+        """
+        conn = self._get_conn()
+        rows = conn.execute(
+            """SELECT id, content, memory_type, tags, importance, emotional,
+                      access_count, created_at
+               FROM memories WHERE suppressed = 0 AND memory_type = 'experience'
+               ORDER BY created_at ASC"""
+        ).fetchall()
+        conn.close()
+
+        episodes = []
+        for r in rows:
+            episodes.append({
+                "id": r[0], "content": r[1], "memory_type": r[2],
+                "tags": r[3] or "", "importance": r[4], "emotional": r[5],
+                "access_count": r[6], "created_at": r[7],
+            })
+
+        if len(episodes) < 2:
+            return {"narratives": 0, "links_created": 0}
+
+        # Find sequences: episodes within window that share tags
+        narratives = []
+        current_chain = [episodes[0]]
+
+        for i in range(1, len(episodes)):
+            prev = episodes[i - 1]
+            curr = episodes[i]
+
+            # Check temporal proximity (within window of each other)
+            time_gap = abs(curr.get("created_at", 0) - prev.get("created_at", 0))
+            if time_gap > window * 60:  # window is in minutes
+                if len(current_chain) >= 2:
+                    narratives.append(current_chain)
+                current_chain = [curr]
+                continue
+
+            # Check tag continuity
+            prev_tags = set(t.strip() for t in prev.get("tags", "").split(",") if t.strip())
+            curr_tags = set(t.strip() for t in curr.get("tags", "").split(",") if t.strip())
+            shared = prev_tags & curr_tags
+
+            # Check emotional continuity (similar emotional state)
+            emo_similar = abs(prev.get("emotional", 0.5) - curr.get("emotional", 0.5)) < 0.3
+
+            if shared or emo_similar:
+                current_chain.append(curr)
+            else:
+                if len(current_chain) >= 2:
+                    narratives.append(current_chain)
+                current_chain = [curr]
+
+        # Don't forget the last chain
+        if len(current_chain) >= 2:
+            narratives.append(current_chain)
+
+        # Create narrative edges
+        links_created = 0
+        for chain in narratives:
+            for i in range(len(chain) - 1):
+                a_id = chain[i]["id"]
+                b_id = chain[i + 1]["id"]
+                # Link with narrative edge (stronger than auto-link)
+                self._link_memories(a_id, b_id, weight=2.0)
+                links_created += 1
+
+            # Tag all episodes in chain as narrative
+            conn = self._get_conn()
+            for ep in chain:
+                existing_tags = ep.get("tags", "")
+                if "narrative" not in existing_tags:
+                    new_tags = existing_tags + ",narrative" if existing_tags else "narrative"
+                    conn.execute("UPDATE memories SET tags = ? WHERE id = ?",
+                                 (new_tags, ep["id"]))
+            conn.commit()
+            conn.close()
+
+        self._save_graph()
+
+        return {
+            "narratives": len(narratives),
+            "links_created": links_created,
+            "chain_lengths": [len(c) for c in narratives],
+            "total_episodes_linked": sum(len(c) for c in narratives),
+        }
+
+    def sleep_replay(self, state_snapshot: Dict[str, Any] = None) -> Dict[str, int]:
+        """Replay and reshape memories during sleep consolidation.
+
+        Actively rewrites memories rather than just decaying them:
+        - Replays high-dissonance memories (strengthen if coherent, weaken if not)
+        - Merges similar episodic memories into semantic summaries
+        - Reinforces memories aligned with current identity state
+        """
+        strengthened = weakened = merged = 0
+        cfg = self.config
+        active = self._get_active(limit=500)
+
+        # Get identity state from snapshot for alignment check
+        identity = 0.5
+        dissonance = 0.5
+        if state_snapshot:
+            identity = state_snapshot.get("identity", 0.5)
+            dissonance = state_snapshot.get("dissonance", 0.5)
+
+        conn = self._get_conn()
+
+        # Phase 1: Replay high-dissonance memories
+        for m in active:
+            content = (m.get("content") or "").lower()
+            # Check if this memory records high dissonance
+            if "dissonance" in content:
+                try:
+                    # Extract dissonance values from content
+                    parts = content.split("dissonance")[1].split(",")[0]
+                    vals = parts.split("->")
+                    if len(vals) == 2:
+                        pre = float(vals[0].strip())
+                        post = float(vals[1].strip())
+                        reduction = pre - post
+                        if reduction > 0.2:
+                            # Good dissonance reduction — reinforce
+                            conn.execute(
+                                """UPDATE memories SET importance = MIN(1.0, importance + 0.03),
+                                           stability = MIN(1.0, stability + 0.02) WHERE id = ?""",
+                                (m["id"],))
+                            strengthened += 1
+                        elif reduction < 0 and m.get("decay_score", 0) > 2.0:
+                            # Dissonance increased and memory is degrading — weaken
+                            conn.execute(
+                                """UPDATE memories SET importance = MAX(0.0, importance - 0.02),
+                                           coherence = MAX(0.0, coherence - 0.01) WHERE id = ?""",
+                                (m["id"],))
+                            weakened += 1
+                except (ValueError, IndexError):
+                    pass
+
+            # Phase 2: Identity-aligned reinforcement
+            if identity > 0.7 and m.get("importance", 0) > 0.6:
+                # Strong identity reinforces important memories
+                conn.execute(
+                    "UPDATE memories SET stability = MIN(1.0, stability + 0.01) WHERE id = ?",
+                    (m["id"],))
+
+        # Phase 3: Merge similar episodic memories
+        # Find episodic memories with high tag overlap
+        episodic = [m for m in active if m.get("memory_type") == "experience"
+                    and not m.get("consolidated", False)]
+        tag_groups: Dict[str, List[dict]] = {}
+        for m in episodic:
+            for t in (m.get("tags") or "").split(","):
+                t = t.strip()
+                if t:
+                    tag_groups.setdefault(t, []).append(m)
+
+        merged_pairs: Set[Tuple[int, int]] = set()
+        for tag, members in tag_groups.items():
+            if len(members) < 3:
+                continue
+            # Sort by access count (most accessed = anchor)
+            members.sort(key=lambda x: -x.get("access_count", 0))
+            anchor = members[0]
+            for other in members[1:4]:  # merge up to 3 into anchor
+                pair = (min(anchor["id"], other["id"]), max(anchor["id"], other["id"]))
+                if pair in merged_pairs:
+                    continue
+                merged_pairs.add(pair)
+
+                # Boost anchor's consolidation score
+                conn.execute(
+                    """UPDATE memories SET consolidation_score = MIN(1.0, consolidation_score + 0.3),
+                               access_count = access_count + 1 WHERE id = ?""",
+                    (anchor["id"],))
+                # Weaken the merged memory
+                conn.execute(
+                    """UPDATE memories SET importance = MAX(0.0, importance - 0.1),
+                               coherence = MAX(0.0, coherence - 0.05) WHERE id = ?""",
+                    (other["id"],))
+                merged += 1
+
+        conn.commit()
+        conn.close()
+
+        return {
+            "strengthened": strengthened,
+            "weakened": weakened,
+            "merged": merged,
+            "total_replayed": len(active),
+        }
 
     def reconcile_contradictions(self, auto: bool = False) -> Dict[str, int]:
         """Find and reconcile contradictory memories.
