@@ -402,6 +402,13 @@ class CognitiveFramework:
             if nid in self.graph.nodes:
                 self.graph.nodes[nid].activation = act
 
+        # Memory recall biased by active concepts
+        recalled_memories = []
+        if self.human_memory_engine is not None:
+            recalled_memories = self.human_memory_engine.recall_with_concepts(
+                active_nids, self.graph, limit=5
+            )
+
         return {
             "concepts": active_nids,
             "predicted_concepts": predicted_nids,
@@ -409,6 +416,7 @@ class CognitiveFramework:
             "confidences": confidences,
             "coherence": coherence,
             "dissonance": state.dissonance,
+            "recalled_memories": recalled_memories,
         }
 
     def query(self, state: FrameworkState, concept_id: int) -> Dict[str, Any]:
@@ -475,6 +483,16 @@ class CognitiveFramework:
             "edges": edges,
             "neighbor_count": len(neighbors),
         }
+
+    def rebridge(self) -> Dict[str, int]:
+        """Re-sync consolidated memories with ConceptGraph.
+
+        Call after loading a checkpoint to ensure consolidated memories
+        are reflected in the graph's edge structure. This bridges the gap
+        between persisted memories and the graph's learned weights.
+        """
+        self._ensure_initialized()
+        return self.human_memory_engine.bridge_to_graph(self.graph, lr=0.02)
 
     def diagnose(self, state: FrameworkState) -> Dict[str, Any]:
         """
