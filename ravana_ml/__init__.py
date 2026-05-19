@@ -54,11 +54,15 @@ def save(obj, path):
     """Save a model or state dict to disk.
 
     For RLM models: saves complete checkpoint (weights + graph + scalars).
+        Use .pkl extension for pickle, .zip for human-readable zip archive.
     For other modules: saves state dict with cognitive metadata.
     """
     import pickle
     if hasattr(obj, 'save') and callable(obj.save):
-        obj.save(path)
+        if path.endswith('.zip') and hasattr(obj, 'save_zip'):
+            obj.save_zip(path)
+        else:
+            obj.save(path)
     else:
         with open(path, 'wb') as f:
             pickle.dump(obj.state_dict() if hasattr(obj, 'state_dict') else obj, f)
@@ -67,12 +71,17 @@ def load(path_or_model, path=None):
     """Load a model from disk.
 
     Usage:
-        model = ravana.load("checkpoint.pkl")           # RLM (auto-detect)
+        model = ravana.load("checkpoint.pkl")           # RLM pickle (auto-detect)
+        model = ravana.load("checkpoint.zip")           # RLM zip (auto-detect)
         model = ravana.load(model, "checkpoint.pkl")    # any Module (state dict)
     """
     import pickle
+    import zipfile
     if path is None:
-        # First arg is the path — auto-detect RLM checkpoint
+        # First arg is the path — auto-detect format
+        if path_or_model.endswith('.zip') or zipfile.is_zipfile(path_or_model):
+            from .nn.rlm import RLM
+            return RLM.load_zip(path_or_model)
         with open(path_or_model, 'rb') as f:
             data = pickle.load(f)
         if isinstance(data, dict) and "config" in data and "graph" in data:
