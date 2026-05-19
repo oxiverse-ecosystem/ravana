@@ -1,6 +1,8 @@
 import numpy as np
 import time
 import pickle
+import json
+import zipfile
 import os
 from typing import Optional, List, Tuple, Dict, Set
 from ..tensor import StateTensor, RawTensor, tensor, Parameter
@@ -490,3 +492,252 @@ class RLM(Module):
         model.pressure.abstraction_pressure = ps.get("abstraction_pressure", 0.0)
 
         return model
+
+    # ──────────────────────────────────────────────────────────────
+    # Zip Save / Load (human-readable, safe, partial-load)
+    # ──────────────────────────────────────────────────────────────
+
+    def save_zip(self, path: str):
+        """Save model as a zip archive with separate files.
+
+        Layout:
+            arrays.npz      — all numpy arrays (weight tensors + node vectors)
+            graph.json      — graph topology + node/edge metadata (no arrays)
+            metadata.json   — config, scalars, pressure state, cognitive metadata
+
+        Advantages over pickle:
+            - Human-readable graph and metadata (JSON)
+            - Safe (no arbitrary code execution on load)
+            - Partial loading possible (can inspect without loading arrays)
+            - Version-tolerant (JSON schema can evolve)
+        """
+        os.makedirs(os.path.dirname(path) if os.path.dirname(path) else '.', exist_ok=True)
+
+        # ── Collect arrays ──
+        arrays = {}
+        state_dict_meta = {}
+        sd = self.state_dict()
+        for name, entry in sd.items():
+            key = f"weight/{name}"
+            arrays[key] = entry["data"]
+            state_dict_meta[name] = {
+                "salience": entry.get("salience", 0.5),
+                "pressure": entry.get("pressure", 0.0),
+                "stability": entry.get("stability", 0.5),
+            }
+
+        # Node vectors
+        for nid, node in self.graph.nodes.items():
+            arrays[f"node/{nid}"] = node.vector
+
+        # ── Build graph JSON (no arrays) ──
+        nodes_json = {}
+        for nid, node in self.graph.nodes.items():
+            nodes_json[str(nid)] = {
+                "id": node.id,
+                "label": node.label,
+                "activation": float(node.activation),
+                "salience": float(node.salience),
+                "pressure": float(node.pressure),
+                "stability": float(node.stability),
+                "confidence": float(node.confidence),
+                "timestamp": float(node.timestamp),
+                "contradiction_count": int(node.contradiction_count),
+                "level": int(node.level),
+                "parent": int(node.parent) if node.parent is not None else None,
+                "children": sorted(int(c) for c in node.children),
+                "abstraction_degree": float(node.abstraction_degree),
+            }
+
+        edges_json = {}
+        for (s, t), edge in self.graph.edges.items():
+            edges_json[f"({s}, {t})"] = {
+                "source": int(edge.source),
+                "target": int(edge.target),
+                "weight": float(edge.weight),
+                "confidence": float(edge.confidence),
+                "pressure": float(edge.pressure),
+                "stability": float(edge.stability),
+                "timestamp": float(edge.timestamp),
+                "prediction_count": int(edge.prediction_count),
+                "shortcut": bool(edge.shortcut),
+            }
+
+        graph_json = {
+            "dim": self.graph.dim,
+            "max_nodes": self.graph.max_nodes,
+            "next_id": self.graph.next_id,
+            "total_pressure": float(self.graph.total_pressure),
+            "contradiction_hotspots": sorted(int(x) for x in self.graph.contradiction_hotspots),
+            "nodes": nodes_json,
+            "edges": edges_json,
+        }
+
+        # ── Build metadata JSON ──
+        metadata_json = {
+            "format": "ravana_zip",
+            "version": 1,
+            "config": {
+                "vocab_size": self.vocab_size,
+                "embed_dim": self.embed_dim,
+                "concept_dim": self.concept_dim,
+                "n_concepts": self.n_concepts,
+                "n_hidden": self.n_hidden,
+                "n_layers": self.n_layers,
+                "max_seq_len": self.max_seq_len,
+                "pressure_threshold": self.pressure_threshold,
+                "sleep_interval": self.sleep_interval,
+            },
+            "scalars": {
+                "step_counter": self._step_counter,
+                "sleep_cycles_completed": self.sleep_cycles_completed,
+                "total_pressure": float(self.total_pressure),
+                "conceptual_accuracy": float(self.conceptual_accuracy),
+                "n_predictions": self.n_predictions,
+                "edges_learned": self._edges_learned,
+                "context_bias": float(self.context_bias),
+                "context_scale": float(self.context_scale),
+            },
+            "pressure_state": {
+                "semantic_pressure": float(self.pressure.semantic_pressure),
+                "episodic_pressure": float(self.pressure.episodic_pressure),
+                "contradiction_pressure": float(self.pressure.contradiction_pressure),
+                "linguistic_pressure": float(self.pressure.linguistic_pressure),
+                "abstraction_pressure": float(self.pressure.abstraction_pressure),
+            },
+            "engine_config": {
+                "hebbian_lr": float(self.hebbian.lr),
+                "anti_hebbian_lr": float(self.anti_hebbian.lr),
+            },
+            "token_concept_map": self._token_concept_map,
+            "state_dict_meta": state_dict_meta,
+        }
+
+        # ── Write zip ──
+        with zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED) as zf:
+            # Arrays
+            from io import BytesIO
+            buf = BytesIO()
+            np.savez(buf, **arrays)
+            zf.writestr("arrays.npz", buf.getvalue())
+
+            # Graph
+            zf.writestr("graph.json", json.dumps(graph_json, indent=2))
+
+            # Metadata
+            zf.writestr("metadata.json", json.dumps(metadata_json, indent=2))
+
+    @classmethod
+    def load_zip(cls, path: str) -> 'RLM':
+        """Load a model from a zip archive.
+
+        Reads arrays.npz, graph.json, and metadata.json to reconstruct
+        a complete RLM instance with all weights, graph, and state.
+        """
+        with zipfile.ZipFile(path, 'r') as zf:
+            # ── Metadata ──
+            meta = json.loads(zf.read("metadata.json"))
+            cfg = meta["config"]
+            model = cls(**cfg)
+
+            # ── Arrays ──
+            from io import BytesIO
+            buf = BytesIO(zf.read("arrays.npz"))
+            npz = np.load(buf)
+
+            # Restore weight arrays
+            sd = {}
+            for name, m in meta["state_dict_meta"].items():
+                key = f"weight/{name}"
+                if key in npz:
+                    sd[name] = {
+                        "data": npz[key],
+                        "salience": m["salience"],
+                        "pressure": m["pressure"],
+                        "stability": m["stability"],
+                    }
+            model.load_state_dict(sd)
+
+            # ── Graph ──
+            graph_data = json.loads(zf.read("graph.json"))
+
+            # Clear default graph and rebuild from saved data
+            from ..graph import ConceptNode, ConceptEdge
+            model.graph = ConceptGraph(dim=graph_data["dim"],
+                                       max_nodes=graph_data["max_nodes"])
+            model.graph.next_id = graph_data["next_id"]
+            model.graph.total_pressure = graph_data["total_pressure"]
+            model.graph.contradiction_hotspots = set(graph_data["contradiction_hotspots"])
+
+            # Restore nodes
+            for nid_str, nd in graph_data["nodes"].items():
+                nid = int(nid_str)
+                vec_key = f"node/{nid}"
+                vector = npz[vec_key] if vec_key in npz else np.zeros(graph_data["dim"], dtype=np.float32)
+                node = ConceptNode(
+                    node_id=nd["id"],
+                    vector=vector,
+                    label=nd["label"],
+                )
+                node.activation = nd["activation"]
+                node.salience = nd["salience"]
+                node.pressure = nd["pressure"]
+                node.stability = nd["stability"]
+                node.confidence = nd["confidence"]
+                node.timestamp = nd["timestamp"]
+                node.contradiction_count = nd["contradiction_count"]
+                node.level = nd["level"]
+                node.parent = nd["parent"]
+                node.children = set(nd["children"])
+                node.abstraction_degree = nd["abstraction_degree"]
+                model.graph.nodes[nid] = node
+
+            # Restore edges
+            for key, ed in graph_data["edges"].items():
+                edge = ConceptEdge(
+                    source=ed["source"],
+                    target=ed["target"],
+                    weight=ed["weight"],
+                )
+                edge.confidence = ed["confidence"]
+                edge.pressure = ed["pressure"]
+                edge.stability = ed["stability"]
+                edge.timestamp = ed["timestamp"]
+                edge.prediction_count = ed["prediction_count"]
+                edge.shortcut = ed["shortcut"]
+                model.graph.edges[(ed["source"], ed["target"])] = edge
+
+            # Rebuild engines with restored graph
+            model.propagation = PropagationEngine(model.graph)
+            model.pressure = PressureAccumulator(model.graph)
+            model.hebbian = HebbianPlasticity(model.graph,
+                                              lr=meta["engine_config"]["hebbian_lr"])
+            model.anti_hebbian = AntiHebbianPlasticity(model.graph,
+                                                       lr=meta["engine_config"]["anti_hebbian_lr"])
+            model.structural = StructuralPlasticity(model.graph,
+                                                    prune_threshold=0.005,
+                                                    form_threshold=0.3)
+
+            # Restore scalars
+            s = meta["scalars"]
+            model._step_counter = s["step_counter"]
+            model.sleep_cycles_completed = s["sleep_cycles_completed"]
+            model.total_pressure = s["total_pressure"]
+            model.conceptual_accuracy = s["conceptual_accuracy"]
+            model.n_predictions = s["n_predictions"]
+            model._edges_learned = s["edges_learned"]
+            model.context_bias = s["context_bias"]
+            model.context_scale = s["context_scale"]
+
+            # Restore token-concept map
+            model._token_concept_map = meta["token_concept_map"]
+
+            # Restore pressure state
+            ps = meta["pressure_state"]
+            model.pressure.semantic_pressure = ps["semantic_pressure"]
+            model.pressure.episodic_pressure = ps["episodic_pressure"]
+            model.pressure.contradiction_pressure = ps["contradiction_pressure"]
+            model.pressure.linguistic_pressure = ps["linguistic_pressure"]
+            model.pressure.abstraction_pressure = ps["abstraction_pressure"]
+
+            return model
