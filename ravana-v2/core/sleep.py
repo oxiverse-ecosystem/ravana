@@ -112,6 +112,88 @@ class SleepConsolidation:
         """Check if accumulated pressure triggers sleep."""
         return self._accumulated_pressure > self.config.pressure_threshold
     
+    def replay_through_graph(self, graph, memories: List[Dict[str, Any]],
+                              n_replays: int = 10, lr: float = 0.02) -> Dict[str, int]:
+        """Hippocampal replay: re-activate memories through the ConceptGraph.
+
+        During sleep, the brain literally re-activates neural pathways from
+        recent experiences, strengthening the connections that were active.
+        This method samples episodic memories and runs their concepts through
+        the graph, applying Hebbian learning on the replayed activations.
+
+        Args:
+            graph: ConceptGraph to replay through
+            memories: List of memory dicts (from HumanMemoryEngine)
+            n_replays: Number of memories to replay
+            lr: Learning rate for Hebbian updates during replay
+
+        Returns:
+            Dict with replay statistics
+        """
+        if not memories:
+            return {"replayed": 0, "edges_strengthened": 0}
+
+        # Sample memories (prefer recent and important)
+        sorted_memories = sorted(memories,
+                                  key=lambda m: m.get("importance", 0.5) * 0.5 +
+                                               (1.0 if m.get("consolidated") else 0.0) * 0.5,
+                                  reverse=True)
+        sample = sorted_memories[:n_replays]
+
+        replayed = 0
+        edges_strengthened = 0
+
+        for mem in sample:
+            content = str(mem.get("content") or "")
+            tags = str(mem.get("tags") or "")
+
+            # Find concept nodes matching memory keywords
+            keywords = set()
+            for tag in tags.split(","):
+                tag = tag.strip().lower()
+                if tag:
+                    keywords.add(tag)
+            # Also extract words from content
+            for word in content.lower().split()[:10]:
+                if len(word) > 3:
+                    keywords.add(word)
+
+            if not keywords:
+                continue
+
+            # Match keywords to concept labels
+            matched_nids = []
+            for nid, node in graph.nodes.items():
+                label = (node.label or "").lower()
+                if any(kw in label or label in kw for kw in keywords):
+                    matched_nids.append(nid)
+
+            if not matched_nids:
+                continue
+
+            # Activate matched concepts and spread
+            for nid in matched_nids:
+                graph.activate(nid, amount=0.5)
+            graph.spread_activation(steps=1, k_active=5, decay=0.3)
+
+            # Hebbian strengthening between co-activated concepts
+            active = [(n.id, n.activation) for n in graph.nodes.values() if n.activation > 0.1]
+            for i, (a_id, a_act) in enumerate(active):
+                for b_id, b_act in active[i + 1:]:
+                    edge = graph.get_edge(a_id, b_id)
+                    if edge:
+                        coact = a_act * b_act
+                        graph.hebbian_update(a_id, b_id, coact, lr=lr)
+                        edges_strengthened += 1
+
+            # Reset activation after replay
+            for node in graph.nodes.values():
+                node.activation = 0.0
+
+            replayed += 1
+
+        return {"replayed": replayed, "edges_strengthened": edges_strengthened}
+
     def execute_sleep_cycle(
         self,
         episode: int,

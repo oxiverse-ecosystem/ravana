@@ -241,25 +241,45 @@ class HumanMemoryEngine:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_memories_suppressed ON memories(suppressed)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_memories_decay ON memories(decay_score)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_access_log_memory ON access_log(memory_id)")
+        # Migration: add temporal_context column if missing (for existing databases)
+        try:
+            conn.execute("ALTER TABLE memories ADD COLUMN temporal_context BLOB")
+        except sqlite3.OperationalError:
+            pass  # column already exists
         conn.commit()
         conn.close()
 
     def _store(self, content: str, memory_type: str = "experience",
                semantic_type: str = None, context: str = None,
                tags: str = None, importance: float = 0.5,
-               emotional: float = 0.5) -> int:
+               emotional: float = 0.5,
+               temporal_context: Optional[np.ndarray] = None) -> int:
         conn = self._get_conn()
         now = time.time()
-        cursor = conn.execute(
-            """INSERT INTO memories (content, memory_type, semantic_type, context, tags,
-                                     importance, emotional, access_count, last_accessed,
-                                     created_at, decay_score, coherence, stability,
-                                     retrieval_distortion, associative_divergence,
-                                     predictive_utility)
-               VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, 0.0, 1.0, 0.5, 0.0, 0.0, 0.5)""",
-            (content, memory_type, semantic_type, context, tags,
-             importance, emotional, now, now)
-        )
+        ctx_blob = temporal_context.tobytes() if temporal_context is not None else None
+        try:
+            cursor = conn.execute(
+                """INSERT INTO memories (content, memory_type, semantic_type, context, tags,
+                                         importance, emotional, access_count, last_accessed,
+                                         created_at, decay_score, coherence, stability,
+                                         retrieval_distortion, associative_divergence,
+                                         predictive_utility, temporal_context)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, 0.0, 1.0, 0.5, 0.0, 0.0, 0.5, ?)""",
+                (content, memory_type, semantic_type, context, tags,
+                 importance, emotional, now, now, ctx_blob)
+            )
+        except sqlite3.OperationalError:
+            # Fallback if temporal_context column doesn't exist yet
+            cursor = conn.execute(
+                """INSERT INTO memories (content, memory_type, semantic_type, context, tags,
+                                         importance, emotional, access_count, last_accessed,
+                                         created_at, decay_score, coherence, stability,
+                                         retrieval_distortion, associative_divergence,
+                                         predictive_utility)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, 0.0, 1.0, 0.5, 0.0, 0.0, 0.5)""",
+                (content, memory_type, semantic_type, context, tags,
+                 importance, emotional, now, now)
+            )
         mid = cursor.lastrowid
         conn.commit()
         conn.close()
@@ -364,6 +384,34 @@ class HumanMemoryEngine:
         conn.commit()
         conn.close()
 
+    def _compute_interference(self, mid: int, conn: sqlite3.Connection) -> float:
+        """Compute interference from similar recent memories.
+
+        New similar memories accelerate decay of existing ones (retroactive interference).
+        Returns a multiplier from 1.0 (no interference) to 2.0 (high interference).
+        """
+        recent_cutoff = time.time() - 7 * 86400  # last 7 days
+        # Find tags for this memory
+        row = conn.execute(
+            "SELECT tags FROM memories WHERE id = ?", (mid,)
+        ).fetchone()
+        if not row or not row[0]:
+            return 1.0
+        tags = [t.strip() for t in row[0].split(",") if t.strip()]
+        if not tags:
+            return 1.0
+        # Count recent memories with overlapping tags
+        interference_count = 0
+        for tag in tags[:5]:  # limit to avoid expensive queries
+            count = conn.execute(
+                """SELECT COUNT(*) FROM memories
+                   WHERE suppressed = 0 AND id != ?
+                   AND tags LIKE ? AND created_at > ?""",
+                (mid, f"%{tag}%", recent_cutoff)
+            ).fetchone()[0]
+            interference_count += count
+        return 1.0 + min(1.0, interference_count * 0.1)
+
     def _apply_decay(self) -> Dict[str, int]:
         conn = self._get_conn()
         rows = conn.execute(
@@ -387,7 +435,9 @@ class HumanMemoryEngine:
             entropy_mod = (coh * 0.5 + stab * 0.5)
             # Higher persistence = slower decay (divide, not multiply)
             retention_mod = persistence * 0.9 + 0.1
-            delta = cfg.base_decay_rate * (1.5 - entropy_mod) / retention_mod
+            # Interference: similar recent memories accelerate decay
+            interference = self._compute_interference(mid, conn)
+            delta = cfg.base_decay_rate * (1.5 - entropy_mod) / retention_mod * interference
             new_decay = decay + delta
             # Coherence slowly erodes over time
             new_coherence = max(0.0, coh - cfg.coherence_decay_rate)
@@ -773,11 +823,18 @@ class HumanMemoryEngine:
 
     def remember(self, content: str, memory_type: str = "experience",
                  importance: float = 0.5, emotional: float = 0.5,
-                 tags: str = "", context: str = "") -> int:
-        """Explicit memory storage. Returns memory id."""
+                 tags: str = "", context: str = "",
+                 temporal_context: Optional[np.ndarray] = None) -> int:
+        """Explicit memory storage. Returns memory id.
+
+        Args:
+            temporal_context: Optional numpy array representing the temporal context
+                            at the time of encoding. Enables encoding-specific retrieval.
+        """
         mid = self._store(content=content, memory_type=memory_type,
                           tags=tags, context=context,
-                          importance=importance, emotional=emotional)
+                          importance=importance, emotional=emotional,
+                          temporal_context=temporal_context)
         self._add_node(mid, content=content, memory_type=memory_type,
                        tags=tags, decay_score=0.0)
         if tags:
@@ -796,6 +853,34 @@ class HumanMemoryEngine:
         self._save_graph()
         self._push_working(mid)
         return mid
+
+    def store_temporal_context(self, memory_id: int, context_vector: np.ndarray):
+        """Store temporal context for a memory (encoding specificity)."""
+        conn = self._get_conn()
+        try:
+            conn.execute(
+                "UPDATE memories SET temporal_context = ? WHERE id = ?",
+                (context_vector.tobytes(), memory_id)
+            )
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass  # column might not exist in old databases
+        conn.close()
+
+    def get_temporal_context(self, memory_id: int) -> Optional[np.ndarray]:
+        """Retrieve temporal context for a memory."""
+        conn = self._get_conn()
+        try:
+            row = conn.execute(
+                "SELECT temporal_context FROM memories WHERE id = ?",
+                (memory_id,)
+            ).fetchone()
+            if row and row[0]:
+                return np.frombuffer(row[0], dtype=np.float32).copy()
+        except (sqlite3.OperationalError, ValueError):
+            pass
+        conn.close()
+        return None
 
     def recall(self, keyword: str = "", limit: int = 10,
                associative: bool = False,
@@ -824,6 +909,46 @@ class HumanMemoryEngine:
                                          + x.get("emotional", 0) * 0.50))
             return results[:limit * 2]
         return self._get_active(limit=limit)
+
+    def retrieval_induced_forgetting(self, recalled_ids: List[int], keyword: str = "",
+                                      suppression: float = 0.01) -> int:
+        """After recall, suppress competing memories that match the query but weren't recalled.
+
+        This implements retrieval-induced forgetting (Anderson et al., 1994):
+        actively recalling some memories suppresses related competitors,
+        preventing interference and improving future recall efficiency.
+
+        Args:
+            recalled_ids: IDs of memories that were successfully recalled
+            keyword: The query used for recall
+            suppression: How much to reduce importance of competitors
+
+        Returns:
+            Number of memories suppressed
+        """
+        if not keyword or not recalled_ids:
+            return 0
+        conn = self._get_conn()
+        recalled_set = set(recalled_ids)
+        # Find memories that match the keyword but weren't recalled
+        competitors = conn.execute(
+            """SELECT id FROM memories
+               WHERE suppressed = 0 AND (content LIKE ? OR tags LIKE ?)
+               AND id NOT IN ({})""".format(",".join("?" * len(recalled_ids))),
+            [f"%{keyword}%", f"%{keyword}%"] + recalled_ids
+        ).fetchall()
+        count = 0
+        for (cid,) in competitors:
+            if cid not in recalled_set:
+                conn.execute(
+                    """UPDATE memories SET importance = MAX(0.0, importance - ?),
+                               stability = MAX(0.0, stability - ?) WHERE id = ?""",
+                    (suppression, suppression * 0.5, cid)
+                )
+                count += 1
+        conn.commit()
+        conn.close()
+        return count
 
     def semantic_search(self, keyword: str, limit: int = 10,
                         memory_type: str = None) -> List[dict]:

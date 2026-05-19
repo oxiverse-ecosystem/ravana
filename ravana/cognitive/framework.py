@@ -332,8 +332,18 @@ class CognitiveFramework:
         # Structural plasticity: prune weak edges, form new co-activation edges
         pruned, formed = self.structural.step()
 
+        # Form inhibitory edges between persistently contradictory concepts
+        inhibitory_formed = self.graph.form_inhibitory_edges()
+
         # Normalize edge weights
         self._normalize_outgoing_weights(budget=3.0)
+
+        # Global synaptic homeostasis: downscale all edges, protect the strong
+        # This is the brain's critical maintenance mechanism during sleep —
+        # prevents runaway reinforcement and improves signal-to-noise ratio
+        w_before, w_after = self.graph.homeostatic_downscale(
+            protection_threshold=0.8, downscale_factor=0.8
+        )
 
         # === Cognitive-level sleep (with graph for abstraction compression) ===
         if self.sleep_engine_available():
@@ -353,6 +363,13 @@ class CognitiveFramework:
         self.human_memory_engine.sleep_replay(state_snapshot=self.state_manager.state.snapshot())
         self.human_memory_engine.apply_decay()
         self.human_memory_engine.consolidate()
+
+        # Graph-level hippocampal replay: memories reshape the graph
+        if self.sleep_engine_available():
+            active_memories = self.human_memory_engine._get_active(limit=20)
+            replay_result = self.state_manager.sleep.replay_through_graph(
+                self.graph, active_memories, n_replays=10, lr=0.02
+            )
 
         # Memory-weights bridge: consolidated memories → ConceptGraph edges
         bridge_result = self.human_memory_engine.bridge_to_graph(self.graph, lr=0.02)

@@ -9,6 +9,7 @@ class ConceptNode:
     def __init__(self, node_id: int, vector: np.ndarray, label: str = ""):
         self.id = node_id
         self.vector = vector.copy()
+        self.genesis_vector = vector.copy()  # original vector for drift tracking
         self.label = label or f"c{node_id}"
         self.activation = 0.0
         self.salience = 0.3
@@ -24,12 +25,59 @@ class ConceptNode:
         self.children: Set[int] = set()  # child concept IDs
         self.abstraction_degree: float = 0.0  # 0.0 = raw, 1.0 = fully compressed
 
+        # Temporal tracking
+        self.last_activated: float = 0.0  # most recent activation timestamp
+        self.activation_history: List[float] = []  # last 100 activation timestamps
+        self.temporal_context: Optional[np.ndarray] = None  # context at last activation
+
+    @property
+    def drift_magnitude(self) -> float:
+        """L2 distance between current vector and genesis vector.
+
+        High drift means the concept has shifted significantly from its
+        original meaning — it may be time to split or re-evaluate.
+        """
+        diff = self.vector - self.genesis_vector
+        return float(np.linalg.norm(diff))
+
     def age(self) -> float:
         return time.time() - self.timestamp
 
     def decay(self, rate=0.01):
         self.activation *= (1.0 - rate * self.age())
         self.timestamp = time.time()
+
+    def record_activation(self, context_vector: Optional[np.ndarray] = None):
+        """Record an activation event in temporal history."""
+        now = time.time()
+        self.last_activated = now
+        self.activation_history.append(now)
+        # Keep rolling window of 100
+        if len(self.activation_history) > 100:
+            self.activation_history = self.activation_history[-100:]
+        if context_vector is not None:
+            self.temporal_context = context_vector.copy()
+
+    def recency_score(self, decay_rate: float = 0.1) -> float:
+        """How recently was this concept activated? Exponential decay from last activation.
+
+        Returns 1.0 if just activated, approaches 0.0 over time.
+        """
+        if self.last_activated <= 0:
+            return 0.0
+        elapsed = time.time() - self.last_activated
+        return float(np.exp(-decay_rate * elapsed / 3600.0))  # decay per hour
+
+    def frequency_score(self, window_seconds: float = 86400.0) -> float:
+        """What fraction of activations happened in the recent window?
+
+        Returns 0.0 if never activated, up to 1.0 if all activations are recent.
+        """
+        if not self.activation_history:
+            return 0.0
+        cutoff = time.time() - window_seconds
+        recent = sum(1 for t in self.activation_history if t > cutoff)
+        return recent / len(self.activation_history)
 
     @property
     def plasticity(self):
@@ -44,7 +92,8 @@ class ConceptNode:
 
 
 class ConceptEdge:
-    def __init__(self, source: int, target: int, weight: float = 0.5, shortcut: bool = False):
+    def __init__(self, source: int, target: int, weight: float = 0.5,
+                 shortcut: bool = False, edge_type: str = "excitatory"):
         self.source = source
         self.target = target
         self.weight = max(0.0, min(1.0, weight))
@@ -54,13 +103,22 @@ class ConceptEdge:
         self.timestamp = time.time()
         self.prediction_count = 0
         self.shortcut = shortcut  # context→target edges are exempt from competition
+        self.edge_type = edge_type  # "excitatory" or "inhibitory"
+
+    @property
+    def effective_weight(self) -> float:
+        """Weight with sign applied for inhibitory edges."""
+        if self.edge_type == "inhibitory":
+            return -self.weight
+        return self.weight
 
     @property
     def plasticity(self):
         return 1.0 - self.stability
 
     def __repr__(self):
-        return f"<Edge {self.source}→{self.target} w={self.weight:.3f} conf={self.confidence:.3f} {'[S]' if self.shortcut else ''}>"
+        inh = " [I]" if self.edge_type == "inhibitory" else ""
+        return f"<Edge {self.source}->{self.target} w={self.weight:.3f} conf={self.confidence:.3f} {'[S]' if self.shortcut else ''}{inh}>"
 
 
 class ConceptBinding:
@@ -198,6 +256,78 @@ class ConceptBindingMap:
         for binding in self._index.values():
             binding.decay(rate)
 
+    def split_bindings(self, parent_concept_id: int, child_a_id: int, child_b_id: int,
+                       criterion_fn) -> None:
+        """Redistribute bindings from a parent concept to its split children.
+
+        Args:
+            parent_concept_id: The concept that was split
+            child_a_id, child_b_id: The two new child concepts
+            criterion_fn: Callable that takes a vector and returns True for child_a, False for child_b
+        """
+        bindings = self._by_concept.get(parent_concept_id, [])
+        for binding in bindings:
+            # Create new bindings for each child
+            token_id = binding.token_id
+            # The criterion uses the binding's context or the token's associated vector
+            # Since we don't store vectors in bindings, we use confidence as a proxy
+            # and let the caller provide the criterion
+            self.bind(token_id, child_a_id, confidence=binding.confidence * 0.5, source="split")
+            self.bind(token_id, child_b_id, confidence=binding.confidence * 0.5, source="split")
+
+    def disambiguate(self, token_id: int, context_vector: np.ndarray,
+                     graph: 'ConceptGraph', suppression_rate: float = 0.1) -> Optional[int]:
+        """Resolve ambiguity by suppressing competing bindings based on context.
+
+        When a token maps to multiple concepts (e.g., "python" → snake/programming),
+        the current context determines which meaning wins. Losing bindings have
+        their confidence decayed faster — like semantic suppression in the brain.
+
+        Args:
+            token_id: The ambiguous token
+            context_vector: Current context (e.g., surrounding concept activations)
+            graph: ConceptGraph to look up concept vectors
+            suppression_rate: How much to suppress losing bindings
+
+        Returns:
+            The winning concept_id, or None if no bindings
+        """
+        bindings = self.get_concepts(token_id, min_confidence=0.1)
+        if len(bindings) <= 1:
+            return bindings[0].concept_id if bindings else None
+
+        # Score each binding by context similarity
+        scored = []
+        for b in bindings:
+            node = graph.get_node(b.concept_id)
+            if node is None:
+                scored.append((b, -1.0))
+                continue
+            sim = np.dot(context_vector, node.vector) / (
+                np.linalg.norm(context_vector) * np.linalg.norm(node.vector) + 1e-15
+            )
+            scored.append((b, sim))
+
+        scored.sort(key=lambda x: x[1], reverse=True)
+        winner = scored[0][0]
+
+        # Suppress losing bindings
+        for binding, sim in scored[1:]:
+            # More similar to context = less suppression (they're plausible alternatives)
+            suppression = suppression_rate * (1.0 - max(0.0, sim))
+            binding.confidence = max(0.0, binding.confidence - suppression)
+            binding.ambiguity = min(1.0, binding.ambiguity + 0.05)
+
+        # Reinforce winner
+        winner.reinforce(0.02)
+        winner.ambiguity = max(0.0, winner.ambiguity - 0.05)
+
+        # Re-sort bindings by confidence since values changed
+        if token_id in self._by_token:
+            self._by_token[token_id].sort(key=lambda b: b.confidence, reverse=True)
+
+        return winner.concept_id
+
     def prune(self, min_strength: float = 0.05):
         """Remove bindings that have decayed below threshold."""
         to_remove = [(tok, con) for (tok, con), b in self._index.items()
@@ -227,6 +357,11 @@ class ConceptGraph:
         self.next_id = 0
         self.total_pressure = 0.0
         self.contradiction_hotspots: Set[int] = set()
+
+        # Temporal context: a drifting vector that represents "when" we are
+        # Slowly shifts toward the centroid of currently active concepts
+        self.temporal_context: np.ndarray = np.zeros(dim, dtype=np.float32)
+        self.temporal_context_drift_rate: float = 0.05
 
     # ── node management ──
 
@@ -261,15 +396,18 @@ class ConceptGraph:
 
     # ── edge management ──
 
-    def add_edge(self, source: int, target: int, weight: float = 0.5, shortcut: bool = False) -> ConceptEdge:
+    def add_edge(self, source: int, target: int, weight: float = 0.5,
+                 shortcut: bool = False, edge_type: str = "excitatory") -> ConceptEdge:
         key = (source, target)
         if key in self.edges:
             edge = self.edges[key]
             edge.weight = max(0.0, min(1.0, weight))
             if shortcut:
                 edge.shortcut = True
+            if edge_type == "inhibitory":
+                edge.edge_type = "inhibitory"
             return edge
-        edge = ConceptEdge(source, target, weight, shortcut=shortcut)
+        edge = ConceptEdge(source, target, weight, shortcut=shortcut, edge_type=edge_type)
         self.edges[key] = edge
         return edge
 
@@ -281,26 +419,73 @@ class ConceptGraph:
 
     # ── activation ──
 
-    def activate(self, nid: int, amount: float = 1.0):
+    def activate(self, nid: int, amount: float = 1.0, context_vector: Optional[np.ndarray] = None):
         node = self.nodes.get(nid)
         if node:
             node.activation = min(1.0, node.activation + amount)
+            node.record_activation(context_vector)
+
+    def update_temporal_context(self):
+        """Drift temporal context toward the centroid of currently active concepts.
+
+        Called after each cognitive step. The temporal context slowly shifts to
+        reflect the current "era" of processing — enabling time-sensitive retrieval.
+        """
+        active_nodes = [n for n in self.nodes.values() if n.activation > 0.1]
+        if not active_nodes:
+            return
+        centroid = np.mean([n.vector * n.activation for n in active_nodes], axis=0)
+        norm = np.linalg.norm(centroid)
+        if norm > 0:
+            centroid /= norm
+        # Exponential moving average
+        self.temporal_context = (
+            (1.0 - self.temporal_context_drift_rate) * self.temporal_context +
+            self.temporal_context_drift_rate * centroid
+        )
+        norm = np.linalg.norm(self.temporal_context)
+        if norm > 0:
+            self.temporal_context /= norm
+
+    def temporal_context_similarity(self, node: ConceptNode) -> float:
+        """How similar is this node's stored context to the current temporal context?
+
+        Enables encoding specificity: memories are easier to recall in the
+        context where they were encoded (Tulving, 1973).
+        """
+        if node.temporal_context is None:
+            return 0.0
+        sim = np.dot(self.temporal_context, node.temporal_context) / (
+            np.linalg.norm(self.temporal_context) * np.linalg.norm(node.temporal_context) + 1e-15
+        )
+        return max(0.0, sim)
 
     def spread_activation(self, steps: int = 3, k_active: int = 7, decay: float = 0.5):
         for _ in range(steps):
             new_activations = {}
+            # Fan effect: compute in-degree for normalization
+            in_degree: Dict[int, int] = defaultdict(int)
+            for (s, t) in self.edges:
+                in_degree[t] += 1
+
             for nid, node in self.nodes.items():
                 if node.activation > 0.01:
                     outgoing = [(t, e) for (s, t), e in self.edges.items() if s == nid]
                     for target_id, edge in outgoing:
-                        act = node.activation * edge.weight * decay
+                        # Precision weighting: edge.confidence modulates signal strength
+                        act = node.activation * edge.weight * edge.confidence * decay
+                        if edge.edge_type == "inhibitory":
+                            act = -act
+                        # Fan effect: normalize by in-degree (hub nodes receive weaker per-edge activation)
+                        fan_factor = 1.0 / (in_degree[target_id] ** 0.5 + 1.0)
+                        act *= fan_factor
                         new_activations[target_id] = new_activations.get(target_id, 0.0) + act
             for nid, act in new_activations.items():
                 if nid in self.nodes:
-                    self.nodes[nid].activation = min(1.0, self.nodes[nid].activation + act)
+                    self.nodes[nid].activation = max(0.0, min(1.0, self.nodes[nid].activation + act))
             # Hierarchical upward propagation: children activate parents
             self._propagate_upward(decay=0.3)
-            self._top_k_activation(k_active)
+            self._soft_lateral_inhibition(k_active)
 
     def _propagate_upward(self, decay: float = 0.3):
         """Propagate activation from children to their parent concepts."""
@@ -318,9 +503,44 @@ class ConceptGraph:
                 )
 
     def _top_k_activation(self, k: int):
+        """Legacy hard winner-take-all — prefer _soft_lateral_inhibition."""
         sorted_nodes = sorted(self.nodes.values(), key=lambda n: n.activation, reverse=True)
         for node in sorted_nodes[k:]:
             node.activation = 0.0
+
+    def _soft_lateral_inhibition(self, k: int, inhibition_strength: float = 0.5):
+        """Soft lateral inhibition: each active concept suppresses others proportionally to similarity.
+
+        Unlike hard winner-take-all, this preserves near-winners — you can be
+        partially aware of alternative meanings. Closer to biological cortical dynamics.
+        """
+        active_nodes = [(nid, n) for nid, n in self.nodes.items() if n.activation > 0.01]
+        if len(active_nodes) <= 1:
+            return
+
+        # Sort by activation descending, keep top-k as "winners"
+        active_nodes.sort(key=lambda x: x[1].activation, reverse=True)
+        winners = active_nodes[:k]
+
+        # Compute suppression for each active node from all other active nodes
+        for nid, node in active_nodes:
+            suppression = 0.0
+            for other_nid, other_node in active_nodes:
+                if other_nid == nid:
+                    continue
+                # Similarity-weighted suppression
+                sim = np.dot(node.vector, other_node.vector) / (
+                    np.linalg.norm(node.vector) * np.linalg.norm(other_node.vector) + 1e-15
+                )
+                sim = max(0.0, sim)  # only positive similarity suppresses
+                suppression += other_node.activation * sim * inhibition_strength
+            # Apply suppression: reduce activation but don't zero it
+            node.activation = max(0.0, node.activation / (1.0 + suppression))
+
+        # Ensure at least top-k have meaningful activation (rescue near-winners)
+        for nid, node in winners:
+            if node.activation < 0.01:
+                node.activation = 0.01
 
     # ── similarity search ──
 
@@ -369,14 +589,17 @@ class ConceptGraph:
         if norm > 0:
             node.vector /= norm
 
-    def get_or_create_edge(self, source: int, target: int, weight: float = 0.3, shortcut: bool = False) -> ConceptEdge:
+    def get_or_create_edge(self, source: int, target: int, weight: float = 0.3,
+                           shortcut: bool = False, edge_type: str = "excitatory") -> ConceptEdge:
         key = (source, target)
         if key in self.edges:
             edge = self.edges[key]
             if shortcut:
                 edge.shortcut = True
+            if edge_type == "inhibitory":
+                edge.edge_type = "inhibitory"
             return edge
-        return self.add_edge(source, target, weight, shortcut=shortcut)
+        return self.add_edge(source, target, weight, shortcut=shortcut, edge_type=edge_type)
 
     # ── plasticity ──
 
@@ -391,9 +614,19 @@ class ConceptGraph:
         if source is None or target is None:
             return
         pred_error = 1.0 - edge.confidence
-        delta = lr * source.activation * target.activation * pred_error * source.salience * target.plasticity
-        edge.weight = max(0.0, min(1.0, edge.weight + delta))
-        edge.confidence = min(1.0, edge.confidence + abs(delta) * 0.1)
+        # Surprise-driven learning rate: high-confidence errors produce bigger updates
+        # (like the brain's error-related negativity signal)
+        # Surprise = how wrong we were * how confident we were about it
+        surprise = abs(pred_error) * edge.confidence
+        effective_lr = lr * (1.0 + surprise * 5.0)
+        if edge.edge_type == "inhibitory":
+            delta = effective_lr * source.activation * target.activation * pred_error * source.salience * target.plasticity
+            edge.weight = min(1.0, edge.weight + delta)
+            edge.confidence = min(1.0, edge.confidence + abs(delta) * 0.1)
+        else:
+            delta = effective_lr * source.activation * target.activation * pred_error * source.salience * target.plasticity
+            edge.weight = max(0.0, min(1.0, edge.weight + delta))
+            edge.confidence = min(1.0, edge.confidence + abs(delta) * 0.1)
         edge.prediction_count += 1
         edge.stability = min(1.0, edge.stability + 0.001)
 
@@ -408,6 +641,44 @@ class ConceptGraph:
         edge.weight = max(0.0, min(1.0, edge.weight + delta))
         edge.confidence = max(0.0, edge.confidence - 0.05)
         edge.stability = max(0.0, edge.stability - 0.01)
+        # When excitatory edge dies from persistent mismatch, convert to inhibitory
+        # instead of deleting — the mismatch itself is information
+        if edge.confidence < 0.01 and edge.edge_type == "excitatory":
+            edge.edge_type = "inhibitory"
+            edge.weight = 0.1  # small initial inhibitory weight
+            edge.confidence = 0.1
+            edge.stability = 0.1
+
+    def form_inhibitory_edges(self, contradiction_threshold: int = 3):
+        """Form inhibitory edges between concepts with persistent contradictions.
+
+        When two concepts repeatedly produce prediction errors together
+        (high co-activation but mismatched expectations), they should
+        inhibit each other — like semantic suppression in the brain.
+        """
+        formed = 0
+        for nid in list(self.contradiction_hotspots):
+            node = self.nodes.get(nid)
+            if node is None or node.contradiction_count < contradiction_threshold:
+                continue
+            # Find co-activated neighbors that contributed to contradiction
+            for (src, tgt), edge in self.edges.items():
+                if src == nid:
+                    target = self.nodes.get(tgt)
+                    if target and target.activation > 0.1 and target.contradiction_count > 0:
+                        # Check if excitatory edge exists — if so, it's a candidate for inhibition
+                        existing = self.get_edge(nid, tgt)
+                        if existing and existing.edge_type == "excitatory" and existing.confidence < 0.3:
+                            # Convert to inhibitory
+                            existing.edge_type = "inhibitory"
+                            existing.weight = 0.2
+                            existing.confidence = 0.2
+                            formed += 1
+                        elif existing is None:
+                            # Create new inhibitory edge
+                            self.add_edge(nid, tgt, 0.2, edge_type="inhibitory")
+                            formed += 1
+        return formed
 
     # ── structural plasticity ──
 
@@ -431,6 +702,184 @@ class ConceptGraph:
     def _prune_oldest(self):
         oldest = min(self.nodes.values(), key=lambda n: n.timestamp)
         self.remove_node(oldest.id)
+
+    # ── concept splitting ──
+
+    def should_split(self, nid: int, contradiction_threshold: int = 3,
+                     drift_threshold: float = 0.5, entropy_threshold: float = 2.0) -> bool:
+        """Check if a concept has accumulated enough internal contradiction to split.
+
+        A concept should split when:
+        - High contradiction count (many prediction errors)
+        - High drift from original meaning
+        - High edge entropy (edges point to diverse, unrelated targets)
+        """
+        node = self.nodes.get(nid)
+        if node is None or node.level > 0:  # don't split abstract parent nodes
+            return False
+
+        reasons = 0
+
+        # Contradiction pressure
+        if node.contradiction_count >= contradiction_threshold:
+            reasons += 1
+
+        # Drift from genesis
+        if node.drift_magnitude >= drift_threshold:
+            reasons += 1
+
+        # Edge entropy: how diverse are the targets of outgoing edges?
+        outgoing = [t for (s, t), e in self.edges.items() if s == nid and e.edge_type == "excitatory"]
+        if len(outgoing) >= 3:
+            # Compute pairwise distances between target vectors
+            targets = [self.nodes[t] for t in outgoing if t in self.nodes]
+            if len(targets) >= 3:
+                dists = []
+                for i, a in enumerate(targets):
+                    for b in targets[i + 1:]:
+                        sim = np.dot(a.vector, b.vector) / (
+                            np.linalg.norm(a.vector) * np.linalg.norm(b.vector) + 1e-15
+                        )
+                        dists.append(1.0 - sim)
+                if dists:
+                    mean_dist = np.mean(dists)
+                    if mean_dist > 0.7:  # targets are very diverse
+                        reasons += 1
+
+        return reasons >= 2  # need at least 2 signals to split
+
+    def split_concept(self, nid: int, binding_map: Optional['ConceptBindingMap'] = None) -> Tuple[int, int]:
+        """Split a concept into two competing sub-concepts.
+
+        Creates two children from the parent, distributes edges based on
+        vector alignment, forms an inhibitory edge between them, and
+        optionally redistributes bindings.
+
+        Returns:
+            (child_a_id, child_b_id)
+        """
+        parent = self.nodes.get(nid)
+        if parent is None:
+            raise ValueError(f"Node {nid} not found")
+
+        # Find the two most divergent neighbors to seed the split
+        outgoing = [(t, e) for (s, t), e in self.edges.items()
+                    if s == nid and e.edge_type == "excitatory"]
+        if len(outgoing) < 2:
+            # Not enough structure to split meaningfully — create orthogonal children
+            vec_a = parent.vector.copy()
+            vec_b = -parent.vector.copy()
+        else:
+            # Find the two most dissimilar target vectors
+            targets = [(t, self.nodes[t]) for t, _ in outgoing if t in self.nodes]
+            max_dist = 0.0
+            best_pair = (targets[0][0], targets[1][0]) if len(targets) >= 2 else (None, None)
+            for i, (t1, n1) in enumerate(targets):
+                for t2, n2 in targets[i + 1:]:
+                    dist = np.linalg.norm(n1.vector - n2.vector)
+                    if dist > max_dist:
+                        max_dist = dist
+                        best_pair = (t1, t2)
+
+            # Seed children toward the two divergent targets
+            n_a = self.nodes.get(best_pair[0])
+            n_b = self.nodes.get(best_pair[1])
+            if n_a is not None and n_b is not None:
+                vec_a = 0.5 * parent.vector + 0.5 * n_a.vector
+                vec_b = 0.5 * parent.vector + 0.5 * n_b.vector
+            else:
+                vec_a = parent.vector.copy()
+                vec_b = -parent.vector.copy()
+
+        # Normalize
+        norm_a = np.linalg.norm(vec_a)
+        norm_b = np.linalg.norm(vec_b)
+        if norm_a > 0:
+            vec_a /= norm_a
+        if norm_b > 0:
+            vec_b /= norm_b
+
+        # Create children
+        child_a = self.add_node(vec_a, label=f"{parent.label}_a")
+        child_b = self.add_node(vec_b, label=f"{parent.label}_b")
+
+        # Copy parent properties to children
+        for child in [child_a, child_b]:
+            child.level = parent.level  # same level as parent
+            child.salience = parent.salience
+            child.confidence = parent.confidence * 0.5  # reduced — they're new interpretations
+            child.stability = parent.stability * 0.5
+
+        # Make parent abstract
+        parent.children = {child_a.id, child_b.id}
+        parent.abstraction_degree = 0.5
+        parent.level += 1
+
+        # Distribute edges: align each edge to the closer child
+        for target_id, edge in list(self.edges.items()):
+            if edge.source != nid:
+                continue
+            target_node = self.nodes.get(target_id)
+            if target_node is None:
+                continue
+
+            # Which child is closer to the target?
+            sim_a = np.dot(vec_a, target_node.vector) / (
+                np.linalg.norm(vec_a) * np.linalg.norm(target_node.vector) + 1e-15
+            )
+            sim_b = np.dot(vec_b, target_node.vector) / (
+                np.linalg.norm(vec_b) * np.linalg.norm(target_node.vector) + 1e-15
+            )
+
+            chosen_child = child_a if sim_a >= sim_b else child_b
+            self.add_edge(chosen_child.id, target_id, edge.weight,
+                         shortcut=edge.shortcut, edge_type=edge.edge_type)
+
+        # Inhibitory edge between children (they're competing interpretations)
+        self.add_edge(child_a.id, child_b.id, 0.3, edge_type="inhibitory")
+        self.add_edge(child_b.id, child_a.id, 0.3, edge_type="inhibitory")
+
+        # Redistribute bindings if binding map provided
+        if binding_map is not None:
+            binding_map.split_bindings(nid, child_a.id, child_b.id,
+                                       lambda vec: np.dot(vec, vec_a) > np.dot(vec, vec_b))
+
+        return child_a.id, child_b.id
+
+    def homeostatic_downscale(self, protection_threshold: float = 0.8,
+                               downscale_factor: float = 0.8) -> Tuple[float, float]:
+        """Global synaptic homeostasis — downscale all edges, protect the strong.
+
+        During sleep, the brain globally weakens all synapses, but the strongest
+        ones survive. This improves signal-to-noise ratio: important connections
+        stand out more, noise is washed out.
+
+        Args:
+            protection_threshold: edges with stability above this are protected
+            downscale_factor: multiply all weights by this
+
+        Returns:
+            (total_weight_before, total_weight_after)
+        """
+        total_before = sum(e.weight for e in self.edges.values())
+        protected = {}
+
+        # First pass: identify protected edges
+        for key, edge in self.edges.items():
+            if edge.stability >= protection_threshold:
+                protected[key] = edge.weight
+
+        # Second pass: downscale all
+        for edge in self.edges.values():
+            edge.weight *= downscale_factor
+
+        # Third pass: restore protected edges
+        for key, original_weight in protected.items():
+            if key in self.edges:
+                self.edges[key].weight = original_weight
+
+        total_after = sum(e.weight for e in self.edges.values())
+        return total_before, total_after
 
     # ── sleep support ──
 

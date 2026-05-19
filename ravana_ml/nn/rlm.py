@@ -561,6 +561,7 @@ class RLM(Module):
                 "timestamp": float(edge.timestamp),
                 "prediction_count": int(edge.prediction_count),
                 "shortcut": bool(edge.shortcut),
+                "edge_type": edge.edge_type,
             }
 
         graph_json = {
@@ -698,6 +699,7 @@ class RLM(Module):
                     source=ed["source"],
                     target=ed["target"],
                     weight=ed["weight"],
+                    edge_type=ed.get("edge_type", "excitatory"),  # backwards compatible
                 )
                 edge.confidence = ed["confidence"]
                 edge.pressure = ed["pressure"]
