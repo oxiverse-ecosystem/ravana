@@ -1,5 +1,5 @@
 # RAVANA — Codebase Status Report
-**Date:** 2026-05-19 (updated)
+**Date:** 2026-05-19 (updated — bridge, persistence, binding)
 **Author:** Likhith
 **Purpose:** Shareable status document for LLM collaborators
 
@@ -22,12 +22,12 @@ A PyTorch-compatible API surface built on NumPy. Only hard dependency: `numpy`.
 | File | Lines | Purpose |
 |------|-------|---------|
 | `tensor.py` | 386 | `RawTensor` (NumPy wrapper with PyTorch-like API) + `StateTensor` (adds salience, pressure, stability, decay) |
-| `graph.py` | 564 | `ConceptGraph` with `ConceptNode`/`ConceptEdge` — Hebbian/anti-Hebbian updates, structural plasticity, activation spreading, **hierarchical abstraction** (merge_concepts, cluster detection, hierarchy traversal) |
+| `graph.py` | 720+ | `ConceptGraph` with `ConceptNode`/`ConceptEdge` — Hebbian/anti-Hebbian updates, structural plasticity, activation spreading, **hierarchical abstraction**. **NEW:** `ConceptBinding` + `ConceptBindingMap` — probabilistic token↔concept↔memory namespace |
 | `pressure.py` | 85 | `PressureAccumulator` — semantic, linguistic, episodic, contradiction, **abstraction** pressure with decay + normalization |
 | `plasticity.py` | 70 | `HebbianPlasticity`, `AntiHebbianPlasticity`, `StructuralPlasticity` |
 | `propagation.py` | 79 | Activation spreading engine over concept graph |
 | `nn/module.py` | 272 | PyTorch-compatible `Module` base with `accumulate_pressure()` + `sleep_cycle()` — replaces backprop |
-| `nn/rlm.py` | 376 | **Recursive Learning Model (RLM)** — alternative to LLM, uses concept graphs + Hebbian plasticity + pressure-driven sleep cycles instead of transformers + backprop |
+| `nn/rlm.py` | 700+ | **Recursive Learning Model (RLM)** — alternative to LLM, uses concept graphs + Hebbian plasticity + pressure-driven sleep cycles. **NEW:** `save()`/`load()` (pickle) + `save_zip()`/`load_zip()` (human-readable zip) for complete checkpoint |
 | `nn/functional.py` | 119 | Functional API (relu, softmax, cross_entropy, etc.) |
 | `world/__init__.py` | 160 | Simulation environment for testing |
 | `lab/__init__.py` | 264 | Concept Physics Lab for compositional experiments |
@@ -120,13 +120,18 @@ predictions = fw.predict(state, concepts)      # Hebbian spread → predictions
 state = fw.learn(state, predictions, outcomes) # pressure + governor + emotion
 
 # Consolidation
-state = fw.sleep(state)                        # 4-stage consolidation
+state = fw.sleep(state)                        # 4-stage consolidation + memory bridge
 
-# Inference (no state change)
-result = fw.infer(state, input_vec)            # {concepts, predictions, coherence}
+# Inference (no state change, memory-biased)
+result = fw.infer(state, input_vec)            # {concepts, predictions, recalled_memories}
 
 # Memory
 neighbors = fw.query(state, concept_id)        # graph neighborhood
+
+# Persistence
+fw.save("checkpoint.pkl")                      # save graph + memory DB path
+fw = CognitiveFramework.load("checkpoint.pkl") # restore graph + reattach DB
+fw.rebridge()                                  # sync consolidated memories → graph edges
 
 # Diagnostics
 report = fw.diagnose(state)                    # full cognitive dashboard
@@ -140,6 +145,7 @@ report = fw.diagnose(state)                    # full cognitive dashboard
 - `MeaningEngine` for intrinsic motivation
 - `GlobalWorkspace` for inter-module coordination
 - `HebbianPlasticity` + `StructuralPlasticity` for graph-level learning
+- `HumanMemoryEngine` for persistent episodic/semantic memory with bridge to ConceptGraph
 
 ---
 
@@ -273,6 +279,104 @@ status = engine.get_status()  # includes entropy stats
 
 ---
 
+## Memory-Weights Bridge (NEW)
+
+The core "memory IS the model" connection. Consolidated experience physically reshapes the ConceptGraph's representational topology.
+
+**How it works:**
+1. During `sleep()`, after memory consolidation, `bridge_to_graph()` queries consolidated memories from SQLite
+2. Maps them to ConceptGraph nodes by label/tag matching
+3. Creates new concept nodes for unmatched memories (deterministic hashed vectors)
+4. Strengthens edges between concepts that co-occur in consolidated memories via `hebbian_update()`
+5. Coactivation score based on how many consolidated memories share a tag
+
+**The closed cognitive loop:**
+```
+experience → consolidation → graph reinforcement → future activation bias → altered future cognition
+```
+
+**Three integration points:**
+- **Training**: `sleep()` triggers bridge after consolidation — consolidated memories become graph edges
+- **Loading**: `rebridge()` re-syncs consolidated memories with restored graph after checkpoint load
+- **Inference**: `infer()` returns `recalled_memories` biased by active ConceptGraph concepts
+
+**API:**
+```python
+# During sleep (automatic)
+fw.sleep(state)  # triggers bridge_to_graph() internally
+
+# After loading (manual)
+fw = CognitiveFramework.load("checkpoint.pkl")
+fw.rebridge()  # sync consolidated memories → graph edges
+
+# Biased recall
+results = engine.recall_with_concepts(active_concept_ids, concept_graph)
+```
+
+**Why this matters:** Before the bridge, HumanMemoryEngine (persistent) and ConceptGraph (transient) were disconnected. Now consolidated experience physically reshapes representational topology. The graph becomes reconstructible from lived experience.
+
+---
+
+## Model Persistence (NEW)
+
+**RLM save/load** (pickle + zip formats):
+```python
+from ravana_ml.nn import RLM
+
+model.save("model.pkl")           # pickle (fast, simple)
+model.save_zip("model.zip")       # zip (human-readable, safe, smaller)
+
+model = RLM.load("model.pkl")     # load pickle
+model = RLM.load_zip("model.zip") # load zip
+model = ravana.load("model.zip")  # auto-detect format
+```
+
+**Zip layout:** `arrays.npz` (compressed numpy weights + node vectors) + `graph.json` (topology + metadata, readable) + `metadata.json` (config, scalars, pressure state)
+
+**CognitiveFramework save/load** (ConceptGraph persistence):
+```python
+fw.save("framework.pkl")                      # saves graph + memory DB path
+fw = CognitiveFramework.load("framework.pkl") # restores graph + reattaches DB
+fw.rebridge()                                 # sync consolidated memories
+```
+
+**What gets saved:** Neural weights with cognitive metadata (pressure, stability, salience), ConceptGraph (nodes, edges, vectors, topology), RLM scalars, pressure accumulator state, token-concept mapping, human memory DB path.
+
+---
+
+## ConceptBinding (NEW — Unified Semantic Namespace)
+
+`ravana_ml/graph.py` — probabilistic mapping between tokens, concepts, and memories.
+
+**ConceptBinding**: a single link with confidence, source, reinforcement count, decay, ambiguity tracking. Not a static dictionary entry — a living semantic link that can drift, split, merge, and decay.
+
+**ConceptBindingMap**: manages the full binding space.
+- Multiple bindings per token (ambiguous meanings)
+- Confidence-weighted lookup
+- Ambiguity detection via entropy
+- Decay and pruning of weak bindings
+- Concept split/merge support
+
+**API:**
+```python
+from ravana_ml.graph import ConceptBindingMap
+
+bmap = ConceptBindingMap()
+bmap.bind(token_id=0, concept_id=10, confidence=0.8, source="learned")
+bmap.bind(token_id=0, concept_id=11, confidence=0.3, source="memory")  # ambiguous
+
+concepts = bmap.get_concepts(0)       # all concepts for token
+best = bmap.best_concept(0)           # strongest match
+ambiguous = bmap.is_ambiguous(0)      # True (multiple strong bindings)
+score = bmap.ambiguity_score(0)       # 0-1 entropy-based measure
+bmap.decay_all(rate=0.01)             # time-based decay
+pruned = bmap.prune(min_strength=0.05) # remove weak bindings
+```
+
+**Why this matters:** The token↔concept↔memory namespace needs to be probabilistic, not static. Concepts split, merge, meanings drift, ambiguity appears. Plain dicts can't handle that. ConceptBinding creates the foundation for: semantic grounding, memory indexing, concept persistence, symbolic continuity.
+
+---
+
 ## Empirical Validation
 
 | Experiment | Result |
@@ -387,12 +491,13 @@ status = engine.get_status()  # includes entropy stats
 - [ ] Structural replay metrics (measure abstraction depth, concept reuse, cross-domain transfer)
 
 ### Remaining
-1. **RLM has partial backprop** — `rlm.py` line 314 uses `context_logits.backprop()` despite "no backprop" claim. Limited to context logits head only.
-2. **Cross-domain transfer at 0.0** — `exp3_cross_domain.json` shows `transfer_efficiency: 0.0`, status: `"NARROW"`
-3. **Paper claims vs results mismatch** — dissonance trajectory in paper (0.800→0.200) doesn't match `final_results.json` (0.323→0.322)
-4. **No formal benchmarks** — no comparison scripts against PyTorch or other baselines
-5. **No root README** — docs split across 6+ files
-6. **News-to-MDP pipeline unimplemented** — `reality_grounding.py` exists but structured cognitive event pipeline is a design
+1. **Shared sleep cycle** — graph dynamics should also influence memory consolidation (currently memory → graph only, not graph → memory)
+2. **Runaway reinforcement damping** — edge entropy regularization, anti-loop penalties (bridge creates recall→graph→recall loop)
+3. **Cross-domain transfer at 0.0** — `exp3_cross_domain.json` shows `transfer_efficiency: 0.0`, status: `"NARROW"`
+4. **RLM has partial backprop** — `rlm.py` line 314 uses `context_logits.backprop()` despite "no backprop" claim. Limited to context logits head only.
+5. **Paper claims vs results mismatch** — dissonance trajectory in paper (0.800→0.200) doesn't match `final_results.json` (0.323→0.322)
+6. **No formal benchmarks** — no comparison scripts against PyTorch or other baselines
+7. **News-to-MDP pipeline unimplemented** — `reality_grounding.py` exists but structured cognitive event pipeline is a design
 
 ---
 
@@ -408,14 +513,16 @@ status = engine.get_status()  # includes entropy stats
 ## Git History
 
 ```
+a851f71 Add ConceptBinding — unified token ↔ concept ↔ memory namespace
+47587a1 Add CognitiveFramework save/load — ConceptGraph persistence
+eadb302 Integrate memory bridge into infer() and add rebridge()
+61939ca Memory-as-weights bridge: consolidated memories → ConceptGraph edges
+b35982a Add zip checkpoint format — human-readable, safe, partial-load
 aebe4d6 Phase O: Identity interaction, sleep replay, fragmentation, narrative stitching
-98ed37e Update RAVANA_STATUS.md with Phase O human memory engine
 de710e9 Phase O: Reconstructive memory — entropy, utility modulation, associative recall
 bc2d491 Phase O: Human Memory — persistent episodic/semantic memory with Ebbinghaus decay
 5daac51 Phase 2.5: Hierarchical abstraction compression
-1380950 Fix Linear.backward() 1D tensor handling
 84b9d59 Phase N: Global Workspace + competitive broadcast architecture
-f2a65b3 RLM Phase I+ Pilot: Epistemic Resilience Confirmed
 ```
 
 ---
@@ -436,9 +543,12 @@ f2a65b3 RLM Phase I+ Pilot: Epistemic Resilience Confirmed
 - A unified package (`ravana`) with a user-facing CognitiveFramework API
 - A system with reconstructive memory that doesn't just store — it rebuilds, distorts, consolidates, fragments, and forgets
 - A cognitive architecture where identity shapes what gets remembered and sleep actively rewrites the narrative
+- A system where consolidated experience physically reshapes representational topology (memory-weights bridge)
+- A system with a unified semantic namespace (ConceptBinding) where tokens, concepts, and memories are probabilistically linked
+- An evolving semantic ecology — not a static model
 - An active research project with empirical validation in constrained environments
 - A prototype — not yet AGI, but proposing a novel path toward it
 
 ---
 
-*Updated 2026-05-19 (Phase O: Reconstructive Memory complete). Share freely with LLM collaborators for guidance on next steps.*
+*Updated 2026-05-19 (Memory-weights bridge, ConceptGraph persistence, ConceptBinding). Share freely with LLM collaborators for guidance on next steps.*
