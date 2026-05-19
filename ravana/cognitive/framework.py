@@ -494,6 +494,94 @@ class CognitiveFramework:
         self._ensure_initialized()
         return self.human_memory_engine.bridge_to_graph(self.graph, lr=0.02)
 
+    def save(self, path: str):
+        """Save CognitiveFramework checkpoint.
+
+        Persists: ConceptGraph (nodes, edges, vectors, topology),
+        human memory DB path (for re-attachment on load), and
+        framework config.
+
+        Human memory data is NOT duplicated here — it lives in its
+        own SQLite DB. On load, reattach the same DB path and call
+        rebridge() to sync consolidated memories with the graph.
+        """
+        import pickle
+        import os
+        self._ensure_initialized()
+        checkpoint = {
+            "config": self.config,
+            "graph": self.graph,
+            "graph_pressure": self.graph_pressure,
+            "human_memory_db": self.human_memory_engine.config.db_path,
+            "human_memory_graph": self.human_memory_engine.config.graph_path,
+        }
+        os.makedirs(os.path.dirname(path) if os.path.dirname(path) else '.', exist_ok=True)
+        with open(path, 'wb') as f:
+            pickle.dump(checkpoint, f)
+
+    @classmethod
+    def load(cls, path: str) -> 'CognitiveFramework':
+        """Load a CognitiveFramework from checkpoint.
+
+        Restores the ConceptGraph and reattaches the human memory DB.
+        Call rebridge() after load to sync consolidated memories.
+        """
+        import pickle
+        with open(path, 'rb') as f:
+            checkpoint = pickle.load(f)
+
+        config = checkpoint["config"]
+        # Update human memory config to point to existing DB
+        if checkpoint.get("human_memory_db"):
+            if config.human_memory_config is None:
+                config.human_memory_config = HumanMemoryConfig()
+            config.human_memory_config.db_path = checkpoint["human_memory_db"]
+            if checkpoint.get("human_memory_graph"):
+                config.human_memory_config.graph_path = checkpoint["human_memory_graph"]
+
+        fw = cls(config)
+        fw._initialized = True
+
+        # Restore graph
+        fw.graph = checkpoint["graph"]
+        fw.graph_pressure = checkpoint.get("graph_pressure", PressureAccumulator(fw.graph))
+
+        # Rebuild engines with restored graph
+        fw.propagation = PropagationEngine(fw.graph)
+        fw.hebbian = HebbianPlasticity(fw.graph, lr=config.hebbian_lr)
+        fw.anti_hebbian = AntiHebbianPlasticity(fw.graph, lr=config.anti_hebbian_lr)
+        fw.structural = StructuralPlasticity(fw.graph)
+
+        # Rebuild cognitive core
+        fw.governor = Governor(config.governor_config)
+        fw.identity = IdentityEngine(initial_strength=config.initial_identity)
+        fw.resolution = ResolutionEngine()
+
+        # Rebuild optional engines
+        fw.emotion_engine = VADEmotionEngine(config.emotion_config)
+        fw.sleep_engine = SleepConsolidation(config.sleep_config)
+        fw.meaning_engine = MeaningEngine(config.meaning_config)
+        fw.dual_process_engine = DualProcessController(config.dual_process_config)
+        fw.gw_engine = GlobalWorkspace(config.gw_config)
+
+        # Reattach human memory to existing DB
+        fw.human_memory_engine = HumanMemoryEngine(config.human_memory_config)
+
+        # Rebuild StateManager
+        fw.state_manager = StateManager(
+            governor=fw.governor,
+            resolution_engine=fw.resolution,
+            identity_engine=fw.identity,
+            emotion_engine=fw.emotion_engine,
+            sleep_engine=fw.sleep_engine,
+            dual_process=fw.dual_process_engine,
+            meaning_engine=fw.meaning_engine,
+            global_workspace=fw.gw_engine,
+            human_memory=fw.human_memory_engine,
+        )
+
+        return fw
+
     def diagnose(self, state: FrameworkState) -> Dict[str, Any]:
         """
         Full cognitive dashboard.
