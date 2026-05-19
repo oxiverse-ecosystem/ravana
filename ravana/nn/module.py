@@ -146,10 +146,14 @@ class Linear(Module):
             return 0.0
         error_data = error.data if isinstance(error, RawTensor) else np.array(error)
         x_data = self._trace_x
-        # Flatten batch+time dims for correct matmul with .T
-        if x_data.ndim > 2:
+        # Ensure 2D for correct matmul with .T
+        if x_data.ndim == 1:
+            x_data = x_data.reshape(1, -1)
+        elif x_data.ndim > 2:
             x_data = x_data.reshape(-1, x_data.shape[-1])
-        if error_data.ndim > 2:
+        if error_data.ndim == 1:
+            error_data = error_data.reshape(1, -1)
+        elif error_data.ndim > 2:
             error_data = error_data.reshape(-1, error_data.shape[-1])
         salience = getattr(error, '_salience', 0.3) if isinstance(error, StateTensor) else 0.3
         hebbian = (x_data.T @ error_data) * salience * 0.01
