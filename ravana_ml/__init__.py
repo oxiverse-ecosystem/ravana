@@ -50,17 +50,41 @@ def no_grad():
             pass
     return _NoGrad()
 
-def save(model, path):
-    import pickle
-    with open(path, 'wb') as f:
-        pickle.dump(model.state_dict(), f)
+def save(obj, path):
+    """Save a model or state dict to disk.
 
-def load(model, path):
+    For RLM models: saves complete checkpoint (weights + graph + scalars).
+    For other modules: saves state dict with cognitive metadata.
+    """
     import pickle
-    with open(path, 'rb') as f:
-        sd = pickle.load(f)
-    model.load_state_dict(sd)
-    return model
+    if hasattr(obj, 'save') and callable(obj.save):
+        obj.save(path)
+    else:
+        with open(path, 'wb') as f:
+            pickle.dump(obj.state_dict() if hasattr(obj, 'state_dict') else obj, f)
+
+def load(path_or_model, path=None):
+    """Load a model from disk.
+
+    Usage:
+        model = ravana.load("checkpoint.pkl")           # RLM (auto-detect)
+        model = ravana.load(model, "checkpoint.pkl")    # any Module (state dict)
+    """
+    import pickle
+    if path is None:
+        # First arg is the path — auto-detect RLM checkpoint
+        with open(path_or_model, 'rb') as f:
+            data = pickle.load(f)
+        if isinstance(data, dict) and "config" in data and "graph" in data:
+            from .nn.rlm import RLM
+            return RLM.load(path_or_model)
+        return data
+    else:
+        # First arg is a model, second is path
+        with open(path, 'rb') as f:
+            sd = pickle.load(f)
+        path_or_model.load_state_dict(sd)
+        return path_or_model
 
 __version__ = '0.1.0'
 
