@@ -1,12 +1,12 @@
 """
-RLC — Cognitive Framework API
+RAVANA — Cognitive Framework API
 
 The top-level user interface that wires together:
-- ravana/ (ConceptGraph, PropagationEngine, pressure, plasticity)
+- ravana_ml/ (ConceptGraph, PropagationEngine, pressure, plasticity)
 - ravana-v2/core/ (Governor, Identity, Emotion, Sleep, Meaning, GlobalWorkspace)
 
 Usage:
-    from rlc.cognitive import CognitiveFramework
+    from ravana.cognitive import CognitiveFramework
 
     framework = CognitiveFramework()
     state = framework.initialize()
@@ -24,11 +24,11 @@ from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional, Tuple
 import time
 
-# ravana/ ML framework
-from ravana.graph import ConceptGraph
-from ravana.propagation import PropagationEngine
-from ravana.plasticity import HebbianPlasticity, AntiHebbianPlasticity, StructuralPlasticity
-from ravana.pressure import PressureAccumulator
+# ML framework (ravana_ml)
+from ravana_ml.graph import ConceptGraph
+from ravana_ml.propagation import PropagationEngine
+from ravana_ml.plasticity import HebbianPlasticity, AntiHebbianPlasticity, StructuralPlasticity
+from ravana_ml.pressure import PressureAccumulator
 
 # ravana-v2/ cognitive core (imported via rlc.cognitive)
 from core.governor import Governor, GovernorConfig
