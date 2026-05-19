@@ -63,6 +63,161 @@ class ConceptEdge:
         return f"<Edge {self.source}→{self.target} w={self.weight:.3f} conf={self.confidence:.3f} {'[S]' if self.shortcut else ''}>"
 
 
+class ConceptBinding:
+    """Probabilistic mapping between tokens, concepts, and memories.
+
+    A single binding links a token (or memory) to a concept node with
+    confidence, source tracking, and reinforcement history. Supports
+    the unified semantic namespace: language ↔ conceptual ↔ autobiographical.
+
+    Bindings can drift, split, merge, and decay — they are not static
+    dictionary entries but living semantic links.
+    """
+
+    __slots__ = ('token_id', 'concept_id', 'confidence', 'source',
+                 'reinforcement_count', 'last_used', 'created_at',
+                 'decay_score', 'ambiguity')
+
+    def __init__(self, token_id: int, concept_id: int,
+                 confidence: float = 0.5, source: str = "learned"):
+        self.token_id = token_id
+        self.concept_id = concept_id
+        self.confidence = max(0.0, min(1.0, confidence))
+        self.source = source  # "learned", "memory", "manual", "inferred"
+        self.reinforcement_count = 0
+        self.last_used = time.time()
+        self.created_at = time.time()
+        self.decay_score = 0.0
+        self.ambiguity = 0.0  # 0 = unambiguous, 1 = highly ambiguous
+
+    def reinforce(self, amount: float = 0.05):
+        """Strengthen this binding through use."""
+        self.confidence = min(1.0, self.confidence + amount)
+        self.reinforcement_count += 1
+        self.last_used = time.time()
+        self.decay_score = max(0.0, self.decay_score - 0.1)
+        self.ambiguity = max(0.0, self.ambiguity - 0.02)
+
+    def decay(self, rate: float = 0.01):
+        """Apply time-based decay to this binding."""
+        age = time.time() - self.last_used
+        self.decay_score += rate * (age / 3600.0)  # decay per hour
+        if self.decay_score > 5.0:
+            self.confidence *= 0.95  # weaken on heavy decay
+
+    @property
+    def strength(self) -> float:
+        """Effective binding strength = confidence * (1 - decay/10)."""
+        return self.confidence * max(0.0, 1.0 - self.decay_score / 10.0)
+
+    def __repr__(self):
+        return (f"<Binding tok={self.token_id}→con={self.concept_id} "
+                f"conf={self.confidence:.3f} str={self.strength:.3f} "
+                f"src={self.source} rein={self.reinforcement_count}>")
+
+
+class ConceptBindingMap:
+    """Manages the full token ↔ concept ↔ memory binding space.
+
+    Supports:
+    - Multiple bindings per token (ambiguous meanings)
+    - Confidence-weighted lookup
+    - Ambiguity detection (multiple high-confidence bindings)
+    - Decay and reinforcement
+    - Split/merge when concepts evolve
+    """
+
+    def __init__(self):
+        # token_id -> list of bindings (sorted by confidence)
+        self._by_token: Dict[int, List[ConceptBinding]] = {}
+        # concept_id -> list of bindings
+        self._by_concept: Dict[int, List[ConceptBinding]] = {}
+        # (token_id, concept_id) -> binding (fast lookup)
+        self._index: Dict[Tuple[int, int], ConceptBinding] = {}
+
+    def bind(self, token_id: int, concept_id: int,
+             confidence: float = 0.5, source: str = "learned") -> ConceptBinding:
+        """Create or reinforce a binding."""
+        key = (token_id, concept_id)
+        if key in self._index:
+            binding = self._index[key]
+            binding.reinforce(confidence * 0.1)
+            return binding
+
+        binding = ConceptBinding(token_id, concept_id, confidence, source)
+        self._index[key] = binding
+        self._by_token.setdefault(token_id, []).append(binding)
+        self._by_concept.setdefault(concept_id, []).append(binding)
+        # Sort by confidence descending
+        self._by_token[token_id].sort(key=lambda b: -b.confidence)
+        self._by_concept[concept_id].sort(key=lambda b: -b.confidence)
+        return binding
+
+    def get_concepts(self, token_id: int, min_confidence: float = 0.1) -> List[ConceptBinding]:
+        """Get all concept bindings for a token, sorted by confidence."""
+        bindings = self._by_token.get(token_id, [])
+        return [b for b in bindings if b.strength >= min_confidence]
+
+    def get_tokens(self, concept_id: int, min_confidence: float = 0.1) -> List[ConceptBinding]:
+        """Get all token bindings for a concept."""
+        bindings = self._by_concept.get(concept_id, [])
+        return [b for b in bindings if b.strength >= min_confidence]
+
+    def best_concept(self, token_id: int) -> Optional[int]:
+        """Get the strongest concept for a token, or None."""
+        bindings = self.get_concepts(token_id)
+        return bindings[0].concept_id if bindings else None
+
+    def best_token(self, concept_id: int) -> Optional[int]:
+        """Get the strongest token for a concept, or None."""
+        bindings = self.get_tokens(concept_id)
+        return bindings[0].token_id if bindings else None
+
+    def is_ambiguous(self, token_id: int, threshold: float = 0.3) -> bool:
+        """Check if a token has multiple strong concept bindings."""
+        bindings = self.get_concepts(token_id, min_confidence=threshold)
+        return len(bindings) > 1
+
+    def ambiguity_score(self, token_id: int) -> float:
+        """How ambiguous is this token? 0 = unambiguous, 1 = highly ambiguous."""
+        bindings = self.get_concepts(token_id, min_confidence=0.1)
+        if len(bindings) <= 1:
+            return 0.0
+        # Entropy-like measure over binding strengths
+        strengths = [b.strength for b in bindings]
+        total = sum(strengths)
+        if total == 0:
+            return 0.0
+        probs = [s / total for s in strengths]
+        entropy = -sum(p * np.log2(p + 1e-10) for p in probs)
+        max_entropy = np.log2(len(bindings))
+        return min(1.0, entropy / max_entropy) if max_entropy > 0 else 0.0
+
+    def decay_all(self, rate: float = 0.01):
+        """Apply decay to all bindings."""
+        for binding in self._index.values():
+            binding.decay(rate)
+
+    def prune(self, min_strength: float = 0.05):
+        """Remove bindings that have decayed below threshold."""
+        to_remove = [(tok, con) for (tok, con), b in self._index.items()
+                     if b.strength < min_strength]
+        for tok, con in to_remove:
+            key = (tok, con)
+            binding = self._index.pop(key)
+            if tok in self._by_token:
+                self._by_token[tok] = [b for b in self._by_token[tok] if b is not binding]
+            if con in self._by_concept:
+                self._by_concept[con] = [b for b in self._by_concept[con] if b is not binding]
+        return len(to_remove)
+
+    def __len__(self):
+        return len(self._index)
+
+    def __contains__(self, key: Tuple[int, int]):
+        return key in self._index
+
+
 class ConceptGraph:
     def __init__(self, dim: int = 64, max_nodes: int = 10000):
         self.dim = dim
