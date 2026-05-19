@@ -354,6 +354,9 @@ class CognitiveFramework:
         self.human_memory_engine.apply_decay()
         self.human_memory_engine.consolidate()
 
+        # Memory-weights bridge: consolidated memories → ConceptGraph edges
+        bridge_result = self.human_memory_engine.bridge_to_graph(self.graph, lr=0.02)
+
         return self._build_framework_state()
 
     def infer(self, state: FrameworkState, input_vec: np.ndarray) -> Dict[str, Any]:
