@@ -57,6 +57,18 @@ class HumanMemoryConfig:
     # In-memory trace limit
     max_history: int = 1000
 
+    # Memory entropy
+    entropy_distortion_rate: float = 0.01  # how much each recall distorts
+    entropy_divergence_rate: float = 0.005  # how fast associations drift
+    coherence_decay_rate: float = 0.002  # coherence loss per decay cycle
+    stability_gain_per_access: float = 0.05  # stability grows with use
+
+    # Utility-aware modulation
+    utility_weight: float = 0.4  # weight of predictive utility in persistence
+    emotional_weight: float = 0.3  # weight of emotional salience (reduced from 0.5)
+    access_weight: float = 0.15  # weight of access frequency
+    coherence_weight: float = 0.15  # weight of coherence in persistence
+
     # Synonym map for semantic search (optional)
     synonym_map: Optional[Dict[str, List[str]]] = None
 
@@ -73,6 +85,10 @@ class HumanMemoryRecord:
     decay_score: float
     consolidated: bool
     associations_activated: int
+    coherence: float = 1.0
+    stability: float = 0.5
+    retrieval_distortion: float = 0.0
+    associative_divergence: float = 0.0
 
 
 # ─── Default Synonyms ────────────────────────────────────────────────────────
@@ -196,7 +212,12 @@ class HumanMemoryEngine:
                 consolidated INTEGER DEFAULT 0,
                 consolidation_score REAL DEFAULT 0.0,
                 causal_id INTEGER REFERENCES memories(id),
-                procedural_id INTEGER REFERENCES memories(id)
+                procedural_id INTEGER REFERENCES memories(id),
+                coherence REAL DEFAULT 1.0,
+                stability REAL DEFAULT 0.5,
+                retrieval_distortion REAL DEFAULT 0.0,
+                associative_divergence REAL DEFAULT 0.0,
+                predictive_utility REAL DEFAULT 0.5
             )
         """)
         conn.execute("""
@@ -224,8 +245,10 @@ class HumanMemoryEngine:
         cursor = conn.execute(
             """INSERT INTO memories (content, memory_type, semantic_type, context, tags,
                                      importance, emotional, access_count, last_accessed,
-                                     created_at, decay_score)
-               VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, 0.0)""",
+                                     created_at, decay_score, coherence, stability,
+                                     retrieval_distortion, associative_divergence,
+                                     predictive_utility)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, 0.0, 1.0, 0.5, 0.0, 0.0, 0.5)""",
             (content, memory_type, semantic_type, context, tags,
              importance, emotional, now, now)
         )
@@ -260,9 +283,18 @@ class HumanMemoryEngine:
         recalled_ids = [r[0] for r in rows]
         if recalled_ids:
             placeholders = ",".join("?" * len(recalled_ids))
+            cfg = self.config
+            # Each recall distorts slightly and strengthens stability
             conn.execute(
-                f"UPDATE memories SET access_count = access_count + 1, last_accessed = ? WHERE id IN ({placeholders})",
-                [time.time()] + recalled_ids
+                f"""UPDATE memories SET
+                        access_count = access_count + 1,
+                        last_accessed = ?,
+                        retrieval_distortion = MIN(1.0, retrieval_distortion + ?),
+                        stability = MIN(1.0, stability + ?),
+                        coherence = MAX(0.0, coherence - ? * retrieval_distortion)
+                    WHERE id IN ({placeholders})""",
+                [time.time(), cfg.entropy_distortion_rate,
+                 cfg.stability_gain_per_access, cfg.entropy_distortion_rate] + recalled_ids
             )
             conn.commit()
         conn.close()
@@ -270,7 +302,14 @@ class HumanMemoryEngine:
 
     def _get(self, memory_id: int) -> Optional[dict]:
         conn = self._get_conn()
-        row = conn.execute("SELECT * FROM memories WHERE id = ?", (memory_id,)).fetchone()
+        row = conn.execute(
+            """SELECT id, content, memory_type, semantic_type, context, tags,
+                      importance, emotional, access_count, last_accessed, created_at,
+                      decay_score, suppressed, suppressed_at, consolidated, consolidation_score,
+                      coherence, stability, retrieval_distortion, associative_divergence,
+                      predictive_utility
+               FROM memories WHERE id = ?""", (memory_id,)
+        ).fetchone()
         conn.close()
         return self._row_to_dict_full(row) if row else None
 
@@ -278,7 +317,9 @@ class HumanMemoryEngine:
         conn = self._get_conn()
         rows = conn.execute(
             """SELECT id, content, memory_type, semantic_type, context, tags,
-                      importance, emotional, access_count, decay_score, consolidated
+                      importance, emotional, access_count, decay_score, consolidated,
+                      coherence, stability, retrieval_distortion, associative_divergence,
+                      predictive_utility
                FROM memories WHERE suppressed = 0
                ORDER BY (importance * 0.4 + emotional * 0.4 + access_count * 0.0002) DESC
                LIMIT ?""",
@@ -318,21 +359,41 @@ class HumanMemoryEngine:
     def _apply_decay(self) -> Dict[str, int]:
         conn = self._get_conn()
         rows = conn.execute(
-            "SELECT id, decay_score, importance, emotional FROM memories WHERE suppressed = 0"
+            """SELECT id, decay_score, importance, emotional,
+                      coherence, stability, retrieval_distortion, associative_divergence,
+                      predictive_utility, access_count
+               FROM memories WHERE suppressed = 0"""
         ).fetchall()
         decayed = suppressed = 0
-        base = self.config.base_decay_rate
-        threshold = self.config.retention_threshold
-        for (mid, decay, imp, emo) in rows:
-            retention_mod = (imp * 0.5 + emo * 0.5) * 0.9 + 0.1
-            delta = base * retention_mod
+        cfg = self.config
+        for (mid, decay, imp, emo, coh, stab, rdist, adist, putil, acc) in rows:
+            # Utility-aware persistence: emotional salience alone doesn't guarantee survival
+            access_score = min(1.0, acc * 0.01)
+            persistence = (
+                cfg.utility_weight * putil +
+                cfg.emotional_weight * emo +
+                cfg.access_weight * access_score +
+                cfg.coherence_weight * coh
+            )
+            # Entropy-modulated: low coherence accelerates decay
+            entropy_mod = (coh * 0.5 + stab * 0.5)
+            # Higher persistence = slower decay (divide, not multiply)
+            retention_mod = persistence * 0.9 + 0.1
+            delta = cfg.base_decay_rate * (1.5 - entropy_mod) / retention_mod
             new_decay = decay + delta
-            if new_decay >= threshold:
+            # Coherence slowly erodes over time
+            new_coherence = max(0.0, coh - cfg.coherence_decay_rate)
+            # Associative divergence grows slowly
+            new_adist = min(1.0, adist + cfg.entropy_divergence_rate)
+            if new_decay >= cfg.retention_threshold:
                 conn.execute("UPDATE memories SET suppressed = 1, suppressed_at = ? WHERE id = ?",
                              (time.time(), mid))
                 suppressed += 1
             else:
-                conn.execute("UPDATE memories SET decay_score = ? WHERE id = ?", (new_decay, mid))
+                conn.execute(
+                    """UPDATE memories SET decay_score = ?, coherence = ?,
+                              associative_divergence = ? WHERE id = ?""",
+                    (new_decay, new_coherence, new_adist, mid))
             decayed += 1
         conn.commit()
         # Auto-consolidation
@@ -378,16 +439,24 @@ class HumanMemoryEngine:
 
     @staticmethod
     def _row_to_dict_short(row: tuple) -> dict:
-        return {
+        d = {
             "id": row[0], "content": row[1], "memory_type": row[2],
             "semantic_type": row[3], "context": row[4], "tags": row[5],
             "importance": row[6], "emotional": row[7], "access_count": row[8],
             "decay_score": row[9], "consolidated": row[10] == 1,
         }
+        if len(row) > 11:
+            d["coherence"] = row[11]
+            d["stability"] = row[12]
+            d["retrieval_distortion"] = row[13]
+            d["associative_divergence"] = row[14]
+        if len(row) > 15:
+            d["predictive_utility"] = row[15]
+        return d
 
     @staticmethod
     def _row_to_dict_full(row: tuple) -> dict:
-        return {
+        d = {
             "id": row[0], "content": row[1], "memory_type": row[2],
             "semantic_type": row[3], "context": row[4], "tags": row[5],
             "importance": row[6], "emotional": row[7], "access_count": row[8],
@@ -396,6 +465,14 @@ class HumanMemoryEngine:
             "suppressed_at": row[13], "consolidated": row[14] == 1,
             "consolidation_score": row[15],
         }
+        if len(row) > 16:
+            d["coherence"] = row[16]
+            d["stability"] = row[17]
+            d["retrieval_distortion"] = row[18]
+            d["associative_divergence"] = row[19]
+        if len(row) > 20:
+            d["predictive_utility"] = row[20]
+        return d
 
     # ─── Graph Layer ─────────────────────────────────────────────────────
 
@@ -607,6 +684,11 @@ class HumanMemoryEngine:
         if episode_data.get("resolution", {}).get("full_resolution"):
             memory_type = "reflection" if meaning > 0.3 else "semantic"
 
+        # Predictive utility: how much did this episode reduce dissonance?
+        # High dissonance reduction = high predictive value
+        dissonance_reduction = max(0.0, pre_d - post_d)
+        predictive_utility = min(1.0, 0.3 + dissonance_reduction * 2.0 + abs(meaning) * 0.3)
+
         mid = self._store(
             content=content,
             memory_type=memory_type,
@@ -637,6 +719,13 @@ class HumanMemoryEngine:
 
         # Get association count
         assoc_ids = self._associate_recall(mid)
+
+        # Update predictive utility in DB
+        conn = self._get_conn()
+        conn.execute("UPDATE memories SET predictive_utility = ? WHERE id = ?",
+                     (predictive_utility, mid))
+        conn.commit()
+        conn.close()
 
         record = HumanMemoryRecord(
             episode=episode,
@@ -732,6 +821,606 @@ class HumanMemoryEngine:
         scored.sort(key=lambda x: -x["match_score"])
         return scored[:limit]
 
+    def reconstructive_recall(self, keyword: str, limit: int = 5) -> List[dict]:
+        """Reconstruct memories from fragments + graph structure.
+
+        When direct matches are sparse, uses spreading activation from
+        partial matches to rebuild richer context from associative neighbors.
+        """
+        # First: direct semantic search
+        direct = self.semantic_search(keyword, limit=limit * 2)
+        if not direct:
+            return []
+
+        # Check if results are sparse (low match scores mean fragments)
+        strong_matches = [m for m in direct if m.get("match_score", 0) >= 0.5]
+        weak_matches = [m for m in direct if m.get("match_score", 0) < 0.5]
+
+        reconstructed = list(strong_matches)
+
+        # For weak matches, reconstruct from graph neighbors
+        for seed in weak_matches[:limit]:
+            nid = self._node_id(seed["id"])
+            activated = self._spreading_activation([nid])
+
+            # Gather context from graph neighbors
+            neighbor_contexts = []
+            neighbor_tags = set()
+            for (node_id, score) in activated:
+                if node_id == nid or score < 0.05:
+                    continue
+                try:
+                    neighbor_mid = int(node_id.split("-")[1])
+                except (ValueError, IndexError):
+                    continue
+                neighbor = self._get(neighbor_mid)
+                if neighbor:
+                    neighbor_contexts.append(neighbor.get("content", ""))
+                    for t in (neighbor.get("tags") or "").split(","):
+                        t = t.strip()
+                        if t:
+                            neighbor_tags.add(t)
+
+            # Build reconstructed memory
+            if neighbor_contexts:
+                seed_content = seed.get("content", "")
+                # Blend: seed content + neighbor fragments
+                blended_content = seed_content
+                if len(neighbor_contexts) <= 3:
+                    blended_content += " [associated: " + "; ".join(neighbor_contexts[:3]) + "]"
+
+                # Fidelity: how much of the reconstruction is direct vs inferred
+                direct_ratio = seed.get("match_score", 0)
+                graph_ratio = min(1.0, len(neighbor_contexts) * 0.2)
+                fidelity = direct_ratio * 0.6 + graph_ratio * 0.4
+
+                reconstructed_entry = dict(seed)
+                reconstructed_entry["content"] = blended_content
+                reconstructed_entry["reconstructed"] = True
+                reconstructed_entry["reconstruction_fidelity"] = round(fidelity, 3)
+                reconstructed_entry["neighbor_count"] = len(neighbor_contexts)
+                reconstructed_entry["reconstructed_tags"] = ",".join(sorted(neighbor_tags))
+                reconstructed.append(reconstructed_entry)
+
+        # Sort by reconstruction fidelity * match_score
+        reconstructed.sort(key=lambda x: -(
+            x.get("reconstruction_fidelity", x.get("match_score", 0)) *
+            x.get("match_score", 1.0)
+        ))
+        return reconstructed[:limit]
+
+    def find_contradictions(self, limit: int = 20) -> List[Dict[str, Any]]:
+        """Detect memories that contradict each other.
+
+        Scans for pairs with shared tags but opposing emotional valence,
+        or content that suggests conflicting claims.
+        """
+        active = self._get_active(limit=200)
+        contradictions = []
+
+        # Group by shared tags
+        tag_index: Dict[str, List[dict]] = {}
+        for m in active:
+            for t in (m.get("tags") or "").split(","):
+                t = t.strip().lower()
+                if t:
+                    tag_index.setdefault(t, []).append(m)
+
+        # Check pairs that share tags for contradictions
+        checked: Set[Tuple[int, int]] = set()
+        for tag, members in tag_index.items():
+            if len(members) < 2:
+                continue
+            for i in range(len(members)):
+                for j in range(i + 1, len(members)):
+                    a, b = members[i], members[j]
+                    pair = (min(a["id"], b["id"]), max(a["id"], b["id"]))
+                    if pair in checked:
+                        continue
+                    checked.add(pair)
+
+                    score = self._contradiction_score(a, b)
+                    if score > 0.3:
+                        contradictions.append({
+                            "memory_a": a["id"],
+                            "memory_b": b["id"],
+                            "content_a": a.get("content", "")[:100],
+                            "content_b": b.get("content", "")[:100],
+                            "shared_tag": tag,
+                            "contradiction_score": round(score, 3),
+                            "emotional_a": a.get("emotional", 0.5),
+                            "emotional_b": b.get("emotional", 0.5),
+                            "suggested_action": self._suggest_reconciliation(a, b, score),
+                        })
+
+        contradictions.sort(key=lambda x: -x["contradiction_score"])
+        return contradictions[:limit]
+
+    @staticmethod
+    def _contradiction_score(a: dict, b: dict) -> float:
+        """Score how contradictory two memories are (0.0 = consistent, 1.0 = conflicting)."""
+        score = 0.0
+
+        # Emotional opposition: high vs low emotional valence on same topic
+        emo_diff = abs(a.get("emotional", 0.5) - b.get("emotional", 0.5))
+        if emo_diff > 0.5:
+            score += 0.3
+
+        # Importance conflict: one very important, other not
+        imp_diff = abs(a.get("importance", 0.5) - b.get("importance", 0.5))
+        if imp_diff > 0.5:
+            score += 0.2
+
+        # Content negation markers
+        content_a = (a.get("content", "") or "").lower()
+        content_b = (b.get("content", "") or "").lower()
+        negation_words = {"not", "never", "no", "cannot", "can't", "don't", "doesn't",
+                          "won't", "shouldn't", "isn't", "aren't", "wasn't", "weren't"}
+        a_negations = sum(1 for w in content_a.split() if w in negation_words)
+        b_negations = sum(1 for w in content_b.split() if w in negation_words)
+        # One has negations, other doesn't
+        if (a_negations > 0) != (b_negations > 0):
+            score += 0.3
+
+        # Consolidation conflict: consolidated vs not on same topic
+        if a.get("consolidated") != b.get("consolidated"):
+            score += 0.1
+
+        # Coherence divergence: both degraded differently
+        coh_a = a.get("coherence", 1.0)
+        coh_b = b.get("coherence", 1.0)
+        if abs(coh_a - coh_b) > 0.3:
+            score += 0.1
+
+        return min(1.0, score)
+
+    @staticmethod
+    def _suggest_reconciliation(a: dict, b: dict, score: float) -> str:
+        """Suggest how to reconcile contradictory memories."""
+        if score > 0.7:
+            return "suppress_weaker"
+        if score > 0.5:
+            if a.get("consolidated") and not b.get("consolidated"):
+                return "keep_a_consolidated"
+            if b.get("consolidated") and not a.get("consolidated"):
+                return "keep_b_consolidated"
+            return "merge_and_reconcile"
+        return "flag_for_review"
+
+    def reconcile_contradictions(self, auto: bool = False) -> Dict[str, int]:
+        """Find and reconcile contradictory memories.
+
+        If auto=True, automatically suppresses weaker contradictions.
+        Returns counts of actions taken.
+        """
+        contradictions = self.find_contradictions()
+        suppressed = merged = flagged = 0
+
+        for c in contradictions:
+            action = c["suggested_action"]
+            if auto and action == "suppress_weaker":
+                # Suppress the lower-importance memory
+                a = self._get(c["memory_a"])
+                b = self._get(c["memory_b"])
+                if a and b:
+                    weaker = c["memory_b"] if a.get("importance", 0) >= b.get("importance", 0) else c["memory_a"]
+                    self._forget(weaker, hard=False)
+                    suppressed += 1
+            elif auto and action in ("keep_a_consolidated", "keep_b_consolidated"):
+                # Suppress the non-consolidated one
+                a = self._get(c["memory_a"])
+                b = self._get(c["memory_b"])
+                if a and b:
+                    if a.get("consolidated"):
+                        self._forget(c["memory_b"], hard=False)
+                    else:
+                        self._forget(c["memory_a"], hard=False)
+                    suppressed += 1
+            else:
+                flagged += 1
+
+        return {
+            "contradictions_found": len(contradictions),
+            "suppressed": suppressed,
+            "merged": merged,
+            "flagged": flagged,
+        }
+
+    def detect_hallucination(self, memory_id: int, reconstructed_content: str,
+                             threshold: float = 0.3) -> Dict[str, Any]:
+        """Detect if a reconstructed memory diverges from stored ground truth.
+
+        Returns hallucination assessment with fidelity score and divergence details.
+        """
+        stored = self._get(memory_id)
+        if not stored:
+            return {"hallucination": True, "reason": "memory_not_found", "fidelity": 0.0}
+
+        stored_content = stored.get("content", "")
+        stored_tags = set(t.strip() for t in (stored.get("tags") or "").split(",") if t.strip())
+
+        # Tokenize both
+        stored_tokens = set(self._stem(t) for t in stored_content.lower().split())
+        recon_tokens = set(self._stem(t) for t in reconstructed_content.lower().split())
+
+        # Core overlap: how much of the original is preserved
+        if not stored_tokens:
+            stored_tokens = {" "}
+        overlap = stored_tokens & recon_tokens
+        preservation_ratio = len(overlap) / len(stored_tokens)
+
+        # Novel tokens: how much was added that wasn't in the original
+        novel_tokens = recon_tokens - stored_tokens
+        novelty_ratio = len(novel_tokens) / max(len(recon_tokens), 1)
+
+        # Tag consistency: do the tags still make sense?
+        recon_tags = set()
+        for t in reconstructed_content.lower().split():
+            if t in stored_tags:
+                recon_tags.add(t)
+        tag_preservation = len(recon_tags) / max(len(stored_tags), 1) if stored_tags else 1.0
+
+        # Fidelity: blend of preservation, low novelty, tag consistency
+        fidelity = (
+            preservation_ratio * 0.5 +
+            (1.0 - novelty_ratio) * 0.3 +
+            tag_preservation * 0.2
+        )
+        fidelity = max(0.0, min(1.0, fidelity))
+
+        # Entropy penalty: distorted memories are more likely hallucinated
+        distortion = stored.get("retrieval_distortion", 0.0)
+        coherence = stored.get("coherence", 1.0)
+        entropy_penalty = distortion * 0.3 + (1.0 - coherence) * 0.2
+        adjusted_fidelity = max(0.0, fidelity - entropy_penalty)
+
+        hallucination = adjusted_fidelity < threshold
+
+        return {
+            "hallucination": hallucination,
+            "fidelity": round(adjusted_fidelity, 4),
+            "raw_fidelity": round(fidelity, 4),
+            "preservation_ratio": round(preservation_ratio, 4),
+            "novelty_ratio": round(novelty_ratio, 4),
+            "tag_preservation": round(tag_preservation, 4),
+            "entropy_penalty": round(entropy_penalty, 4),
+            "stored_distortion": round(distortion, 4),
+            "stored_coherence": round(coherence, 4),
+            "threshold": threshold,
+        }
+
+    def reconstruct_schema(self) -> Dict[str, Any]:
+        """Reconstruct memory schema from graph topology.
+
+        Analyzes graph structure to find clusters, chains, hubs, and bridges.
+        Returns a structural summary even when individual memories are degraded.
+        """
+        G = self._graph
+        is_nx = nx is not None and isinstance(G, nx.Graph)
+
+        if is_nx:
+            all_nodes = list(G.nodes())
+            all_edges = list(G.edges())
+        else:
+            all_nodes = list(G.nodes().keys())
+            all_edges = [(min(a, b), max(a, b)) for (a, b) in G._edges.keys()]
+
+        if not all_nodes:
+            return {"clusters": [], "hubs": [], "bridges": [], "chains": [],
+                    "total_nodes": 0, "total_edges": 0, "avg_degree": 0.0}
+
+        # Compute degree for each node
+        degrees: Dict[str, int] = {}
+        for n in all_nodes:
+            if is_nx:
+                degrees[n] = len(list(G.neighbors(n)))
+            else:
+                degrees[n] = len(G.neighbors(n))
+
+        avg_degree = sum(degrees.values()) / len(degrees) if degrees else 0.0
+
+        # Hub detection: nodes with degree > 2 * avg
+        hub_threshold = max(2, avg_degree * 2)
+        hubs = []
+        for n, d in degrees.items():
+            if d >= hub_threshold:
+                try:
+                    mid = int(n.split("-")[1])
+                    m = self._get(mid)
+                    hubs.append({
+                        "memory_id": mid,
+                        "degree": d,
+                        "content": m.get("content", "")[:100] if m else "",
+                        "importance": m.get("importance", 0) if m else 0,
+                    })
+                except (ValueError, IndexError):
+                    pass
+        hubs.sort(key=lambda x: -x["degree"])
+
+        # Cluster detection: connected components
+        if is_nx:
+            import networkx as nx_mod
+            components = list(nx_mod.connected_components(G))
+        else:
+            # Simple BFS for connected components
+            visited: Set[str] = set()
+            components = []
+            for n in all_nodes:
+                if n in visited:
+                    continue
+                component = set()
+                queue = [n]
+                while queue:
+                    curr = queue.pop(0)
+                    if curr in visited:
+                        continue
+                    visited.add(curr)
+                    component.add(curr)
+                    for nb in G.neighbors(curr):
+                        if nb not in visited:
+                            queue.append(nb)
+                components.append(component)
+
+        clusters = []
+        for comp in components:
+            if len(comp) < 2:
+                continue
+            # Extract memory info from cluster
+            cluster_mids = []
+            cluster_types = []
+            for n in comp:
+                try:
+                    mid = int(n.split("-")[1])
+                    cluster_mids.append(mid)
+                    m = self._get(mid)
+                    if m:
+                        cluster_types.append(m.get("memory_type", "experience"))
+                except (ValueError, IndexError):
+                    pass
+
+            # Dominant type in cluster
+            from collections import Counter
+            type_counts = Counter(cluster_types)
+            dominant_type = type_counts.most_common(1)[0][0] if type_counts else "unknown"
+
+            clusters.append({
+                "size": len(comp),
+                "memory_ids": cluster_mids[:10],  # cap for readability
+                "dominant_type": dominant_type,
+                "type_distribution": dict(type_counts),
+            })
+        clusters.sort(key=lambda x: -x["size"])
+
+        # Bridge detection: edges whose removal would disconnect components
+        bridges = []
+        for (a, b) in all_edges:
+            # Check if edge connects nodes in different clusters or has high betweenness
+            a_degree = degrees.get(a, 0)
+            b_degree = degrees.get(b, 0)
+            # Low-degree nodes connected by a single edge = bridge
+            if a_degree <= 2 or b_degree <= 2:
+                try:
+                    a_mid = int(a.split("-")[1])
+                    b_mid = int(b.split("-")[1])
+                    bridges.append({"from": a_mid, "to": b_mid})
+                except (ValueError, IndexError):
+                    pass
+
+        # Chain detection: linear sequences (degree <= 2 for all nodes in path)
+        chains = []
+        visited_chain: Set[str] = set()
+        for n in all_nodes:
+            if n in visited_chain:
+                continue
+            if degrees.get(n, 0) == 1:
+                # Start of a chain
+                chain = [n]
+                visited_chain.add(n)
+                current = n
+                while True:
+                    if is_nx:
+                        neighbors = [nb for nb in G.neighbors(current) if nb not in visited_chain]
+                    else:
+                        neighbors = [nb for nb in G.neighbors(current) if nb not in visited_chain]
+                    if not neighbors:
+                        break
+                    next_node = neighbors[0]
+                    if degrees.get(next_node, 0) > 2:
+                        break
+                    chain.append(next_node)
+                    visited_chain.add(next_node)
+                    current = next_node
+                if len(chain) >= 3:
+                    chain_mids = []
+                    for cn in chain:
+                        try:
+                            chain_mids.append(int(cn.split("-")[1]))
+                        except (ValueError, IndexError):
+                            pass
+                    chains.append({"length": len(chain), "memory_ids": chain_mids})
+        chains.sort(key=lambda x: -x["length"])
+
+        return {
+            "clusters": clusters,
+            "hubs": hubs[:10],
+            "bridges": bridges[:20],
+            "chains": chains[:10],
+            "total_nodes": len(all_nodes),
+            "total_edges": len(all_edges),
+            "avg_degree": round(avg_degree, 2),
+            "connected_components": len(components),
+        }
+
+    def abstraction_recall(self, keyword: str, limit: int = 10,
+                           abstraction_level: Optional[str] = None) -> List[dict]:
+        """Retrieve memories at the abstraction level matching the query.
+
+        Abstract queries (short/general) boost consolidated/semantic memories.
+        Concrete queries (specific/detailed) boost episodic memories.
+
+        abstraction_level: 'abstract', 'concrete', or None (auto-detect)
+        """
+        if abstraction_level is None:
+            # Auto-detect: short queries with common nouns = abstract
+            # Long queries with specific details = concrete
+            words = keyword.split()
+            concrete_markers = {'episode', 'step', 'error', 'line', 'file',
+                                'function', 'class', 'method', 'variable',
+                                'bug', 'fix', 'commit', 'merge', 'deploy'}
+            has_concrete = any(w.lower() in concrete_markers for w in words)
+            abstraction_level = 'concrete' if (has_concrete or len(words) > 4) else 'abstract'
+
+        # Get all active memories with entropy fields
+        conn = self._get_conn()
+        rows = conn.execute(
+            """SELECT id, content, memory_type, semantic_type, context, tags,
+                      importance, emotional, access_count, decay_score, consolidated,
+                      coherence, stability, retrieval_distortion, associative_divergence,
+                      predictive_utility
+               FROM memories WHERE suppressed = 0"""
+        ).fetchall()
+        conn.close()
+
+        candidates = [self._row_to_dict_short(r) for r in rows]
+
+        # Score by semantic match
+        synonyms = self._get_synonyms()
+        query_terms = set(self._stem(t) for t in keyword.replace("_", " ").split())
+        for term in list(query_terms):
+            if term in synonyms:
+                query_terms.update(self._stem(s) for s in synonyms[term])
+
+        for m in candidates:
+            content_tokens = set(self._stem(t) for t in
+                                 ((m.get("content", "") or "") + " " + (m.get("tags", "") or "")).split())
+            overlap = query_terms & content_tokens
+            semantic_score = len(overlap) / max(len(query_terms), 1)
+
+            # Abstraction boost
+            is_consolidated = m.get("consolidated", False)
+            memory_type = m.get("memory_type", "experience")
+
+            if abstraction_level == 'abstract':
+                # Boost semantic/consolidated memories for abstract queries
+                if is_consolidated or memory_type in ('semantic', 'reflection', 'fact'):
+                    abstraction_boost = 0.3
+                elif memory_type == 'experience':
+                    abstraction_boost = -0.1  # slight penalty for raw episodic
+                else:
+                    abstraction_boost = 0.0
+            else:
+                # Boost episodic memories for concrete queries
+                if memory_type == 'experience' and not is_consolidated:
+                    abstraction_boost = 0.2
+                elif is_consolidated:
+                    abstraction_boost = -0.1  # slight penalty for abstract
+                else:
+                    abstraction_boost = 0.0
+
+            # Utility bonus: high predictive utility always helps
+            utility_bonus = m.get("predictive_utility", 0.5) * 0.1
+
+            m["_abstraction_score"] = semantic_score + abstraction_boost + utility_bonus
+            m["_abstraction_level"] = abstraction_level
+
+        candidates = [m for m in candidates if m["_abstraction_score"] > 0]
+        candidates.sort(key=lambda x: -x["_abstraction_score"])
+        return candidates[:limit]
+
+    def blended_recall(self, keyword: str = "", memory_id: Optional[int] = None,
+                       limit: int = 5, blend_depth: int = 2) -> List[dict]:
+        """Merge related memories into composites.
+
+        Uses spreading activation to find associated memories, then blends
+        their content and attributes into unified recall entries.
+        """
+        # Find seed memories
+        if memory_id is not None:
+            seeds = [self._get(memory_id)]
+            seeds = [s for s in seeds if s is not None]
+        else:
+            seeds = self.recall(keyword, limit=limit)
+        if not seeds:
+            return []
+
+        blended_results = []
+        for seed in seeds[:limit]:
+            nid = self._node_id(seed["id"])
+            activated = self._spreading_activation([nid])
+
+            # Collect associated memories above threshold
+            blend_pool = []
+            for (node_id, score) in activated:
+                if node_id == nid or score < 0.05:
+                    continue
+                try:
+                    mid = int(node_id.split("-")[1])
+                except (ValueError, IndexError):
+                    continue
+                m = self._get(mid)
+                if m:
+                    m["_activation_score"] = score
+                    blend_pool.append(m)
+
+            blend_pool.sort(key=lambda x: -x["_activation_score"])
+            blend_pool = blend_pool[:blend_depth]
+
+            if not blend_pool:
+                # No associations — return seed as-is
+                entry = dict(seed)
+                entry["blended"] = False
+                entry["blend_sources"] = 0
+                blended_results.append(entry)
+                continue
+
+            # Blend attributes: weighted average by activation
+            total_weight = 1.0 + sum(m["_activation_score"] for m in blend_pool)
+            blended_importance = seed.get("importance", 0.5) * 1.0
+            blended_emotional = seed.get("emotional", 0.5) * 1.0
+            blended_utility = seed.get("predictive_utility", 0.5) * 1.0
+            for m in blend_pool:
+                w = m["_activation_score"]
+                blended_importance += m.get("importance", 0.5) * w
+                blended_emotional += m.get("emotional", 0.5) * w
+                blended_utility += m.get("predictive_utility", 0.5) * w
+            blended_importance /= total_weight
+            blended_emotional /= total_weight
+            blended_utility /= total_weight
+
+            # Blend content: seed + summarized associations
+            seed_content = seed.get("content", "")
+            assoc_contents = [m.get("content", "") for m in blend_pool]
+            blended_content = seed_content
+            if assoc_contents:
+                blended_content += " [blended with: " + " | ".join(assoc_contents) + "]"
+
+            # Merge tags
+            all_tags = set()
+            for t in (seed.get("tags") or "").split(","):
+                t = t.strip()
+                if t:
+                    all_tags.add(t)
+            for m in blend_pool:
+                for t in (m.get("tags") or "").split(","):
+                    t = t.strip()
+                    if t:
+                        all_tags.add(t)
+
+            entry = dict(seed)
+            entry["content"] = blended_content
+            entry["importance"] = round(blended_importance, 4)
+            entry["emotional"] = round(blended_emotional, 4)
+            entry["predictive_utility"] = round(blended_utility, 4)
+            entry["tags"] = ",".join(sorted(all_tags))
+            entry["blended"] = True
+            entry["blend_sources"] = len(blend_pool)
+            entry["blend_fidelity"] = round(
+                seed.get("coherence", 1.0) * 0.6 +
+                (1.0 - seed.get("retrieval_distortion", 0.0)) * 0.4, 3)
+            blended_results.append(entry)
+
+        return blended_results
+
     def reinforce(self, memory_id: int, delta: float = 0.0):
         """Strengthen a memory."""
         self._reinforce(memory_id)
@@ -808,6 +1497,11 @@ class HumanMemoryEngine:
         suppressed = conn.execute("SELECT COUNT(*) FROM memories WHERE suppressed = 1").fetchone()[0]
         consolidated = conn.execute("SELECT COUNT(*) FROM memories WHERE consolidated = 1").fetchone()[0]
         avg_decay = conn.execute("SELECT AVG(decay_score) FROM memories WHERE suppressed = 0").fetchone()[0] or 0.0
+        avg_coherence = conn.execute("SELECT AVG(coherence) FROM memories WHERE suppressed = 0").fetchone()[0] or 1.0
+        avg_stability = conn.execute("SELECT AVG(stability) FROM memories WHERE suppressed = 0").fetchone()[0] or 0.5
+        avg_distortion = conn.execute("SELECT AVG(retrieval_distortion) FROM memories WHERE suppressed = 0").fetchone()[0] or 0.0
+        avg_divergence = conn.execute("SELECT AVG(associative_divergence) FROM memories WHERE suppressed = 0").fetchone()[0] or 0.0
+        avg_utility = conn.execute("SELECT AVG(predictive_utility) FROM memories WHERE suppressed = 0").fetchone()[0] or 0.5
         conn.close()
 
         graph_nodes = 0
@@ -826,6 +1520,11 @@ class HumanMemoryEngine:
             "suppressed_memories": suppressed,
             "consolidated_memories": consolidated,
             "avg_decay_score": round(avg_decay, 4),
+            "avg_coherence": round(avg_coherence, 4),
+            "avg_stability": round(avg_stability, 4),
+            "avg_retrieval_distortion": round(avg_distortion, 4),
+            "avg_associative_divergence": round(avg_divergence, 4),
+            "avg_predictive_utility": round(avg_utility, 4),
             "working_memory_size": len(self.working_memory),
             "working_memory_slots": self.config.working_slots,
             "graph_nodes": graph_nodes,
