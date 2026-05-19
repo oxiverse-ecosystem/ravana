@@ -1,5 +1,5 @@
 # RAVANA — Codebase Status Report
-**Date:** 2026-05-19 (updated — bridge, persistence, binding)
+**Date:** 2026-05-19 (updated — cognitive architecture enhancements)
 **Author:** Likhith
 **Purpose:** Shareable status document for LLM collaborators
 
@@ -22,9 +22,9 @@ A PyTorch-compatible API surface built on NumPy. Only hard dependency: `numpy`.
 | File | Lines | Purpose |
 |------|-------|---------|
 | `tensor.py` | 386 | `RawTensor` (NumPy wrapper with PyTorch-like API) + `StateTensor` (adds salience, pressure, stability, decay) |
-| `graph.py` | 720+ | `ConceptGraph` with `ConceptNode`/`ConceptEdge` — Hebbian/anti-Hebbian updates, structural plasticity, activation spreading, **hierarchical abstraction**. **NEW:** `ConceptBinding` + `ConceptBindingMap` — probabilistic token↔concept↔memory namespace |
+| `graph.py` | 900+ | `ConceptGraph` with `ConceptNode`/`ConceptEdge` — Hebbian/anti-Hebbian updates, structural plasticity, activation spreading, **hierarchical abstraction**. `ConceptBinding` + `ConceptBindingMap` — probabilistic token↔concept↔memory namespace. **NEW:** Inhibitory edges, soft lateral inhibition, precision-weighted spreading, concept splitting, synaptic homeostasis, temporal context + activation history, interference decay |
 | `pressure.py` | 85 | `PressureAccumulator` — semantic, linguistic, episodic, contradiction, **abstraction** pressure with decay + normalization |
-| `plasticity.py` | 70 | `HebbianPlasticity`, `AntiHebbianPlasticity`, `StructuralPlasticity` |
+| `plasticity.py` | 80 | `HebbianPlasticity`, `AntiHebbianPlasticity` (**NEW:** converts dying edges to inhibitory), `StructuralPlasticity` |
 | `propagation.py` | 79 | Activation spreading engine over concept graph |
 | `nn/module.py` | 272 | PyTorch-compatible `Module` base with `accumulate_pressure()` + `sleep_cycle()` — replaces backprop |
 | `nn/rlm.py` | 700+ | **Recursive Learning Model (RLM)** — alternative to LLM, uses concept graphs + Hebbian plasticity + pressure-driven sleep cycles. **NEW:** `save()`/`load()` (pickle) + `save_zip()`/`load_zip()` (human-readable zip) for complete checkpoint |
@@ -64,10 +64,10 @@ The GRACE architecture (Governance, Reflection, Adaptation, Constraint, Explorat
 | `emotion.py` | M | VAD (Valence, Arousal, Dominance) via differential equations (234 lines) |
 | `memory.py` | — | Episodic, semantic, working memory |
 | `global_workspace.py` | N | **NEW** — Competitive broadcast system, consciousness bottleneck |
-| `human_memory.py` | O | **NEW** — Persistent episodic/semantic memory with Ebbinghaus decay, spreading activation, reconstructive recall |
+| `human_memory.py` | O | Persistent episodic/semantic memory with Ebbinghaus decay, spreading activation, reconstructive recall. **NEW:** Interference-based decay (similar memories accelerate each other's forgetting), retrieval-induced forgetting (recall suppresses competitors), temporal context storage (encoding specificity) |
 
 **Additional systems outside core/:**
-- `sleep.py` (486 lines) — 5-stage consolidation: topology analysis, pattern compression, **abstraction compression** (hierarchical concept merging), contradiction resolution, integration. Dream sabotage (20% counterfactual reversals, 10% valence flipping, 1.5x failure oversampling). Tier-0 identity protection. Triggers human memory decay + consolidation.
+- `sleep.py` (540+ lines) — 5-stage consolidation: topology analysis, pattern compression, **abstraction compression** (hierarchical concept merging), contradiction resolution, integration. Dream sabotage (20% counterfactual reversals, 10% valence flipping, 1.5x failure oversampling). Tier-0 identity protection. Triggers human memory decay + consolidation. **NEW:** `replay_through_graph()` — hippocampal replay that re-activates memories through the ConceptGraph, applying Hebbian learning on replayed activations.
 - `dual_process.py` (209 lines) — System 1 (fast/intuitive) vs System 2 (slow/deliberate) with override logic
 - `meaning.py` (224 lines) — Intrinsic motivation: `M = w1(-D_future) + w2(identity_coherence) + w3(predictive_power) * (1 + kappa * effort_cost)`
 - `empathy.py` — Theory of Mind via Gaussian Process regression
@@ -377,6 +377,42 @@ pruned = bmap.prune(min_strength=0.05) # remove weak bindings
 
 ---
 
+## Cognitive Architecture Enhancements (NEW — 7 Phases)
+
+Based on cognitive science research (spreading activation, synaptic homeostasis, inhibitory connections, temporal context, interference theory, hippocampal replay), the following mechanisms were added to close the gap between RAVANA and biological cognition.
+
+### Phase 1: Inhibitory Edges + Soft Lateral Inhibition
+
+`ConceptEdge` now has `edge_type` (`"excitatory"` or `"inhibitory"`). Inhibitory edges subtract activation during spreading. `AntiHebbianPlasticity` converts dying excitatory edges to inhibitory instead of deleting them — the mismatch itself is information. `_top_k_activation()` replaced with `_soft_lateral_inhibition()` — each active concept suppresses others proportionally to similarity, preserving near-winners (unlike hard zeroing). `form_inhibitory_edges()` creates inhibitory connections between persistently contradictory concepts during sleep.
+
+### Phase 2: Precision-Weighted Spreading Activation
+
+`spread_activation()` now incorporates `edge.confidence` — high-confidence edges carry more signal, low-confidence edges are noisy. Fan effect normalization prevents hub domination: `activation /= sqrt(in_degree + 1)`. Hebbian learning rate scales with prediction surprise: `effective_lr = lr * (1 + error * confidence * 5)` — confident errors produce bigger updates (like the brain's error-related negativity).
+
+### Phase 3: Concept Splitting + Genesis Vector Drift
+
+`ConceptNode` tracks `genesis_vector` (original vector at creation) and `drift_magnitude` (L2 distance from genesis). `should_split()` detects when a concept should fork based on contradiction count, drift magnitude, and edge entropy (diverse unrelated targets). `split_concept()` creates two competing sub-concepts, distributes edges by vector alignment, and forms inhibitory edges between them. `homeostatic_downscale()` implements global synaptic homeostasis — all edges weakened proportionally, but high-stability edges are protected.
+
+### Phase 4: Global Synaptic Homeostasis During Sleep
+
+`homeostatic_downscale(protection_threshold=0.8, downscale_factor=0.8)` is called during `CognitiveFramework.sleep()`. All edge weights are multiplied by the downscale factor, but edges with stability above the protection threshold are preserved. This prevents runaway reinforcement and maintains signal-to-noise ratio — the brain's critical maintenance mechanism during SWS.
+
+### Phase 5: Temporal Context + Activation History
+
+`ConceptNode` now tracks `last_activated`, `activation_history` (rolling window of 100), and `temporal_context` (context vector at last activation). `recency_score()` and `frequency_score()` enable time-sensitive retrieval. `ConceptGraph` maintains a drifting `temporal_context` vector (EMA of active concept centroids). `HumanMemoryEngine` stores temporal context with each memory (encoding specificity principle — memories are easier to recall in the context where they were encoded).
+
+### Phase 6: Interference-Based Decay + Retrieval-Induced Forgetting
+
+`_apply_decay()` now includes interference from similar recent memories — new memories with overlapping tags accelerate decay of existing ones (retroactive interference). `retrieval_induced_forgetting()` suppresses competing memories that match a query but weren't recalled, preventing interference during future recall.
+
+### Phase 7: Replay-Through-Graph
+
+`SleepConsolidation.replay_through_graph()` implements hippocampal replay — samples episodic memories, matches their keywords to concept labels, activates matched concepts, runs spreading activation, and applies Hebbian learning on the replayed activations. This is how memories literally reshape the graph during sleep. Wired into `CognitiveFramework.sleep()` after memory consolidation and before the bridge.
+
+**Files modified:** `ravana_ml/graph.py`, `ravana_ml/plasticity.py`, `ravana-v2/core/sleep.py`, `ravana-v2/core/human_memory.py`, `ravana/cognitive/framework.py`, `ravana_ml/nn/rlm.py` (zip serialization for edge_type).
+
+---
+
 ## Empirical Validation
 
 | Experiment | Result |
@@ -479,6 +515,15 @@ pruned = bmap.prune(min_strength=0.05) # remove weak bindings
 - ~~Global Workspace missing~~ → `global_workspace.py` implemented and wired into StateManager
 - ~~Framework API not built~~ → `CognitiveFramework` class implemented with full API
 - ~~Phase 2.5 roadmap items~~ → All 6 items completed (abstraction compression, human memory, identity, replay, fragmentation, narrative)
+- ~~No inhibitory edges~~ → `edge_type` field on ConceptEdge, soft lateral inhibition, form_inhibitory_edges
+- ~~Hard winner-take-all activation~~ → Replaced with soft lateral inhibition (similarity-weighted suppression)
+- ~~No precision weighting~~ → Edge confidence now modulates activation flow
+- ~~No concept splitting~~ → `split_concept()` with genesis vector drift tracking
+- ~~No synaptic homeostasis~~ → `homeostatic_downscale()` in sleep cycle
+- ~~No temporal context~~ → Activation history, recency/frequency scores, drifting temporal context vector
+- ~~Pure time-based decay~~ → Interference-based decay (similar memories accelerate forgetting)
+- ~~No retrieval-induced forgetting~~ → `retrieval_induced_forgetting()` suppresses competitors
+- ~~Memory→graph only~~ → `replay_through_graph()` enables graph←memory bidirectional flow
 
 ### Phase 2.5 (bridging Phase 2 → Phase 3)
 - [x] Hierarchical abstraction compression — **DONE**
@@ -491,13 +536,16 @@ pruned = bmap.prune(min_strength=0.05) # remove weak bindings
 - [ ] Structural replay metrics (measure abstraction depth, concept reuse, cross-domain transfer)
 
 ### Remaining
-1. **Shared sleep cycle** — graph dynamics should also influence memory consolidation (currently memory → graph only, not graph → memory)
-2. **Runaway reinforcement damping** — edge entropy regularization, anti-loop penalties (bridge creates recall→graph→recall loop)
+1. ~~**Shared sleep cycle**~~ → **RESOLVED** — `replay_through_graph()` enables graph←memory bidirectional flow
+2. ~~**Runaway reinforcement damping**~~ → **RESOLVED** — `homeostatic_downscale()` prevents runaway reinforcement; edge entropy regularization via soft lateral inhibition
 3. **Cross-domain transfer at 0.0** — `exp3_cross_domain.json` shows `transfer_efficiency: 0.0`, status: `"NARROW"`
 4. **RLM has partial backprop** — `rlm.py` line 314 uses `context_logits.backprop()` despite "no backprop" claim. Limited to context logits head only.
 5. **Paper claims vs results mismatch** — dissonance trajectory in paper (0.800→0.200) doesn't match `final_results.json` (0.323→0.322)
 6. **No formal benchmarks** — no comparison scripts against PyTorch or other baselines
 7. **News-to-MDP pipeline unimplemented** — `reality_grounding.py` exists but structured cognitive event pipeline is a design
+8. **Semantic drift defense** — `attractor_drift()` measurement exists in lab but is not wired into the learning loop
+9. **ConceptBindingMap not fully wired** — `disambiguate()` and `split_bindings()` exist but ConceptBindingMap is not yet instantiated by ConceptGraph or CognitiveFramework
+10. **REM vs SWS distinction** — One sleep mode; brain uses SWS for structural consolidation and REM for creative recombination
 
 ---
 
@@ -513,6 +561,9 @@ pruned = bmap.prune(min_strength=0.05) # remove weak bindings
 ## Git History
 
 ```
+[latest]     Cognitive architecture enhancements — 7 phases: inhibitory edges, soft inhibition,
+             precision-weighted activation, concept splitting, homeostasis, temporal context,
+             interference decay, retrieval-induced forgetting, replay-through-graph
 a851f71 Add ConceptBinding — unified token ↔ concept ↔ memory namespace
 47587a1 Add CognitiveFramework save/load — ConceptGraph persistence
 eadb302 Integrate memory bridge into infer() and add rebridge()
@@ -545,6 +596,12 @@ bc2d491 Phase O: Human Memory — persistent episodic/semantic memory with Ebbin
 - A cognitive architecture where identity shapes what gets remembered and sleep actively rewrites the narrative
 - A system where consolidated experience physically reshapes representational topology (memory-weights bridge)
 - A system with a unified semantic namespace (ConceptBinding) where tokens, concepts, and memories are probabilistically linked
+- A system with inhibitory connections, precision-weighted activation, and soft lateral inhibition — closer to cortical dynamics
+- A system where concepts can split under contradiction, not just merge — identity evolves through forking
+- A system with synaptic homeostasis during sleep — preventing runaway reinforcement
+- A system with temporal context — memories are easier to recall in the context where they were encoded
+- A system where forgetting is interference-driven, not just time-based — similar memories compete
+- A system where sleep replay lets memories literally reshape the graph — hippocampal dynamics
 - An evolving semantic ecology — not a static model
 - An active research project with empirical validation in constrained environments
 - A prototype — not yet AGI, but proposing a novel path toward it

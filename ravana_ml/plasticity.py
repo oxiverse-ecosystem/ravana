@@ -42,8 +42,16 @@ class AntiHebbianPlasticity:
         edge.weight = max(0.0, min(1.0, edge.weight + delta))
         edge.confidence = max(0.0, edge.confidence - 0.05)
         edge.stability = max(0.0, edge.stability - 0.02)
+        # When excitatory edge dies from persistent mismatch, convert to inhibitory
+        # instead of deleting — the mismatch itself is information
         if edge.confidence < 0.01:
-            self.graph.remove_edge(source_nid, target_nid)
+            if edge.edge_type == "excitatory" and persistent_mismatch > 1.5:
+                edge.edge_type = "inhibitory"
+                edge.weight = 0.1
+                edge.confidence = 0.1
+                edge.stability = 0.1
+            else:
+                self.graph.remove_edge(source_nid, target_nid)
         return delta
 
 
