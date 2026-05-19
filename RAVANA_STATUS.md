@@ -72,35 +72,35 @@ The GRACE architecture (Governance, Reflection, Adaptation, Constraint, Explorat
 - `meaning.py` (224 lines) — Intrinsic motivation: `M = w1(-D_future) + w2(identity_coherence) + w3(predictive_power) * (1 + kappa * effort_cost)`
 - `empathy.py` — Theory of Mind via Gaussian Process regression
 
-### Layer 3: `rlc/` — Unified Package (NEW)
+### Layer 3: `ravana/` — Unified Package (NEW)
 
-The RLC (Recursive Learning Model) package unifies both codebases into a single pip-installable package. Re-exports from `ravana/` and `ravana-v2/core/` — no code duplication, no destructive renames.
+The RAVANA (Recursive Learning Model) package unifies both codebases into a single pip-installable package. Re-exports from `ravana_ml/` and `ravana-v2/core/` — no code duplication, no destructive renames.
 
 ```
-rlc/
-├── __init__.py          # import rlc as torch
-├── tensor.py            # re-exports from ravana.tensor
-├── graph.py             # re-exports from ravana.graph
-├── pressure.py          # re-exports from ravana.pressure
-├── plasticity.py        # re-exports from ravana.plasticity
-├── propagation.py       # re-exports from ravana.propagation
+ravana/
+├── __init__.py          # import ravana as torch
+├── tensor.py            # re-exports from ravana_ml.tensor
+├── graph.py             # re-exports from ravana_ml.graph
+├── pressure.py          # re-exports from ravana_ml.pressure
+├── plasticity.py        # re-exports from ravana_ml.plasticity
+├── propagation.py       # re-exports from ravana_ml.propagation
 ├── nn/
 │   ├── __init__.py      # Module, Linear, Embedding, RLM
-│   ├── module.py        # re-exports from ravana.nn.module
-│   ├── functional.py    # re-exports from ravana.nn.functional
-│   └── rlm.py           # re-exports from ravana.nn.rlm
+│   ├── module.py        # re-exports from ravana_ml.nn.module
+│   ├── functional.py    # re-exports from ravana_ml.nn.functional
+│   └── rlm.py           # re-exports from ravana_ml.nn.rlm
 ├── cognitive/
 │   ├── __init__.py      # re-exports all 23+ cognitive modules
 │   ├── framework.py     # NEW — CognitiveFramework API
 │   └── ...              # re-exports from ravana-v2/core/
-├── world/               # re-exports from ravana.world
-├── lab/                 # re-exports from ravana.lab
+├── world/               # re-exports from ravana_ml.world
+├── lab/                 # re-exports from ravana_ml.lab
 ├── pyproject.toml       # pip install -e .
 └── README.md
 ```
 
-**Install:** `pip install -e rlc/`
-**Import:** `import rlc as torch` or `from rlc.cognitive import CognitiveFramework`
+**Install:** `pip install -e ravana/`
+**Import:** `import ravana as torch` or `from ravana.cognitive import CognitiveFramework`
 
 ---
 
@@ -109,7 +109,7 @@ rlc/
 The top-level user interface that wires the ML framework and cognitive core together:
 
 ```python
-from rlc.cognitive import CognitiveFramework
+from ravana.cognitive import CognitiveFramework
 
 fw = CognitiveFramework()
 state = fw.initialize()
@@ -133,7 +133,7 @@ report = fw.diagnose(state)                    # full cognitive dashboard
 ```
 
 **What it wires together:**
-- `ConceptGraph` + `PropagationEngine` (from ravana/) for perception and prediction
+- `ConceptGraph` + `PropagationEngine` (from ravana_ml/) for perception and prediction
 - `Governor` + `Identity` + `Resolution` for state regulation
 - `VADEmotionEngine` for affective tagging
 - `SleepConsolidation` for periodic consolidation
@@ -163,7 +163,7 @@ The system now develops **actual graph hierarchy** during sleep — not just edg
 
 **API:**
 ```python
-from ravana.graph import ConceptGraph
+from ravana_ml.graph import ConceptGraph
 
 g = ConceptGraph(dim=64)
 
@@ -246,7 +246,7 @@ context = gw.get_context_vector()  # weighted VAD vector
 
 **API:**
 ```python
-from rlc.cognitive import HumanMemoryEngine, HumanMemoryConfig
+from ravana.cognitive import HumanMemoryEngine, HumanMemoryConfig
 
 engine = HumanMemoryEngine(HumanMemoryConfig(db_path="my_memory.db"))
 
@@ -301,13 +301,13 @@ status = engine.get_status()  # includes entropy stats
 | `research/core_k0/test_k*.py` | K-series agent robustness, learning, adversarial breaking, regime shifts |
 
 **RLC integration tests (14/14 passing):**
-- `import rlc`, tensor creation, nn.Linear, ConceptGraph via rlc.graph
+- `import ravana`, tensor creation, nn.Linear, ConceptGraph via ravana.graph
 - Cognitive modules (Governor, Emotion, GlobalWorkspace)
 - GlobalWorkspace bidding and broadcast
 - CognitiveFramework: init, perceive, learn, infer, sleep, diagnose
 - HumanMemoryEngine: remember, recall, decay, reconstructive modes
 - End-to-end: forward + pressure + sleep_cycle
-- `import rlc as torch` alias
+- `import ravana as torch` alias
 
 ---
 
@@ -370,8 +370,8 @@ status = engine.get_status()  # includes entropy stats
 ## Known Issues & Gaps
 
 ### Resolved (as of 2026-05-19)
-- ~~Two disconnected codebases~~ → Unified via `rlc/` package
-- ~~No packaging infrastructure~~ → `rlc/pyproject.toml` exists, `pip install -e .` works
+- ~~Two disconnected codebases~~ → Unified via `ravana/` package
+- ~~No packaging infrastructure~~ → `ravana/pyproject.toml` exists, `pip install -e .` works
 - ~~Global Workspace missing~~ → `global_workspace.py` implemented and wired into StateManager
 - ~~Framework API not built~~ → `CognitiveFramework` class implemented with full API
 - ~~Phase 2.5 roadmap items~~ → All 6 items completed (abstraction compression, human memory, identity, replay, fragmentation, narrative)
@@ -399,7 +399,7 @@ status = engine.get_status()  # includes entropy stats
 ## Dependencies
 
 **ravana/:** `numpy` (only)
-**rlc/:** `numpy>=1.20` (only)
+**ravana/:** `numpy>=1.20` (only)
 **ravana-v2/interface_agent/:** `feedparser>=5.2.1`, `requests>=2.31.0`, `newspaper3k>=0.2.8`, `openai>=1.12.0`, `anthropic>=0.18.0`
 **ravana-v2/:** No requirements.txt (core modules use only stdlib + numpy)
 
@@ -433,7 +433,7 @@ f2a65b3 RLM Phase I+ Pilot: Epistemic Resilience Confirmed
 - A pressure-driven self-organizing cognitive architecture
 - A PyTorch-compatible ML framework (API surface) using Hebbian learning + sleep consolidation
 - A comprehensive cognitive system with emotion, meaning, meta-cognition, empathy, dual-process reasoning, global workspace
-- A unified package (`rlc`) with a user-facing CognitiveFramework API
+- A unified package (`ravana`) with a user-facing CognitiveFramework API
 - A system with reconstructive memory that doesn't just store — it rebuilds, distorts, consolidates, fragments, and forgets
 - A cognitive architecture where identity shapes what gets remembered and sleep actively rewrites the narrative
 - An active research project with empirical validation in constrained environments
