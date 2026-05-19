@@ -64,9 +64,10 @@ The GRACE architecture (Governance, Reflection, Adaptation, Constraint, Explorat
 | `emotion.py` | M | VAD (Valence, Arousal, Dominance) via differential equations (234 lines) |
 | `memory.py` | — | Episodic, semantic, working memory |
 | `global_workspace.py` | N | **NEW** — Competitive broadcast system, consciousness bottleneck |
+| `human_memory.py` | O | **NEW** — Persistent episodic/semantic memory with Ebbinghaus decay, spreading activation, reconstructive recall |
 
 **Additional systems outside core/:**
-- `sleep.py` (486 lines) — 5-stage consolidation: topology analysis, pattern compression, **abstraction compression** (hierarchical concept merging), contradiction resolution, integration. Dream sabotage (20% counterfactual reversals, 10% valence flipping, 1.5x failure oversampling). Tier-0 identity protection.
+- `sleep.py` (486 lines) — 5-stage consolidation: topology analysis, pattern compression, **abstraction compression** (hierarchical concept merging), contradiction resolution, integration. Dream sabotage (20% counterfactual reversals, 10% valence flipping, 1.5x failure oversampling). Tier-0 identity protection. Triggers human memory decay + consolidation.
 - `dual_process.py` (209 lines) — System 1 (fast/intuitive) vs System 2 (slow/deliberate) with override logic
 - `meaning.py` (224 lines) — Intrinsic motivation: `M = w1(-D_future) + w2(identity_coherence) + w3(predictive_power) * (1 + kappa * effort_cost)`
 - `empathy.py` — Theory of Mind via Gaussian Process regression
@@ -205,6 +206,62 @@ context = gw.get_context_vector()  # weighted VAD vector
 
 ---
 
+## Human Memory Engine (NEW — Phase O)
+
+`ravana-v2/core/human_memory.py` — persistent episodic/semantic memory that reconstructs, not just retrieves.
+
+**Core properties:**
+- **SQLite persistence** — memories survive across sessions
+- **Ebbinghaus decay** — memories fade through neglect, modulated by utility and coherence
+- **Episodic → semantic consolidation** — frequently accessed memories promote to semantic
+- **Spreading activation** — associative graph recall via BFS with decaying intensity
+- **Auto-linking** — shared tags create graph edges automatically
+
+**Memory entropy (each memory tracks):**
+- `coherence` — erodes over time (-0.002/cycle), accelerates decay when low
+- `stability` — grows with each recall (+0.05)
+- `retrieval_distortion` — accumulates on each recall (+0.01)
+- `associative_divergence` — drifts over time (+0.005/cycle)
+
+**Utility-aware modulation:**
+- `predictive_utility` — derived from dissonance reduction per episode
+- Persistence formula: `0.4*utility + 0.3*emotional + 0.15*access + 0.15*coherence`
+- High utility = slower decay. Emotional salience alone doesn't guarantee survival.
+
+**Reconstructive recall modes:**
+- `reconstructive_recall()` — rebuilds from graph neighbors when direct matches are weak
+- `blended_recall()` — merges related memories into composites with weighted attributes
+- `abstraction_recall()` — boosts semantic for abstract queries, episodic for concrete
+- `reconstruct_schema()` — extracts clusters, hubs, bridges, chains from graph topology
+- `detect_hallucination()` — flags when reconstruction diverges from ground truth
+- `find_contradictions()` + `reconcile_contradictions()` — detects and resolves conflicting memories
+
+**Integration:** Wired into `StateManager.step()` — stores each cognitive episode with emotional salience from VAD state. Sleep cycle triggers `apply_decay()` + `consolidate()`. Participates in Global Workspace competition via `compute_gw_bid()`.
+
+**API:**
+```python
+from rlc.cognitive import HumanMemoryEngine, HumanMemoryConfig
+
+engine = HumanMemoryEngine(HumanMemoryConfig(db_path="my_memory.db"))
+
+# Store and recall
+mid = engine.remember("Python is great for AI", tags="python,ai", importance=0.8)
+results = engine.recall("python")
+results = engine.semantic_search("machine learning")
+
+# Reconstructive modes
+blended = engine.blended_recall("programming")
+abstract = engine.abstraction_recall("code", abstraction_level="abstract")
+schema = engine.reconstruct_schema()
+
+# Entropy and decay
+engine.apply_decay()   # Ebbinghaus sweep + auto-consolidation
+engine.consolidate()   # episodic → semantic promotion
+status = engine.get_status()  # includes entropy stats
+```
+
+---
+
 ## Empirical Validation
 
 | Experiment | Result |
@@ -237,6 +294,7 @@ context = gw.get_context_vector()  # weighted VAD vector
 - Cognitive modules (Governor, Emotion, GlobalWorkspace)
 - GlobalWorkspace bidding and broadcast
 - CognitiveFramework: init, perceive, learn, infer, sleep, diagnose
+- HumanMemoryEngine: remember, recall, decay, reconstructive modes
 - End-to-end: forward + pressure + sleep_cycle
 - `import rlc as torch` alias
 
@@ -254,6 +312,7 @@ context = gw.get_context_vector()  # weighted VAD vector
 **Phase 2 items:**
 - [x] Global Workspace memory integration — **DONE** (`global_workspace.py` + wired into StateManager)
 - [x] Hierarchical abstraction compression — **DONE** (merge_concepts, cluster detection, hierarchy traversal, sleep integration)
+- [x] Human memory engine — **DONE** (`human_memory.py`, persistent SQLite, Ebbinghaus decay, spreading activation, reconstructive recall)
 - [ ] Episodic buffer with temporal binding
 - [ ] Semantic knowledge graph (Bayesian)
 - [ ] News-to-MDP pipeline (real-world grounding)
@@ -305,11 +364,14 @@ context = gw.get_context_vector()  # weighted VAD vector
 - ~~Global Workspace missing~~ → `global_workspace.py` implemented and wired into StateManager
 - ~~Framework API not built~~ → `CognitiveFramework` class implemented with full API
 
-### Phase 2.5 (NEW — bridging Phase 2 → Phase 3)
+### Phase 2.5 (bridging Phase 2 → Phase 3)
 - [x] Hierarchical abstraction compression — **DONE**
-- [ ] Replay-driven concept merging (sleep replay identifies overlapping concepts for fusion)
+- [x] Human memory engine (Phase O) — **DONE** (persistent, decay, consolidation, reconstructive recall)
+- [ ] Identity interaction — memories shaped by identity state, not just emotional/utility
+- [ ] Replay-driven memory reshaping — sleep cycle actively rewrites memories, not just decay
+- [ ] Memory fragmentation — single memory splits into parts under cognitive pressure
+- [ ] Cross-episode narrative stitching — sequential episodes linked into coherent stories
 - [ ] Latent manifold stabilization (Identity engine tracks concept embedding trajectories)
-- [ ] Temporal episodic stitching (link sequential episodes into coherent narratives)
 - [ ] Structural replay metrics (measure abstraction depth, concept reuse, cross-domain transfer)
 
 ### Remaining
@@ -360,9 +422,10 @@ d7d0f18 RAVANA framework: PyTorch-like API with pressure-driven learning + RLM
 - A PyTorch-compatible ML framework (API surface) using Hebbian learning + sleep consolidation
 - A comprehensive cognitive system with emotion, meaning, meta-cognition, empathy, dual-process reasoning, global workspace
 - A unified package (`rlc`) with a user-facing CognitiveFramework API
+- A system with reconstructive memory that doesn't just store — it rebuilds, distorts, consolidates, and forgets
 - An active research project with empirical validation in constrained environments
 - A prototype — not yet AGI, but proposing a novel path toward it
 
 ---
 
-*Updated 2026-05-19. Share freely with LLM collaborators for guidance on next steps.*
+*Updated 2026-05-19 (Phase O: Human Memory). Share freely with LLM collaborators for guidance on next steps.*
