@@ -15,6 +15,8 @@ import heapq
 import re
 import os
 import pickle
+import hashlib
+import numpy as np
 from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional, Set, Tuple
 
@@ -1218,6 +1220,190 @@ class HumanMemoryEngine:
             "chain_lengths": [len(c) for c in narratives],
             "total_episodes_linked": sum(len(c) for c in narratives),
         }
+
+    # ─── Memory-Weights Bridge ─────────────────────────────────────────
+
+    def bridge_to_graph(self, concept_graph: Any,
+                        token_concept_map: Optional[List[int]] = None,
+                        lr: float = 0.02) -> Dict[str, int]:
+        """Bridge consolidated memories into ConceptGraph edges.
+
+        This is the core 'memory IS the model' connection: consolidated
+        memories strengthen concept graph edges, making the graph's
+        learned structure reflect lived experience.
+
+        Args:
+            concept_graph: The ConceptGraph to bridge into.
+            token_concept_map: Optional list mapping token IDs to concept node IDs.
+                              If provided, used for content→concept translation.
+            lr: Learning rate for edge strengthening.
+
+        Returns:
+            Counts of edges strengthened and concepts created.
+        """
+        conn = self._get_conn()
+        rows = conn.execute(
+            """SELECT id, content, memory_type, tags, importance, emotional,
+                      access_count, coherence, stability, predictive_utility,
+                      consolidation_score
+               FROM memories WHERE suppressed = 0 AND consolidated = 1
+               ORDER BY predictive_utility DESC, importance DESC"""
+        ).fetchall()
+        conn.close()
+
+        consolidated = [self._row_to_dict_short(r) for r in rows]
+        if not consolidated:
+            return {"memories_bridged": 0, "edges_strengthened": 0, "concepts_created": 0}
+
+        edges_strengthened = 0
+        concepts_created = 0
+        memory_concepts: Dict[int, List[int]] = {}  # memory_id -> [concept_nids]
+
+        for mem in consolidated:
+            mid = mem["id"]
+            content = str(mem.get("content") or "").lower()
+            tags = str(mem.get("tags") or "").lower()
+            importance = float(mem.get("importance", 0.5))
+            utility = float(mem.get("predictive_utility", 0.5))
+
+            # Find matching concept nodes by label/tag overlap
+            matched_concepts = []
+            for nid, node in concept_graph.nodes.items():
+                node_label = str(node.label or "").lower()
+                # Check if memory content/tags contain the node label
+                if node_label and len(node_label) > 2:
+                    if node_label in content or node_label in tags:
+                        matched_concepts.append(nid)
+                    # Also check tag tokens
+                    for tag in tags.split(","):
+                        tag = tag.strip()
+                        if tag and tag in node_label:
+                            matched_concepts.append(nid)
+                            break
+
+            if not matched_concepts:
+                # No matching concepts — create a new concept for this memory
+                # Use a hash of the content as a seed for the vector
+                seed = int(hashlib.md5(content.encode()).hexdigest()[:8], 16)
+                rng = np.random.RandomState(seed)
+                vec = rng.randn(concept_graph.dim).astype(np.float32) * 0.1
+                node = concept_graph.add_node(
+                    vector=vec,
+                    label=f"mem_{mid}"
+                )
+                # Set activation based on memory importance
+                node.activation = importance
+                node.salience = utility
+                node.confidence = mem.get("coherence", 1.0)
+                matched_concepts.append(node.id)
+                concepts_created += 1
+
+            memory_concepts[mid] = matched_concepts
+
+        # Strengthen edges between concepts that co-occur in consolidated memories
+        # Group by shared tags to find co-occurring concepts
+        tag_concepts: Dict[str, List[int]] = {}
+        for mem in consolidated:
+            mid = mem["id"]
+            if mid not in memory_concepts:
+                continue
+            for tag in str(mem.get("tags") or "").split(","):
+                tag = tag.strip()
+                if tag:
+                    tag_concepts.setdefault(tag, []).extend(memory_concepts[mid])
+
+        for tag, concept_ids in tag_concepts.items():
+            unique_ids = list(set(concept_ids))
+            if len(unique_ids) < 2:
+                continue
+            # Strengthen edges between all co-occurring concepts
+            for i in range(len(unique_ids)):
+                for j in range(i + 1, len(unique_ids)):
+                    nid_a, nid_b = unique_ids[i], unique_ids[j]
+                    # Coactivation based on how many consolidated memories share this tag
+                    coactivation = min(1.0, len([m for m in consolidated
+                                                 if tag in str(m.get("tags") or "")]) * 0.3)
+                    concept_graph.hebbian_update(nid_a, nid_b, coactivation, lr=lr)
+                    edges_strengthened += 1
+
+        return {
+            "memories_bridged": len(consolidated),
+            "edges_strengthened": edges_strengthened,
+            "concepts_created": concepts_created,
+        }
+
+    def recall_with_concepts(self, active_concept_ids: List[int],
+                             concept_graph: Any,
+                             limit: int = 10) -> List[dict]:
+        """Recall memories biased by currently active ConceptGraph concepts.
+
+        Uses concept node labels to find related memories, then blends
+        concept activation scores with memory relevance.
+        """
+        if not active_concept_ids:
+            return self.recall(limit=limit)
+
+        # Collect labels/keywords from active concepts
+        concept_keywords = set()
+        concept_scores: Dict[str, float] = {}
+        for nid in active_concept_ids:
+            node = concept_graph.nodes.get(nid)
+            if node:
+                label = (node.label or "").lower()
+                if label:
+                    concept_keywords.add(label)
+                    concept_scores[label] = node.activation
+
+        if not concept_keywords:
+            return self.recall(limit=limit)
+
+        # Search memories matching concept keywords
+        conn = self._get_conn()
+        conditions = ["suppressed = 0"]
+        keyword_conditions = []
+        params = []
+        for kw in concept_keywords:
+            keyword_conditions.append("(content LIKE ? OR tags LIKE ? OR context LIKE ?)")
+            params.extend([f"%{kw}%", f"%{kw}%", f"%{kw}%"])
+
+        if keyword_conditions:
+            conditions.append(f"({' OR '.join(keyword_conditions)})")
+
+        where = " AND ".join(conditions)
+        params.append(limit * 3)  # fetch more, then re-rank
+        rows = conn.execute(
+            f"""SELECT id, content, memory_type, semantic_type, context, tags,
+                       importance, emotional, access_count, decay_score, consolidated,
+                       coherence, stability, retrieval_distortion, associative_divergence,
+                       predictive_utility
+                FROM memories WHERE {where}
+                ORDER BY (importance * 0.30 + emotional * 0.50
+                         + access_count * 0.002
+                         + (1.0 - MIN(decay_score, 10.0) / 10.0) * 0.20) DESC
+                LIMIT ?""",
+            params
+        ).fetchall()
+        conn.close()
+
+        results = [self._row_to_dict_short(r) for r in rows]
+
+        # Re-rank by concept activation boost
+        for m in results:
+            content = str(m.get("content") or "").lower()
+            tags = str(m.get("tags") or "").lower()
+            concept_boost = 0.0
+            for kw, activation in concept_scores.items():
+                if kw in content or kw in tags:
+                    concept_boost = max(concept_boost, activation)
+            m["_concept_boost"] = round(concept_boost, 4)
+            m["_relevance_score"] = round(
+                m.get("importance", 0.5) * 0.3 +
+                m.get("emotional", 0.5) * 0.5 +
+                concept_boost * 0.2, 4
+            )
+
+        results.sort(key=lambda x: -x["_relevance_score"])
+        return results[:limit]
 
     def sleep_replay(self, state_snapshot: Dict[str, Any] = None) -> Dict[str, int]:
         """Replay and reshape memories during sleep consolidation.
