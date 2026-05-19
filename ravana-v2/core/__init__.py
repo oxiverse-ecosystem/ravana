@@ -64,6 +64,9 @@ from .meaning import MeaningEngine, MeaningConfig, MeaningRecord
 # Phase N: Global Workspace
 from .global_workspace import GlobalWorkspace, GWConfig, GWContent
 
+# Phase O: Human Memory
+from .human_memory import HumanMemoryEngine, HumanMemoryConfig, HumanMemoryRecord
+
 __all__ = [
     # Phase A
     "Governor", "GovernorConfig", "RegulationMode", "ClampDiagnostics",
@@ -105,4 +108,6 @@ __all__ = [
     "MeaningEngine", "MeaningConfig", "MeaningRecord",
     # Phase N
     "GlobalWorkspace", "GWConfig", "GWContent",
+    # Phase O
+    "HumanMemoryEngine", "HumanMemoryConfig", "HumanMemoryRecord",
 ]

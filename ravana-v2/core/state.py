@@ -81,6 +81,7 @@ class StateManager:
         dual_process: Optional[Any] = None,
         meaning_engine: Optional[Any] = None,
         global_workspace: Optional[Any] = None,
+        human_memory: Optional[Any] = None,
     ):
         from .memory import RavanaMemorySystem
         self.state = CognitiveState()
@@ -96,6 +97,7 @@ class StateManager:
         self.dual_process = dual_process
         self.meaning = meaning_engine
         self.gw = global_workspace
+        self.human_memory = human_memory
 
         # History for analysis
         self.history: list = []
@@ -354,6 +356,13 @@ class StateManager:
             episode_data=step_record,
             state_snapshot=self.state.snapshot()
         )
+
+        # 10b. HUMAN MEMORY: Persistent episodic storage with decay
+        if self.human_memory is not None:
+            self.human_memory.process_step(
+                episode_data=step_record,
+                state_snapshot=self.state.snapshot()
+            )
         
         if debug:
             self._log_step(step_record)
@@ -393,4 +402,6 @@ class StateManager:
             status["meaning"] = self.meaning.get_status()
         if self.gw is not None:
             status["global_workspace"] = self.gw.get_status()
+        if self.human_memory is not None:
+            status["human_memory"] = self.human_memory.get_status()
         return status

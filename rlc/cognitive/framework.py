@@ -40,6 +40,7 @@ from core.sleep import SleepConsolidation, SleepConfig
 from core.meaning import MeaningEngine, MeaningConfig
 from core.dual_process import DualProcessController, DualProcessConfig
 from core.global_workspace import GlobalWorkspace, GWConfig
+from core.human_memory import HumanMemoryEngine, HumanMemoryConfig
 
 
 @dataclass
@@ -57,6 +58,7 @@ class FrameworkConfig:
     meaning_config: Optional[MeaningConfig] = None
     dual_process_config: Optional[DualProcessConfig] = None
     gw_config: Optional[GWConfig] = None
+    human_memory_config: Optional[HumanMemoryConfig] = None
 
     # Learning
     hebbian_lr: float = 0.03
@@ -163,6 +165,7 @@ class CognitiveFramework:
         self.meaning_engine = MeaningEngine(c.meaning_config) if c.meaning_config is not None else MeaningEngine()
         self.dual_process_engine = DualProcessController(c.dual_process_config) if c.dual_process_config is not None else DualProcessController()
         self.gw_engine = GlobalWorkspace(c.gw_config) if c.gw_config is not None else GlobalWorkspace()
+        self.human_memory_engine = HumanMemoryEngine(c.human_memory_config) if c.human_memory_config is not None else HumanMemoryEngine()
 
         # === State Manager (orchestrator) ===
         self.state_manager = StateManager(
@@ -174,6 +177,7 @@ class CognitiveFramework:
             dual_process=self.dual_process_engine,
             meaning_engine=self.meaning_engine,
             global_workspace=self.gw_engine,
+            human_memory=self.human_memory_engine,
         )
 
         self._initialized = True
@@ -344,6 +348,10 @@ class CognitiveFramework:
 
         # Decay graph pressure
         self.graph_pressure.decay(rate=0.3)
+
+        # Human memory: decay + consolidation
+        self.human_memory_engine.apply_decay()
+        self.human_memory_engine.consolidate()
 
         return self._build_framework_state()
 

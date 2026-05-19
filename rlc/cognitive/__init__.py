@@ -80,6 +80,9 @@ from core import (
 
     # Phase N: Global Workspace
     GlobalWorkspace, GWConfig, GWContent,
+
+    # Phase O: Human Memory
+    HumanMemoryEngine, HumanMemoryConfig, HumanMemoryRecord,
 )
 
 # Also make submodules accessible
@@ -132,6 +135,8 @@ __all__ = [
     # Meaning & Global Workspace
     "MeaningEngine", "MeaningConfig", "MeaningRecord",
     "GlobalWorkspace", "GWConfig", "GWContent",
+    # Human Memory
+    "HumanMemoryEngine", "HumanMemoryConfig", "HumanMemoryRecord",
     # Framework
     "CognitiveFramework", "FrameworkConfig",
 ]
