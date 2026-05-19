@@ -22,8 +22,8 @@ A PyTorch-compatible API surface built on NumPy. Only hard dependency: `numpy`.
 | File | Lines | Purpose |
 |------|-------|---------|
 | `tensor.py` | 386 | `RawTensor` (NumPy wrapper with PyTorch-like API) + `StateTensor` (adds salience, pressure, stability, decay) |
-| `graph.py` | 281 | `ConceptGraph` with `ConceptNode`/`ConceptEdge` — Hebbian/anti-Hebbian updates, structural plasticity, activation spreading |
-| `pressure.py` | 73 | `PressureAccumulator` — semantic, linguistic, episodic, contradiction pressure with decay + normalization |
+| `graph.py` | 564 | `ConceptGraph` with `ConceptNode`/`ConceptEdge` — Hebbian/anti-Hebbian updates, structural plasticity, activation spreading, **hierarchical abstraction** (merge_concepts, cluster detection, hierarchy traversal) |
+| `pressure.py` | 85 | `PressureAccumulator` — semantic, linguistic, episodic, contradiction, **abstraction** pressure with decay + normalization |
 | `plasticity.py` | 70 | `HebbianPlasticity`, `AntiHebbianPlasticity`, `StructuralPlasticity` |
 | `propagation.py` | 79 | Activation spreading engine over concept graph |
 | `nn/module.py` | 272 | PyTorch-compatible `Module` base with `accumulate_pressure()` + `sleep_cycle()` — replaces backprop |
@@ -66,7 +66,7 @@ The GRACE architecture (Governance, Reflection, Adaptation, Constraint, Explorat
 | `global_workspace.py` | N | **NEW** — Competitive broadcast system, consciousness bottleneck |
 
 **Additional systems outside core/:**
-- `sleep.py` (391 lines) — 4-stage consolidation: topology analysis, pattern compression, contradiction resolution, integration. Dream sabotage (20% counterfactual reversals, 10% valence flipping, 1.5x failure oversampling). Tier-0 identity protection.
+- `sleep.py` (486 lines) — 5-stage consolidation: topology analysis, pattern compression, **abstraction compression** (hierarchical concept merging), contradiction resolution, integration. Dream sabotage (20% counterfactual reversals, 10% valence flipping, 1.5x failure oversampling). Tier-0 identity protection.
 - `dual_process.py` (209 lines) — System 1 (fast/intuitive) vs System 2 (slow/deliberate) with override logic
 - `meaning.py` (224 lines) — Intrinsic motivation: `M = w1(-D_future) + w2(identity_coherence) + w3(predictive_power) * (1 + kappa * effort_cost)`
 - `empathy.py` — Theory of Mind via Gaussian Process regression
@@ -142,6 +142,45 @@ report = fw.diagnose(state)                    # full cognitive dashboard
 
 ---
 
+## Hierarchical Abstraction Compression (NEW)
+
+The system now develops **actual graph hierarchy** during sleep — not just edge strengthening, but structural reorganization.
+
+**How it works:**
+1. During wake: leaf concepts accumulate co-activation patterns through experience
+2. During sleep: `find_coactivated_clusters()` identifies groups of frequently co-activated leaf concepts
+3. `merge_concepts()` creates parent concepts via vector centroid averaging, aggregates edges
+4. Parent-child hierarchy forms: children retain their edges, parents summarize the cluster
+5. Activation spreads upward: activating children partially activates parents (decay=0.3)
+6. Abstraction pressure accumulates from uncompressed clusters, driving further compression
+
+**Key properties:**
+- Hierarchical levels: leaf (L0) → abstract (L1) → more abstract (L2) → ... (configurable max depth)
+- Compression ratio: tracks fraction of abstract vs leaf nodes
+- Cluster coherence: only merges concepts with strong internal edge weights
+- Protected: won't double-merge already-parented concepts
+
+**API:**
+```python
+from ravana.graph import ConceptGraph
+
+g = ConceptGraph(dim=64)
+
+# After experience, find and merge co-activated clusters
+clusters = g.find_coactivated_clusters(min_cluster_size=3, max_cluster_size=8)
+for cluster in clusters:
+    parent_id = g.merge_concepts(cluster, abstraction_degree=0.5)
+
+# Hierarchy traversal
+leaves = g.get_leaves(parent_id)       # all leaf descendants
+ancestors = g.get_ancestors(leaf_id)   # path to root
+stats = g.get_abstraction_stats()      # compression ratio, max level, etc.
+```
+
+**Why this matters:** This is the bridge between "pressure accumulates" and "structure actually reorganizes." Without abstraction compression, the graph stays flat forever. With it, the system develops hierarchical representations that enable cross-domain transfer and compositional reasoning.
+
+---
+
 ## Global Workspace (NEW)
 
 `ravana-v2/core/global_workspace.py` — the consciousness bottleneck.
@@ -214,6 +253,7 @@ context = gw.get_context_vector()  # weighted VAD vector
 
 **Phase 2 items:**
 - [x] Global Workspace memory integration — **DONE** (`global_workspace.py` + wired into StateManager)
+- [x] Hierarchical abstraction compression — **DONE** (merge_concepts, cluster detection, hierarchy traversal, sleep integration)
 - [ ] Episodic buffer with temporal binding
 - [ ] Semantic knowledge graph (Bayesian)
 - [ ] News-to-MDP pipeline (real-world grounding)
@@ -264,6 +304,13 @@ context = gw.get_context_vector()  # weighted VAD vector
 - ~~No packaging infrastructure~~ → `rlc/pyproject.toml` exists, `pip install -e .` works
 - ~~Global Workspace missing~~ → `global_workspace.py` implemented and wired into StateManager
 - ~~Framework API not built~~ → `CognitiveFramework` class implemented with full API
+
+### Phase 2.5 (NEW — bridging Phase 2 → Phase 3)
+- [x] Hierarchical abstraction compression — **DONE**
+- [ ] Replay-driven concept merging (sleep replay identifies overlapping concepts for fusion)
+- [ ] Latent manifold stabilization (Identity engine tracks concept embedding trajectories)
+- [ ] Temporal episodic stitching (link sequential episodes into coherent narratives)
+- [ ] Structural replay metrics (measure abstraction depth, concept reuse, cross-domain transfer)
 
 ### Remaining
 1. **RLM has partial backprop** — `rlm.py` line 314 uses `context_logits.backprop()` despite "no backprop" claim. Limited to context logits head only.

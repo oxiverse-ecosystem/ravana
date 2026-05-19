@@ -1,7 +1,8 @@
 import numpy as np
 import time
-from typing import Optional, List, Tuple, Dict, Set
+from typing import Any, Optional, List, Tuple, Dict, Set
 from .tensor import StateTensor, RawTensor, tensor
+from collections import defaultdict
 
 
 class ConceptNode:
@@ -17,6 +18,12 @@ class ConceptNode:
         self.timestamp = time.time()
         self.contradiction_count = 0
 
+        # Hierarchical abstraction fields
+        self.level: int = 0  # 0 = leaf, higher = more abstract
+        self.parent: Optional[int] = None  # parent concept ID
+        self.children: Set[int] = set()  # child concept IDs
+        self.abstraction_degree: float = 0.0  # 0.0 = raw, 1.0 = fully compressed
+
     def age(self) -> float:
         return time.time() - self.timestamp
 
@@ -29,8 +36,11 @@ class ConceptNode:
         return 1.0 - self.stability
 
     def __repr__(self):
+        hierarchy = f" L{self.level}" if self.level > 0 else ""
+        children = f" [{len(self.children)}ch]" if self.children else ""
         return (f"<Node {self.id} '{self.label}' act={self.activation:.3f} "
-                f"conf={self.confidence:.3f} stab={self.stability:.3f}>")
+                f"conf={self.confidence:.3f} stab={self.stability:.3f}"
+                f"{hierarchy}{children}>")
 
 
 class ConceptEdge:
@@ -80,6 +90,17 @@ class ConceptGraph:
 
     def remove_node(self, nid: int):
         if nid in self.nodes:
+            node = self.nodes[nid]
+            # Unlink from parent
+            if node.parent is not None and node.parent in self.nodes:
+                self.nodes[node.parent].children.discard(nid)
+            # Orphan children (move them up one level)
+            for child_id in node.children:
+                child = self.nodes.get(child_id)
+                if child:
+                    child.parent = node.parent
+                    if node.parent is not None and node.parent in self.nodes:
+                        self.nodes[node.parent].children.add(child_id)
             del self.nodes[nid]
             self.edges = {k: v for k, v in self.edges.items() if k[0] != nid and k[1] != nid}
 
@@ -122,7 +143,24 @@ class ConceptGraph:
             for nid, act in new_activations.items():
                 if nid in self.nodes:
                     self.nodes[nid].activation = min(1.0, self.nodes[nid].activation + act)
+            # Hierarchical upward propagation: children activate parents
+            self._propagate_upward(decay=0.3)
             self._top_k_activation(k_active)
+
+    def _propagate_upward(self, decay: float = 0.3):
+        """Propagate activation from children to their parent concepts."""
+        parent_activations: Dict[int, float] = {}
+        for nid, node in self.nodes.items():
+            if node.activation > 0.01 and node.parent is not None:
+                parent_activations[node.parent] = (
+                    parent_activations.get(node.parent, 0.0)
+                    + node.activation * decay
+                )
+        for parent_id, act in parent_activations.items():
+            if parent_id in self.nodes:
+                self.nodes[parent_id].activation = min(
+                    1.0, self.nodes[parent_id].activation + act
+                )
 
     def _top_k_activation(self, k: int):
         sorted_nodes = sorted(self.nodes.values(), key=lambda n: n.activation, reverse=True)
@@ -268,6 +306,247 @@ class ConceptGraph:
                 node.pressure = max(0.0, node.pressure - 1.0)
         self.contradiction_hotspots.clear()
         return reconciled
+
+    # ── hierarchy traversal ──
+
+    def get_children(self, nid: int) -> List[int]:
+        """Get direct children of a concept."""
+        node = self.nodes.get(nid)
+        if node is None:
+            return []
+        return list(node.children)
+
+    def get_leaves(self, nid: int) -> List[int]:
+        """Get all leaf descendants of a concept (recursive)."""
+        node = self.nodes.get(nid)
+        if node is None:
+            return []
+        if not node.children:
+            return [nid]
+        leaves = []
+        for child_id in node.children:
+            leaves.extend(self.get_leaves(child_id))
+        return leaves
+
+    def get_ancestors(self, nid: int) -> List[int]:
+        """Get all ancestors from node to root."""
+        ancestors = []
+        current = self.nodes.get(nid)
+        while current and current.parent is not None:
+            ancestors.append(current.parent)
+            current = self.nodes.get(current.parent)
+        return ancestors
+
+    def get_level(self, nid: int) -> int:
+        """Get abstraction level of a concept."""
+        node = self.nodes.get(nid)
+        return node.level if node else 0
+
+    def get_siblings(self, nid: int) -> List[int]:
+        """Get siblings (same parent) of a concept."""
+        node = self.nodes.get(nid)
+        if node is None or node.parent is None:
+            return []
+        parent = self.nodes.get(node.parent)
+        if parent is None:
+            return []
+        return [c for c in parent.children if c != nid]
+
+    # ── hierarchical abstraction ──
+
+    def merge_concepts(
+        self,
+        child_ids: List[int],
+        label: str = "",
+        abstraction_degree: float = 0.5,
+    ) -> Optional[int]:
+        """
+        Create a parent concept by merging child concepts.
+
+        The parent's vector is the centroid of its children. Edges from/to
+        children are aggregated to the parent. Children retain their edges
+        but gain a parent pointer.
+
+        Args:
+            child_ids: Concept IDs to merge (must be >= 2)
+            label: Label for the new parent concept
+            abstraction_degree: How compressed this abstraction is (0-1)
+
+        Returns:
+            Parent concept ID, or None if merge is not possible
+        """
+        # Validate
+        valid_children = [cid for cid in child_ids if cid in self.nodes]
+        if len(valid_children) < 2:
+            return None
+
+        # Don't merge if any child already has a parent at the same level
+        # (prevent double-merging)
+        for cid in valid_children:
+            child = self.nodes[cid]
+            if child.parent is not None:
+                # Check if the parent is also being merged — that's fine
+                if child.parent not in valid_children:
+                    return None
+
+        child_nodes = [self.nodes[cid] for cid in valid_children]
+
+        # Compute parent level: max child level + 1
+        max_child_level = max(n.level for n in child_nodes)
+
+        # Compute parent vector: centroid of children
+        child_vectors = np.array([n.vector for n in child_nodes])
+        parent_vector = np.mean(child_vectors, axis=0).astype(np.float32)
+        norm = np.linalg.norm(parent_vector)
+        if norm > 0:
+            parent_vector /= norm
+
+        # Create parent node
+        parent_label = label or f"abs_{'_'.join(str(c) for c in valid_children[:3])}"
+        parent = self.add_node(parent_vector, parent_label)
+        parent.level = max_child_level + 1
+        parent.abstraction_degree = abstraction_degree
+        parent.children = set(valid_children)
+        parent.salience = np.mean([n.salience for n in child_nodes])
+        parent.confidence = np.mean([n.confidence for n in child_nodes])
+        parent.stability = np.mean([n.stability for n in child_nodes])
+
+        # Link children to parent
+        for child in child_nodes:
+            child.parent = parent.id
+
+        # Aggregate edges: collect all external edges from/to children
+        # and create weighted edges from/to the parent
+        self._aggregate_child_edges(parent.id, valid_children)
+
+        return parent.id
+
+    def _aggregate_child_edges(self, parent_id: int, child_ids: List[int]):
+        """
+        Aggregate external edges from children to the parent node.
+
+        For each external target connected to any child, create an edge
+        from parent to that target with weight = mean child edge weight.
+        Similarly for incoming edges.
+        """
+        child_set = set(child_ids)
+
+        # Outgoing: child → external target
+        outgoing: Dict[int, List[float]] = defaultdict(list)
+        # Incoming: external source → child
+        incoming: Dict[int, List[float]] = defaultdict(list)
+
+        for (src, tgt), edge in self.edges.items():
+            if src in child_set and tgt not in child_set:
+                outgoing[tgt].append(edge.weight)
+            elif tgt in child_set and src not in child_set:
+                incoming[src].append(edge.weight)
+
+        # Create aggregated edges to parent
+        for target_id, weights in outgoing.items():
+            mean_weight = float(np.mean(weights))
+            self.get_or_create_edge(parent_id, target_id, mean_weight)
+
+        for source_id, weights in incoming.items():
+            mean_weight = float(np.mean(weights))
+            self.get_or_create_edge(source_id, parent_id, mean_weight)
+
+    def find_coactivated_clusters(
+        self,
+        coactivation_threshold: float = 0.5,
+        min_cluster_size: int = 3,
+        max_cluster_size: int = 8,
+    ) -> List[List[int]]:
+        """
+        Find clusters of frequently co-activated leaf concepts.
+
+        Uses a simple greedy approach: for each highly active node,
+        find its co-activated neighbors and group them.
+
+        Returns:
+            List of concept ID lists (each list is a merge candidate)
+        """
+        active_leaves = [
+            n for n in self.nodes.values()
+            if n.activation > 0.1 and n.level == 0 and n.parent is None
+        ]
+
+        if len(active_leaves) < min_cluster_size:
+            return []
+
+        # Build co-activation adjacency from edges
+        coactive_pairs: Dict[int, List[Tuple[int, float]]] = defaultdict(list)
+        for node in active_leaves:
+            outgoing = [(t, e) for (s, t), e in self.edges.items() if s == node.id]
+            for target_id, edge in outgoing:
+                target = self.nodes.get(target_id)
+                if target and target.level == 0 and target.parent is None:
+                    coact = node.activation * target.activation * edge.weight
+                    if coact > coactivation_threshold:
+                        coactive_pairs[node.id].append((target_id, coact))
+
+        # Greedy clustering: seed from highest-activity nodes
+        clusters = []
+        used = set()
+        sorted_nodes = sorted(active_leaves, key=lambda n: n.activation, reverse=True)
+
+        for seed in sorted_nodes:
+            if seed.id in used:
+                continue
+
+            cluster = [seed.id]
+            used.add(seed.id)
+
+            # Add co-activated neighbors
+            neighbors = coactive_pairs.get(seed.id, [])
+            neighbors.sort(key=lambda x: x[1], reverse=True)
+
+            for neighbor_id, _ in neighbors:
+                if len(cluster) >= max_cluster_size:
+                    break
+                if neighbor_id not in used:
+                    # Check that neighbor is co-activated with most of the cluster
+                    sim_count = 0
+                    for existing_id in cluster:
+                        for nid, _ in coactive_pairs.get(existing_id, []):
+                            if nid == neighbor_id:
+                                sim_count += 1
+                                break
+                    if sim_count >= max(1, len(cluster) - 1):
+                        cluster.append(neighbor_id)
+                        used.add(neighbor_id)
+
+            if len(cluster) >= min_cluster_size:
+                clusters.append(cluster)
+
+        return clusters
+
+    def compute_compression_ratio(self) -> float:
+        """
+        Compute the abstraction compression ratio.
+
+        Returns the fraction of nodes that are abstract (level > 0).
+        """
+        if not self.nodes:
+            return 0.0
+        abstract_count = sum(1 for n in self.nodes.values() if n.level > 0)
+        return abstract_count / len(self.nodes)
+
+    def get_abstraction_stats(self) -> Dict[str, Any]:
+        """Get full abstraction statistics."""
+        levels = [n.level for n in self.nodes.values()]
+        abstract_nodes = [n for n in self.nodes.values() if n.level > 0]
+        return {
+            "total_nodes": len(self.nodes),
+            "leaf_nodes": sum(1 for l in levels if l == 0),
+            "abstract_nodes": len(abstract_nodes),
+            "max_level": max(levels) if levels else 0,
+            "compression_ratio": self.compute_compression_ratio(),
+            "mean_abstraction_degree": (
+                float(np.mean([n.abstraction_degree for n in abstract_nodes]))
+                if abstract_nodes else 0.0
+            ),
+        }
 
     # ── state ──
 

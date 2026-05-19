@@ -331,7 +331,7 @@ class CognitiveFramework:
         # Normalize edge weights
         self._normalize_outgoing_weights(budget=3.0)
 
-        # === Cognitive-level sleep ===
+        # === Cognitive-level sleep (with graph for abstraction compression) ===
         if self.sleep_engine_available():
             sleep_record = self.state_manager.sleep.execute_sleep_cycle(
                 episode=self._step_count,
@@ -339,6 +339,7 @@ class CognitiveFramework:
                 episodic_memories=self.state_manager.memory.episodic.traces,
                 emotion_engine=self.emotion_engine,
                 coherence_fn=lambda s: 1.0 - s.get("dissonance", 0.5),
+                graph=self.graph,
             )
 
         # Decay graph pressure
@@ -453,6 +454,10 @@ class CognitiveFramework:
                 "pressure": node.pressure,
                 "stability": node.stability,
                 "confidence": node.confidence,
+                "level": node.level,
+                "parent": node.parent,
+                "children": list(node.children),
+                "abstraction_degree": node.abstraction_degree,
             },
             "neighbors": neighbors,
             "edges": edges,
@@ -476,6 +481,7 @@ class CognitiveFramework:
                 "total_pressure": self.graph.total_pressure,
                 "contradiction_hotspots": len(self.graph.contradiction_hotspots),
             },
+            "abstraction": self.graph.get_abstraction_stats(),
             "cognitive": self.state_manager.get_status(),
             "pressure": self.graph_pressure.report(),
             "step_count": self._step_count,

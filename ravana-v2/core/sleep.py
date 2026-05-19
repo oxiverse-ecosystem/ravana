@@ -9,7 +9,7 @@ brittle ones.
 
 import numpy as np
 from dataclasses import dataclass, field
-from typing import Dict, Any, List, Optional, Tuple, Callable
+from typing import Dict, Any, List, Optional, Tuple, Callable, Set
 from enum import Enum
 import copy
 import math
@@ -19,6 +19,7 @@ class SleepStage(Enum):
     AWAKE = "awake"
     TOPOLOGY_ANALYSIS = "topology_analysis"
     PATTERN_COMPRESSION = "pattern_compression"
+    ABSTRACTION_COMPRESSION = "abstraction_compression"
     CONTRADICTION_RESOLUTION = "contradiction_resolution"
     INTEGRATION = "integration"
 
@@ -52,6 +53,12 @@ class SleepConfig:
     max_perturbation_hops: int = 2
     max_edge_weight_change: float = 0.05
     
+    # Abstraction compression parameters
+    abstraction_min_cluster_size: int = 3
+    abstraction_max_cluster_size: int = 8
+    abstraction_coactivation_threshold: float = 0.5
+    abstraction_max_level: int = 5  # max hierarchy depth
+
     # Rollback protection
     coherence_drop_threshold: float = 0.05
     
@@ -114,6 +121,7 @@ class SleepConsolidation:
         episodic_memories: Optional[List[Any]] = None,
         emotion_engine: Optional[Any] = None,
         coherence_fn: Optional[Callable[[Dict[str, Any]], float]] = None,
+        graph: Optional[Any] = None,
     ) -> SleepRecord:
         """
         Execute one full sleep cycle.
@@ -153,7 +161,14 @@ class SleepConsolidation:
             state_snapshot, episodic_memories, emotion_engine
         )
         total_sabotages += sabotage_result["sabotages_applied"]
-        
+
+        # Stage 2.5: Abstraction Compression (hierarchical merging)
+        abstraction_result = {"merges": 0, "clusters_found": 0, "abstract_nodes_created": 0}
+        if graph is not None:
+            self._current_stage = SleepStage.ABSTRACTION_COMPRESSION
+            abstraction_result = self._abstract_compress(graph)
+            total_perturbations += abstraction_result["merges"]
+
         # Stage 3: Contradiction Resolution
         self._current_stage = SleepStage.CONTRADICTION_RESOLUTION
         resolution_result = self._resolve_contradictions(
@@ -189,6 +204,7 @@ class SleepConsolidation:
             details={
                 "pressure_zones": len(pressure_zones),
                 "compression": compression_result,
+                "abstraction": abstraction_result,
                 "sabotage": sabotage_result,
                 "resolution": resolution_result,
             }
@@ -277,6 +293,81 @@ class SleepConsolidation:
             "clusters_found": clusters_found,
         }
     
+    def _abstract_compress(self, graph: Any) -> Dict[str, Any]:
+        """
+        Stage 2.5: Hierarchical abstraction compression.
+
+        Identifies clusters of co-activated leaf concepts and merges them
+        into parent concepts. This is where pressure-driven structural
+        reorganization actually happens — the graph develops hierarchy.
+
+        Args:
+            graph: ConceptGraph instance
+
+        Returns:
+            Dict with merge statistics
+        """
+        clusters_found = 0
+        merges = 0
+        abstract_nodes_created = 0
+
+        # Check hierarchy depth limit
+        stats = graph.get_abstraction_stats()
+        if stats["max_level"] >= self.config.abstraction_max_level:
+            return {"merges": 0, "clusters_found": 0, "abstract_nodes_created": 0,
+                    "reason": "max_level_reached"}
+
+        # Find co-activated clusters
+        clusters = graph.find_coactivated_clusters(
+            coactivation_threshold=self.config.abstraction_coactivation_threshold,
+            min_cluster_size=self.config.abstraction_min_cluster_size,
+            max_cluster_size=self.config.abstraction_max_cluster_size,
+        )
+        clusters_found = len(clusters)
+
+        # Merge each cluster into a parent concept
+        for cluster in clusters:
+            # Skip if any node in cluster already has a parent
+            if any(graph.nodes[cid].parent is not None for cid in cluster if cid in graph.nodes):
+                continue
+
+            # Compute mean co-activation strength for this cluster
+            activations = [graph.nodes[cid].activation for cid in cluster if cid in graph.nodes]
+            mean_act = float(np.mean(activations)) if activations else 0.0
+
+            # Compute abstraction degree based on cluster coherence
+            # Higher co-activation within cluster = higher abstraction degree
+            coherence = self._cluster_coherence(graph, cluster)
+            abstraction_degree = min(1.0, mean_act * coherence)
+
+            parent_id = graph.merge_concepts(
+                cluster,
+                abstraction_degree=abstraction_degree,
+            )
+
+            if parent_id is not None:
+                merges += 1
+                abstract_nodes_created += 1
+
+        return {
+            "merges": merges,
+            "clusters_found": clusters_found,
+            "abstract_nodes_created": abstract_nodes_created,
+        }
+
+    def _cluster_coherence(self, graph: Any, cluster: List[int]) -> float:
+        """Compute coherence of a cluster (mean edge weight between members)."""
+        weights = []
+        for i, a in enumerate(cluster):
+            for b in cluster[i + 1:]:
+                edge = graph.get_edge(a, b)
+                if edge:
+                    weights.append(edge.weight)
+                edge_rev = graph.get_edge(b, a)
+                if edge_rev:
+                    weights.append(edge_rev.weight)
+        return float(np.mean(weights)) if weights else 0.0
+
     def _resolve_contradictions(
         self,
         state: Dict[str, Any],

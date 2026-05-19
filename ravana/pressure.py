@@ -11,12 +11,14 @@ class PressureAccumulator:
         self.linguistic_pressure = 0.0
         self.episodic_pressure = 0.0
         self.contradiction_pressure = 0.0
+        self.abstraction_pressure = 0.0  # from co-activated clusters needing compression
         self.history: List[float] = []
 
     @property
     def total(self) -> float:
         return (self.semantic_pressure + self.linguistic_pressure +
-                self.episodic_pressure + self.contradiction_pressure)
+                self.episodic_pressure + self.contradiction_pressure +
+                self.abstraction_pressure)
 
     @property
     def normalized(self) -> float:
@@ -38,6 +40,11 @@ class PressureAccumulator:
         self.contradiction_pressure += count * 0.5
         self._record()
 
+    def accumulate_abstraction(self, cluster_count: int, mean_coactivation: float):
+        """Accumulate pressure from co-activated clusters that haven't been compressed."""
+        self.abstraction_pressure += cluster_count * mean_coactivation * 0.3
+        self._record()
+
     def _record(self):
         self.history.append(self.total)
 
@@ -46,12 +53,14 @@ class PressureAccumulator:
         self.linguistic_pressure = max(0.0, self.linguistic_pressure - rate * self.linguistic_pressure)
         self.episodic_pressure = max(0.0, self.episodic_pressure - rate * self.episodic_pressure)
         self.contradiction_pressure = max(0.0, self.contradiction_pressure - rate * self.contradiction_pressure)
+        self.abstraction_pressure = max(0.0, self.abstraction_pressure - rate * self.abstraction_pressure)
 
     def reset(self):
         self.semantic_pressure = 0.0
         self.linguistic_pressure = 0.0
         self.episodic_pressure = 0.0
         self.contradiction_pressure = 0.0
+        self.abstraction_pressure = 0.0
 
     def needs_sleep(self, threshold: float = 10.0) -> bool:
         return self.total > threshold
@@ -62,6 +71,7 @@ class PressureAccumulator:
             'linguistic': self.linguistic_pressure,
             'episodic': self.episodic_pressure,
             'contradiction': self.contradiction_pressure,
+            'abstraction': self.abstraction_pressure,
             'total': self.total,
             'normalized': self.normalized,
         }
