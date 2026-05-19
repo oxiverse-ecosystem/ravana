@@ -27,7 +27,7 @@ A PyTorch-compatible API surface built on NumPy. Only hard dependency: `numpy`.
 | `plasticity.py` | 70 | `HebbianPlasticity`, `AntiHebbianPlasticity`, `StructuralPlasticity` |
 | `propagation.py` | 79 | Activation spreading engine over concept graph |
 | `nn/module.py` | 272 | PyTorch-compatible `Module` base with `accumulate_pressure()` + `sleep_cycle()` — replaces backprop |
-| `nn/rlm.py` | 376 | **Recurrent Latent Module** — working language model using concept graphs, Hebbian learning, competitive inhibition, sleep cycles |
+| `nn/rlm.py` | 376 | **Recursive Learning Model (RLM)** — alternative to LLM, uses concept graphs + Hebbian plasticity + pressure-driven sleep cycles instead of transformers + backprop |
 | `nn/functional.py` | 119 | Functional API (relu, softmax, cross_entropy, etc.) |
 | `world/__init__.py` | 160 | Simulation environment for testing |
 | `lab/__init__.py` | 264 | Concept Physics Lab for compositional experiments |

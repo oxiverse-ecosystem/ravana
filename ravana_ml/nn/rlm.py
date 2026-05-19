@@ -12,10 +12,12 @@ from .module import Module, Linear, Embedding
 
 class RLM(Module):
     """
-    Recurrent Latent Module (RLM)
-    
-    A recurrent network that maps input sequences to conceptual trajectories
-    in a ConceptGraph. Uses pressure-driven plasticity and competitive inhibition.
+    Recursive Learning Model (RLM)
+
+    An alternative to the traditional LLM. Instead of transformer attention
+    and backprop, RLM uses concept graphs, Hebbian plasticity, competitive
+    inhibition, and pressure-driven sleep cycles. Maps input sequences to
+    conceptual trajectories in a ConceptGraph.
     """
     def __init__(self, vocab_size: int, embed_dim: int, concept_dim: int,
                  n_concepts: int, n_hidden: int, n_layers: int = 1,

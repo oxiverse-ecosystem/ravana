@@ -1,9 +1,9 @@
 """
-RLC Cognitive Core — GRACE Architecture
+RAVANA Cognitive Core — GRACE Architecture
 
 Governance, Reflection, Adaptation, Constraint, Exploration.
 
-All cognitive modules from RAVANA v2, accessible via rlc.cognitive.
+All cognitive modules from RAVANA v2, accessible via ravana.cognitive.
 """
 
 import sys
@@ -95,7 +95,7 @@ from core import (
 )
 
 # Framework API — the top-level user interface
-from rlc.cognitive.framework import CognitiveFramework, FrameworkConfig
+from ravana.cognitive.framework import CognitiveFramework, FrameworkConfig
 
 __all__ = [
     # Core regulation
