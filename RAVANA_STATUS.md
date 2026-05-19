@@ -236,7 +236,13 @@ context = gw.get_context_vector()  # weighted VAD vector
 - `detect_hallucination()` — flags when reconstruction diverges from ground truth
 - `find_contradictions()` + `reconcile_contradictions()` — detects and resolves conflicting memories
 
-**Integration:** Wired into `StateManager.step()` — stores each cognitive episode with emotional salience from VAD state. Sleep cycle triggers `apply_decay()` + `consolidate()`. Participates in Global Workspace competition via `compute_gw_bid()`.
+**Cognitive integration:**
+- `sleep_replay()` — actively rewrites memories during consolidation: strengthens coherent, weakens degraded, merges similar episodic into semantic
+- `fragment_memory()` — splits memories under cognitive pressure when associative divergence is high and contradictions exist
+- `stitch_narratives()` — links sequential episodes with shared tags/emotional continuity into narrative chains
+- Identity interaction: strong identity boosts importance, identity pressure boosts emotional weight, identity-derived tags
+
+**Integration:** Wired into `StateManager.step()` — stores each cognitive episode with emotional salience from VAD state and identity modulation. Sleep cycle triggers `sleep_replay()` → `apply_decay()` → `consolidate()`. Participates in Global Workspace competition via `compute_gw_bid()`.
 
 **API:**
 ```python
@@ -253,6 +259,11 @@ results = engine.semantic_search("machine learning")
 blended = engine.blended_recall("programming")
 abstract = engine.abstraction_recall("code", abstraction_level="abstract")
 schema = engine.reconstruct_schema()
+
+# Cognitive integration
+engine.sleep_replay(state_snapshot)   # replay + reshape during sleep
+frag = engine.fragment_memory(mid)    # split under pressure
+narratives = engine.stitch_narratives()  # link episodes into stories
 
 # Entropy and decay
 engine.apply_decay()   # Ebbinghaus sweep + auto-consolidation
@@ -363,14 +374,15 @@ status = engine.get_status()  # includes entropy stats
 - ~~No packaging infrastructure~~ → `rlc/pyproject.toml` exists, `pip install -e .` works
 - ~~Global Workspace missing~~ → `global_workspace.py` implemented and wired into StateManager
 - ~~Framework API not built~~ → `CognitiveFramework` class implemented with full API
+- ~~Phase 2.5 roadmap items~~ → All 6 items completed (abstraction compression, human memory, identity, replay, fragmentation, narrative)
 
 ### Phase 2.5 (bridging Phase 2 → Phase 3)
 - [x] Hierarchical abstraction compression — **DONE**
 - [x] Human memory engine (Phase O) — **DONE** (persistent, decay, consolidation, reconstructive recall)
-- [ ] Identity interaction — memories shaped by identity state, not just emotional/utility
-- [ ] Replay-driven memory reshaping — sleep cycle actively rewrites memories, not just decay
-- [ ] Memory fragmentation — single memory splits into parts under cognitive pressure
-- [ ] Cross-episode narrative stitching — sequential episodes linked into coherent stories
+- [x] Identity interaction — **DONE** (strong identity boosts importance, identity pressure boosts emotional, identity-derived tags)
+- [x] Replay-driven memory reshaping — **DONE** (`sleep_replay()` strengthens coherent memories, weakens degraded, merges similar episodic)
+- [x] Memory fragmentation — **DONE** (`fragment_memory()` splits under cognitive pressure into aligned + contradiction fragments)
+- [x] Cross-episode narrative stitching — **DONE** (`stitch_narratives()` links temporal sequences into narrative chains)
 - [ ] Latent manifold stabilization (Identity engine tracks concept embedding trajectories)
 - [ ] Structural replay metrics (measure abstraction depth, concept reuse, cross-domain transfer)
 
@@ -396,14 +408,14 @@ status = engine.get_status()  # includes entropy stats
 ## Git History
 
 ```
+aebe4d6 Phase O: Identity interaction, sleep replay, fragmentation, narrative stitching
+98ed37e Update RAVANA_STATUS.md with Phase O human memory engine
+de710e9 Phase O: Reconstructive memory — entropy, utility modulation, associative recall
+bc2d491 Phase O: Human Memory — persistent episodic/semantic memory with Ebbinghaus decay
+5daac51 Phase 2.5: Hierarchical abstraction compression
+1380950 Fix Linear.backward() 1D tensor handling
+84b9d59 Phase N: Global Workspace + competitive broadcast architecture
 f2a65b3 RLM Phase I+ Pilot: Epistemic Resilience Confirmed
-c23a148 Implement temporal context decay and hierarchical ambiguity resolution
-00e45ba Architectural transition: separable cognitive forces and protected contextual causality
-619f568 Pressure system now drives sleep: contradiction routing + edge metabolism
-a0a5865 Concept Physics Lab + compositional experiment
-782d2c2 RLM converges: 5/5 exact-match generation, 9/9 causal edges
-d7d0f18 RAVANA framework: PyTorch-like API with pressure-driven learning + RLM
-8437584 Initial commit: RAVANA v2 GRACE architecture + cognitive modules
 ```
 
 ---
@@ -422,10 +434,11 @@ d7d0f18 RAVANA framework: PyTorch-like API with pressure-driven learning + RLM
 - A PyTorch-compatible ML framework (API surface) using Hebbian learning + sleep consolidation
 - A comprehensive cognitive system with emotion, meaning, meta-cognition, empathy, dual-process reasoning, global workspace
 - A unified package (`rlc`) with a user-facing CognitiveFramework API
-- A system with reconstructive memory that doesn't just store — it rebuilds, distorts, consolidates, and forgets
+- A system with reconstructive memory that doesn't just store — it rebuilds, distorts, consolidates, fragments, and forgets
+- A cognitive architecture where identity shapes what gets remembered and sleep actively rewrites the narrative
 - An active research project with empirical validation in constrained environments
 - A prototype — not yet AGI, but proposing a novel path toward it
 
 ---
 
-*Updated 2026-05-19 (Phase O: Human Memory). Share freely with LLM collaborators for guidance on next steps.*
+*Updated 2026-05-19 (Phase O: Reconstructive Memory complete). Share freely with LLM collaborators for guidance on next steps.*
