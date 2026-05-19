@@ -80,6 +80,7 @@ class StateManager:
         sleep_engine: Optional[Any] = None,
         dual_process: Optional[Any] = None,
         meaning_engine: Optional[Any] = None,
+        global_workspace: Optional[Any] = None,
     ):
         from .memory import RavanaMemorySystem
         self.state = CognitiveState()
@@ -88,13 +89,14 @@ class StateManager:
         self.identity = identity_engine
         self.memory = RavanaMemorySystem()
         self.smoothing_alpha = smoothing_alpha
-        
+
         # Integrated cognitive engines (optional)
         self.emotion = emotion_engine
         self.sleep = sleep_engine
         self.dual_process = dual_process
         self.meaning = meaning_engine
-        
+        self.gw = global_workspace
+
         # History for analysis
         self.history: list = []
         
@@ -246,8 +248,43 @@ class StateManager:
             )
             meaning_generated = meaning_record.effective_meaning
         
-        # 8. SLEEP: Accumulate pressure and check for consolidation
+        # 8. GLOBAL WORKSPACE: Submit bids and compete
+        gw_broadcast = None
+        if self.gw is not None:
+            # Emotion bids
+            if self.emotion is not None:
+                emotion_bid = self.emotion.compute_gw_bid()
+                self.gw.submit_bid(
+                    source="emotion",
+                    payload=self.emotion.state.snapshot(),
+                    urgency=emotion_bid,
+                    valence=self.emotion.state.valence,
+                    episode=self.state.episode,
+                )
+
+            # Meaning bids (if meaningful event)
+            if self.meaning is not None and abs(meaning_generated) > 0.1:
+                self.gw.submit_bid(
+                    source="meaning",
+                    payload={"meaning": meaning_generated},
+                    urgency=min(1.0, abs(meaning_generated) * 2.0),
+                    valence=0.1 if meaning_generated > 0 else -0.1,
+                    episode=self.state.episode,
+                )
+
+            # Competition: select winning bid
+            gw_broadcast = self.gw.compete()
+
+            # Accumulate pressure from competition intensity
+            if gw_broadcast is not None:
+                self.gw.accumulate_pressure(0.05)
+
+        # 9. SLEEP: Accumulate pressure and check for consolidation
         sleep_triggered = False
+        # Accumulate GW pressure to sleep engine
+        if self.gw is not None and self.sleep is not None and self.gw.should_sleep():
+            self.sleep.accumulate_pressure(self.gw._pressure * 0.1)
+
         if self.sleep is not None:
             # Pressure from dissonance + prediction error
             pressure_delta = abs(new_dissonance - pre_d) * 0.5
@@ -301,6 +338,14 @@ class StateManager:
         if self.emotion is not None:
             step_record["vad"] = self.emotion.state.snapshot()
             step_record["emotional_label"] = self.emotion.get_emotional_label()
+
+        # Add GW broadcast if available
+        if gw_broadcast is not None:
+            step_record["gw_broadcast"] = {
+                "source": gw_broadcast.source,
+                "urgency": gw_broadcast.urgency,
+                "valence": gw_broadcast.valence,
+            }
         
         self.history.append(step_record)
         
@@ -346,4 +391,6 @@ class StateManager:
             status["dual_process"] = self.dual_process.get_status()
         if self.meaning is not None:
             status["meaning"] = self.meaning.get_status()
+        if self.gw is not None:
+            status["global_workspace"] = self.gw.get_status()
         return status

@@ -61,6 +61,9 @@ from .dual_process import DualProcessController, DualProcessConfig, ProcessingRo
 # Phase M: Meaning Engine
 from .meaning import MeaningEngine, MeaningConfig, MeaningRecord
 
+# Phase N: Global Workspace
+from .global_workspace import GlobalWorkspace, GWConfig, GWContent
+
 __all__ = [
     # Phase A
     "Governor", "GovernorConfig", "RegulationMode", "ClampDiagnostics",
@@ -100,4 +103,6 @@ __all__ = [
     "DualProcessController", "DualProcessConfig", "ProcessingRoute", "RouteDecision",
     # Phase M
     "MeaningEngine", "MeaningConfig", "MeaningRecord",
+    # Phase N
+    "GlobalWorkspace", "GWConfig", "GWContent",
 ]
