@@ -1,5 +1,7 @@
 import numpy as np
 import time
+import pickle
+import os
 from typing import Optional, List, Tuple, Dict, Set
 from ..tensor import StateTensor, RawTensor, tensor, Parameter
 from ..graph import ConceptGraph
@@ -375,3 +377,116 @@ class RLM(Module):
                 f"concepts={len(self.graph.nodes)}, edges={len(self.graph.edges)}, "
                 f"sleep={self.sleep_cycles_completed}, acc={self.conceptual_accuracy:.3f}, "
                 f"learned_edges={self._edges_learned})")
+
+    # ──────────────────────────────────────────────────────────────
+    # Save / Load
+    # ──────────────────────────────────────────────────────────────
+
+    def save(self, path: str):
+        """Save complete model checkpoint.
+
+        Persists: neural weights with cognitive metadata, concept graph
+        (nodes, edges, vectors, topology), RLM scalar state, and
+        pressure accumulator state.
+
+        Use RLM.load(path) to restore.
+        """
+        checkpoint = {
+            # Config (for reconstruction verification)
+            "config": {
+                "vocab_size": self.vocab_size,
+                "embed_dim": self.embed_dim,
+                "concept_dim": self.concept_dim,
+                "n_concepts": self.n_concepts,
+                "n_hidden": self.n_hidden,
+                "n_layers": self.n_layers,
+                "max_seq_len": self.max_seq_len,
+                "pressure_threshold": self.pressure_threshold,
+                "sleep_interval": self.sleep_interval,
+            },
+            # Neural weights + cognitive metadata
+            "state_dict": self.state_dict(),
+            # ConceptGraph (the model's long-term memory)
+            "graph": self.graph,
+            # RLM scalars
+            "scalars": {
+                "step_counter": self._step_counter,
+                "sleep_cycles_completed": self.sleep_cycles_completed,
+                "total_pressure": self.total_pressure,
+                "conceptual_accuracy": self.conceptual_accuracy,
+                "n_predictions": self.n_predictions,
+                "edges_learned": self._edges_learned,
+                "context_bias": self.context_bias,
+                "context_scale": self.context_scale,
+            },
+            # Token-concept mapping
+            "token_concept_map": self._token_concept_map,
+            # Pressure accumulator state
+            "pressure_state": {
+                "semantic_pressure": self.pressure.semantic_pressure,
+                "episodic_pressure": self.pressure.episodic_pressure,
+                "contradiction_pressure": self.pressure.contradiction_pressure,
+                "linguistic_pressure": self.pressure.linguistic_pressure,
+                "abstraction_pressure": self.pressure.abstraction_pressure,
+            },
+            # Sub-engine config
+            "engine_config": {
+                "hebbian_lr": self.hebbian.lr,
+                "anti_hebbian_lr": self.anti_hebbian.lr,
+            },
+        }
+        os.makedirs(os.path.dirname(path) if os.path.dirname(path) else '.', exist_ok=True)
+        with open(path, 'wb') as f:
+            pickle.dump(checkpoint, f)
+
+    @classmethod
+    def load(cls, path: str) -> 'RLM':
+        """Load a complete model checkpoint.
+
+        Returns a new RLM instance with all weights, graph, and state restored.
+        """
+        with open(path, 'rb') as f:
+            checkpoint = pickle.load(f)
+
+        # Reconstruct model with saved config
+        cfg = checkpoint["config"]
+        model = cls(**cfg)
+
+        # Restore neural weights + cognitive metadata
+        model.load_state_dict(checkpoint["state_dict"])
+
+        # Restore concept graph (the model's long-term memory)
+        model.graph = checkpoint["graph"]
+        model.propagation = PropagationEngine(model.graph)
+        model.pressure = PressureAccumulator(model.graph)
+        model.hebbian = HebbianPlasticity(model.graph,
+                                          lr=checkpoint.get("engine_config", {}).get("hebbian_lr", 0.03))
+        model.anti_hebbian = AntiHebbianPlasticity(model.graph,
+                                                   lr=checkpoint.get("engine_config", {}).get("anti_hebbian_lr", 0.02))
+        model.structural = StructuralPlasticity(model.graph,
+                                                prune_threshold=0.005,
+                                                form_threshold=0.3)
+
+        # Restore RLM scalars
+        scalars = checkpoint["scalars"]
+        model._step_counter = scalars["step_counter"]
+        model.sleep_cycles_completed = scalars["sleep_cycles_completed"]
+        model.total_pressure = scalars["total_pressure"]
+        model.conceptual_accuracy = scalars["conceptual_accuracy"]
+        model.n_predictions = scalars["n_predictions"]
+        model._edges_learned = scalars["edges_learned"]
+        model.context_bias = scalars["context_bias"]
+        model.context_scale = scalars["context_scale"]
+
+        # Restore token-concept mapping
+        model._token_concept_map = checkpoint["token_concept_map"]
+
+        # Restore pressure accumulator state
+        ps = checkpoint.get("pressure_state", {})
+        model.pressure.semantic_pressure = ps.get("semantic_pressure", 0.0)
+        model.pressure.episodic_pressure = ps.get("episodic_pressure", 0.0)
+        model.pressure.contradiction_pressure = ps.get("contradiction_pressure", 0.0)
+        model.pressure.linguistic_pressure = ps.get("linguistic_pressure", 0.0)
+        model.pressure.abstraction_pressure = ps.get("abstraction_pressure", 0.0)
+
+        return model

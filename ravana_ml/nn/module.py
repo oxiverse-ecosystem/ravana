@@ -19,12 +19,17 @@ class Module:
         raise NotImplementedError
 
     def parameters(self):
-        for name in sorted(self._parameters, key=lambda n: n):
-            yield getattr(self, name)
+        for name, param in self.named_parameters():
+            yield param
 
-    def named_parameters(self):
+    def named_parameters(self, prefix=''):
         for name in sorted(self._parameters, key=lambda n: n):
-            yield name, getattr(self, name)
+            full_name = f"{prefix}{name}" if not prefix else f"{prefix}.{name}"
+            yield full_name, getattr(self, name)
+        for mod_name in sorted(self._modules.keys()):
+            mod = self._modules[mod_name]
+            sub_prefix = f"{prefix}{mod_name}" if not prefix else f"{prefix}.{mod_name}"
+            yield from mod.named_parameters(prefix=sub_prefix)
 
     def modules(self):
         yield self
@@ -73,12 +78,31 @@ class Module:
         self._pressure_history = []
 
     def state_dict(self):
-        return {name: param.data.copy() for name in self.named_parameters()}
+        """Save all parameters with their cognitive metadata."""
+        sd = {}
+        for name, param in self.named_parameters():
+            entry = {"data": param.data.copy()}
+            if isinstance(param, StateTensor):
+                entry["salience"] = float(param.salience)
+                entry["pressure"] = float(param.pressure)
+                entry["stability"] = float(param.stability)
+            sd[name] = entry
+        return sd
 
     def load_state_dict(self, sd):
+        """Load parameters with cognitive metadata."""
         for name, param in self.named_parameters():
             if name in sd:
-                param.data = sd[name].data.copy()
+                entry = sd[name]
+                if isinstance(entry, dict):
+                    param.data = entry["data"].copy()
+                    if isinstance(param, StateTensor) and "stability" in entry:
+                        param.salience = entry.get("salience", 0.5)
+                        param.pressure = entry.get("pressure", 0.0)
+                        param.stability = entry.get("stability", 0.5)
+                else:
+                    # Backwards compat: bare numpy array
+                    param.data = entry.copy()
 
     def __repr__(self):
         params = sum(p.data.size for _, p in self.named_parameters())
