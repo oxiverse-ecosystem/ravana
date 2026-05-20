@@ -372,6 +372,18 @@ class ConceptGraph:
         self.temporal_context: np.ndarray = np.zeros(dim, dtype=np.float32)
         self.temporal_context_drift_rate: float = 0.05
 
+        # ── Performance indices ──
+        # Adjacency list: source_id -> [(target_id, edge)]
+        self._outgoing: Dict[int, List[Tuple[int, ConceptEdge]]] = defaultdict(list)
+        # Reverse adjacency: target_id -> [(source_id, edge)]
+        self._incoming: Dict[int, List[Tuple[int, ConceptEdge]]] = defaultdict(list)
+        # Active node tracking: avoids O(N) scan in propagation
+        self._active_nodes: Set[int] = set()
+        # Vectorized similarity matrix (lazy-built, dirty-flagged)
+        self._vector_matrix_normed: Optional[np.ndarray] = None
+        self._node_id_order: List[int] = []
+        self._vectors_dirty: bool = True
+
     # ── node management ──
 
     def add_node(self, vector: Optional[np.ndarray] = None, label: str = "") -> ConceptNode:
@@ -382,6 +394,7 @@ class ConceptGraph:
         v = vector.copy() if vector is not None else np.random.randn(self.dim).astype(np.float32) * 0.1
         node = ConceptNode(nid, v, label)
         self.nodes[nid] = node
+        self._vectors_dirty = True
         return node
 
     def get_node(self, nid: int) -> Optional[ConceptNode]:
@@ -401,7 +414,49 @@ class ConceptGraph:
                     if node.parent is not None and node.parent in self.nodes:
                         self.nodes[node.parent].children.add(child_id)
             del self.nodes[nid]
-            self.edges = {k: v for k, v in self.edges.items() if k[0] != nid and k[1] != nid}
+            # Remove connected edges and clean adjacency indices
+            edges_to_remove = [k for k in self.edges if k[0] == nid or k[1] == nid]
+            for (s, t) in edges_to_remove:
+                del self.edges[(s, t)]
+            self._outgoing.pop(nid, None)
+            self._incoming.pop(nid, None)
+            # Clean references to this node from other adjacency lists
+            for s in self._outgoing:
+                self._outgoing[s] = [(t, e) for t, e in self._outgoing[s] if t != nid]
+            for t in self._incoming:
+                self._incoming[t] = [(s, e) for s, e in self._incoming[t] if s != nid]
+            self._active_nodes.discard(nid)
+
+    # ── adjacency helpers ──
+
+    def get_outgoing(self, nid: int) -> List[Tuple[int, ConceptEdge]]:
+        """Get outgoing edges for a node in O(degree) time."""
+        return self._outgoing.get(nid, [])
+
+    def get_incoming(self, nid: int) -> List[Tuple[int, ConceptEdge]]:
+        """Get incoming edges for a node in O(degree) time."""
+        return self._incoming.get(nid, [])
+
+    def _rebuild_vector_matrix(self):
+        """Rebuild the normalized vector matrix for fast cosine similarity."""
+        if not self.nodes:
+            self._vector_matrix_normed = None
+            self._node_id_order = []
+            self._vectors_dirty = False
+            return
+        ids = sorted(self.nodes.keys())
+        self._node_id_order = ids
+        vecs = np.stack([self.nodes[i].vector for i in ids]).astype(np.float32)
+        norms = np.linalg.norm(vecs, axis=1, keepdims=True)
+        self._vector_matrix_normed = vecs / (norms + 1e-15)
+        self._vectors_dirty = False
+
+    def get_activation_vector(self) -> Tuple[List[int], np.ndarray]:
+        """Get ordered activation vector aligned with node_id_order."""
+        acts = np.zeros(len(self._node_id_order), dtype=np.float32)
+        for i, nid in enumerate(self._node_id_order):
+            acts[i] = self.nodes[nid].activation
+        return self._node_id_order, acts
 
     # ── edge management ──
 
@@ -418,13 +473,19 @@ class ConceptGraph:
             return edge
         edge = ConceptEdge(source, target, weight, shortcut=shortcut, edge_type=edge_type)
         self.edges[key] = edge
+        # Maintain adjacency indices
+        self._outgoing[source].append((target, edge))
+        self._incoming[target].append((source, edge))
         return edge
 
     def get_edge(self, source: int, target: int) -> Optional[ConceptEdge]:
         return self.edges.get((source, target))
 
     def remove_edge(self, source: int, target: int):
-        self.edges.pop((source, target), None)
+        edge = self.edges.pop((source, target), None)
+        if edge is not None:
+            self._outgoing[source] = [(t, e) for t, e in self._outgoing.get(source, []) if t != target]
+            self._incoming[target] = [(s, e) for s, e in self._incoming.get(target, []) if s != source]
 
     # ── activation ──
 
@@ -433,6 +494,7 @@ class ConceptGraph:
         if node:
             node.activation = min(1.0, node.activation + amount)
             node.record_activation(context_vector)
+            self._active_nodes.add(nid)
 
     def update_temporal_context(self):
         """Drift temporal context toward the centroid of currently active concepts.
@@ -440,10 +502,11 @@ class ConceptGraph:
         Called after each cognitive step. The temporal context slowly shifts to
         reflect the current "era" of processing — enabling time-sensitive retrieval.
         """
-        active_nodes = [n for n in self.nodes.values() if n.activation > 0.1]
-        if not active_nodes:
+        active_list = [self.nodes[nid] for nid in self._active_nodes
+                       if nid in self.nodes and self.nodes[nid].activation > 0.1]
+        if not active_list:
             return
-        centroid = np.mean([n.vector * n.activation for n in active_nodes], axis=0)
+        centroid = np.mean([n.vector * n.activation for n in active_list], axis=0)
         norm = np.linalg.norm(centroid)
         if norm > 0:
             centroid /= norm
@@ -471,27 +534,31 @@ class ConceptGraph:
 
     def spread_activation(self, steps: int = 3, k_active: int = 7, decay: float = 0.5):
         for _ in range(steps):
-            new_activations = {}
-            # Fan effect: compute in-degree for normalization
-            in_degree: Dict[int, int] = defaultdict(int)
-            for (s, t) in self.edges:
-                in_degree[t] += 1
+            new_activations: Dict[int, float] = {}
 
-            for nid, node in self.nodes.items():
-                if node.activation > 0.01:
-                    outgoing = [(t, e) for (s, t), e in self.edges.items() if s == nid]
-                    for target_id, edge in outgoing:
-                        # Precision weighting: edge.confidence modulates signal strength
-                        act = node.activation * edge.weight * edge.confidence * decay
-                        if edge.edge_type == "inhibitory":
-                            act = -act
-                        # Fan effect: normalize by in-degree (hub nodes receive weaker per-edge activation)
-                        fan_factor = 1.0 / (in_degree[target_id] ** 0.5 + 1.0)
-                        act *= fan_factor
-                        new_activations[target_id] = new_activations.get(target_id, 0.0) + act
+            # Use active node set instead of scanning all nodes
+            for nid in list(self._active_nodes):
+                node = self.nodes.get(nid)
+                if node is None or node.activation <= 0.01:
+                    continue
+                # O(degree) neighbor lookup via adjacency list
+                for target_id, edge in self._outgoing.get(nid, []):
+                    # Precision weighting: edge.confidence modulates signal strength
+                    act = node.activation * edge.weight * edge.confidence * decay
+                    if edge.edge_type == "inhibitory":
+                        act = -act
+                    # Fan effect: normalize by in-degree
+                    in_deg = len(self._incoming.get(target_id, []))
+                    fan_factor = 1.0 / (in_deg ** 0.5 + 1.0)
+                    act *= fan_factor
+                    new_activations[target_id] = new_activations.get(target_id, 0.0) + act
+
             for nid, act in new_activations.items():
                 if nid in self.nodes:
                     self.nodes[nid].activation = max(0.0, min(1.0, self.nodes[nid].activation + act))
+                    if self.nodes[nid].activation > 0.01:
+                        self._active_nodes.add(nid)
+
             # Hierarchical upward propagation: children activate parents
             self._propagate_upward(decay=0.3)
             self._soft_lateral_inhibition(k_active)
@@ -499,8 +566,9 @@ class ConceptGraph:
     def _propagate_upward(self, decay: float = 0.3):
         """Propagate activation from children to their parent concepts."""
         parent_activations: Dict[int, float] = {}
-        for nid, node in self.nodes.items():
-            if node.activation > 0.01 and node.parent is not None:
+        for nid in list(self._active_nodes):
+            node = self.nodes.get(nid)
+            if node is not None and node.activation > 0.01 and node.parent is not None:
                 parent_activations[node.parent] = (
                     parent_activations.get(node.parent, 0.0)
                     + node.activation * decay
@@ -510,6 +578,8 @@ class ConceptGraph:
                 self.nodes[parent_id].activation = min(
                     1.0, self.nodes[parent_id].activation + act
                 )
+                if self.nodes[parent_id].activation > 0.01:
+                    self._active_nodes.add(parent_id)
 
     def _top_k_activation(self, k: int):
         """Legacy hard winner-take-all — prefer _soft_lateral_inhibition."""
@@ -523,28 +593,36 @@ class ConceptGraph:
         Unlike hard winner-take-all, this preserves near-winners — you can be
         partially aware of alternative meanings. Closer to biological cortical dynamics.
         """
-        active_nodes = [(nid, n) for nid, n in self.nodes.items() if n.activation > 0.01]
-        if len(active_nodes) <= 1:
+        active_list = [(nid, self.nodes[nid]) for nid in self._active_nodes
+                       if nid in self.nodes and self.nodes[nid].activation > 0.01]
+        if len(active_list) <= 1:
             return
 
         # Sort by activation descending, keep top-k as "winners"
-        active_nodes.sort(key=lambda x: x[1].activation, reverse=True)
-        winners = active_nodes[:k]
+        active_list.sort(key=lambda x: x[1].activation, reverse=True)
+        winners = active_list[:k]
 
-        # Compute suppression for each active node from all other active nodes
-        for nid, node in active_nodes:
-            suppression = 0.0
-            for other_nid, other_node in active_nodes:
-                if other_nid == nid:
-                    continue
-                # Similarity-weighted suppression
-                sim = np.dot(node.vector, other_node.vector) / (
-                    np.linalg.norm(node.vector) * np.linalg.norm(other_node.vector) + 1e-15
-                )
-                sim = max(0.0, sim)  # only positive similarity suppresses
-                suppression += other_node.activation * sim * inhibition_strength
-            # Apply suppression: reduce activation but don't zero it
-            node.activation = max(0.0, node.activation / (1.0 + suppression))
+        # Vectorized pairwise similarity via numpy matmul
+        ids = [a[0] for a in active_list]
+        vecs = np.stack([a[1].vector for a in active_list]).astype(np.float32)  # (A, D)
+        acts = np.array([a[1].activation for a in active_list], dtype=np.float32)  # (A,)
+
+        # Normalize vectors for cosine similarity
+        norms = np.linalg.norm(vecs, axis=1, keepdims=True)
+        vecs_normed = vecs / (norms + 1e-15)
+
+        # Pairwise cosine similarity matrix (A, A)
+        sim_matrix = vecs_normed @ vecs_normed.T
+        np.fill_diagonal(sim_matrix, 0.0)
+        sim_matrix = np.maximum(sim_matrix, 0.0)  # only positive similarity suppresses
+
+        # Suppression = sim_matrix @ acts (vectorized)
+        suppression = sim_matrix @ acts * inhibition_strength  # (A,)
+
+        # Apply suppression
+        for i, nid in enumerate(ids):
+            node = self.nodes[nid]
+            node.activation = max(0.0, node.activation / (1.0 + suppression[i]))
 
         # Ensure at least top-k have meaningful activation (rescue near-winners)
         for nid, node in winners:
@@ -554,12 +632,16 @@ class ConceptGraph:
     # ── similarity search ──
 
     def find_similar(self, vector: np.ndarray, k: int = 5) -> List[Tuple[int, float]]:
-        scores = []
-        for nid, node in self.nodes.items():
-            sim = np.dot(vector, node.vector) / (np.linalg.norm(vector) * np.linalg.norm(node.vector) + 1e-15)
-            scores.append((nid, sim))
-        scores.sort(key=lambda x: x[1], reverse=True)
-        return scores[:k]
+        if self._vectors_dirty or self._vector_matrix_normed is None:
+            self._rebuild_vector_matrix()
+        if self._vector_matrix_normed is None or len(self._node_id_order) == 0:
+            return []
+        vec_norm = vector / (np.linalg.norm(vector) + 1e-15)
+        sims = self._vector_matrix_normed @ vec_norm.astype(np.float32)  # (N,)
+        k = min(k, len(self._node_id_order))
+        top_k_idx = np.argpartition(sims, -k)[-k:]
+        top_k_idx = top_k_idx[np.argsort(sims[top_k_idx])[::-1]]
+        return [(self._node_id_order[i], float(sims[i])) for i in top_k_idx]
 
     def bind_input(self, vector: np.ndarray, k: int = 5) -> List[int]:
         matches = self.find_similar(vector, k)
@@ -597,6 +679,7 @@ class ConceptGraph:
         norm = np.linalg.norm(node.vector)
         if norm > 0:
             node.vector /= norm
+        self._vectors_dirty = True
 
     def get_or_create_edge(self, source: int, target: int, weight: float = 0.3,
                            shortcut: bool = False, edge_type: str = "excitatory") -> ConceptEdge:
@@ -676,10 +759,10 @@ class ConceptGraph:
             if node is None or node.contradiction_count < contradiction_threshold:
                 continue
 
-            # Collect competing targets from this source
+            # Collect competing targets from this source (O(degree) via adjacency list)
             competing_targets = []
-            for (src, tgt), edge in self.edges.items():
-                if src == nid and edge.edge_type == "excitatory":
+            for tgt, edge in self._outgoing.get(nid, []):
+                if edge.edge_type == "excitatory":
                     target = self.nodes.get(tgt)
                     if target:
                         competing_targets.append((tgt, edge, target))
@@ -729,9 +812,10 @@ class ConceptGraph:
 
     def form_edges(self, coactivation_threshold: float = 0.5):
         formed = 0
-        active_nodes = [n for n in self.nodes.values() if n.activation > 0.1]
-        for i, a in enumerate(active_nodes):
-            for b in active_nodes[i + 1:]:
+        active_list = [self.nodes[nid] for nid in self._active_nodes
+                       if nid in self.nodes and self.nodes[nid].activation > 0.1]
+        for i, a in enumerate(active_list):
+            for b in active_list[i + 1:]:
                 coact = a.activation * b.activation
                 if coact > coactivation_threshold and self.get_edge(a.id, b.id) is None:
                     self.add_edge(a.id, b.id, coact * 0.3)
@@ -768,7 +852,7 @@ class ConceptGraph:
             reasons += 1
 
         # Edge entropy: how diverse are the targets of outgoing edges?
-        outgoing = [t for (s, t), e in self.edges.items() if s == nid and e.edge_type == "excitatory"]
+        outgoing = [t for t, e in self._outgoing.get(nid, []) if e.edge_type == "excitatory"]
         if len(outgoing) >= 3:
             # Compute pairwise distances between target vectors
             targets = [self.nodes[t] for t in outgoing if t in self.nodes]
@@ -802,8 +886,8 @@ class ConceptGraph:
             raise ValueError(f"Node {nid} not found")
 
         # Find the two most divergent neighbors to seed the split
-        outgoing = [(t, e) for (s, t), e in self.edges.items()
-                    if s == nid and e.edge_type == "excitatory"]
+        outgoing = [(t, e) for t, e in self._outgoing.get(nid, [])
+                    if e.edge_type == "excitatory"]
         if len(outgoing) < 2:
             # Not enough structure to split meaningfully — create orthogonal children
             vec_a = parent.vector.copy()
@@ -855,9 +939,7 @@ class ConceptGraph:
         parent.level += 1
 
         # Distribute edges: align each edge to the closer child
-        for target_id, edge in list(self.edges.items()):
-            if edge.source != nid:
-                continue
+        for target_id, edge in list(self._outgoing.get(nid, [])):
             target_node = self.nodes.get(target_id)
             if target_node is None:
                 continue
@@ -935,7 +1017,7 @@ class ConceptGraph:
             node = self.nodes.get(nid)
             if node is None:
                 continue
-            neighbors = [(s, e) for (s, t), e in self.edges.items() if t == nid]
+            neighbors = self._incoming.get(nid, [])
             if not neighbors:
                 continue
             conflicting_weights = [e.weight for _, e in neighbors]
@@ -1079,11 +1161,13 @@ class ConceptGraph:
         # Incoming: external source → child
         incoming: Dict[int, List[float]] = defaultdict(list)
 
-        for (src, tgt), edge in self.edges.items():
-            if src in child_set and tgt not in child_set:
-                outgoing[tgt].append(edge.weight)
-            elif tgt in child_set and src not in child_set:
-                incoming[src].append(edge.weight)
+        for child_id in child_ids:
+            for tgt, edge in self._outgoing.get(child_id, []):
+                if tgt not in child_set:
+                    outgoing[tgt].append(edge.weight)
+            for src, edge in self._incoming.get(child_id, []):
+                if src not in child_set:
+                    incoming[src].append(edge.weight)
 
         # Create aggregated edges to parent
         for target_id, weights in outgoing.items():
@@ -1120,8 +1204,7 @@ class ConceptGraph:
         # Build co-activation adjacency from edges
         coactive_pairs: Dict[int, List[Tuple[int, float]]] = defaultdict(list)
         for node in active_leaves:
-            outgoing = [(t, e) for (s, t), e in self.edges.items() if s == node.id]
-            for target_id, edge in outgoing:
+            for target_id, edge in self._outgoing.get(node.id, []):
                 target = self.nodes.get(target_id)
                 if target and target.level == 0 and target.parent is None:
                     coact = node.activation * target.activation * edge.weight
@@ -1194,8 +1277,10 @@ class ConceptGraph:
     # ── state ──
 
     def reset_activation(self):
-        for node in self.nodes.values():
-            node.activation = 0.0
+        for nid in self._active_nodes:
+            if nid in self.nodes:
+                self.nodes[nid].activation = 0.0
+        self._active_nodes.clear()
 
     def __repr__(self):
         return (f"<ConceptGraph nodes={len(self.nodes)} edges={len(self.edges)} "

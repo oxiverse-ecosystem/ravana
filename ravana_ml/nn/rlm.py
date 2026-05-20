@@ -4,6 +4,7 @@ import pickle
 import json
 import zipfile
 import os
+from collections import defaultdict
 from typing import Optional, List, Tuple, Dict, Set
 from ..tensor import StateTensor, RawTensor, tensor, Parameter
 from ..graph import ConceptGraph, ConceptBindingMap
@@ -86,6 +87,11 @@ class RLM(Module):
         self._token_concept_map: List[int] = [-1] * vocab_size
         self._update_token_concept_map()
 
+        # Inverted index: concept_id -> set of token_ids bound to it
+        # Used for fast context priming (avoids O(V*T) scan)
+        self._concept_to_tokens: Dict[int, Set[int]] = defaultdict(set)
+        self._rebuild_concept_to_tokens()
+
         # Context modulation strength
         self.context_bias = 0.5
         self.context_scale = 1.0  # active — context_logits head is trained by settle loop
@@ -134,21 +140,12 @@ class RLM(Module):
     # ──────────────────────────────────────────────────────────────
 
     def _nearest_concept(self, embed_vec: np.ndarray) -> int:
-        best_id, best_sim = -1, -1.0
-        for nid, node in self.graph.nodes.items():
-            sim = float(np.dot(node.vector, embed_vec) / (np.linalg.norm(node.vector) * np.linalg.norm(embed_vec) + 1e-15))
-            if sim > best_sim:
-                best_sim = sim
-                best_id = nid
-        return best_id
+        results = self.graph.find_similar(embed_vec, k=1)
+        return results[0][0] if results else -1
 
     def _nearest_concepts(self, embed_vec: np.ndarray, k: int = 3) -> List[int]:
-        sims = []
-        for nid, node in self.graph.nodes.items():
-            sim = float(np.dot(node.vector, embed_vec) / (np.linalg.norm(node.vector) * np.linalg.norm(embed_vec) + 1e-15))
-            sims.append((nid, sim))
-        sims.sort(key=lambda x: x[1], reverse=True)
-        return [s[0] for s in sims[:k]]
+        results = self.graph.find_similar(embed_vec, k=k)
+        return [r[0] for r in results]
 
     # ──────────────────────────────────────────────────────────────
     # Recurrence & Forward
@@ -225,7 +222,7 @@ class RLM(Module):
         self._last_predicted_concepts = [n.id for n in all_active][:5]
         self._last_edge_pred = self.propagation.get_prediction(self._last_predicted_concepts, top_k=5)
 
-        # ── Context Priming with Temporal Decay ──
+        # ── Context Priming with Temporal Decay (inverted index) ──
         if T > 1:
             # Build context vector for disambiguation (must be concept_dim, not n_hidden)
             if np.linalg.norm(self.graph.temporal_context) > 0:
@@ -234,10 +231,13 @@ class RLM(Module):
                 # Project hidden state into concept space
                 ctx_vec = self.concept_predictor(StateTensor(h[np.newaxis, :])).data[0]
 
-            for tok_id in range(self.vocab_size):
-                if tok_id == int(token_ids[0, -1]):
-                    continue
+            # Only iterate tokens reachable from context concepts (O(B*T) not O(V*T))
+            candidate_tokens: Set[int] = set()
+            for ctx_nid in context_concepts:
+                candidate_tokens.update(self._concept_to_tokens.get(ctx_nid, set()))
+            candidate_tokens.discard(int(token_ids[0, -1]))
 
+            for tok_id in candidate_tokens:
                 # Use binding map for disambiguation if token is ambiguous
                 if self.binding_map.is_ambiguous(tok_id):
                     tok_concept = self.binding_map.disambiguate(
@@ -246,17 +246,15 @@ class RLM(Module):
                 else:
                     tok_concept = self._token_concept_map[tok_id]
                     if tok_concept < 0:
-                        x_tok = self.token_embed(StateTensor(np.array([tok_id]))).data[0]
-                        tok_concept = self._nearest_concept(x_tok)
-                
+                        continue
+
                 for i, ctx_nid in enumerate(context_concepts):
                     ce = self.graph.get_edge(ctx_nid, tok_concept)
                     if ce is not None and ce.weight > 0.01:
                         # Temporal decay: more recent context is stronger
-                        # i ranges from 0 to T-1. Context tokens are from 0 to T-1.
                         dist = T - 1 - i
                         decay = 0.8 ** dist
-                        
+
                         boost = ce.weight * decay
                         if concept_scores[tok_id] < -1e8:
                             concept_scores[tok_id] = boost * 0.5
@@ -306,6 +304,10 @@ class RLM(Module):
             # Also bind input token to output concept — this creates ambiguity
             # when the same input maps to different outputs (fire->hot AND fire->cold)
             self.binding_map.bind(last_input_id, output_concept, confidence=0.3, source="inferred")
+            # Update inverted index for fast context priming
+            self._concept_to_tokens[input_concept].add(last_input_id)
+            self._concept_to_tokens[output_concept].add(next_id)
+            self._concept_to_tokens[output_concept].add(last_input_id)
 
         # Shortcut edges
         T = token_ids.shape[1]
@@ -421,20 +423,33 @@ class RLM(Module):
         return conceptual_error
 
     def _update_token_concept_map(self):
+        # Use vectorized find_similar for batch concept lookup
+        if not self.graph.nodes:
+            return
+        # Pre-compute all token embeddings
+        token_embeds = np.zeros((self.vocab_size, self.embed_dim), dtype=np.float32)
         for tid in range(self.vocab_size):
-            emb = self.token_embed(StateTensor(np.array([tid]))).data[0]
-            best_id, best_sim = -1, -1.0
-            for nid, node in self.graph.nodes.items():
-                if nid < self.vocab_size:
-                    sim = float(np.dot(emb, node.vector) / (np.linalg.norm(emb) * np.linalg.norm(node.vector) + 1e-15))
-                    if sim > best_sim:
-                        best_sim = sim
-                        best_id = nid
-            self._token_concept_map[tid] = best_id
+            token_embeds[tid] = self.token_embed(StateTensor(np.array([tid]))).data[0]
+        # Batch nearest concept lookup via graph's vectorized find_similar
+        for tid in range(self.vocab_size):
+            results = self.graph.find_similar(token_embeds[tid], k=1)
+            self._token_concept_map[tid] = results[0][0] if results else -1
+        self._vectors_dirty = True
+
+    def _rebuild_concept_to_tokens(self):
+        """Rebuild inverted index: concept_id -> set of bound token_ids."""
+        self._concept_to_tokens = defaultdict(set)
+        # From binding map
+        for binding in self.binding_map._index:
+            self._concept_to_tokens[binding.concept_id].add(binding.token_id)
+        # From token_concept_map
+        for tid, cid in enumerate(self._token_concept_map):
+            if cid >= 0:
+                self._concept_to_tokens[cid].add(tid)
 
     def _competitive_inhibition(self, source: int, target: int, amount: float):
-        for (s, t), e in list(self.graph.edges.items()):
-            if s == source and t != target and not e.shortcut:
+        for t, e in self.graph.get_outgoing(source):
+            if t != target and not e.shortcut:
                 e.weight = max(0.0, e.weight - amount * 0.3 * e.weight)
                 e.confidence = max(0.0, e.confidence - amount * 0.15)
 
