@@ -1,0 +1,91 @@
+# RLM vs LLM: Experimental Results
+**Date:** 2026-05-20 18:10
+
+---
+
+## Few Shot Learning
+
+### conditions
+- **1_shot:** {'rlm_accuracy': 0.0, 'rlm_sleep_accuracy': 1.0, 'mlp_accuracy': 1.0, 'frozen_accuracy': 1.0, 'rlm_time_ms': 12721.545600000354, 'mlp_time_ms': 118.59300000014628, 'n_facts': 1}
+- **3_shot:** {'rlm_accuracy': 1.0, 'rlm_sleep_accuracy': 1.0, 'mlp_accuracy': 1.0, 'frozen_accuracy': 0.3333333333333333, 'rlm_time_ms': 36830.15429999978, 'mlp_time_ms': 298.7051000000065, 'n_facts': 3}
+- **5_shot:** {'rlm_accuracy': 0.8, 'rlm_sleep_accuracy': 1.0, 'mlp_accuracy': 1.0, 'frozen_accuracy': 0.4, 'rlm_time_ms': 60405.60800000003, 'mlp_time_ms': 529.0389000001596, 'n_facts': 5}
+
+---
+
+## Contradiction Resolution
+
+- **inhibitory_edges:** 0
+- **excitatory_edges:** 34
+- **hotspots:** 0
+- **disambiguation_pass:** False
+- **rlm_hot_in_hot_context:** 2.0271979087937386
+- **rlm_cold_in_hot_context:** 2.8074485067236363
+- **rlm_hot_in_cold_context:** 1.8524926485667166
+- **rlm_cold_in_cold_context:** 2.1616159158886843
+- **mlp_averaging_ratio:** 0.9999999999041486
+---
+
+## Identity Persistence
+
+### cycles
+- {'cycle': 1, 'good_logit': -0.7773392024431732, 'bad_logit': -0.9767437209817821, 'consistent': True, 'drift': 0.0}
+- {'cycle': 2, 'good_logit': -0.7773392024431732, 'bad_logit': -0.9767437209817821, 'consistent': True, 'drift': 0.0}
+- {'cycle': 3, 'good_logit': -0.7773392024431732, 'bad_logit': -0.9767437209817821, 'consistent': True, 'drift': 0.0}
+- {'cycle': 4, 'good_logit': -0.7773392024431732, 'bad_logit': -0.9767437209817821, 'consistent': True, 'drift': 0.0}
+- {'cycle': 5, 'good_logit': -0.7773392024431732, 'bad_logit': -0.9767437209817821, 'consistent': True, 'drift': 0.0}
+
+- **consistency:** 1.0
+- **mean_drift:** 0.0
+---
+
+## Consolidation
+
+- **pre_nodes:** 50
+- **post_nodes:** 50
+- **edge_delta:** 0
+- **inhibitory_delta:** 0
+- **weight_delta:** -0.021494475779582564
+- **energy_drop:** 0.0
+- **energy_drop_pct:** 0.0
+### structural_changes
+- weight shift -0.0215
+
+- **has_structural_change:** True
+---
+
+## Interference Forgetting
+
+- **initial_A:** 3.928809152730162
+- **initial_B:** 2.2280776195491807
+- **initial_C:** 8.613688985198031
+- **post_A:** 3.9057454771544995
+- **post_B:** 2.064507066146755
+- **post_C:** 9.031901822520918
+- **decay_A:** 0.02306367557566258
+- **decay_B:** 0.16357055340242566
+- **decay_C:** -0.41821283732288705
+- **similar_decay:** 0.09331711448904412
+- **dissimilar_decay:** -0.41821283732288705
+- **interference_effect:** 0.5115299518119312
+- **interference_detected:** True
+---
+
+## Resource Efficiency
+
+- **rlm_time_ms:** 62689.36570000005
+- **mlp_time_ms:** 599.3545999999697
+- **rlm_params:** 19776
+- **mlp_params:** 17696
+- **speedup:** 0.009560706083200459
+---
+
+## Summary
+
+| Experiment | RLM Wins? | Key Metric |
+|------------|-----------|------------|
+| Few Shot Learning | NO | RLM 100% vs MLP 100% |
+| Contradiction Resolution | NO | 0 inhibitory edges, disambig=FAIL |
+| Identity Persistence | YES | consistency=100%, drift=0.0000 |
+| Consolidation | YES | energy drop=0.0%, changes=['weight shift -0.0215'] |
+| Interference Forgetting | YES | effect=0.512 |
+| Resource Efficiency | NO | speedup=0.01x |
