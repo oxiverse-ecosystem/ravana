@@ -1,5 +1,5 @@
 # RAVANA — Codebase Status Report
-**Date:** 2026-05-20 (updated — generation stabilization, observability, instruction grounding)
+**Date:** 2026-05-20 (updated — graph optimization 7.5x speedup, deep compositional experiment)
 **Author:** Likhith
 **Purpose:** Shareable status document for LLM collaborators
 
@@ -83,7 +83,8 @@ ravana/
 ├── __init__.py          # import ravana as torch
 ├── tensor.py            # re-exports from ravana_ml.tensor
 ├── graph.py             # re-exports from ravana_ml.graph
-├── pressure.py          # re-exports from ravana_ml.pressure
+├── pressure.py          # re-exports from ravana_ml.free_energy (legacy alias)
+├── free_energy.py       # re-exports from ravana_ml.free_energy
 ├── plasticity.py        # re-exports from ravana_ml.plasticity
 ├── propagation.py       # re-exports from ravana_ml.propagation
 ├── nn/
@@ -594,7 +595,8 @@ Based on cognitive science research (spreading activation, synaptic homeostasis,
 | Contradictory Concepts (2026-05-20) | Mixed model: 17 inhibitory edges (vs 0 normal), 26x input variance for ambiguous concepts, 10 competing edge groups |
 | Shared Currencies Audit (2026-05-20) | Complete audit of all Python files: 6 pressure roles, 4 confidence concepts, 6 stability concepts, 3 salience concepts, 5 entropy concepts, 5 coherence concepts. 3 bugs fixed (salience overflow, identity dead code). PressureAccumulator unified to free_energy |
 | Generation Stabilization (2026-05-20) | test_generation.py: 5/5 tests pass. Fatigue saturates correctly (18+ nodes with fatigue). Repetition penalty increases unique words (5→7). Compression scorer: 1.0 keyword overlap on perfect input, 0.45 stopword penalty on bad input. Learning signal: chased logit 1.58→2.33 after 50 epochs. Trace export: 10-step JSON + MD with concepts, entropy, free_energy |
-| RLM vs LLM Proof (2026-05-20) | 6/6 experiments pass. Few-shot: RLM 100% on 3/5-shot (matches MLP, no backprop). Contradiction: 2 inhibitory edges formed. Identity: 100% consistency across 5 save/load cycles. Consolidation: weight shift -0.02 after sleep. Interference: competing memory weakens (effect=0.034). Efficiency: RLM 100x slower but no GPU needed |
+| RLM vs LLM Proof (2026-05-20) | 6/6 experiments pass. Few-shot: RLM 100% on 3/5-shot (matches MLP, no backprop). Contradiction: 2 inhibitory edges formed. Identity: 100% consistency across 5 save/load cycles. Consolidation: weight shift -0.02 after sleep. Interference: competing memory weakens (effect=0.034). Efficiency: RLM 14x slower (was 100x, 7.5x speedup from graph optimization) |
+| Graph Optimization (2026-05-20) | **7.5x speedup** (85,374ms → 11,391ms). Adjacency list index (O(degree) neighbor lookup), active node set (sparse propagation), vectorized find_similar (single matmul), vectorized lateral inhibition, inverted index for context priming (O(B*T) not O(V*T)). All 6 test files pass. Deep compositional experiment added: RLM 11% on 3-hop chains, 0% on relational transfer (exposes architectural gaps) |
 
 **Note:** Paper claims dissonance trajectory 0.800→0.200 but `final_results.json` shows 0.323→0.322 from a different run configuration. These need reconciliation.
 
@@ -726,8 +728,9 @@ Based on cognitive science research (spreading activation, synaptic homeostasis,
 6. **REM vs SWS distinction** — One sleep mode; brain uses SWS for structural consolidation and REM for creative recombination
 7. **Concept splitting never triggers** — `should_split()` is wired into sleep_cycle but requires contradiction_count + drift + entropy thresholds to all be met simultaneously
 8. **Shared currencies incomplete** — `FreeEnergyAccumulator` rename done. Remaining: rename pressure→free_energy across ConceptNode/ConceptEdge/RLM/Module fields, unify confidence (4 concepts), unify stability (6 concepts), fix cross-domain semantic collisions (memory coherence→graph confidence, memory utility→graph salience)
-9. **`ravana/` package stale references** — `ravana/pressure.py` and `ravana/__init__.py` still import from `ravana_ml.pressure` which no longer exists; needs update to `free_energy`
-10. **`accumulate_free_energy()` → `sleep_cycle()` learning rate too slow** — Effective lr ~0.001/step. Direct Hebbian update on ctx_logits works around this, but hidden layers still use the slow path. Consider increasing sleep_cycle application rate or adding direct updates to hidden layers
+9. **`accumulate_free_energy()` → `sleep_cycle()` learning rate too slow** — Effective lr ~0.001/step. Direct Hebbian update on ctx_logits works around this, but hidden layers still use the slow path. Consider increasing sleep_cycle application rate or adding direct updates to hidden layers
+10. **No transitive inference** — Deep compositional experiment: RLM 11% on 3-hop chains, 0% on relational transfer, 0% on negative rejection. Graph learns A→B and B→C separately but can't chain. MLP actually better at chains (33%). Needs multi-hop inference mechanism
+11. **Graph optimization Phase 3 deferred** — scipy.sparse spread_activation (100+ active nodes), HNSW index (50K+ nodes), Numba JIT for remaining hot loops
 
 ---
 
@@ -803,7 +806,8 @@ bc2d491 Phase O: Human Memory — persistent episodic/semantic memory with Ebbin
 - A system with saturating concept fatigue that prevents persistent activation loops and forces exploration
 - A system with composite exploratory drive that dynamically scales temperature and search breadth when repetition is detected
 - A system with cognitive telemetry — per-step JSON + markdown traces exposing entropy, fatigue, concepts, free energy during generation
-- An active research project with empirical validation: 6/6 proof-of-superiority experiments pass (few-shot, contradiction, identity, consolidation, interference, efficiency)
+- An active research project with empirical validation: 6/6 proof-of-superiority experiments pass (few-shot, contradiction, identity, consolidation, interference, efficiency), with 7.5x graph optimization speedup
+- A system with honest scientific results: deep compositional experiments expose architectural gaps (11% on 3-hop chains, 0% on relational transfer) — failures drive research direction
 - A prototype — not yet AGI, but proposing a novel path toward it
 
 ---
