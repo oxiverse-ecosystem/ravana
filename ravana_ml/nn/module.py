@@ -8,8 +8,8 @@ class Module:
     def __init__(self):
         self._parameters = set()
         self._modules = {}
-        self._pressure = 0.0
-        self._pressure_history = []
+        self._free_energy = 0.0
+        self._free_energy_history = []
         self.training = True
 
     def __call__(self, *args, **kwargs):
@@ -60,22 +60,22 @@ class Module:
 
     # ── RAVANA learning interface ──
 
-    def accumulate_pressure(self, error):
+    def accumulate_free_energy(self, error):
         err_val = error.data if isinstance(error, RawTensor) else (np.array(error) if hasattr(error, '__iter__') else error)
-        pressure_delta = float(np.mean(np.abs(err_val)))
-        self._pressure += min(100.0, pressure_delta)
-        self._pressure_history.append(self._pressure)
+        free_energy_delta = float(np.mean(np.abs(err_val)))
+        self._free_energy += min(100.0, free_energy_delta)
+        self._free_energy_history.append(self._free_energy)
         for m in self._modules.values():
-            m.accumulate_pressure(error)
+            m.accumulate_free_energy(error)
 
     def sleep_cycle(self):
         for m in self._modules.values():
             m.sleep_cycle()
-        self._pressure = max(0.0, self._pressure - 0.5 * self._pressure)
+        self._free_energy = max(0.0, self._free_energy - 0.5 * self._free_energy)
 
-    def reset_pressure(self):
-        self._pressure = 0.0
-        self._pressure_history = []
+    def reset_free_energy(self):
+        self._free_energy = 0.0
+        self._free_energy_history = []
 
     def state_dict(self):
         """Save all parameters with their cognitive metadata."""
@@ -84,7 +84,7 @@ class Module:
             entry = {"data": param.data.copy()}
             if isinstance(param, StateTensor):
                 entry["salience"] = float(param.salience)
-                entry["pressure"] = float(param.pressure)
+                entry["free_energy"] = float(param.free_energy)
                 entry["stability"] = float(param.stability)
             sd[name] = entry
         return sd
@@ -98,7 +98,7 @@ class Module:
                     param.data = entry["data"].copy()
                     if isinstance(param, StateTensor) and "stability" in entry:
                         param.salience = entry.get("salience", 0.5)
-                        param.pressure = entry.get("pressure", 0.0)
+                        param.free_energy = entry.get("free_energy", entry.get("pressure", 0.0))
                         param.stability = entry.get("stability", 0.5)
                 else:
                     # Backwards compat: bare numpy array
@@ -106,7 +106,7 @@ class Module:
 
     def __repr__(self):
         params = sum(p.data.size for _, p in self.named_parameters())
-        return f"{self.__class__.__name__}({params} params, pressure={self._pressure:.2f})"
+        return f"{self.__class__.__name__}({params} params, free_energy={self._free_energy:.2f})"
 
 
 # ─── Sequential ──────────────────────────────────────────────────────────
@@ -139,14 +139,14 @@ class Linear(Module):
         scale = np.sqrt(2.0 / in_features)
         w = StateTensor(np.random.randn(out_features, in_features).astype(np.float32) * scale)
         self.register_parameter('weight', Parameter(w))
-        self._weight_pressure = StateTensor(np.zeros((out_features, in_features), dtype=np.float32))
+        self._weight_free_energy = StateTensor(np.zeros((out_features, in_features), dtype=np.float32))
         if bias:
             b = StateTensor(np.zeros(out_features, dtype=np.float32))
             self.register_parameter('bias', Parameter(b))
-            self._bias_pressure = StateTensor(np.zeros(out_features, dtype=np.float32))
+            self._bias_free_energy = StateTensor(np.zeros(out_features, dtype=np.float32))
         else:
             self.bias = None
-            self._bias_pressure = None
+            self._bias_free_energy = None
         self._trace_x = None
 
     def forward(self, x):
@@ -160,13 +160,16 @@ class Linear(Module):
         return StateTensor(result)
 
     def backprop(self, error_data):
-        """Compute input error from output error. Returns error for previous layer."""
-        w = self.weight.data
-        return error_data @ w
+        """REMOVED — backprop is the chain rule escape hatch.
+        Use predictive coding (local errors via settle loop) instead."""
+        raise NotImplementedError(
+            "backprop() removed: RLM uses predictive coding, not gradient propagation. "
+            "Each layer computes its own local prediction error."
+        )
 
-    def accumulate_pressure(self, error):
+    def accumulate_free_energy(self, error):
         if self._trace_x is None:
-            super().accumulate_pressure(error)
+            super().accumulate_free_energy(error)
             return 0.0
         error_data = error.data if isinstance(error, RawTensor) else np.array(error)
         x_data = self._trace_x
@@ -181,20 +184,20 @@ class Linear(Module):
             error_data = error_data.reshape(-1, error_data.shape[-1])
         salience = getattr(error, '_salience', 0.3) if isinstance(error, StateTensor) else 0.3
         hebbian = (x_data.T @ error_data) * salience * 0.01
-        self._weight_pressure.data += hebbian.T
+        self._weight_free_energy.data += hebbian.T
         if self.bias is not None:
-            self._bias_pressure.data += error_data.mean(axis=0) * salience * 0.01
-        super().accumulate_pressure(error)
+            self._bias_free_energy.data += error_data.mean(axis=0) * salience * 0.01
+        super().accumulate_free_energy(error)
         return float(np.mean(np.abs(hebbian)))
 
     def sleep_cycle(self):
         plasticity = 1.0 - float(np.mean(self.weight.stability))
-        self.weight.data += self._weight_pressure.data * plasticity * 0.1
-        self._weight_pressure = StateTensor(np.zeros_like(self._weight_pressure.data))
+        self.weight.data += self._weight_free_energy.data * plasticity * 0.1
+        self._weight_free_energy = StateTensor(np.zeros_like(self._weight_free_energy.data))
         self.weight.stability = min(1.0, self.weight.stability + 0.005)
         if self.bias is not None:
-            self.bias.data += self._bias_pressure.data * plasticity * 0.1
-            self._bias_pressure = StateTensor(np.zeros_like(self._bias_pressure.data))
+            self.bias.data += self._bias_free_energy.data * plasticity * 0.1
+            self._bias_free_energy = StateTensor(np.zeros_like(self._bias_free_energy.data))
             self.bias.stability = min(1.0, self.bias.stability + 0.005)
 
     def __repr__(self):
@@ -214,7 +217,7 @@ class Embedding(Module):
         if padding_idx is not None:
             w.data[padding_idx] = 0.0
         self.register_parameter('weight', Parameter(w))
-        self._weight_pressure = StateTensor(np.zeros((num_embeddings, embedding_dim), dtype=np.float32))
+        self._weight_free_energy = StateTensor(np.zeros((num_embeddings, embedding_dim), dtype=np.float32))
         self._trace_indices = None
 
     def forward(self, indices):
@@ -226,20 +229,20 @@ class Embedding(Module):
         w = self.weight.data if isinstance(self.weight, Parameter) else self.weight
         return StateTensor(w[idx])
 
-    def accumulate_pressure(self, error):
+    def accumulate_free_energy(self, error):
         if self._trace_indices is None:
-            super().accumulate_pressure(error)
+            super().accumulate_free_energy(error)
             return
         error_data = error.data if isinstance(error, RawTensor) else np.array(error)
         salience = getattr(error, '_salience', 0.3) if isinstance(error, StateTensor) else 0.3
         for i, idx in enumerate(self._trace_indices.flatten()):
-            self._weight_pressure.data[idx] += error_data[i] * salience * 0.01
-        super().accumulate_pressure(error)
+            self._weight_free_energy.data[idx] += error_data[i] * salience * 0.01
+        super().accumulate_free_energy(error)
 
     def sleep_cycle(self):
         plasticity = 1.0 - float(np.mean(self.weight.stability))
-        self.weight.data += self._weight_pressure.data * plasticity * 0.1
-        self._weight_pressure = StateTensor(np.zeros_like(self._weight_pressure.data))
+        self.weight.data += self._weight_free_energy.data * plasticity * 0.1
+        self._weight_free_energy = StateTensor(np.zeros_like(self._weight_free_energy.data))
         self.weight.stability = min(1.0, self.weight.stability + 0.005)
         if self.padding_idx is not None:
             self.weight.data[self.padding_idx] = 0.0
