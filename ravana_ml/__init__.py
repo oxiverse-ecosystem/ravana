@@ -1,13 +1,13 @@
 """
 RAVANA — A CPU-native ML framework where learning emerges from
-pressure-driven self-organization, not gradient descent.
+free-energy-driven self-organization, not gradient descent.
 
 Usage:
     import ravana as torch
     x = torch.tensor([1, 2, 3])
     model = torch.nn.Linear(10, 10)
     y = model(x)
-    model.accumulate_pressure(y - target)
+    model.accumulate_free_energy(y - target)
     model.sleep_cycle()  # ← instead of optimizer.step()
 """
 
@@ -20,7 +20,7 @@ Tensor = StateTensor
 
 from . import graph
 from . import propagation
-from . import pressure
+from . import free_energy
 from . import plasticity
 from . import world
 from . import nn
@@ -100,7 +100,7 @@ __version__ = '0.1.0'
 __all__ = [
     'RawTensor', 'StateTensor', 'Parameter', 'Tensor',
     'tensor', 'eye', 'arange', 'stack', 'cat', 'zeros', 'ones', 'randn',
-    'from_numpy', 'nn', 'graph', 'propagation', 'pressure', 'plasticity',
+    'from_numpy', 'nn', 'graph', 'propagation', 'free_energy', 'plasticity',
     'world', 'device', 'cuda', 'cuda_is_available', 'is_tensor',
     'no_grad', 'save', 'load',
 ]
