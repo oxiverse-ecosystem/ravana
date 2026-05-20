@@ -97,7 +97,7 @@ class RavanaMemorySystem:
             content=episode_data,
             dissonance_at_time=state_snapshot.get('dissonance', 0.0),
             identity_at_time=state_snapshot.get('identity', 0.0),
-            salience=state_snapshot.get('dissonance', 0.5) * 1.5 # Dissonance drives salience
+            salience=min(1.0, state_snapshot.get('dissonance', 0.5) * 1.5) # Dissonance drives salience, clamped [0,1]
         )
         self.episodic.record(trace)
         

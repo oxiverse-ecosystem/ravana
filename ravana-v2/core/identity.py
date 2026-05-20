@@ -21,12 +21,19 @@ class IdentityState:
     history: List[float] = field(default_factory=lambda: [0.5])
     
     def update(self, new_strength: float):
-        """Update identity with history tracking."""
+        """Update identity with history tracking and stability computation."""
         self.history.append(new_strength)
         # Keep only recent history
         if len(self.history) > 100:
             self.history = self.history[-100:]
         self.strength = new_strength
+
+        # Update stability: inverse of recent variance (low variance = high stability)
+        if len(self.history) >= 5:
+            recent = self.history[-10:]
+            variance = float(np.var(recent))
+            # stability = 1 / (1 + variance) — maps [0, ∞) to (0, 1]
+            self.stability = 1.0 / (1.0 + variance * 10.0)
 
 
 class IdentityEngine:
