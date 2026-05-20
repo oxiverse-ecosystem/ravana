@@ -28,7 +28,7 @@ import time
 from ravana_ml.graph import ConceptGraph
 from ravana_ml.propagation import PropagationEngine
 from ravana_ml.plasticity import HebbianPlasticity, AntiHebbianPlasticity, StructuralPlasticity
-from ravana_ml.pressure import PressureAccumulator
+from ravana_ml.free_energy import FreeEnergyAccumulator
 
 # ravana-v2/ cognitive core (imported via rlc.cognitive)
 from core.governor import Governor, GovernorConfig
@@ -152,7 +152,7 @@ class CognitiveFramework:
         self.hebbian = HebbianPlasticity(self.graph, lr=c.hebbian_lr)
         self.anti_hebbian = AntiHebbianPlasticity(self.graph, lr=c.anti_hebbian_lr)
         self.structural = StructuralPlasticity(self.graph)
-        self.graph_pressure = PressureAccumulator(self.graph)
+        self.graph_free_energy = FreeEnergyAccumulator(self.graph)
 
         # === Cognitive Core ===
         self.governor = Governor(c.governor_config)
@@ -297,7 +297,7 @@ class CognitiveFramework:
                         self.hebbian.update(pred_nid, actual_nid)
 
             # Apply pressure from error
-            self.graph_pressure.accumulate_semantic(error_norm, salience=0.5)
+            self.graph_free_energy.accumulate_semantic(error_norm, salience=0.5)
 
         # === Cognitive cycle via StateManager ===
         step_result = self.state_manager.step(
@@ -357,7 +357,7 @@ class CognitiveFramework:
             )
 
         # Decay graph pressure
-        self.graph_pressure.decay(rate=0.3)
+        self.graph_free_energy.decay(rate=0.3)
 
         # Human memory: replay, decay, consolidation
         self.human_memory_engine.sleep_replay(state_snapshot=self.state_manager.state.snapshot())
@@ -488,7 +488,7 @@ class CognitiveFramework:
                 "label": node.label,
                 "activation": node.activation,
                 "salience": node.salience,
-                "pressure": node.pressure,
+                "pressure": node.prediction_free_energy,
                 "stability": node.stability,
                 "confidence": node.confidence,
                 "level": node.level,
@@ -528,7 +528,7 @@ class CognitiveFramework:
         checkpoint = {
             "config": self.config,
             "graph": self.graph,
-            "graph_pressure": self.graph_pressure,
+            "graph_free_energy": self.graph_free_energy,
             "human_memory_db": self.human_memory_engine.config.db_path,
             "human_memory_graph": self.human_memory_engine.config.graph_path,
         }
@@ -561,7 +561,7 @@ class CognitiveFramework:
 
         # Restore graph
         fw.graph = checkpoint["graph"]
-        fw.graph_pressure = checkpoint.get("graph_pressure", PressureAccumulator(fw.graph))
+        fw.graph_free_energy = checkpoint.get("graph_free_energy", FreeEnergyAccumulator(fw.graph))
 
         # Rebuild engines with restored graph
         fw.propagation = PropagationEngine(fw.graph)
@@ -618,7 +618,7 @@ class CognitiveFramework:
             },
             "abstraction": self.graph.get_abstraction_stats(),
             "cognitive": self.state_manager.get_status(),
-            "pressure": self.graph_pressure.report(),
+            "pressure": self.graph_free_energy.report(),
             "step_count": self._step_count,
         }
 
