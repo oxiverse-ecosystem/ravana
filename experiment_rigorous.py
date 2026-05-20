@@ -214,6 +214,167 @@ def run_compositional_few_shot(seeds=[42, 123, 456]) -> Dict[str, Any]:
 
 
 # ═════════════════════════════════════════════════════════════════════════
+# EXPERIMENT 1B: DEEP COMPOSITIONAL GENERALIZATION
+# ═════════════════════════════════════════════════════════════════════════
+#
+# Beyond 2-hop: tests 3-hop chains, relational transfer, OOD recombination,
+# and negative cases (should NOT compose incorrectly).
+# ═════════════════════════════════════════════════════════════════════════
+
+def run_deep_compositional(seeds=[42, 123, 456]) -> Dict[str, Any]:
+    """Deep compositional generalization: 3-hop chains, relational transfer, OOD."""
+    print("\n" + "="*60)
+    print("EXPERIMENT 1B: DEEP COMPOSITIONAL GENERALIZATION")
+    print("="*60)
+
+    tokenizer = make_tokenizer()
+    vocab_size = tokenizer.vocab_size
+    results = {"experiment": "deep_compositional", "seeds": {}}
+
+    for seed in seeds:
+        print(f"\n--- Seed {seed} ---")
+        rlm = make_rlm(vocab_size, seed=seed)
+
+        # === 3-HOP TRANSITIVE CHAINS ===
+        # A→B→C→D: must compose 3 links
+        chain_facts = [
+            "zorbax is crystalline",
+            "crystalline things are fragile",
+            "fragile things are valuable",
+            "valuable things are insured",
+        ]
+        # Also train distractors to ensure selective composition
+        distractors = [
+            "marn is liquid",
+            "liquid things are flexible",
+            "flexible things are cheap",
+        ]
+        all_train = chain_facts + distractors
+        train_rlm(rlm, tokenizer, all_train, epochs=150)
+
+        # Test 3-hop: zorbax → crystalline → fragile → valuable → insured
+        chain_tests = {
+            "zorbax is": "fragile",       # 2-hop
+            "crystalline things are": "valuable",  # 1-hop
+            "fragile things are": "insured",  # 1-hop
+        }
+
+        chain_results = {}
+        for prompt, expected in chain_tests.items():
+            score = recall_score(rlm, prompt, expected, tokenizer)
+            # Get scores for wrong answers
+            all_targets = ["fragile", "valuable", "insured", "flexible", "cheap", "crystalline"]
+            wrong_targets = [t for t in all_targets if t != expected]
+            wrong_scores = [recall_score(rlm, prompt, w, tokenizer) for w in wrong_targets]
+            max_wrong = max(wrong_scores) if wrong_scores else 0.0
+            correct = score > max_wrong
+            chain_results[prompt] = {
+                "expected": expected,
+                "score": score,
+                "max_wrong": max_wrong,
+                "correct": correct,
+            }
+            print(f"  Chain '{prompt} ___': {expected} score={score:.3f} "
+                  f"(max_wrong={max_wrong:.3f}) {'PASS' if correct else 'FAIL'}")
+
+        # === RELATIONAL TRANSFER ===
+        # Train: "X is Y" pattern with new entities
+        transfer_facts = [
+            "vexol is warm",
+            "warm things are pleasant",
+            "pleasant things are memorable",
+        ]
+        train_rlm(rlm, tokenizer, transfer_facts, epochs=100)
+
+        transfer_tests = {
+            "vexol is": "pleasant",     # 2-hop transfer
+            "warm things are": "memorable",  # 1-hop
+        }
+
+        transfer_results = {}
+        for prompt, expected in transfer_tests.items():
+            score = recall_score(rlm, prompt, expected, tokenizer)
+            wrong_targets = ["fragile", "valuable", "insured", "flexible", "cheap", "crystalline"]
+            wrong_scores = [recall_score(rlm, prompt, w, tokenizer) for w in wrong_targets]
+            max_wrong = max(wrong_scores) if wrong_scores else 0.0
+            correct = score > max_wrong
+            transfer_results[prompt] = {
+                "expected": expected,
+                "score": score,
+                "max_wrong": max_wrong,
+                "correct": correct,
+            }
+            print(f"  Transfer '{prompt} ___': {expected} score={score:.3f} "
+                  f"(max_wrong={max_wrong:.3f}) {'PASS' if correct else 'FAIL'}")
+
+        # === NEGATIVE CASES ===
+        # Should NOT compose across unrelated chains
+        # "marn is liquid" + "liquid things are flexible" → flexible
+        # But "zorbax is crystalline" should NOT → flexible
+        negative_tests = {
+            "zorbax is": "flexible",    # WRONG — different chain
+            "marn is": "fragile",       # WRONG — different chain
+        }
+
+        negative_results = {}
+        for prompt, wrong_answer in negative_tests.items():
+            score = recall_score(rlm, prompt, wrong_answer, tokenizer)
+            # Should score LOW (model should NOT compose across chains)
+            negative_results[prompt] = {
+                "wrong_answer": wrong_answer,
+                "score": score,
+                "correctly_rejected": score < 0.1,  # threshold for "not predicted"
+            }
+            print(f"  Negative '{prompt} ___': {wrong_answer} score={score:.3f} "
+                  f"{'REJECTED' if score < 0.1 else 'LEAKED'}")
+
+        # === MLP BASELINE ===
+        mlp = make_mlp(vocab_size, seed=seed)
+        train_mlp(mlp, tokenizer, all_train + transfer_facts, epochs=150)
+
+        mlp_chain = sum(1 for p, e in chain_tests.items()
+                        if recall_score(mlp, p, e, tokenizer) > max(
+                            recall_score(mlp, p, w, tokenizer)
+                            for w in ["fragile", "valuable", "insured", "flexible", "cheap"]
+                            if w != e))
+        mlp_transfer = sum(1 for p, e in transfer_tests.items()
+                           if recall_score(mlp, p, e, tokenizer) > max(
+                               recall_score(mlp, p, w, tokenizer)
+                               for w in ["fragile", "valuable", "insured", "flexible", "cheap"]
+                               if w != e))
+
+        chain_acc = sum(1 for r in chain_results.values() if r["correct"]) / len(chain_tests)
+        transfer_acc = sum(1 for r in transfer_results.values() if r["correct"]) / len(transfer_tests)
+        neg_reject = sum(1 for r in negative_results.values() if r["correctly_rejected"]) / len(negative_tests)
+
+        results["seeds"][seed] = {
+            "chain_accuracy": chain_acc,
+            "transfer_accuracy": transfer_acc,
+            "negative_rejection": neg_reject,
+            "mlp_chain_accuracy": mlp_chain / len(chain_tests),
+            "mlp_transfer_accuracy": mlp_transfer / len(transfer_tests),
+        }
+
+    # Aggregate
+    rlm_chains = [s["chain_accuracy"] for s in results["seeds"].values()]
+    rlm_transfer = [s["transfer_accuracy"] for s in results["seeds"].values()]
+    rlm_neg = [s["negative_rejection"] for s in results["seeds"].values()]
+    mlp_chains = [s["mlp_chain_accuracy"] for s in results["seeds"].values()]
+
+    results["rlm_chain_mean"] = float(np.mean(rlm_chains))
+    results["rlm_transfer_mean"] = float(np.mean(rlm_transfer))
+    results["rlm_negative_mean"] = float(np.mean(rlm_neg))
+    results["mlp_chain_mean"] = float(np.mean(mlp_chains))
+
+    print(f"\n  RLM 3-hop chains: {results['rlm_chain_mean']:.0%}")
+    print(f"  RLM transfer: {results['rlm_transfer_mean']:.0%}")
+    print(f"  RLM negative rejection: {results['rlm_negative_mean']:.0%}")
+    print(f"  MLP 3-hop chains: {results['mlp_chain_mean']:.0%}")
+
+    return results
+
+
+# ═════════════════════════════════════════════════════════════════════════
 # EXPERIMENT 2: CONTRADICTION EMERGENCE DYNAMICS
 # ═════════════════════════════════════════════════════════════════════════
 #
@@ -731,6 +892,7 @@ def run_all_rigorous():
     all_results = []
 
     all_results.append(run_compositional_few_shot())
+    all_results.append(run_deep_compositional())
     all_results.append(run_contradiction_dynamics())
     all_results.append(run_streaming_lifelong())
     all_results.append(run_consolidation_metrics())

@@ -1,0 +1,884 @@
+[
+  {
+    "experiment": "compositional_few_shot",
+    "seeds": {
+      "42": {
+        "rlm_accuracy": 0.3333333333333333,
+        "mlp_accuracy": 0.3333333333333333,
+        "rlm_details": {
+          "glim is": {
+            "expected": "dangerous",
+            "score": 1.636262096210264,
+            "max_wrong": 2.567849897974705,
+            "correct": false
+          },
+          "marn is": {
+            "expected": "safe",
+            "score": 1.9120142253536963,
+            "max_wrong": 1.7213586765040383,
+            "correct": true
+          },
+          "tork is": {
+            "expected": "uncertain",
+            "score": 1.4363836118300521,
+            "max_wrong": 2.0490804465370345,
+            "correct": false
+          }
+        },
+        "mlp_details": {
+          "glim is": {
+            "expected": "dangerous",
+            "score": 3.6722295545088883,
+            "max_wrong": 3.814972654919831,
+            "correct": false
+          },
+          "marn is": {
+            "expected": "safe",
+            "score": 3.9144459139019827,
+            "max_wrong": 4.122088601143911,
+            "correct": false
+          },
+          "tork is": {
+            "expected": "uncertain",
+            "score": 3.754097689463534,
+            "max_wrong": 3.5871762873935658,
+            "correct": true
+          }
+        }
+      },
+      "123": {
+        "rlm_accuracy": 0.3333333333333333,
+        "mlp_accuracy": 0.3333333333333333,
+        "rlm_details": {
+          "glim is": {
+            "expected": "dangerous",
+            "score": 3.762810524669761,
+            "max_wrong": 4.174603717129721,
+            "correct": false
+          },
+          "marn is": {
+            "expected": "safe",
+            "score": 3.22000248671936,
+            "max_wrong": 3.8517898367121806,
+            "correct": false
+          },
+          "tork is": {
+            "expected": "uncertain",
+            "score": 3.846826630155271,
+            "max_wrong": 3.7332328448650793,
+            "correct": true
+          }
+        },
+        "mlp_details": {
+          "glim is": {
+            "expected": "dangerous",
+            "score": 3.8804844210332328,
+            "max_wrong": 3.7271017502285426,
+            "correct": true
+          },
+          "marn is": {
+            "expected": "safe",
+            "score": 3.5000511541000088,
+            "max_wrong": 3.7391063524973926,
+            "correct": false
+          },
+          "tork is": {
+            "expected": "uncertain",
+            "score": 3.802660405859814,
+            "max_wrong": 3.9936774890740043,
+            "correct": false
+          }
+        }
+      },
+      "456": {
+        "rlm_accuracy": 0.3333333333333333,
+        "mlp_accuracy": 0.3333333333333333,
+        "rlm_details": {
+          "glim is": {
+            "expected": "dangerous",
+            "score": -1.5715739214724196,
+            "max_wrong": -1.1963469181214152,
+            "correct": false
+          },
+          "marn is": {
+            "expected": "safe",
+            "score": -0.9328523172488126,
+            "max_wrong": -1.1133065010913532,
+            "correct": true
+          },
+          "tork is": {
+            "expected": "uncertain",
+            "score": -1.3152007497040534,
+            "max_wrong": -1.071737303812821,
+            "correct": false
+          }
+        },
+        "mlp_details": {
+          "glim is": {
+            "expected": "dangerous",
+            "score": 3.359383684882914,
+            "max_wrong": 3.5202654574471772,
+            "correct": false
+          },
+          "marn is": {
+            "expected": "safe",
+            "score": 3.4510643383003887,
+            "max_wrong": 3.2114872605199687,
+            "correct": true
+          },
+          "tork is": {
+            "expected": "uncertain",
+            "score": 3.185342048050237,
+            "max_wrong": 3.5289973100884238,
+            "correct": false
+          }
+        }
+      }
+    },
+    "rlm_mean_accuracy": 0.3333333333333333,
+    "mlp_mean_accuracy": 0.3333333333333333,
+    "rlm_std": 0.0,
+    "mlp_std": 0.0
+  },
+  {
+    "experiment": "deep_compositional",
+    "seeds": {
+      "42": {
+        "chain_accuracy": 0.0,
+        "transfer_accuracy": 0.0,
+        "negative_rejection": 0.0,
+        "mlp_chain_accuracy": 0.3333333333333333,
+        "mlp_transfer_accuracy": 0.5
+      },
+      "123": {
+        "chain_accuracy": 0.0,
+        "transfer_accuracy": 0.0,
+        "negative_rejection": 0.0,
+        "mlp_chain_accuracy": 0.3333333333333333,
+        "mlp_transfer_accuracy": 0.5
+      },
+      "456": {
+        "chain_accuracy": 0.3333333333333333,
+        "transfer_accuracy": 0.0,
+        "negative_rejection": 1.0,
+        "mlp_chain_accuracy": 0.3333333333333333,
+        "mlp_transfer_accuracy": 0.0
+      }
+    },
+    "rlm_chain_mean": 0.1111111111111111,
+    "rlm_transfer_mean": 0.0,
+    "rlm_negative_mean": 0.3333333333333333,
+    "mlp_chain_mean": 0.3333333333333333
+  },
+  {
+    "experiment": "contradiction_dynamics",
+    "seeds": {
+      "42": {
+        "dynamics": [
+          {
+            "epoch": 10,
+            "edges": 34,
+            "inhibitory": 2,
+            "excitatory": 32,
+            "hotspots": 0,
+            "free_energy": 543.4422285947556,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 20,
+            "edges": 34,
+            "inhibitory": 2,
+            "excitatory": 32,
+            "hotspots": 0,
+            "free_energy": 1086.7786867460295,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 30,
+            "edges": 34,
+            "inhibitory": 2,
+            "excitatory": 32,
+            "hotspots": 0,
+            "free_energy": 1630.1026945569592,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 40,
+            "edges": 34,
+            "inhibitory": 2,
+            "excitatory": 32,
+            "hotspots": 0,
+            "free_energy": 2173.4163150173863,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 50,
+            "edges": 34,
+            "inhibitory": 2,
+            "excitatory": 32,
+            "hotspots": 0,
+            "free_energy": 2716.719007095807,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 60,
+            "edges": 34,
+            "inhibitory": 2,
+            "excitatory": 32,
+            "hotspots": 0,
+            "free_energy": 3260.012277236563,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 70,
+            "edges": 34,
+            "inhibitory": 2,
+            "excitatory": 32,
+            "hotspots": 0,
+            "free_energy": 3803.292148561047,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 80,
+            "edges": 34,
+            "inhibitory": 2,
+            "excitatory": 32,
+            "hotspots": 0,
+            "free_energy": 4346.5600410075685,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 90,
+            "edges": 34,
+            "inhibitory": 2,
+            "excitatory": 32,
+            "hotspots": 0,
+            "free_energy": 4889.820418147762,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 100,
+            "edges": 34,
+            "inhibitory": 2,
+            "excitatory": 32,
+            "hotspots": 0,
+            "free_energy": 5433.062937369935,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 110,
+            "edges": 34,
+            "inhibitory": 2,
+            "excitatory": 32,
+            "hotspots": 0,
+            "free_energy": 5976.297704638042,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 120,
+            "edges": 34,
+            "inhibitory": 2,
+            "excitatory": 32,
+            "hotspots": 0,
+            "free_energy": 6519.513721131754,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 130,
+            "edges": 34,
+            "inhibitory": 2,
+            "excitatory": 32,
+            "hotspots": 0,
+            "free_energy": 7062.7299361673595,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 140,
+            "edges": 34,
+            "inhibitory": 2,
+            "excitatory": 32,
+            "hotspots": 0,
+            "free_energy": 7605.920986635206,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 150,
+            "edges": 34,
+            "inhibitory": 2,
+            "excitatory": 32,
+            "hotspots": 0,
+            "free_energy": 8149.106392148538,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 160,
+            "edges": 34,
+            "inhibitory": 2,
+            "excitatory": 32,
+            "hotspots": 0,
+            "free_energy": 8692.269775456862,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 170,
+            "edges": 34,
+            "inhibitory": 2,
+            "excitatory": 32,
+            "hotspots": 0,
+            "free_energy": 9235.42678737405,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 180,
+            "edges": 34,
+            "inhibitory": 2,
+            "excitatory": 32,
+            "hotspots": 0,
+            "free_energy": 9778.569024921715,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 190,
+            "edges": 34,
+            "inhibitory": 2,
+            "excitatory": 32,
+            "hotspots": 0,
+            "free_energy": 10321.696130913539,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 200,
+            "edges": 34,
+            "inhibitory": 2,
+            "excitatory": 32,
+            "hotspots": 0,
+            "free_energy": 10864.811128294841,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          }
+        ],
+        "final_inhibitory": 2,
+        "formed_inhibitory": true,
+        "peak_fire_pressure": 0,
+        "peak_ice_pressure": 0
+      },
+      "123": {
+        "dynamics": [
+          {
+            "epoch": 10,
+            "edges": 28,
+            "inhibitory": 0,
+            "excitatory": 28,
+            "hotspots": 0,
+            "free_energy": 601.0584571771541,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 20,
+            "edges": 28,
+            "inhibitory": 0,
+            "excitatory": 28,
+            "hotspots": 0,
+            "free_energy": 1202.0690475972901,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 30,
+            "edges": 28,
+            "inhibitory": 0,
+            "excitatory": 28,
+            "hotspots": 0,
+            "free_energy": 1803.069559482162,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 40,
+            "edges": 28,
+            "inhibitory": 0,
+            "excitatory": 28,
+            "hotspots": 0,
+            "free_energy": 2404.0610729258065,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 50,
+            "edges": 28,
+            "inhibitory": 0,
+            "excitatory": 28,
+            "hotspots": 0,
+            "free_energy": 3005.043448485428,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 60,
+            "edges": 28,
+            "inhibitory": 0,
+            "excitatory": 28,
+            "hotspots": 0,
+            "free_energy": 3606.0170348814067,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 70,
+            "edges": 28,
+            "inhibitory": 0,
+            "excitatory": 28,
+            "hotspots": 0,
+            "free_energy": 4206.982049024147,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 80,
+            "edges": 28,
+            "inhibitory": 0,
+            "excitatory": 28,
+            "hotspots": 0,
+            "free_energy": 4807.938219691817,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 90,
+            "edges": 28,
+            "inhibitory": 0,
+            "excitatory": 28,
+            "hotspots": 0,
+            "free_energy": 5408.88485810203,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 100,
+            "edges": 28,
+            "inhibitory": 0,
+            "excitatory": 28,
+            "hotspots": 0,
+            "free_energy": 6009.820737363189,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 110,
+            "edges": 28,
+            "inhibitory": 0,
+            "excitatory": 28,
+            "hotspots": 0,
+            "free_energy": 6610.746451887461,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 120,
+            "edges": 28,
+            "inhibitory": 0,
+            "excitatory": 28,
+            "hotspots": 0,
+            "free_energy": 7211.664974150717,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 130,
+            "edges": 28,
+            "inhibitory": 0,
+            "excitatory": 28,
+            "hotspots": 0,
+            "free_energy": 7812.572685058638,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 140,
+            "edges": 28,
+            "inhibitory": 0,
+            "excitatory": 28,
+            "hotspots": 0,
+            "free_energy": 8413.470258748775,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 150,
+            "edges": 28,
+            "inhibitory": 0,
+            "excitatory": 28,
+            "hotspots": 0,
+            "free_energy": 9014.35879988808,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 160,
+            "edges": 28,
+            "inhibitory": 0,
+            "excitatory": 28,
+            "hotspots": 0,
+            "free_energy": 9615.236084203838,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 170,
+            "edges": 28,
+            "inhibitory": 0,
+            "excitatory": 28,
+            "hotspots": 0,
+            "free_energy": 10216.102085536006,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 180,
+            "edges": 28,
+            "inhibitory": 0,
+            "excitatory": 28,
+            "hotspots": 0,
+            "free_energy": 10816.957607911441,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 190,
+            "edges": 28,
+            "inhibitory": 0,
+            "excitatory": 28,
+            "hotspots": 0,
+            "free_energy": 11417.80340924862,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 200,
+            "edges": 28,
+            "inhibitory": 0,
+            "excitatory": 28,
+            "hotspots": 0,
+            "free_energy": 12018.639352715374,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          }
+        ],
+        "final_inhibitory": 0,
+        "formed_inhibitory": false,
+        "peak_fire_pressure": 0,
+        "peak_ice_pressure": 0
+      },
+      "456": {
+        "dynamics": [
+          {
+            "epoch": 10,
+            "edges": 34,
+            "inhibitory": 1,
+            "excitatory": 33,
+            "hotspots": 0,
+            "free_energy": 596.5345589913288,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 20,
+            "edges": 34,
+            "inhibitory": 1,
+            "excitatory": 33,
+            "hotspots": 0,
+            "free_energy": 1192.5680971366808,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 30,
+            "edges": 34,
+            "inhibitory": 1,
+            "excitatory": 33,
+            "hotspots": 0,
+            "free_energy": 1788.5996156177787,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 40,
+            "edges": 34,
+            "inhibitory": 1,
+            "excitatory": 33,
+            "hotspots": 0,
+            "free_energy": 2384.6300591259237,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 50,
+            "edges": 34,
+            "inhibitory": 1,
+            "excitatory": 33,
+            "hotspots": 0,
+            "free_energy": 2980.6588989421607,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 60,
+            "edges": 34,
+            "inhibitory": 1,
+            "excitatory": 33,
+            "hotspots": 0,
+            "free_energy": 3576.6858522296,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 70,
+            "edges": 34,
+            "inhibitory": 1,
+            "excitatory": 33,
+            "hotspots": 0,
+            "free_energy": 4172.710471854885,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 80,
+            "edges": 34,
+            "inhibitory": 1,
+            "excitatory": 33,
+            "hotspots": 0,
+            "free_energy": 4768.732379798952,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 90,
+            "edges": 34,
+            "inhibitory": 1,
+            "excitatory": 33,
+            "hotspots": 0,
+            "free_energy": 5364.751632814768,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 100,
+            "edges": 34,
+            "inhibitory": 1,
+            "excitatory": 33,
+            "hotspots": 0,
+            "free_energy": 5960.767540025856,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 110,
+            "edges": 34,
+            "inhibitory": 1,
+            "excitatory": 33,
+            "hotspots": 0,
+            "free_energy": 6556.77990467636,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 120,
+            "edges": 34,
+            "inhibitory": 1,
+            "excitatory": 33,
+            "hotspots": 0,
+            "free_energy": 7152.7885879687865,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 130,
+            "edges": 34,
+            "inhibitory": 1,
+            "excitatory": 33,
+            "hotspots": 0,
+            "free_energy": 7748.793151614067,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 140,
+            "edges": 34,
+            "inhibitory": 1,
+            "excitatory": 33,
+            "hotspots": 0,
+            "free_energy": 8344.793322519463,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 150,
+            "edges": 34,
+            "inhibitory": 1,
+            "excitatory": 33,
+            "hotspots": 0,
+            "free_energy": 8940.788982556141,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 160,
+            "edges": 34,
+            "inhibitory": 1,
+            "excitatory": 33,
+            "hotspots": 0,
+            "free_energy": 9536.779727895906,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 170,
+            "edges": 34,
+            "inhibitory": 1,
+            "excitatory": 33,
+            "hotspots": 0,
+            "free_energy": 10132.765201789995,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 180,
+            "edges": 34,
+            "inhibitory": 1,
+            "excitatory": 33,
+            "hotspots": 0,
+            "free_energy": 10728.745197260201,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 190,
+            "edges": 34,
+            "inhibitory": 1,
+            "excitatory": 33,
+            "hotspots": 0,
+            "free_energy": 11324.719334393216,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          },
+          {
+            "epoch": 200,
+            "edges": 34,
+            "inhibitory": 1,
+            "excitatory": 33,
+            "hotspots": 0,
+            "free_energy": 11920.687274785645,
+            "fire_pressure": 0,
+            "ice_pressure": 0
+          }
+        ],
+        "final_inhibitory": 1,
+        "formed_inhibitory": true,
+        "peak_fire_pressure": 0,
+        "peak_ice_pressure": 0
+      }
+    },
+    "inhibitory_formation_rate": 0.6666666666666666,
+    "peak_pressure_mean": 0.0
+  },
+  {
+    "experiment": "streaming_lifelong",
+    "n_experiences": 200,
+    "batch_size": 10,
+    "rlm_final_retention": 1.0,
+    "mlp_final_retention": 1.0,
+    "rlm_interference": 0.0,
+    "mlp_interference": 0.0,
+    "rlm_total_time_ms": 1017.431399999623,
+    "mlp_total_time_ms": 55.98209999880055,
+    "rlm_retention_curve": [
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    "mlp_retention_curve": [
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ]
+  },
+  {
+    "experiment": "consolidation_metrics",
+    "pre_entropy": 4.406039687107552,
+    "post_entropy": 4.903144365116352,
+    "entropy_delta": 0.4971046780088004,
+    "pre_retrieval_rank": 24.833333333333332,
+    "post_retrieval_rank": 39.333333333333336,
+    "retrieval_delta": 14.500000000000004,
+    "pre_competing": 0,
+    "post_competing": 0,
+    "competing_delta": 0,
+    "pre_edges": 41,
+    "post_edges": 41,
+    "pre_inhibitory": 0,
+    "post_inhibitory": 0,
+    "entropy_reduced": false,
+    "retrieval_improved": false
+  },
+  {
+    "experiment": "identity_formalization",
+    "perturbation_results": [
+      {
+        "noise": 0.0,
+        "topology_similarity": 0.9999999998332859,
+        "preference_similarity": 0.996428538889028,
+        "ranking_overlap": 0.6
+      },
+      {
+        "noise": 0.01,
+        "topology_similarity": 0.9999999998332859,
+        "preference_similarity": 0.8410958115983957,
+        "ranking_overlap": 0.4
+      },
+      {
+        "noise": 0.05,
+        "topology_similarity": 0.9999999998332859,
+        "preference_similarity": 0.9987471216707001,
+        "ranking_overlap": 0.2
+      },
+      {
+        "noise": 0.1,
+        "topology_similarity": 0.9999999998332859,
+        "preference_similarity": 0.9293380547338606,
+        "ranking_overlap": 0.0
+      },
+      {
+        "noise": 0.2,
+        "topology_similarity": 0.9999999998332859,
+        "preference_similarity": 0.7459228744353109,
+        "ranking_overlap": 0.0
+      }
+    ],
+    "semantic_drift_mean": 0.0,
+    "semantic_drift_max": 0.0,
+    "identity_robust_at_0.1_noise": true,
+    "topology_stable_at_0.1_noise": true
+  }
+]
