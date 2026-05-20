@@ -1,7 +1,7 @@
 """
 Concept Physics Lab — controlled experiments for RLM cognition.
 
-Measures internal geometry: pressure localization, attractor drift,
+Measures internal geometry: free energy localization, attractor drift,
 branch formation, sleep recovery dynamics.
 """
 
@@ -33,16 +33,16 @@ class Snapshot:
         self.phase = phase_name
         self.label = label or phase_name
         self.conceptual_accuracy = float(rlm.conceptual_accuracy)
-        self.total_pressure = float(rlm.total_pressure)
+        self.total_free_energy = float(rlm.total_free_energy)
         self.n_edges = len(rlm.graph.edges)
         self.n_nodes = len(rlm.graph.nodes)
-        self.pressures = {
-            'semantic': float(rlm.pressure.semantic_pressure),
-            'linguistic': float(rlm.pressure.linguistic_pressure),
-            'episodic': float(rlm.pressure.episodic_pressure),
+        self.free_energies = {
+            'semantic': float(rlm.free_energy_engine.semantic_free_energy),
+            'linguistic': float(rlm.free_energy_engine.linguistic_free_energy),
+            'episodic': float(rlm.free_energy_engine.episodic_free_energy),
         }
-        self.node_pressures = {
-            nid: float(node.pressure) for nid, node in rlm.graph.nodes.items()
+        self.node_free_energies = {
+            nid: float(node.prediction_free_energy) for nid, node in rlm.graph.nodes.items()
         }
         self.vectors = {
             nid: node.vector.copy() for nid, node in rlm.graph.nodes.items()
@@ -58,7 +58,7 @@ class Snapshot:
                 'weight': float(e.weight),
                 'confidence': float(e.confidence),
                 'stability': float(e.stability),
-                'pressure': float(e.pressure),
+                'free_energy': float(e.prediction_free_energy),
             }
             for (s, t), e in rlm.graph.edges.items()
         }
@@ -115,9 +115,9 @@ class ConceptLab:
 
     # ── Measurements ─────────────────────────────────────────────
 
-    def pressure_localization(self, snapshot_idx: int = -1) -> dict:
+    def free_energy_localization(self, snapshot_idx: int = -1) -> dict:
         snap = self.snapshots[snapshot_idx]
-        pressures = np.array(list(snap.node_pressures.values()))
+        pressures = np.array(list(snap.node_free_energies.values()))
         total = pressures.sum() + 1e-15
         probs = pressures / total
         entropy = float(-np.sum(probs * np.log(probs + 1e-15)))
@@ -198,17 +198,17 @@ class ConceptLab:
         }
 
     def sleep_efficiency(self) -> dict:
-        pressure_drops = []
+        free_energy_drops = []
         for i in range(len(self.snapshots) - 1):
             before = self.snapshots[i]
             after = self.snapshots[i + 1]
-            drop = before.total_pressure - after.total_pressure
-            pressure_drops.append(drop)
+            drop = before.total_free_energy - after.total_free_energy
+            free_energy_drops.append(drop)
         return {
-            'mean_drop': float(np.mean(pressure_drops)) if pressure_drops else 0.0,
-            'max_drop': float(np.max(pressure_drops)) if pressure_drops else 0.0,
-            'n_intervals': len(pressure_drops),
-            'final_pressure': self.snapshots[-1].total_pressure,
+            'mean_drop': float(np.mean(free_energy_drops)) if free_energy_drops else 0.0,
+            'max_drop': float(np.max(free_energy_drops)) if free_energy_drops else 0.0,
+            'n_intervals': len(free_energy_drops),
+            'final_free_energy': self.snapshots[-1].total_free_energy,
         }
 
     def edge_topology_summary(self, snapshot_idx: int = -1) -> dict:
@@ -249,14 +249,14 @@ class ConceptLab:
         lines.append(f"║ Snapshots: {len(self.snapshots)}")
         lines.append(f"╠══")
         for i, snap in enumerate(self.snapshots):
-            loc = self.pressure_localization(i)
+            loc = self.free_energy_localization(i)
             lines.append(f"║ [{i}] {snap.label}")
             lines.append(f"║     accuracy={snap.conceptual_accuracy:.3f}  "
-                         f"pressure={snap.total_pressure:.3f}  "
+                         f"free_energy={snap.total_free_energy:.3f}  "
                          f"edges={snap.n_edges}")
-            lines.append(f"║     pressure: S={snap.pressures['semantic']:.3f} "
-                         f"L={snap.pressures['linguistic']:.3f} "
-                         f"E={snap.pressures['episodic']:.3f}")
+            lines.append(f"║     free_energy: S={snap.free_energies['semantic']:.3f} "
+                         f"L={snap.free_energies['linguistic']:.3f} "
+                         f"E={snap.free_energies['episodic']:.3f}")
             lines.append(f"║     localization: entropy={loc['normalized_entropy']:.3f} "
                          f"hotspots={loc['hotspots']}")
         lines.append(f"╚══ End Report")
