@@ -34,7 +34,7 @@ Tensor = StateTensor
 # Re-export submodules from ML framework
 from ravana_ml import graph
 from ravana_ml import propagation
-from ravana_ml import pressure
+from ravana_ml import free_energy
 from ravana_ml import plasticity
 
 # Ravana-specific submodules

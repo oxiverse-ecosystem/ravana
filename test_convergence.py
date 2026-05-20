@@ -13,7 +13,7 @@ print("=" * 60)
 
 import ravana as torch
 from ravana import nn
-from ravana.tensor import StateTensor
+from ravana import StateTensor
 
 # ── Simple deterministic sequence with WIDE semantic gaps ──────────────
 # Train: 1 → 50 → 25 → 10 → 40 (all steps are FAR apart on the unit circle)
@@ -25,7 +25,7 @@ N_REPEATS = 20  # 200 training steps total
 rlm = nn.RLM(
     vocab_size=64, embed_dim=32, concept_dim=32, n_concepts=128,
     n_hidden=32, n_layers=1, max_seq_len=16,
-    pressure_threshold=5.0, sleep_interval=15,
+    free_energy_threshold=5.0, sleep_interval=15,
 )
 
 print(f"\nInitial: {rlm}")

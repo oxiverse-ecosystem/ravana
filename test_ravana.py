@@ -16,7 +16,7 @@ print("=" * 60)
 print("\n[1/7] Import as torch...")
 import ravana as torch
 from ravana import nn, tensor, Tensor
-from ravana.tensor import StateTensor
+from ravana import StateTensor
 print("  ✓ ravana.tensor:", hasattr(torch, 'tensor'))
 print("  ✓ ravana.nn:", hasattr(torch, 'nn'))
 
@@ -78,10 +78,10 @@ target = torch.tensor([[1.0, 0.0], [0.0, 1.0], [1.0, 0.0]])
 
 out_before = lin(x_in).data.copy()
 error = out_before - target.data
-lin.accumulate_pressure(error)
-print(f"  Pressure after accumulate: {lin._pressure:.4f}")
-assert lin._pressure > 0, "Pressure should accumulate"
-print("  ✓ accumulate_pressure works")
+lin.accumulate_free_energy(error)
+print(f"  Pressure after accumulate: {lin._free_energy:.4f}")
+assert lin._free_energy > 0, "Pressure should accumulate"
+print("  ✓ accumulate_free_energy works")
 
 lin.sleep_cycle()
 out_after = lin(x_in).data
@@ -93,7 +93,7 @@ print("  ✓ sleep_cycle changes weights")
 print("\n[5/7] ConceptGraph...")
 from ravana.graph import ConceptGraph
 from ravana.propagation import PropagationEngine
-from ravana.pressure import PressureAccumulator
+from ravana.free_energy import FreeEnergyAccumulator
 from ravana.plasticity import HebbianPlasticity, StructuralPlasticity
 
 graph = ConceptGraph(dim=16, max_nodes=100)
@@ -122,7 +122,7 @@ print(f"  Propagation result: {result}")
 assert len(result) > 0, "Propagation should return active concepts"
 
 # Pressure accumulator
-pa = PressureAccumulator(graph)
+pa = FreeEnergyAccumulator(graph)
 pa.accumulate_semantic(0.8)
 pa.accumulate_linguistic(0.3)
 print(f"  Pressure total: {pa.total:.2f}")
@@ -154,7 +154,7 @@ def test_rlm_convergence():
     rlm = nn.RLM(
         vocab_size=64, embed_dim=32, concept_dim=32, n_concepts=128,
         n_hidden=32, n_layers=1, max_seq_len=16,
-        pressure_threshold=5.0, sleep_interval=15,
+        free_energy_threshold=5.0, sleep_interval=15,
     )
 
     # Train
