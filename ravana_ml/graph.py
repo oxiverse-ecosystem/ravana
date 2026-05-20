@@ -13,11 +13,12 @@ class ConceptNode:
         self.label = label or f"c{node_id}"
         self.activation = 0.0
         self.salience = 0.3
-        self.pressure = 0.0
+        self.prediction_free_energy = 0.0
         self.stability = 0.5
         self.confidence = 0.1
         self.timestamp = time.time()
         self.contradiction_count = 0
+        self.fatigue = 0.0
 
         # Hierarchical abstraction fields
         self.level: int = 0  # 0 = leaf, higher = more abstract
@@ -29,6 +30,14 @@ class ConceptNode:
         self.last_activated: float = 0.0  # most recent activation timestamp
         self.activation_history: List[float] = []  # last 100 activation timestamps
         self.temporal_context: Optional[np.ndarray] = None  # context at last activation
+
+    @property
+    def effective_activation(self) -> float:
+        """Activation scaled down by fatigue.
+        
+        Prevents fatigued concepts from staying active or dominating.
+        """
+        return self.activation * (1.0 - getattr(self, 'fatigue', 0.0))
 
     @property
     def drift_magnitude(self) -> float:
@@ -98,7 +107,7 @@ class ConceptEdge:
         self.target = target
         self.weight = max(0.0, min(1.0, weight))
         self.confidence = 0.1
-        self.pressure = 0.0
+        self.prediction_free_energy = 0.0
         self.stability = 0.3
         self.timestamp = time.time()
         self.prediction_count = 0
@@ -355,7 +364,7 @@ class ConceptGraph:
         self.nodes: Dict[int, ConceptNode] = {}
         self.edges: Dict[Tuple[int, int], ConceptEdge] = {}
         self.next_id = 0
-        self.total_pressure = 0.0
+        self.total_free_energy = 0.0
         self.contradiction_hotspots: Set[int] = set()
 
         # Temporal context: a drifting vector that represents "when" we are
@@ -558,15 +567,15 @@ class ConceptGraph:
             self.activate(nid, sim)
         return [nid for nid, _ in matches]
 
-    # ── pressure ──
+    # ── free energy ──
 
-    def apply_pressure(self, nid: int, amount: float):
+    def apply_free_energy(self, nid: int, amount: float):
         node = self.nodes.get(nid)
         if node:
-            node.pressure += amount * node.salience * (1.0 - node.confidence)
-            node.pressure = min(100.0, node.pressure)
-            self.total_pressure += amount
-            if node.pressure > 5.0:
+            node.prediction_free_energy += amount * node.salience * (1.0 - node.confidence)
+            node.prediction_free_energy = min(100.0, node.prediction_free_energy)
+            self.total_free_energy += amount
+            if node.prediction_free_energy > 5.0:
                 self.contradiction_hotspots.add(nid)
 
     def apply_prediction_error(self, predicted_nids: List[int], actual_vector: np.ndarray):
@@ -578,7 +587,7 @@ class ConceptGraph:
             error = max(0.0, 1.0 - sim)
             if error > 0.3:
                 node.contradiction_count += 1
-            self.apply_pressure(nid, error)
+            self.apply_free_energy(nid, error)
 
     def adjust_vector(self, nid: int, delta: np.ndarray, lr: float = 0.1):
         node = self.nodes.get(nid)
@@ -652,32 +661,62 @@ class ConceptGraph:
     def form_inhibitory_edges(self, contradiction_threshold: int = 3):
         """Form inhibitory edges between concepts with persistent contradictions.
 
-        When two concepts repeatedly produce prediction errors together
-        (high co-activation but mismatched expectations), they should
-        inhibit each other — like semantic suppression in the brain.
+        When a source concept has strong edges to multiple targets that
+        can't all be true simultaneously, form inhibitory edges between
+        the competing targets — like semantic suppression in the brain.
+
+        Two pathways:
+        1. Weak edges: convert low-confidence excitatory edges to inhibitory
+        2. Strong contradictions: form inhibitory edges between competing targets
+           when source has very high contradiction count
         """
         formed = 0
         for nid in list(self.contradiction_hotspots):
             node = self.nodes.get(nid)
             if node is None or node.contradiction_count < contradiction_threshold:
                 continue
-            # Find co-activated neighbors that contributed to contradiction
+
+            # Collect competing targets from this source
+            competing_targets = []
             for (src, tgt), edge in self.edges.items():
-                if src == nid:
+                if src == nid and edge.edge_type == "excitatory":
                     target = self.nodes.get(tgt)
-                    if target and target.activation > 0.1 and target.contradiction_count > 0:
-                        # Check if excitatory edge exists — if so, it's a candidate for inhibition
-                        existing = self.get_edge(nid, tgt)
-                        if existing and existing.edge_type == "excitatory" and existing.confidence < 0.3:
-                            # Convert to inhibitory
-                            existing.edge_type = "inhibitory"
-                            existing.weight = 0.2
-                            existing.confidence = 0.2
-                            formed += 1
-                        elif existing is None:
-                            # Create new inhibitory edge
-                            self.add_edge(nid, tgt, 0.2, edge_type="inhibitory")
-                            formed += 1
+                    if target:
+                        competing_targets.append((tgt, edge, target))
+
+            # Pathway 1: Convert weak edges to inhibitory (original logic)
+            for tgt, edge, target in competing_targets:
+                if target.activation > 0.1 and edge.confidence < 0.3:
+                    edge.edge_type = "inhibitory"
+                    edge.weight = 0.2
+                    edge.confidence = 0.2
+                    formed += 1
+
+            # Pathway 2: Strong contradictions — form inhibitory edges
+            # between competing targets when source has high contradiction pressure
+            # Adaptive threshold: more contradictions = more aggressive
+            if node.contradiction_count >= contradiction_threshold * 3:
+                # Find pairs of competing targets and form mutual inhibition
+                for i, (tgt_a, edge_a, target_a) in enumerate(competing_targets):
+                    for tgt_b, edge_b, target_b in competing_targets[i + 1:]:
+                        # Don't inhibit if they're already related
+                        existing_ab = self.get_edge(tgt_a, tgt_b)
+                        existing_ba = self.get_edge(tgt_b, tgt_a)
+                        if existing_ab is None and existing_ba is None:
+                            # Form bidirectional inhibitory edges between targets
+                            self.add_edge(tgt_a, tgt_b, 0.2, edge_type="inhibitory")
+                            self.add_edge(tgt_b, tgt_a, 0.2, edge_type="inhibitory")
+                            formed += 2
+
+            # Pathway 3: Adaptive confidence — weaken strongly-held contradictions
+            # When contradiction count is very high, dampen edge confidence
+            if node.contradiction_count >= contradiction_threshold * 5:
+                for tgt, edge, target in competing_targets:
+                    if edge.confidence > 0.3:
+                        # Dampen confidence proportional to contradiction severity
+                        dampen = min(0.1, node.contradiction_count * 0.001)
+                        edge.confidence = max(0.1, edge.confidence - dampen)
+
         return formed
 
     # ── structural plasticity ──
@@ -885,7 +924,7 @@ class ConceptGraph:
 
     def get_hotspots(self, threshold: float = 3.0) -> List[int]:
         return [nid for nid in self.contradiction_hotspots
-                if nid in self.nodes and self.nodes[nid].pressure > threshold]
+                if nid in self.nodes and self.nodes[nid].prediction_free_energy > threshold]
 
     def clear_hotspots(self):
         self.contradiction_hotspots.clear()
@@ -903,11 +942,11 @@ class ConceptGraph:
             mean_w = np.mean(conflicting_weights)
             if node.contradiction_count > 3:
                 node.stability = max(0.0, node.stability - 0.1)
-                node.pressure *= 0.5
+                node.prediction_free_energy *= 0.5
                 node.contradiction_count = 0
                 reconciled += 1
             else:
-                node.pressure = max(0.0, node.pressure - 1.0)
+                node.prediction_free_energy = max(0.0, node.prediction_free_energy - 1.0)
         self.contradiction_hotspots.clear()
         return reconciled
 
@@ -1160,4 +1199,4 @@ class ConceptGraph:
 
     def __repr__(self):
         return (f"<ConceptGraph nodes={len(self.nodes)} edges={len(self.edges)} "
-                f"dim={self.dim} pressure={self.total_pressure:.2f}>")
+                f"dim={self.dim} free_energy={self.total_free_energy:.2f}>")

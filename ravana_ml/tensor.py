@@ -230,12 +230,12 @@ DECAY_RATE = 0.01
 
 
 class StateTensor(RawTensor):
-    __slots__ = ('data', '_salience', '_pressure', '_stability', '_timestamp', '_decay_rate')
+    __slots__ = ('data', '_salience', '_free_energy', '_stability', '_timestamp', '_decay_rate')
 
-    def __init__(self, data, dtype=None, salience=None, pressure=None, stability=None):
+    def __init__(self, data, dtype=None, salience=None, free_energy=None, stability=None):
         super().__init__(data, dtype)
         self._salience = salience if salience is not None else DEFAULT_SALIENCE
-        self._pressure = pressure if pressure is not None else 0.0
+        self._free_energy = free_energy if free_energy is not None else 0.0
         self._stability = stability if stability is not None else DEFAULT_STABILITY
         self._timestamp = time.time()
         self._decay_rate = DECAY_RATE
@@ -247,9 +247,9 @@ class StateTensor(RawTensor):
     def salience(self, v): self._salience = max(0.0, min(1.0, float(v)))
 
     @property
-    def pressure(self): return self._pressure
-    @pressure.setter
-    def pressure(self, v): self._pressure = max(0.0, float(v))
+    def free_energy(self): return self._free_energy
+    @free_energy.setter
+    def free_energy(self, v): self._free_energy = max(0.0, float(v))
 
     @property
     def stability(self): return self._stability
@@ -276,15 +276,15 @@ class StateTensor(RawTensor):
         self._salience = min(1.0, self._salience + amount)
         return self
 
-    def apply_pressure(self, error, salience_weight=1.0):
-        self._pressure += error * self._salience * salience_weight
-        self._pressure = min(100.0, self._pressure)
-        return self._pressure
+    def apply_free_energy(self, error, salience_weight=1.0):
+        self._free_energy += error * self._salience * salience_weight
+        self._free_energy = min(100.0, self._free_energy)
+        return self._free_energy
 
     def consolidate(self, rate=0.1):
-        delta = self._pressure * self.plasticity * rate
+        delta = self._free_energy * self.plasticity * rate
         self.data += delta
-        self._pressure *= 0.5
+        self._free_energy *= 0.5
         self._stability = min(1.0, self._stability + 0.01)
         return delta.mean().item()
 
@@ -295,7 +295,7 @@ class StateTensor(RawTensor):
         result = StateTensor.__new__(StateTensor)
         RawTensor.__init__(result, result_data)
         result._salience = self._salience
-        result._pressure = self._pressure
+        result._free_energy = self._free_energy
         result._stability = self._stability
         result._timestamp = time.time()
         result._decay_rate = self._decay_rate
@@ -306,7 +306,7 @@ class StateTensor(RawTensor):
         result = StateTensor.__new__(StateTensor)
         RawTensor.__init__(result, result_data)
         result._salience = self._salience
-        result._pressure = self._pressure
+        result._free_energy = self._free_energy
         result._stability = self._stability
         result._timestamp = self._timestamp
         result._decay_rate = self._decay_rate
@@ -318,7 +318,7 @@ class StateTensor(RawTensor):
         result = StateTensor.__new__(StateTensor)
         RawTensor.__init__(result, arr)
         result._salience = self._salience
-        result._pressure = self._pressure
+        result._free_energy = self._free_energy
         result._stability = self._stability
         result._timestamp = self._timestamp
         result._decay_rate = self._decay_rate
@@ -328,7 +328,7 @@ class StateTensor(RawTensor):
         result = StateTensor.__new__(StateTensor)
         RawTensor.__init__(result, self.data.copy())
         result._salience = self._salience
-        result._pressure = self._pressure
+        result._free_energy = self._free_energy
         result._stability = self._stability
         result._timestamp = self._timestamp
         result._decay_rate = self._decay_rate
@@ -339,7 +339,7 @@ class StateTensor(RawTensor):
 
     def __repr__(self):
         return (f"<StateTensor shape={self.shape} dtype={self.dtype} "
-                f"salience={self._salience:.2f} pressure={self._pressure:.2f} "
+                f"salience={self._salience:.2f} free_energy={self._free_energy:.2f} "
                 f"stability={self._stability:.2f}>\n{self.data}")
 
 
@@ -351,7 +351,7 @@ class Parameter(StateTensor):
             data = StateTensor(np.array([]))
         super().__init__(data.data, dtype=data.dtype)
         self._salience = data._salience
-        self._pressure = data._pressure
+        self._free_energy = data._free_energy
         self._stability = data._stability
         self._timestamp = data._timestamp
         self._decay_rate = data._decay_rate
