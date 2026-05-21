@@ -2421,6 +2421,17 @@ class ConceptGraph:
         "crisis":     {"contradiction_density": 0.15},  # threshold for crisis mode
     }
 
+    # Global invariant anchors — hard limits that NEVER change regardless of history.
+    # Prevents boiling frog failure where adaptive thresholds drift to normalize pathology.
+    # If a metric breaches these, the phase is forced even if adaptive thresholds say it's fine.
+    GLOBAL_INVARIANTS = {
+        "entropy_max": 0.95,           # above this, always diffuse
+        "contradiction_max": 0.25,     # above this, always crisis
+        "preservation_min": 0.2,       # below this, always crisis (topology collapsing)
+        "separation_max": 0.98,        # above this, always rigid (over-crystallized)
+        "entropy_min_for_focused": 0.05, # below this, even "focused" is suspicious (dead system)
+    }
+
     def calibrate_thresholds(self, min_snapshots: int = 20) -> Dict[str, Any]:
         """Compute adaptive phase thresholds from geometry history.
 
@@ -2532,6 +2543,61 @@ class ConceptGraph:
                 },
                 "metrics_used": {"entropy": entropy, "specificity": specificity,
                                  "separation": separation, "contradiction_density": contradiction},
+            }
+
+        # ── Global invariant overrides ──
+        # These hard limits prevent boiling frog failure where adaptive
+        # thresholds drift to normalize pathology over time.
+        inv = self.GLOBAL_INVARIANTS
+
+        # Hard crisis: topology collapsing (preservation below minimum)
+        preservation = metrics.get("neighbor_preservation", 1.0)
+        if preservation < inv["preservation_min"]:
+            return {
+                "phase": "crisis",
+                "confidence": min(1.0, (inv["preservation_min"] - preservation) / inv["preservation_min"]),
+                "recommendations": {
+                    "inhibition_boost": 0.2,
+                    "plasticity_boost": 0.0,
+                    "sleep_urgency": 1.0,
+                    "contradiction_focus": False,
+                },
+                "metrics_used": {"entropy": entropy, "specificity": specificity,
+                                 "separation": separation, "contradiction_density": contradiction,
+                                 "neighbor_preservation": preservation,
+                                 "_global_override": "preservation_min"},
+            }
+
+        # Hard diffuse: entropy exceeds absolute ceiling
+        if entropy > inv["entropy_max"]:
+            return {
+                "phase": "diffuse",
+                "confidence": min(1.0, (entropy - inv["entropy_max"]) / (1.0 - inv["entropy_max"]) + 0.5),
+                "recommendations": {
+                    "inhibition_boost": 0.4,
+                    "plasticity_boost": 0.0,
+                    "sleep_urgency": 0.7,
+                    "contradiction_focus": False,
+                },
+                "metrics_used": {"entropy": entropy, "specificity": specificity,
+                                 "separation": separation, "contradiction_density": contradiction,
+                                 "_global_override": "entropy_max"},
+            }
+
+        # Hard rigid: separation exceeds absolute ceiling
+        if separation > inv["separation_max"]:
+            return {
+                "phase": "rigid",
+                "confidence": min(1.0, (separation - inv["separation_max"]) / (1.0 - inv["separation_max"]) + 0.5),
+                "recommendations": {
+                    "inhibition_boost": 0.0,
+                    "plasticity_boost": 0.4,
+                    "sleep_urgency": 0.3,
+                    "contradiction_focus": False,
+                },
+                "metrics_used": {"entropy": entropy, "specificity": specificity,
+                                 "separation": separation, "contradiction_density": contradiction,
+                                 "_global_override": "separation_max"},
             }
 
         # Score each phase by how well metrics fit
@@ -2725,6 +2791,7 @@ class ConceptGraph:
             "",
             "── Thresholds ──",
             f"  Mode:        {'CALIBRATED' if cal and '_stats' in cal else 'STATIC'}  ({len(self._geometry_history.snapshots)} history snapshots)",
+            f"  Invariants:  entropy_max={self.GLOBAL_INVARIANTS['entropy_max']}  contradiction_max={self.GLOBAL_INVARIANTS['contradiction_max']}  preservation_min={self.GLOBAL_INVARIANTS['preservation_min']}",
             "",
             "── Regulator ──",
             f"  Inhibition boost:  {self._regulator._fast_inhibition_boost:.3f}  (damping={self._regulator._fast_damping:.2f})",
