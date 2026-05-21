@@ -77,6 +77,7 @@ class RLM(Module):
         self.conceptual_accuracy = 0.0
         self.n_predictions = 0
         self._step_counter = 0
+        self._last_regulation: Dict[str, Any] = {}
 
         self._edges_learned = 0
 
@@ -677,6 +678,10 @@ class RLM(Module):
                 self.graph._vectors_dirty = True
 
         self.sleep_cycles_completed += 1
+
+        # Run cognitive regulation — detect phase, apply damped adjustments
+        regulation = self.graph.regulate()
+        self._last_regulation = regulation
 
         # Record geometry snapshot after sleep — captures post-consolidation state
         self.graph.record_geometry_snapshot(event="sleep")
