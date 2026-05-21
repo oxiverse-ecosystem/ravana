@@ -2,19 +2,19 @@
 
 **Prompt:** `Persistent identity structures`
 
-**Generated Text:** `Persistent identity structuresbaY<8@.L?`
+**Generated Text:** `Persistent identity structuresã»Òðæâñ`
 
 ## Step-by-Step Cognitive Metrics
 
 | Step | Token | Entropy | Repetition Score | Exploration Drive | Temperature | ACF | Steps | Top Active Concepts (Label, Activation, Fatigue) |
 |------|-------|---------|------------------|-------------------|-------------|-----|-------|--------------------------------------------------|
-| 0 | `b` | 0.879 | 0.40 | 0.02 | 0.70 | 5 | 2 | tok_84 (act=0.17, fat=0.05), tok_79 (act=0.16, fat=0.08), tok_66 (act=0.15, fat=0.07), tok_69 (act=0.15, fat=0.07), tok_71 (act=0.13, fat=0.04) |
-| 1 | `a` | 0.912 | 0.33 | 0.01 | 0.70 | 5 | 2 | tok_84 (act=0.13, fat=0.09), tok_69 (act=0.12, fat=0.10), tok_87 (act=0.08, fat=0.06), tok_94 (act=0.07, fat=0.04), tok_76 (act=0.06, fat=0.09) |
-| 2 | `Y` | 0.901 | 0.33 | 0.01 | 0.70 | 5 | 2 | tok_56 (act=0.13, fat=0.06), tok_58 (act=0.13, fat=0.04), tok_53 (act=0.13, fat=0.06), tok_64 (act=0.12, fat=0.08), tok_61 (act=0.12, fat=0.08) |
-| 3 | `<` | 0.944 | 0.27 | 0.00 | 0.70 | 5 | 2 | tok_87 (act=0.09, fat=0.08), tok_46 (act=0.09, fat=0.05), tok_48 (act=0.08, fat=0.03), tok_66 (act=0.08, fat=0.09), tok_76 (act=0.08, fat=0.10) |
-| 4 | `8` | 0.929 | 0.27 | 0.01 | 0.70 | 5 | 2 | tok_97 (act=0.12, fat=0.06), tok_89 (act=0.11, fat=0.05), tok_79 (act=0.11, fat=0.10), tok_71 (act=0.11, fat=0.07), tok_84 (act=0.10, fat=0.11) |
-| 5 | `@` | 0.900 | 0.27 | 0.01 | 0.70 | 5 | 2 | tok_97 (act=0.14, fat=0.10), tok_89 (act=0.14, fat=0.09), tok_104 (act=0.09, fat=0.07), tok_94 (act=0.09, fat=0.06), tok_87 (act=0.09, fat=0.10) |
-| 6 | `.` | 0.975 | 0.20 | 0.00 | 0.70 | 5 | 2 | Concept_4 (act=0.08, fat=0.02), tok_97 (act=0.08, fat=0.11), tok_89 (act=0.08, fat=0.10), tok_25 (act=0.08, fat=0.02), Concept_6 (act=0.08, fat=0.02) |
-| 7 | `L` | 0.908 | 0.13 | 0.00 | 0.70 | 5 | 2 | tok_89 (act=0.13, fat=0.13), tok_92 (act=0.11, fat=0.05), tok_104 (act=0.11, fat=0.10), tok_102 (act=0.10, fat=0.08), tok_87 (act=0.10, fat=0.13) |
-| 8 | `?` | 0.980 | 0.07 | 0.00 | 0.70 | 5 | 2 | tok_89 (act=0.08, fat=0.14), tok_92 (act=0.06, fat=0.07), tok_212 (act=0.06, fat=0.02), tok_104 (act=0.06, fat=0.11), tok_235 (act=0.06, fat=0.02) |
-| 9 | `` | 0.907 | 0.00 | 0.00 | 0.70 | 5 | 2 | tok_64 (act=0.13, fat=0.08), tok_43 (act=0.12, fat=0.05), tok_53 (act=0.11, fat=0.07), tok_71 (act=0.11, fat=0.08), tok_56 (act=0.11, fat=0.07) |
+| 0 | `ã` | 0.862 | 0.40 | 0.02 | 0.70 | 5 | 2 | tok_202 (act=0.14, fat=0.06), tok_197 (act=0.14, fat=0.11), tok_207 (act=0.14, fat=0.06), tok_215 (act=0.13, fat=0.11), tok_209 (act=0.10, fat=0.03) |
+| 1 | `»` | 0.871 | 0.33 | 0.01 | 0.70 | 5 | 2 | tok_202 (act=0.15, fat=0.10), tok_207 (act=0.15, fat=0.10), tok_209 (act=0.14, fat=0.07), tok_225 (act=0.11, fat=0.07), tok_212 (act=0.11, fat=0.03) |
+| 2 | `` | 0.899 | 0.33 | 0.01 | 0.70 | 5 | 2 | tok_235 (act=0.08, fat=0.10), tok_227 (act=0.08, fat=0.08), tok_220 (act=0.08, fat=0.10), tok_232 (act=0.08, fat=0.10), tok_222 (act=0.08, fat=0.15) |
+| 3 | `Ò` | 0.905 | 0.27 | 0.01 | 0.70 | 5 | 2 | tok_220 (act=0.11, fat=0.13), tok_189 (act=0.09, fat=0.03), tok_230 (act=0.08, fat=0.08), tok_197 (act=0.08, fat=0.12), tok_217 (act=0.07, fat=0.11) |
+| 4 | `` | 0.872 | 0.27 | 0.01 | 0.70 | 5 | 2 | tok_230 (act=0.14, fat=0.11), tok_243 (act=0.11, fat=0.07), tok_240 (act=0.11, fat=0.07), tok_225 (act=0.11, fat=0.09), tok_222 (act=0.10, fat=0.16) |
+| 5 | `ð` | 0.864 | 0.27 | 0.01 | 0.70 | 5 | 2 | tok_230 (act=0.14, fat=0.14), tok_225 (act=0.12, fat=0.12), tok_227 (act=0.09, fat=0.09), tok_235 (act=0.09, fat=0.11), tok_232 (act=0.09, fat=0.11) |
+| 6 | `æ` | 0.867 | 0.20 | 0.01 | 0.70 | 5 | 2 | tok_230 (act=0.14, fat=0.17), tok_235 (act=0.12, fat=0.13), tok_245 (act=0.10, fat=0.07), tok_243 (act=0.09, fat=0.10), tok_240 (act=0.09, fat=0.10) |
+| 7 | `â` | 0.899 | 0.13 | 0.00 | 0.70 | 5 | 2 | tok_245 (act=0.13, fat=0.10), tok_243 (act=0.13, fat=0.13), tok_250 (act=0.10, fat=0.05), tok_220 (act=0.10, fat=0.12), tok_232 (act=0.09, fat=0.12) |
+| 8 | `ñ` | 0.904 | 0.07 | 0.00 | 0.70 | 5 | 2 | tok_245 (act=0.13, fat=0.13), tok_243 (act=0.12, fat=0.15), tok_250 (act=0.12, fat=0.08), Concept_7 (act=0.10, fat=0.03), tok_235 (act=0.07, fat=0.14) |
+| 9 | `` | 0.921 | 0.00 | 0.00 | 0.70 | 5 | 2 | tok_217 (act=0.08, fat=0.09), tok_222 (act=0.08, fat=0.12), tok_227 (act=0.08, fat=0.09), tok_220 (act=0.08, fat=0.13), tok_230 (act=0.07, fat=0.16) |
