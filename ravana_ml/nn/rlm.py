@@ -104,6 +104,41 @@ class RLM(Module):
         self.noise_sigma = 0.0      # noise injection (0 during learning, >0 during REM)
         self._running_avg_states = None  # for energy floor / anti-collapse
 
+        # ═══════════════════════════════════════════════════════════
+        # Cognitive State (native to RLM — no external module deps)
+        # ═══════════════════════════════════════════════════════════
+
+        # Identity (from IdentityEngine)
+        self.identity_strength = 0.5        # [0,1] — self-concept coherence
+        self.identity_momentum = 0.0        # directional inertia
+        self.identity_history: List[float] = []  # last 100 values
+
+        # Emotion (from VADEmotionEngine — 3D VAD via differential equations)
+        self.valence = 0.0                   # [-1,1] — positive/negative affect
+        self.arousal = 0.3                   # [0,1] — activation level (baseline=0.3)
+        self.dominance = 0.5                 # [0,1] — sense of control
+
+        # Meaning (from MeaningEngine)
+        self.accumulated_meaning = 0.0       # running meaning total
+        self.meaning_history: List[float] = []  # last 100 values
+
+        # Sleep pressure (from SleepConsolidation + GlobalWorkspace)
+        self.sleep_pressure = 0.0            # [0,1] — accumulates from free energy + contradictions
+        self.sleep_pressure_threshold = 0.7  # when to trigger auto-sleep
+
+        # Regulation (lightweight Governor)
+        self.regulation_mode = "NORMAL"      # NORMAL, EXPLORATION, RESOLUTION, RECOVERY, PLATEAU
+        self.dissonance_ema = 0.5            # exponential moving average of prediction error
+
+        # Native Memory (lightweight episodic buffer + semantic consolidation)
+        self._episodic_buffer: List[Dict] = []    # recent experiences
+        self._episodic_buffer_max = 100
+        self._semantic_memories: Dict[int, Dict] = {}  # consolidated: {concept_id: {strength, access_count, last_access}}
+        self._semantic_memory_max = 1000
+
+        # Concept emotion tags (from VADEmotionEngine._concept_tags)
+        self._concept_vad: Dict[int, Tuple[float, float, float]] = {}  # {concept_id: (v, a, d)}
+
     def _init_structured_embeddings(self):
         n, d = self.vocab_size, self.embed_dim
         vectors = np.zeros((n, d), dtype=np.float32)
@@ -183,10 +218,17 @@ class RLM(Module):
 
         self._last_hidden_state = h
         
-        # Concept prediction from hidden state
+        # Concept prediction from hidden state (concept_dim) → project to embed_dim for node comparison
         z = self.concept_predictor(StateTensor(h[np.newaxis, :])).data[0]
+        # Project concept_dim → embed_dim: pad with zeros if needed, truncate if needed
+        if len(z) < self.embed_dim:
+            z_padded = np.zeros(self.embed_dim, dtype=np.float32)
+            z_padded[:len(z)] = z
+            z = z_padded
+        elif len(z) > self.embed_dim:
+            z = z[:self.embed_dim]
         z_norm = z / (np.linalg.norm(z) + 1e-15)
-        
+
         # Activation based on conceptual similarity
         self.graph.reset_activation()
         node_sims = []
@@ -300,7 +342,11 @@ class RLM(Module):
         ctx_logits_raw = self.context_logits(StateTensor(h[np.newaxis, :]))
         ctx_logits = ctx_logits_raw.data.flatten()
 
-        logits = concept_logits + ctx_logits * self.context_scale
+        # ── Cognitive modulation: emotion + identity shape logit blend ──
+        # High arousal → exploration (boost concept path), positive valence → trust concepts
+        emotion_scale = 1.0 + 0.3 * self.arousal - 0.1 * max(0.0, -self.valence)
+        identity_scale = 0.5 + 0.5 * self.identity_strength
+        logits = concept_logits * identity_scale * emotion_scale + ctx_logits * self.context_scale
         self._last_ctx_logits = ctx_logits
         return StateTensor(logits[np.newaxis, :])[0]
 
@@ -450,6 +496,50 @@ class RLM(Module):
         factor = 0.95 if single_correct else 0.05
         self.conceptual_accuracy = 0.9 * self.conceptual_accuracy + 0.1 * factor
         self.n_predictions += 1
+
+        # ── Cognitive Updates ──
+        is_correct = single_correct
+
+        # 1. Dissonance EMA (for Governor)
+        self.dissonance_ema = 0.9 * self.dissonance_ema + 0.1 * conceptual_error
+
+        # 2. Identity update
+        identity_delta = self._compute_identity_update(conceptual_error, is_correct)
+        self.identity_strength = np.clip(self.identity_strength + identity_delta, 0.0, 1.0)
+        self.identity_momentum = 0.6 * self.identity_momentum + 0.4 * identity_delta
+        self.identity_history.append(self.identity_strength)
+        if len(self.identity_history) > 100:
+            self.identity_history.pop(0)
+
+        # 3. Emotion update (VAD differential equations)
+        valence_stimulus = -conceptual_error if is_correct else conceptual_error
+        self._update_emotion(valence_stimulus, arousal_stimulus=conceptual_error)
+
+        # 4. Meaning computation
+        meaning_gain = self._compute_meaning(conceptual_error)
+        self.accumulated_meaning += meaning_gain
+        self.meaning_history.append(meaning_gain)
+        if len(self.meaning_history) > 100:
+            self.meaning_history.pop(0)
+
+        # 5. Sleep pressure accumulation
+        self.sleep_pressure = min(1.0, self.sleep_pressure
+                                  + conceptual_error * 0.05
+                                  + (0.02 if not is_correct else 0.0))
+
+        # 6. Episodic memory storage
+        self._store_episode(conceptual_error, is_correct)
+
+        # 7. Emotion-tag active concepts
+        for cid in self._last_predicted_concepts:
+            self._concept_vad[cid] = (self.valence, self.arousal, self.dominance)
+
+        # 8. Lightweight self-regulation
+        self._regulate_cognitive_state()
+
+        # Auto-sleep when pressure exceeds threshold (in addition to step-based sleep)
+        if self.sleep_pressure >= self.sleep_pressure_threshold:
+            self.sleep_cycle()
 
         if self._step_counter % self.sleep_interval == 0:
             self.sleep_cycle()
@@ -628,6 +718,170 @@ class RLM(Module):
 
         return states, final_errors
 
+    # ──────────────────────────────────────────────────────────────
+    # Cognitive Processing (native to RLM)
+    # ──────────────────────────────────────────────────────────────
+
+    def _update_emotion(self, valence_stimulus: float, arousal_stimulus: float,
+                        dominance_stimulus: float = 0.0):
+        """VAD differential equations (from VADEmotionEngine).
+
+        dV/dt = eta_v * (stimulus - V) - lambda_v * V
+        dA/dt = eta_a * (stimulus + uncertainty - A) - lambda_a * (A - baseline)
+        dD/dt = eta_d * (stimulus - D) - lambda_d * D
+        """
+        dv = 0.3 * (valence_stimulus - self.valence) - 0.1 * self.valence
+        da = 0.4 * (arousal_stimulus + 0.3 * self.dissonance_ema - self.arousal) - 0.1 * (self.arousal - 0.3)
+        dd = 0.25 * (dominance_stimulus - self.dominance) - 0.1 * self.dominance
+        self.valence = np.clip(self.valence + dv, -1.0, 1.0)
+        self.arousal = np.clip(self.arousal + da, 0.0, 1.0)
+        self.dominance = np.clip(self.dominance + dd, 0.0, 1.0)
+
+    def _compute_identity_update(self, error: float, is_correct: bool) -> float:
+        """Compute identity delta from prediction outcome (from IdentityEngine)."""
+        if is_correct:
+            base = 0.02 * (1.0 - error)
+            if self.identity_strength < 0.5:
+                base *= 1.2  # recovery bias
+            if len(self.identity_history) >= 3 and all(h > 0.5 for h in self.identity_history[-3:]):
+                base *= 1.3  # streak bonus
+        else:
+            base = -0.05  # fixed failure penalty
+            if self.dissonance_ema > 0.8:
+                base *= 1.3  # dissonance coupling
+        # Momentum
+        base += 0.3 * self.identity_momentum
+        # Damping when identity is high
+        if self.identity_strength > 0.85:
+            base *= 0.5
+        return base
+
+    def _compute_meaning(self, error: float) -> float:
+        """Meaning from dissonance reduction + identity gain + predictive power (from MeaningEngine)."""
+        dissonance_reduction = max(0, self.dissonance_ema - error)
+        prev_identity = self.identity_history[-2] if len(self.identity_history) >= 2 else 0.5
+        identity_gain = self.identity_strength - prev_identity
+        predictive_power = max(0, 1.0 - error)
+        return 0.4 * dissonance_reduction + 0.3 * max(0, identity_gain) + 0.3 * predictive_power
+
+    def _store_episode(self, error: float, is_correct: bool):
+        """Store experience in episodic buffer for memory consolidation."""
+        episode = {
+            'vector': self._last_hidden_state.copy() if self._last_hidden_state is not None else None,
+            'concepts': list(self._last_predicted_concepts),
+            'error': error,
+            'correct': is_correct,
+            'valence': self.valence,
+            'arousal': self.arousal,
+            'timestamp': time.time(),
+        }
+        self._episodic_buffer.append(episode)
+        if len(self._episodic_buffer) > self._episodic_buffer_max:
+            self._episodic_buffer.pop(0)
+
+    def _regulate_cognitive_state(self):
+        """Lightweight Governor — prevents runaway state, detects mode."""
+        # Hard constraints
+        self.identity_strength = np.clip(self.identity_strength, 0.1, 0.95)
+        self.sleep_pressure = np.clip(self.sleep_pressure, 0.0, 1.0)
+
+        # Mode detection
+        if self.dissonance_ema > 0.8:
+            self.regulation_mode = "RECOVERY"
+        elif self.dissonance_ema > 0.5:
+            self.regulation_mode = "RESOLUTION"
+        elif self.dissonance_ema < 0.15:
+            self.regulation_mode = "EXPLORATION"
+        else:
+            self.regulation_mode = "NORMAL"
+
+        # Boundary pressure (sigmoid near limits)
+        if self.identity_strength > 0.85:
+            overshoot = (self.identity_strength - 0.85) / 0.15
+            self.identity_strength -= 0.01 * overshoot
+        if self.identity_strength < 0.2:
+            recovery = (0.2 - self.identity_strength) / 0.2
+            self.identity_strength += 0.02 * recovery
+
+        # Dissonance dampening
+        if self.dissonance_ema > 0.9:
+            self.dissonance_ema *= 0.95
+
+    # ──────────────────────────────────────────────────────────────
+    # Native Memory System (episodic → semantic → graph weights)
+    # ──────────────────────────────────────────────────────────────
+
+    def _replay_memories_through_graph(self):
+        """Hippocampal replay — re-activate memories through ConceptGraph."""
+        if not self._episodic_buffer:
+            return
+        episodes = self._episodic_buffer[-20:]
+        for ep in episodes:
+            if ep['concepts']:
+                for cid in ep['concepts'][:3]:
+                    node = self.graph.get_node(cid)
+                    if node:
+                        node.activation = min(1.0, node.activation + 0.3)
+                self.graph.spread_activation(steps=1, k_active=5, decay=0.3)
+                active = [n for n in self.graph.nodes.values() if n.activation > 0.1]
+                for i, n1 in enumerate(active):
+                    for n2 in active[i+1:]:
+                        coact = n1.activation * n2.activation
+                        if coact > 0.05:
+                            self.graph.hebbian_update(n1.id, n2.id, coactivation=coact, lr=0.01)
+                self.graph.reset_activation()
+
+    def _consolidate_episodic_to_semantic(self):
+        """Promote frequently-accessed episodic memories to semantic."""
+        for ep in self._episodic_buffer:
+            if ep['correct'] and ep['error'] < 0.3:
+                for cid in ep['concepts']:
+                    if cid in self._semantic_memories:
+                        self._semantic_memories[cid]['strength'] = min(1.0,
+                            self._semantic_memories[cid]['strength'] + 0.05)
+                        self._semantic_memories[cid]['access_count'] += 1
+                    else:
+                        if len(self._semantic_memories) < self._semantic_memory_max:
+                            self._semantic_memories[cid] = {
+                                'strength': 0.3,
+                                'access_count': 1,
+                                'last_access': time.time(),
+                            }
+
+    def _decay_semantic_memories(self):
+        """Ebbinghaus decay — forget unused memories."""
+        now = time.time()
+        to_remove = []
+        for cid, mem in self._semantic_memories.items():
+            dt = now - mem['last_access']
+            access_factor = 0.5 + mem['access_count'] * 0.1
+            retention = mem['strength'] * np.exp(-0.001 * dt / access_factor)
+            mem['strength'] = retention
+            if retention < 0.05:
+                to_remove.append(cid)
+        for cid in to_remove:
+            del self._semantic_memories[cid]
+
+    def _bridge_memories_to_graph(self):
+        """Memory-as-weights: consolidated memories reshape ConceptGraph edges."""
+        for cid, mem in self._semantic_memories.items():
+            node = self.graph.get_node(cid)
+            if node and mem['strength'] > 0.2:
+                for cid2, mem2 in self._semantic_memories.items():
+                    if cid2 != cid and mem2['strength'] > 0.2:
+                        edge = self.graph.get_edge(cid, cid2)
+                        if edge:
+                            edge.weight += 0.01 * mem['strength'] * mem2['strength']
+                            edge.confidence = min(1.0, edge.confidence + 0.005)
+                        elif mem['strength'] > 0.5 and mem2['strength'] > 0.5:
+                            edge = self.graph.add_edge(cid, cid2, weight=0.1)
+                            edge.confidence = 0.3
+
+    def _consolidate_identity(self):
+        """Identity consolidation during sleep."""
+        if len(self.identity_history) >= 10:
+            self.identity_strength = 0.9 * self.identity_strength + 0.1 * np.mean(self.identity_history[-10:])
+
     def _normalize_outgoing_weights(self, budget: float = 3.0):
         source_weights: Dict[int, float] = {}
         for (s, t), e in list(self.graph.edges.items()):
@@ -686,6 +940,39 @@ class RLM(Module):
         # Record geometry snapshot after sleep — captures post-consolidation state
         self.graph.record_geometry_snapshot(event="sleep")
 
+        # ═══════════════════════════════════════════════════════════
+        # Cognitive Sleep Consolidation
+        # ═══════════════════════════════════════════════════════════
+
+        # 1. Hippocampal replay — re-activate memories through graph
+        self._replay_memories_through_graph()
+
+        # 2. Episodic → semantic consolidation
+        self._consolidate_episodic_to_semantic()
+
+        # 3. Semantic memory decay (Ebbinghaus forgetting)
+        self._decay_semantic_memories()
+
+        # 4. Memory → weights bridge (consolidated memories reshape edges)
+        self._bridge_memories_to_graph()
+
+        # 5. Emotion processing — reduce arousal, stabilize affect
+        self.arousal = 0.3 + (self.arousal - 0.3) * 0.5
+        self.valence *= 0.8
+        self.dominance = 0.5 + (self.dominance - 0.5) * 0.7
+
+        # 6. Identity consolidation
+        self._consolidate_identity()
+
+        # 7. Meaning integration — slow decay
+        self.accumulated_meaning *= 0.99
+
+        # 8. Sleep pressure reset
+        self.sleep_pressure = max(0.0, self.sleep_pressure - 0.3)
+
+        # 9. Final self-regulation
+        self._regulate_cognitive_state()
+
     def __repr__(self):
         return (f"RLM(vocab={self.vocab_size}, embed={self.embed_dim}, "
                 f"concepts={len(self.graph.nodes)}, edges={len(self.graph.edges)}, "
@@ -715,8 +1002,14 @@ class RLM(Module):
             h = layer(StateTensor(h[np.newaxis, :])).data[0]
             h = np.tanh(h)
 
-        # Concept prediction from hidden state
+        # Concept prediction from hidden state (concept_dim) → project to embed_dim for node comparison
         z = self.concept_predictor(StateTensor(h[np.newaxis, :])).data[0]
+        if len(z) < self.embed_dim:
+            z_padded = np.zeros(self.embed_dim, dtype=np.float32)
+            z_padded[:len(z)] = z
+            z = z_padded
+        elif len(z) > self.embed_dim:
+            z = z[:self.embed_dim]
         z_norm = z / (np.linalg.norm(z) + 1e-15)
 
         # Update concept fatigue values globally
@@ -811,7 +1104,10 @@ class RLM(Module):
         ctx_logits_raw = self.context_logits(StateTensor(h[np.newaxis, :]))
         ctx_logits = ctx_logits_raw.data.flatten()
 
-        logits = concept_logits + ctx_logits * self.context_scale
+        # Cognitive modulation: emotion + identity shape logit blend (same as forward)
+        emotion_scale = 1.0 + 0.3 * self.arousal - 0.1 * max(0.0, -self.valence)
+        identity_scale = 0.5 + 0.5 * self.identity_strength
+        logits = concept_logits * identity_scale * emotion_scale + ctx_logits * self.context_scale
 
         # Enforce ACF: Zero out activations of concepts that are outside the top-K winners
         active_set = {n.id for n in all_active}
@@ -1051,6 +1347,12 @@ class RLM(Module):
             },
             # Token-concept mapping
             "token_concept_map": self._token_concept_map,
+            # Concept binding map (token↔concept↔memory bindings)
+            "binding_map": self.binding_map,
+            # Concept-to-tokens inverted index
+            "concept_to_tokens": dict(self._concept_to_tokens),
+            # Settle loop anti-collapse state
+            "running_avg_states": self._running_avg_states,
             # Free energy accumulator state
             "free_energy_state": {
                 "semantic_free_energy": self.free_energy_engine.semantic_free_energy,
@@ -1058,6 +1360,24 @@ class RLM(Module):
                 "contradiction_free_energy": self.free_energy_engine.contradiction_free_energy,
                 "linguistic_free_energy": self.free_energy_engine.linguistic_free_energy,
                 "abstraction_free_energy": self.free_energy_engine.abstraction_free_energy,
+            },
+            # ── Cognitive State ──
+            "cognitive_state": {
+                "identity_strength": self.identity_strength,
+                "identity_momentum": self.identity_momentum,
+                "identity_history": self.identity_history,
+                "valence": self.valence,
+                "arousal": self.arousal,
+                "dominance": self.dominance,
+                "accumulated_meaning": self.accumulated_meaning,
+                "meaning_history": self.meaning_history,
+                "sleep_pressure": self.sleep_pressure,
+                "sleep_pressure_threshold": self.sleep_pressure_threshold,
+                "regulation_mode": self.regulation_mode,
+                "dissonance_ema": self.dissonance_ema,
+                "episodic_buffer": self._episodic_buffer,
+                "semantic_memories": self._semantic_memories,
+                "concept_vad": {str(k): v for k, v in self._concept_vad.items()},
             },
             # Sub-engine config
             "engine_config": {
@@ -1115,6 +1435,21 @@ class RLM(Module):
         # Restore token-concept mapping
         model._token_concept_map = checkpoint["token_concept_map"]
 
+        # Restore binding map (was lost in old code — fresh one created by constructor)
+        if "binding_map" in checkpoint:
+            model.binding_map = checkpoint["binding_map"]
+
+        # Restore concept-to-tokens inverted index
+        if "concept_to_tokens" in checkpoint:
+            from collections import defaultdict
+            model._concept_to_tokens = defaultdict(set, {
+                int(k): set(v) for k, v in checkpoint["concept_to_tokens"].items()
+            })
+
+        # Restore settle loop anti-collapse state
+        if "running_avg_states" in checkpoint:
+            model._running_avg_states = checkpoint["running_avg_states"]
+
         # Restore free energy accumulator state
         ps = checkpoint.get("free_energy_state", checkpoint.get("pressure_state", {}))
         model.free_energy_engine.semantic_free_energy = ps.get("semantic_free_energy", 0.0)
@@ -1122,6 +1457,25 @@ class RLM(Module):
         model.free_energy_engine.contradiction_free_energy = ps.get("contradiction_free_energy", 0.0)
         model.free_energy_engine.linguistic_free_energy = ps.get("linguistic_free_energy", 0.0)
         model.free_energy_engine.abstraction_free_energy = ps.get("abstraction_free_energy", 0.0)
+
+        # Restore cognitive state
+        cs = checkpoint.get("cognitive_state", {})
+        if cs:
+            model.identity_strength = cs.get("identity_strength", 0.5)
+            model.identity_momentum = cs.get("identity_momentum", 0.0)
+            model.identity_history = cs.get("identity_history", [])
+            model.valence = cs.get("valence", 0.0)
+            model.arousal = cs.get("arousal", 0.3)
+            model.dominance = cs.get("dominance", 0.5)
+            model.accumulated_meaning = cs.get("accumulated_meaning", 0.0)
+            model.meaning_history = cs.get("meaning_history", [])
+            model.sleep_pressure = cs.get("sleep_pressure", 0.0)
+            model.sleep_pressure_threshold = cs.get("sleep_pressure_threshold", 0.7)
+            model.regulation_mode = cs.get("regulation_mode", "NORMAL")
+            model.dissonance_ema = cs.get("dissonance_ema", 0.5)
+            model._episodic_buffer = cs.get("episodic_buffer", [])
+            model._semantic_memories = cs.get("semantic_memories", {})
+            model._concept_vad = {int(k): tuple(v) for k, v in cs.get("concept_vad", {}).items()}
 
         return model
 
@@ -1158,9 +1512,20 @@ class RLM(Module):
                 "stability": entry.get("stability", 0.5),
             }
 
-        # Node vectors
+        # Node vectors (active + core + genesis for full identity tracking)
         for nid, node in self.graph.nodes.items():
             arrays[f"node/{nid}"] = node.vector
+            arrays[f"node_core/{nid}"] = node.core_vector
+            arrays[f"node_genesis/{nid}"] = node.genesis_vector
+
+        # Graph-level temporal context vector
+        if hasattr(self.graph, 'temporal_context') and self.graph.temporal_context is not None:
+            arrays["graph/temporal_context"] = self.graph.temporal_context
+
+        # Settle loop anti-collapse state
+        if self._running_avg_states is not None:
+            for i, state in enumerate(self._running_avg_states):
+                arrays[f"settle/running_avg_{i}"] = state
 
         # ── Build graph JSON (no arrays) ──
         nodes_json = {}
@@ -1179,8 +1544,15 @@ class RLM(Module):
                 "parent": int(node.parent) if node.parent is not None else None,
                 "children": sorted(int(c) for c in node.children),
                 "abstraction_degree": float(node.abstraction_degree),
+                # Temporal fields for identity tracking
+                "last_activated": float(node.last_activated) if node.last_activated else None,
+                "activation_history": [float(x) for x in (node.activation_history or [])],
+                "temporal_context": node.temporal_context.tolist() if node.temporal_context is not None else None,
+                "fatigue": float(node.fatigue),
             }
 
+        # Relation vectors for edges (learned relational embeddings)
+        edge_relation_vectors = {}
         edges_json = {}
         for (s, t), edge in self.graph.edges.items():
             edges_json[f"({s}, {t})"] = {
@@ -1194,7 +1566,15 @@ class RLM(Module):
                 "prediction_count": int(edge.prediction_count),
                 "shortcut": bool(edge.shortcut),
                 "edge_type": edge.edge_type,
+                "relation_type": edge.relation_type,
             }
+            if edge.relation_vector is not None:
+                edge_relation_vectors[f"({s}, {t})"] = edge.relation_vector
+
+        # Add relation vectors to arrays
+        for key, rvec in edge_relation_vectors.items():
+            safe_key = key.replace("(", "").replace(")", "").replace(",", "_").replace(" ", "")
+            arrays[f"edge_rel/{safe_key}"] = rvec
 
         graph_json = {
             "dim": self.graph.dim,
@@ -1204,6 +1584,7 @@ class RLM(Module):
             "contradiction_hotspots": sorted(int(x) for x in self.graph.contradiction_hotspots),
             "nodes": nodes_json,
             "edges": edges_json,
+            "temporal_context_drift_rate": float(self.graph.temporal_context_drift_rate),
         }
 
         # ── Build metadata JSON ──
@@ -1247,6 +1628,8 @@ class RLM(Module):
                 "anti_hebbian_lr": float(self.anti_hebbian.lr),
             },
             "token_concept_map": self._token_concept_map,
+            # Concept-to-tokens inverted index
+            "concept_to_tokens": {str(k): sorted(v) for k, v in self._concept_to_tokens.items()},
             # Binding map (token↔concept↔memory bindings)
             "bindings": [
                 {
@@ -1262,6 +1645,69 @@ class RLM(Module):
             ],
             "state_dict_meta": state_dict_meta,
         }
+
+        # ── Cognitive State ──
+        # Serialize episodic buffer (convert numpy arrays to lists for JSON)
+        episodes_json = []
+        for ep in self._episodic_buffer:
+            ep_copy = dict(ep)
+            if ep_copy.get('vector') is not None:
+                ep_copy['vector'] = ep_copy['vector'].tolist()
+            episodes_json.append(ep_copy)
+
+        metadata_json["cognitive_state"] = {
+            "identity_strength": self.identity_strength,
+            "identity_momentum": self.identity_momentum,
+            "identity_history": self.identity_history,
+            "valence": self.valence,
+            "arousal": self.arousal,
+            "dominance": self.dominance,
+            "accumulated_meaning": self.accumulated_meaning,
+            "meaning_history": self.meaning_history,
+            "sleep_pressure": self.sleep_pressure,
+            "sleep_pressure_threshold": self.sleep_pressure_threshold,
+            "regulation_mode": self.regulation_mode,
+            "dissonance_ema": self.dissonance_ema,
+            "episodic_buffer": episodes_json,
+            "semantic_memories": self._semantic_memories,
+            "concept_vad": {str(k): list(v) for k, v in self._concept_vad.items()},
+        }
+
+        # ── CognitiveRegulator state ──
+        if hasattr(self.graph, '_regulator') and self.graph._regulator is not None:
+            reg = self.graph._regulator
+            metadata_json["regulator"] = {
+                "current_phase": reg.current_phase,
+                "phase_confidence": float(reg.phase_confidence),
+                "fast_inhibition_boost": float(reg._fast_inhibition_boost),
+                "fast_cooldown": int(reg._fast_cooldown),
+                "fast_damping": float(reg._fast_damping),
+                "medium_sleep_urgency": float(reg._medium_sleep_urgency),
+                "medium_cooldown": int(reg._medium_cooldown),
+                "medium_damping": float(reg._medium_damping),
+                "slow_plasticity_boost": float(reg._slow_plasticity_boost),
+                "slow_cooldown": int(reg._slow_cooldown),
+                "slow_damping": float(reg._slow_damping),
+                "phase_buffer": list(reg._phase_buffer),
+                "hysteresis_dead_zone": float(reg._hysteresis_dead_zone),
+                "step": int(reg._step),
+                "adjustments_made": int(reg._adjustments_made),
+                "oscillation_count": int(reg._oscillation_count),
+                "last_phases": list(reg._last_phases),
+            }
+
+        # ── GeometryHistory snapshots ──
+        if hasattr(self.graph, '_geometry_history') and self.graph._geometry_history is not None:
+            gh = self.graph._geometry_history
+            if hasattr(gh, 'snapshots'):
+                metadata_json["geometry_history"] = gh.snapshots
+
+        # ── Successful inference paths ──
+        if hasattr(self.graph, '_successful_paths'):
+            metadata_json["successful_paths"] = {
+                f"{k[0]},{k[1]}": v
+                for k, v in self.graph._successful_paths.items()
+            }
 
         # ── Write zip ──
         with zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED) as zf:
@@ -1319,7 +1765,7 @@ class RLM(Module):
             model.graph.total_free_energy = graph_data["total_free_energy"]
             model.graph.contradiction_hotspots = set(graph_data["contradiction_hotspots"])
 
-            # Restore nodes
+            # Restore nodes (with full identity vectors + temporal fields)
             for nid_str, nd in graph_data["nodes"].items():
                 nid = int(nid_str)
                 vec_key = f"node/{nid}"
@@ -1329,6 +1775,18 @@ class RLM(Module):
                     vector=vector,
                     label=nd["label"],
                 )
+                # Restore identity vectors (core = drift-resistant anchor, genesis = original)
+                core_key = f"node_core/{nid}"
+                if core_key in npz:
+                    node.core_vector = npz[core_key]
+                else:
+                    node.core_vector = vector.copy()
+                genesis_key = f"node_genesis/{nid}"
+                if genesis_key in npz:
+                    node.genesis_vector = npz[genesis_key]
+                else:
+                    node.genesis_vector = vector.copy()
+
                 node.activation = nd["activation"]
                 node.salience = nd["salience"]
                 node.prediction_free_energy = nd.get("free_energy", nd.get("pressure", 0.0))
@@ -1340,15 +1798,22 @@ class RLM(Module):
                 node.parent = nd["parent"]
                 node.children = set(nd["children"])
                 node.abstraction_degree = nd["abstraction_degree"]
+                # Temporal fields
+                node.fatigue = nd.get("fatigue", 0.0)
+                node.last_activated = nd.get("last_activated")
+                node.activation_history = nd.get("activation_history", [])
+                tc = nd.get("temporal_context")
+                node.temporal_context = np.array(tc, dtype=np.float32) if tc is not None else None
                 model.graph.nodes[nid] = node
 
-            # Restore edges
+            # Restore edges (with relation vectors)
             for key, ed in graph_data["edges"].items():
                 edge = ConceptEdge(
                     source=ed["source"],
                     target=ed["target"],
                     weight=ed["weight"],
-                    edge_type=ed.get("edge_type", "excitatory"),  # backwards compatible
+                    edge_type=ed.get("edge_type", "excitatory"),
+                    relation_type=ed.get("relation_type", "semantic"),
                 )
                 edge.confidence = ed["confidence"]
                 edge.prediction_free_energy = ed.get("free_energy", ed.get("pressure", 0.0))
@@ -1356,6 +1821,11 @@ class RLM(Module):
                 edge.timestamp = ed["timestamp"]
                 edge.prediction_count = ed["prediction_count"]
                 edge.shortcut = ed["shortcut"]
+                # Restore relation vector from arrays
+                safe_key = key.replace("(", "").replace(")", "").replace(",", "_").replace(" ", "")
+                rel_key = f"edge_rel/{safe_key}"
+                if rel_key in npz:
+                    edge.relation_vector = npz[rel_key]
                 model.graph.edges[(ed["source"], ed["target"])] = edge
 
             # Rebuild engines with restored graph
@@ -1406,5 +1876,82 @@ class RLM(Module):
             model.free_energy_engine.contradiction_free_energy = ps["contradiction_free_energy"]
             model.free_energy_engine.linguistic_free_energy = ps["linguistic_free_energy"]
             model.free_energy_engine.abstraction_free_energy = ps["abstraction_free_energy"]
+
+            # Restore graph-level temporal context
+            tc_key = "graph/temporal_context"
+            if tc_key in npz:
+                model.graph.temporal_context = npz[tc_key]
+            model.graph.temporal_context_drift_rate = graph_data.get("temporal_context_drift_rate", 0.05)
+
+            # Restore CognitiveRegulator state
+            if "regulator" in meta and hasattr(model.graph, '_regulator') and model.graph._regulator is not None:
+                reg_data = meta["regulator"]
+                reg = model.graph._regulator
+                reg.current_phase = reg_data.get("current_phase", "exploratory")
+                reg.phase_confidence = reg_data.get("phase_confidence", 0.0)
+                reg._fast_inhibition_boost = reg_data.get("fast_inhibition_boost", 0.0)
+                reg._fast_cooldown = reg_data.get("fast_cooldown", 0)
+                reg._fast_damping = reg_data.get("fast_damping", 0.7)
+                reg._medium_sleep_urgency = reg_data.get("medium_sleep_urgency", 0.0)
+                reg._medium_cooldown = reg_data.get("medium_cooldown", 0)
+                reg._medium_damping = reg_data.get("medium_damping", 0.8)
+                reg._slow_plasticity_boost = reg_data.get("slow_plasticity_boost", 0.0)
+                reg._slow_cooldown = reg_data.get("slow_cooldown", 0)
+                reg._slow_damping = reg_data.get("slow_damping", 0.9)
+                reg._phase_buffer = list(reg_data.get("phase_buffer", []))
+                reg._hysteresis_dead_zone = reg_data.get("hysteresis_dead_zone", 0.1)
+                reg._step = reg_data.get("step", 0)
+                reg._adjustments_made = reg_data.get("adjustments_made", 0)
+                reg._oscillation_count = reg_data.get("oscillation_count", 0)
+                reg._last_phases = list(reg_data.get("last_phases", []))
+
+            # Restore GeometryHistory snapshots
+            if "geometry_history" in meta and hasattr(model.graph, '_geometry_history'):
+                model.graph._geometry_history.snapshots = meta["geometry_history"]
+
+            # Restore successful inference paths (must be defaultdict for record_path += 1)
+            if "successful_paths" in meta:
+                from collections import defaultdict
+                paths = defaultdict(int)
+                for k, v in meta["successful_paths"].items():
+                    paths[tuple(int(x) for x in k.split(","))] = v
+                model.graph._successful_paths = paths
+
+            # Restore concept-to-tokens inverted index
+            if "concept_to_tokens" in meta:
+                from collections import defaultdict
+                model._concept_to_tokens = defaultdict(set, {
+                    int(k): set(v) for k, v in meta["concept_to_tokens"].items()
+                })
+
+            # Restore settle loop anti-collapse state
+            settle_keys = [k for k in npz.keys() if k.startswith("settle/running_avg_")]
+            if settle_keys:
+                model._running_avg_states = [npz[k] for k in sorted(settle_keys)]
+
+            # Restore cognitive state
+            cs = meta.get("cognitive_state", {})
+            if cs:
+                model.identity_strength = cs.get("identity_strength", 0.5)
+                model.identity_momentum = cs.get("identity_momentum", 0.0)
+                model.identity_history = cs.get("identity_history", [])
+                model.valence = cs.get("valence", 0.0)
+                model.arousal = cs.get("arousal", 0.3)
+                model.dominance = cs.get("dominance", 0.5)
+                model.accumulated_meaning = cs.get("accumulated_meaning", 0.0)
+                model.meaning_history = cs.get("meaning_history", [])
+                model.sleep_pressure = cs.get("sleep_pressure", 0.0)
+                model.sleep_pressure_threshold = cs.get("sleep_pressure_threshold", 0.7)
+                model.regulation_mode = cs.get("regulation_mode", "NORMAL")
+                model.dissonance_ema = cs.get("dissonance_ema", 0.5)
+                # Restore episodic buffer (convert vector lists back to numpy)
+                model._episodic_buffer = []
+                for ep in cs.get("episodic_buffer", []):
+                    ep_copy = dict(ep)
+                    if ep_copy.get('vector') is not None:
+                        ep_copy['vector'] = np.array(ep_copy['vector'], dtype=np.float32)
+                    model._episodic_buffer.append(ep_copy)
+                model._semantic_memories = cs.get("semantic_memories", {})
+                model._concept_vad = {int(k): tuple(v) for k, v in cs.get("concept_vad", {}).items()}
 
             return model
