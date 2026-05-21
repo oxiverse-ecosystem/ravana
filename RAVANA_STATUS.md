@@ -1,5 +1,5 @@
 # RAVANA — Codebase Status Report
-**Date:** 2026-05-21 (updated — semantic geometry dashboard, contrastive relation learning, 16-dim relation embeddings)
+**Date:** 2026-05-21 (updated — full observability stack: geometry dashboard, phase classification, multi-timescale regulation, curvature tracking, resilience experiment)
 **Author:** Likhith
 **Purpose:** Shareable status document for LLM collaborators
 
@@ -15,20 +15,20 @@ A cognitive architecture research project proposing **pressure-driven self-organ
 
 ## Architecture: Three-Layer Package
 
-### Layer 1: `ravana_ml/` — The ML Framework (4,252 lines, 13 files)
+### Layer 1: `ravana_ml/` — The ML Framework (5,676 lines, 13 files)
 
 A PyTorch-compatible API surface built on NumPy. Only hard dependency: `numpy`.
 
 | File | Lines | Purpose |
 |------|-------|---------|
 | `tensor.py` | 385 | `RawTensor` (NumPy wrapper with PyTorch-like API) + `StateTensor` (adds salience, free_energy, stability, decay) |
-| `graph.py` | 1,202 | `ConceptGraph` with `ConceptNode`/`ConceptEdge` — Hebbian/anti-Hebbian updates, structural plasticity, activation spreading, **hierarchical abstraction**. `ConceptBinding` + `ConceptBindingMap` — probabilistic token↔concept↔memory namespace. Inhibitory edges, soft lateral inhibition, precision-weighted spreading, concept splitting, synaptic homeostasis, temporal context + activation history, interference decay. `form_inhibitory_edges()` with adaptive confidence + bidirectional target inhibition, `apply_prediction_error()` for contradiction tracking, `contradiction_hotspots` for pressure-driven resolution. **NEW:** `ConceptNode.fatigue` field + `effective_activation` property (activation × (1 − fatigue)) |
+| `graph.py` | 2,614 | `ConceptGraph` with `ConceptNode`/`ConceptEdge` — Hebbian/anti-Hebbian updates, structural plasticity, activation spreading, **hierarchical abstraction**. `ConceptBinding` + `ConceptBindingMap` — probabilistic token↔concept↔memory namespace. Inhibitory edges, soft lateral inhibition, precision-weighted spreading, concept splitting, synaptic homeostasis, temporal context + activation history, interference decay. `form_inhibitory_edges()` with adaptive confidence + bidirectional target inhibition, `apply_prediction_error()` for contradiction tracking, `contradiction_hotspots` for pressure-driven resolution. `ConceptNode.fatigue` field + `effective_activation` property. **RIE v1**: `relation_type` + `relation_vector` (16-dim) on edges, `infer_chain()` sparse multi-hop, `compress_paths()`, `find_analogy()`. **Anchor field**: `core_vector` (slow) + `active_vector` (fast). **Contrastive relation learning**: push-pull dynamics. **Semantic geometry**: `graph_diagnostics()` (30+ metrics), `geometry_report()` with phase classification, `compute_curvature()`, `project_relation_manifold()` PCA. **CognitiveRegulator**: 3-timescale damped regulation, `regulate()` pipeline. **GeometryHistory**: 200-snapshot buffer with trend detection. **Entropy-driven pruning**. |
 | `free_energy.py` | 90 | `FreeEnergyAccumulator` — five-channel: semantic, linguistic, episodic, contradiction, abstraction free energy with decay + normalization. Replaces old `pressure.py` |
 | `plasticity.py` | 77 | `HebbianPlasticity`, `AntiHebbianPlasticity` (converts dying edges to inhibitory), `StructuralPlasticity` |
 | `propagation.py` | 78 | Activation spreading engine over concept graph |
 | `tokenizer.py` | 73 | **NEW** — `BPETokenizer` (tiktoken/GPT-2, 50257 vocab), `SimpleTokenizer` (char-level fallback, 256 vocab), `get_tokenizer()` factory |
 | `nn/module.py` | 300 | PyTorch-compatible `Module` base with `accumulate_free_energy()` + `sleep_cycle()` — local learning, no backprop. `Linear.backprop()` raises `NotImplementedError` |
-| `nn/rlm.py` | 1,338 | **Recursive Learning Model (RLM)** — alternative to LLM. **Predictive coding** learning rule with settle loop + 3 stabilizers. **Saturating concept fatigue** (asymptotic accumulation, multiplicative decay). **Repetition penalty** (sliding window). **Composite exploratory drive** (repetition × low_entropy × free_energy → dynamic temperature/ACF scaling). **Direct Hebbian weight updates** on ctx_logits (lr=0.0001, bypasses slow accumulate+sleep_cycle). **Cognitive trace logging** — per-step JSON + markdown with entropy, fatigue, concepts, free_energy. `save()`/`load()` (pickle) + `save_zip()`/`load_zip()` (human-readable zip) |
+| `nn/rlm.py` | 1,410 | **Recursive Learning Model (RLM)** — alternative to LLM. **Predictive coding** learning rule with settle loop + 3 stabilizers. **Saturating concept fatigue** (asymptotic accumulation, multiplicative decay). **Repetition penalty** (sliding window). **Composite exploratory drive** (repetition × low_entropy × free_energy → dynamic temperature/ACF scaling). **Direct Hebbian weight updates** on ctx_logits (lr=0.0001, bypasses slow accumulate+sleep_cycle). **Cognitive trace logging** — per-step JSON + markdown with entropy, fatigue, concepts, free_energy. `save()`/`load()` (pickle) + `save_zip()`/`load_zip()` (human-readable zip). **Multi-hop inference** in forward pass via `infer_chain()`. **Geometry tracking**: `record_geometry_snapshot()` every 10 learn steps + every sleep cycle. **Cognitive regulation**: `regulate()` called during sleep, stored as `_last_regulation`. |
 | `nn/functional.py` | 118 | Functional API (relu, softmax, cross_entropy, etc.) |
 | `world/__init__.py` | 159 | Simulation environments: TinyWorld, CausalSequenceWorld, ObjectInteractionWorld, SensorimotorWorld |
 | `lab/__init__.py` | 263 | Concept Physics Lab for compositional experiments |
@@ -609,7 +609,10 @@ Based on cognitive science research (spreading activation, synaptic homeostasis,
 | Test File | What It Tests |
 |-----------|---------------|
 | `test_generation.py` | Tokenizer roundtrip, stateful equivalence (forward vs forward_step), ACF bounding, fatigue stabilization, repetition penalty, compression scorer correctness, learning signal verification, trace export (JSON + MD) |
-| `test_rlm_vs_llm.py` | **NEW** — 6 proof-of-superiority experiments: few-shot learning (RLM vs MLP vs Frozen LLM), contradiction resolution (inhibitory edges), identity persistence (save/load cycles), consolidation (sleep restructuring), interference forgetting (similar vs dissimilar), resource efficiency |
+| `test_rlm_vs_llm.py` | 6 proof-of-superiority experiments: few-shot learning (RLM vs MLP vs Frozen LLM), contradiction resolution (inhibitory edges), identity persistence (save/load cycles), consolidation (sleep restructuring), interference forgetting (similar vs dissimilar), resource efficiency |
+| `test_convergence.py` | Convergence test: 9/9 causal edges learned, 5-node cycle |
+| `experiment_resilience.py` | **NEW** — Closed-loop resilience: induces semantic diffusion, measures regulation response and recovery (4/4 criteria) |
+| `experiment_rigorous.py` | Deep compositional experiment: 3-hop chains, relational transfer, negative rejection |
 | `tests/test_phase_a.py` | Governor hard constraints, resolution partial credit, identity momentum, full StateManager integration |
 | `test_rlm_full.py` | Full RLM architecture test: predictive coding, contradiction resolution, ConceptBindingMap, context_scale, sleep cycle, persistence |
 | `test_contradiction.py` | Contradictory concepts experiment: normal vs contradictory vs mixed conditions, inhibitory edge formation, ambiguity detection |
@@ -644,7 +647,9 @@ Based on cognitive science research (spreading activation, synaptic homeostasis,
 - [x] Global Workspace memory integration — **DONE** (`global_workspace.py` + wired into StateManager)
 - [x] Hierarchical abstraction compression — **DONE** (merge_concepts, cluster detection, hierarchy traversal, sleep integration)
 - [x] Human memory engine — **DONE** (`human_memory.py`, persistent SQLite, Ebbinghaus decay, spreading activation, reconstructive recall)
-- [x] Relational Inference Engine — **DONE v1** (multi-hop inference, path compression, analogical mapping, relation types)
+- [x] Relational Inference Engine — **DONE v1** (multi-hop inference, path compression, analogical mapping, relation types, contrastive relation learning, 16-dim embeddings)
+- [x] Semantic geometry observability — **DONE** (30+ metrics, phase classification, curvature tracking, manifold projection, energy cost)
+- [x] Cognitive self-regulation — **DONE** (3-timescale damped regulator, hysteresis, oscillation detection, entropy-driven pruning)
 - [ ] Episodic buffer with temporal binding
 - [ ] Semantic knowledge graph (Bayesian)
 - [ ] News-to-MDP pipeline (real-world grounding)
@@ -734,6 +739,9 @@ Based on cognitive science research (spreading activation, synaptic homeostasis,
 9. **`accumulate_free_energy()` → `sleep_cycle()` learning rate too slow** — Effective lr ~0.001/step. Direct Hebbian update on ctx_logits works around this, but hidden layers still use the slow path. Consider increasing sleep_cycle application rate or adding direct updates to hidden layers
 10. **~~No transitive inference~~** — **PARTIALLY RESOLVED** (2026-05-20) — RIE v1 + sparse inference + anchor field. Deep compositional (3 seeds): 3-hop chains 22% mean (matches MLP), negative rejection 33% mean (seed 456: 100%!). Semantic fog controlled via activation budgets and coherence gate. Remaining: relational transfer 0% (need relation embeddings), concept→token mapping drift (anchor field helps long-term).
 11. **Graph optimization Phase 3 deferred** — scipy.sparse spread_activation (100+ active nodes), HNSW index (50K+ nodes), Numba JIT for remaining hot loops
+12. **Phase classifier specificity blind spot** — **RESOLVED** (2026-05-21) — Diffuse detection now uses entropy > 0.8 as primary signal (topology-based fallback when no inference log). Verified by resilience experiment (4/4 criteria pass).
+13. **No self-regulation** — **RESOLVED** (2026-05-21) — CognitiveRegulator with 3-timescale damped regulation (fast/medium/slow), hysteresis, cooldowns, oscillation detection. `regulate()` pipeline wired into sleep_cycle. Entropy-driven pruning for over-connected graphs.
+14. **No observability** — **RESOLVED** (2026-05-21) — `graph_diagnostics()` (30+ metrics), `geometry_report()` with phase classification, `compute_curvature()` neighbor preservation, `project_relation_manifold()` PCA, `GeometryHistory` with trend detection and phase transition warnings, energy cost tracking (edges_traversed, activation_mass)
 
 ---
 
@@ -749,12 +757,22 @@ Based on cognitive science research (spreading activation, synaptic homeostasis,
 ## Git History
 
 ```
-[latest]     Generation stabilization + observability + instruction grounding + RLM vs LLM proof —
-             saturating concept fatigue, repetition penalty, composite exploratory drive, direct
-             Hebbian weight updates on ctx_logits, cognitive trace logging (JSON + markdown),
-             tokenizer module (BPE + simple), PressureAccumulator → FreeEnergyAccumulator (full rename),
-             test_generation.py (5 tests), experiment_rlm_vs_llm.py (6 experiments), test_rlm_vs_llm.py
-             (6/6 pass), experiment_baselines.py (NumPy MLP + Frozen LLM baselines) — UNCOMMITTED
+[latest]     Semantic geometry dashboard + cognitive regulation + resilience experiment —
+             graph_diagnostics (30+ metrics), geometry_report with phase classification,
+             CognitiveRegulator (3-timescale damped), compute_curvature, project_relation_manifold,
+             GeometryHistory (200-snapshot buffer), energy cost tracking, entropy-driven pruning,
+             contrastive relation learning, 16-dim relation embeddings, experiment_resilience.py
+             (4/4 criteria pass) — 8 commits on master
+c479a2d Fix phase classifier: entropy-driven diffuse detection
+a62e519 Add closed-loop resilience experiment
+7c17149 Add multi-timescale regulation, energy cost metric, entropy-driven pruning
+f92cf49 Update RAVANA_STATUS.md — regulation system
+f1239b3 Wire geometry snapshot recording into learn/sleep_cycle
+1b47ff1 Add semantic geometry dashboard, contrastive relation learning, 16-dim embeddings
+3e80f04 Update trace outputs
+f41dfe2 Update RAVANA_STATUS.md — sparse inference, anchor field, negative rejection
+764a607 Add sparse inference control and anchor field identity
+9fffa51 Update cognitive/compression trace outputs
 834c803 Predictive coding + contradiction resolution + binding map + context_scale +
              shared currencies audit — replace backprop with settle loop, wire form_inhibitory_edges/
              should_split/homeostatic_downscale into sleep_cycle, activate context_scale (1.0),
