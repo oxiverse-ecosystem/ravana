@@ -104,7 +104,7 @@ class ConceptNode:
 class ConceptEdge:
     def __init__(self, source: int, target: int, weight: float = 0.5,
                  shortcut: bool = False, edge_type: str = "excitatory",
-                 relation_type: str = "semantic", relation_dim: int = 8):
+                 relation_type: str = "semantic", relation_dim: int = 16):
         self.source = source
         self.target = target
         self.weight = max(0.0, min(1.0, weight))
@@ -406,6 +406,10 @@ class ConceptGraph:
         # ── Relational inference tracking ──
         # Successful inference paths: (source, target) -> usage_count
         self._successful_paths: Dict[Tuple[int, int], int] = defaultdict(int)
+        # Relation embedding dimensionality (must match ConceptEdge default)
+        self._relation_dim: int = 16
+        # Inference sparsity tracking
+        self._inference_log: List[Dict[str, float]] = []  # last 50 inference runs
 
     # ── node management ──
 
@@ -760,14 +764,41 @@ class ConceptGraph:
         edge.prediction_count += 1
         edge.stability = min(1.0, edge.stability + 0.001)
 
-        # Relation vector learning: drift relation embedding toward
-        # the product of source and target vectors (Hebbian correlation)
-        # This encodes what *kind* of relation this edge represents
+        # Relation vector learning: push-pull dynamics
+        # PULL: drift toward Hebbian signal (source * target correlation)
+        # PUSH: repel from other relation types to maintain cluster separation
         if source.vector is not None and target.vector is not None:
-            # Hebbian signal: outer product projected into relation space
+            # Hebbian signal: elementwise product projected into relation space
             hebbian_signal = source.vector[:len(edge.relation_vector)] * target.vector[:len(edge.relation_vector)]
             hebbian_signal = hebbian_signal / (np.linalg.norm(hebbian_signal) + 1e-15)
+            # Pull toward own signal
             edge.relation_vector += effective_lr * 0.1 * (hebbian_signal - edge.relation_vector)
+
+            # Contrastive push: repel from centroid of other relation types
+            # Compute centroids of each relation type from a sample of edges
+            other_centroid = np.zeros_like(edge.relation_vector)
+            other_count = 0
+            type_centroids: Dict[str, np.ndarray] = {}
+            # Sample edges to compute type centroids (cap for performance)
+            sample_edges = list(self.edges.values())[:200]
+            for e in sample_edges:
+                if e.relation_type not in type_centroids:
+                    type_centroids[e.relation_type] = []
+                type_centroids[e.relation_type].append(e.relation_vector)
+
+            for rt, vecs in type_centroids.items():
+                if rt == edge.relation_type:
+                    continue
+                centroid = np.mean(vecs, axis=0)
+                other_centroid += centroid
+                other_count += 1
+
+            if other_count > 0:
+                other_centroid /= other_count
+                # Repel from other types (weaker than attraction)
+                repel_strength = effective_lr * 0.03
+                edge.relation_vector -= repel_strength * other_centroid
+
             rv_norm = np.linalg.norm(edge.relation_vector)
             if rv_norm > 0:
                 edge.relation_vector /= rv_norm
@@ -1265,7 +1296,25 @@ class ConceptGraph:
                 best[target_id] = (score, path)
 
         ranked = sorted(best.items(), key=lambda x: x[1][0], reverse=True)
-        return [(tid, sc, p) for tid, (sc, p) in ranked[:k]]
+        final_results = [(tid, sc, p) for tid, (sc, p) in ranked[:k]]
+
+        # Log inference sparsity metrics
+        if final_results:
+            scores = [sc for _, sc, _ in final_results]
+            total_score = sum(scores)
+            winner_score = scores[0]
+            specificity = winner_score / total_score if total_score > 0 else 1.0
+            self._inference_log.append({
+                "n_results": len(final_results),
+                "specificity": specificity,
+                "winner_score": winner_score,
+                "mean_score": float(np.mean(scores)),
+                "score_std": float(np.std(scores)),
+            })
+            if len(self._inference_log) > 50:
+                self._inference_log = self._inference_log[-50:]
+
+        return final_results
 
     def compress_paths(self, successful_chains: List[Tuple[int, int, float]],
                        min_chain_score: float = 0.2):
@@ -1354,12 +1403,12 @@ class ConceptGraph:
         if out_relation_vecs:
             out_rel_agg = np.mean(out_relation_vecs, axis=0)
         else:
-            out_rel_agg = np.zeros(8, dtype=np.float32)
+            out_rel_agg = np.zeros(self._relation_dim, dtype=np.float32)
 
         if in_relation_vecs:
             in_rel_agg = np.mean(in_relation_vecs, axis=0)
         else:
-            in_rel_agg = np.zeros(8, dtype=np.float32)
+            in_rel_agg = np.zeros(self._relation_dim, dtype=np.float32)
 
         return {
             "out_degree": len(outgoing),
@@ -1613,6 +1662,263 @@ class ConceptGraph:
                 if abstract_nodes else 0.0
             ),
         }
+
+    # ── semantic geometry diagnostics ──
+
+    def graph_diagnostics(self) -> Dict[str, Any]:
+        """Compute semantic geometry metrics for observability.
+
+        Returns a dict of metrics describing the shape of the semantic field:
+        - graph_entropy: Shannon entropy of activation distribution (high = diffuse)
+        - activation_spread: number of active nodes, mean, std of activation
+        - clustering_coefficient: how connected neighbors are to each other
+        - contradiction_density: fraction of inhibitory edges
+        - relation_separation: inter vs intra relation-type cosine distance
+        - attractor_stability: mean cosine(core_vector, genesis_vector)
+        - branching_factor: mean out-degree of nodes with edges
+        - edge_weight_stats: mean, std of edge weights
+        - shortcut_ratio: fraction of edges that are compressed shortcuts
+        - path_degeneracy: how many source-target pairs have multiple paths
+        - inference_specificity: winner score / total score in recent inference
+        """
+        metrics: Dict[str, Any] = {}
+
+        n_nodes = len(self.nodes)
+        n_edges = len(self.edges)
+
+        if n_nodes == 0:
+            return {"empty": True}
+
+        # 1. Graph entropy: Shannon entropy of activation distribution
+        activations = np.array([n.activation for n in self.nodes.values()])
+        active_mask = activations > 0.001
+        if active_mask.any():
+            probs = activations[active_mask]
+            probs = probs / (probs.sum() + 1e-15)
+            # Shannon entropy normalized by log(N) for comparability
+            raw_entropy = -np.sum(probs * np.log(probs + 1e-15))
+            max_entropy = np.log(max(active_mask.sum(), 2))
+            metrics["graph_entropy"] = float(raw_entropy / max_entropy) if max_entropy > 0 else 0.0
+            metrics["active_count"] = int(active_mask.sum())
+        else:
+            metrics["graph_entropy"] = 0.0
+            metrics["active_count"] = 0
+
+        # 2. Activation spread
+        metrics["activation_mean"] = float(np.mean(activations))
+        metrics["activation_std"] = float(np.std(activations))
+        metrics["activation_max"] = float(np.max(activations))
+
+        # 3. Clustering coefficient (global, sampled for speed)
+        # For each node, check if its neighbors are connected to each other
+        sample_nodes = list(self.nodes.keys())
+        if len(sample_nodes) > 200:
+            rng = np.random.RandomState(42)
+            sample_nodes = list(rng.choice(sample_nodes, 200, replace=False))
+
+        triangles = 0
+        triplets = 0
+        for nid in sample_nodes:
+            neighbors = set()
+            for tgt, _ in self._outgoing.get(nid, []):
+                if tgt in self.nodes:
+                    neighbors.add(tgt)
+            for src, _ in self._incoming.get(nid, []):
+                if src in self.nodes:
+                    neighbors.add(src)
+            neighbors_list = list(neighbors)
+            k = len(neighbors_list)
+            if k < 2:
+                continue
+            # Count connected triples and triangles
+            for i in range(k):
+                for j in range(i + 1, k):
+                    triplets += 1
+                    if self.get_edge(neighbors_list[i], neighbors_list[j]) is not None:
+                        triangles += 1
+                    elif self.get_edge(neighbors_list[j], neighbors_list[i]) is not None:
+                        triangles += 1
+
+        metrics["clustering_coefficient"] = float(triangles / triplets) if triplets > 0 else 0.0
+
+        # 4. Contradiction density
+        if n_edges > 0:
+            inhibitory_count = sum(1 for e in self.edges.values() if e.edge_type == "inhibitory")
+            metrics["contradiction_density"] = float(inhibitory_count / n_edges)
+            metrics["inhibitory_count"] = inhibitory_count
+        else:
+            metrics["contradiction_density"] = 0.0
+            metrics["inhibitory_count"] = 0
+
+        # 5. Relation cluster separation
+        # Compare mean intra-type cosine distance vs inter-type cosine distance
+        relation_groups: Dict[str, List[np.ndarray]] = {}
+        for edge in self.edges.values():
+            rt = edge.relation_type
+            if rt not in relation_groups:
+                relation_groups[rt] = []
+            relation_groups[rt].append(edge.relation_vector)
+
+        if len(relation_groups) >= 2:
+            # Intra-type: mean pairwise cosine similarity within each group
+            intra_sims = []
+            for rt, vecs in relation_groups.items():
+                if len(vecs) < 2:
+                    continue
+                # Sample if too many
+                if len(vecs) > 50:
+                    vecs = vecs[:50]
+                mat = np.array(vecs)
+                norms = np.linalg.norm(mat, axis=1, keepdims=True) + 1e-15
+                mat_normed = mat / norms
+                sim_matrix = mat_normed @ mat_normed.T
+                # Mean of upper triangle
+                upper = sim_matrix[np.triu_indices_from(sim_matrix, k=1)]
+                if len(upper) > 0:
+                    intra_sims.append(float(np.mean(upper)))
+
+            # Inter-type: mean cosine similarity between different types
+            inter_sims = []
+            type_list = list(relation_groups.keys())
+            for i in range(len(type_list)):
+                for j in range(i + 1, len(type_list)):
+                    vecs_i = relation_groups[type_list[i]][:20]
+                    vecs_j = relation_groups[type_list[j]][:20]
+                    mat_i = np.array(vecs_i)
+                    mat_j = np.array(vecs_j)
+                    norms_i = np.linalg.norm(mat_i, axis=1, keepdims=True) + 1e-15
+                    norms_j = np.linalg.norm(mat_j, axis=1, keepdims=True) + 1e-15
+                    cross_sim = (mat_i / norms_i) @ (mat_j / norms_j).T
+                    inter_sims.append(float(np.mean(cross_sim)))
+
+            mean_intra = float(np.mean(intra_sims)) if intra_sims else 0.0
+            mean_inter = float(np.mean(inter_sims)) if inter_sims else 0.0
+            # Separation = intra - inter (positive means clusters are distinct)
+            metrics["relation_intra_similarity"] = mean_intra
+            metrics["relation_inter_similarity"] = mean_inter
+            metrics["relation_separation"] = mean_intra - mean_inter
+        else:
+            metrics["relation_intra_similarity"] = 0.0
+            metrics["relation_inter_similarity"] = 0.0
+            metrics["relation_separation"] = 0.0
+
+        # 6. Attractor stability: mean cosine(core_vector, genesis_vector)
+        core_genesis_sims = []
+        for node in self.nodes.values():
+            core_norm = np.linalg.norm(node.core_vector) + 1e-15
+            gen_norm = np.linalg.norm(node.genesis_vector) + 1e-15
+            sim = float(np.dot(node.core_vector, node.genesis_vector) / (core_norm * gen_norm))
+            core_genesis_sims.append(sim)
+        metrics["attractor_stability"] = float(np.mean(core_genesis_sims))
+
+        # Core vs active vector separation (how much the fast representation diverges)
+        core_active_sims = []
+        for node in self.nodes.values():
+            core_norm = np.linalg.norm(node.core_vector) + 1e-15
+            act_norm = np.linalg.norm(node.vector) + 1e-15
+            sim = float(np.dot(node.core_vector, node.vector) / (core_norm * act_norm))
+            core_active_sims.append(sim)
+        metrics["core_active_alignment"] = float(np.mean(core_active_sims))
+
+        # 7. Branching factor: mean out-degree
+        out_degrees = [len(self._outgoing.get(nid, [])) for nid in self.nodes]
+        metrics["branching_factor"] = float(np.mean(out_degrees)) if out_degrees else 0.0
+        metrics["branching_max"] = int(np.max(out_degrees)) if out_degrees else 0
+
+        # 8. Edge weight stats
+        weights = np.array([e.weight for e in self.edges.values()])
+        if len(weights) > 0:
+            metrics["edge_weight_mean"] = float(np.mean(weights))
+            metrics["edge_weight_std"] = float(np.std(weights))
+            metrics["edge_confidence_mean"] = float(np.mean([e.confidence for e in self.edges.values()]))
+        else:
+            metrics["edge_weight_mean"] = 0.0
+            metrics["edge_weight_std"] = 0.0
+            metrics["edge_confidence_mean"] = 0.0
+
+        # 9. Shortcut ratio
+        shortcut_count = sum(1 for e in self.edges.values() if e.shortcut)
+        metrics["shortcut_ratio"] = float(shortcut_count / n_edges) if n_edges > 0 else 0.0
+        metrics["shortcut_count"] = shortcut_count
+
+        # 10. Path degeneracy: source-target pairs with multiple recorded paths
+        if self._successful_paths:
+            pair_counts = list(self._successful_paths.values())
+            metrics["path_degeneracy_mean"] = float(np.mean(pair_counts))
+            metrics["path_degeneracy_max"] = int(np.max(pair_counts))
+            metrics["tracked_paths"] = len(self._successful_paths)
+        else:
+            metrics["path_degeneracy_mean"] = 0.0
+            metrics["path_degeneracy_max"] = 0
+            metrics["tracked_paths"] = 0
+
+        # 11. Relation type distribution
+        type_counts: Dict[str, int] = {}
+        for edge in self.edges.values():
+            type_counts[edge.relation_type] = type_counts.get(edge.relation_type, 0) + 1
+        metrics["relation_type_distribution"] = type_counts
+
+        # 12. Inference sparsity (from logged inference runs)
+        if self._inference_log:
+            specs = [l["specificity"] for l in self._inference_log]
+            n_results = [l["n_results"] for l in self._inference_log]
+            metrics["inference_specificity_mean"] = float(np.mean(specs))
+            metrics["inference_specificity_last"] = specs[-1]
+            metrics["inference_branching_mean"] = float(np.mean(n_results))
+            metrics["inference_count"] = len(self._inference_log)
+        else:
+            metrics["inference_specificity_mean"] = 0.0
+            metrics["inference_specificity_last"] = 0.0
+            metrics["inference_branching_mean"] = 0.0
+            metrics["inference_count"] = 0
+
+        return metrics
+
+    def geometry_report(self) -> str:
+        """Human-readable semantic geometry report."""
+        m = self.graph_diagnostics()
+        if m.get("empty"):
+            return "Graph is empty."
+
+        lines = [
+            "═══ Semantic Geometry Report ═══",
+            f"Nodes: {len(self.nodes)}  Edges: {len(self.edges)}",
+            "",
+            "── Activation Field ──",
+            f"  Active nodes:      {m['active_count']}",
+            f"  Graph entropy:     {m['graph_entropy']:.3f}  (0=focused, 1=diffuse)",
+            f"  Activation mean:   {m['activation_mean']:.4f}  std={m['activation_std']:.4f}  max={m['activation_max']:.4f}",
+            "",
+            "── Topology ──",
+            f"  Clustering coeff:  {m['clustering_coefficient']:.3f}",
+            f"  Branching factor:  {m['branching_factor']:.1f}  max={m['branching_max']}",
+            f"  Edge weight mean:  {m['edge_weight_mean']:.3f}  std={m['edge_weight_std']:.3f}",
+            f"  Edge confidence:   {m['edge_confidence_mean']:.3f}",
+            "",
+            "── Inhibition & Contradiction ──",
+            f"  Contradiction density: {m['contradiction_density']:.3f}  ({m['inhibitory_count']} inhibitory edges)",
+            "",
+            "── Relation Geometry ──",
+            f"  Intra-type sim:    {m['relation_intra_similarity']:.3f}",
+            f"  Inter-type sim:    {m['relation_inter_similarity']:.3f}",
+            f"  Separation:        {m['relation_separation']:.3f}  (positive = distinct clusters)",
+            f"  Types: {m['relation_type_distribution']}",
+            "",
+            "── Identity Stability ──",
+            f"  Attractor stability:   {m['attractor_stability']:.3f}  (core vs genesis)",
+            f"  Core-active alignment: {m['core_active_alignment']:.3f}  (fast vs slow vector)",
+            "",
+            "── Path Structure ──",
+            f"  Shortcut ratio:    {m['shortcut_ratio']:.3f}  ({m['shortcut_count']} shortcuts)",
+            f"  Tracked paths:     {m['tracked_paths']}",
+            f"  Path degeneracy:   mean={m['path_degeneracy_mean']:.1f}  max={m['path_degeneracy_max']}",
+            "",
+            "── Inference Sparsity ──",
+            f"  Runs logged:       {m['inference_count']}",
+            f"  Specificity:       mean={m['inference_specificity_mean']:.3f}  last={m['inference_specificity_last']:.3f}  (1.0=winner-take-all)",
+            f"  Inference branching: mean={m['inference_branching_mean']:.1f} results/run",
+        ]
+        return "\n".join(lines)
 
     # ── state ──
 
