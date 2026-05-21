@@ -522,8 +522,90 @@ class CognitiveRegulator:
             "oscillation_count": self._oscillation_count,
             "fast_damping": self._fast_damping,
             "medium_damping": self._medium_damping,
+            "slow_damping": self._slow_damping,
             "adjustments_made": self._adjustments_made,
         }
+
+    def meta_adapt(self, overshoot: float = 0.0, recovery_speed: float = 0.0,
+                   oscillation_rate: float = 0.0) -> Dict[str, Any]:
+        """Adapt regulator parameters based on recovery feedback.
+
+        The regulator learns from its own interventions: if overshoot is high,
+        increase damping; if recovery is too slow, decrease damping; if
+        oscillation is high, widen dead zones and increase hysteresis.
+
+        This is the meta-learning loop: the regulator adjusts its own
+        governance policies based on observed outcomes.
+
+        Args:
+            overshoot: how far the system went past baseline during recovery (0-1+)
+            recovery_speed: how fast recovery happened (0=never, 1=instant)
+            oscillation_rate: fraction of recent steps with phase oscillation (0-1)
+
+        Returns:
+            dict of parameter changes made
+        """
+        changes = {}
+
+        # Meta-loss: weighted combination of failure modes
+        # High overshoot = damping too low
+        # Low speed = damping too high (or dead zone too wide)
+        # High oscillation = damping too low or hysteresis too tight
+        overshoot_penalty = min(1.0, overshoot * 2.0)  # normalize: 0.5 overshoot = penalty 1.0
+        slowness_penalty = max(0.0, 1.0 - recovery_speed * 2.0)  # speed 0.5 = penalty 0
+        oscillation_penalty = min(1.0, oscillation_rate * 5.0)  # rate 0.2 = penalty 1.0
+
+        # ── Damping adaptation ──
+        # If overshoot is high, increase damping (more conservative)
+        # If recovery is too slow, decrease damping (more aggressive)
+        if overshoot_penalty > 0.3:
+            # Overshoot detected: increase damping
+            adjustment = 0.02 * overshoot_penalty
+            self._fast_damping = min(0.95, self._fast_damping + adjustment)
+            self._medium_damping = min(0.95, self._medium_damping + adjustment * 0.7)
+            self._slow_damping = min(0.95, self._slow_damping + adjustment * 0.5)
+            changes["damping_direction"] = "increase"
+        elif slowness_penalty > 0.3 and overshoot_penalty < 0.1:
+            # Too slow, no overshoot: decrease damping
+            adjustment = 0.01 * slowness_penalty
+            self._fast_damping = max(0.5, self._fast_damping - adjustment)
+            self._medium_damping = max(0.6, self._medium_damping - adjustment * 0.7)
+            self._slow_damping = max(0.7, self._slow_damping - adjustment * 0.5)
+            changes["damping_direction"] = "decrease"
+
+        # ── Dead zone adaptation ──
+        # If oscillating, widen dead zones to reduce sensitivity
+        if oscillation_penalty > 0.3:
+            widen = 0.01 * oscillation_penalty
+            self._hysteresis_dead_zone = min(0.3, self._hysteresis_dead_zone + widen)
+            changes["dead_zone"] = "widen"
+        elif oscillation_penalty < 0.1 and self._hysteresis_dead_zone > 0.1:
+            # Stable: can afford tighter dead zones
+            self._hysteresis_dead_zone = max(0.05, self._hysteresis_dead_zone - 0.005)
+            changes["dead_zone"] = "tighten"
+
+        # ── Cooldown adaptation ──
+        # If oscillating, increase cooldowns to slow down reactions
+        if oscillation_penalty > 0.5:
+            self._fast_cooldown = max(self._fast_cooldown, 3)
+            self._medium_cooldown = max(self._medium_cooldown, 7)
+            changes["cooldown"] = "increase"
+
+        # Track meta-learning state
+        if not hasattr(self, '_meta_history'):
+            self._meta_history = []
+        self._meta_history.append({
+            "step": self._step,
+            "overshoot": overshoot,
+            "recovery_speed": recovery_speed,
+            "oscillation_rate": oscillation_rate,
+            "fast_damping": self._fast_damping,
+            "medium_damping": self._medium_damping,
+        })
+        if len(self._meta_history) > 100:
+            self._meta_history = self._meta_history[-100:]
+
+        return changes
 
 
 class GeometryHistory:
@@ -1233,6 +1315,90 @@ class ConceptGraph:
         oldest = min(self.nodes.values(), key=lambda n: n.timestamp)
         self.remove_node(oldest.id)
 
+    # ── topology-aware structural importance ──
+
+    def compute_edge_structural_importance(self, sample_size: int = 100) -> Dict[Tuple[int, int], float]:
+        """Compute structural importance scores for all edges.
+
+        Uses a hybrid metric:
+        1. Endpoint degree centrality: edges connecting high-degree hubs are important
+        2. Usage frequency: edges used in successful inference paths are important
+        3. Bridge approximation: edges on many shortest paths (sampled BFS) are critical
+
+        Returns dict mapping (src, tgt) -> importance score (0-1 normalized).
+        """
+        if not self.edges:
+            return {}
+
+        # 1. Degree centrality per node
+        degree = {}
+        for nid in self.nodes:
+            out_deg = len(self._outgoing.get(nid, []))
+            in_deg = len(self._incoming.get(nid, []))
+            degree[nid] = out_deg + in_deg
+
+        max_degree = max(degree.values()) if degree else 1
+
+        # 2. Edge usage from successful paths
+        edge_usage = {}
+        for (src, tgt), count in self._successful_paths.items():
+            # Count how many times this edge appears in successful inference
+            edge_usage[(src, tgt)] = count
+
+        # 3. Sampled BFS for bridge approximation
+        # Run BFS from random sample of nodes, count edge participation in shortest paths
+        edge_path_count: Dict[Tuple[int, int], int] = defaultdict(int)
+        node_ids = list(self.nodes.keys())
+        if len(node_ids) > 1:
+            rng = np.random.RandomState(42)
+            sources = list(rng.choice(node_ids, min(sample_size, len(node_ids)), replace=False))
+
+            for src in sources:
+                # BFS from src
+                visited = {src}
+                queue = [src]
+                parent_map: Dict[int, List[int]] = {src: []}
+                while queue:
+                    current = queue.pop(0)
+                    for tgt, _ in self._outgoing.get(current, []):
+                        if tgt not in self.nodes:
+                            continue
+                        if tgt not in visited:
+                            visited.add(tgt)
+                            queue.append(tgt)
+                            parent_map[tgt] = [current]
+                        elif tgt in parent_map:
+                            parent_map[tgt].append(current)
+
+                # Count edge participation in all shortest paths
+                for tgt in visited:
+                    for parent in parent_map.get(tgt, []):
+                        edge_path_count[(parent, tgt)] += 1
+
+        # Normalize path counts
+        max_path = max(edge_path_count.values()) if edge_path_count else 1
+
+        # Combine into structural importance score
+        importance = {}
+        for key, edge in self.edges.items():
+            src, tgt = key
+            # Degree component: geometric mean of endpoint degrees
+            d_src = degree.get(src, 0) / max_degree
+            d_tgt = degree.get(tgt, 0) / max_degree
+            degree_score = (d_src * d_tgt) ** 0.5
+
+            # Path component: how often on shortest paths
+            path_score = edge_path_count.get(key, 0) / max_path
+
+            # Usage component
+            usage_score = min(1.0, edge_usage.get(key, 0) / 10.0)
+
+            # Hybrid: weighted combination
+            score = 0.3 * degree_score + 0.4 * path_score + 0.3 * usage_score
+            importance[key] = score
+
+        return importance
+
     # ── concept splitting ──
 
     def should_split(self, nid: int, contradiction_threshold: int = 3,
@@ -1375,16 +1541,22 @@ class ConceptGraph:
         return child_a.id, child_b.id
 
     def homeostatic_downscale(self, protection_threshold: float = 0.8,
-                               downscale_factor: float = 0.8) -> Tuple[float, float]:
+                               downscale_factor: float = 0.8,
+                               structural_protection: float = 0.4) -> Tuple[float, float]:
         """Global synaptic homeostasis — downscale all edges, protect the strong.
 
         During sleep, the brain globally weakens all synapses, but the strongest
         ones survive. This improves signal-to-noise ratio: important connections
         stand out more, noise is washed out.
 
+        Topology-aware: also protects structurally important edges (bridges,
+        hub connectors, frequently-used inference paths).
+
         Args:
             protection_threshold: edges with stability above this are protected
             downscale_factor: multiply all weights by this
+            structural_protection: edges with structural importance above this
+                                   are also protected (0 = disabled)
 
         Returns:
             (total_weight_before, total_weight_after)
@@ -1392,10 +1564,19 @@ class ConceptGraph:
         total_before = sum(e.weight for e in self.edges.values())
         protected = {}
 
-        # First pass: identify protected edges
+        # Compute structural importance if protection enabled
+        si = {}
+        if structural_protection > 0 and len(self.edges) > 0:
+            si = self.compute_edge_structural_importance()
+
+        # First pass: identify protected edges (by stability OR structural importance)
         for key, edge in self.edges.items():
             if edge.stability >= protection_threshold:
                 protected[key] = edge.weight
+            elif si.get(key, 0.0) >= structural_protection:
+                # Structurally important edges get partial protection
+                # (restore to 80% of original instead of full)
+                protected[key] = edge.weight * 0.8
 
         # Second pass: downscale all
         for edge in self.edges.values():
@@ -1592,6 +1773,8 @@ class ConceptGraph:
                         hop_score *= entropy_penalty
 
                     # Coherence gate: each hop must stay semantically close to start (core_vector)
+                    if target_id not in self.nodes:
+                        continue
                     target_vec = self.nodes[target_id].core_vector
                     target_norm_vec = target_vec / (np.linalg.norm(target_vec) + 1e-15)
                     coherence = float(np.dot(start_norm, target_norm_vec))
@@ -2199,6 +2382,17 @@ class ConceptGraph:
         metrics["curvature_trend"] = curvature_trend["trend"]
         metrics["curvature_volatility"] = curvature_trend["volatility"]
 
+        # 12b. Basin depth: perturbation resistance of concept neighborhoods
+        if n_nodes >= 15:  # need enough nodes for meaningful k-NN
+            basin = self.compute_basin_depth(k=min(10, n_nodes // 3), n_samples=min(30, n_nodes))
+            metrics["basin_depth_mean"] = basin["basin_depth_mean"]
+            metrics["basin_depth_min"] = basin["basin_depth_min"]
+            metrics["shallow_fraction"] = basin["shallow_fraction"]
+        else:
+            metrics["basin_depth_mean"] = 0.0
+            metrics["basin_depth_min"] = 0.0
+            metrics["shallow_fraction"] = 0.0
+
         # 13. Inference sparsity & energy cost (from logged inference runs)
         if self._inference_log:
             specs = [l["specificity"] for l in self._inference_log]
@@ -2297,6 +2491,107 @@ class ConceptGraph:
             "mean_preservation": float(np.mean(arr)),
             "trend": slope,  # negative = neighborhoods destabilizing
             "volatility": volatility,
+        }
+
+    def compute_basin_depth(self, k: int = 10, n_samples: int = 50,
+                            jaccard_threshold: float = 0.5,
+                            max_noise: float = 2.0,
+                            n_steps: int = 8) -> Dict[str, float]:
+        """Measure how much perturbation concepts can absorb before losing neighborhood identity.
+
+        For each sampled node, captures its k-nearest neighbors, then applies
+        graduated Gaussian noise to find the perturbation magnitude where the
+        node's neighborhood (Jaccard similarity) drops below the threshold.
+
+        This measures basin depth: deep basins resist perturbation, shallow ones
+        don't. A node with basin_depth=0.5 means you need noise magnitude 0.5
+        to push it out of its semantic basin.
+
+        Args:
+            k: number of nearest neighbors to track
+            n_samples: number of nodes to sample (0 = all)
+            jaccard_threshold: neighborhood retention threshold for basin boundary
+            max_noise: maximum noise magnitude to test
+            n_steps: number of noise levels to test (binary search resolution)
+
+        Returns:
+            dict with basin_depth_mean, basin_depth_min, basin_depth_std,
+            shallow_fraction (fraction of nodes with depth < 0.3)
+        """
+        if len(self.nodes) < k + 1:
+            return {"basin_depth_mean": 0.0, "basin_depth_min": 0.0,
+                    "basin_depth_std": 0.0, "shallow_fraction": 0.0}
+
+        # Sample nodes
+        node_ids = list(self.nodes.keys())
+        if n_samples > 0 and len(node_ids) > n_samples:
+            rng = np.random.RandomState(42)
+            sample_ids = list(rng.choice(node_ids, n_samples, replace=False))
+        else:
+            sample_ids = node_ids
+
+        # Precompute the full similarity matrix once (reused for all noise levels)
+        all_ids = list(self.nodes.keys())
+        all_vectors = np.array([self.nodes[nid].vector for nid in all_ids])
+        all_norms = np.linalg.norm(all_vectors, axis=1, keepdims=True) + 1e-15
+        all_normed = all_vectors / all_norms
+        id_to_idx = {nid: i for i, nid in enumerate(all_ids)}
+
+        # Capture baseline neighborhoods for sampled nodes
+        baseline_sim = all_normed @ all_normed.T
+        np.fill_diagonal(baseline_sim, -1.0)
+
+        baseline_neighbors = {}
+        for nid in sample_ids:
+            idx = id_to_idx[nid]
+            top_k_idx = np.argsort(baseline_sim[idx])[-k:]
+            baseline_neighbors[nid] = set(all_ids[j] for j in top_k_idx)
+
+        # Noise levels to test (geometric progression for better resolution)
+        noise_levels = np.linspace(0.0, max_noise, n_steps + 1)[1:]  # skip 0
+
+        # For each node, binary search for basin boundary
+        depths = []
+        for nid in sample_ids:
+            node = self.nodes[nid]
+            baseline_set = baseline_neighbors[nid]
+
+            # Binary search: find smallest noise where Jaccard < threshold
+            lo, hi = 0, len(noise_levels) - 1
+            depth = max_noise  # default: never escaped
+
+            for noise_mag in noise_levels:
+                # Apply noise to a copy of the vector
+                noise = np.random.randn(*node.vector.shape).astype(np.float32) * noise_mag
+                perturbed = node.vector + noise
+                perturbed_norm = np.linalg.norm(perturbed)
+                if perturbed_norm > 0:
+                    perturbed = perturbed / perturbed_norm
+
+                # Find k-NN of perturbed vector
+                sims = all_normed @ perturbed
+                top_k_idx = np.argsort(sims)[-k:]
+                perturbed_set = set(all_ids[j] for j in top_k_idx)
+
+                # Jaccard similarity
+                intersection = len(baseline_set & perturbed_set)
+                union = len(baseline_set | perturbed_set)
+                jaccard = intersection / union if union > 0 else 1.0
+
+                if jaccard < jaccard_threshold:
+                    depth = noise_mag
+                    break
+
+            depths.append(depth)
+
+        depths_arr = np.array(depths)
+        shallow_mask = depths_arr < 0.3
+
+        return {
+            "basin_depth_mean": float(np.mean(depths_arr)),
+            "basin_depth_min": float(np.min(depths_arr)),
+            "basin_depth_std": float(np.std(depths_arr)),
+            "shallow_fraction": float(np.mean(shallow_mask)),
         }
 
     def project_relation_manifold(self, n_components: int = 2) -> Dict[str, Any]:
@@ -2707,8 +3002,9 @@ class ConceptGraph:
         2. Classify cognitive phase
         3. Apply damped regulation via CognitiveRegulator
         4. Apply graph-level effects (inhibition boost)
+        5. Meta-adapt: feed recovery feedback to regulator for self-tuning
 
-        Returns: phase info + damped adjustments + regulator status
+        Returns: phase info + damped adjustments + regulator status + meta changes
         """
         metrics = self.graph_diagnostics()
         phase_info = self.classify_phase(metrics)
@@ -2723,21 +3019,90 @@ class ConceptGraph:
                     edge.confidence = min(1.0, edge.confidence + boost * 0.02)
 
         # Entropy-driven pruning: when entropy is high, prune weakest edges
+        # Topology-aware: protect structurally important edges (bridges, hubs, used paths)
         if metrics.get("graph_entropy", 0) > 0.8 and len(self.edges) > 10:
             prune_threshold = 0.15  # prune edges below this weight
+            # Compute structural importance (cached periodically)
+            if not hasattr(self, '_structural_importance_cache') or \
+               getattr(self, '_si_cache_step', 0) < self._regulator._step - 10:
+                self._structural_importance_cache = self.compute_edge_structural_importance()
+                self._si_cache_step = self._regulator._step
+            si = self._structural_importance_cache
+
+            # Only prune edges with low structural importance
+            si_threshold = 0.3  # protect edges above this importance
             prunable = [(k, e) for k, e in self.edges.items()
                         if e.weight < prune_threshold
                         and not e.shortcut
-                        and e.edge_type != "inhibitory"]
+                        and e.edge_type != "inhibitory"
+                        and si.get(k, 0.0) < si_threshold]
+            # Sort by structural importance (prune least important first)
+            prunable.sort(key=lambda x: si.get(x[0], 0.0))
             # Prune up to 10% of weak edges per regulation cycle
             max_prune = max(1, len(prunable) // 10)
             for (src, tgt), _ in prunable[:max_prune]:
                 self.remove_edge(src, tgt)
 
+        # ── Meta-adaptive regulation: learn from intervention outcomes ──
+        meta_changes = {}
+        if not hasattr(self, '_prev_entropy'):
+            self._prev_entropy = metrics.get("graph_entropy", 0.5)
+            self._prev_phase = phase_info["phase"]
+            self._overshoot_count = 0
+            self._regulation_steps = 0
+
+        self._regulation_steps += 1
+        current_entropy = metrics.get("graph_entropy", 0.5)
+        prev_entropy = self._prev_entropy
+
+        # Detect local overshoot: did regulation cause entropy to swing past target?
+        # Target entropy ~0.5 (balanced). Overshoot = crossed target and went too far.
+        target_entropy = 0.5
+        overshoot = 0.0
+        if prev_entropy > target_entropy and current_entropy < target_entropy:
+            # Was above target, now below = possible overshoot
+            overshoot = abs(current_entropy - target_entropy)
+        elif prev_entropy < target_entropy and current_entropy > target_entropy:
+            # Was below target, now above = possible overshoot
+            overshoot = abs(current_entropy - target_entropy)
+
+        # Track oscillation: phase changes that reverse previous changes
+        if phase_info["phase"] != self._prev_phase:
+            self._overshoot_count += 1
+
+        oscillation_rate = self._overshoot_count / max(1, self._regulation_steps)
+
+        # Estimate recovery speed from GeometryHistory if available
+        recovery_speed = 0.5  # default: neutral
+        if hasattr(self, '_geometry_history') and len(self._geometry_history.snapshots) > 5:
+            try:
+                entropy_series = self._geometry_history.get_series("graph_entropy")
+                if len(entropy_series) >= 5:
+                    recent = entropy_series[-5:]
+                    # If entropy is stabilizing (low variance), recovery is fast
+                    variance = float(np.var(recent))
+                    recovery_speed = max(0.0, min(1.0, 1.0 - variance * 10.0))
+            except (KeyError, IndexError):
+                pass
+
+        # Feed feedback to regulator every 5 steps (not every step — avoid overfitting)
+        if self._regulation_steps % 5 == 0:
+            meta_changes = self._regulator.meta_adapt(
+                overshoot=overshoot,
+                recovery_speed=recovery_speed,
+                oscillation_rate=oscillation_rate,
+            )
+            # Decay oscillation counter
+            self._overshoot_count = max(0, self._overshoot_count - 1)
+
+        self._prev_entropy = current_entropy
+        self._prev_phase = phase_info["phase"]
+
         return {
             "phase": phase_info,
             "adjustments": adjustments,
             "regulator": self._regulator.status(),
+            "meta_changes": meta_changes,
         }
 
     def adaptive_regulation(self) -> Dict[str, Any]:
