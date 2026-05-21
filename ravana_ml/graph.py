@@ -8,7 +8,8 @@ from collections import defaultdict
 class ConceptNode:
     def __init__(self, node_id: int, vector: np.ndarray, label: str = ""):
         self.id = node_id
-        self.vector = vector.copy()
+        self.vector = vector.copy()          # active_vector — fast plastic representation
+        self.core_vector = vector.copy()     # identity anchor — slowly changing, drift-resistant
         self.genesis_vector = vector.copy()  # original vector for drift tracking
         self.label = label or f"c{node_id}"
         self.activation = 0.0
@@ -686,10 +687,17 @@ class ConceptGraph:
         node = self.nodes.get(nid)
         if node is None:
             return
+        # Active vector: fast plastic update
         node.vector += delta * lr * node.plasticity
         norm = np.linalg.norm(node.vector)
         if norm > 0:
             node.vector /= norm
+        # Core vector: slow consolidation update (0.05x rate)
+        # This preserves identity while allowing gradual drift
+        node.core_vector += delta * lr * 0.05
+        core_norm = np.linalg.norm(node.core_vector)
+        if core_norm > 0:
+            node.core_vector /= core_norm
         self._vectors_dirty = True
 
     def get_or_create_edge(self, source: int, target: int, weight: float = 0.3,
@@ -1092,6 +1100,28 @@ class ConceptGraph:
             return []
         return [c for c in parent.children if c != nid]
 
+    # ── vector consolidation ──
+
+    def consolidate_vectors(self, rate: float = 0.1):
+        """Sleep consolidation: merge active_vector toward core_vector.
+
+        This is the SWS analogue — during sleep, fast-changing active
+        representations consolidate into the stable identity anchor.
+        rate: how much active_vector moves toward core_vector (0.0-1.0)
+        """
+        for node in self.nodes.values():
+            # Move active toward core (consolidation)
+            node.vector = node.vector * (1.0 - rate) + node.core_vector * rate
+            norm = np.linalg.norm(node.vector)
+            if norm > 0:
+                node.vector /= norm
+            # Core vector also drifts slightly toward active (learning)
+            node.core_vector = node.core_vector * (1.0 - rate * 0.1) + node.vector * (rate * 0.1)
+            core_norm = np.linalg.norm(node.core_vector)
+            if core_norm > 0:
+                node.core_vector /= core_norm
+        self._vectors_dirty = True
+
     # ── relational inference engine ──
 
     def record_path(self, source_id: int, target_id: int):
@@ -1112,20 +1142,29 @@ class ConceptGraph:
         return results
 
     def infer_chain(self, start_id: int, max_hops: int = 3,
-                    confidence_threshold: float = 0.1,
-                    min_weight: float = 0.2,
-                    k: int = 10) -> List[Tuple[int, float, List[int]]]:
-        """Multi-hop inference: propagate through chains with uncertainty accumulation.
+                    confidence_threshold: float = 0.15,
+                    min_weight: float = 0.25,
+                    k: int = 5,
+                    frontier_budget: int = 5) -> List[Tuple[int, float, List[int]]]:
+        """Sparse multi-hop inference with activation budgets and winner-take-most.
+
+        Key constraints to prevent percolation (semantic fog):
+        - frontier_budget: max nodes per hop (winner-take-most)
+        - min_weight: ignore weak edges
+        - confidence_threshold: stop propagating low-confidence chains
+        - entropy penalty: penalize paths that branch too broadly
+        - coherence gate: each hop must maintain semantic alignment with start
 
         Returns ranked list of (target_id, chain_score, path) tuples.
-        Score decays at each hop by edge weight * confidence.
-        Contradiction hotspots penalize chains passing through them.
         """
         if start_id not in self.nodes:
             return []
 
-        # BFS with score tracking
-        # Each entry: (node_id, cumulative_score, cumulative_confidence, path)
+        # Use core_vector for identity resolution (stable anchor)
+        start_vec = self.nodes[start_id].core_vector
+        start_norm = start_vec / (np.linalg.norm(start_vec) + 1e-15)
+
+        # BFS with score tracking and activation budget
         frontier: List[Tuple[int, float, float, List[int]]] = [
             (start_id, 1.0, 1.0, [start_id])
         ]
@@ -1133,9 +1172,14 @@ class ConceptGraph:
         results: List[Tuple[int, float, List[int]]] = []
 
         for hop in range(max_hops):
-            next_frontier: List[Tuple[int, float, float, List[int]]] = []
+            candidates: List[Tuple[int, float, float, List[int]]] = []
+
             for nid, score, conf, path in frontier:
-                for target_id, edge in self._outgoing.get(nid, []):
+                outgoing = self._outgoing.get(nid, [])
+                # Count how many edges this node fans out to (entropy signal)
+                fanout = len(outgoing)
+
+                for target_id, edge in outgoing:
                     if target_id in path:
                         continue  # no cycles
                     if edge.edge_type == "inhibitory":
@@ -1143,22 +1187,31 @@ class ConceptGraph:
                     if edge.weight < min_weight:
                         continue  # skip weak edges
 
-                    # Chain scoring
+                    # Chain scoring with confidence decay
                     hop_score = score * edge.weight * edge.confidence
                     hop_conf = conf * edge.confidence
 
+                    # Confidence decay accelerates with hop depth
+                    hop_score *= (0.7 ** hop)
+
                     # Contradiction penalty
                     if target_id in self.contradiction_hotspots:
-                        hop_score *= 0.5
+                        hop_score *= 0.3
                     if nid in self.contradiction_hotspots:
-                        hop_score *= 0.7
+                        hop_score *= 0.5
 
-                    # Semantic alignment bonus
-                    if self.nodes[target_id].vector is not None and self.nodes[start_id].vector is not None:
-                        align = float(np.dot(self.nodes[target_id].vector, self.nodes[start_id].vector) /
-                                     (np.linalg.norm(self.nodes[target_id].vector) *
-                                      np.linalg.norm(self.nodes[start_id].vector) + 1e-15))
-                        hop_score *= (1.0 + 0.2 * max(0.0, align))
+                    # Entropy penalty: penalize high-fanout nodes (semantic fog)
+                    if fanout > 3:
+                        entropy_penalty = 1.0 / (1.0 + 0.1 * (fanout - 3))
+                        hop_score *= entropy_penalty
+
+                    # Coherence gate: each hop must stay semantically close to start (core_vector)
+                    target_vec = self.nodes[target_id].core_vector
+                    target_norm_vec = target_vec / (np.linalg.norm(target_vec) + 1e-15)
+                    coherence = float(np.dot(start_norm, target_norm_vec))
+                    if coherence < -0.2:
+                        continue  # reject semantically opposed paths
+                    hop_score *= (1.0 + 0.3 * max(0.0, coherence))
 
                     if hop_conf < confidence_threshold:
                         continue
@@ -1169,12 +1222,14 @@ class ConceptGraph:
                     if hop > 0 and target_id != start_id:
                         results.append((target_id, hop_score, new_path))
 
-                    # Continue propagation
+                    # Track candidate for winner-take-most
                     if target_id not in visited or visited[target_id] < hop_score:
                         visited[target_id] = hop_score
-                        next_frontier.append((target_id, hop_score, hop_conf, new_path))
+                        candidates.append((target_id, hop_score, hop_conf, new_path))
 
-            frontier = next_frontier
+            # Winner-take-most: keep only top frontier_budget nodes
+            candidates.sort(key=lambda x: x[1], reverse=True)
+            frontier = candidates[:frontier_budget]
 
         # Deduplicate: keep best score per target
         best: Dict[int, Tuple[float, List[int]]] = {}
