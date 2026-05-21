@@ -222,6 +222,36 @@ class RLM(Module):
         self._last_predicted_concepts = [n.id for n in all_active][:5]
         self._last_edge_pred = self.propagation.get_prediction(self._last_predicted_concepts, top_k=5)
 
+        # ── Multi-Hop Relational Inference ──
+        # Run infer_chain from top active concepts to find transitive targets.
+        # Map inferred concept vectors to token IDs via embedding similarity.
+        # Only boost top-2 tokens per chain for precision.
+        multi_hop_boost = np.zeros(self.vocab_size, dtype=np.float32)
+        token_vecs = self.token_embed.weight.data  # (vocab_size, embed_dim)
+        token_norms = token_vecs / (np.linalg.norm(token_vecs, axis=1, keepdims=True) + 1e-15)
+
+        for node in all_active[:2]:
+            chains = self.graph.infer_chain(node.id, max_hops=2,
+                                            confidence_threshold=0.15, min_weight=0.2, k=5)
+            for target_concept, chain_score, path in chains:
+                if chain_score <= 0.1 or target_concept not in self.graph.nodes:
+                    continue
+                # Map concept vector → top-2 nearest token embeddings
+                concept_vec = self.graph.nodes[target_concept].vector
+                concept_norm = concept_vec / (np.linalg.norm(concept_vec) + 1e-15)
+                token_sims = token_norms @ concept_norm
+                top2 = np.argpartition(token_sims, -2)[-2:]
+                for tok_id in top2:
+                    if token_sims[tok_id] > 0.35:
+                        boost = chain_score * node.activation * token_sims[tok_id]
+                        multi_hop_boost[tok_id] = max(multi_hop_boost[tok_id], boost)
+                # Record the path for later compression
+                self.graph.record_path(node.id, target_concept)
+
+        # Blend multi-hop into concept_scores (selective boost)
+        if np.any(multi_hop_boost > 0):
+            concept_scores = np.maximum(concept_scores, concept_scores + multi_hop_boost * 0.2)
+
         # ── Context Priming with Temporal Decay (inverted index) ──
         if T > 1:
             # Build context vector for disambiguation (must be concept_dim, not n_hidden)
@@ -353,6 +383,9 @@ class RLM(Module):
             if inode and inode.contradiction_count > 0:
                 inode.contradiction_count = max(0, inode.contradiction_count - 1)
                 inode.prediction_free_energy = max(0.0, inode.prediction_free_energy - 0.3)
+            # Record successful path for compression (input→output becomes shortcut)
+            if output_concept >= 0:
+                self.graph.record_path(input_concept, output_concept)
 
         if T > 1:
             target_onehot = np.zeros(self.vocab_size, dtype=np.float32)
@@ -626,6 +659,14 @@ class RLM(Module):
         # Binding maintenance: decay old bindings, prune weak ones
         self.binding_map.decay_all(rate=0.005)
         self.binding_map.prune(min_strength=0.05)
+
+        # ── Path Compression ──
+        # Compress successful inference chains into shortcut edges
+        compressible = self.graph.get_compressible_paths(min_usage=2)
+        if compressible:
+            compressed = self.graph.compress_paths(compressible, min_chain_score=0.15)
+            if compressed > 0:
+                self.graph._vectors_dirty = True
 
         self.sleep_cycles_completed += 1
 
