@@ -660,6 +660,10 @@ class RLM(Module):
         self.binding_map.decay_all(rate=0.005)
         self.binding_map.prune(min_strength=0.05)
 
+        # ── Vector Consolidation (SWS analogue) ──
+        # Consolidate fast-changing active vectors toward stable core vectors
+        self.graph.consolidate_vectors(rate=0.08)
+
         # ── Path Compression ──
         # Compress successful inference chains into shortcut edges
         compressible = self.graph.get_compressible_paths(min_usage=2)
