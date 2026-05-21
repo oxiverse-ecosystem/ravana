@@ -607,6 +607,73 @@ class GeometryHistory:
 
         return warnings
 
+    def compute_recovery_elasticity(self, metric_name: str,
+                                     baseline_value: float,
+                                     perturbation_value: float,
+                                     recovery_start: int = 0) -> Dict[str, float]:
+        """Compute recovery elasticity for a metric after perturbation.
+
+        elasticity = recovery_speed * recovery_completeness / (1 + overshoot)
+
+        Args:
+            metric_name: which metric to analyze
+            baseline_value: the stable value before perturbation
+            perturbation_value: the degraded value after perturbation
+            recovery_start: index in snapshots where recovery began
+
+        Returns:
+            - speed: 1/tau where tau is steps to reach 90% recovery (0 if never)
+            - completeness: 1 - |final - baseline| / |perturbation - baseline|
+            - overshoot: max deviation beyond baseline during recovery
+            - elasticity: combined metric (speed * completeness / (1 + overshoot))
+            - tau: steps to 90% recovery (inf if never)
+        """
+        series = self.get_series(metric_name)
+        if len(series) < 2 or perturbation_value == baseline_value:
+            return {"speed": 0.0, "completeness": 0.0, "overshoot": 0.0,
+                    "elasticity": 0.0, "tau": float("inf")}
+
+        recovery = series[recovery_start:]
+        if not recovery:
+            return {"speed": 0.0, "completeness": 0.0, "overshoot": 0.0,
+                    "elasticity": 0.0, "tau": float("inf")}
+
+        # Distance to recover
+        total_distance = abs(perturbation_value - baseline_value)
+
+        # Speed: how fast does it approach baseline?
+        # Find first time it reaches 90% recovery
+        tau = float("inf")
+        for i, val in enumerate(recovery):
+            remaining = abs(val - baseline_value)
+            if remaining < total_distance * 0.1:
+                tau = float(i + 1)
+                break
+        speed = 1.0 / tau if tau < float("inf") else 0.0
+
+        # Completeness: how close is final value to baseline?
+        final_val = recovery[-1]
+        completeness = 1.0 - abs(final_val - baseline_value) / total_distance
+        completeness = max(0.0, min(1.0, completeness))
+
+        # Overshoot: max deviation beyond baseline during recovery
+        overshoot = 0.0
+        for val in recovery:
+            deviation = abs(val - baseline_value)
+            if deviation > total_distance:  # overshot past baseline
+                overshoot = max(overshoot, (deviation - total_distance) / total_distance)
+
+        # Combined elasticity
+        elasticity = speed * completeness / (1.0 + overshoot)
+
+        return {
+            "speed": speed,
+            "completeness": completeness,
+            "overshoot": overshoot,
+            "elasticity": elasticity,
+            "tau": tau,
+        }
+
     def summary(self) -> Dict[str, Any]:
         """Summary of all tracked metrics over history."""
         if not self.snapshots:
@@ -2354,6 +2421,71 @@ class ConceptGraph:
         "crisis":     {"contradiction_density": 0.15},  # threshold for crisis mode
     }
 
+    def calibrate_thresholds(self, min_snapshots: int = 20) -> Dict[str, Any]:
+        """Compute adaptive phase thresholds from geometry history.
+
+        After enough history is collected, phase boundaries shift to match
+        the system's own operating range. This prevents mature systems from
+        being misclassified by static thresholds.
+
+        Returns calibrated thresholds dict, or empty dict if insufficient data.
+        """
+        history = self._geometry_history
+        if len(history.snapshots) < min_snapshots:
+            return {}
+
+        key_metrics = {
+            "entropy": "graph_entropy",
+            "specificity": "inference_specificity_mean",
+            "separation": "relation_separation",
+            "contradiction": "contradiction_density",
+        }
+
+        stats = {}
+        for key, metric_name in key_metrics.items():
+            series = history.get_series(metric_name)
+            if len(series) < min_snapshots:
+                return {}
+            arr = np.array(series)
+            stats[key] = {
+                "mean": float(np.mean(arr)),
+                "std": float(np.std(arr)),
+                "p10": float(np.percentile(arr, 10)),
+                "p90": float(np.percentile(arr, 90)),
+            }
+
+        # Adaptive thresholds: phase boundaries relative to system's own history
+        e = stats["entropy"]
+        s = stats["specificity"]
+        sep = stats["separation"]
+        c = stats["contradiction"]
+
+        # Use percentile-based boundaries for robustness
+        calibrated = {
+            "focused": {
+                "entropy": (0.0, e["mean"] - 0.5 * max(e["std"], 0.05)),
+                "specificity": (s["mean"] + 0.5 * max(s["std"], 0.05), 1.0),
+            },
+            "exploratory": {
+                "entropy": (e["mean"] - 0.5 * max(e["std"], 0.05), e["mean"] + 0.5 * max(e["std"], 0.05)),
+                "specificity": (s["mean"] - 0.5 * max(s["std"], 0.05), s["mean"] + 0.5 * max(s["std"], 0.05)),
+            },
+            "diffuse": {
+                "entropy": (e["mean"] + 1.5 * max(e["std"], 0.05), 1.0),
+            },
+            "rigid": {
+                "entropy": (0.0, e["p10"]),
+                "separation": (sep["mean"] + max(sep["std"], 0.1), 1.0),
+            },
+            "crisis": {
+                "contradiction_density": c["mean"] + 2.0 * max(c["std"], 0.02),
+            },
+            "_stats": stats,
+        }
+
+        self._calibrated_thresholds = calibrated
+        return calibrated
+
     def classify_phase(self, metrics: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Classify the current cognitive phase based on geometry metrics.
 
@@ -2378,8 +2510,17 @@ class ConceptGraph:
         separation = metrics.get("relation_separation", 0.0)
         contradiction = metrics.get("contradiction_density", 0.0)
 
+        # Use calibrated thresholds if available, otherwise static defaults
+        cal = getattr(self, "_calibrated_thresholds", None)
+        if not cal:
+            cal = self.calibrate_thresholds()
+
+        # Crisis threshold: calibrated or static
+        crisis_thresh = (cal.get("crisis", {}).get("contradiction_density", 0.15)
+                         if cal else self.PHASE_THRESHOLDS["crisis"]["contradiction_density"])
+
         # Crisis takes priority — contradiction overload
-        if contradiction > self.PHASE_THRESHOLDS["crisis"]["contradiction_density"]:
+        if contradiction > crisis_thresh:
             return {
                 "phase": "crisis",
                 "confidence": min(1.0, contradiction / 0.3),
@@ -2394,29 +2535,55 @@ class ConceptGraph:
             }
 
         # Score each phase by how well metrics fit
+        # Use calibrated thresholds when available
         scores = {}
 
-        # Focused: low entropy, high specificity
-        if entropy < 0.4 and specificity > 0.7:
-            scores["focused"] = (1.0 - entropy) * specificity
+        if cal and "_stats" in cal:
+            # Calibrated scoring: thresholds derived from system's own history
+            e_hi = cal["diffuse"]["entropy"][0]
+            e_lo = cal["focused"]["entropy"][1]
+            s_lo = cal["focused"]["specificity"][0]
 
-        # Exploratory: medium entropy, medium specificity
-        if 0.3 < entropy < 0.7 and 0.3 < specificity < 0.7:
-            # Peak at entropy=0.5, specificity=0.5
-            ent_score = 1.0 - abs(entropy - 0.5) * 2
-            spec_score = 1.0 - abs(specificity - 0.5) * 2
-            scores["exploratory"] = ent_score * spec_score
+            # Focused: entropy below calibrated low, specificity above calibrated high
+            if entropy < e_lo and specificity > s_lo:
+                scores["focused"] = (1.0 - entropy / e_lo) * specificity
 
-        # Diffuse: high entropy (primary signal) or high entropy + low specificity
-        # High entropy alone (>0.8) is sufficient — activation field is flooded
-        if entropy > 0.8:
-            scores["diffuse"] = entropy * (1.0 - specificity + 0.3)  # entropy-driven
-        elif entropy > 0.6 and specificity < 0.4:
-            scores["diffuse"] = entropy * (1.0 - specificity)
+            # Exploratory: near the system's historical mean
+            e_stats = cal["_stats"]["entropy"]
+            e_dist = abs(entropy - e_stats["mean"]) / (e_stats["std"] + 1e-15)
+            if e_dist < 1.0:
+                scores["exploratory"] = 1.0 - e_dist
 
-        # Rigid: low entropy, very high specificity, high separation
-        if entropy < 0.3 and specificity > 0.8 and separation > 0.7:
-            scores["rigid"] = (1.0 - entropy) * specificity * separation
+            # Diffuse: entropy above calibrated high
+            if entropy > e_hi:
+                scores["diffuse"] = (entropy - e_hi) / (1.0 - e_hi + 1e-15) + 0.3
+
+            # Rigid: entropy very low + separation very high (relative to history)
+            rigid_sep_hi = cal.get("rigid", {}).get("separation", (0.7, 1.0))[0]
+            rigid_e_hi = cal.get("rigid", {}).get("entropy", (0.0, 0.3))[1]
+            if entropy < rigid_e_hi and separation > rigid_sep_hi:
+                scores["rigid"] = (1.0 - entropy / rigid_e_hi) * separation
+        else:
+            # Static fallback thresholds
+            # Focused: low entropy, high specificity
+            if entropy < 0.4 and specificity > 0.7:
+                scores["focused"] = (1.0 - entropy) * specificity
+
+            # Exploratory: medium entropy, medium specificity
+            if 0.3 < entropy < 0.7 and 0.3 < specificity < 0.7:
+                ent_score = 1.0 - abs(entropy - 0.5) * 2
+                spec_score = 1.0 - abs(specificity - 0.5) * 2
+                scores["exploratory"] = ent_score * spec_score
+
+            # Diffuse: high entropy alone (>0.8) is sufficient
+            if entropy > 0.8:
+                scores["diffuse"] = entropy * (1.0 - specificity + 0.3)
+            elif entropy > 0.6 and specificity < 0.4:
+                scores["diffuse"] = entropy * (1.0 - specificity)
+
+            # Rigid: low entropy, very high specificity, high separation
+            if entropy < 0.3 and specificity > 0.8 and separation > 0.7:
+                scores["rigid"] = (1.0 - entropy) * specificity * separation
 
         if not scores:
             # Default to exploratory if no clear match
@@ -2545,6 +2712,7 @@ class ConceptGraph:
             return "Graph is empty."
 
         phase_info = self.classify_phase(m)
+        cal = getattr(self, "_calibrated_thresholds", None)
 
         lines = [
             "═══ Semantic Geometry Report ═══",
@@ -2554,6 +2722,9 @@ class ConceptGraph:
             f"  Phase:         {phase_info['phase'].upper()}  (confidence={phase_info['confidence']:.2f})",
             f"  Entropy:       {m['graph_entropy']:.3f}  Specificity: {m.get('inference_specificity_mean', 0):.3f}",
             f"  Separation:    {m['relation_separation']:.3f}  Contradiction: {m['contradiction_density']:.3f}",
+            "",
+            "── Thresholds ──",
+            f"  Mode:        {'CALIBRATED' if cal and '_stats' in cal else 'STATIC'}  ({len(self._geometry_history.snapshots)} history snapshots)",
             "",
             "── Regulator ──",
             f"  Inhibition boost:  {self._regulator._fast_inhibition_boost:.3f}  (damping={self._regulator._fast_damping:.2f})",
