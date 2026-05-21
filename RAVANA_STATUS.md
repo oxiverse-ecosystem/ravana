@@ -1,5 +1,5 @@
 # RAVANA — Codebase Status Report
-**Date:** 2026-05-21 (updated — full observability stack: geometry dashboard, phase classification, multi-timescale regulation, curvature tracking, resilience experiment)
+**Date:** 2026-05-21 (updated — native cognitive architecture in RLM, 9 save/load bugs fixed, dimension fix)
 **Author:** Likhith
 **Purpose:** Shareable status document for LLM collaborators
 
@@ -28,7 +28,7 @@ A PyTorch-compatible API surface built on NumPy. Only hard dependency: `numpy`.
 | `propagation.py` | 78 | Activation spreading engine over concept graph |
 | `tokenizer.py` | 73 | **NEW** — `BPETokenizer` (tiktoken/GPT-2, 50257 vocab), `SimpleTokenizer` (char-level fallback, 256 vocab), `get_tokenizer()` factory |
 | `nn/module.py` | 300 | PyTorch-compatible `Module` base with `accumulate_free_energy()` + `sleep_cycle()` — local learning, no backprop. `Linear.backprop()` raises `NotImplementedError` |
-| `nn/rlm.py` | 1,410 | **Recursive Learning Model (RLM)** — alternative to LLM. **Predictive coding** learning rule with settle loop + 3 stabilizers. **Saturating concept fatigue** (asymptotic accumulation, multiplicative decay). **Repetition penalty** (sliding window). **Composite exploratory drive** (repetition × low_entropy × free_energy → dynamic temperature/ACF scaling). **Direct Hebbian weight updates** on ctx_logits (lr=0.0001, bypasses slow accumulate+sleep_cycle). **Cognitive trace logging** — per-step JSON + markdown with entropy, fatigue, concepts, free_energy. `save()`/`load()` (pickle) + `save_zip()`/`load_zip()` (human-readable zip). **Multi-hop inference** in forward pass via `infer_chain()`. **Geometry tracking**: `record_geometry_snapshot()` every 10 learn steps + every sleep cycle. **Cognitive regulation**: `regulate()` called during sleep, stored as `_last_regulation`. |
+| `nn/rlm.py` | 1,950+ | **Recursive Learning Model (RLM)** — self-contained cognitive agent. **Predictive coding** with settle loop + 3 stabilizers. **Native cognitive architecture**: identity (strength + momentum + recovery bias), emotion (VAD differential equations), meaning (dissonance/identity/predictive gains), sleep pressure, regulation modes. **Native memory**: episodic buffer (100) → semantic consolidation (1000) → graph weights bridge (Ebbinghaus decay). **Hippocampal replay** during sleep. **Emotion-modulated forward** (arousal/valence/identity scale logit blend). **Lightweight Governor** (mode detection, boundary pressure, dissonance dampening). **Cognitive trace logging**. `save()`/`load()` (pickle) + `save_zip()`/`load_zip()` — **all state persisted**: cognitive fields, binding_map, core_vector, genesis_vector, relation_vector, temporal fields, regulator, geometry history, successful_paths. |
 | `nn/functional.py` | 118 | Functional API (relu, softmax, cross_entropy, etc.) |
 | `world/__init__.py` | 159 | Simulation environments: TinyWorld, CausalSequenceWorld, ObjectInteractionWorld, SensorimotorWorld |
 | `lab/__init__.py` | 263 | Concept Physics Lab for compositional experiments |
@@ -149,6 +149,90 @@ report = fw.diagnose(state)                    # full cognitive dashboard
 - `GlobalWorkspace` for inter-module coordination
 - `HebbianPlasticity` + `StructuralPlasticity` for graph-level learning
 - `HumanMemoryEngine` for persistent episodic/semantic memory with bridge to ConceptGraph
+
+---
+
+## Native Cognitive Architecture in RLM (NEW — 2026-05-21)
+
+The RLM now has **embedded cognitive state** — no external module dependencies. All cognitive processing happens natively within `learn()`, `forward()`, and `sleep_cycle()`.
+
+### Embedded Cognitive Fields
+
+| Field | Range | Source Module | Purpose |
+|-------|-------|---------------|---------|
+| `identity_strength` | 0-1 | IdentityEngine | Self-concept coherence; increases with success, decreases with failure |
+| `identity_momentum` | -1 to 1 | IdentityEngine | Directional inertia; carries forward previous delta direction |
+| `valence` | -1 to 1 | VADEmotionEngine | Positive/negative affect via dV/dt differential equation |
+| `arousal` | 0-1 | VADEmotionEngine | Activation level via dA/dt; driven by surprise + dissonance |
+| `dominance` | 0-1 | VADEmotionEngine | Sense of control via dD/dt |
+| `accumulated_meaning` | 0+ | MeaningEngine | Running total of M = 0.4(-D) + 0.3(id) + 0.3(pred) |
+| `sleep_pressure` | 0-1 | SleepConsolidation | Accumulates from prediction errors; triggers auto-sleep at 0.7 |
+| `dissonance_ema` | 0-1 | Governor | EMA of prediction error; drives regulation mode detection |
+| `regulation_mode` | enum | Governor | NORMAL, EXPLORATION, RESOLUTION, RECOVERY, PLATEAU |
+
+### Native Memory System
+
+```
+Episodic Buffer (100 episodes)
+    ↓ correct + low error
+Semantic Memories (1000 concepts)
+    ↓ bridge_to_graph
+ConceptGraph Edges (memory-as-weights)
+```
+
+- **Episodic buffer**: stores recent experiences (hidden state vector, active concepts, error, correctness, emotion, timestamp)
+- **Semantic consolidation**: promotes correct low-error episodes to semantic memory with strength/access_count tracking
+- **Ebbinghaus decay**: `retention = strength * exp(-0.001 * dt / access_factor)` — unused memories fade
+- **Memory → weights bridge**: co-stored semantic memories strengthen ConceptGraph edges between their concepts
+
+### Cognitive Processing Pipeline
+
+**In `learn()`:**
+1. Existing: edge learning, competitive inhibition, settle loop, free energy, binding updates
+2. NEW: dissonance EMA update
+3. NEW: identity update (success/failure, momentum, recovery bias, streak bonus, damping)
+4. NEW: emotion update (VAD differential equations)
+5. NEW: meaning computation
+6. NEW: sleep pressure accumulation
+7. NEW: episodic memory storage
+8. NEW: emotion-tag active concepts
+9. NEW: lightweight Governor regulation (mode detection, boundary pressure, dampening)
+
+**In `forward()`:**
+- Emotion + identity modulate logit blend: `concept_logits * identity_scale * emotion_scale + ctx_logits * context_scale`
+- High arousal → exploration (boost concept path)
+- Positive valence → trust concept predictions
+- High identity → stronger concept signal
+
+**In `sleep_cycle()`:**
+1. Existing: weight normalization, structural plasticity, inhibitory edges, homeostasis, vector consolidation, path compression, regulation
+2. NEW: hippocampal replay (re-activate memories through graph, apply Hebbian learning)
+3. NEW: episodic → semantic consolidation
+4. NEW: Ebbinghaus decay on semantic memories
+5. NEW: memory → weights bridge
+6. NEW: emotion processing (arousal → baseline, valence magnitude reduced)
+7. NEW: identity consolidation
+8. NEW: meaning decay
+9. NEW: sleep pressure reset
+10. NEW: final self-regulation
+
+### Save/Load Fixes (9 bugs fixed)
+
+| Bug | Format | Fix |
+|-----|--------|-----|
+| binding_map lost on load | pickle | Now saved and restored |
+| _running_avg_states lost | pickle+zip | Now saved and restored |
+| _concept_to_tokens lost | pickle+zip | Now saved and restored (defaultdict) |
+| core_vector not saved | zip | Added `node_core/{nid}` to arrays.npz |
+| genesis_vector not saved | zip | Added `node_genesis/{nid}` to arrays.npz |
+| relation_vector not saved | zip | Added `edge_rel/{key}` to arrays.npz |
+| Temporal fields not saved | zip | Added to node JSON (fatigue, last_activated, activation_history, temporal_context) |
+| CognitiveRegulator not saved | zip | Full state serialized to metadata.json |
+| GeometryHistory not saved | zip | Snapshots serialized to metadata.json |
+
+### Dimension Fix
+
+Fixed pre-existing bug: concept vectors now properly handle `embed_dim != concept_dim` by projecting concept_predictor output (concept_dim) to embed_dim before comparison with node vectors.
 
 ---
 
