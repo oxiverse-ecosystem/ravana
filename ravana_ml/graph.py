@@ -104,7 +104,7 @@ class ConceptNode:
 class ConceptEdge:
     def __init__(self, source: int, target: int, weight: float = 0.5,
                  shortcut: bool = False, edge_type: str = "excitatory",
-                 relation_type: str = "semantic"):
+                 relation_type: str = "semantic", relation_dim: int = 8):
         self.source = source
         self.target = target
         self.weight = max(0.0, min(1.0, weight))
@@ -116,6 +116,21 @@ class ConceptEdge:
         self.shortcut = shortcut  # context→target edges are exempt from competition
         self.edge_type = edge_type  # "excitatory" or "inhibitory"
         self.relation_type = relation_type  # "semantic", "causal", "temporal", "analogical", "contextual", "inferred"
+        # Relation embedding: learned vector encoding the relational pattern
+        # Initialized from relation_type seed, updated by Hebbian learning
+        self.relation_vector = self._init_relation_vector(relation_type, relation_dim)
+
+    @staticmethod
+    def _init_relation_vector(relation_type: str, dim: int) -> np.ndarray:
+        """Initialize relation vector from type label with deterministic seeding."""
+        type_seeds = {
+            "semantic": 0, "causal": 1, "temporal": 2,
+            "analogical": 3, "contextual": 4, "inferred": 5,
+        }
+        rng = np.random.RandomState(type_seeds.get(relation_type, 0) + 42)
+        vec = rng.randn(dim).astype(np.float32) * 0.1
+        norm = np.linalg.norm(vec)
+        return vec / norm if norm > 0 else vec
 
     @property
     def effective_weight(self) -> float:
@@ -745,6 +760,18 @@ class ConceptGraph:
         edge.prediction_count += 1
         edge.stability = min(1.0, edge.stability + 0.001)
 
+        # Relation vector learning: drift relation embedding toward
+        # the product of source and target vectors (Hebbian correlation)
+        # This encodes what *kind* of relation this edge represents
+        if source.vector is not None and target.vector is not None:
+            # Hebbian signal: outer product projected into relation space
+            hebbian_signal = source.vector[:len(edge.relation_vector)] * target.vector[:len(edge.relation_vector)]
+            hebbian_signal = hebbian_signal / (np.linalg.norm(hebbian_signal) + 1e-15)
+            edge.relation_vector += effective_lr * 0.1 * (hebbian_signal - edge.relation_vector)
+            rv_norm = np.linalg.norm(edge.relation_vector)
+            if rv_norm > 0:
+                edge.relation_vector /= rv_norm
+
     def anti_hebbian_update(self, source_nid: int, target_nid: int, lr: float = 0.01):
         edge = self.get_edge(source_nid, target_nid)
         if edge is None:
@@ -1295,70 +1322,98 @@ class ConceptGraph:
         return matches[:k]
 
     def _extract_relation_pattern(self, nid: int) -> Dict[str, Any]:
-        """Extract local relation pattern around a node for analogy matching."""
+        """Extract local relation pattern around a node for analogy matching.
+
+        Uses relation vectors (learned embeddings) rather than type labels
+        for structural comparison. This enables true analogical transfer:
+        "planet orbits star" ≈ "electron orbits nucleus" because the
+        relational *shape* matches even though surface concepts differ.
+        """
         outgoing = self._outgoing.get(nid, [])
         incoming = self._incoming.get(nid, [])
         if not outgoing and not incoming:
             return {}
 
-        # Relation type distribution
-        out_types: Dict[str, int] = defaultdict(int)
-        in_types: Dict[str, int] = defaultdict(int)
         out_weights: List[float] = []
         in_weights: List[float] = []
+        out_relation_vecs: List[np.ndarray] = []
+        in_relation_vecs: List[np.ndarray] = []
         target_vectors: List[np.ndarray] = []
 
         for tgt, edge in outgoing:
-            out_types[edge.relation_type] += 1
             out_weights.append(edge.weight)
+            out_relation_vecs.append(edge.relation_vector)
             if tgt in self.nodes:
                 target_vectors.append(self.nodes[tgt].vector)
 
         for src, edge in incoming:
-            in_types[edge.relation_type] += 1
             in_weights.append(edge.weight)
+            in_relation_vecs.append(edge.relation_vector)
+
+        # Aggregate relation vectors: weighted mean of outgoing relation embeddings
+        if out_relation_vecs:
+            out_rel_agg = np.mean(out_relation_vecs, axis=0)
+        else:
+            out_rel_agg = np.zeros(8, dtype=np.float32)
+
+        if in_relation_vecs:
+            in_rel_agg = np.mean(in_relation_vecs, axis=0)
+        else:
+            in_rel_agg = np.zeros(8, dtype=np.float32)
 
         return {
             "out_degree": len(outgoing),
             "in_degree": len(incoming),
-            "out_types": dict(out_types),
-            "in_types": dict(in_types),
             "out_weight_mean": float(np.mean(out_weights)) if out_weights else 0.0,
             "in_weight_mean": float(np.mean(in_weights)) if in_weights else 0.0,
             "out_weight_std": float(np.std(out_weights)) if out_weights else 0.0,
+            "out_relation_vec": out_rel_agg,
+            "in_relation_vec": in_rel_agg,
             "target_centroid": np.mean(target_vectors, axis=0) if target_vectors else None,
         }
 
     def _pattern_similarity(self, p1: Dict[str, Any], p2: Dict[str, Any]) -> float:
-        """Compute structural similarity between two relation patterns."""
+        """Compute structural similarity between two relation patterns.
+
+        Uses relation vector similarity (learned embeddings) for the core
+        comparison, plus structural features (degree, weight distribution).
+        This enables analogical transfer across different surface concepts.
+        """
         if not p1 or not p2:
             return 0.0
 
         score = 0.0
         total = 0.0
 
-        # Degree similarity
+        # 1. Degree similarity (structural topology)
         max_deg = max(p1["out_degree"] + p1["in_degree"],
                       p2["out_degree"] + p2["in_degree"], 1)
         deg_sim = 1.0 - abs((p1["out_degree"] + p1["in_degree"]) -
                             (p2["out_degree"] + p2["in_degree"])) / max_deg
-        score += deg_sim
+        score += deg_sim * 1.0
         total += 1.0
 
-        # Relation type overlap (Jaccard)
-        types1 = set(p1["out_types"].keys()) | set(p1["in_types"].keys())
-        types2 = set(p2["out_types"].keys()) | set(p2["in_types"].keys())
-        if types1 or types2:
-            jaccard = len(types1 & types2) / len(types1 | types2)
-            score += jaccard
-            total += 1.0
+        # 2. Relation vector similarity (the key innovation)
+        # Compare outgoing relation patterns
+        out_sim = float(np.dot(p1["out_relation_vec"], p2["out_relation_vec"]) /
+                       (np.linalg.norm(p1["out_relation_vec"]) *
+                        np.linalg.norm(p2["out_relation_vec"]) + 1e-15))
+        score += max(0.0, out_sim) * 2.0  # double weight — this is the core signal
+        total += 2.0
 
-        # Weight distribution similarity
+        # Compare incoming relation patterns
+        in_sim = float(np.dot(p1["in_relation_vec"], p2["in_relation_vec"]) /
+                      (np.linalg.norm(p1["in_relation_vec"]) *
+                       np.linalg.norm(p2["in_relation_vec"]) + 1e-15))
+        score += max(0.0, in_sim) * 1.0
+        total += 1.0
+
+        # 3. Weight distribution similarity
         w1 = p1["out_weight_mean"]
         w2 = p2["out_weight_mean"]
         w_sim = 1.0 - abs(w1 - w2) / max(w1 + w2, 1e-15)
-        score += w_sim
-        total += 1.0
+        score += w_sim * 0.5
+        total += 0.5
 
         return score / total if total > 0 else 0.0
 
