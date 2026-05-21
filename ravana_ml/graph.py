@@ -376,6 +376,108 @@ class ConceptBindingMap:
         return key in self._index
 
 
+class GeometryHistory:
+    """Circular buffer of geometry metric snapshots with trend detection.
+
+    Records semantic geometry metrics over time to detect phase transitions,
+    drift, and emergent dynamics. Each snapshot is a dict of metric values
+    tagged with a step counter and optional event label.
+    """
+
+    def __init__(self, max_snapshots: int = 200):
+        self.max_snapshots = max_snapshots
+        self.snapshots: List[Dict[str, Any]] = []
+        self.step: int = 0
+
+    def record(self, metrics: Dict[str, Any], event: str = ""):
+        """Record a geometry snapshot."""
+        snapshot = {
+            "step": self.step,
+            "event": event,
+            "timestamp": time.time(),
+            **{k: v for k, v in metrics.items()
+               if isinstance(v, (int, float)) and not isinstance(v, bool)},
+        }
+        self.snapshots.append(snapshot)
+        if len(self.snapshots) > self.max_snapshots:
+            self.snapshots = self.snapshots[-self.max_snapshots:]
+        self.step += 1
+
+    def get_series(self, metric_name: str) -> List[float]:
+        """Extract a time series for a specific metric."""
+        return [s.get(metric_name, 0.0) for s in self.snapshots if metric_name in s]
+
+    def detect_trend(self, metric_name: str, window: int = 20) -> Dict[str, float]:
+        """Detect trend in a metric over the last `window` snapshots.
+
+        Returns:
+        - mean: mean value over window
+        - slope: linear trend (positive=rising, negative=falling)
+        - volatility: std of first differences
+        - anomaly: current value's z-score relative to window
+        """
+        series = self.get_series(metric_name)
+        if len(series) < 3:
+            return {"mean": 0.0, "slope": 0.0, "volatility": 0.0, "anomaly": 0.0}
+
+        arr = np.array(series[-window:])
+        mean = float(np.mean(arr))
+        std = float(np.std(arr))
+
+        # Linear trend
+        x = np.arange(len(arr))
+        slope = float(np.polyfit(x, arr, 1)[0]) if len(arr) > 1 else 0.0
+
+        # Volatility
+        diffs = np.diff(arr)
+        volatility = float(np.std(diffs)) if len(diffs) > 0 else 0.0
+
+        # Anomaly: z-score of last value
+        anomaly = float((arr[-1] - mean) / (std + 1e-15)) if std > 0 else 0.0
+
+        return {"mean": mean, "slope": slope, "volatility": volatility, "anomaly": anomaly}
+
+    def detect_phase_transition(self, window: int = 30) -> List[str]:
+        """Detect potential phase transitions in recent history.
+
+        Returns list of warnings about notable changes.
+        """
+        warnings = []
+        key_metrics = ["graph_entropy", "relation_separation", "inference_specificity_mean",
+                       "contradiction_density", "neighbor_preservation", "attractor_stability"]
+
+        for metric in key_metrics:
+            trend = self.detect_trend(metric, window)
+            if abs(trend["anomaly"]) > 2.0:
+                direction = "spiking" if trend["anomaly"] > 0 else "dropping"
+                warnings.append(f"{metric} {direction} (z={trend['anomaly']:.1f})")
+            if abs(trend["slope"]) > 0.01 and trend["volatility"] < abs(trend["slope"]):
+                direction = "rising" if trend["slope"] > 0 else "falling"
+                warnings.append(f"{metric} steadily {direction} (slope={trend['slope']:+.4f})")
+
+        return warnings
+
+    def summary(self) -> Dict[str, Any]:
+        """Summary of all tracked metrics over history."""
+        if not self.snapshots:
+            return {"snapshots": 0}
+        result = {"snapshots": len(self.snapshots), "steps": self.step}
+        key_metrics = ["graph_entropy", "relation_separation", "inference_specificity_mean",
+                       "contradiction_density", "neighbor_preservation", "attractor_stability",
+                       "clustering_coefficient", "branching_factor"]
+        for metric in key_metrics:
+            series = self.get_series(metric)
+            if series:
+                result[metric] = {
+                    "mean": float(np.mean(series)),
+                    "std": float(np.std(series)),
+                    "min": float(np.min(series)),
+                    "max": float(np.max(series)),
+                    "last": series[-1],
+                }
+        return result
+
+
 class ConceptGraph:
     def __init__(self, dim: int = 64, max_nodes: int = 10000):
         self.dim = dim
@@ -410,6 +512,11 @@ class ConceptGraph:
         self._relation_dim: int = 16
         # Inference sparsity tracking
         self._inference_log: List[Dict[str, float]] = []  # last 50 inference runs
+        # Semantic curvature: neighbor snapshots for topology deformation tracking
+        self._neighbor_snapshot: Dict[int, Set[int]] = {}  # node_id -> set of k-nearest neighbor IDs
+        self._curvature_history: List[float] = []  # preservation scores over time
+        # Long-horizon geometry tracking
+        self._geometry_history = GeometryHistory(max_snapshots=200)
 
     # ── node management ──
 
@@ -1858,7 +1965,14 @@ class ConceptGraph:
             type_counts[edge.relation_type] = type_counts.get(edge.relation_type, 0) + 1
         metrics["relation_type_distribution"] = type_counts
 
-        # 12. Inference sparsity (from logged inference runs)
+        # 12. Semantic curvature (neighbor preservation)
+        preservation = self.compute_curvature()
+        curvature_trend = self.curvature_trend()
+        metrics["neighbor_preservation"] = preservation
+        metrics["curvature_trend"] = curvature_trend["trend"]
+        metrics["curvature_volatility"] = curvature_trend["volatility"]
+
+        # 13. Inference sparsity (from logged inference runs)
         if self._inference_log:
             specs = [l["specificity"] for l in self._inference_log]
             n_results = [l["n_results"] for l in self._inference_log]
@@ -1874,15 +1988,356 @@ class ConceptGraph:
 
         return metrics
 
+    # ── semantic curvature ──
+
+    def compute_curvature(self, k: int = 10) -> float:
+        """Compute semantic curvature: how much have concept neighborhoods changed?
+
+        Compares current k-nearest neighbors (by vector similarity) to the
+        last snapshot. Returns mean Jaccard similarity across all nodes.
+        1.0 = perfectly stable, 0.0 = complete neighborhood churn.
+
+        High curvature = semantic instability / topology deformation.
+        Low curvature = stable semantic geometry.
+        """
+        if not self.nodes:
+            return 1.0
+
+        # Build current neighbor sets
+        node_ids = list(self.nodes.keys())
+        vectors = np.array([self.nodes[nid].vector for nid in node_ids])
+        norms = np.linalg.norm(vectors, axis=1, keepdims=True) + 1e-15
+        norms = vectors / norms
+        sim_matrix = norms @ norms.T
+        np.fill_diagonal(sim_matrix, -1.0)  # exclude self
+
+        current_neighbors: Dict[int, Set[int]] = {}
+        for i, nid in enumerate(node_ids):
+            # Top-k most similar neighbors
+            top_k_idx = np.argsort(sim_matrix[i])[-k:]
+            current_neighbors[nid] = {node_ids[j] for j in top_k_idx}
+
+        # Compare to previous snapshot
+        if self._neighbor_snapshot:
+            jaccard_scores = []
+            for nid, current_set in current_neighbors.items():
+                if nid in self._neighbor_snapshot:
+                    prev_set = self._neighbor_snapshot[nid]
+                    intersection = len(current_set & prev_set)
+                    union = len(current_set | prev_set)
+                    jaccard = intersection / union if union > 0 else 1.0
+                    jaccard_scores.append(jaccard)
+            preservation = float(np.mean(jaccard_scores)) if jaccard_scores else 1.0
+        else:
+            preservation = 1.0  # no previous snapshot = no drift
+
+        # Update snapshot
+        self._neighbor_snapshot = current_neighbors
+        self._curvature_history.append(preservation)
+        if len(self._curvature_history) > 100:
+            self._curvature_history = self._curvature_history[-100:]
+
+        return preservation
+
+    def curvature_trend(self) -> Dict[str, float]:
+        """Analyze curvature history for trends.
+
+        Returns:
+        - mean_preservation: average neighbor preservation over history
+        - trend: slope of preservation over time (negative = destabilizing)
+        - volatility: std of preservation changes
+        """
+        if len(self._curvature_history) < 2:
+            return {"mean_preservation": 1.0, "trend": 0.0, "volatility": 0.0}
+
+        arr = np.array(self._curvature_history)
+        # Linear trend
+        x = np.arange(len(arr))
+        slope = float(np.polyfit(x, arr, 1)[0])
+        # Volatility: std of first differences
+        diffs = np.diff(arr)
+        volatility = float(np.std(diffs))
+
+        return {
+            "mean_preservation": float(np.mean(arr)),
+            "trend": slope,  # negative = neighborhoods destabilizing
+            "volatility": volatility,
+        }
+
+    def project_relation_manifold(self, n_components: int = 2) -> Dict[str, Any]:
+        """Project relation vectors into low-dimensional space via PCA.
+
+        Returns:
+        - coordinates: dict mapping relation_type -> list of (x, y, ...) tuples
+        - centroid_drift: dict mapping relation_type -> centroid vector
+        - explained_variance: PCA explained variance ratio
+        - separation_score: mean inter-centroid distance / mean intra-centroid distance
+        """
+        if not self.edges:
+            return {"coordinates": {}, "centroid_drift": {}, "explained_variance": [], "separation_score": 0.0}
+
+        # Group edges by relation type
+        groups: Dict[str, List[np.ndarray]] = {}
+        for edge in self.edges.values():
+            rt = edge.relation_type
+            if rt not in groups:
+                groups[rt] = []
+            groups[rt].append(edge.relation_vector.copy())
+
+        # Collect all vectors for PCA
+        all_vecs = []
+        labels = []
+        for rt, vecs in groups.items():
+            for v in vecs:
+                all_vecs.append(v)
+                labels.append(rt)
+
+        if len(all_vecs) < 2:
+            return {"coordinates": {}, "centroid_drift": {}, "explained_variance": [], "separation_score": 0.0}
+
+        mat = np.array(all_vecs)
+        mean = np.mean(mat, axis=0)
+        centered = mat - mean
+
+        # SVD-based PCA
+        try:
+            U, S, Vt = np.linalg.svd(centered, full_matrices=False)
+            components = Vt[:n_components]
+            projected = centered @ components.T
+            total_var = np.sum(S ** 2)
+            explained = (S[:n_components] ** 2) / total_var if total_var > 0 else np.zeros(n_components)
+        except np.linalg.LinAlgError:
+            return {"coordinates": {}, "centroid_drift": {}, "explained_variance": [], "separation_score": 0.0}
+
+        # Group coordinates by type
+        coordinates: Dict[str, List[Tuple[float, ...]]] = {}
+        idx = 0
+        for rt, vecs in groups.items():
+            n = len(vecs)
+            coords = [tuple(projected[idx + i]) for i in range(n)]
+            coordinates[rt] = coords
+            idx += n
+
+        # Compute centroids
+        centroid_drift = {}
+        for rt, coords in coordinates.items():
+            centroid_drift[rt] = tuple(np.mean(coords, axis=0))
+
+        # Separation score: inter-centroid / intra-centroid distance
+        centroids = list(centroid_drift.values())
+        if len(centroids) >= 2:
+            inter_dists = []
+            for i in range(len(centroids)):
+                for j in range(i + 1, len(centroids)):
+                    inter_dists.append(np.linalg.norm(np.array(centroids[i]) - np.array(centroids[j])))
+            mean_inter = np.mean(inter_dists)
+
+            intra_dists = []
+            for rt, coords in coordinates.items():
+                cent = np.array(centroid_drift[rt])
+                for c in coords:
+                    intra_dists.append(np.linalg.norm(np.array(c) - cent))
+            mean_intra = np.mean(intra_dists) if intra_dists else 1e-15
+
+            separation_score = float(mean_inter / (mean_intra + 1e-15))
+        else:
+            separation_score = 0.0
+
+        return {
+            "coordinates": coordinates,
+            "centroid_drift": centroid_drift,
+            "explained_variance": explained.tolist(),
+            "separation_score": separation_score,
+        }
+
+    def record_geometry_snapshot(self, event: str = ""):
+        """Record current geometry metrics to history for long-horizon tracking.
+
+        Call this after learning steps, sleep cycles, or contradiction events
+        to build a time series of semantic geometry evolution.
+        """
+        metrics = self.graph_diagnostics()
+        self._geometry_history.record(metrics, event)
+        return metrics
+
+    def geometry_history_summary(self) -> Dict[str, Any]:
+        """Get summary of geometry evolution over time."""
+        return self._geometry_history.summary()
+
+    def geometry_trends(self, window: int = 20) -> Dict[str, Dict[str, float]]:
+        """Get trends for all key metrics over recent history."""
+        key_metrics = ["graph_entropy", "relation_separation", "inference_specificity_mean",
+                       "contradiction_density", "neighbor_preservation", "attractor_stability"]
+        return {m: self._geometry_history.detect_trend(m, window) for m in key_metrics}
+
+    def detect_phase_transitions(self, window: int = 30) -> List[str]:
+        """Detect potential phase transitions in recent geometry history."""
+        return self._geometry_history.detect_phase_transition(window)
+
+    # ── cognitive phase state & adaptive regulation ──
+
+    # Phase definitions: (name, entropy_range, specificity_range, separation_range)
+    # Ranges are (low, high) thresholds
+    PHASE_THRESHOLDS = {
+        "focused":    {"entropy": (0.0, 0.4), "specificity": (0.7, 1.0), "separation": (0.0, 1.0)},
+        "exploratory": {"entropy": (0.3, 0.7), "specificity": (0.3, 0.7), "separation": (0.0, 1.0)},
+        "diffuse":    {"entropy": (0.6, 1.0), "specificity": (0.0, 0.4), "separation": (0.0, 1.0)},
+        "rigid":      {"entropy": (0.0, 0.3), "specificity": (0.8, 1.0), "separation": (0.7, 1.0)},
+        "crisis":     {"contradiction_density": 0.15},  # threshold for crisis mode
+    }
+
+    def classify_phase(self, metrics: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Classify the current cognitive phase based on geometry metrics.
+
+        Returns a dict with:
+        - phase: "focused", "exploratory", "diffuse", "rigid", "crisis"
+        - confidence: how clearly the system matches the phase (0-1)
+        - recommendations: dict of parameter adjustments
+        - metrics_used: the metric values that determined the phase
+        """
+        if metrics is None:
+            metrics = self.graph_diagnostics()
+        if metrics.get("empty"):
+            return {"phase": "empty", "confidence": 1.0, "recommendations": {}, "metrics_used": {}}
+
+        entropy = metrics.get("graph_entropy", 0.5)
+        specificity = metrics.get("inference_specificity_mean", 0.5)
+        separation = metrics.get("relation_separation", 0.0)
+        contradiction = metrics.get("contradiction_density", 0.0)
+
+        # Crisis takes priority — contradiction overload
+        if contradiction > self.PHASE_THRESHOLDS["crisis"]["contradiction_density"]:
+            return {
+                "phase": "crisis",
+                "confidence": min(1.0, contradiction / 0.3),
+                "recommendations": {
+                    "inhibition_boost": 0.3,       # strengthen inhibitory edges
+                    "plasticity_boost": 0.0,       # don't explore during crisis
+                    "sleep_urgency": 0.8,          # sleep to consolidate contradictions
+                    "contradiction_focus": True,   # prioritize contradiction resolution
+                },
+                "metrics_used": {"entropy": entropy, "specificity": specificity,
+                                 "separation": separation, "contradiction_density": contradiction},
+            }
+
+        # Score each phase by how well metrics fit
+        scores = {}
+
+        # Focused: low entropy, high specificity
+        if entropy < 0.4 and specificity > 0.7:
+            scores["focused"] = (1.0 - entropy) * specificity
+
+        # Exploratory: medium entropy, medium specificity
+        if 0.3 < entropy < 0.7 and 0.3 < specificity < 0.7:
+            # Peak at entropy=0.5, specificity=0.5
+            ent_score = 1.0 - abs(entropy - 0.5) * 2
+            spec_score = 1.0 - abs(specificity - 0.5) * 2
+            scores["exploratory"] = ent_score * spec_score
+
+        # Diffuse: high entropy, low specificity
+        if entropy > 0.6 and specificity < 0.4:
+            scores["diffuse"] = entropy * (1.0 - specificity)
+
+        # Rigid: low entropy, very high specificity, high separation
+        if entropy < 0.3 and specificity > 0.8 and separation > 0.7:
+            scores["rigid"] = (1.0 - entropy) * specificity * separation
+
+        if not scores:
+            # Default to exploratory if no clear match
+            return {
+                "phase": "exploratory",
+                "confidence": 0.3,
+                "recommendations": {
+                    "inhibition_boost": 0.0,
+                    "plasticity_boost": 0.0,
+                    "sleep_urgency": 0.2,
+                    "contradiction_focus": False,
+                },
+                "metrics_used": {"entropy": entropy, "specificity": specificity,
+                                 "separation": separation, "contradiction_density": contradiction},
+            }
+
+        phase = max(scores, key=scores.get)
+        confidence = min(1.0, scores[phase])
+
+        # Generate recommendations based on phase
+        recommendations = {
+            "inhibition_boost": 0.0,
+            "plasticity_boost": 0.0,
+            "sleep_urgency": 0.0,
+            "contradiction_focus": False,
+        }
+
+        if phase == "diffuse":
+            # Semantic fog — increase inhibition to sharpen
+            recommendations["inhibition_boost"] = min(0.5, (entropy - 0.6) * 2)
+            recommendations["sleep_urgency"] = 0.5
+        elif phase == "rigid":
+            # Over-separated — increase plasticity to explore
+            recommendations["plasticity_boost"] = min(0.5, (separation - 0.7) * 2)
+            recommendations["sleep_urgency"] = 0.3
+        elif phase == "exploratory":
+            # Balanced — mild sleep to consolidate discoveries
+            recommendations["sleep_urgency"] = 0.2
+        elif phase == "focused":
+            # Good state — light maintenance
+            recommendations["sleep_urgency"] = 0.1
+
+        return {
+            "phase": phase,
+            "confidence": confidence,
+            "recommendations": recommendations,
+            "metrics_used": {"entropy": entropy, "specificity": specificity,
+                             "separation": separation, "contradiction_density": contradiction},
+        }
+
+    def adaptive_regulation(self) -> Dict[str, Any]:
+        """Apply adaptive regulation based on current cognitive phase.
+
+        Modifies graph parameters to steer toward healthy operating regime.
+        Returns the phase classification and adjustments made.
+        """
+        phase_info = self.classify_phase()
+        recs = phase_info["recommendations"]
+        adjustments = {}
+
+        # Apply inhibition boost: strengthen all inhibitory edges
+        if recs.get("inhibition_boost", 0) > 0:
+            boost = recs["inhibition_boost"]
+            for edge in self.edges.values():
+                if edge.edge_type == "inhibitory":
+                    edge.weight = min(1.0, edge.weight + boost * 0.1)
+                    edge.confidence = min(1.0, edge.confidence + boost * 0.05)
+            adjustments["inhibition_boosted"] = boost
+
+        # Apply plasticity boost: increase edge learning rates temporarily
+        # (tracked via a flag that hebbian_update can read)
+        if recs.get("plasticity_boost", 0) > 0:
+            adjustments["plasticity_boosted"] = recs["plasticity_boost"]
+
+        # Sleep urgency: return for the caller (RLM) to act on
+        adjustments["sleep_urgency"] = recs.get("sleep_urgency", 0.0)
+        adjustments["contradiction_focus"] = recs.get("contradiction_focus", False)
+
+        phase_info["adjustments"] = adjustments
+        return phase_info
+
     def geometry_report(self) -> str:
-        """Human-readable semantic geometry report."""
+        """Human-readable semantic geometry report with phase classification."""
         m = self.graph_diagnostics()
         if m.get("empty"):
             return "Graph is empty."
 
+        phase_info = self.classify_phase(m)
+
         lines = [
             "═══ Semantic Geometry Report ═══",
             f"Nodes: {len(self.nodes)}  Edges: {len(self.edges)}",
+            "",
+            "── Cognitive Phase ──",
+            f"  Phase:         {phase_info['phase'].upper()}  (confidence={phase_info['confidence']:.2f})",
+            f"  Entropy:       {m['graph_entropy']:.3f}  Specificity: {m.get('inference_specificity_mean', 0):.3f}",
+            f"  Separation:    {m['relation_separation']:.3f}  Contradiction: {m['contradiction_density']:.3f}",
             "",
             "── Activation Field ──",
             f"  Active nodes:      {m['active_count']}",
@@ -1907,6 +2362,8 @@ class ConceptGraph:
             "── Identity Stability ──",
             f"  Attractor stability:   {m['attractor_stability']:.3f}  (core vs genesis)",
             f"  Core-active alignment: {m['core_active_alignment']:.3f}  (fast vs slow vector)",
+            f"  Neighbor preservation: {m['neighbor_preservation']:.3f}  (1.0=stable, 0.0=churn)",
+            f"  Curvature trend:       {m['curvature_trend']:+.4f}  (negative=destabilizing)",
             "",
             "── Path Structure ──",
             f"  Shortcut ratio:    {m['shortcut_ratio']:.3f}  ({m['shortcut_count']} shortcuts)",
