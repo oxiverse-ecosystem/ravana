@@ -102,7 +102,8 @@ class ConceptNode:
 
 class ConceptEdge:
     def __init__(self, source: int, target: int, weight: float = 0.5,
-                 shortcut: bool = False, edge_type: str = "excitatory"):
+                 shortcut: bool = False, edge_type: str = "excitatory",
+                 relation_type: str = "semantic"):
         self.source = source
         self.target = target
         self.weight = max(0.0, min(1.0, weight))
@@ -113,6 +114,7 @@ class ConceptEdge:
         self.prediction_count = 0
         self.shortcut = shortcut  # context→target edges are exempt from competition
         self.edge_type = edge_type  # "excitatory" or "inhibitory"
+        self.relation_type = relation_type  # "semantic", "causal", "temporal", "analogical", "contextual", "inferred"
 
     @property
     def effective_weight(self) -> float:
@@ -127,7 +129,8 @@ class ConceptEdge:
 
     def __repr__(self):
         inh = " [I]" if self.edge_type == "inhibitory" else ""
-        return f"<Edge {self.source}->{self.target} w={self.weight:.3f} conf={self.confidence:.3f} {'[S]' if self.shortcut else ''}{inh}>"
+        rt = f" {self.relation_type}" if self.relation_type != "semantic" else ""
+        return f"<Edge {self.source}->{self.target} w={self.weight:.3f} conf={self.confidence:.3f}{'[S]' if self.shortcut else ''}{inh}{rt}>"
 
 
 class ConceptBinding:
@@ -384,6 +387,10 @@ class ConceptGraph:
         self._node_id_order: List[int] = []
         self._vectors_dirty: bool = True
 
+        # ── Relational inference tracking ──
+        # Successful inference paths: (source, target) -> usage_count
+        self._successful_paths: Dict[Tuple[int, int], int] = defaultdict(int)
+
     # ── node management ──
 
     def add_node(self, vector: Optional[np.ndarray] = None, label: str = "") -> ConceptNode:
@@ -461,7 +468,8 @@ class ConceptGraph:
     # ── edge management ──
 
     def add_edge(self, source: int, target: int, weight: float = 0.5,
-                 shortcut: bool = False, edge_type: str = "excitatory") -> ConceptEdge:
+                 shortcut: bool = False, edge_type: str = "excitatory",
+                 relation_type: str = "semantic") -> ConceptEdge:
         key = (source, target)
         if key in self.edges:
             edge = self.edges[key]
@@ -470,8 +478,11 @@ class ConceptGraph:
                 edge.shortcut = True
             if edge_type == "inhibitory":
                 edge.edge_type = "inhibitory"
+            if relation_type != "semantic":
+                edge.relation_type = relation_type
             return edge
-        edge = ConceptEdge(source, target, weight, shortcut=shortcut, edge_type=edge_type)
+        edge = ConceptEdge(source, target, weight, shortcut=shortcut,
+                          edge_type=edge_type, relation_type=relation_type)
         self.edges[key] = edge
         # Maintain adjacency indices
         self._outgoing[source].append((target, edge))
@@ -682,7 +693,8 @@ class ConceptGraph:
         self._vectors_dirty = True
 
     def get_or_create_edge(self, source: int, target: int, weight: float = 0.3,
-                           shortcut: bool = False, edge_type: str = "excitatory") -> ConceptEdge:
+                           shortcut: bool = False, edge_type: str = "excitatory",
+                           relation_type: str = "semantic") -> ConceptEdge:
         key = (source, target)
         if key in self.edges:
             edge = self.edges[key]
@@ -690,8 +702,11 @@ class ConceptGraph:
                 edge.shortcut = True
             if edge_type == "inhibitory":
                 edge.edge_type = "inhibitory"
+            if relation_type != "semantic":
+                edge.relation_type = relation_type
             return edge
-        return self.add_edge(source, target, weight, shortcut=shortcut, edge_type=edge_type)
+        return self.add_edge(source, target, weight, shortcut=shortcut,
+                           edge_type=edge_type, relation_type=relation_type)
 
     # ── plasticity ──
 
@@ -1076,6 +1091,221 @@ class ConceptGraph:
         if parent is None:
             return []
         return [c for c in parent.children if c != nid]
+
+    # ── relational inference engine ──
+
+    def record_path(self, source_id: int, target_id: int):
+        """Record a successful inference path for later compression."""
+        self._successful_paths[(source_id, target_id)] += 1
+
+    def get_compressible_paths(self, min_usage: int = 2) -> List[Tuple[int, int, float]]:
+        """Get paths that have been used enough times to compress.
+
+        Returns list of (source, target, score) for compression.
+        """
+        results = []
+        for (src, tgt), count in self._successful_paths.items():
+            if count >= min_usage:
+                # Score based on usage frequency, capped at 1.0
+                score = min(1.0, count * 0.15)
+                results.append((src, tgt, score))
+        return results
+
+    def infer_chain(self, start_id: int, max_hops: int = 3,
+                    confidence_threshold: float = 0.1,
+                    min_weight: float = 0.2,
+                    k: int = 10) -> List[Tuple[int, float, List[int]]]:
+        """Multi-hop inference: propagate through chains with uncertainty accumulation.
+
+        Returns ranked list of (target_id, chain_score, path) tuples.
+        Score decays at each hop by edge weight * confidence.
+        Contradiction hotspots penalize chains passing through them.
+        """
+        if start_id not in self.nodes:
+            return []
+
+        # BFS with score tracking
+        # Each entry: (node_id, cumulative_score, cumulative_confidence, path)
+        frontier: List[Tuple[int, float, float, List[int]]] = [
+            (start_id, 1.0, 1.0, [start_id])
+        ]
+        visited: Dict[int, float] = {start_id: 1.0}
+        results: List[Tuple[int, float, List[int]]] = []
+
+        for hop in range(max_hops):
+            next_frontier: List[Tuple[int, float, float, List[int]]] = []
+            for nid, score, conf, path in frontier:
+                for target_id, edge in self._outgoing.get(nid, []):
+                    if target_id in path:
+                        continue  # no cycles
+                    if edge.edge_type == "inhibitory":
+                        continue  # skip inhibitory edges
+                    if edge.weight < min_weight:
+                        continue  # skip weak edges
+
+                    # Chain scoring
+                    hop_score = score * edge.weight * edge.confidence
+                    hop_conf = conf * edge.confidence
+
+                    # Contradiction penalty
+                    if target_id in self.contradiction_hotspots:
+                        hop_score *= 0.5
+                    if nid in self.contradiction_hotspots:
+                        hop_score *= 0.7
+
+                    # Semantic alignment bonus
+                    if self.nodes[target_id].vector is not None and self.nodes[start_id].vector is not None:
+                        align = float(np.dot(self.nodes[target_id].vector, self.nodes[start_id].vector) /
+                                     (np.linalg.norm(self.nodes[target_id].vector) *
+                                      np.linalg.norm(self.nodes[start_id].vector) + 1e-15))
+                        hop_score *= (1.0 + 0.2 * max(0.0, align))
+
+                    if hop_conf < confidence_threshold:
+                        continue
+
+                    new_path = path + [target_id]
+
+                    # Record intermediate results (hops > 0)
+                    if hop > 0 and target_id != start_id:
+                        results.append((target_id, hop_score, new_path))
+
+                    # Continue propagation
+                    if target_id not in visited or visited[target_id] < hop_score:
+                        visited[target_id] = hop_score
+                        next_frontier.append((target_id, hop_score, hop_conf, new_path))
+
+            frontier = next_frontier
+
+        # Deduplicate: keep best score per target
+        best: Dict[int, Tuple[float, List[int]]] = {}
+        for target_id, score, path in results:
+            if target_id not in best or score > best[target_id][0]:
+                best[target_id] = (score, path)
+
+        ranked = sorted(best.items(), key=lambda x: x[1][0], reverse=True)
+        return [(tid, sc, p) for tid, (sc, p) in ranked[:k]]
+
+    def compress_paths(self, successful_chains: List[Tuple[int, int, float]],
+                       min_chain_score: float = 0.2):
+        """Compress successful inference chains into shortcut edges.
+
+        successful_chains: list of (source_id, target_id, chain_score)
+        Creates shortcut edge: source → target with weight = chain_score.
+        """
+        compressed = 0
+        for source_id, target_id, chain_score in successful_chains:
+            if chain_score < min_chain_score:
+                continue
+            if source_id == target_id:
+                continue
+            existing = self.get_edge(source_id, target_id)
+            if existing and existing.shortcut:
+                # Strengthen existing shortcut
+                existing.weight = min(1.0, existing.weight + chain_score * 0.1)
+                existing.confidence = min(1.0, existing.confidence + 0.05)
+                compressed += 1
+            elif existing is None:
+                # Create new shortcut
+                self.add_edge(source_id, target_id, weight=chain_score * 0.5,
+                             shortcut=True, relation_type="inferred")
+                compressed += 1
+        return compressed
+
+    def find_analogy(self, source_id: int, target_domain_ids: List[int],
+                     k: int = 3) -> List[Tuple[int, float]]:
+        """Find analogical matches by structural pattern similarity.
+
+        Extracts the local relation pattern around source_id (edge types,
+        weight distribution, target similarity) and compares against each
+        candidate in target_domain_ids. Returns best structural matches.
+        """
+        if source_id not in self.nodes:
+            return []
+
+        source_pattern = self._extract_relation_pattern(source_id)
+        if not source_pattern:
+            return []
+
+        matches: List[Tuple[int, float]] = []
+        for tid in target_domain_ids:
+            if tid == source_id:
+                continue
+            target_pattern = self._extract_relation_pattern(tid)
+            if not target_pattern:
+                continue
+            similarity = self._pattern_similarity(source_pattern, target_pattern)
+            matches.append((tid, similarity))
+
+        matches.sort(key=lambda x: x[1], reverse=True)
+        return matches[:k]
+
+    def _extract_relation_pattern(self, nid: int) -> Dict[str, Any]:
+        """Extract local relation pattern around a node for analogy matching."""
+        outgoing = self._outgoing.get(nid, [])
+        incoming = self._incoming.get(nid, [])
+        if not outgoing and not incoming:
+            return {}
+
+        # Relation type distribution
+        out_types: Dict[str, int] = defaultdict(int)
+        in_types: Dict[str, int] = defaultdict(int)
+        out_weights: List[float] = []
+        in_weights: List[float] = []
+        target_vectors: List[np.ndarray] = []
+
+        for tgt, edge in outgoing:
+            out_types[edge.relation_type] += 1
+            out_weights.append(edge.weight)
+            if tgt in self.nodes:
+                target_vectors.append(self.nodes[tgt].vector)
+
+        for src, edge in incoming:
+            in_types[edge.relation_type] += 1
+            in_weights.append(edge.weight)
+
+        return {
+            "out_degree": len(outgoing),
+            "in_degree": len(incoming),
+            "out_types": dict(out_types),
+            "in_types": dict(in_types),
+            "out_weight_mean": float(np.mean(out_weights)) if out_weights else 0.0,
+            "in_weight_mean": float(np.mean(in_weights)) if in_weights else 0.0,
+            "out_weight_std": float(np.std(out_weights)) if out_weights else 0.0,
+            "target_centroid": np.mean(target_vectors, axis=0) if target_vectors else None,
+        }
+
+    def _pattern_similarity(self, p1: Dict[str, Any], p2: Dict[str, Any]) -> float:
+        """Compute structural similarity between two relation patterns."""
+        if not p1 or not p2:
+            return 0.0
+
+        score = 0.0
+        total = 0.0
+
+        # Degree similarity
+        max_deg = max(p1["out_degree"] + p1["in_degree"],
+                      p2["out_degree"] + p2["in_degree"], 1)
+        deg_sim = 1.0 - abs((p1["out_degree"] + p1["in_degree"]) -
+                            (p2["out_degree"] + p2["in_degree"])) / max_deg
+        score += deg_sim
+        total += 1.0
+
+        # Relation type overlap (Jaccard)
+        types1 = set(p1["out_types"].keys()) | set(p1["in_types"].keys())
+        types2 = set(p2["out_types"].keys()) | set(p2["in_types"].keys())
+        if types1 or types2:
+            jaccard = len(types1 & types2) / len(types1 | types2)
+            score += jaccard
+            total += 1.0
+
+        # Weight distribution similarity
+        w1 = p1["out_weight_mean"]
+        w2 = p2["out_weight_mean"]
+        w_sim = 1.0 - abs(w1 - w2) / max(w1 + w2, 1e-15)
+        score += w_sim
+        total += 1.0
+
+        return score / total if total > 0 else 0.0
 
     # ── hierarchical abstraction ──
 
