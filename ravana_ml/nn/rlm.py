@@ -453,6 +453,10 @@ class RLM(Module):
         if self._step_counter % self.sleep_interval == 0:
             self.sleep_cycle()
 
+        # Record geometry snapshot periodically for long-horizon tracking
+        if self._step_counter % 10 == 0:
+            self.graph.record_geometry_snapshot(event="learn")
+
         return conceptual_error
 
     def _update_token_concept_map(self):
@@ -673,6 +677,9 @@ class RLM(Module):
                 self.graph._vectors_dirty = True
 
         self.sleep_cycles_completed += 1
+
+        # Record geometry snapshot after sleep — captures post-consolidation state
+        self.graph.record_geometry_snapshot(event="sleep")
 
     def __repr__(self):
         return (f"RLM(vocab={self.vocab_size}, embed={self.embed_dim}, "
