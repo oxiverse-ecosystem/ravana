@@ -156,6 +156,15 @@ def run_resilience_experiment(seed=42, verbose=True):
     phase_changes = sum(1 for i in range(1, len(phases_observed))
                         if phases_observed[i] != phases_observed[i - 1])
 
+    # Recovery elasticity
+    entropy_history = model.graph._geometry_history
+    elasticity = entropy_history.compute_recovery_elasticity(
+        "graph_entropy",
+        baseline_value=baseline["graph_entropy"],
+        perturbation_value=degraded["graph_entropy"],
+        recovery_start=0
+    )
+
     if verbose:
         print(f"  Baseline:  entropy={baseline['graph_entropy']:.3f}  specificity={baseline.get('inference_specificity_mean', 0):.3f}")
         print(f"  Degraded:  entropy={degraded['graph_entropy']:.3f}  specificity={degraded.get('inference_specificity_mean', 0):.3f}")
@@ -167,6 +176,10 @@ def run_resilience_experiment(seed=42, verbose=True):
         print(f"  Entropy trend:   {entropy_trend:+.4f}  ({'recovering' if entropy_trend < 0 else 'worsening'})")
         print(f"  Specificity trend: {specificity_trend:+.4f}  ({'recovering' if specificity_trend > 0 else 'worsening'})")
         print(f"  Phase oscillations: {phase_changes}  (regulator oscillation count={recovery_trajectory[-1]['oscillation_count']})")
+        print(f"  Recovery elasticity: {elasticity['elasticity']:.4f}")
+        print(f"    Speed: {elasticity['speed']:.4f}  (tau={elasticity['tau']})")
+        print(f"    Completeness: {elasticity['completeness']:.4f}")
+        print(f"    Overshoot: {elasticity['overshoot']:.4f}")
 
     # ── Verdict ──
     success_criteria = {
@@ -174,6 +187,7 @@ def run_resilience_experiment(seed=42, verbose=True):
         "regulation_responded": regulation_responded,
         "entropy_recovering": entropy_trend < 0 or entropy_recovery > 0.5,
         "no_runaway_oscillation": phase_changes < n_recovery_cycles * 0.5,
+        "elasticity_positive": elasticity["elasticity"] > 0,
     }
 
     all_passed = all(success_criteria.values())
