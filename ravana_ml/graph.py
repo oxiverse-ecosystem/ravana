@@ -376,6 +376,156 @@ class ConceptBindingMap:
         return key in self._index
 
 
+class CognitiveRegulator:
+    """Multi-timescale regulation with damping and hysteresis.
+
+    Prevents overcorrection instability by operating at three timescales:
+    - Fast: immediate inhibition boost/relaxation (per-step)
+    - Medium: sleep scheduling urgency (per-sleep-cycle)
+    - Slow: topology reshaping decisions (every N cycles)
+
+    Each controller has:
+    - Damping: exponential smoothing to prevent overshooting
+    - Hysteresis: dead zone to prevent oscillation between phases
+    - Cooldown: minimum steps between adjustments
+    """
+
+    def __init__(self):
+        # Current state
+        self.current_phase: str = "exploratory"
+        self.phase_confidence: float = 0.0
+
+        # Fast controller state (inhibition)
+        self._fast_inhibition_boost: float = 0.0
+        self._fast_cooldown: int = 0
+        self._fast_damping: float = 0.7  # exponential smoothing factor
+
+        # Medium controller state (sleep urgency)
+        self._medium_sleep_urgency: float = 0.0
+        self._medium_cooldown: int = 0
+        self._medium_damping: float = 0.8
+
+        # Slow controller state (topology)
+        self._slow_plasticity_boost: float = 0.0
+        self._slow_cooldown: int = 0
+        self._slow_damping: float = 0.9
+
+        # Hysteresis: phase must be consistent for N steps before switching
+        self._phase_buffer: List[str] = []
+        self._phase_buffer_size: int = 3
+        self._hysteresis_dead_zone: float = 0.1  # ignore phase changes with confidence < this
+
+        # Counters
+        self._step: int = 0
+        self._adjustments_made: int = 0
+        self._oscillation_count: int = 0  # tracks rapid phase flips
+        self._last_phases: List[str] = []  # recent phase history for oscillation detection
+
+    def update(self, phase_info: Dict[str, Any]) -> Dict[str, Any]:
+        """Process a phase classification and return damped adjustments.
+
+        Args:
+            phase_info: output from ConceptGraph.classify_phase()
+
+        Returns:
+            adjustments dict with damped values for each timescale
+        """
+        self._step += 1
+        new_phase = phase_info["phase"]
+        confidence = phase_info["confidence"]
+        recs = phase_info.get("recommendations", {})
+
+        # Hysteresis: only switch phase if confident and consistent
+        self._phase_buffer.append(new_phase)
+        if len(self._phase_buffer) > self._phase_buffer_size:
+            self._phase_buffer = self._phase_buffer[-self._phase_buffer_size:]
+
+        # Check if phase is stable (all recent readings agree)
+        if len(self._phase_buffer) == self._phase_buffer_size:
+            if all(p == new_phase for p in self._phase_buffer):
+                if confidence > self._hysteresis_dead_zone:
+                    # Phase transition confirmed
+                    if new_phase != self.current_phase:
+                        self._last_phases.append(new_phase)
+                        if len(self._last_phases) > 10:
+                            self._last_phases = self._last_phases[-10:]
+                    self.current_phase = new_phase
+                    self.phase_confidence = confidence
+
+        # Oscillation detection: if phase flips rapidly, increase damping
+        if len(self._last_phases) >= 4:
+            recent = self._last_phases[-4:]
+            unique_phases = len(set(recent))
+            if unique_phases >= 3:
+                self._oscillation_count += 1
+                # Increase damping to dampen oscillations
+                self._fast_damping = min(0.95, self._fast_damping + 0.05)
+                self._medium_damping = min(0.95, self._medium_damping + 0.03)
+            else:
+                # Relax damping slowly
+                self._fast_damping = max(0.5, self._fast_damping - 0.01)
+                self._medium_damping = max(0.6, self._medium_damping - 0.005)
+
+        # ── Fast controller: inhibition boost ──
+        adjustments = {}
+        if self._fast_cooldown <= 0:
+            target = recs.get("inhibition_boost", 0.0)
+            # Damped update: approach target smoothly
+            diff = target - self._fast_inhibition_boost
+            if abs(diff) > 0.01:  # dead zone
+                self._fast_inhibition_boost += diff * (1.0 - self._fast_damping)
+                self._fast_cooldown = 2  # minimum steps between adjustments
+                self._adjustments_made += 1
+        else:
+            self._fast_cooldown -= 1
+        adjustments["inhibition_boost"] = self._fast_inhibition_boost
+
+        # ── Medium controller: sleep urgency ──
+        if self._medium_cooldown <= 0:
+            target = recs.get("sleep_urgency", 0.0)
+            diff = target - self._medium_sleep_urgency
+            if abs(diff) > 0.05:
+                self._medium_sleep_urgency += diff * (1.0 - self._medium_damping)
+                self._medium_cooldown = 5
+                self._adjustments_made += 1
+        else:
+            self._medium_cooldown -= 1
+        adjustments["sleep_urgency"] = self._medium_sleep_urgency
+
+        # ── Slow controller: plasticity boost ──
+        if self._slow_cooldown <= 0:
+            target = recs.get("plasticity_boost", 0.0)
+            diff = target - self._slow_plasticity_boost
+            if abs(diff) > 0.02:
+                self._slow_plasticity_boost += diff * (1.0 - self._slow_damping)
+                self._slow_cooldown = 10
+                self._adjustments_made += 1
+        else:
+            self._slow_cooldown -= 1
+        adjustments["plasticity_boost"] = self._slow_plasticity_boost
+
+        adjustments["contradiction_focus"] = recs.get("contradiction_focus", False)
+        adjustments["phase"] = self.current_phase
+        adjustments["phase_confidence"] = self.phase_confidence
+        adjustments["oscillation_count"] = self._oscillation_count
+
+        return adjustments
+
+    def status(self) -> Dict[str, Any]:
+        """Current regulator status for diagnostics."""
+        return {
+            "phase": self.current_phase,
+            "confidence": self.phase_confidence,
+            "inhibition_boost": self._fast_inhibition_boost,
+            "sleep_urgency": self._medium_sleep_urgency,
+            "plasticity_boost": self._slow_plasticity_boost,
+            "oscillation_count": self._oscillation_count,
+            "fast_damping": self._fast_damping,
+            "medium_damping": self._medium_damping,
+            "adjustments_made": self._adjustments_made,
+        }
+
+
 class GeometryHistory:
     """Circular buffer of geometry metric snapshots with trend detection.
 
@@ -517,6 +667,8 @@ class ConceptGraph:
         self._curvature_history: List[float] = []  # preservation scores over time
         # Long-horizon geometry tracking
         self._geometry_history = GeometryHistory(max_snapshots=200)
+        # Multi-timescale cognitive regulator
+        self._regulator = CognitiveRegulator()
 
     # ── node management ──
 
@@ -1335,6 +1487,7 @@ class ConceptGraph:
         ]
         visited: Dict[int, float] = {start_id: 1.0}
         results: List[Tuple[int, float, List[int]]] = []
+        edges_traversed = 0  # energy cost tracking
 
         for hop in range(max_hops):
             candidates: List[Tuple[int, float, float, List[int]]] = []
@@ -1345,6 +1498,7 @@ class ConceptGraph:
                 fanout = len(outgoing)
 
                 for target_id, edge in outgoing:
+                    edges_traversed += 1
                     if target_id in path:
                         continue  # no cycles
                     if edge.edge_type == "inhibitory":
@@ -1411,12 +1565,18 @@ class ConceptGraph:
             total_score = sum(scores)
             winner_score = scores[0]
             specificity = winner_score / total_score if total_score > 0 else 1.0
+            # Energy cost: total activation mass of all visited nodes
+            visited_activation = sum(
+                self.nodes[nid].activation for nid in visited if nid in self.nodes
+            )
             self._inference_log.append({
                 "n_results": len(final_results),
                 "specificity": specificity,
                 "winner_score": winner_score,
                 "mean_score": float(np.mean(scores)),
                 "score_std": float(np.std(scores)),
+                "energy_cost": edges_traversed,
+                "activation_mass": visited_activation,
             })
             if len(self._inference_log) > 50:
                 self._inference_log = self._inference_log[-50:]
@@ -1972,19 +2132,27 @@ class ConceptGraph:
         metrics["curvature_trend"] = curvature_trend["trend"]
         metrics["curvature_volatility"] = curvature_trend["volatility"]
 
-        # 13. Inference sparsity (from logged inference runs)
+        # 13. Inference sparsity & energy cost (from logged inference runs)
         if self._inference_log:
             specs = [l["specificity"] for l in self._inference_log]
             n_results = [l["n_results"] for l in self._inference_log]
+            energy = [l["energy_cost"] for l in self._inference_log]
+            activation = [l["activation_mass"] for l in self._inference_log]
             metrics["inference_specificity_mean"] = float(np.mean(specs))
             metrics["inference_specificity_last"] = specs[-1]
             metrics["inference_branching_mean"] = float(np.mean(n_results))
             metrics["inference_count"] = len(self._inference_log)
+            metrics["energy_cost_mean"] = float(np.mean(energy))
+            metrics["energy_cost_last"] = energy[-1]
+            metrics["activation_mass_mean"] = float(np.mean(activation))
         else:
             metrics["inference_specificity_mean"] = 0.0
             metrics["inference_specificity_last"] = 0.0
             metrics["inference_branching_mean"] = 0.0
             metrics["inference_count"] = 0
+            metrics["energy_cost_mean"] = 0.0
+            metrics["energy_cost_last"] = 0.0
+            metrics["activation_mass_mean"] = 0.0
 
         return metrics
 
@@ -2291,6 +2459,46 @@ class ConceptGraph:
                              "separation": separation, "contradiction_density": contradiction},
         }
 
+    def regulate(self) -> Dict[str, Any]:
+        """Run the full regulation pipeline with multi-timescale damping.
+
+        1. Compute geometry diagnostics
+        2. Classify cognitive phase
+        3. Apply damped regulation via CognitiveRegulator
+        4. Apply graph-level effects (inhibition boost)
+
+        Returns: phase info + damped adjustments + regulator status
+        """
+        metrics = self.graph_diagnostics()
+        phase_info = self.classify_phase(metrics)
+        adjustments = self._regulator.update(phase_info)
+
+        # Apply inhibition boost to inhibitory edges
+        if adjustments.get("inhibition_boost", 0) > 0.01:
+            boost = adjustments["inhibition_boost"]
+            for edge in self.edges.values():
+                if edge.edge_type == "inhibitory":
+                    edge.weight = min(1.0, edge.weight + boost * 0.05)
+                    edge.confidence = min(1.0, edge.confidence + boost * 0.02)
+
+        # Entropy-driven pruning: when entropy is high, prune weakest edges
+        if metrics.get("graph_entropy", 0) > 0.8 and len(self.edges) > 10:
+            prune_threshold = 0.15  # prune edges below this weight
+            prunable = [(k, e) for k, e in self.edges.items()
+                        if e.weight < prune_threshold
+                        and not e.shortcut
+                        and e.edge_type != "inhibitory"]
+            # Prune up to 10% of weak edges per regulation cycle
+            max_prune = max(1, len(prunable) // 10)
+            for (src, tgt), _ in prunable[:max_prune]:
+                self.remove_edge(src, tgt)
+
+        return {
+            "phase": phase_info,
+            "adjustments": adjustments,
+            "regulator": self._regulator.status(),
+        }
+
     def adaptive_regulation(self) -> Dict[str, Any]:
         """Apply adaptive regulation based on current cognitive phase.
 
@@ -2339,6 +2547,12 @@ class ConceptGraph:
             f"  Entropy:       {m['graph_entropy']:.3f}  Specificity: {m.get('inference_specificity_mean', 0):.3f}",
             f"  Separation:    {m['relation_separation']:.3f}  Contradiction: {m['contradiction_density']:.3f}",
             "",
+            "── Regulator ──",
+            f"  Inhibition boost:  {self._regulator._fast_inhibition_boost:.3f}  (damping={self._regulator._fast_damping:.2f})",
+            f"  Sleep urgency:     {self._regulator._medium_sleep_urgency:.3f}  (damping={self._regulator._medium_damping:.2f})",
+            f"  Plasticity boost:  {self._regulator._slow_plasticity_boost:.3f}",
+            f"  Oscillations:      {self._regulator._oscillation_count}  adjustments={self._regulator._adjustments_made}",
+            "",
             "── Activation Field ──",
             f"  Active nodes:      {m['active_count']}",
             f"  Graph entropy:     {m['graph_entropy']:.3f}  (0=focused, 1=diffuse)",
@@ -2374,6 +2588,8 @@ class ConceptGraph:
             f"  Runs logged:       {m['inference_count']}",
             f"  Specificity:       mean={m['inference_specificity_mean']:.3f}  last={m['inference_specificity_last']:.3f}  (1.0=winner-take-all)",
             f"  Inference branching: mean={m['inference_branching_mean']:.1f} results/run",
+            f"  Energy cost:       mean={m['energy_cost_mean']:.0f} edges  last={m['energy_cost_last']}  (fewer=efficient)",
+            f"  Activation mass:   mean={m['activation_mass_mean']:.3f}  (cognitive fuel burned)",
         ]
         return "\n".join(lines)
 
