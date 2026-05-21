@@ -2369,7 +2369,12 @@ class ConceptGraph:
             return {"phase": "empty", "confidence": 1.0, "recommendations": {}, "metrics_used": {}}
 
         entropy = metrics.get("graph_entropy", 0.5)
-        specificity = metrics.get("inference_specificity_mean", 0.5)
+        # Use inference specificity if available, otherwise derive from topology
+        if metrics.get("inference_count", 0) > 0:
+            specificity = metrics.get("inference_specificity_mean", 0.5)
+        else:
+            # Topology-based proxy: high entropy = low specificity
+            specificity = 1.0 - entropy
         separation = metrics.get("relation_separation", 0.0)
         contradiction = metrics.get("contradiction_density", 0.0)
 
@@ -2402,8 +2407,11 @@ class ConceptGraph:
             spec_score = 1.0 - abs(specificity - 0.5) * 2
             scores["exploratory"] = ent_score * spec_score
 
-        # Diffuse: high entropy, low specificity
-        if entropy > 0.6 and specificity < 0.4:
+        # Diffuse: high entropy (primary signal) or high entropy + low specificity
+        # High entropy alone (>0.8) is sufficient — activation field is flooded
+        if entropy > 0.8:
+            scores["diffuse"] = entropy * (1.0 - specificity + 0.3)  # entropy-driven
+        elif entropy > 0.6 and specificity < 0.4:
             scores["diffuse"] = entropy * (1.0 - specificity)
 
         # Rigid: low entropy, very high specificity, high separation
