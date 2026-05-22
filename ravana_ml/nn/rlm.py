@@ -96,6 +96,7 @@ class RLM(Module):
         self.conceptual_accuracy = 0.0
         self.n_predictions = 0
         self._step_counter = 0
+        self._seq_position = 0  # tracks position for positional encoding in forward/forward_step
         self._last_regulation: Dict[str, Any] = {}
 
         self._edges_learned = 0
@@ -177,36 +178,58 @@ class RLM(Module):
         self.token_embed.weight.data = vectors
 
     def _init_structured_concepts(self):
-        token_vecs = self.token_embed.weight.data.copy()  # (n, d)
-        n_token = min(self.vocab_size, self.n_concepts)
+        d = self.concept_dim  # concept vectors live in concept_dim space (matches graph.dim and attn layers)
+        n = self.n_concepts
+        scale = np.sqrt(d)  # scale angle dims so they dominate after normalization
 
-        # Phase 1: one concept per token, seeded from token embedding
-        for i in range(n_token):
-            token_idx = int(i * self.vocab_size / n_token) if n_token > 0 else i
-            vec = token_vecs[token_idx] / (np.linalg.norm(token_vecs[token_idx]) + 1e-15)
+        # Phase 1: one concept per token, seeded from angular position in concept space
+        for i in range(n):
+            token_idx = int(i * self.vocab_size / n) if n > 0 else i
+            angle = 2.0 * np.pi * i / n
+            vec = np.zeros(d, dtype=np.float32)
+            vec[0] = np.cos(angle) * scale
+            vec[1] = np.sin(angle) * scale
+            if d > 2:
+                vec[2:] = np.random.randn(d - 2).astype(np.float32) * 0.02
+            vec = vec / (np.linalg.norm(vec) + 1e-15)
             self.graph.add_node(vec, label=f"tok_{token_idx}")
-
-        # Phase 2: extra concepts as interpolations between adjacent token pairs
-        remaining = self.n_concepts - n_token
-        if remaining > 0:
-            for j in range(remaining):
-                t1 = j % n_token
-                t2 = (t1 + 1) % n_token
-                alpha = np.random.uniform(0.3, 0.7)
-                vec = alpha * token_vecs[t1] + (1 - alpha) * token_vecs[t2]
-                vec = vec / (np.linalg.norm(vec) + 1e-15)
-                self.graph.add_node(vec, label=f"c{n_token + j}")
 
     # ──────────────────────────────────────────────────────────────
     # Helpers
     # ──────────────────────────────────────────────────────────────
 
+    def _project_to_concept(self, embed_vec: np.ndarray) -> np.ndarray:
+        """Project an embed_dim vector to concept_dim space (truncate or zero-pad)."""
+        cd = self.concept_dim
+        if len(embed_vec) == cd:
+            return embed_vec
+        elif len(embed_vec) > cd:
+            return embed_vec[:cd]
+        else:
+            out = np.zeros(cd, dtype=np.float32)
+            out[:len(embed_vec)] = embed_vec
+            return out
+
+    def _project_to_embed(self, concept_vec: np.ndarray) -> np.ndarray:
+        """Project a concept_dim vector to embed_dim space (truncate or zero-pad)."""
+        ed = self.embed_dim
+        if len(concept_vec) == ed:
+            return concept_vec
+        elif len(concept_vec) > ed:
+            return concept_vec[:ed]
+        else:
+            out = np.zeros(ed, dtype=np.float32)
+            out[:len(concept_vec)] = concept_vec
+            return out
+
     def _nearest_concept(self, embed_vec: np.ndarray) -> int:
-        results = self.graph.find_similar(embed_vec, k=1)
+        cvec = self._project_to_concept(embed_vec)
+        results = self.graph.find_similar(cvec, k=1)
         return results[0][0] if results else -1
 
     def _nearest_concepts(self, embed_vec: np.ndarray, k: int = 3) -> List[int]:
-        results = self.graph.find_similar(embed_vec, k=k)
+        cvec = self._project_to_concept(embed_vec)
+        results = self.graph.find_similar(cvec, k=k)
         return [r[0] for r in results]
 
     def _get_lr_scale(self) -> float:
@@ -267,6 +290,7 @@ class RLM(Module):
             token_ids = token_ids[np.newaxis, :]
         T = token_ids.shape[1]
         h = np.zeros(self.n_hidden, dtype=np.float32)
+        self._seq_position = 0  # reset position counter for this sequence
         
         context_concepts = []
 
@@ -274,8 +298,9 @@ class RLM(Module):
             tid = int(token_ids[0, t])
             x = self.token_embed(StateTensor(np.array([tid]))).data[0]
             # Add positional encoding
-            if t < len(self._positional_encoding):
-                x = x + self._positional_encoding[t]
+            pos = self._seq_position % len(self._positional_encoding)
+            x = x + self._positional_encoding[pos]
+            self._seq_position += 1
 
             # Update nearest concept for propagation
             nid = self._nearest_concept(x)
@@ -292,23 +317,17 @@ class RLM(Module):
 
         self._last_hidden_state = h
         
-        # Concept prediction from hidden state (concept_dim) → project to embed_dim for node comparison
+        # Concept prediction from hidden state → concept_dim (matches graph node vectors)
         z = self.concept_predictor(StateTensor(h[np.newaxis, :])).data[0]
-        # Project concept_dim → embed_dim: pad with zeros if needed, truncate if needed
-        if len(z) < self.embed_dim:
-            z_padded = np.zeros(self.embed_dim, dtype=np.float32)
-            z_padded[:len(z)] = z
-            z = z_padded
-        elif len(z) > self.embed_dim:
-            z = z[:self.embed_dim]
         z_norm = z / (np.linalg.norm(z) + 1e-15)
 
-        # Activation based on conceptual similarity
+        # Activation based on conceptual similarity (from hidden state prediction)
         self.graph.reset_activation()
         node_sims = []
         for nid, node in self.graph.nodes.items():
             sim = np.dot(node.vector, z_norm)
             node_sims.append((nid, sim))
+
         node_sims.sort(key=lambda x: x[1], reverse=True)
         self._last_node_sims = node_sims  # store for learn() vector updates
 
@@ -322,7 +341,7 @@ class RLM(Module):
         # Concept attention: active concepts attend to each other (global context)
         active_concepts = [n for n in self.graph.nodes.values() if n.activation > 0.01]
         active_concepts.sort(key=lambda n: n.activation, reverse=True)
-        self.concept_attention(active_concepts[:7])
+        # concept_attention is deferred to learn() — it modifies vectors and is a learning operation
 
         # Scoring vocab based on active concepts (using vector similarity for better resolution)
         token_vecs = self.token_embed.weight.data
@@ -337,88 +356,25 @@ class RLM(Module):
         for node in all_active:
             if node.id >= self.vocab_size:
                 continue
-            norm = np.linalg.norm(node.vector) + 1e-15
-            vec_norm = node.vector / norm
-            local = (token_norms @ vec_norm) * node.activation
+            vec_norm = node.vector / (np.linalg.norm(node.vector) + 1e-15)
+            # Project concept_dim vector to embed_dim for token comparison
+            vec_embed_norm = self._project_to_embed(vec_norm)
+            vec_embed_norm = vec_embed_norm / (np.linalg.norm(vec_embed_norm) + 1e-15)
+            local = (token_norms @ vec_embed_norm) * node.activation
             concept_scores = np.maximum(concept_scores, local)
 
         self._last_predicted_concepts = [n.id for n in all_active][:5]
         self._last_edge_pred = self.propagation.get_prediction(self._last_predicted_concepts, top_k=5)
 
-        # ── Multi-Hop Relational Inference ──
-        # Run infer_chain from top active concepts to find transitive targets.
-        # Map inferred concept vectors to token IDs via embedding similarity.
-        # Only boost top-2 tokens per chain for precision.
-        multi_hop_boost = np.zeros(self.vocab_size, dtype=np.float32)
-        token_vecs = self.token_embed.weight.data  # (vocab_size, embed_dim)
-        token_norms = token_vecs / (np.linalg.norm(token_vecs, axis=1, keepdims=True) + 1e-15)
-
-        for node in all_active[:2]:
-            chains = self.graph.infer_chain(node.id, max_hops=2,
-                                            confidence_threshold=0.15, min_weight=0.2, k=5)
-            for target_concept, chain_score, path in chains:
-                if chain_score <= 0.1 or target_concept not in self.graph.nodes:
-                    continue
-                # Map concept vector → top-2 nearest token embeddings
-                concept_vec = self.graph.nodes[target_concept].vector
-                concept_norm = concept_vec / (np.linalg.norm(concept_vec) + 1e-15)
-                token_sims = token_norms @ concept_norm
-                top2 = np.argpartition(token_sims, -2)[-2:]
-                for tok_id in top2:
-                    if token_sims[tok_id] > 0.35:
-                        boost = chain_score * node.activation * token_sims[tok_id]
-                        multi_hop_boost[tok_id] = max(multi_hop_boost[tok_id], boost)
-                # Record the path for later compression
-                self.graph.record_path(node.id, target_concept)
-
-        # Blend multi-hop into concept_scores (selective boost)
-        if np.any(multi_hop_boost > 0):
-            concept_scores = np.maximum(concept_scores, concept_scores + multi_hop_boost * 0.2)
-
-        # ── Context Priming with Temporal Decay (inverted index) ──
-        if T > 1:
-            # Build context vector for disambiguation (must be concept_dim, not n_hidden)
-            if np.linalg.norm(self.graph.temporal_context) > 0:
-                ctx_vec = self.graph.temporal_context
-            else:
-                # Project hidden state into concept space
-                ctx_vec = self.concept_predictor(StateTensor(h[np.newaxis, :])).data[0]
-
-            # Only iterate tokens reachable from context concepts (O(B*T) not O(V*T))
-            candidate_tokens: Set[int] = set()
-            for ctx_nid in context_concepts:
-                candidate_tokens.update(self._concept_to_tokens.get(ctx_nid, set()))
-            candidate_tokens.discard(int(token_ids[0, -1]))
-
-            for tok_id in candidate_tokens:
-                # Use binding map for disambiguation if token is ambiguous
-                if self.binding_map.is_ambiguous(tok_id):
-                    tok_concept = self.binding_map.disambiguate(
-                        tok_id, ctx_vec, self.graph, suppression_rate=0.05
-                    )
-                else:
-                    tok_concept = self._token_concept_map[tok_id]
-                    if tok_concept < 0:
-                        continue
-
-                for i, ctx_nid in enumerate(context_concepts):
-                    ce = self.graph.get_edge(ctx_nid, tok_concept)
-                    if ce is not None and ce.weight > 0.01:
-                        # Temporal decay: more recent context is stronger
-                        dist = T - 1 - i
-                        decay = 0.8 ** dist
-
-                        boost = ce.weight * decay
-                        if concept_scores[tok_id] < -1e8:
-                            concept_scores[tok_id] = boost * 0.5
-                        else:
-                            concept_scores[tok_id] *= (1.0 + boost)
-        
-
         concept_scores = np.maximum(concept_scores, -1e8)
-        # Temperature modulated by arousal (principled, not hardcoded)
+        # Proper softmax normalization: temperature-controlled probability distribution
+        # Replaces the raw *15.0 scaling hack with mathematically sound softmax
         temperature = max(0.5, 1.0 + 2.0 * self.arousal)
-        concept_logits = concept_scores / temperature
+        concept_scores_t = concept_scores / temperature
+        concept_scores_t = concept_scores_t - np.max(concept_scores_t)  # numerical stability
+        exp_scores = np.exp(concept_scores_t)
+        concept_probs = exp_scores / (np.sum(exp_scores) + 1e-10)
+        concept_logits = np.log(concept_probs + 1e-10)
 
         # Context path: hidden state predicts token logits
         ctx_logits_raw = self.context_logits(StateTensor(h[np.newaxis, :]))
@@ -493,18 +449,20 @@ class RLM(Module):
             # Rate-limited to prevent oscillation from noisy single-sample updates
             if self._step_counter % self._vector_update_interval == 0:
                 input_embed = self.token_embed(StateTensor(np.array([last_input_id]))).data[0]
-                # Pull input concept toward input token
-                delta_in = input_embed - self.graph.nodes[input_concept].vector
+                # Pull input concept toward input token (project embed→concept first)
+                input_concept_vec = self._project_to_concept(input_embed)
+                delta_in = input_concept_vec - self.graph.nodes[input_concept].vector
                 self.graph.adjust_vector(input_concept, delta_in, lr=0.02)
                 # Pull output concept toward output token
-                delta_out = next_embed - self.graph.nodes[output_concept].vector
+                output_concept_vec = self._project_to_concept(next_embed)
+                delta_out = output_concept_vec - self.graph.nodes[output_concept].vector
                 self.graph.adjust_vector(output_concept, delta_out, lr=0.02)
 
                 # Contrastive push: repel non-matching concepts that are too close
                 # Prevents concept collapse (multiple concepts converging to same meaning)
                 for nid, sim in self._last_node_sims:
                     if nid != input_concept and sim > 0.7:
-                        push_delta = self.graph.nodes[nid].vector - input_embed
+                        push_delta = self.graph.nodes[nid].vector - input_concept_vec
                         self.graph.adjust_vector(nid, push_delta, lr=0.005)
 
             # InfoNCE-style contrastive concept learning
@@ -707,13 +665,14 @@ class RLM(Module):
         # Use vectorized find_similar for batch concept lookup
         if not self.graph.nodes:
             return
-        # Pre-compute all token embeddings
-        token_embeds = np.zeros((self.vocab_size, self.embed_dim), dtype=np.float32)
+        # Pre-compute all token embeddings, projected to concept_dim
+        token_concepts = np.zeros((self.vocab_size, self.concept_dim), dtype=np.float32)
         for tid in range(self.vocab_size):
-            token_embeds[tid] = self.token_embed(StateTensor(np.array([tid]))).data[0]
+            embed = self.token_embed(StateTensor(np.array([tid]))).data[0]
+            token_concepts[tid] = self._project_to_concept(embed)
         # Batch nearest concept lookup via graph's vectorized find_similar
         for tid in range(self.vocab_size):
-            results = self.graph.find_similar(token_embeds[tid], k=1)
+            results = self.graph.find_similar(token_concepts[tid], k=1)
             self._token_concept_map[tid] = results[0][0] if results else -1
         self._vectors_dirty = True
 
@@ -1147,10 +1106,15 @@ class RLM(Module):
         Calculates next-token logits and updates the recurrent state in O(1) step execution.
         Also updates nonlinear saturating fatigue.
         """
+        # Auto-reset position counter when starting a fresh sequence (h_prev is zeros)
+        if not np.any(h_prev):
+            self._seq_position = 0
+
         x = self.token_embed(StateTensor(np.array([token_id]))).data[0]
-        # Add positional encoding (use step counter as position)
-        pos = self._step_counter % len(self._positional_encoding)
+        # Add positional encoding (use _seq_position for consistent forward/forward_step behavior)
+        pos = self._seq_position % len(self._positional_encoding)
         x = x + self._positional_encoding[pos]
+        self._seq_position += 1
 
         # Recurrent step (GRU cell with gating)
         h = self.recurrent_cell(x, h_prev)
@@ -1160,14 +1124,8 @@ class RLM(Module):
             h_res = np.tanh(h_res)
             h = h + h_res  # residual connection
 
-        # Concept prediction from hidden state (concept_dim) → project to embed_dim for node comparison
+        # Concept prediction from hidden state → concept_dim (matches graph node vectors)
         z = self.concept_predictor(StateTensor(h[np.newaxis, :])).data[0]
-        if len(z) < self.embed_dim:
-            z_padded = np.zeros(self.embed_dim, dtype=np.float32)
-            z_padded[:len(z)] = z
-            z = z_padded
-        elif len(z) > self.embed_dim:
-            z = z[:self.embed_dim]
         z_norm = z / (np.linalg.norm(z) + 1e-15)
 
         # Update concept fatigue values globally
@@ -1216,9 +1174,11 @@ class RLM(Module):
         for node in all_active:
             if node.id >= self.vocab_size:
                 continue
-            norm = np.linalg.norm(node.vector) + 1e-15
-            vec_norm = node.vector / norm
-            local = (token_norms @ vec_norm) * node.effective_activation
+            vec_norm = node.vector / (np.linalg.norm(node.vector) + 1e-15)
+            # Project concept_dim vector to embed_dim for token comparison
+            vec_embed_norm = self._project_to_embed(vec_norm)
+            vec_embed_norm = vec_embed_norm / (np.linalg.norm(vec_embed_norm) + 1e-15)
+            local = (token_norms @ vec_embed_norm) * node.effective_activation
             concept_scores = np.maximum(concept_scores, local)
 
         # ── Context Priming with Temporal Decay (inverted index) ──
@@ -1243,9 +1203,14 @@ class RLM(Module):
                             concept_scores[tok_id] *= (1.0 + boost)
 
         concept_scores = np.maximum(concept_scores, -1e8)
-        # Temperature modulated by arousal (principled, not hardcoded)
+        # Proper softmax normalization: temperature-controlled probability distribution
+        # Replaces the raw *15.0 scaling hack with mathematically sound softmax
         temperature = max(0.5, 1.0 + 2.0 * self.arousal)
-        concept_logits = concept_scores / temperature
+        concept_scores_t = concept_scores / temperature
+        concept_scores_t = concept_scores_t - np.max(concept_scores_t)  # numerical stability
+        exp_scores = np.exp(concept_scores_t)
+        concept_probs = exp_scores / (np.sum(exp_scores) + 1e-10)
+        concept_logits = np.log(concept_probs + 1e-10)
 
         # Context path: hidden state predicts token logits
         ctx_logits_raw = self.context_logits(StateTensor(h[np.newaxis, :]))
@@ -1318,6 +1283,36 @@ class RLM(Module):
                 fatigue_decay_rate=fatigue_decay_rate
             )
             logits = logits_tensor.data.copy()
+
+            # ── Multi-Hop Relational Inference (generate-only enhancement) ──
+            all_active_gen = [n for n in sorted(self.graph.nodes.values(),
+                                                 key=lambda n: n.effective_activation, reverse=True)
+                              if n.effective_activation > 0.01][:3]
+            if all_active_gen:
+                token_vecs_gen = self.token_embed.weight.data
+                token_norms_gen = token_vecs_gen / (np.linalg.norm(token_vecs_gen, axis=1, keepdims=True) + 1e-15)
+                multi_hop_boost_gen = np.zeros(self.vocab_size, dtype=np.float32)
+                for node in all_active_gen:
+                    chains = self.graph.infer_chain(node.id, max_hops=4,
+                                                    confidence_threshold=0.05, min_weight=0.01, k=10,
+                                                    frontier_budget=15)
+                    for target_concept, chain_score, path in chains:
+                        if chain_score <= 0.005 or target_concept not in self.graph.nodes:
+                            continue
+                        concept_vec = self.graph.nodes[target_concept].vector
+                        concept_norm = concept_vec / (np.linalg.norm(concept_vec) + 1e-15)
+                        concept_embed_norm = self._project_to_embed(concept_norm)
+                        concept_embed_norm = concept_embed_norm / (np.linalg.norm(concept_embed_norm) + 1e-15)
+                        token_sims_gen = token_norms_gen @ concept_embed_norm
+                        top5_gen = np.argpartition(token_sims_gen, -5)[-5:]
+                        for tok_id in top5_gen:
+                            if token_sims_gen[tok_id] > 0.2:
+                                boost = chain_score * node.effective_activation * token_sims_gen[tok_id]
+                                multi_hop_boost_gen[tok_id] = max(multi_hop_boost_gen[tok_id], boost)
+                        self.graph.record_path(node.id, target_concept)
+                if np.any(multi_hop_boost_gen > 0):
+                    boost_mask_gen = multi_hop_boost_gen > 0
+                    logits[boost_mask_gen] += multi_hop_boost_gen[boost_mask_gen] * 15.0
 
             # Compute prediction entropy of raw next-step logits (before repetition penalty/temperature)
             raw_probs = np.exp(logits - np.max(logits))

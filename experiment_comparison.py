@@ -34,7 +34,7 @@ from experiment_baselines import SimpleMLP
 
 def make_rlm(vocab_size, seed=42, **kwargs):
     np.random.seed(seed)
-    defaults = dict(embed_dim=32, concept_dim=32, n_concepts=50, n_hidden=32, sleep_interval=5)
+    defaults = dict(embed_dim=32, concept_dim=32, n_concepts=vocab_size, n_hidden=32, sleep_interval=5)
     defaults.update(kwargs)
     return RLM(vocab_size=vocab_size, **defaults)
 
