@@ -298,3 +298,55 @@ class Dropout(Module):
 
     def __repr__(self):
         return f"Dropout(p={self.p})"
+
+
+# ─── GRU Cell ─────────────────────────────────────────────────────────
+
+class GRUCell(Module):
+    """Gated Recurrent Unit cell.
+
+    Three gates control information flow:
+    - Update gate (z): how much old state to keep vs new candidate
+    - Reset gate (r): how much old state to use when computing candidate
+    - Candidate (h~): new state proposal
+
+    h_new = (1 - z) * h_prev + z * h_candidate
+    """
+
+    def __init__(self, input_size: int, hidden_size: int):
+        super().__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        combined = input_size + hidden_size
+        # Three linear projections for the three gates
+        self.W_z = Linear(combined, hidden_size)
+        self.W_r = Linear(combined, hidden_size)
+        self.W_h = Linear(combined, hidden_size)
+
+    def forward(self, x, h_prev):
+        """Forward pass.
+
+        Args:
+            x: input vector (input_size,) — ndarray
+            h_prev: previous hidden state (hidden_size,) — ndarray
+
+        Returns:
+            h_new: new hidden state (hidden_size,) — ndarray
+        """
+        x_data = np.asarray(x, dtype=np.float32)
+        h_data = np.asarray(h_prev, dtype=np.float32)
+        combined = np.concatenate([x_data, h_data])
+        combined_t = StateTensor(combined[np.newaxis, :])
+
+        z = 1.0 / (1.0 + np.exp(-np.clip(
+            self.W_z(combined_t).data[0], -100, 100)))  # sigmoid
+        r = 1.0 / (1.0 + np.exp(-np.clip(
+            self.W_r(combined_t).data[0], -100, 100)))  # sigmoid
+        combined_r = np.concatenate([x_data, r * h_data])
+        h_candidate = np.tanh(
+            self.W_h(StateTensor(combined_r[np.newaxis, :])).data[0])
+        h_new = (1.0 - z) * h_data + z * h_candidate
+        return h_new
+
+    def __repr__(self):
+        return f"GRUCell({self.input_size}, {self.hidden_size})"
