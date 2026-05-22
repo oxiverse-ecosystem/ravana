@@ -1,0 +1,33 @@
+{
+  "streaming": {
+    "experiment": "streaming_learning",
+    "rlm_delta_1pass": 5.799999999999997,
+    "mlp_delta_1pass": 152.8,
+    "mlp_delta_50epochs": 172.4
+  },
+  "contradiction": {
+    "experiment": "contradiction_handling",
+    "inhibitory_edges": 265,
+    "excitatory_edges": 149,
+    "hotspots": 0
+  },
+  "interpretability": {
+    "experiment": "interpretability"
+  },
+  "consolidation": {
+    "experiment": "sleep_consolidation",
+    "edges_before": 510,
+    "edges_after": 505,
+    "inhib_before": 425,
+    "inhib_after": 425
+  },
+  "memory": {
+    "experiment": "memory_persistence"
+  },
+  "compositional": {
+    "experiment": "compositional_generalization",
+    "rlm_top10": 3,
+    "mlp_top10": 1,
+    "total": 3
+  }
+}
