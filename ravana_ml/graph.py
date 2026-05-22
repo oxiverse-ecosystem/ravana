@@ -21,10 +21,11 @@ class ConceptNode:
         self.contradiction_count = 0
         self.fatigue = 0.0
 
-        # Temporal pressure tracking (Gap 4: prediction error dynamics)
-        self.contradiction_pressure: float = 0.0  # accumulated pressure from prediction errors
-        self.pressure_history: List[float] = []    # last 20 prediction error magnitudes
-        self.pressure_gradient: float = 0.0        # rate of change (positive = escalating)
+        # Temporal free energy tracking (prediction error dynamics)
+        # Renamed from "pressure" to "free_energy" for consistency with FreeEnergyAccumulator
+        self.contradiction_free_energy: float = 0.0  # accumulated free energy from prediction errors
+        self.free_energy_history: List[float] = []    # last 20 prediction error magnitudes
+        self.free_energy_gradient: float = 0.0        # rate of change (positive = escalating)
 
         # Hierarchical abstraction fields
         self.level: int = 0  # 0 = leaf, higher = more abstract
@@ -97,6 +98,28 @@ class ConceptNode:
     @property
     def plasticity(self):
         return 1.0 - self.stability
+
+    # Backward-compatible aliases (deprecated — use free_energy variants)
+    @property
+    def contradiction_pressure(self) -> float:
+        return self.contradiction_free_energy
+    @contradiction_pressure.setter
+    def contradiction_pressure(self, val: float):
+        self.contradiction_free_energy = val
+
+    @property
+    def pressure_history(self) -> list:
+        return self.free_energy_history
+    @pressure_history.setter
+    def pressure_history(self, val: list):
+        self.free_energy_history = val
+
+    @property
+    def pressure_gradient(self) -> float:
+        return self.free_energy_gradient
+    @pressure_gradient.setter
+    def pressure_gradient(self, val: float):
+        self.free_energy_gradient = val
 
     def __repr__(self):
         hierarchy = f" L{self.level}" if self.level > 0 else ""
@@ -1427,35 +1450,37 @@ class ConceptGraph:
 
     # ── concept splitting ──
 
-    def should_split(self, nid: int, contradiction_threshold: int = 3,
-                     drift_threshold: float = 0.5, entropy_threshold: float = 2.0) -> bool:
+    def should_split(self, nid: int, contradiction_threshold: int = 2,
+                     drift_threshold: float = 0.3, entropy_threshold: float = 0.5) -> bool:
         """Check if a concept has accumulated enough internal contradiction to split.
 
-        A concept should split when:
-        - High contradiction count (many prediction errors)
-        - High drift from original meaning
+        A concept should split when ANY of these signals is strong enough:
+        - High contradiction count (prediction errors accumulating)
+        - High drift from original meaning (semantic shift)
         - High edge entropy (edges point to diverse, unrelated targets)
+        - High contradiction pressure with positive gradient (escalating)
+
+        Changed from AND logic (reasons >= 2) to OR logic (reasons >= 1):
+        requiring multiple simultaneous signals made splitting nearly impossible
+        in practice, especially in small experiments.
         """
         node = self.nodes.get(nid)
         if node is None or node.level > 0:  # don't split abstract parent nodes
             return False
 
-        reasons = 0
-
-        # Contradiction pressure
+        # Signal 1: Contradiction count (lowered from 3 to 2)
         if node.contradiction_count >= contradiction_threshold:
-            reasons += 1
+            return True
 
-        # Drift from genesis
+        # Signal 2: Drift from genesis (lowered from 0.5 to 0.3)
         if node.drift_magnitude >= drift_threshold:
-            reasons += 1
+            return True
 
-        # Edge entropy: how diverse are the targets of outgoing edges?
+        # Signal 3: Edge entropy — diverse targets suggest polysemy
         outgoing = [t for t, e in self._outgoing.get(nid, []) if e.edge_type == "excitatory"]
-        if len(outgoing) >= 3:
-            # Compute pairwise distances between target vectors
+        if len(outgoing) >= 2:
             targets = [self.nodes[t] for t in outgoing if t in self.nodes]
-            if len(targets) >= 3:
+            if len(targets) >= 2:
                 dists = []
                 for i, a in enumerate(targets):
                     for b in targets[i + 1:]:
@@ -1465,10 +1490,15 @@ class ConceptGraph:
                         dists.append(1.0 - sim)
                 if dists:
                     mean_dist = np.mean(dists)
-                    if mean_dist > 0.7:  # targets are very diverse
-                        reasons += 1
+                    if mean_dist > entropy_threshold:  # lowered from 0.7 to 0.5
+                        return True
 
-        return reasons >= 2  # need at least 2 signals to split
+        # Signal 4: Escalating contradiction pressure
+        if hasattr(node, 'contradiction_pressure') and hasattr(node, 'pressure_gradient'):
+            if node.contradiction_pressure > 2.0 and node.pressure_gradient > 0.0:
+                return True
+
+        return False
 
     def split_concept(self, nid: int, binding_map: Optional['ConceptBindingMap'] = None) -> Tuple[int, int]:
         """Split a concept into two competing sub-concepts.
