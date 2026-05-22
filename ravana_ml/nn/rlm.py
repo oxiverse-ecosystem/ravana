@@ -465,6 +465,23 @@ class RLM(Module):
                         push_delta = self.graph.nodes[nid].vector - input_concept_vec
                         self.graph.adjust_vector(nid, push_delta, lr=0.005)
 
+                # ── Semantic Drift Defense (Gap 9 fix) ──
+                # If a concept has drifted too far from its core_vector (identity anchor),
+                # apply corrective pull back toward core. This prevents concepts from
+                # losing their original meaning through accumulated updates.
+                drift_threshold = 0.4  # trigger defense when drift exceeds this
+                drift_correction_strength = 0.1  # pull strength toward core
+                for nid in [input_concept, output_concept]:
+                    node = self.graph.get_node(nid)
+                    if node is None:
+                        continue
+                    drift = node.drift_magnitude
+                    if drift > drift_threshold:
+                        # Pull toward core_vector (identity anchor) proportional to excess drift
+                        excess = drift - drift_threshold
+                        correction = (node.core_vector - node.vector) * drift_correction_strength * min(1.0, excess * 2.0)
+                        self.graph.adjust_vector(nid, correction, lr=1.0)  # lr=1.0 because correction is already scaled
+
             # InfoNCE-style contrastive concept learning
             # Anchor=input_concept, positive=output_concept, negatives=other active concepts
             if input_concept >= 0 and output_concept >= 0 and self._last_node_sims:
@@ -585,15 +602,25 @@ class RLM(Module):
             # Direct Hebbian update for GRU cell (was frozen — bug fix)
             # Project error back to hidden dim through context_logits weights
             recurrent_err = raw_error @ self.context_logits.weight.data  # (n_hidden,)
-            # Distribute error to all three GRU gates
+            # GRU gates: use accumulate_free_energy only (gate weights have shape
+            # (n_hidden, embed_dim+n_hidden) from concatenated [x,h] input, so
+            # direct outer product with h alone would have wrong shape)
             for gate in [self.recurrent_cell.W_z, self.recurrent_cell.W_r, self.recurrent_cell.W_h]:
                 gate_err_tensor = StateTensor(recurrent_err[np.newaxis, :])
                 gate_err_tensor._salience = 0.3
                 gate.accumulate_free_energy(gate_err_tensor)
 
-            # Hidden layers: error between what layer above predicted and actual
+            # Hidden layers: direct Hebbian update (was accumulate-only, too slow)
+            # Each layer gets ITS OWN local error from the settle loop
             for i, layer in enumerate(self.hidden_layers):
                 layer_err = local_errors[i] * 2.0
+                # Direct weight update: ΔW = lr * error ⊗ input
+                layer_input = h_states[i].reshape(1, -1)
+                layer_err_2d = layer_err.reshape(1, -1)
+                layer_update = (layer_err_2d.T @ layer_input) * direct_lr
+                layer.weight.data += layer_update
+                np.clip(layer.weight.data, -5.0, 5.0, out=layer.weight.data)
+                # Also accumulate for sleep_cycle consolidation
                 layer_err_tensor = StateTensor(layer_err[np.newaxis, :])
                 layer_err_tensor._salience = 1.0
                 layer.accumulate_free_energy(layer_err_tensor)
@@ -1010,67 +1037,142 @@ class RLM(Module):
                             self.graph.remove_edge(s, t)
 
     def sleep_cycle(self):
+        """Two-phase sleep: SWS (consolidation) then REM (creative exploration).
+
+        SWS (Slow-Wave Sleep): structural consolidation, vector stabilization,
+        path compression, homeostatic downscale. The "boring but essential" phase.
+
+        REM (Rapid Eye Movement): noise injection, creative recombination,
+        dream sabotage, exploratory perturbation. The "creative" phase that
+        enables cross-domain transfer and novel associations.
+        """
+        # Phase 1: SWS — consolidation
+        self._sleep_sws()
+
+        # Phase 2: REM — creative exploration
+        self._sleep_rem()
+
+        self.sleep_cycles_completed += 1
+
+        # Cognitive consolidation (shared between phases)
+        self._sleep_cognitive_consolidation()
+
+    def _sleep_sws(self):
+        """Slow-Wave Sleep: structural consolidation and stabilization."""
         self._normalize_outgoing_weights()
         self.graph.spread_activation(steps=3)
         self.structural.step()
 
-        # ── Contradiction Resolution ──
-        # Convert weak excitatory edges between contradictory concepts to inhibitory
+        # Contradiction Resolution
         self.graph.form_inhibitory_edges()
 
-        # Split concepts that have accumulated enough contradiction + drift + entropy
+        # Split concepts that have accumulated enough signal
+        # Rate-limited: max 3 splits per sleep cycle to prevent runaway growth
+        splits_this_cycle = 0
+        max_splits_per_cycle = 3
         for nid in list(self.graph.contradiction_hotspots):
+            if splits_this_cycle >= max_splits_per_cycle:
+                break
             if self.graph.should_split(nid):
                 self.graph.split_concept(nid, binding_map=self.binding_map)
+                splits_this_cycle += 1
 
-        # Global synaptic downscaling — prevents runaway weights
+        # Global synaptic downscaling
         self.graph.homeostatic_downscale()
 
-        # Reconcile: reset contradiction counts, reduce free energy on hotspots
+        # Reconcile: reset contradiction counts, reduce free energy
         self.graph.reconcile_contradictions()
 
-        # Binding maintenance: decay old bindings, prune weak ones
+        # Binding maintenance
         self.binding_map.decay_all(rate=0.005)
         self.binding_map.prune(min_strength=0.05)
 
-        # ── Vector Consolidation (SWS analogue) ──
-        # Consolidate fast-changing active vectors toward stable core vectors
+        # Vector Consolidation: fast-changing active vectors → stable core vectors
         self.graph.consolidate_vectors(rate=0.08)
 
-        # ── Path Compression ──
-        # Compress successful inference chains into shortcut edges
+        # Path Compression: successful inference chains → shortcut edges
         compressible = self.graph.get_compressible_paths(min_usage=2)
         if compressible:
             compressed = self.graph.compress_paths(compressible, min_chain_score=0.15)
             if compressed > 0:
                 self.graph._vectors_dirty = True
 
-        self.sleep_cycles_completed += 1
+    def _sleep_rem(self):
+        """REM Sleep: creative exploration via noise injection and perturbation.
 
-        # Run cognitive regulation — detect phase, apply damped adjustments
+        Unlike SWS (which stabilizes), REM destabilizes slightly to enable:
+        - Cross-domain transfer (noisy activation finds novel paths)
+        - Creative recombination (unrelated concepts briefly co-activate)
+        - Escape from local minima (noise prevents premature convergence)
+        """
+        saved_noise = self.noise_sigma
+        self.noise_sigma = 0.1  # inject noise during REM
+
+        # 1. Noisy spreading activation — activates unexpected concept combinations
+        self.graph.spread_activation(steps=2)
+
+        # 2. Dream perturbation: randomly boost weak edges to explore novel associations
+        rng = np.random.RandomState(self.sleep_cycles_completed)
+        edges = list(self.graph.edges.values())
+        n_perturb = max(1, len(edges) // 20)  # perturb ~5% of edges
+        for _ in range(n_perturb):
+            if not edges:
+                break
+            edge = edges[rng.randint(len(edges))]
+            if edge.confidence < 0.3:  # only perturb uncertain edges
+                boost = rng.uniform(0.01, 0.05)
+                edge.weight = min(1.0, edge.weight + boost)
+                edge.confidence = min(1.0, edge.confidence + 0.01)
+
+        # 3. Concept vector jitter — explore nearby vector space
+        for node in list(self.graph.nodes.values())[:20]:  # limit to 20 nodes
+            if node.stability < 0.5:  # only jitter unstable concepts
+                jitter = np.random.randn(len(node.vector)).astype(np.float32) * 0.01
+                self.graph.adjust_vector(node.id, jitter, lr=1.0)
+
+        # 4. Cross-link: if two active concepts share a common neighbor but no
+        # direct edge, form a tentative shortcut (enables cross-domain transfer)
+        active_nodes = [n for n in self.graph.nodes.values() if n.activation > 0.1]
+        for i, n1 in enumerate(active_nodes):
+            for n2 in active_nodes[i+1:]:
+                if self.graph.get_edge(n1.id, n2.id) is not None:
+                    continue
+                # Check shared neighbors
+                out1 = {t for t, _ in self.graph._outgoing.get(n1.id, [])}
+                out2 = {t for t, _ in self.graph._outgoing.get(n2.id, [])}
+                shared = out1 & out2
+                if len(shared) >= 1:
+                    self.graph.add_edge(n1.id, n2.id, weight=0.1,
+                                       edge_type="contextual", shortcut=True)
+
+        # Apply noise-modulated free energy (REM explores, doesn't just consolidate)
+        self.free_energy_engine.decay(rate=0.05)  # gentle decay during REM
+
+        # Restore noise setting
+        self.noise_sigma = saved_noise
+
+    def _sleep_cognitive_consolidation(self):
+        """Cognitive consolidation: emotion, identity, memory, regulation."""
+        # Run cognitive regulation
         regulation = self.graph.regulate()
         self._last_regulation = regulation
 
-        # Record geometry snapshot after sleep — captures post-consolidation state
+        # Record geometry snapshot
         self.graph.record_geometry_snapshot(event="sleep")
 
-        # ═══════════════════════════════════════════════════════════
-        # Cognitive Sleep Consolidation
-        # ═══════════════════════════════════════════════════════════
-
-        # 1. Hippocampal replay — re-activate memories through graph
+        # 1. Hippocampal replay
         self._replay_memories_through_graph()
 
         # 2. Episodic → semantic consolidation
         self._consolidate_episodic_to_semantic()
 
-        # 3. Semantic memory decay (Ebbinghaus forgetting)
+        # 3. Semantic memory decay
         self._decay_semantic_memories()
 
-        # 4. Memory → weights bridge (consolidated memories reshape edges)
+        # 4. Memory → weights bridge
         self._bridge_memories_to_graph()
 
-        # 5. Emotion processing — reduce arousal, stabilize affect
+        # 5. Emotion processing
         self.arousal = 0.3 + (self.arousal - 0.3) * 0.5
         self.valence *= 0.8
         self.dominance = 0.5 + (self.dominance - 0.5) * 0.7
@@ -1078,7 +1180,7 @@ class RLM(Module):
         # 6. Identity consolidation
         self._consolidate_identity()
 
-        # 7. Meaning integration — slow decay
+        # 7. Meaning integration
         self.accumulated_meaning *= 0.99
 
         # 8. Sleep pressure reset
@@ -1201,6 +1303,39 @@ class RLM(Module):
                             concept_scores[tok_id] = boost * 0.5
                         else:
                             concept_scores[tok_id] *= (1.0 + boost)
+
+        # ── Multi-hop Edge Traversal (Gap 1&2 fix: cross-domain & relational transfer) ──
+        # For each active concept, follow outgoing edges to neighbor concepts,
+        # then score tokens bound to those neighbors. This enables 2-hop inference:
+        # e.g., "vexol" → warm (edge) → pleasant (bound token)
+        # Decay factor per hop prevents distant inference from dominating
+        hop_decay = 0.4  # each hop reduces signal by 60%
+        for node in all_active:
+            outgoing = self.graph._outgoing.get(node.id, [])
+            for tgt_id, edge in outgoing:
+                if edge.edge_type == "inhibitory" or edge.weight < 0.05:
+                    continue
+                tgt_node = self.graph.get_node(tgt_id)
+                if tgt_node is None:
+                    continue
+                # Score: active_node_activation * edge_weight * hop_decay
+                hop_score = node.effective_activation * edge.weight * hop_decay
+                # Tokens bound to the neighbor concept get a boost
+                bound_tokens = self._concept_to_tokens.get(tgt_id, set())
+                for tok_id in bound_tokens:
+                    if tok_id == token_id or tok_id >= self.vocab_size:
+                        continue
+                    if concept_scores[tok_id] < -1e8:
+                        concept_scores[tok_id] = hop_score * 0.3
+                    else:
+                        concept_scores[tok_id] += hop_score * 0.3
+                # Also consider the neighbor concept's own vector similarity
+                if tgt_id < self.vocab_size:
+                    tgt_vec_norm = tgt_node.vector / (np.linalg.norm(tgt_node.vector) + 1e-15)
+                    tgt_embed_norm = self._project_to_embed(tgt_vec_norm)
+                    tgt_embed_norm = tgt_embed_norm / (np.linalg.norm(tgt_embed_norm) + 1e-15)
+                    tgt_local = (token_norms @ tgt_embed_norm) * hop_score
+                    concept_scores = np.maximum(concept_scores, tgt_local)
 
         concept_scores = np.maximum(concept_scores, -1e8)
         # Proper softmax normalization: temperature-controlled probability distribution
