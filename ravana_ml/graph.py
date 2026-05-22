@@ -21,6 +21,11 @@ class ConceptNode:
         self.contradiction_count = 0
         self.fatigue = 0.0
 
+        # Temporal pressure tracking (Gap 4: prediction error dynamics)
+        self.contradiction_pressure: float = 0.0  # accumulated pressure from prediction errors
+        self.pressure_history: List[float] = []    # last 20 prediction error magnitudes
+        self.pressure_gradient: float = 0.0        # rate of change (positive = escalating)
+
         # Hierarchical abstraction fields
         self.level: int = 0  # 0 = leaf, higher = more abstract
         self.parent: Optional[int] = None  # parent concept ID
@@ -1106,9 +1111,28 @@ class ConceptGraph:
                 continue
             sim = np.dot(node.vector, actual_vector) / (np.linalg.norm(node.vector) * np.linalg.norm(actual_vector) + 1e-15)
             error = max(0.0, 1.0 - sim)
+
+            # Temporal pressure tracking (Gap 4: pressure accumulation dynamics)
+            node.pressure_history.append(error)
+            if len(node.pressure_history) > 20:
+                node.pressure_history = node.pressure_history[-20:]
+            # Pressure gradient: is error getting worse?
+            if len(node.pressure_history) >= 3:
+                recent = np.mean(node.pressure_history[-3:])
+                older = np.mean(node.pressure_history[:-3]) if len(node.pressure_history) > 3 else recent
+                node.pressure_gradient = recent - older
+            # Accumulate pressure with decay
+            node.contradiction_pressure = 0.9 * node.contradiction_pressure + error
+
             if error > 0.3:
                 node.contradiction_count += 1
-            self.apply_free_energy(nid, error)
+            # Escalating errors produce larger free energy (temporal amplification)
+            escalation = 1.0 + max(0.0, node.pressure_gradient) * 2.0
+            self.apply_free_energy(nid, error * escalation)
+
+            # High pressure increases plasticity (frequently-wrong concepts become more learnable)
+            if node.contradiction_pressure > 3.0:
+                node.stability = max(0.1, node.stability - 0.05)
 
     def adjust_vector(self, nid: int, delta: np.ndarray, lr: float = 0.1):
         node = self.nodes.get(nid)
@@ -1182,30 +1206,27 @@ class ConceptGraph:
             # Pull toward own signal
             edge.relation_vector += effective_lr * 0.1 * (hebbian_signal - edge.relation_vector)
 
-            # Contrastive push: repel from centroid of other relation types
-            # Compute centroids of each relation type from a sample of edges
-            other_centroid = np.zeros_like(edge.relation_vector)
-            other_count = 0
-            type_centroids: Dict[str, np.ndarray] = {}
-            # Sample edges to compute type centroids (cap for performance)
+            # Contrastive push: explicit negative sampling from different relation types
+            # Sample edges and push away from those with different relation_type
             sample_edges = list(self.edges.values())[:200]
-            for e in sample_edges:
-                if e.relation_type not in type_centroids:
-                    type_centroids[e.relation_type] = []
-                type_centroids[e.relation_type].append(e.relation_vector)
+            negatives = [e for e in sample_edges
+                         if e.relation_type != edge.relation_type and e is not edge]
+            # Sample up to 3 negatives for explicit push
+            if negatives:
+                np.random.shuffle(negatives)
+                for neg in negatives[:3]:
+                    neg_rv = neg.relation_vector / (np.linalg.norm(neg.relation_vector) + 1e-15)
+                    # Push away from negative sample (stronger than centroid approach)
+                    repel_strength = effective_lr * 0.05
+                    edge.relation_vector -= repel_strength * neg_rv
 
-            for rt, vecs in type_centroids.items():
-                if rt == edge.relation_type:
-                    continue
-                centroid = np.mean(vecs, axis=0)
-                other_centroid += centroid
-                other_count += 1
-
-            if other_count > 0:
-                other_centroid /= other_count
-                # Repel from other types (weaker than attraction)
-                repel_strength = effective_lr * 0.03
-                edge.relation_vector -= repel_strength * other_centroid
+                # Also pull toward centroid of same type (cluster cohesion)
+                same_type = [e.relation_vector for e in sample_edges
+                             if e.relation_type == edge.relation_type and e is not edge]
+                if same_type:
+                    same_centroid = np.mean(same_type, axis=0)
+                    same_centroid = same_centroid / (np.linalg.norm(same_centroid) + 1e-15)
+                    edge.relation_vector += effective_lr * 0.03 * same_centroid
 
             rv_norm = np.linalg.norm(edge.relation_vector)
             if rv_norm > 0:
@@ -1245,7 +1266,11 @@ class ConceptGraph:
         formed = 0
         for nid in list(self.contradiction_hotspots):
             node = self.nodes.get(nid)
-            if node is None or node.contradiction_count < contradiction_threshold:
+            if node is None:
+                continue
+            # Trigger on: cumulative count OR high pressure OR escalating gradient
+            pressure_trigger = (node.contradiction_pressure > 2.0 and node.pressure_gradient > 0.0)
+            if node.contradiction_count < contradiction_threshold and not pressure_trigger:
                 continue
 
             # Collect competing targets from this source (O(degree) via adjacency list)
@@ -1542,19 +1567,20 @@ class ConceptGraph:
 
     def homeostatic_downscale(self, protection_threshold: float = 0.8,
                                downscale_factor: float = 0.8,
-                               structural_protection: float = 0.4) -> Tuple[float, float]:
-        """Global synaptic homeostasis — downscale all edges, protect the strong.
+                               structural_protection: float = 0.2) -> Tuple[float, float]:
+        """Global synaptic homeostasis — adaptive downscale that preserves learned associations.
 
-        During sleep, the brain globally weakens all synapses, but the strongest
-        ones survive. This improves signal-to-noise ratio: important connections
-        stand out more, noise is washed out.
+        Unlike uniform downscale, this uses per-edge adaptive factors:
+        - High-confidence, frequently-used edges: barely weakened (0.95x)
+        - Low-confidence, rarely-used edges: strongly weakened (0.6x)
+        - Formula: factor = 0.6 + 0.35 * min(1.0, confidence * prediction_count / 10)
 
-        Topology-aware: also protects structurally important edges (bridges,
-        hub connectors, frequently-used inference paths).
+        Also: post-downscale renormalization prevents concept orphaning
+        (nodes losing all meaningful connections).
 
         Args:
-            protection_threshold: edges with stability above this are protected
-            downscale_factor: multiply all weights by this
+            protection_threshold: edges with stability above this are fully protected
+            downscale_factor: base downscale factor (overridden by adaptive per-edge)
             structural_protection: edges with structural importance above this
                                    are also protected (0 = disabled)
 
@@ -1562,30 +1588,44 @@ class ConceptGraph:
             (total_weight_before, total_weight_after)
         """
         total_before = sum(e.weight for e in self.edges.values())
-        protected = {}
 
         # Compute structural importance if protection enabled
         si = {}
         if structural_protection > 0 and len(self.edges) > 0:
             si = self.compute_edge_structural_importance()
 
-        # First pass: identify protected edges (by stability OR structural importance)
+        # First pass: adaptive downscale with protection
         for key, edge in self.edges.items():
+            # Fully protected edges: skip downscale
             if edge.stability >= protection_threshold:
-                protected[key] = edge.weight
-            elif si.get(key, 0.0) >= structural_protection:
-                # Structurally important edges get partial protection
-                # (restore to 80% of original instead of full)
-                protected[key] = edge.weight * 0.8
+                continue
+            if si.get(key, 0.0) >= structural_protection:
+                continue
 
-        # Second pass: downscale all
-        for edge in self.edges.values():
-            edge.weight *= downscale_factor
+            # Adaptive factor: confident, frequently-used edges resist downscale
+            usage = min(1.0, edge.confidence * edge.prediction_count / 10.0)
+            adaptive_factor = 0.6 + 0.35 * usage
+            edge.weight *= adaptive_factor
 
-        # Third pass: restore protected edges
-        for key, original_weight in protected.items():
-            if key in self.edges:
-                self.edges[key].weight = original_weight
+        # Post-downscale renormalization: prevent concept orphaning
+        # If a node's mean outgoing weight drops below 0.1, restore top-3 edges
+        node_max_edges: Dict[int, List[Tuple[int, float]]] = {}
+        for (src, tgt), edge in self.edges.items():
+            if src not in node_max_edges:
+                node_max_edges[src] = []
+            node_max_edges[src].append((tgt, edge.weight))
+
+        for src, targets in node_max_edges.items():
+            if not targets:
+                continue
+            mean_w = np.mean([w for _, w in targets])
+            if mean_w < 0.1:
+                # Restore top-3 edges to 0.2 minimum
+                targets.sort(key=lambda x: x[1], reverse=True)
+                for tgt, _ in targets[:3]:
+                    edge = self.get_edge(src, tgt)
+                    if edge and edge.weight < 0.2:
+                        edge.weight = 0.2
 
         total_after = sum(e.weight for e in self.edges.values())
         return total_before, total_after
@@ -1614,9 +1654,13 @@ class ConceptGraph:
                 node.stability = max(0.0, node.stability - 0.1)
                 node.prediction_free_energy *= 0.5
                 node.contradiction_count = 0
+                # Decay pressure after reconciliation (prevent unbounded accumulation)
+                node.contradiction_pressure *= 0.5
                 reconciled += 1
             else:
                 node.prediction_free_energy = max(0.0, node.prediction_free_energy - 1.0)
+                # Gentle pressure decay for non-reconciled nodes
+                node.contradiction_pressure *= 0.9
         self.contradiction_hotspots.clear()
         return reconciled
 
@@ -1729,6 +1773,16 @@ class ConceptGraph:
         start_vec = self.nodes[start_id].core_vector
         start_norm = start_vec / (np.linalg.norm(start_vec) + 1e-15)
 
+        # Relation context: average relation_vector of start node's outgoing edges
+        # Used to score paths with consistent relation types
+        relation_context = None
+        start_edges = self._outgoing.get(start_id, [])
+        if start_edges:
+            rvectors = [e.relation_vector for _, e in start_edges if e.edge_type != "inhibitory"]
+            if rvectors:
+                relation_context = np.mean(rvectors, axis=0)
+                relation_context = relation_context / (np.linalg.norm(relation_context) + 1e-15)
+
         # BFS with score tracking and activation budget
         frontier: List[Tuple[int, float, float, List[int]]] = [
             (start_id, 1.0, 1.0, [start_id])
@@ -1757,6 +1811,13 @@ class ConceptGraph:
                     # Chain scoring with confidence decay
                     hop_score = score * edge.weight * edge.confidence
                     hop_conf = conf * edge.confidence
+
+                    # Relation consistency bonus: paths with consistent relation types score higher
+                    if relation_context is not None:
+                        rv = edge.relation_vector
+                        rv_norm = rv / (np.linalg.norm(rv) + 1e-15)
+                        relation_sim = float(np.dot(relation_context, rv_norm))
+                        hop_score *= (1.0 + 0.3 * max(0.0, relation_sim))
 
                     # Confidence decay accelerates with hop depth
                     hop_score *= (0.7 ** hop)
@@ -2432,8 +2493,12 @@ class ConceptGraph:
         if not self.nodes:
             return 1.0
 
-        # Build current neighbor sets
+        # Build current neighbor sets (sample for large graphs to avoid O(V²) memory)
         node_ids = list(self.nodes.keys())
+        max_sample = 500
+        if len(node_ids) > max_sample:
+            sample_idx = np.random.choice(len(node_ids), max_sample, replace=False)
+            node_ids = [node_ids[i] for i in sample_idx]
         vectors = np.array([self.nodes[nid].vector for nid in node_ids])
         norms = np.linalg.norm(vectors, axis=1, keepdims=True) + 1e-15
         norms = vectors / norms
