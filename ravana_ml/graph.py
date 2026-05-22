@@ -813,7 +813,7 @@ class ConceptGraph:
         # Successful inference paths: (source, target) -> usage_count
         self._successful_paths: Dict[Tuple[int, int], int] = defaultdict(int)
         # Relation embedding dimensionality (must match ConceptEdge default)
-        self._relation_dim: int = 16
+        self._relation_dim: int = dim
         # Inference sparsity tracking
         self._inference_log: List[Dict[str, float]] = []  # last 50 inference runs
         # Semantic curvature: neighbor snapshots for topology deformation tracking
@@ -915,7 +915,8 @@ class ConceptGraph:
                 edge.relation_type = relation_type
             return edge
         edge = ConceptEdge(source, target, weight, shortcut=shortcut,
-                          edge_type=edge_type, relation_type=relation_type)
+                          edge_type=edge_type, relation_type=relation_type,
+                          relation_dim=self._relation_dim)
         self.edges[key] = edge
         # Maintain adjacency indices
         self._outgoing[source].append((target, edge))

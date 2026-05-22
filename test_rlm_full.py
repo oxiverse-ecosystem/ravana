@@ -239,7 +239,7 @@ def phase_5_dual_path(model):
 
     section("context_scale Verification")
     print(f"  context_scale: {model.context_scale}")
-    print(f"  Concept path: graph activation * 15.0")
+    print(f"  Concept path: softmax(activation / temperature)")
     print(f"  Context path: hidden state -> Linear -> logits * {model.context_scale}")
 
     # Forward pass and verify context path contributes
