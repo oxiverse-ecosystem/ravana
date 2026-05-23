@@ -47,3 +47,6 @@ EXPERIMENT 1B: DEEP COMPOSITIONAL GENERALIZATION
   Negative 'marn is ___': fragile score=-0.811 REJECTED
 
 --- Seed 123 ---
+  Chain 'zorbax is ___': fragile score=1.904 (max_wrong=2.988) FAIL
+  Chain 'crystalline things are ___': valuable score=6.151 (max_wrong=5.749) PASS
+  Chain 'fragile things are ___': insured score=3.028 (max_wrong=3.839) FAIL
