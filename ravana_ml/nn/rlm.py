@@ -366,6 +366,35 @@ class RLM(Module):
         self._last_predicted_concepts = [n.id for n in all_active][:5]
         self._last_edge_pred = self.propagation.get_prediction(self._last_predicted_concepts, top_k=5)
 
+        # ── Multi-hop Edge Traversal (Issues 1+2: cross-domain & relational transfer) ──
+        # For each active concept, follow outgoing edges to neighbor concepts,
+        # then score tokens bound to those neighbors. Enables 2-hop inference:
+        # e.g., "vexol" → warm (edge) → pleasant (bound token)
+        hop_decay = 0.6  # each hop reduces signal by 40%
+        for node in all_active:
+            outgoing = self.graph._outgoing.get(node.id, [])
+            for tgt_id, edge in outgoing:
+                if edge.edge_type == "inhibitory" or edge.weight < 0.05:
+                    continue
+                tgt_node = self.graph.get_node(tgt_id)
+                if tgt_node is None:
+                    continue
+                hop_score = node.activation * edge.weight * hop_decay
+                bound_tokens = self._concept_to_tokens.get(tgt_id, set())
+                for tok_id in bound_tokens:
+                    if tok_id >= self.vocab_size:
+                        continue
+                    if concept_scores[tok_id] < -1e8:
+                        concept_scores[tok_id] = hop_score * 0.3
+                    else:
+                        concept_scores[tok_id] += hop_score * 0.3
+                if tgt_id < self.vocab_size:
+                    tgt_vec_norm = tgt_node.vector / (np.linalg.norm(tgt_node.vector) + 1e-15)
+                    tgt_embed_norm = self._project_to_embed(tgt_vec_norm)
+                    tgt_embed_norm = tgt_embed_norm / (np.linalg.norm(tgt_embed_norm) + 1e-15)
+                    tgt_local = (token_norms @ tgt_embed_norm) * hop_score
+                    concept_scores = np.maximum(concept_scores, tgt_local)
+
         concept_scores = np.maximum(concept_scores, -1e8)
         # Proper softmax normalization: temperature-controlled probability distribution
         # Replaces the raw *15.0 scaling hack with mathematically sound softmax
@@ -482,6 +511,25 @@ class RLM(Module):
                         correction = (node.core_vector - node.vector) * drift_correction_strength * min(1.0, excess * 2.0)
                         self.graph.adjust_vector(nid, correction, lr=1.0)  # lr=1.0 because correction is already scaled
 
+            # ── Periodic full-graph drift scan (every _vector_update_interval steps) ──
+            # Expands drift defense beyond just input/output concepts
+            if self._step_counter % (self._vector_update_interval * 5) == 0:
+                for nid, node in self.graph.nodes.items():
+                    # Core_vector stability anchor: if core drifted from genesis, snap back
+                    core_genesis_drift = np.linalg.norm(node.core_vector - node.genesis_vector)
+                    if core_genesis_drift > 0.5:
+                        anchor_pull = (node.genesis_vector - node.core_vector) * 0.05
+                        node.core_vector += anchor_pull
+                        core_norm = np.linalg.norm(node.core_vector)
+                        if core_norm > 0:
+                            node.core_vector /= core_norm
+                    # Standard drift defense for all concepts
+                    drift = node.drift_magnitude
+                    if drift > drift_threshold:
+                        excess = drift - drift_threshold
+                        correction = (node.core_vector - node.vector) * drift_correction_strength * min(1.0, excess * 2.0)
+                        self.graph.adjust_vector(nid, correction, lr=1.0)
+
             # InfoNCE-style contrastive concept learning
             # Anchor=input_concept, positive=output_concept, negatives=other active concepts
             if input_concept >= 0 and output_concept >= 0 and self._last_node_sims:
@@ -530,9 +578,9 @@ class RLM(Module):
             inode = self.graph.get_node(input_concept)
             if inode:
                 inode.contradiction_count += 1
-                inode.prediction_free_energy += 0.5
+                inode.prediction_free_energy += 1.5  # increased from 0.5 to make splitting reachable
                 # Trigger hotspot tracking when free energy exceeds threshold
-                if inode.prediction_free_energy > 5.0:
+                if inode.prediction_free_energy > 2.0:  # lowered from 5.0
                     self.graph.contradiction_hotspots.add(input_concept)
 
             # Also track contradictions on predicted concepts that missed
@@ -602,10 +650,34 @@ class RLM(Module):
             # Direct Hebbian update for GRU cell (was frozen — bug fix)
             # Project error back to hidden dim through context_logits weights
             recurrent_err = raw_error @ self.context_logits.weight.data  # (n_hidden,)
-            # GRU gates: use accumulate_free_energy only (gate weights have shape
-            # (n_hidden, embed_dim+n_hidden) from concatenated [x,h] input, so
-            # direct outer product with h alone would have wrong shape)
-            for gate in [self.recurrent_cell.W_z, self.recurrent_cell.W_r, self.recurrent_cell.W_h]:
+            # Use stored combined inputs from GRU forward pass for proper outer product
+            gru = self.recurrent_cell
+            if hasattr(gru, '_last_combined') and gru._last_combined is not None:
+                combined_2d = gru._last_combined.reshape(1, -1)     # (1, embed+n_hidden)
+                combined_r_2d = gru._last_combined_r.reshape(1, -1) # (1, embed+n_hidden)
+
+                # Project error through each gate's sigmoid derivative
+                # d(sigmoid)/dx = sigmoid * (1 - sigmoid)
+                z_gate_err = recurrent_err * gru._last_z * (1.0 - gru._last_z)
+                r_gate_err = recurrent_err * gru._last_r * (1.0 - gru._last_r)
+                # h_candidate uses tanh: d(tanh)/dx = 1 - tanh^2
+                h_gate_err = recurrent_err * gru._last_z * (1.0 - np.tanh(
+                    gru.W_h(StateTensor(combined_r_2d)).data[0])**2)
+
+                # Direct weight updates: ΔW = lr * gate_error ⊗ combined_input
+                z_update = (z_gate_err.reshape(-1, 1) @ combined_2d) * direct_lr * 0.5
+                r_update = (r_gate_err.reshape(-1, 1) @ combined_2d) * direct_lr * 0.5
+                h_update = (h_gate_err.reshape(-1, 1) @ combined_r_2d) * direct_lr * 0.5
+
+                gru.W_z.weight.data += z_update
+                gru.W_r.weight.data += r_update
+                gru.W_h.weight.data += h_update
+                np.clip(gru.W_z.weight.data, -5.0, 5.0, out=gru.W_z.weight.data)
+                np.clip(gru.W_r.weight.data, -5.0, 5.0, out=gru.W_r.weight.data)
+                np.clip(gru.W_h.weight.data, -5.0, 5.0, out=gru.W_h.weight.data)
+
+            # Also accumulate for sleep_cycle consolidation
+            for gate in [gru.W_z, gru.W_r, gru.W_h]:
                 gate_err_tensor = StateTensor(recurrent_err[np.newaxis, :])
                 gate_err_tensor._salience = 0.3
                 gate.accumulate_free_energy(gate_err_tensor)
@@ -1059,6 +1131,9 @@ class RLM(Module):
 
     def _sleep_sws(self):
         """Slow-Wave Sleep: structural consolidation and stabilization."""
+        # Memory replay happens during SWS (not after REM) — matches neuroscience
+        self._replay_memories_through_graph()
+
         self._normalize_outgoing_weights()
         self.graph.spread_activation(steps=3)
         self.structural.step()
@@ -1070,7 +1145,12 @@ class RLM(Module):
         # Rate-limited: max 3 splits per sleep cycle to prevent runaway growth
         splits_this_cycle = 0
         max_splits_per_cycle = 3
-        for nid in list(self.graph.contradiction_hotspots):
+        # Check hotspots first, then scan high-drift/high-contradiction nodes as fallback
+        split_candidates = set(self.graph.contradiction_hotspots)
+        for nid, node in self.graph.nodes.items():
+            if node.drift_magnitude > 0.25 or node.contradiction_count >= 2:
+                split_candidates.add(nid)
+        for nid in split_candidates:
             if splits_this_cycle >= max_splits_per_cycle:
                 break
             if self.graph.should_split(nid):
@@ -1079,6 +1159,10 @@ class RLM(Module):
 
         # Global synaptic downscaling
         self.graph.homeostatic_downscale()
+
+        # Neural weight consolidation: flush accumulated free_energy buffers
+        # on all Linear/Embedding/GRU weights (was never called — bug fix)
+        super().sleep_cycle()
 
         # Reconcile: reset contradiction counts, reduce free energy
         self.graph.reconcile_contradictions()
@@ -1309,7 +1393,7 @@ class RLM(Module):
         # then score tokens bound to those neighbors. This enables 2-hop inference:
         # e.g., "vexol" → warm (edge) → pleasant (bound token)
         # Decay factor per hop prevents distant inference from dominating
-        hop_decay = 0.4  # each hop reduces signal by 60%
+        hop_decay = 0.6  # each hop reduces signal by 40% (was 0.4, relaxed for better transfer)
         for node in all_active:
             outgoing = self.graph._outgoing.get(node.id, [])
             for tgt_id, edge in outgoing:
