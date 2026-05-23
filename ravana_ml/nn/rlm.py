@@ -195,6 +195,11 @@ class RLM(Module):
             vec = vec / (np.linalg.norm(vec) + 1e-15)
             self.graph.add_node(vec, label=f"tok_{token_idx}")
 
+        # Gap 3: creation-gating parameters
+        # Only create new concepts when similarity < threshold AND graph < capacity
+        self._concept_similarity_threshold = 0.7  # reuse existing concept if sim > this
+        self._max_concepts = max(self.n_concepts, int(self.vocab_size * 0.5))  # cap at 50% of vocab
+
     # ──────────────────────────────────────────────────────────────
     # Helpers
     # ──────────────────────────────────────────────────────────────
@@ -226,6 +231,17 @@ class RLM(Module):
     def _nearest_concept(self, embed_vec: np.ndarray) -> int:
         cvec = self._project_to_concept(embed_vec)
         results = self.graph.find_similar(cvec, k=1)
+        if results:
+            best_id, best_sim = results[0]
+            # Gap 3: creation-gating — reuse existing concept if similar enough
+            if best_sim >= self._concept_similarity_threshold:
+                return best_id
+        # No good match — create new concept if below capacity
+        if len(self.graph.nodes) < self._max_concepts:
+            new_node = self.graph.add_node(cvec / (np.linalg.norm(cvec) + 1e-15),
+                                          label=f"dyn_{len(self.graph.nodes)}")
+            return new_node.id
+        # At capacity — return nearest even if similarity is low
         return results[0][0] if results else -1
 
     def _nearest_concepts(self, embed_vec: np.ndarray, k: int = 3) -> List[int]:
@@ -603,6 +619,20 @@ class RLM(Module):
             self._edges_learned += 1
             self._competitive_inhibition(input_concept, output_concept, 0.05)
 
+            # ── Hebbian relation vector update ──
+            # Each edge's relation vector should encode WHERE it points, not just
+            # the direction from source. Different targets = different relation vectors.
+            # Use target vector directly (source is shared, so direction = target).
+            tgt_vec = self.graph.nodes[output_concept].vector
+            tgt_norm = np.linalg.norm(tgt_vec)
+            if tgt_norm > 0:
+                tgt_signal = tgt_vec / tgt_norm
+                # EMA blend: 85% old + 15% new (fast enough to separate within 100 steps)
+                edge.relation_vector = 0.85 * edge.relation_vector + 0.15 * tgt_signal
+                rv_norm = np.linalg.norm(edge.relation_vector)
+                if rv_norm > 0:
+                    edge.relation_vector /= rv_norm
+
             # ── Contrastive relation learning (Gap 1 fix) ──
             # Push relation vectors apart for edges with different targets from same source
             if self._step_counter % self._vector_update_interval == 0:
@@ -613,8 +643,8 @@ class RLM(Module):
                     # Different target = potentially different relation type
                     # Push relation vectors apart
                     rv_diff = edge.relation_vector - other_edge.relation_vector
-                    edge.relation_vector += 0.01 * rv_diff
-                    other_edge.relation_vector -= 0.01 * rv_diff
+                    edge.relation_vector += 0.05 * rv_diff
+                    other_edge.relation_vector -= 0.05 * rv_diff
                     # Renormalize
                     rv1_norm = np.linalg.norm(edge.relation_vector)
                     if rv1_norm > 0:
