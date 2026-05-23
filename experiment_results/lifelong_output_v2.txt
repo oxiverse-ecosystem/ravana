@@ -1,0 +1,24 @@
+
+======================================================================
+LIFELONG LEARNING BENCHMARK (100K+ EXPERIENCES)
+======================================================================
+  Experiences:    100,000
+  Entity epochs:  5
+  Probe interval: 5,000
+  Seed:           42
+
+Generating experience stream...
+  100,000 experiences generated
+  250 retention probes across 5 epochs
+  50 compositional transfer tests
+  Epoch boundaries: [20000, 40000, 60000, 80000]
+
+Streaming experiences...
+  Step    5,000/100,000 | Epoch 0 | Ret: 10.8% | Early: 10.0% | Forget: +0.0% | C: 514 E: 4779 S: 129 | 418.0s (ETA 8323s)
+  Step   10,000/100,000 | Epoch 0 | Ret: 17.2% | Early: 10.0% | Forget: +0.0% | C: 586 E: 7157 S: 165 | 1423.5s (ETA 13426s)
+  Step   15,000/100,000 | Epoch 0 | Ret: 17.6% | Early: 10.0% | Forget: +0.0% | C: 656 E: 9069 S: 200 | 2565.1s (ETA 15217s)
+  Step   20,000/100,000 | Epoch 0 | Ret: 17.6% | Early: 10.0% | Forget: +0.0% | C: 722 E: 11400 S: 233 | 3880.5s (ETA 16241s)
+  Step   25,000/100,000 | Epoch 1 | Ret: 23.6% | Early: 16.0% | Forget: +0.0% | C: 794 E: 14225 S: 269 | 5888.4s (ETA 18482s)
+  Step   30,000/100,000 | Epoch 1 | Ret: 26.0% | Early: 20.0% | Forget: +0.0% | C: 870 E: 17306 S: 307 | 9061.0s (ETA 22118s)
+  Step   35,000/100,000 | Epoch 1 | Ret: 29.2% | Early: 22.0% | Forget: +0.0% | C: 958 E: 20710 S: 351 | 13406.3s (ETA 26055s)
+  Step   40,000/100,000 | Epoch 1 | Ret: 17.2% | Early: 10.0% | Forget: +12.0% | C: 1024 E: 23345 S: 393 | 20595.5s (ETA 32307s)

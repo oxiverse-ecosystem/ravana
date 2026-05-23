@@ -1,0 +1,195 @@
+{
+  "frequency_baseline": {
+    "freq_top1": 0.232,
+    "freq_top5": 0.728,
+    "freq_top10": 0.96
+  },
+  "fair_evaluation": {
+    "top1_accuracy": 0.144,
+    "top10_accuracy": 0.484,
+    "discrimination": 0.44,
+    "novel_top1": 0.18,
+    "novel_top10": 0.44,
+    "mean_entropy": 1.1336894182482118,
+    "entropy_ratio": 0.20444601270187363,
+    "mean_margin": -7.114200259814928,
+    "pct_positive_margin": 0.144
+  },
+  "entity_predictions": {
+    "zenthari": {
+      "top3_tokens": [
+        115,
+        101,
+        116
+      ],
+      "top3_chars": [
+        "s",
+        "e",
+        "t"
+      ],
+      "seen_attrs": {
+        "wet": 6,
+        "wide": 6,
+        "hard": 5
+      }
+    },
+    "kryonis": {
+      "top3_tokens": [
+        115,
+        101,
+        120
+      ],
+      "top3_chars": [
+        "s",
+        "e",
+        "x"
+      ],
+      "seen_attrs": {
+        "deep": 9,
+        "pure": 6,
+        "old": 5
+      }
+    },
+    "vlentor": {
+      "top3_tokens": [
+        115,
+        101,
+        116
+      ],
+      "top3_chars": [
+        "s",
+        "e",
+        "t"
+      ],
+      "seen_attrs": {
+        "dense": 6,
+        "wet": 6,
+        "fast": 6
+      }
+    },
+    "quarnox": {
+      "top3_tokens": [
+        115,
+        101,
+        116
+      ],
+      "top3_chars": [
+        "s",
+        "e",
+        "t"
+      ],
+      "seen_attrs": {
+        "smooth": 8,
+        "wide": 7,
+        "pure": 6
+      }
+    },
+    "zorbax": {
+      "top3_tokens": [
+        115,
+        101,
+        116
+      ],
+      "top3_chars": [
+        "s",
+        "e",
+        "t"
+      ],
+      "seen_attrs": {
+        "sharp": 6,
+        "heavy": 6,
+        "thick": 6
+      }
+    },
+    "nexora": {
+      "top3_tokens": [
+        115,
+        101,
+        116
+      ],
+      "top3_chars": [
+        "s",
+        "e",
+        "t"
+      ],
+      "seen_attrs": {
+        "heavy": 9,
+        "old": 5,
+        "dull": 5
+      }
+    },
+    "valoris": {
+      "top3_tokens": [
+        115,
+        101,
+        116
+      ],
+      "top3_chars": [
+        "s",
+        "e",
+        "t"
+      ],
+      "seen_attrs": {
+        "deep": 7,
+        "thick": 6,
+        "wet": 6
+      }
+    },
+    "calibri": {
+      "top3_tokens": [
+        115,
+        101,
+        116
+      ],
+      "top3_chars": [
+        "s",
+        "e",
+        "t"
+      ],
+      "seen_attrs": {
+        "sharp": 7,
+        "wet": 6,
+        "dense": 6
+      }
+    },
+    "phyrox": {
+      "top3_tokens": [
+        115,
+        101,
+        116
+      ],
+      "top3_chars": [
+        "s",
+        "e",
+        "t"
+      ],
+      "seen_attrs": {
+        "thick": 6,
+        "dense": 6,
+        "pure": 5
+      }
+    },
+    "threndis": {
+      "top3_tokens": [
+        115,
+        101,
+        116
+      ],
+      "top3_chars": [
+        "s",
+        "e",
+        "t"
+      ],
+      "seen_attrs": {
+        "safe": 9,
+        "deep": 8,
+        "fast": 5
+      }
+    }
+  },
+  "config": {
+    "n_experiences": 5000,
+    "seed": 42,
+    "vocab_size": 256
+  }
+}

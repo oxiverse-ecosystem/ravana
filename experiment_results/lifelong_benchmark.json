@@ -1,0 +1,113 @@
+{
+  "experiment": "lifelong_learning_100k",
+  "config": {
+    "n_experiences": 5000,
+    "n_probes_per_epoch": 50,
+    "retention_check_interval": 1000,
+    "graph_snapshot_interval": 10000,
+    "transfer_test_interval": 20000,
+    "seed": 42,
+    "skip_baselines": true,
+    "embed_dim": 32,
+    "concept_dim": 32,
+    "n_hidden": 32,
+    "n_layers": 3,
+    "sleep_interval": 100,
+    "n_entity_epochs": 5,
+    "contradiction_rate": 0.02,
+    "noise_rate": 0.05
+  },
+  "final_retention": {
+    "overall": 0.112,
+    "early_recall": 0.06,
+    "late_recall": 0.1,
+    "catastrophic_forgetting": 0.06,
+    "by_epoch": {
+      "0": 0.06,
+      "1": 0.1,
+      "2": 0.16,
+      "3": 0.14,
+      "4": 0.1
+    }
+  },
+  "baselines": {
+    "mlp": 0.0,
+    "sliding": 0.0,
+    "knn": 0.0
+  },
+  "graph_final": {
+    "concepts": 526,
+    "edges": 7002,
+    "inhibitory": 3361,
+    "abstract": 135,
+    "density": 0.025355784899511135
+  },
+  "cognitive_final": {
+    "identity": 0.11184007923026613,
+    "accuracy": 0.10171463138782876,
+    "sleep_cycles": 1159,
+    "free_energy": 71.03966368824103
+  },
+  "compute": {
+    "rlm_total_s": 696.6805064678192,
+    "per_experience_ms": 139.33610129356384,
+    "mlp_total_s": 0
+  },
+  "snapshots": [
+    {
+      "step": 999,
+      "retention_overall": 0.12,
+      "early_recall": 0.08,
+      "catastrophic_forgetting": 0.0,
+      "n_concepts": 408,
+      "n_edges": 3609,
+      "n_abstract": 76,
+      "sleep_cycles": 238,
+      "cumulative_time_s": 31.722490549087524
+    },
+    {
+      "step": 1999,
+      "retention_overall": 0.196,
+      "early_recall": 0.12,
+      "catastrophic_forgetting": 0.0,
+      "n_concepts": 454,
+      "n_edges": 5099,
+      "n_abstract": 99,
+      "sleep_cycles": 465,
+      "cumulative_time_s": 111.69376230239868
+    },
+    {
+      "step": 2999,
+      "retention_overall": 0.032,
+      "early_recall": 0.06,
+      "catastrophic_forgetting": 0.06,
+      "n_concepts": 474,
+      "n_edges": 5698,
+      "n_abstract": 109,
+      "sleep_cycles": 692,
+      "cumulative_time_s": 229.10476541519165
+    },
+    {
+      "step": 3999,
+      "retention_overall": 0.044,
+      "early_recall": 0.08,
+      "catastrophic_forgetting": 0.039999999999999994,
+      "n_concepts": 494,
+      "n_edges": 6233,
+      "n_abstract": 119,
+      "sleep_cycles": 927,
+      "cumulative_time_s": 436.96641206741333
+    },
+    {
+      "step": 4999,
+      "retention_overall": 0.112,
+      "early_recall": 0.06,
+      "catastrophic_forgetting": 0.06,
+      "n_concepts": 526,
+      "n_edges": 7002,
+      "n_abstract": 135,
+      "sleep_cycles": 1159,
+      "cumulative_time_s": 696.6805064678192
+    }
+  ]
+}

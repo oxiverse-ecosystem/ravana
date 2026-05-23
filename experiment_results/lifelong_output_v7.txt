@@ -1,0 +1,17 @@
+
+======================================================================
+LIFELONG LEARNING BENCHMARK (100K+ EXPERIENCES)
+======================================================================
+  Experiences:    100,000
+  Entity epochs:  5
+  Probe interval: 5,000
+  Seed:           42
+
+Generating experience stream...
+  100,000 experiences generated
+  250 retention probes across 5 epochs
+  50 compositional transfer tests
+  Epoch boundaries: [20000, 40000, 60000, 80000]
+
+Streaming experiences...
+  Step    5,000/100,000 | Epoch 0 | Ret: 10.8% | Early: 12.0% | Forget: +0.0% | C: 384 E: 49848 S: 118 | 2240.7s (ETA 85000s)

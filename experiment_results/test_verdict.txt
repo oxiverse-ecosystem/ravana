@@ -1,3 +1,5 @@
 RLM vs LLM Test Results
-Passed: 6/6
+Passed: 4/6
 
+FAIL: Interference Forgetting: Expected interference effect > 0, got -0.317
+FAIL: Resource Efficiency: RLM took too long: 235815ms (expected < 120s)

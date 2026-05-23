@@ -1,0 +1,28 @@
+
+======================================================================
+LIFELONG LEARNING BENCHMARK (100K+ EXPERIENCES)
+======================================================================
+  Experiences:    100,000
+  Entity epochs:  5
+  Probe interval: 5,000
+  Seed:           42
+
+Generating experience stream...
+  100,000 experiences generated
+  250 retention probes across 5 epochs
+  50 compositional transfer tests
+  Epoch boundaries: [20000, 40000, 60000, 80000]
+
+Streaming experiences...
+Traceback (most recent call last):
+  File "C:\Users\Likhith\Documents\projects\ravana\experiment_lifelong.py", line 774, in <module>
+    run_lifelong_benchmark(config)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "C:\Users\Likhith\Documents\projects\ravana\experiment_lifelong.py", line 598, in run_lifelong_benchmark
+    snap = take_snapshot(step)
+  File "C:\Users\Likhith\Documents\projects\ravana\experiment_lifelong.py", line 547, in take_snapshot
+    snap.mlp_retention = evaluate_probe_accuracy(mlp, all_probes, tok)
+                         ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Likhith\Documents\projects\ravana\experiment_lifelong.py", line 407, in evaluate_probe_accuracy
+    top10 = set(np.argsort(logits)[::-1][:10])
+TypeError: cannot use 'numpy.ndarray' as a set element (unhashable type: 'numpy.ndarray')

@@ -1,0 +1,49 @@
+============================================================
+RLM vs LLM: RIGOROUS SCIENTIFIC EXPERIMENTS
+============================================================
+
+============================================================
+EXPERIMENT 1: COMPOSITIONAL FEW-SHOT GENERALIZATION
+============================================================
+
+--- Seed 42 ---
+  RLM  'glim is ___': dangerous score=0.128 (max_wrong=-0.106) PASS
+  RLM  'marn is ___': safe score=-0.772 (max_wrong=0.274) FAIL
+  RLM  'tork is ___': uncertain score=0.216 (max_wrong=0.345) FAIL
+  MLP  'glim is ___': dangerous score=3.672 (max_wrong=3.815) FAIL
+  MLP  'marn is ___': safe score=3.914 (max_wrong=4.122) FAIL
+  MLP  'tork is ___': uncertain score=3.754 (max_wrong=3.587) PASS
+
+--- Seed 123 ---
+  RLM  'glim is ___': dangerous score=4.175 (max_wrong=5.199) FAIL
+  RLM  'marn is ___': safe score=5.032 (max_wrong=4.572) PASS
+  RLM  'tork is ___': uncertain score=4.642 (max_wrong=5.158) FAIL
+  MLP  'glim is ___': dangerous score=3.880 (max_wrong=3.727) PASS
+  MLP  'marn is ___': safe score=3.500 (max_wrong=3.739) FAIL
+  MLP  'tork is ___': uncertain score=3.803 (max_wrong=3.994) FAIL
+
+--- Seed 456 ---
+  RLM  'glim is ___': dangerous score=6.293 (max_wrong=5.900) PASS
+  RLM  'marn is ___': safe score=5.570 (max_wrong=6.111) FAIL
+  RLM  'tork is ___': uncertain score=5.956 (max_wrong=6.194) FAIL
+  MLP  'glim is ___': dangerous score=3.359 (max_wrong=3.520) FAIL
+  MLP  'marn is ___': safe score=3.451 (max_wrong=3.211) PASS
+  MLP  'tork is ___': uncertain score=3.185 (max_wrong=3.529) FAIL
+
+  RLM: 33% ± 0%
+  MLP: 33% ± 0%
+
+============================================================
+EXPERIMENT 1B: DEEP COMPOSITIONAL GENERALIZATION
+============================================================
+
+--- Seed 42 ---
+  Chain 'zorbax is ___': fragile score=2.441 (max_wrong=2.213) PASS
+  Chain 'crystalline things are ___': valuable score=1.878 (max_wrong=5.247) FAIL
+  Chain 'fragile things are ___': insured score=2.616 (max_wrong=2.869) FAIL
+  Transfer 'vexol is ___': pleasant score=-1.688 (max_wrong=-0.859) FAIL
+  Transfer 'warm things are ___': memorable score=5.261 (max_wrong=8.681) FAIL
+  Negative 'zorbax is ___': flexible score=0.075 REJECTED
+  Negative 'marn is ___': fragile score=-0.811 REJECTED
+
+--- Seed 123 ---
