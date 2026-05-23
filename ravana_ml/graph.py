@@ -1628,7 +1628,7 @@ class ConceptGraph:
 
     def homeostatic_downscale(self, protection_threshold: float = 0.8,
                                downscale_factor: float = 0.8,
-                               structural_protection: float = 0.2) -> Tuple[float, float]:
+                               structural_protection: float = 0.5) -> Tuple[float, float]:
         """Global synaptic homeostasis — adaptive downscale that preserves learned associations.
 
         Unlike uniform downscale, this uses per-edge adaptive factors:
@@ -1671,8 +1671,9 @@ class ConceptGraph:
                 continue
 
             # Adaptive factor: confident, frequently-used edges resist downscale
+            # Floor raised from 0.6 to 0.85 — prevents catastrophic forgetting
             usage = min(1.0, edge.confidence * edge.prediction_count / 10.0)
-            adaptive_factor = 0.6 + 0.35 * usage
+            adaptive_factor = 0.85 + 0.14 * usage  # range: 0.85-0.99
             edge.weight *= adaptive_factor
 
         # Post-downscale renormalization: prevent concept orphaning

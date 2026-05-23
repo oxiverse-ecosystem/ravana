@@ -1309,13 +1309,17 @@ class RLM(Module):
         if len(self.identity_history) >= 10:
             self.identity_strength = 0.9 * self.identity_strength + 0.1 * np.mean(self.identity_history[-10:])
 
-    def _normalize_outgoing_weights(self, budget: float = 3.0):
-        """Normalize outgoing edge weights per source node to a budget.
+    def _normalize_outgoing_weights(self, budget_per_edge: float = 0.5, min_budget: float = 3.0):
+        """Normalize outgoing edge weights per source node to an adaptive budget.
 
+        Budget scales with edge count: max(min_budget, n_edges * budget_per_edge).
+        This prevents aggressive downscale on nodes with many learned associations.
         Uses graph._outgoing index for O(S) instead of O(S×E).
         """
         to_remove = []
         for src, out_edges in self.graph._outgoing.items():
+            n_edges = len(out_edges)
+            budget = max(min_budget, n_edges * budget_per_edge)
             total = sum(e.weight for _, e in out_edges)
             if total > budget:
                 scale = budget / total
