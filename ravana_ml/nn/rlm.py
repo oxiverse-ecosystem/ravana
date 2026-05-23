@@ -106,7 +106,7 @@ class RLM(Module):
 
         # Learning rate scheduling (warmup + cosine decay)
         self._warmup_steps = 100
-        self._base_lr = 0.0001
+        self._base_lr = 0.001  # 10x increase (was 0.0001) — Hebbian needs faster local learning
 
         # Token → concept binding (probabilistic, multi-meaning)
         self.binding_map = ConceptBindingMap()
