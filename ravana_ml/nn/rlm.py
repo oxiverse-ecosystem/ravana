@@ -322,17 +322,26 @@ class RLM(Module):
         z_norm = z / (np.linalg.norm(z) + 1e-15)
 
         # Activation based on conceptual similarity (from hidden state prediction)
+        # Use vectorized matrix multiply instead of per-node Python loop
         self.graph.reset_activation()
-        node_sims = []
-        for nid, node in self.graph.nodes.items():
-            sim = np.dot(node.vector, z_norm)
-            node_sims.append((nid, sim))
-
-        node_sims.sort(key=lambda x: x[1], reverse=True)
-        self._last_node_sims = node_sims  # store for learn() vector updates
+        if self.graph._vectors_dirty or self.graph._vector_matrix_normed is None:
+            self.graph._rebuild_vector_matrix()
+        if self.graph._vector_matrix_normed is not None and len(self.graph._node_id_order) > 0:
+            sims = self.graph._vector_matrix_normed @ z_norm.astype(np.float32)  # (N,)
+            # Build node_sims list from vectorized result
+            node_sims = [(self.graph._node_id_order[i], float(sims[i]))
+                         for i in range(len(self.graph._node_id_order))]
+            # Partial sort for top entries using argpartition (O(N) vs O(N log N))
+            k_top = min(20, len(sims))
+            top_idx = np.argpartition(sims, -k_top)[-k_top:]
+            top_idx = top_idx[np.argsort(sims[top_idx])[::-1]]
+            self._last_node_sims = [(self.graph._node_id_order[i], float(sims[i])) for i in top_idx]
+        else:
+            node_sims = []
+            self._last_node_sims = []
 
         edge_pred_list = []
-        for nid, sim in node_sims[:7]:
+        for nid, sim in self._last_node_sims[:7]:
             self.graph.activate(nid, max(0.01, sim))
             edge_pred_list.append(nid)
         
@@ -745,7 +754,9 @@ class RLM(Module):
             self._concept_vad[cid] = (self.valence, self.arousal, self.dominance)
 
         # 8. Lightweight self-regulation
-        self._regulate_cognitive_state()
+        # Only run full regulation every 100 steps (graph_diagnostics is expensive)
+        if self._step_counter % 100 == 0:
+            self._regulate_cognitive_state()
 
         # Auto-sleep when pressure exceeds threshold (in addition to step-based sleep)
         if self.sleep_pressure >= self.sleep_pressure_threshold:
@@ -755,7 +766,8 @@ class RLM(Module):
             self.sleep_cycle()
 
         # Record geometry snapshot periodically for long-horizon tracking
-        if self._step_counter % 10 == 0:
+        # Reduced from every 10 steps to every 1000 (expensive diagnostic)
+        if self._step_counter % 1000 == 0:
             self.graph.record_geometry_snapshot(event="learn")
 
         return conceptual_error
@@ -1327,12 +1339,21 @@ class RLM(Module):
                 node.activation *= 0.8
 
         # Activate based on conceptual similarity, scaled by fatigue
-        node_sims = []
-        for nid, node in self.graph.nodes.items():
-            sim = np.dot(node.vector, z_norm)
-            effective_sim = sim * (1.0 - getattr(node, 'fatigue', 0.0))
-            node_sims.append((nid, effective_sim))
-        node_sims.sort(key=lambda x: x[1], reverse=True)
+        # Use vectorized matrix multiply instead of per-node Python loop
+        if self.graph._vectors_dirty or self.graph._vector_matrix_normed is None:
+            self.graph._rebuild_vector_matrix()
+        if self.graph._vector_matrix_normed is not None and len(self.graph._node_id_order) > 0:
+            sims_raw = self.graph._vector_matrix_normed @ z_norm.astype(np.float32)  # (N,)
+            # Apply fatigue scaling vectorized
+            fatigue_arr = np.array([getattr(self.graph.nodes[nid], 'fatigue', 0.0)
+                                    for nid in self.graph._node_id_order], dtype=np.float32)
+            sims = sims_raw * (1.0 - fatigue_arr)
+            k_top = min(k_active_acf + 5, len(sims))
+            top_idx = np.argpartition(sims, -k_top)[-k_top:]
+            top_idx = top_idx[np.argsort(sims[top_idx])[::-1]]
+            node_sims = [(self.graph._node_id_order[i], float(sims[i])) for i in top_idx]
+        else:
+            node_sims = []
 
         edge_pred_list = []
         for nid, sim in node_sims[:k_active_acf]:
