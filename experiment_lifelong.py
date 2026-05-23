@@ -399,7 +399,7 @@ def evaluate_probe_accuracy(model, probes: List[Dict], tokenizer) -> float:
         if not prompt_ids:
             continue
         ctx = np.array([prompt_ids], dtype=np.int64)
-        logits = model.forward(ctx).data
+        logits = np.asarray(model.forward(ctx).data).flatten()
         target_ids = tokenizer.encode(probe['target'])
         if not target_ids:
             continue
@@ -682,7 +682,7 @@ def run_lifelong_benchmark(config: Optional[BenchmarkConfig] = None) -> Dict[str
             if not prompt_ids:
                 continue
             ctx = np.array([prompt_ids], dtype=np.int64)
-            logits = rlm.forward(ctx).data
+            logits = np.asarray(rlm.forward(ctx).data).flatten()
             hop2_ids = tok.encode(tt['hop2_target'])
             if hop2_ids:
                 top5 = np.argsort(logits)[::-1][:5]
