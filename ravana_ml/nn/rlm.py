@@ -947,9 +947,11 @@ class RLM(Module):
             self.meaning_history.pop(0)
 
         # 5. Sleep pressure accumulation
+        # Reduced rates: was 0.05+0.02=0.07/step (auto-sleep every ~10 steps!)
+        # Now 0.01+0.005=0.015/step (auto-sleep every ~47 steps)
         self.sleep_pressure = min(1.0, self.sleep_pressure
-                                  + conceptual_error * 0.05
-                                  + (0.02 if not is_correct else 0.0))
+                                  + conceptual_error * 0.01
+                                  + (0.005 if not is_correct else 0.0))
 
         # 6. Episodic memory storage
         self._store_episode(conceptual_error, is_correct)
@@ -964,7 +966,12 @@ class RLM(Module):
             self._regulate_cognitive_state()
 
         # Auto-sleep when pressure exceeds threshold (in addition to step-based sleep)
-        if self.sleep_pressure >= self.sleep_pressure_threshold:
+        # Cooldown: at least 200 learn steps between auto-sleeps to prevent concept balloon
+        if not hasattr(self, '_last_auto_sleep_step'):
+            self._last_auto_sleep_step = 0
+        if (self.sleep_pressure >= self.sleep_pressure_threshold
+                and self._step_counter - self._last_auto_sleep_step >= 200):
+            self._last_auto_sleep_step = self._step_counter
             self.sleep_cycle()
 
         if self._step_counter % self.sleep_interval == 0:
@@ -1365,9 +1372,11 @@ class RLM(Module):
         self.graph.form_inhibitory_edges()
 
         # Split concepts that have accumulated enough signal
-        # Rate-limited: max 2 splits per sleep cycle to prevent runaway growth
+        # Rate-limited: max 2 splits per cycle to prevent runaway growth
+        # Global budget: stop splitting if concepts > 1.5x initial count
         splits_this_cycle = 0
         max_splits_per_cycle = 2
+        max_total_concepts = int(self.n_concepts * 1.5)
         # Check hotspots first, then scan high-drift/high-contradiction nodes as fallback
         split_candidates = set(self.graph.contradiction_hotspots)
         for nid, node in self.graph.nodes.items():
@@ -1376,6 +1385,8 @@ class RLM(Module):
         for nid in split_candidates:
             if splits_this_cycle >= max_splits_per_cycle:
                 break
+            if len(self.graph.nodes) >= max_total_concepts:
+                break  # global budget exhausted
             if self.graph.should_split(nid):
                 self.graph.split_concept(nid, binding_map=self.binding_map)
                 splits_this_cycle += 1
