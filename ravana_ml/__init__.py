@@ -24,6 +24,7 @@ from . import free_energy
 from . import plasticity
 from . import world
 from . import nn
+from . import currency
 
 # ── device management (CPU-only, for API compatibility) ──
 
