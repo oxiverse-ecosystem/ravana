@@ -832,18 +832,15 @@ class RLM(Module):
             concept_attn_logits = np.zeros(self.vocab_size, dtype=np.float32)
 
         # ── Relation Predictor (backprop-trained) ──
-        # For the strongest active concept, collect relation vectors and predict target
+        # Try ALL active concepts (not just top-1) to find one with outgoing edges
         self._rp_input_concept = None
-        if len(all_active) > 0:
-            top_concept = all_active[0]  # strongest activation
-            rel_vecs = self._rp_collect_relations(top_concept.id)
+        rp_logits = np.zeros(self.vocab_size, dtype=np.float32)
+        for cand in all_active:
+            rel_vecs = self._rp_collect_relations(cand.id)
             if len(rel_vecs) > 0:
-                rp_logits = self._rp_forward(top_concept.vector, rel_vecs)
-                self._rp_input_concept = top_concept.id
-            else:
-                rp_logits = np.zeros(self.vocab_size, dtype=np.float32)
-        else:
-            rp_logits = np.zeros(self.vocab_size, dtype=np.float32)
+                rp_logits = self._rp_forward(cand.vector, rel_vecs)
+                self._rp_input_concept = cand.id
+                break
 
         # ── Cognitive modulation: emotion + identity shape logit blend ──
         # High arousal → exploration (boost concept path), positive valence → trust concepts
@@ -854,7 +851,7 @@ class RLM(Module):
         logits = (concept_logits * identity_scale * emotion_scale
                   + ctx_logits * self.context_scale
                   + concept_attn_logits * 0.1
-                  + rp_logits * 0.3)
+                  + rp_logits * getattr(self, "_rp_weight", 0.3))
         self._last_ctx_logits = ctx_logits
         return StateTensor(logits[np.newaxis, :])[0]
 
