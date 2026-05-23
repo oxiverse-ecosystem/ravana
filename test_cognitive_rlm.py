@@ -1,7 +1,8 @@
 """Tests for native cognitive architecture embedded in RLM.
 
 Covers: identity, emotion (VAD), meaning, sleep pressure, regulation,
-native memory (episodic/semantic), memory bridge, save/load roundtrip.
+native memory (episodic/semantic), memory bridge, save/load roundtrip,
+token-level dissonance metric, edge weight convergence.
 """
 import numpy as np
 import tempfile
@@ -41,6 +42,9 @@ def test_cognitive_state_init():
     assert m._episodic_buffer == []
     assert m._semantic_memories == {}
     assert m._concept_vad == {}
+    # New dissonance fields
+    assert m._edge_weight_ema == 0.0
+    assert m._token_hit_ema == 0.5
     print("PASS: test_cognitive_state_init")
 
 
@@ -265,6 +269,8 @@ def test_cognitive_save_load_roundtrip():
         assert abs(loaded.sleep_pressure - m.sleep_pressure) < 1e-6
         assert loaded.regulation_mode == m.regulation_mode
         assert abs(loaded.dissonance_ema - m.dissonance_ema) < 1e-6
+        assert abs(loaded._edge_weight_ema - m._edge_weight_ema) < 1e-6
+        assert abs(loaded._token_hit_ema - m._token_hit_ema) < 1e-6
         assert len(loaded._episodic_buffer) == len(m._episodic_buffer)
         assert len(loaded._semantic_memories) == len(m._semantic_memories)
         assert len(loaded._concept_vad) == len(m._concept_vad)
@@ -297,6 +303,8 @@ def test_cognitive_zip_roundtrip():
         assert abs(loaded.sleep_pressure - m.sleep_pressure) < 1e-6
         assert loaded.regulation_mode == m.regulation_mode
         assert abs(loaded.dissonance_ema - m.dissonance_ema) < 1e-6
+        assert abs(loaded._edge_weight_ema - m._edge_weight_ema) < 1e-6
+        assert abs(loaded._token_hit_ema - m._token_hit_ema) < 1e-6
         assert len(loaded._episodic_buffer) == len(m._episodic_buffer)
         assert len(loaded._semantic_memories) == len(m._semantic_memories)
         assert len(loaded._concept_vad) == len(m._concept_vad)
@@ -340,6 +348,48 @@ def test_full_cognitive_cycle():
         os.unlink(path)
 
 
+# ── Token-Level Dissonance Metric ──
+
+def test_dissonance_changes_over_time():
+    """The dissonance metric should actually change as the model learns,
+    not stay flat at ~1.0 like the old set-overlap metric."""
+    m = _make_model(sleep_interval=50)
+    dissonance_snapshots = []
+    # Use a repeating pattern so the model can learn to predict it
+    for step in range(500):
+        # Simple sequential pattern: i -> i+1 mod vocab_size
+        i = step % m.vocab_size
+        next_i = (i + 1) % m.vocab_size
+        error = m.learn(np.array([i]), np.array([next_i]))
+        if step % 50 == 0:
+            dissonance_snapshots.append((step, m.dissonance_ema, m._token_hit_ema, m._edge_weight_ema))
+
+    print("\n--- Dissonance over 500 steps ---")
+    print(f"{'Step':>5}  {'Dissonance':>10}  {'TokenHitEMA':>12}  {'EdgeWeightEMA':>14}")
+    for step, diss, hit, ew in dissonance_snapshots:
+        print(f"{step:>5}  {diss:>10.4f}  {hit:>12.4f}  {ew:>14.6f}")
+
+    first_diss = dissonance_snapshots[0][1]
+    last_diss = dissonance_snapshots[-1][1]
+
+    # The key test: dissonance should NOT be stuck at ~1.0
+    # It should reflect actual prediction accuracy
+    # With a repeating sequential pattern, the model should eventually learn
+    # At minimum, the metric should vary (not be flat)
+    all_dissonances = [d[1] for d in dissonance_snapshots]
+    dissonance_range = max(all_dissonances) - min(all_dissonances)
+    assert dissonance_range > 0.01, \
+        f"Dissonance should vary over time! Range was {dissonance_range:.4f} (stuck at {first_diss:.4f})"
+
+    # Edge weight EMA should be non-negative (initialized to 0, grows with edges)
+    last_ew = dissonance_snapshots[-1][3]
+    print(f"\nFinal edge weight EMA: {last_ew:.6f}")
+    assert last_ew >= 0.0, "Edge weight EMA should be non-negative"
+
+    print(f"\nDissonance range: {first_diss:.4f} -> {last_diss:.4f} (delta={last_diss - first_diss:+.4f})")
+    print("PASS: test_dissonance_changes_over_time")
+
+
 # ── Run all tests ──
 
 if __name__ == "__main__":
@@ -357,4 +407,5 @@ if __name__ == "__main__":
     test_cognitive_save_load_roundtrip()
     test_cognitive_zip_roundtrip()
     test_full_cognitive_cycle()
-    print("\n=== ALL 14 COGNITIVE TESTS PASSED ===")
+    test_dissonance_changes_over_time()
+    print("\n=== ALL 15 COGNITIVE TESTS PASSED ===")

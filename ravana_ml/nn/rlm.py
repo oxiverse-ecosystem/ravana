@@ -102,6 +102,11 @@ class RLM(Module):
 
         self._edges_learned = 0
 
+        # Edge weight convergence tracking
+        self._edge_weight_ema = 0.0          # EMA of mean edge weight (should rise over time)
+        self._edge_weight_prev = 0.0         # previous EMA snapshot for delta
+        self._token_hit_ema = 0.5            # EMA of token-level prediction hit rate
+
         # Vector update rate limiting (prevents oscillation from noisy single-sample updates)
         self._vector_update_interval = 5  # update concept vectors every N steps
 
@@ -678,11 +683,11 @@ class RLM(Module):
                 # Pull input concept toward input token (project embed→concept first)
                 input_concept_vec = self._project_to_concept(input_embed)
                 delta_in = input_concept_vec - self.graph.nodes[input_concept].vector
-                self.graph.adjust_vector(input_concept, delta_in, lr=0.02)
+                self.graph.adjust_vector(input_concept, delta_in, lr=0.005)
                 # Pull output concept toward output token
                 output_concept_vec = self._project_to_concept(next_embed)
                 delta_out = output_concept_vec - self.graph.nodes[output_concept].vector
-                self.graph.adjust_vector(output_concept, delta_out, lr=0.02)
+                self.graph.adjust_vector(output_concept, delta_out, lr=0.005)
 
                 # Contrastive push: repel non-matching concepts that are too close
                 # Prevents concept collapse (multiple concepts converging to same meaning)
@@ -761,16 +766,28 @@ class RLM(Module):
                     cedge.confidence = min(0.8, cedge.confidence + 0.02)
                     cedge.prediction_count += 1
 
-        predicted_set = set(self._last_predicted_concepts)
-        actual_set = set(self._nearest_concepts(next_embed, k=5))
-        n_overlap = len(predicted_set & actual_set)
-        n_union = max(1, len(predicted_set | actual_set))
-        overlap_ratio = n_overlap / n_union
-        conceptual_error = 1.0 - overlap_ratio
-        self.free_energy_engine.accumulate_semantic(conceptual_error * 1.5, salience=0.5)
+        # Token-level prediction accuracy (replaces broken set-overlap metric)
+        # Old metric compared spreading-activation predicted concepts vs nearest-concept
+        # geometry — two different lookup methods, so overlap was always ~0 (error ~1.0).
+        # New metric: did the actual output concept appear in the predicted set?
+        token_hit = output_concept in self._last_predicted_concepts
 
         edge_pred_set = set(self._last_edge_pred)
         single_correct = output_concept in edge_pred_set
+
+        # A hit from either channel counts as correct
+        is_prediction_correct = token_hit or single_correct
+        conceptual_error = 0.0 if is_prediction_correct else 1.0
+        # Update token-hit EMA (smoothed accuracy signal)
+        self._token_hit_ema = 0.9 * self._token_hit_ema + 0.1 * (1.0 if is_prediction_correct else 0.0)
+        self.free_energy_engine.accumulate_semantic(conceptual_error * 1.5, salience=0.5)
+
+        # Edge weight convergence: track whether mean edge weight is rising
+        n_edges = len(self.graph.edges)
+        if n_edges > 0:
+            mean_w = np.mean([e.weight for e in self.graph.edges.values()])
+            self._edge_weight_prev = self._edge_weight_ema
+            self._edge_weight_ema = 0.99 * self._edge_weight_ema + 0.01 * mean_w
 
         if not single_correct and input_concept >= 0:
             inode = self.graph.get_node(input_concept)
@@ -1950,6 +1967,8 @@ class RLM(Module):
                 "sleep_pressure_threshold": self.sleep_pressure_threshold,
                 "regulation_mode": self.regulation_mode,
                 "dissonance_ema": self.dissonance_ema,
+                "edge_weight_ema": self._edge_weight_ema,
+                "token_hit_ema": self._token_hit_ema,
                 "episodic_buffer": self._episodic_buffer,
                 "semantic_memories": self._semantic_memories,
                 "concept_vad": {str(k): v for k, v in self._concept_vad.items()},
@@ -2048,6 +2067,8 @@ class RLM(Module):
             model.sleep_pressure_threshold = cs.get("sleep_pressure_threshold", 0.7)
             model.regulation_mode = cs.get("regulation_mode", "NORMAL")
             model.dissonance_ema = cs.get("dissonance_ema", 0.5)
+            model._edge_weight_ema = cs.get("edge_weight_ema", 0.0)
+            model._token_hit_ema = cs.get("token_hit_ema", 0.5)
             model._episodic_buffer = cs.get("episodic_buffer", [])
             model._semantic_memories = cs.get("semantic_memories", {})
             model._concept_vad = {int(k): tuple(v) for k, v in cs.get("concept_vad", {}).items()}
@@ -2243,6 +2264,8 @@ class RLM(Module):
             "sleep_pressure_threshold": self.sleep_pressure_threshold,
             "regulation_mode": self.regulation_mode,
             "dissonance_ema": self.dissonance_ema,
+            "edge_weight_ema": self._edge_weight_ema,
+            "token_hit_ema": self._token_hit_ema,
             "episodic_buffer": episodes_json,
             "semantic_memories": self._semantic_memories,
             "concept_vad": {str(k): list(v) for k, v in self._concept_vad.items()},
@@ -2519,6 +2542,8 @@ class RLM(Module):
                 model.sleep_pressure_threshold = cs.get("sleep_pressure_threshold", 0.7)
                 model.regulation_mode = cs.get("regulation_mode", "NORMAL")
                 model.dissonance_ema = cs.get("dissonance_ema", 0.5)
+                model._edge_weight_ema = cs.get("edge_weight_ema", 0.0)
+                model._token_hit_ema = cs.get("token_hit_ema", 0.5)
                 # Restore episodic buffer (convert vector lists back to numpy)
                 model._episodic_buffer = []
                 for ep in cs.get("episodic_buffer", []):

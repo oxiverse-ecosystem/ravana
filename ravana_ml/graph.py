@@ -849,6 +849,11 @@ class ConceptGraph:
         # Multi-timescale cognitive regulator
         self._regulator = CognitiveRegulator()
 
+        # ── Vector stability: max L2 change per adjust_vector call ──
+        # Prevents concept vectors from jumping too fast, which causes
+        # _nearest_concept() to return different IDs and orphan edges.
+        self.max_step_delta: float = 0.01
+
         # ── Diagnostics caching (Phase 3 optimization) ──
         # graph_diagnostics is expensive; cache result and reuse within a window
         self._diagnostics_cache: Optional[Dict[str, Any]] = None
@@ -1169,12 +1174,20 @@ class ConceptGraph:
             if node.contradiction_free_energy > 3.0:
                 node.stability = max(0.1, node.stability - 0.05)
 
-    def adjust_vector(self, nid: int, delta: np.ndarray, lr: float = 0.1):
+    def adjust_vector(self, nid: int, delta: np.ndarray, lr: float = 0.1,
+                      _max_delta: Optional[float] = None):
         node = self.nodes.get(nid)
         if node is None:
             return
         # Active vector: fast plastic update
-        node.vector += delta * lr * node.plasticity
+        step = delta * lr * node.plasticity
+        # Clamp per-step magnitude to prevent concept ID oscillation
+        max_d = _max_delta if _max_delta is not None else self.max_step_delta
+        if max_d and max_d > 0:
+            step_norm = np.linalg.norm(step)
+            if step_norm > max_d:
+                step = step * (max_d / step_norm)
+        node.vector += step
         norm = np.linalg.norm(node.vector)
         if norm > 0:
             node.vector /= norm
