@@ -21,3 +21,5 @@ Streaming experiences...
   Step   25,000/100,000 | Epoch 1 | Ret: 13.2% | Early: 20.0% | Forget: +48.0% | C: 1024 E: 13707 S: 1024 | 10229.3s (ETA 34458s)
   Step   30,000/100,000 | Epoch 1 | Ret: 3.2% | Early: 2.0% | Forget: +66.0% | C: 1024 E: 10434 S: 1024 | 12323.9s (ETA 32319s)
   Step   35,000/100,000 | Epoch 1 | Ret: 3.2% | Early: 0.0% | Forget: +68.0% | C: 1024 E: 17891 S: 1024 | 15409.0s (ETA 32205s)
+  Step   40,000/100,000 | Epoch 1 | Ret: 56.8% | Early: 66.0% | Forget: +2.0% | C: 1024 E: 17473 S: 1024 | 20106.5s (ETA 34008s)
+  Step   45,000/100,000 | Epoch 2 | Ret: 38.8% | Early: 46.0% | Forget: +22.0% | C: 1024 E: 16780 S: 1024 | 22415.4s (ETA 30958s)

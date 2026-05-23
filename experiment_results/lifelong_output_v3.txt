@@ -30,3 +30,6 @@ Streaming experiences...
   Step   70,000/100,000 | Epoch 3 | Ret: 39.2% | Early: 44.0% | Forget: +30.0% | C: 1024 E: 5029 S: 1024 | 21372.1s (ETA 9618s)
   Step   75,000/100,000 | Epoch 3 | Ret: 39.2% | Early: 46.0% | Forget: +28.0% | C: 1024 E: 9007 S: 1024 | 23152.4s (ETA 8105s)
   Step   80,000/100,000 | Epoch 3 | Ret: 39.2% | Early: 44.0% | Forget: +30.0% | C: 1024 E: 4595 S: 1024 | 25300.9s (ETA 6643s)
+  Step   85,000/100,000 | Epoch 4 | Ret: 39.2% | Early: 44.0% | Forget: +30.0% | C: 1024 E: 8675 S: 1024 | 28789.1s (ETA 5336s)
+  Step   90,000/100,000 | Epoch 4 | Ret: 39.2% | Early: 44.0% | Forget: +30.0% | C: 1024 E: 4187 S: 1024 | 31886.7s (ETA 3720s)
+  Step   95,000/100,000 | Epoch 4 | Ret: 51.2% | Early: 56.0% | Forget: +18.0% | C: 1024 E: 5719 S: 1024 | 33797.6s (ETA 1868s)
