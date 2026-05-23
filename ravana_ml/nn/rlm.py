@@ -7,7 +7,7 @@ import os
 from collections import defaultdict
 from typing import Optional, List, Tuple, Dict, Set
 from ..tensor import StateTensor, RawTensor, tensor, Parameter
-from ..graph import ConceptGraph, ConceptBindingMap
+from ..graph import ConceptGraph, ConceptBindingMap, ConceptEdge
 from ..propagation import PropagationEngine
 from ..free_energy import FreeEnergyAccumulator
 from ..plasticity import HebbianPlasticity, AntiHebbianPlasticity, StructuralPlasticity
@@ -305,6 +305,80 @@ class RLM(Module):
         # Default: semantic (unchanged behavior)
         return "semantic"
 
+    def _infer_relation_from_structure(self, source_id: int, target_id: int) -> str:
+        """Infer relation type from structural activation patterns.
+
+        Phase 2: bottom-up classification from behavior, not syntax.
+        Uses prediction asymmetry to distinguish directional vs symmetric:
+        - A→B strong, B→A weak = directional (causal/temporal)
+        - A→B ≈ B→A = symmetric (semantic)
+        """
+        edge = self.graph.get_edge(source_id, target_id)
+        if edge is None:
+            return "semantic"
+
+        # 1. Prediction asymmetry
+        fwd = edge.forward_pred_count + edge.prediction_count
+        reverse_edge = self.graph.get_edge(target_id, source_id)
+        bwd = 0
+        if reverse_edge is not None:
+            bwd = reverse_edge.forward_pred_count + reverse_edge.prediction_count
+
+        total = fwd + bwd
+        if total < 3:
+            return edge.relation_type  # not enough data, keep current
+
+        asymmetry = abs(fwd - bwd) / total  # 0 = symmetric, 1 = fully directional
+
+        # 2. Classification logic
+        if asymmetry > 0.6:
+            # Strongly directional — check if temporal or causal
+            src_node = self.graph.get_node(source_id)
+            tgt_node = self.graph.get_node(target_id)
+            if src_node and tgt_node:
+                src_recency = src_node.recency_score() if hasattr(src_node, 'recency_score') else 0
+                tgt_recency = tgt_node.recency_score() if hasattr(tgt_node, 'recency_score') else 0
+                # If source is more recent (activated later in sequence) → temporal
+                if src_recency > tgt_recency * 1.2:
+                    return "temporal"
+            return "causal"  # directional, no clear temporal order
+        elif asymmetry > 0.3:
+            return "contextual"  # moderately directional
+        else:
+            return "semantic"  # symmetric = semantic/is-a
+
+    def _refine_relation_types(self, max_edges: int = 50):
+        """Re-classify edge relation types based on accumulated activation patterns.
+
+        Phase 2: runs periodically. For each edge, checks prediction asymmetry
+        and re-classifies if structural signal contradicts current type.
+        Creates positive feedback: correct typing → better contrastive separation
+        → better analogy matching → better transfer.
+        """
+        refined = 0
+        for key, edge in list(self.graph.edges.items())[:max_edges]:
+            if edge.shortcut or edge.edge_type == "inhibitory":
+                continue
+
+            src_id, tgt_id = key
+            inferred = self._infer_relation_from_structure(src_id, tgt_id)
+
+            if inferred != edge.relation_type:
+                edge.relation_type = inferred
+
+                # Re-initialize relation vector from new type seed,
+                # blend with existing to preserve learned structure
+                new_seed = ConceptEdge._init_relation_vector(inferred, len(edge.relation_vector))
+                blend = 0.7  # 70% existing, 30% new seed
+                edge.relation_vector = blend * edge.relation_vector + (1 - blend) * new_seed
+                rv_norm = np.linalg.norm(edge.relation_vector)
+                if rv_norm > 0:
+                    edge.relation_vector /= rv_norm
+
+                refined += 1
+
+        return refined
+
     def _get_lr_scale(self) -> float:
         """Learning rate scale: warmup then cosine decay."""
         if self._step_counter < self._warmup_steps:
@@ -462,7 +536,9 @@ class RLM(Module):
                 tgt_node = self.graph.get_node(tgt_id)
                 if tgt_node is None:
                     continue
-                hop_score = node.activation * edge.weight * hop_decay
+                # Phase 2: relation-type-aware hop scoring
+                rel_boost = {"causal": 1.3, "temporal": 1.2, "inferred": 0.8}.get(edge.relation_type, 1.0)
+                hop_score = node.activation * edge.weight * hop_decay * rel_boost
                 bound_tokens = self._concept_to_tokens.get(tgt_id, set())
                 for tok_id in bound_tokens:
                     if tok_id >= self.vocab_size:
@@ -523,6 +599,7 @@ class RLM(Module):
             edge.weight = min(1.0, edge.weight + 0.05)
             edge.confidence = min(1.0, edge.confidence + 0.03)
             edge.prediction_count += 1
+            edge.forward_pred_count += 1  # Phase 2: track directional prediction
             self._edges_learned += 1
             self._competitive_inhibition(input_concept, output_concept, 0.05)
 
@@ -545,6 +622,11 @@ class RLM(Module):
                     rv2_norm = np.linalg.norm(other_edge.relation_vector)
                     if rv2_norm > 0:
                         other_edge.relation_vector /= rv2_norm
+
+            # ── Phase 2: Periodic relation type refinement ──
+            # Re-classify edges based on accumulated prediction asymmetry
+            if self._step_counter % 20 == 0:
+                self._refine_relation_types(max_edges=50)
 
             # Update token-concept bindings
             # Bind each token to its nearest concept
@@ -643,7 +725,8 @@ class RLM(Module):
                 ctx_concept = self._nearest_concept(
                     self.token_embed.embed_raw(ctx_id))
                 if ctx_concept >= 0 and ctx_concept != output_concept and ctx_concept != input_concept:
-                    cedge = self.graph.get_or_create_edge(ctx_concept, output_concept, weight=0.1, shortcut=True)
+                    rel_type = self._classify_relation(token_ids[0])
+                    cedge = self.graph.get_or_create_edge(ctx_concept, output_concept, weight=0.1, shortcut=True, relation_type=rel_type)
                     cedge.weight = min(0.8, cedge.weight + 0.03)
                     cedge.confidence = min(0.8, cedge.confidence + 0.02)
                     cedge.prediction_count += 1
@@ -1316,7 +1399,8 @@ class RLM(Module):
                 shared = out1 & out2
                 if len(shared) >= 1:
                     self.graph.add_edge(n1.id, n2.id, weight=0.1,
-                                       edge_type="contextual", shortcut=True)
+                                       edge_type="contextual", shortcut=True,
+                                       relation_type="inferred")
 
         # Apply noise-modulated free energy (REM explores, doesn't just consolidate)
         self.free_energy_engine.decay(rate=0.05)  # gentle decay during REM
@@ -1501,7 +1585,9 @@ class RLM(Module):
                 if tgt_node is None:
                     continue
                 # Score: active_node_activation * edge_weight * hop_decay
-                hop_score = node.effective_activation * edge.weight * hop_decay
+                # Phase 2: relation-type-aware hop scoring
+                rel_boost = {"causal": 1.3, "temporal": 1.2, "inferred": 0.8}.get(edge.relation_type, 1.0)
+                hop_score = node.effective_activation * edge.weight * hop_decay * rel_boost
                 # Tokens bound to the neighbor concept get a boost
                 bound_tokens = self._concept_to_tokens.get(tgt_id, set())
                 for tok_id in bound_tokens:
