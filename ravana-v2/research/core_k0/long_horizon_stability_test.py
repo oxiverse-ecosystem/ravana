@@ -169,8 +169,8 @@ class LongHorizonStabilityTest:
                 conflicts.append(abs(belief - action_val) * conf)
             
             raw_d = np.mean(conflicts) if conflicts else 0.5
-            # Scale to match paper range [0.2, 0.8]
-            return float(np.clip(raw_d * 2.6, 0.1, 1.0))
+            # Normalize to [0.1, 0.9] — same formula as RLM.dissonance_normalized
+            return float(0.1 + 0.8 * min(1.0, raw_d / 1.5))
             
         return 0.8  # Fallback
 

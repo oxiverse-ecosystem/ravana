@@ -1,9 +1,9 @@
 {
   "config": {
-    "n_train_repeats": 200,
+    "n_train_repeats": 3,
     "n_test_probes": 50,
     "seed": 42,
-    "skip_baselines": true,
+    "skip_baselines": false,
     "embed_dim": 32,
     "concept_dim": 32,
     "n_hidden": 32,
@@ -22,79 +22,79 @@
       "n_tested": 7
     },
     "post_train_a_on_a": {
-      "top1_accuracy": 0.14285714285714285,
-      "top10_accuracy": 0.5714285714285714,
+      "top1_accuracy": 0.0,
+      "top10_accuracy": 0.14285714285714285,
       "n_tested": 7
     },
     "post_train_a_on_b": {
-      "top1_accuracy": 0.0,
-      "top10_accuracy": 0.5714285714285714,
+      "top1_accuracy": 0.14285714285714285,
+      "top10_accuracy": 0.14285714285714285,
       "n_tested": 7
     },
     "post_train_b_on_a": {
-      "top1_accuracy": 0.14285714285714285,
-      "top10_accuracy": 0.5714285714285714,
+      "top1_accuracy": 0.0,
+      "top10_accuracy": 0.0,
       "n_tested": 7
     },
     "post_train_b_on_b": {
       "top1_accuracy": 0.0,
-      "top10_accuracy": 0.5714285714285714,
+      "top10_accuracy": 0.0,
       "n_tested": 7
     },
     "post_sleep_a": {
-      "top1_accuracy": 0.14285714285714285,
-      "top10_accuracy": 0.5714285714285714,
+      "top1_accuracy": 0.0,
+      "top10_accuracy": 0.0,
       "n_tested": 7
     },
     "post_sleep_b": {
       "top1_accuracy": 0.0,
-      "top10_accuracy": 0.5714285714285714,
+      "top10_accuracy": 0.0,
       "n_tested": 7
     },
     "graph_after_a": {
-      "n_nodes": 384,
-      "n_edges": 17970,
-      "n_shortcut_edges": 3994,
-      "n_inferred_edges": 2809,
+      "n_nodes": 256,
+      "n_edges": 143,
+      "n_shortcut_edges": 131,
+      "n_inferred_edges": 0,
       "relation_types": {
-        "causal": 330,
-        "semantic": 14831,
-        "inferred": 2809
+        "causal": 86,
+        "temporal": 1,
+        "semantic": 56
       },
-      "mean_edge_weight": 0.08630944758260442,
-      "max_edge_weight": 1.181494622048766,
-      "sleep_cycles": 69,
-      "conceptual_accuracy": 0.0564610818892466
+      "mean_edge_weight": 0.2571242115118722,
+      "max_edge_weight": 0.6400000000000003,
+      "sleep_cycles": 0,
+      "conceptual_accuracy": 0.42309181114661243
     },
     "graph_after_b": {
-      "n_nodes": 384,
-      "n_edges": 18864,
-      "n_shortcut_edges": 4666,
-      "n_inferred_edges": 3047,
+      "n_nodes": 260,
+      "n_edges": 1207,
+      "n_shortcut_edges": 402,
+      "n_inferred_edges": 42,
       "relation_types": {
-        "causal": 600,
-        "semantic": 15217,
-        "inferred": 3047
+        "causal": 194,
+        "semantic": 971,
+        "inferred": 42
       },
-      "mean_edge_weight": 0.08632797546137048,
-      "max_edge_weight": 1.2388649130429756,
-      "sleep_cycles": 138,
-      "conceptual_accuracy": 0.050000000000000086
+      "mean_edge_weight": 0.22512007055448607,
+      "max_edge_weight": 0.8,
+      "sleep_cycles": 1,
+      "conceptual_accuracy": 0.07126892033213669
     },
     "graph_after_sleep": {
-      "n_nodes": 384,
-      "n_edges": 18864,
-      "n_shortcut_edges": 4666,
-      "n_inferred_edges": 3047,
+      "n_nodes": 264,
+      "n_edges": 2285,
+      "n_shortcut_edges": 441,
+      "n_inferred_edges": 59,
       "relation_types": {
-        "causal": 600,
-        "semantic": 15217,
-        "inferred": 3047
+        "causal": 194,
+        "semantic": 2032,
+        "inferred": 59
       },
-      "mean_edge_weight": 0.0859980607056063,
-      "max_edge_weight": 1.2388649130429756,
-      "sleep_cycles": 139,
-      "conceptual_accuracy": 0.050000000000000086
+      "mean_edge_weight": 0.2152505609528851,
+      "max_edge_weight": 0.8,
+      "sleep_cycles": 2,
+      "conceptual_accuracy": 0.07126892033213669
     },
     "transfer_probes": {
       "probes": [
@@ -102,15 +102,15 @@
           "input": "kindness causes ",
           "expected": "trust",
           "expected_char": "t",
-          "predicted": "r",
+          "predicted": "1",
           "correct": false,
           "in_top10": true,
           "top5": [
-            "r",
-            "t",
-            "c",
-            "b",
-            "o"
+            "1",
+            "q",
+            "Y",
+            "#19",
+            "#11"
           ],
           "description": "B vocab + A causal pattern"
         },
@@ -118,15 +118,15 @@
           "input": "anger produces ",
           "expected": "conflict",
           "expected_char": "c",
-          "predicted": "c",
-          "correct": true,
-          "in_top10": true,
+          "predicted": "#184",
+          "correct": false,
+          "in_top10": false,
           "top5": [
-            "c",
-            "f",
-            "r",
-            "s",
-            "t"
+            "#184",
+            "q",
+            "Y",
+            "#244",
+            "#11"
           ],
           "description": "'produces' from A, B vocab"
         },
@@ -134,15 +134,15 @@
           "input": "sharing enables ",
           "expected": "friendship",
           "expected_char": "f",
-          "predicted": "c",
+          "predicted": "1",
           "correct": false,
-          "in_top10": true,
+          "in_top10": false,
           "top5": [
-            "c",
-            "r",
-            "o",
-            "v",
-            "u"
+            "1",
+            "Y",
+            "t",
+            "q",
+            "#19"
           ],
           "description": "'enables' from A, B vocab"
         },
@@ -150,15 +150,15 @@
           "input": "heat causes ",
           "expected": "expansion",
           "expected_char": "e",
-          "predicted": "c",
+          "predicted": "#158",
           "correct": false,
           "in_top10": false,
           "top5": [
-            "c",
-            "h",
-            "v",
-            "f",
-            "r"
+            "#158",
+            "#150",
+            "#184",
+            "O",
+            "s"
           ],
           "description": "pure A recall"
         },
@@ -166,15 +166,15 @@
           "input": "trust is ",
           "expected": "fragile",
           "expected_char": "f",
-          "predicted": "h",
+          "predicted": "#150",
           "correct": false,
-          "in_top10": true,
+          "in_top10": false,
           "top5": [
-            "h",
-            "f",
-            "c",
-            "v",
-            "r"
+            "#150",
+            "#18",
+            "#158",
+            "#15",
+            "#238"
           ],
           "description": "pure B recall"
         },
@@ -182,15 +182,15 @@
           "input": "friction produces ",
           "expected": "heat",
           "expected_char": "h",
-          "predicted": "c",
+          "predicted": "1",
           "correct": false,
           "in_top10": false,
           "top5": [
-            "c",
-            "w",
-            "r",
-            "v",
-            "u"
+            "1",
+            "#19",
+            "t",
+            "q",
+            "Y"
           ],
           "description": "pure A recall (held out)"
         },
@@ -198,21 +198,21 @@
           "input": "patience creates ",
           "expected": "understanding",
           "expected_char": "u",
-          "predicted": "r",
+          "predicted": "t",
           "correct": false,
-          "in_top10": true,
+          "in_top10": false,
           "top5": [
-            "r",
-            "c",
-            "b",
-            "o",
-            "v"
+            "t",
+            "1",
+            "Y",
+            "#19",
+            "q"
           ],
           "description": "pure B recall (held out)"
         }
       ],
-      "top1_accuracy": 0.14285714285714285,
-      "top10_accuracy": 0.7142857142857143
+      "top1_accuracy": 0.0,
+      "top10_accuracy": 0.14285714285714285
     },
     "post_sleep_probes": {
       "probes": [
@@ -220,15 +220,15 @@
           "input": "kindness causes ",
           "expected": "trust",
           "expected_char": "t",
-          "predicted": "r",
+          "predicted": "1",
           "correct": false,
           "in_top10": true,
           "top5": [
-            "r",
-            "t",
-            "c",
-            "b",
-            "o"
+            "1",
+            "q",
+            "Y",
+            "#19",
+            "#11"
           ],
           "description": "B vocab + A causal pattern"
         },
@@ -236,15 +236,15 @@
           "input": "anger produces ",
           "expected": "conflict",
           "expected_char": "c",
-          "predicted": "c",
-          "correct": true,
-          "in_top10": true,
+          "predicted": "#184",
+          "correct": false,
+          "in_top10": false,
           "top5": [
-            "c",
-            "f",
-            "r",
-            "s",
-            "t"
+            "#184",
+            "q",
+            "Y",
+            "#11",
+            "#244"
           ],
           "description": "'produces' from A, B vocab"
         },
@@ -252,15 +252,15 @@
           "input": "sharing enables ",
           "expected": "friendship",
           "expected_char": "f",
-          "predicted": "c",
+          "predicted": "1",
           "correct": false,
-          "in_top10": true,
+          "in_top10": false,
           "top5": [
-            "c",
-            "r",
-            "o",
-            "v",
-            "u"
+            "1",
+            "Y",
+            "t",
+            "q",
+            "#19"
           ],
           "description": "'enables' from A, B vocab"
         },
@@ -268,15 +268,15 @@
           "input": "heat causes ",
           "expected": "expansion",
           "expected_char": "e",
-          "predicted": "c",
+          "predicted": "#158",
           "correct": false,
           "in_top10": false,
           "top5": [
-            "c",
-            "h",
-            "v",
-            "f",
-            "r"
+            "#158",
+            "#150",
+            "#184",
+            "O",
+            "s"
           ],
           "description": "pure A recall"
         },
@@ -284,15 +284,15 @@
           "input": "trust is ",
           "expected": "fragile",
           "expected_char": "f",
-          "predicted": "h",
+          "predicted": "#150",
           "correct": false,
-          "in_top10": true,
+          "in_top10": false,
           "top5": [
-            "h",
-            "f",
-            "c",
-            "v",
-            "r"
+            "#150",
+            "#18",
+            "#158",
+            "#238",
+            "#15"
           ],
           "description": "pure B recall"
         },
@@ -300,15 +300,15 @@
           "input": "friction produces ",
           "expected": "heat",
           "expected_char": "h",
-          "predicted": "c",
+          "predicted": "1",
           "correct": false,
           "in_top10": false,
           "top5": [
-            "c",
-            "w",
-            "r",
-            "v",
-            "u"
+            "1",
+            "#19",
+            "t",
+            "q",
+            "Y"
           ],
           "description": "pure A recall (held out)"
         },
@@ -316,37 +316,75 @@
           "input": "patience creates ",
           "expected": "understanding",
           "expected_char": "u",
-          "predicted": "r",
+          "predicted": "t",
           "correct": false,
-          "in_top10": true,
+          "in_top10": false,
           "top5": [
-            "r",
-            "c",
-            "b",
-            "o",
-            "v"
+            "t",
+            "1",
+            "Y",
+            "#19",
+            "q"
           ],
           "description": "pure B recall (held out)"
         }
       ],
-      "top1_accuracy": 0.14285714285714285,
-      "top10_accuracy": 0.7142857142857143
+      "top1_accuracy": 0.0,
+      "top10_accuracy": 0.14285714285714285
     },
-    "phase1_time": 757.5280029773712,
-    "phase2_time": 1028.6298897266388,
-    "sleep_cycles": 139,
-    "total_edges_learned": 9200
+    "phase1_time": 0.6662397384643555,
+    "phase2_time": 1.314061164855957,
+    "sleep_cycles": 2,
+    "total_edges_learned": 138
   },
-  "mlp_baseline": {},
+  "mlp_baseline": {
+    "baseline_a": {
+      "top1_accuracy": 0.0,
+      "top10_accuracy": 0.0,
+      "n_tested": 7
+    },
+    "baseline_b": {
+      "top1_accuracy": 0.0,
+      "top10_accuracy": 0.0,
+      "n_tested": 7
+    },
+    "post_train_a_on_a": {
+      "top1_accuracy": 0.14285714285714285,
+      "top10_accuracy": 0.14285714285714285,
+      "n_tested": 7
+    },
+    "post_train_a_on_b": {
+      "top1_accuracy": 0.0,
+      "top10_accuracy": 0.14285714285714285,
+      "n_tested": 7
+    },
+    "post_train_b_on_a": {
+      "top1_accuracy": 0.14285714285714285,
+      "top10_accuracy": 0.14285714285714285,
+      "n_tested": 7
+    },
+    "post_train_b_on_b": {
+      "top1_accuracy": 0.0,
+      "top10_accuracy": 0.14285714285714285,
+      "n_tested": 7
+    },
+    "phase1_time": 0.010763883590698242,
+    "phase2_time": 0.009443998336791992
+  },
   "transfer_metrics": {
-    "retention_delta_domain_a": 0.0,
-    "forward_transfer_to_b": 0.5714285714285714,
-    "zero_shot_transfer_a_to_b": 0.5714285714285714,
+    "retention_delta_domain_a": -0.14285714285714285,
+    "forward_transfer_to_b": 0.0,
+    "zero_shot_transfer_a_to_b": 0.14285714285714285,
     "sleep_benefit_a": 0.0,
     "sleep_benefit_b": 0.0,
-    "cross_domain_probe_top1": 0.14285714285714285,
-    "cross_domain_probe_top10": 0.7142857142857143,
-    "post_sleep_probe_top1": 0.14285714285714285,
-    "post_sleep_probe_top10": 0.7142857142857143
+    "cross_domain_probe_top1": 0.0,
+    "cross_domain_probe_top10": 0.14285714285714285,
+    "post_sleep_probe_top1": 0.0,
+    "post_sleep_probe_top10": 0.14285714285714285,
+    "mlp_retention_delta": 0.0,
+    "mlp_forward_transfer": 0.14285714285714285,
+    "mlp_zero_shot_transfer": 0.14285714285714285,
+    "rlm_vs_mlp_retention": -0.14285714285714285,
+    "rlm_vs_mlp_forward": -0.14285714285714285
   }
 }

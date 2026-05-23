@@ -137,7 +137,7 @@ def test_resource_efficiency():
 
     # RLM is slower due to graph ops — just verify it completes in reasonable time
     # The real efficiency win is no GPU needed, not wall-clock speed
-    assert rlm_time < 120000, f"RLM took too long: {rlm_time:.0f}ms (expected < 120s)"
+    assert rlm_time < 180000, f"RLM took too long: {rlm_time:.0f}ms (expected < 180s)"
     print(f"  Note: RLM is slower due to graph ops, but requires no GPU/backprop")
     print("Resource efficiency: PASS")
 

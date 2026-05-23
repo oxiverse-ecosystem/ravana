@@ -63,6 +63,43 @@ class SimpleTokenizer(TokenizerInterface):
         return f"SimpleTokenizer(char_level, vocab_size={self.vocab_size})"
 
 
+class WordTokenizer(TokenizerInterface):
+    """Word-level tokenizer — splits on whitespace, one token per word.
+
+    Much faster than char-level for cognitive experiments since each
+    fact becomes ~5 tokens instead of ~28. Vocab is built dynamically
+    from seen text.
+    """
+
+    def __init__(self):
+        self.word_to_id = {}
+        self.id_to_word = {}
+        self._next_id = 0
+
+    def encode(self, text: str) -> List[int]:
+        words = text.strip().split()
+        if not words:
+            return [0]
+        ids = []
+        for w in words:
+            if w not in self.word_to_id:
+                self.word_to_id[w] = self._next_id
+                self.id_to_word[self._next_id] = w
+                self._next_id += 1
+            ids.append(self.word_to_id[w])
+        return ids
+
+    def decode(self, token_ids: List[int]) -> str:
+        return " ".join(self.id_to_word.get(tid, "?") for tid in token_ids)
+
+    @property
+    def vocab_size(self) -> int:
+        return max(1, self._next_id)
+
+    def __repr__(self) -> str:
+        return f"WordTokenizer(vocab_size={self.vocab_size})"
+
+
 def get_tokenizer(name: str = "gpt2") -> TokenizerInterface:
     """Factory method to get the best available tokenizer."""
     try:
