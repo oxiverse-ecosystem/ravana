@@ -141,6 +141,8 @@ class ConceptEdge:
         self.stability = 0.3
         self.timestamp = time.time()
         self.prediction_count = 0
+        self.forward_pred_count = 0   # A→B successful predictions
+        self.backward_pred_count = 0  # B→A successful predictions
         self.shortcut = shortcut  # context→target edges are exempt from competition
         self.edge_type = edge_type  # "excitatory" or "inhibitory"
         self.relation_type = relation_type  # "semantic", "causal", "temporal", "analogical", "contextual", "inferred"
