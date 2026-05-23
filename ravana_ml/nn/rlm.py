@@ -293,10 +293,11 @@ class RLM(Module):
         self._seq_position = 0  # reset position counter for this sequence
         
         context_concepts = []
+        embed_raw = self.token_embed.embed_raw
 
         for t in range(T):
             tid = int(token_ids[0, t])
-            x = self.token_embed(StateTensor(np.array([tid]))).data[0]
+            x = embed_raw(tid)
             # Add positional encoding
             pos = self._seq_position % len(self._positional_encoding)
             x = x + self._positional_encoding[pos]
@@ -310,15 +311,15 @@ class RLM(Module):
             # Recurrent step (GRU cell with gating)
             h = self.recurrent_cell(x, h)
             for i, layer in enumerate(self.hidden_layers):
-                h_res = layer(StateTensor(h[np.newaxis, :])).data[0]
-                h_res = self.hidden_norms[i](StateTensor(h_res)).data
+                h_res = layer.forward_raw(h[np.newaxis, :])[0]
+                h_res = self.hidden_norms[i].forward_raw(h_res)
                 h_res = np.tanh(h_res)
                 h = h + h_res  # residual connection
 
         self._last_hidden_state = h
         
         # Concept prediction from hidden state → concept_dim (matches graph node vectors)
-        z = self.concept_predictor(StateTensor(h[np.newaxis, :])).data[0]
+        z = self.concept_predictor.forward_raw(h[np.newaxis, :])[0]
         z_norm = z / (np.linalg.norm(z) + 1e-15)
 
         # Activation based on conceptual similarity (from hidden state prediction)
@@ -415,8 +416,7 @@ class RLM(Module):
         concept_logits = np.log(concept_probs + 1e-10)
 
         # Context path: hidden state predicts token logits
-        ctx_logits_raw = self.context_logits(StateTensor(h[np.newaxis, :]))
-        ctx_logits = ctx_logits_raw.data.flatten()
+        ctx_logits = self.context_logits.forward_raw(h[np.newaxis, :]).flatten()
 
         # ── Cognitive modulation: emotion + identity shape logit blend ──
         # High arousal → exploration (boost concept path), positive valence → trust concepts
@@ -436,10 +436,10 @@ class RLM(Module):
         next_id = int(next_token_ids[0]) if next_token_ids.ndim == 1 else int(next_token_ids[0, 0])
         last_input_id = int(token_ids[0, -1])
 
-        next_embed = self.token_embed(StateTensor(np.array([next_id]))).data[0]
+        next_embed = self.token_embed.embed_raw(next_id)
 
         input_concept = self._nearest_concept(
-            self.token_embed(StateTensor(np.array([last_input_id]))).data[0])
+            self.token_embed.embed_raw(last_input_id))
         output_concept = self._nearest_concept(next_embed)
 
         if input_concept >= 0 and output_concept >= 0 and input_concept != output_concept:
@@ -486,7 +486,7 @@ class RLM(Module):
             # Pull: drift concept vectors toward their bound token embeddings
             # Rate-limited to prevent oscillation from noisy single-sample updates
             if self._step_counter % self._vector_update_interval == 0:
-                input_embed = self.token_embed(StateTensor(np.array([last_input_id]))).data[0]
+                input_embed = self.token_embed.embed_raw(last_input_id)
                 # Pull input concept toward input token (project embed→concept first)
                 input_concept_vec = self._project_to_concept(input_embed)
                 delta_in = input_concept_vec - self.graph.nodes[input_concept].vector
@@ -565,7 +565,7 @@ class RLM(Module):
             for t in range(T - 1):
                 ctx_id = int(token_ids[0, t])
                 ctx_concept = self._nearest_concept(
-                    self.token_embed(StateTensor(np.array([ctx_id]))).data[0])
+                    self.token_embed.embed_raw(ctx_id))
                 if ctx_concept >= 0 and ctx_concept != output_concept and ctx_concept != input_concept:
                     cedge = self.graph.get_or_create_edge(ctx_concept, output_concept, weight=0.1, shortcut=True)
                     cedge.weight = min(0.8, cedge.weight + 0.03)
@@ -618,8 +618,8 @@ class RLM(Module):
             h_states = [self._last_hidden_state]
             h_temp = self._last_hidden_state
             for i, layer in enumerate(self.hidden_layers):
-                h_temp = layer(StateTensor(h_temp[np.newaxis, :])).data[0]
-                h_temp = self.hidden_norms[i](StateTensor(h_temp)).data
+                h_temp = layer.forward_raw(h_temp[np.newaxis, :])[0]
+                h_temp = self.hidden_norms[i].forward_raw(h_temp)
                 h_temp = np.tanh(h_temp)
                 h_states.append(h_temp)
 
@@ -641,12 +641,11 @@ class RLM(Module):
             # is too slow (0.001 per step). Apply local Hebbian update directly:
             # ΔW = lr * error ⊗ input  (no chain rule, just local signal)
             # Use raw softmax error (not settle-normalized) for stable updates
-            ctx_logits_now = self.context_logits(
-                StateTensor(self._last_hidden_state[np.newaxis, :])
-            ).data.flatten()
-            ctx_probs_now = F.softmax(
-                StateTensor(ctx_logits_now[np.newaxis, :]), dim=-1
-            ).data.flatten()
+            ctx_logits_now = self.context_logits.forward_raw(
+                self._last_hidden_state[np.newaxis, :]
+            ).flatten()
+            ctx_exp_now = np.exp(ctx_logits_now - np.max(ctx_logits_now))
+            ctx_probs_now = ctx_exp_now / (np.sum(ctx_exp_now) + 1e-10)
             raw_error = target_onehot - ctx_probs_now
             h_2d = self._last_hidden_state.reshape(1, -1)
             e_2d = raw_error.reshape(1, -1)
@@ -671,7 +670,7 @@ class RLM(Module):
                 r_gate_err = recurrent_err * gru._last_r * (1.0 - gru._last_r)
                 # h_candidate uses tanh: d(tanh)/dx = 1 - tanh^2
                 h_gate_err = recurrent_err * gru._last_z * (1.0 - np.tanh(
-                    gru.W_h(StateTensor(combined_r_2d)).data[0])**2)
+                    gru.W_h.forward_raw(combined_r_2d)[0])**2)
 
                 # Direct weight updates: ΔW = lr * gate_error ⊗ combined_input
                 z_update = (z_gate_err.reshape(-1, 1) @ combined_2d) * direct_lr * 0.5
@@ -768,7 +767,7 @@ class RLM(Module):
         # Record geometry snapshot periodically for long-horizon tracking
         # Reduced from every 10 steps to every 1000 (expensive diagnostic)
         if self._step_counter % 1000 == 0:
-            self.graph.record_geometry_snapshot(event="learn")
+            self.graph.record_geometry_snapshot(event="learn", lightweight=True)
 
         return conceptual_error
 
@@ -835,16 +834,20 @@ class RLM(Module):
         # states[n_hidden] = top hidden layer (predicts context_logits)
         eps = 1e-6
 
+        # Cache raw references for hot path (avoids repeated attribute lookups)
+        hidden_layers_raw = [layer.forward_raw for layer in self.hidden_layers]
+        hidden_norms_raw = [norm.forward_raw for norm in self.hidden_norms]
+        ctx_logits_raw = self.context_logits.forward_raw
+        ctx_weight_data = self.context_logits.weight.data
+
         for step in range(self.settle_steps):
             errors = []
 
             for i in range(n_states):
                 if i < n_hidden:
                     # Hidden layer i predicts layer i+1's current state
-                    pred = self.hidden_layers[i](
-                        StateTensor(states[i][np.newaxis, :])
-                    ).data[0]
-                    pred = self.hidden_norms[i](StateTensor(pred)).data
+                    pred = hidden_layers_raw[i](states[i][np.newaxis, :])[0]
+                    pred = hidden_norms_raw[i](pred)
                     pred = np.tanh(pred)
 
                     # A. Prediction residual normalization
@@ -853,12 +856,10 @@ class RLM(Module):
                     e = (states[i + 1] - pred) / pred_norm
                 else:
                     # Top hidden layer predicts context logits
-                    ctx = self.context_logits(
-                        StateTensor(states[i][np.newaxis, :])
-                    ).data.flatten()
-                    ctx_dist = F.softmax(
-                        StateTensor(ctx[np.newaxis, :]), dim=-1
-                    ).data.flatten()
+                    ctx = ctx_logits_raw(states[i][np.newaxis, :]).flatten()
+                    # Inline softmax (avoid StateTensor wrapping)
+                    ctx_exp = np.exp(ctx - np.max(ctx))
+                    ctx_dist = ctx_exp / (np.sum(ctx_exp) + 1e-10)
 
                     if target is not None:
                         # Learning mode: error against target
@@ -876,7 +877,7 @@ class RLM(Module):
                     top_down = errors[i]
                 else:
                     # Top layer: error projected back through context weights
-                    top_down = errors[i] @ self.context_logits.weight.data
+                    top_down = errors[i] @ ctx_weight_data
 
                 # Bottom-up: evidence from layer below
                 if i > 0:
@@ -919,20 +920,15 @@ class RLM(Module):
         final_errors = []
         for i in range(n_states):
             if i < n_hidden:
-                pred = self.hidden_layers[i](
-                    StateTensor(states[i][np.newaxis, :])
-                ).data[0]
-                pred = self.hidden_norms[i](StateTensor(pred)).data
+                pred = hidden_layers_raw[i](states[i][np.newaxis, :])[0]
+                pred = hidden_norms_raw[i](pred)
                 pred = np.tanh(pred)
                 pred_norm = eps + np.linalg.norm(pred)
                 e = (states[i + 1] - pred) / pred_norm
             else:
-                ctx = self.context_logits(
-                    StateTensor(states[i][np.newaxis, :])
-                ).data.flatten()
-                ctx_dist = F.softmax(
-                    StateTensor(ctx[np.newaxis, :]), dim=-1
-                ).data.flatten()
+                ctx = ctx_logits_raw(states[i][np.newaxis, :]).flatten()
+                ctx_exp = np.exp(ctx - np.max(ctx))
+                ctx_dist = ctx_exp / (np.sum(ctx_exp) + 1e-10)
                 if target is not None:
                     pred_norm = eps + np.linalg.norm(ctx_dist)
                     e = (target - ctx_dist) / pred_norm
@@ -1254,7 +1250,7 @@ class RLM(Module):
         self._last_regulation = regulation
 
         # Record geometry snapshot
-        self.graph.record_geometry_snapshot(event="sleep")
+        self.graph.record_geometry_snapshot(event="sleep", lightweight=True)
 
         # 1. Hippocampal replay
         self._replay_memories_through_graph()
@@ -1279,8 +1275,8 @@ class RLM(Module):
         # 7. Meaning integration
         self.accumulated_meaning *= 0.99
 
-        # 8. Sleep pressure reset
-        self.sleep_pressure = max(0.0, self.sleep_pressure - 0.3)
+        # 8. Sleep pressure reset — fully release pressure after sleeping
+        self.sleep_pressure = 0.0
 
         # 9. Final self-regulation
         self._regulate_cognitive_state()
