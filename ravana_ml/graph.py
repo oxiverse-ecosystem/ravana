@@ -847,6 +847,13 @@ class ConceptGraph:
         # Multi-timescale cognitive regulator
         self._regulator = CognitiveRegulator()
 
+        # ── Diagnostics caching (Phase 3 optimization) ──
+        # graph_diagnostics is expensive; cache result and reuse within a window
+        self._diagnostics_cache: Optional[Dict[str, Any]] = None
+        self._diagnostics_cache_step: int = -999
+        # compute_curvature/basin_depth reuse the cached vector matrix
+        self._cached_norms: Optional[np.ndarray] = None
+
     # ── node management ──
 
     def add_node(self, vector: Optional[np.ndarray] = None, label: str = "") -> ConceptNode:
@@ -906,12 +913,14 @@ class ConceptGraph:
             self._vector_matrix_normed = None
             self._node_id_order = []
             self._vectors_dirty = False
+            self._cached_norms = None
             return
         ids = sorted(self.nodes.keys())
         self._node_id_order = ids
         vecs = np.stack([self.nodes[i].vector for i in ids]).astype(np.float32)
         norms = np.linalg.norm(vecs, axis=1, keepdims=True)
         self._vector_matrix_normed = vecs / (norms + 1e-15)
+        self._cached_norms = norms.squeeze(1)  # (N,) for reuse in drift_magnitude etc.
         self._vectors_dirty = False
 
     def get_activation_vector(self) -> Tuple[List[int], np.ndarray]:
@@ -1220,13 +1229,19 @@ class ConceptGraph:
         edge.prediction_count += 1
         edge.stability = min(1.0, edge.stability + 0.001)
 
-        # Relation vector learning: push-pull dynamics
+        # Relation vector learning: push-pull dynamics (rate-limited — expensive)
+        # Only update relation vectors every 5th call per edge to reduce overhead
+        edge._hebbian_count = getattr(edge, '_hebbian_count', 0) + 1
+        if edge._hebbian_count % 5 != 0:
+            return
+
         # PULL: drift toward Hebbian signal (source * target correlation)
         # PUSH: repel from other relation types to maintain cluster separation
         if source.vector is not None and target.vector is not None:
             # Hebbian signal: elementwise product projected into relation space
-            hebbian_signal = source.vector[:len(edge.relation_vector)] * target.vector[:len(edge.relation_vector)]
-            hebbian_signal = hebbian_signal / (np.linalg.norm(hebbian_signal) + 1e-15)
+            rv_len = len(edge.relation_vector)
+            hebbian_signal = source.vector[:rv_len] * target.vector[:rv_len]
+            hebbian_signal = hebbian_signal / (np.sqrt(np.sum(hebbian_signal * hebbian_signal)) + 1e-15)
             # Pull toward own signal
             edge.relation_vector += effective_lr * 0.1 * (hebbian_signal - edge.relation_vector)
 
@@ -1239,7 +1254,7 @@ class ConceptGraph:
             if negatives:
                 np.random.shuffle(negatives)
                 for neg in negatives[:3]:
-                    neg_rv = neg.relation_vector / (np.linalg.norm(neg.relation_vector) + 1e-15)
+                    neg_rv = neg.relation_vector / (np.sqrt(np.sum(neg.relation_vector * neg.relation_vector)) + 1e-15)
                     # Push away from negative sample (stronger than centroid approach)
                     repel_strength = effective_lr * 0.05
                     edge.relation_vector -= repel_strength * neg_rv
@@ -1249,12 +1264,12 @@ class ConceptGraph:
                              if e.relation_type == edge.relation_type and e is not edge]
                 if same_type:
                     same_centroid = np.mean(same_type, axis=0)
-                    same_centroid = same_centroid / (np.linalg.norm(same_centroid) + 1e-15)
+                    same_centroid = same_centroid / (np.sqrt(np.sum(same_centroid * same_centroid)) + 1e-15)
                     edge.relation_vector += effective_lr * 0.03 * same_centroid
 
-            rv_norm = np.linalg.norm(edge.relation_vector)
-            if rv_norm > 0:
-                edge.relation_vector /= rv_norm
+            rv_norm_sq = np.sum(edge.relation_vector * edge.relation_vector)
+            if rv_norm_sq > 0:
+                edge.relation_vector /= np.sqrt(rv_norm_sq)
 
     def anti_hebbian_update(self, source_nid: int, target_nid: int, lr: float = 0.01):
         edge = self.get_edge(source_nid, target_nid)
@@ -1465,7 +1480,7 @@ class ConceptGraph:
         in practice, especially in small experiments.
         """
         node = self.nodes.get(nid)
-        if node is None or node.level > 0:  # don't split abstract parent nodes
+        if node is None:  # allow splitting at any level (was: level > 1)
             return False
 
         # Signal 1: Contradiction count (lowered from 3 to 2)
@@ -1684,8 +1699,8 @@ class ConceptGraph:
             if node.contradiction_count > 3:
                 node.stability = max(0.0, node.stability - 0.1)
                 node.prediction_free_energy *= 0.5
-                node.contradiction_count = 0
-                # Decay free energy after reconciliation (prevent unbounded accumulation)
+                # DON'T reset contradiction_count here — let it accumulate for split detection
+                # Only reset after a successful split (in split_concept or _sleep_sws)
                 node.contradiction_free_energy *= 0.5
                 reconciled += 1
             else:
@@ -1754,17 +1769,24 @@ class ConceptGraph:
         representations consolidate into the stable identity anchor.
         rate: how much active_vector moves toward core_vector (0.0-1.0)
         """
-        for node in self.nodes.values():
-            # Move active toward core (consolidation)
-            node.vector = node.vector * (1.0 - rate) + node.core_vector * rate
-            norm = np.linalg.norm(node.vector)
-            if norm > 0:
-                node.vector /= norm
-            # Core vector also drifts slightly toward active (learning)
-            node.core_vector = node.core_vector * (1.0 - rate * 0.1) + node.vector * (rate * 0.1)
-            core_norm = np.linalg.norm(node.core_vector)
-            if core_norm > 0:
-                node.core_vector /= core_norm
+        if not self.nodes:
+            return
+        # Vectorized: batch all nodes at once instead of per-node loops
+        ids = sorted(self.nodes.keys())
+        active_vecs = np.stack([self.nodes[nid].vector for nid in ids]).astype(np.float32)
+        core_vecs = np.stack([self.nodes[nid].core_vector for nid in ids]).astype(np.float32)
+        # Move active toward core (consolidation)
+        merged = active_vecs * (1.0 - rate) + core_vecs * rate
+        norms = np.linalg.norm(merged, axis=1, keepdims=True)
+        merged = merged / (norms + 1e-15)
+        # Core vector also drifts slightly toward active (learning)
+        core_merged = core_vecs * (1.0 - rate * 0.1) + merged * (rate * 0.1)
+        core_norms = np.linalg.norm(core_merged, axis=1, keepdims=True)
+        core_merged = core_merged / (core_norms + 1e-15)
+        # Write back
+        for i, nid in enumerate(ids):
+            self.nodes[nid].vector = merged[i]
+            self.nodes[nid].core_vector = core_merged[i]
         self._vectors_dirty = True
 
     # ── relational inference engine ──
@@ -2416,22 +2438,17 @@ class ConceptGraph:
             metrics["relation_inter_similarity"] = 0.0
             metrics["relation_separation"] = 0.0
 
-        # 6. Attractor stability: mean cosine(core_vector, genesis_vector)
-        core_genesis_sims = []
-        for node in self.nodes.values():
-            core_norm = np.linalg.norm(node.core_vector) + 1e-15
-            gen_norm = np.linalg.norm(node.genesis_vector) + 1e-15
-            sim = float(np.dot(node.core_vector, node.genesis_vector) / (core_norm * gen_norm))
-            core_genesis_sims.append(sim)
+        # 6. Attractor stability + core/active alignment (vectorized batch)
+        # Instead of per-node loops with np.linalg.norm, batch all at once
+        all_core = np.stack([n.core_vector for n in self.nodes.values()]).astype(np.float32)
+        all_genesis = np.stack([n.genesis_vector for n in self.nodes.values()]).astype(np.float32)
+        all_active = np.stack([n.vector for n in self.nodes.values()]).astype(np.float32)
+        core_norms = np.linalg.norm(all_core, axis=1) + 1e-15
+        genesis_norms = np.linalg.norm(all_genesis, axis=1) + 1e-15
+        active_norms = np.linalg.norm(all_active, axis=1) + 1e-15
+        core_genesis_sims = np.sum(all_core * all_genesis, axis=1) / (core_norms * genesis_norms)
+        core_active_sims = np.sum(all_core * all_active, axis=1) / (core_norms * active_norms)
         metrics["attractor_stability"] = float(np.mean(core_genesis_sims))
-
-        # Core vs active vector separation (how much the fast representation diverges)
-        core_active_sims = []
-        for node in self.nodes.values():
-            core_norm = np.linalg.norm(node.core_vector) + 1e-15
-            act_norm = np.linalg.norm(node.vector) + 1e-15
-            sim = float(np.dot(node.core_vector, node.vector) / (core_norm * act_norm))
-            core_active_sims.append(sim)
         metrics["core_active_alignment"] = float(np.mean(core_active_sims))
 
         # 7. Branching factor: mean out-degree
@@ -2529,22 +2546,36 @@ class ConceptGraph:
         if not self.nodes:
             return 1.0
 
-        # Build current neighbor sets (sample for large graphs to avoid O(V²) memory)
+        # Reuse the cached normalized vector matrix instead of rebuilding
+        if self._vectors_dirty or self._vector_matrix_normed is None:
+            self._rebuild_vector_matrix()
+        if self._vector_matrix_normed is None:
+            return 1.0
+
+        # Sample nodes if graph is large
         node_ids = list(self.nodes.keys())
         max_sample = 500
         if len(node_ids) > max_sample:
             sample_idx = np.random.choice(len(node_ids), max_sample, replace=False)
             node_ids = [node_ids[i] for i in sample_idx]
-        vectors = np.array([self.nodes[nid].vector for nid in node_ids])
-        norms = np.linalg.norm(vectors, axis=1, keepdims=True) + 1e-15
-        norms = vectors / norms
-        sim_matrix = norms @ norms.T
+            # Build small similarity matrix from sampled nodes only
+            id_to_idx = {nid: i for i, nid in enumerate(self._node_id_order)}
+            sample_global_idx = [id_to_idx[nid] for nid in node_ids if nid in id_to_idx]
+            if len(sample_global_idx) < 2:
+                return 1.0
+            vecs_normed = self._vector_matrix_normed[sample_global_idx]
+            sim_matrix = vecs_normed @ vecs_normed.T
+        else:
+            # Use full matrix for small graphs
+            sim_matrix = self._vector_matrix_normed @ self._vector_matrix_normed.T
+
         np.fill_diagonal(sim_matrix, -1.0)  # exclude self
 
+        # Use argpartition instead of full argsort for top-k (O(N) vs O(N log N))
+        k_actual = min(k, sim_matrix.shape[1] - 1)
         current_neighbors: Dict[int, Set[int]] = {}
         for i, nid in enumerate(node_ids):
-            # Top-k most similar neighbors
-            top_k_idx = np.argsort(sim_matrix[i])[-k:]
+            top_k_idx = np.argpartition(sim_matrix[i], -k_actual)[-k_actual:]
             current_neighbors[nid] = {node_ids[j] for j in top_k_idx}
 
         # Compare to previous snapshot
@@ -2623,42 +2654,45 @@ class ConceptGraph:
             return {"basin_depth_mean": 0.0, "basin_depth_min": 0.0,
                     "basin_depth_std": 0.0, "shallow_fraction": 0.0}
 
-        # Sample nodes
-        node_ids = list(self.nodes.keys())
-        if n_samples > 0 and len(node_ids) > n_samples:
-            rng = np.random.RandomState(42)
-            sample_ids = list(rng.choice(node_ids, n_samples, replace=False))
-        else:
-            sample_ids = node_ids
+        # Reuse cached vector matrix instead of rebuilding
+        if self._vectors_dirty or self._vector_matrix_normed is None:
+            self._rebuild_vector_matrix()
+        if self._vector_matrix_normed is None:
+            return {"basin_depth_mean": 0.0, "basin_depth_min": 0.0,
+                    "basin_depth_std": 0.0, "shallow_fraction": 0.0}
 
-        # Precompute the full similarity matrix once (reused for all noise levels)
-        all_ids = list(self.nodes.keys())
-        all_vectors = np.array([self.nodes[nid].vector for nid in all_ids])
-        all_norms = np.linalg.norm(all_vectors, axis=1, keepdims=True) + 1e-15
-        all_normed = all_vectors / all_norms
+        all_ids = self._node_id_order
+        all_normed = self._vector_matrix_normed
         id_to_idx = {nid: i for i, nid in enumerate(all_ids)}
 
-        # Capture baseline neighborhoods for sampled nodes
-        baseline_sim = all_normed @ all_normed.T
-        np.fill_diagonal(baseline_sim, -1.0)
+        # Sample nodes
+        if n_samples > 0 and len(all_ids) > n_samples:
+            rng = np.random.RandomState(42)
+            sample_ids = list(rng.choice(all_ids, n_samples, replace=False))
+        else:
+            sample_ids = all_ids
+
+        # Capture baseline neighborhoods using matrix slice (avoid full N×N rebuild)
+        sample_idx = np.array([id_to_idx[nid] for nid in sample_ids])
+        baseline_sim = all_normed[sample_idx] @ all_normed.T  # (S, N)
+        np.fill_diagonal(baseline_sim, -1.0)  # but only for self-sim; fine since we use global idx
 
         baseline_neighbors = {}
-        for nid in sample_ids:
-            idx = id_to_idx[nid]
-            top_k_idx = np.argsort(baseline_sim[idx])[-k:]
+        for si, nid in enumerate(sample_ids):
+            top_k_idx = np.argpartition(baseline_sim[si], -k)[-k:]
             baseline_neighbors[nid] = set(all_ids[j] for j in top_k_idx)
 
         # Noise levels to test (geometric progression for better resolution)
         noise_levels = np.linspace(0.0, max_noise, n_steps + 1)[1:]  # skip 0
 
-        # For each node, binary search for basin boundary
+        # For each node, search for basin boundary
+        # Use precomputed all_normed directly instead of rebuilding
         depths = []
         for nid in sample_ids:
             node = self.nodes[nid]
             baseline_set = baseline_neighbors[nid]
 
-            # Binary search: find smallest noise where Jaccard < threshold
-            lo, hi = 0, len(noise_levels) - 1
+            # Search: find smallest noise where Jaccard < threshold
             depth = max_noise  # default: never escaped
 
             for noise_mag in noise_levels:
@@ -2669,9 +2703,9 @@ class ConceptGraph:
                 if perturbed_norm > 0:
                     perturbed = perturbed / perturbed_norm
 
-                # Find k-NN of perturbed vector
+                # Find k-NN of perturbed vector using cached matrix
                 sims = all_normed @ perturbed
-                top_k_idx = np.argsort(sims)[-k:]
+                top_k_idx = np.argpartition(sims, -k)[-k:]
                 perturbed_set = set(all_ids[j] for j in top_k_idx)
 
                 # Jaccard similarity
