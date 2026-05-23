@@ -1180,17 +1180,22 @@ class RLM(Module):
             self.identity_strength = 0.9 * self.identity_strength + 0.1 * np.mean(self.identity_history[-10:])
 
     def _normalize_outgoing_weights(self, budget: float = 3.0):
-        source_weights: Dict[int, float] = {}
-        for (s, t), e in list(self.graph.edges.items()):
-            source_weights[s] = source_weights.get(s, 0.0) + e.weight
-        for s, total in source_weights.items():
+        """Normalize outgoing edge weights per source node to a budget.
+
+        Uses graph._outgoing index for O(S) instead of O(S×E).
+        """
+        to_remove = []
+        for src, out_edges in self.graph._outgoing.items():
+            total = sum(e.weight for _, e in out_edges)
             if total > budget:
                 scale = budget / total
-                for (s2, t), e in list(self.graph.edges.items()):
-                    if s2 == s and not e.shortcut:
+                for tgt, e in out_edges:
+                    if not e.shortcut:
                         e.weight *= scale
                         if e.weight < 0.005:
-                            self.graph.remove_edge(s, t)
+                            to_remove.append((src, tgt))
+        for src, tgt in to_remove:
+            self.graph.remove_edge(src, tgt)
 
     def sleep_cycle(self):
         """Two-phase sleep: SWS (consolidation) then REM (creative exploration).
