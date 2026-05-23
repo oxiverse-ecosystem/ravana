@@ -179,6 +179,26 @@ class RLM(Module):
         self._global_relation_priors: Dict[str, np.ndarray] = {}
         self._global_relation_counts: Dict[str, int] = defaultdict(int)
 
+        # ── Backprop-trained Relation Predictor ──
+        # Learns to predict target token from (source_concept, relation_context).
+        # Two-layer MLP: [src; rel] → tanh(hidden) → logits → softmax → target
+        # Trained with standard backprop (the ONLY backprop in the model).
+        rp_dim = concept_dim  # hidden dimension
+        rp_in = concept_dim * 2  # input: source_vec ⊕ pooled_relation_vec
+        self._rp_W1 = np.random.randn(rp_dim, rp_in).astype(np.float32) * np.sqrt(2.0 / rp_in)
+        self._rp_b1 = np.zeros(rp_dim, dtype=np.float32)
+        self._rp_W2 = np.random.randn(vocab_size, rp_dim).astype(np.float32) * np.sqrt(2.0 / rp_dim)
+        self._rp_b2 = np.zeros(vocab_size, dtype=np.float32)
+        self._rp_lr = 0.001  # backprop learning rate
+        self._rp_momentum = 0.9
+        # Momentum buffers
+        self._rp_mW1 = np.zeros_like(self._rp_W1)
+        self._rp_mb1 = np.zeros_like(self._rp_b1)
+        self._rp_mW2 = np.zeros_like(self._rp_W2)
+        self._rp_mb2 = np.zeros_like(self._rp_b2)
+        # Cache for backward pass
+        self._rp_cache = None
+
     def _init_structured_embeddings(self):
         n, d = self.vocab_size, self.embed_dim
         vectors = np.zeros((n, d), dtype=np.float32)
@@ -511,6 +531,112 @@ class RLM(Module):
 
         return concept_scores
 
+    def _rp_forward(self, source_vec, relation_vecs):
+        """Relation predictor forward pass.
+
+        source_vec: (concept_dim,) — the source concept vector
+        relation_vecs: (n_relations, concept_dim) — relation vectors from outgoing edges
+        Returns: (vocab_size,) logits
+
+        Architecture: [src; pooled_rel] → tanh(W1·x + b1) → W2·h + b2 → logits
+        """
+        d = self.concept_dim
+
+        # Pool relation vectors (mean)
+        if len(relation_vecs) > 0:
+            rel_pool = np.mean(relation_vecs, axis=0)
+        else:
+            rel_pool = np.zeros(d, dtype=np.float32)
+
+        # Concatenate source + pooled relation
+        x = np.concatenate([source_vec, rel_pool])  # (2d,)
+
+        # Hidden layer: tanh(W1 @ x + b1)
+        z1 = self._rp_W1 @ x + self._rp_b1  # (d,)
+        h = np.tanh(z1)  # (d,)
+
+        # Output layer: W2 @ h + b2
+        logits = self._rp_W2 @ h + self._rp_b2  # (vocab_size,)
+
+        # Cache for backward
+        self._rp_cache = (x, z1, h, logits, len(relation_vecs))
+
+        return logits
+
+    def _rp_backward(self, target_id, lr_scale=1.0):
+        """Relation predictor backward pass (standard backprop).
+
+        target_id: int — the target token ID
+        lr_scale: float — learning rate scale factor
+        """
+        if self._rp_cache is None:
+            return
+
+        x, z1, h, logits, n_rel = self._rp_cache
+        d = self.concept_dim
+        V = self.vocab_size
+
+        # Softmax + cross-entropy gradient
+        logits_shifted = logits - np.max(logits)
+        exp_logits = np.exp(logits_shifted)
+        probs = exp_logits / (np.sum(exp_logits) + 1e-10)
+
+        # dL/d_logits = probs - target_onehot
+        d_logits = probs.copy()
+        d_logits[target_id] -= 1.0  # (V,)
+
+        # Output layer gradients
+        d_W2 = np.outer(d_logits, h)  # (V, d)
+        d_b2 = d_logits  # (V,)
+
+        # Hidden layer gradient
+        d_h = self._rp_W2.T @ d_logits  # (d,)
+        # tanh derivative: d(tanh(z))/dz = 1 - tanh²(z)
+        d_z1 = d_h * (1.0 - h * h)  # (d,)
+
+        # Input layer gradients
+        d_W1 = np.outer(d_z1, x)  # (d, 2d)
+        d_b1 = d_z1  # (d,)
+
+        # Gradient clipping (prevent explosion)
+        max_grad = 5.0
+        d_W1 = np.clip(d_W1, -max_grad, max_grad)
+        d_W2 = np.clip(d_W2, -max_grad, max_grad)
+
+        # Apply momentum SGD
+        lr = self._rp_lr * lr_scale
+        self._rp_mW1 = self._rp_momentum * self._rp_mW1 - lr * d_W1
+        self._rp_mb1 = self._rp_momentum * self._rp_mb1 - lr * d_b1
+        self._rp_mW2 = self._rp_momentum * self._rp_mW2 - lr * d_W2
+        self._rp_mb2 = self._rp_momentum * self._rp_mb2 - lr * d_b2
+
+        self._rp_W1 += self._rp_mW1
+        self._rp_b1 += self._rp_mb1
+        self._rp_W2 += self._rp_mW2
+        self._rp_b2 += self._rp_mb2
+
+        # Weight decay (L2 regularization)
+        self._rp_W1 *= 0.9999
+        self._rp_W2 *= 0.9999
+
+        # Clear cache
+        self._rp_cache = None
+
+        return probs[target_id]  # return predicted probability of target
+
+    def _rp_collect_relations(self, source_concept_id):
+        """Collect relation vectors from outgoing edges of a concept."""
+        outgoing = self.graph._outgoing.get(source_concept_id, [])
+        rel_vecs = []
+        for tgt_id, edge in outgoing:
+            if edge.edge_type == "inhibitory" or edge.weight < 0.05:
+                continue
+            if edge.relation_vector is not None:
+                rel_vecs.append(edge.relation_vector)
+        if rel_vecs:
+            return np.array(rel_vecs, dtype=np.float32)
+        return np.zeros((0, self.concept_dim), dtype=np.float32)
+
     def concept_attention(self, active_nodes: list):
         """Active concepts attend to each other — Hebbian attention.
 
@@ -705,15 +831,30 @@ class RLM(Module):
         else:
             concept_attn_logits = np.zeros(self.vocab_size, dtype=np.float32)
 
+        # ── Relation Predictor (backprop-trained) ──
+        # For the strongest active concept, collect relation vectors and predict target
+        self._rp_input_concept = None
+        if len(all_active) > 0:
+            top_concept = all_active[0]  # strongest activation
+            rel_vecs = self._rp_collect_relations(top_concept.id)
+            if len(rel_vecs) > 0:
+                rp_logits = self._rp_forward(top_concept.vector, rel_vecs)
+                self._rp_input_concept = top_concept.id
+            else:
+                rp_logits = np.zeros(self.vocab_size, dtype=np.float32)
+        else:
+            rp_logits = np.zeros(self.vocab_size, dtype=np.float32)
+
         # ── Cognitive modulation: emotion + identity shape logit blend ──
         # High arousal → exploration (boost concept path), positive valence → trust concepts
         emotion_scale = 1.0 + 0.3 * self.arousal - 0.1 * max(0.0, -self.valence)
         identity_scale = 0.5 + 0.5 * self.identity_strength
-        # Original blend: context_logits dominates for learning, concept path adds structure
-        # Concept attention head adds a small trainable concept signal
+        # Blend: context_logits (memorizer) + concept paths (structure)
+        # Relation predictor gets moderate weight — it's backprop-trained so more reliable
         logits = (concept_logits * identity_scale * emotion_scale
                   + ctx_logits * self.context_scale
-                  + concept_attn_logits * 0.1)
+                  + concept_attn_logits * 0.1
+                  + rp_logits * 0.3)
         self._last_ctx_logits = ctx_logits
         return StateTensor(logits[np.newaxis, :])[0]
 
@@ -1005,6 +1146,21 @@ class RLM(Module):
                 self.concept_attn_head.output_proj.weight.data += attn_update
                 np.clip(self.concept_attn_head.output_proj.weight.data, -5.0, 5.0,
                         out=self.concept_attn_head.output_proj.weight.data)
+
+            # ── Relation Predictor: backprop training ──
+            # Train on the input concept's relation vectors
+            lr_scale = self._get_lr_scale()
+            if self._rp_input_concept is not None:
+                self._rp_backward(next_id, lr_scale=lr_scale)
+
+            # Also train on other active concepts with edges (multi-source learning)
+            for node in all_active_learn[:3]:
+                if node.id == self._rp_input_concept:
+                    continue
+                rel_vecs = self._rp_collect_relations(node.id)
+                if len(rel_vecs) > 0:
+                    self._rp_forward(node.vector, rel_vecs)
+                    self._rp_backward(next_id, lr_scale=lr_scale * 0.5)
 
             # Direct Hebbian update for GRU cell (was frozen — bug fix)
             # Project error back to hidden dim through context_logits weights
