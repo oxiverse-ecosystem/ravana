@@ -27,11 +27,12 @@ class RLM(Module):
     def __init__(self, vocab_size: int, embed_dim: int, concept_dim: int,
                  n_concepts: int, n_hidden: int, n_layers: int = 3,
                  max_seq_len: int = 128, free_energy_threshold: float = 8.0,
-                 sleep_interval: int = 100):
+                 sleep_interval: int = 100, tokenizer=None):
         super().__init__()
         self.vocab_size = vocab_size
         self.embed_dim = embed_dim
         self.concept_dim = concept_dim
+        self._tokenizer = tokenizer  # optional, for relation type classification
         self.n_concepts = n_concepts
         self.n_hidden = n_hidden
         self.n_layers = n_layers
@@ -231,6 +232,78 @@ class RLM(Module):
         cvec = self._project_to_concept(embed_vec)
         results = self.graph.find_similar(cvec, k=k)
         return [r[0] for r in results]
+
+    def _classify_relation(self, token_ids: np.ndarray) -> str:
+        """Classify relation type from input token sequence.
+
+        Phase 1: keyword-based classifier. Scans the input context for
+        causal/temporal/semantic cue words. Returns the inferred relation
+        type for edge creation.
+
+        Even imperfect typing (30-50% correct) bootstraps the contrastive
+        push-pull dynamics in hebbian_update(), which amplifies the signal
+        over time. Unclassified inputs default to "semantic" (no change
+        from previous behavior).
+        """
+        if token_ids.ndim > 1:
+            token_ids = token_ids.flatten()
+
+        # Decode tokens to text for keyword matching
+        text = None
+        if self._tokenizer is not None:
+            try:
+                text = self._tokenizer.decode(token_ids.tolist()).lower()
+            except Exception:
+                pass
+
+        # Fallback: for char-level tokenizer, token IDs are ASCII codes
+        if text is None:
+            try:
+                text = "".join(chr(int(t)) for t in token_ids if 32 <= int(t) < 127).lower()
+            except Exception:
+                return "semantic"
+
+        # Causal cues: A causes/makes/produces B
+        _causal_cues = (
+            "causes", "cause", "because", "leads to", "lead to",
+            "results in", "result in", "due to", "makes", "make",
+            "produces", "produce", "creates", "create",
+            "if .* then", "triggers", "trigger",
+        )
+        # Temporal cues: A then/after/before B
+        _temporal_cues = (
+            "then", "after", "before", "next", "later",
+            "during", "when", "while", "until", "since",
+            "followed by", "precedes", "succeeds",
+        )
+        # Semantic (is-a / part-of) cues
+        _semantic_cues = (
+            " is ", " are ", " was ", " were ",
+            " is a ", " are a ", " kind of", " type of",
+            " has ", " have ", " belongs to", " part of",
+        )
+
+        import re
+        # Check causal first (strongest signal)
+        for cue in _causal_cues:
+            if ".*" in cue:
+                if re.search(cue, text):
+                    return "causal"
+            elif cue in text:
+                return "causal"
+
+        # Check temporal
+        for cue in _temporal_cues:
+            if cue in text:
+                return "temporal"
+
+        # Check semantic (is-a)
+        for cue in _semantic_cues:
+            if cue in text:
+                return "semantic"
+
+        # Default: semantic (unchanged behavior)
+        return "semantic"
 
     def _get_lr_scale(self) -> float:
         """Learning rate scale: warmup then cosine decay."""
@@ -443,7 +516,10 @@ class RLM(Module):
         output_concept = self._nearest_concept(next_embed)
 
         if input_concept >= 0 and output_concept >= 0 and input_concept != output_concept:
-            edge = self.graph.get_or_create_edge(input_concept, output_concept, weight=0.3)
+            # Classify relation type from input context (Phase 1: keyword-based)
+            rel_type = self._classify_relation(token_ids[0])
+            edge = self.graph.get_or_create_edge(input_concept, output_concept,
+                                                  weight=0.3, relation_type=rel_type)
             edge.weight = min(1.0, edge.weight + 0.05)
             edge.confidence = min(1.0, edge.confidence + 0.03)
             edge.prediction_count += 1
