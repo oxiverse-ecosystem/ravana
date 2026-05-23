@@ -481,13 +481,17 @@ class RLM(Module):
         src_dir = src_vec / src_norm
         similar = self.graph.find_similar(src_dir, k=10)
 
+        n_analogy_sources = 0
         for cid, sim in similar:
             if sim < 0.5 or cid == source_node.id:
                 continue
+            if n_analogy_sources >= 3:  # Aggregate top-3, not just top-1
+                break
             # Check if this concept has outgoing edges
             outgoing = self.graph._outgoing.get(cid, [])
             if not outgoing:
                 continue
+            n_analogy_sources += 1
 
             # Use this concept's edges to predict
             for tgt_id, edge in outgoing:
@@ -516,22 +520,24 @@ class RLM(Module):
                     tgt_local = (token_norms @ tgt_embed_norm) * hop_score
                     concept_scores = np.maximum(concept_scores, tgt_local)
 
-            # Only use the most similar concept's edges
-            break
+            # Continue to next similar concept (aggregate top-3)
 
-        # Fallback: use global relation prior if no similar concept found
+        # Fallback: use ALL global relation priors weighted by frequency
         if self._global_relation_priors:
-            best_type = max(self._global_relation_counts,
-                           key=lambda k: self._global_relation_counts[k])
-            prior = self._global_relation_priors[best_type]
-            predicted = src_dir + prior
-            pred_norm = np.linalg.norm(predicted)
-            if pred_norm > 1e-10:
-                predicted = predicted / pred_norm
-                predicted_embed = self._project_to_embed(predicted)
-                predicted_embed = predicted_embed / (np.linalg.norm(predicted_embed) + 1e-15)
-                analogy_score = (token_norms @ predicted_embed) * source_node.activation * hop_decay
-                concept_scores = np.maximum(concept_scores, analogy_score)
+            total_count = sum(self._global_relation_counts.values())
+            if total_count > 0:
+                weighted_prior = np.zeros(self.concept_dim, dtype=np.float32)
+                for rel_type, prior in self._global_relation_priors.items():
+                    weight = self._global_relation_counts.get(rel_type, 0) / total_count
+                    weighted_prior += weight * prior
+                predicted = src_dir + weighted_prior
+                pred_norm = np.linalg.norm(predicted)
+                if pred_norm > 1e-10:
+                    predicted = predicted / pred_norm
+                    predicted_embed = self._project_to_embed(predicted)
+                    predicted_embed = predicted_embed / (np.linalg.norm(predicted_embed) + 1e-15)
+                    analogy_score = (token_norms @ predicted_embed) * source_node.activation * hop_decay
+                    concept_scores = np.maximum(concept_scores, analogy_score)
 
         return concept_scores
 
@@ -1512,6 +1518,14 @@ class RLM(Module):
         if self.identity_strength > 0.85:
             base *= 0.5
         return base
+
+    @property
+    def dissonance_normalized(self) -> float:
+        """Paper-comparable dissonance in [0.1, 0.9] range.
+        Maps raw EMA (0-~1.5) to [0.1, 0.9] via: 0.1 + 0.8 * min(1.0, ema / 1.5)
+        Matches the normalization used in metrics.py for paper reporting.
+        Raw dissonance_ema should be reported alongside this for transparency."""
+        return 0.1 + 0.8 * min(1.0, self.dissonance_ema / 1.5)
 
     def _compute_meaning(self, error: float) -> float:
         """Meaning from dissonance reduction + identity gain + predictive power (from MeaningEngine)."""

@@ -42,12 +42,10 @@ class RavanaMetrics:
         
         # Raw Dissonance
         raw_d = conflict_sum + context_penalty + load_penalty
-        
-        # PAPER-COMPLIANT: Normalize to hit ~0.8 early, ~0.2 late
-        # With max conflict (raw_d ~3.0) → ~0.9, min conflict (raw_d ~0.5) → ~0.2
-        max_possible = 3.0  # Theoretical max conflict
-        normalized_d = 0.1 + (0.8 * min(1.0, raw_d / max_possible))
-        
+
+        # Normalize to [0.1, 0.9] — same formula as RLM.dissonance_normalized
+        normalized_d = 0.1 + 0.8 * min(1.0, raw_d / 1.5)
+
         return normalized_d
 
     def calculate_identity_strength(self, commitment_history, volatility_history, context_stability, episode=0):
