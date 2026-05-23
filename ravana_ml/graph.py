@@ -1381,7 +1381,7 @@ class ConceptGraph:
 
     # ── topology-aware structural importance ──
 
-    def compute_edge_structural_importance(self, sample_size: int = 100) -> Dict[Tuple[int, int], float]:
+    def compute_edge_structural_importance(self, sample_size: int = 20) -> Dict[Tuple[int, int], float]:
         """Compute structural importance scores for all edges.
 
         Uses a hybrid metric:
@@ -1635,10 +1635,17 @@ class ConceptGraph:
         """
         total_before = sum(e.weight for e in self.edges.values())
 
-        # Compute structural importance if protection enabled
+        # Compute structural importance (reuse cache from regulate() if fresh)
         si = {}
         if structural_protection > 0 and len(self.edges) > 0:
-            si = self.compute_edge_structural_importance()
+            if hasattr(self, '_structural_importance_cache') and \
+               hasattr(self, '_si_cache_step') and \
+               self._si_cache_step >= len(self.edges) - 100:
+                si = self._structural_importance_cache
+            else:
+                si = self.compute_edge_structural_importance()
+                self._structural_importance_cache = si
+                self._si_cache_step = len(self.edges)
 
         # First pass: adaptive downscale with protection
         for key, edge in self.edges.items():
@@ -1686,6 +1693,9 @@ class ConceptGraph:
         self.contradiction_hotspots.clear()
 
     def reconcile_contradictions(self):
+        # Clear diagnostics cache — graph state has changed
+        if hasattr(self, '_diag_cache'):
+            del self._diag_cache
         reconciled = 0
         for nid in list(self.contradiction_hotspots):
             node = self.nodes.get(nid)
@@ -2304,19 +2314,15 @@ class ConceptGraph:
     def graph_diagnostics(self, lightweight: bool = False) -> Dict[str, Any]:
         """Compute semantic geometry metrics for observability.
 
-        Returns a dict of metrics describing the shape of the semantic field:
-        - graph_entropy: Shannon entropy of activation distribution (high = diffuse)
-        - activation_spread: number of active nodes, mean, std of activation
-        - clustering_coefficient: how connected neighbors are to each other
-        - contradiction_density: fraction of inhibitory edges
-        - relation_separation: inter vs intra relation-type cosine distance
-        - attractor_stability: mean cosine(core_vector, genesis_vector)
-        - branching_factor: mean out-degree of nodes with edges
-        - edge_weight_stats: mean, std of edge weights
-        - shortcut_ratio: fraction of edges that are compressed shortcuts
-        - path_degeneracy: how many source-target pairs have multiple paths
-        - inference_specificity: winner score / total score in recent inference
+        Returns a dict of metrics describing the shape of the semantic field.
+        Cached: returns cached result if called multiple times per cycle.
         """
+        # Cache: return cached result if called multiple times in same cycle
+        cache_key = 'lightweight' if lightweight else 'full'
+        if hasattr(self, '_diag_cache') and self._diag_cache_key == cache_key:
+            return self._diag_cache
+        # Branching factor, edge weight stats, shortcut ratio, path degeneracy,
+        # inference specificity, relation separation, attractor stability.
         metrics: Dict[str, Any] = {}
 
         n_nodes = len(self.nodes)
@@ -2537,6 +2543,9 @@ class ConceptGraph:
             metrics["energy_cost_last"] = 0.0
             metrics["activation_mass_mean"] = 0.0
 
+        # Cache result for this cycle (cleared by reconcile_contradictions)
+        self._diag_cache = metrics
+        self._diag_cache_key = cache_key
         return metrics
 
     # ── semantic curvature ──
