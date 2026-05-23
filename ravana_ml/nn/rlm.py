@@ -179,16 +179,20 @@ class RLM(Module):
         self._global_relation_priors: Dict[str, np.ndarray] = {}
         self._global_relation_counts: Dict[str, int] = defaultdict(int)
 
-        # ── Backprop-trained Relation Predictor ──
+        # ── Backprop-trained Relation Predictor ─_
         # Learns to predict target token from (source_concept, relation_context).
         # Two-layer MLP: [src; rel] → tanh(hidden) → logits → softmax → target
         # Trained with standard backprop (the ONLY backprop in the model).
         rp_dim = concept_dim  # hidden dimension
-        rp_in = concept_dim * 2  # input: source_vec ⊕ pooled_relation_vec
+        rp_in = concept_dim * 3  # input: concept_id_embed ⊕ source_vec ⊕ pooled_relation_vec
         self._rp_W1 = np.random.randn(rp_dim, rp_in).astype(np.float32) * np.sqrt(2.0 / rp_in)
         self._rp_b1 = np.zeros(rp_dim, dtype=np.float32)
         self._rp_W2 = np.random.randn(vocab_size, rp_dim).astype(np.float32) * np.sqrt(2.0 / rp_dim)
         self._rp_b2 = np.zeros(vocab_size, dtype=np.float32)
+        # Concept ID embeddings — STABLE, not affected by Hebbian drift
+        self._rp_concept_embed = np.random.randn(n_concepts, concept_dim).astype(np.float32) * 0.02
+        self._rp_concept_embed_m = np.zeros_like(self._rp_concept_embed)
+        self._rp_ce_lr = 0.01  # concept embed learning rate
         self._rp_lr = 0.001  # backprop learning rate
         self._rp_momentum = 0.9
         # Momentum buffers
@@ -531,16 +535,24 @@ class RLM(Module):
 
         return concept_scores
 
-    def _rp_forward(self, source_vec, relation_vecs):
+    def _rp_forward(self, source_vec, relation_vecs, concept_id=None):
         """Relation predictor forward pass.
 
-        source_vec: (concept_dim,) — the source concept vector
+        source_vec: (concept_dim,) — the source concept vector (Hebbian, may drift)
         relation_vecs: (n_relations, concept_dim) — relation vectors from outgoing edges
+        concept_id: int — the concept ID (stable, for ID embedding)
         Returns: (vocab_size,) logits
 
-        Architecture: [src; pooled_rel] → tanh(W1·x + b1) → W2·h + b2 → logits
+        Architecture: [ce_id; src; pooled_rel] → tanh(W1·x + b1) → W2·h + b2 → logits
+        Concept ID embedding provides STABLE signal that doesn't drift with Hebbian learning.
         """
         d = self.concept_dim
+
+        # Concept ID embedding (stable)
+        if concept_id is not None and concept_id < len(self._rp_concept_embed):
+            ce = self._rp_concept_embed[concept_id]
+        else:
+            ce = np.zeros(d, dtype=np.float32)
 
         # Pool relation vectors (mean)
         if len(relation_vecs) > 0:
@@ -548,8 +560,8 @@ class RLM(Module):
         else:
             rel_pool = np.zeros(d, dtype=np.float32)
 
-        # Concatenate source + pooled relation
-        x = np.concatenate([source_vec, rel_pool])  # (2d,)
+        # Concatenate concept_id_embed + source + pooled relation
+        x = np.concatenate([ce, source_vec, rel_pool])  # (3d,)
 
         # Hidden layer: tanh(W1 @ x + b1)
         z1 = self._rp_W1 @ x + self._rp_b1  # (d,)
@@ -559,7 +571,7 @@ class RLM(Module):
         logits = self._rp_W2 @ h + self._rp_b2  # (vocab_size,)
 
         # Cache for backward
-        self._rp_cache = (x, z1, h, logits, len(relation_vecs))
+        self._rp_cache = (x, z1, h, logits, len(relation_vecs), concept_id)
 
         return logits
 
@@ -572,7 +584,7 @@ class RLM(Module):
         if self._rp_cache is None:
             return
 
-        x, z1, h, logits, n_rel = self._rp_cache
+        x, z1, h, logits, n_rel, concept_id = self._rp_cache
         d = self.concept_dim
         V = self.vocab_size
 
@@ -595,16 +607,20 @@ class RLM(Module):
         d_z1 = d_h * (1.0 - h * h)  # (d,)
 
         # Input layer gradients
-        d_W1 = np.outer(d_z1, x)  # (d, 2d)
+        d_W1 = np.outer(d_z1, x)  # (d, 3d)
         d_b1 = d_z1  # (d,)
+
+        # Gradient for concept ID embedding (first d elements of x)
+        d_ce = self._rp_W1.T @ d_z1  # (3d,)
+        d_ce = d_ce[:d]  # concept embed gradient
 
         # Gradient clipping (prevent explosion)
         max_grad = 5.0
         d_W1 = np.clip(d_W1, -max_grad, max_grad)
         d_W2 = np.clip(d_W2, -max_grad, max_grad)
 
-        # Apply momentum SGD
-        lr = self._rp_lr * lr_scale
+        # Apply momentum SGD with LR decay (resist concept vector drift over time)
+        lr = self._rp_lr * lr_scale * max(0.1, 1.0 / (1.0 + self._step_counter * 0.0001))
         self._rp_mW1 = self._rp_momentum * self._rp_mW1 - lr * d_W1
         self._rp_mb1 = self._rp_momentum * self._rp_mb1 - lr * d_b1
         self._rp_mW2 = self._rp_momentum * self._rp_mW2 - lr * d_W2
@@ -615,9 +631,18 @@ class RLM(Module):
         self._rp_W2 += self._rp_mW2
         self._rp_b2 += self._rp_mb2
 
-        # Weight decay (L2 regularization)
-        self._rp_W1 *= 0.9999
-        self._rp_W2 *= 0.9999
+        # Update concept ID embedding (stable, separate from Hebbian)
+        if concept_id is not None and concept_id < len(self._rp_concept_embed):
+            ce_grad = np.clip(d_ce, -max_grad, max_grad)
+            self._rp_concept_embed_m[concept_id] = (
+                self._rp_momentum * self._rp_concept_embed_m[concept_id]
+                - self._rp_ce_lr * lr_scale * ce_grad
+            )
+            self._rp_concept_embed[concept_id] += self._rp_concept_embed_m[concept_id]
+
+        # Weight decay (L2 regularization) — stronger decay to resist concept vector drift
+        self._rp_W1 *= 0.999
+        self._rp_W2 *= 0.999
 
         # Clear cache
         self._rp_cache = None
@@ -838,7 +863,7 @@ class RLM(Module):
         for cand in all_active:
             rel_vecs = self._rp_collect_relations(cand.id)
             if len(rel_vecs) > 0:
-                rp_logits = self._rp_forward(cand.vector, rel_vecs)
+                rp_logits = self._rp_forward(cand.vector, rel_vecs, concept_id=cand.id)
                 self._rp_input_concept = cand.id
                 break
 
@@ -1156,7 +1181,7 @@ class RLM(Module):
                     continue
                 rel_vecs = self._rp_collect_relations(node.id)
                 if len(rel_vecs) > 0:
-                    self._rp_forward(node.vector, rel_vecs)
+                    self._rp_forward(node.vector, rel_vecs, concept_id=node.id)
                     self._rp_backward(next_id, lr_scale=lr_scale * 0.5)
 
             # Direct Hebbian update for GRU cell (was frozen — bug fix)
