@@ -1028,7 +1028,15 @@ class ConceptGraph:
                 # O(degree) neighbor lookup via adjacency list
                 for target_id, edge in self._outgoing.get(nid, []):
                     # Precision weighting: edge.confidence modulates signal strength
-                    act = node.activation * edge.weight * edge.confidence * decay
+                    # Relation vector gate: RV alignment with source concept boosts flow
+                    src_vec = node.vector
+                    src_norm = np.linalg.norm(src_vec)
+                    rv_norm = np.linalg.norm(edge.relation_vector)
+                    if src_norm > 0 and rv_norm > 0:
+                        rel_boost = 1.0 + 0.3 * float(np.dot(edge.relation_vector[:len(src_vec)], src_vec / src_norm))
+                    else:
+                        rel_boost = 1.0
+                    act = node.activation * edge.weight * edge.confidence * decay * rel_boost
                     if edge.edge_type == "inhibitory":
                         act = -act
                     # Fan effect: normalize by in-degree

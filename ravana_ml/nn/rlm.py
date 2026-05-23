@@ -112,7 +112,7 @@ class RLM(Module):
 
         # Learning rate scheduling (warmup + cosine decay)
         self._warmup_steps = 100
-        self._base_lr = 0.001  # 10x increase (was 0.0001) — Hebbian needs faster local learning
+        self._base_lr = 0.005  # Increased from 0.001 — Hebbian rank-1 updates need faster signal
 
         # Token → concept binding (probabilistic, multi-meaning)
         self.binding_map = ConceptBindingMap()
@@ -578,7 +578,7 @@ class RLM(Module):
         concept_scores = np.maximum(concept_scores, -1e8)
         # Proper softmax normalization: temperature-controlled probability distribution
         # Replaces the raw *15.0 scaling hack with mathematically sound softmax
-        temperature = max(0.5, 1.0 + 2.0 * self.arousal)
+        temperature = max(0.2, 0.3 + 0.4 * self.arousal)
         concept_scores_t = concept_scores / temperature
         concept_scores_t = concept_scores_t - np.max(concept_scores_t)  # numerical stability
         exp_scores = np.exp(concept_scores_t)
@@ -1673,7 +1673,7 @@ class RLM(Module):
         concept_scores = np.maximum(concept_scores, -1e8)
         # Proper softmax normalization: temperature-controlled probability distribution
         # Replaces the raw *15.0 scaling hack with mathematically sound softmax
-        temperature = max(0.5, 1.0 + 2.0 * self.arousal)
+        temperature = max(0.2, 0.3 + 0.4 * self.arousal)
         concept_scores_t = concept_scores / temperature
         concept_scores_t = concept_scores_t - np.max(concept_scores_t)  # numerical stability
         exp_scores = np.exp(concept_scores_t)
