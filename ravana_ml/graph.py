@@ -1125,7 +1125,7 @@ class ConceptGraph:
             node.prediction_free_energy += amount * node.salience * (1.0 - node.confidence)
             node.prediction_free_energy = min(100.0, node.prediction_free_energy)
             self.total_free_energy += amount
-            if node.prediction_free_energy > 5.0:
+            if node.prediction_free_energy > 2.0:  # lowered from 5.0 to make splitting reachable
                 self.contradiction_hotspots.add(nid)
 
     def apply_prediction_error(self, predicted_nids: List[int], actual_vector: np.ndarray):
@@ -1136,26 +1136,26 @@ class ConceptGraph:
             sim = np.dot(node.vector, actual_vector) / (np.linalg.norm(node.vector) * np.linalg.norm(actual_vector) + 1e-15)
             error = max(0.0, 1.0 - sim)
 
-            # Temporal pressure tracking (Gap 4: pressure accumulation dynamics)
-            node.pressure_history.append(error)
-            if len(node.pressure_history) > 20:
-                node.pressure_history = node.pressure_history[-20:]
-            # Pressure gradient: is error getting worse?
-            if len(node.pressure_history) >= 3:
-                recent = np.mean(node.pressure_history[-3:])
-                older = np.mean(node.pressure_history[:-3]) if len(node.pressure_history) > 3 else recent
-                node.pressure_gradient = recent - older
-            # Accumulate pressure with decay
-            node.contradiction_pressure = 0.9 * node.contradiction_pressure + error
+            # Temporal free energy tracking (pressure accumulation dynamics)
+            node.free_energy_history.append(error)
+            if len(node.free_energy_history) > 20:
+                node.free_energy_history = node.free_energy_history[-20:]
+            # Free energy gradient: is error getting worse?
+            if len(node.free_energy_history) >= 3:
+                recent = np.mean(node.free_energy_history[-3:])
+                older = np.mean(node.free_energy_history[:-3]) if len(node.free_energy_history) > 3 else recent
+                node.free_energy_gradient = recent - older
+            # Accumulate free energy with decay
+            node.contradiction_free_energy = 0.9 * node.contradiction_free_energy + error
 
             if error > 0.3:
                 node.contradiction_count += 1
             # Escalating errors produce larger free energy (temporal amplification)
-            escalation = 1.0 + max(0.0, node.pressure_gradient) * 2.0
+            escalation = 1.0 + max(0.0, node.free_energy_gradient) * 2.0
             self.apply_free_energy(nid, error * escalation)
 
-            # High pressure increases plasticity (frequently-wrong concepts become more learnable)
-            if node.contradiction_pressure > 3.0:
+            # High free energy increases plasticity (frequently-wrong concepts become more learnable)
+            if node.contradiction_free_energy > 3.0:
                 node.stability = max(0.1, node.stability - 0.05)
 
     def adjust_vector(self, nid: int, delta: np.ndarray, lr: float = 0.1):
@@ -1685,14 +1685,19 @@ class ConceptGraph:
                 node.stability = max(0.0, node.stability - 0.1)
                 node.prediction_free_energy *= 0.5
                 node.contradiction_count = 0
-                # Decay pressure after reconciliation (prevent unbounded accumulation)
-                node.contradiction_pressure *= 0.5
+                # Decay free energy after reconciliation (prevent unbounded accumulation)
+                node.contradiction_free_energy *= 0.5
                 reconciled += 1
             else:
                 node.prediction_free_energy = max(0.0, node.prediction_free_energy - 1.0)
-                # Gentle pressure decay for non-reconciled nodes
-                node.contradiction_pressure *= 0.9
-        self.contradiction_hotspots.clear()
+                # Gentle free energy decay for non-reconciled nodes
+                node.contradiction_free_energy *= 0.9
+        # Don't clear all hotspots — persist unresolved ones across cycles
+        # Only remove nodes that are fully resolved (low free energy)
+        self.contradiction_hotspots = {
+            nid for nid in self.contradiction_hotspots
+            if nid in self.nodes and self.nodes[nid].prediction_free_energy > 1.0
+        }
         return reconciled
 
     # ── hierarchy traversal ──
@@ -1851,7 +1856,7 @@ class ConceptGraph:
                         hop_score *= (1.0 + 0.3 * max(0.0, relation_sim))
 
                     # Confidence decay accelerates with hop depth
-                    hop_score *= (0.7 ** hop)
+                    hop_score *= (0.85 ** hop)  # gentler decay (was 0.7, too aggressive)
 
                     # Contradiction penalty
                     if target_id in self.contradiction_hotspots:

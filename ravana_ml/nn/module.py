@@ -346,6 +346,15 @@ class GRUCell(Module):
         h_candidate = np.tanh(
             self.W_h(StateTensor(combined_r[np.newaxis, :])).data[0])
         h_new = (1.0 - z) * h_data + z * h_candidate
+
+        # Store combined inputs for Hebbian learning in RLM.learn()
+        self._last_combined = combined
+        self._last_combined_r = combined_r
+        self._last_z = z
+        self._last_r = r
+        self._last_h_prev = h_data
+        self._last_x = x_data
+
         return h_new
 
     def __repr__(self):
