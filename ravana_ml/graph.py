@@ -1465,8 +1465,8 @@ class ConceptGraph:
 
     # ── concept splitting ──
 
-    def should_split(self, nid: int, contradiction_threshold: int = 2,
-                     drift_threshold: float = 0.3, entropy_threshold: float = 0.5) -> bool:
+    def should_split(self, nid: int, contradiction_threshold: int = 5,
+                     drift_threshold: float = 0.5, entropy_threshold: float = 0.7) -> bool:
         """Check if a concept has accumulated enough internal contradiction to split.
 
         A concept should split when ANY of these signals is strong enough:
@@ -1475,19 +1475,19 @@ class ConceptGraph:
         - High edge entropy (edges point to diverse, unrelated targets)
         - High contradiction pressure with positive gradient (escalating)
 
-        Changed from AND logic (reasons >= 2) to OR logic (reasons >= 1):
-        requiring multiple simultaneous signals made splitting nearly impossible
-        in practice, especially in small experiments.
+        Uses OR logic but with raised thresholds to prevent runaway graph growth.
+        Thresholds tuned: contradiction >= 5 (was 2), drift >= 0.5 (was 0.3),
+        entropy >= 0.7 (was 0.5), pressure > 3.0 (was 2.0).
         """
         node = self.nodes.get(nid)
-        if node is None:  # allow splitting at any level (was: level > 1)
+        if node is None:
             return False
 
-        # Signal 1: Contradiction count (lowered from 3 to 2)
+        # Signal 1: Contradiction count
         if node.contradiction_count >= contradiction_threshold:
             return True
 
-        # Signal 2: Drift from genesis (lowered from 0.5 to 0.3)
+        # Signal 2: Drift from genesis
         if node.drift_magnitude >= drift_threshold:
             return True
 
@@ -1505,12 +1505,12 @@ class ConceptGraph:
                         dists.append(1.0 - sim)
                 if dists:
                     mean_dist = np.mean(dists)
-                    if mean_dist > entropy_threshold:  # lowered from 0.7 to 0.5
+                    if mean_dist > entropy_threshold:
                         return True
 
         # Signal 4: Escalating contradiction pressure
         if hasattr(node, 'contradiction_pressure') and hasattr(node, 'pressure_gradient'):
-            if node.contradiction_pressure > 2.0 and node.pressure_gradient > 0.0:
+            if node.contradiction_pressure > 3.0 and node.pressure_gradient > 0.0:
                 return True
 
         return False

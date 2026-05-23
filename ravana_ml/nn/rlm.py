@@ -1150,13 +1150,13 @@ class RLM(Module):
         self.graph.form_inhibitory_edges()
 
         # Split concepts that have accumulated enough signal
-        # Rate-limited: max 3 splits per sleep cycle to prevent runaway growth
+        # Rate-limited: max 2 splits per sleep cycle to prevent runaway growth
         splits_this_cycle = 0
-        max_splits_per_cycle = 3
+        max_splits_per_cycle = 2
         # Check hotspots first, then scan high-drift/high-contradiction nodes as fallback
         split_candidates = set(self.graph.contradiction_hotspots)
         for nid, node in self.graph.nodes.items():
-            if node.drift_magnitude > 0.25 or node.contradiction_count >= 2:
+            if node.drift_magnitude > 0.4 or node.contradiction_count >= 4:
                 split_candidates.add(nid)
         for nid in split_candidates:
             if splits_this_cycle >= max_splits_per_cycle:
