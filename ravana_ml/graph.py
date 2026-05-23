@@ -2301,7 +2301,7 @@ class ConceptGraph:
 
     # ── semantic geometry diagnostics ──
 
-    def graph_diagnostics(self) -> Dict[str, Any]:
+    def graph_diagnostics(self, lightweight: bool = False) -> Dict[str, Any]:
         """Compute semantic geometry metrics for observability.
 
         Returns a dict of metrics describing the shape of the semantic field:
@@ -2489,20 +2489,28 @@ class ConceptGraph:
             type_counts[edge.relation_type] = type_counts.get(edge.relation_type, 0) + 1
         metrics["relation_type_distribution"] = type_counts
 
-        # 12. Semantic curvature (neighbor preservation)
-        preservation = self.compute_curvature()
-        curvature_trend = self.curvature_trend()
-        metrics["neighbor_preservation"] = preservation
-        metrics["curvature_trend"] = curvature_trend["trend"]
-        metrics["curvature_volatility"] = curvature_trend["volatility"]
+        # 12. Semantic curvature (neighbor preservation) — EXPENSIVE, skip in lightweight mode
+        if not lightweight:
+            preservation = self.compute_curvature()
+            curvature_trend = self.curvature_trend()
+            metrics["neighbor_preservation"] = preservation
+            metrics["curvature_trend"] = curvature_trend["trend"]
+            metrics["curvature_volatility"] = curvature_trend["volatility"]
 
-        # 12b. Basin depth: perturbation resistance of concept neighborhoods
-        if n_nodes >= 15:  # need enough nodes for meaningful k-NN
-            basin = self.compute_basin_depth(k=min(10, n_nodes // 3), n_samples=min(30, n_nodes))
-            metrics["basin_depth_mean"] = basin["basin_depth_mean"]
-            metrics["basin_depth_min"] = basin["basin_depth_min"]
-            metrics["shallow_fraction"] = basin["shallow_fraction"]
+            # 12b. Basin depth: perturbation resistance of concept neighborhoods
+            if n_nodes >= 15:  # need enough nodes for meaningful k-NN
+                basin = self.compute_basin_depth(k=min(10, n_nodes // 3), n_samples=min(30, n_nodes))
+                metrics["basin_depth_mean"] = basin["basin_depth_mean"]
+                metrics["basin_depth_min"] = basin["basin_depth_min"]
+                metrics["shallow_fraction"] = basin["shallow_fraction"]
+            else:
+                metrics["basin_depth_mean"] = 0.0
+                metrics["basin_depth_min"] = 0.0
+                metrics["shallow_fraction"] = 0.0
         else:
+            metrics["neighbor_preservation"] = 1.0
+            metrics["curvature_trend"] = 0.0
+            metrics["curvature_volatility"] = 0.0
             metrics["basin_depth_mean"] = 0.0
             metrics["basin_depth_min"] = 0.0
             metrics["shallow_fraction"] = 0.0
@@ -2815,13 +2823,13 @@ class ConceptGraph:
             "separation_score": separation_score,
         }
 
-    def record_geometry_snapshot(self, event: str = ""):
+    def record_geometry_snapshot(self, event: str = "", lightweight: bool = False):
         """Record current geometry metrics to history for long-horizon tracking.
 
         Call this after learning steps, sleep cycles, or contradiction events
         to build a time series of semantic geometry evolution.
         """
-        metrics = self.graph_diagnostics()
+        metrics = self.graph_diagnostics(lightweight=lightweight)
         self._geometry_history.record(metrics, event)
         return metrics
 
@@ -3141,7 +3149,7 @@ class ConceptGraph:
 
         Returns: phase info + damped adjustments + regulator status + meta changes
         """
-        metrics = self.graph_diagnostics()
+        metrics = self.graph_diagnostics(lightweight=True)
         phase_info = self.classify_phase(metrics)
         adjustments = self._regulator.update(phase_info)
 
