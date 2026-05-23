@@ -625,15 +625,18 @@ class RLM(Module):
             self._competitive_inhibition(input_concept, output_concept, 0.05)
 
             # ── Hebbian relation vector update ──
-            # Each edge's relation vector should encode WHERE it points, not just
-            # the direction from source. Different targets = different relation vectors.
-            # Use target vector directly (source is shared, so direction = target).
+            # Problem: EMA toward tgt_vec erases type-specific seed structure.
+            # Fix: blend type seed into update to maintain type identity.
+            # 70% current RV + 20% target signal + 10% type seed anchor
+            from ravana_ml.graph import ConceptEdge as _CE
             tgt_vec = self.graph.nodes[output_concept].vector
             tgt_norm = np.linalg.norm(tgt_vec)
             if tgt_norm > 0:
                 tgt_signal = tgt_vec / tgt_norm
-                # EMA blend: 85% old + 15% new (fast enough to separate within 100 steps)
-                edge.relation_vector = 0.85 * edge.relation_vector + 0.15 * tgt_signal
+                type_seed = _CE._init_relation_vector(edge.relation_type, len(edge.relation_vector))
+                edge.relation_vector = (0.70 * edge.relation_vector
+                                        + 0.20 * tgt_signal
+                                        + 0.10 * type_seed)
                 rv_norm = np.linalg.norm(edge.relation_vector)
                 if rv_norm > 0:
                     edge.relation_vector /= rv_norm
