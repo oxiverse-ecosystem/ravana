@@ -1,0 +1,21 @@
+Phase 1: Training domain A (numbers 0->1, 2->3, 4->5)
+  Domain A (before B): 0/3 = 0.0%
+
+Phase 2: Training domain B (10->11, 12->13, 14->15)
+  Domain B: 0/3 = 0.0%
+  Domain A (after B): 0/3 = 0.0%
+  Cross-domain (untrained): 0/3 = 0.0%
+
+=== RESULTS ===
+Domain A before B: 0.0%
+Domain B:          0.0%
+Domain A after B:  0.0%
+Forgetting:        +0.0%
+Cross-domain:      0.0%
+
+=== RELATION VECTOR SEPARATION ===
+  semantic vs inferred: mean=-0.2657 (n=20)
+  semantic intra: mean=1.0000
+
+Edge types: {'semantic': 696, 'inferred': 1}
+Concepts: 46, Edges: 697, Sleeps: 110
