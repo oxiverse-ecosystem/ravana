@@ -12,7 +12,7 @@ from ..propagation import PropagationEngine
 from ..free_energy import FreeEnergyAccumulator
 from ..plasticity import HebbianPlasticity, AntiHebbianPlasticity, StructuralPlasticity
 from . import functional as F
-from .module import Module, Linear, Embedding, LayerNorm, GRUCell
+from .module import Module, Linear, Embedding, LayerNorm, GRUCell, ConceptAttentionHead
 
 
 class RLM(Module):
@@ -67,6 +67,7 @@ class RLM(Module):
         # Prediction heads
         self.concept_predictor = Linear(n_hidden, concept_dim)
         self.context_logits = Linear(n_hidden, vocab_size, bias=True)
+        self.concept_attn_head = ConceptAttentionHead(concept_dim, vocab_size, n_heads=2)
 
         # Concept attention: active concepts attend to each other
         self.attn_W_q = Linear(concept_dim, concept_dim)
@@ -171,6 +172,12 @@ class RLM(Module):
 
         # Concept emotion tags (from VADEmotionEngine._concept_tags)
         self._concept_vad: Dict[int, Tuple[float, float, float]] = {}  # {concept_id: (v, a, d)}
+
+        # Global relation priors: learned "default direction" per relation type
+        # Used for analogy-based prediction when a concept has no outgoing edges.
+        # Enables generalization: source_vec + prior ≈ target_vec
+        self._global_relation_priors: Dict[str, np.ndarray] = {}
+        self._global_relation_counts: Dict[str, int] = defaultdict(int)
 
     def _init_structured_embeddings(self):
         n, d = self.vocab_size, self.embed_dim
@@ -407,6 +414,103 @@ class RLM(Module):
         progress = (self._step_counter - self._warmup_steps) / max(1, 10000 - self._warmup_steps)
         return 0.5 * (1.0 + np.cos(np.pi * min(1.0, progress)))
 
+    def _update_global_relation_prior(self, edge):
+        """Update the global relation prior for the given edge's relation type.
+
+        Maintains an EMA of relation vectors per type. Enables analogy-based
+        prediction for novel concepts: source_vec + prior ≈ target_vec.
+        """
+        rel_type = edge.relation_type
+        rv = edge.relation_vector
+        if rv is None or np.linalg.norm(rv) < 1e-10:
+            return
+        rv_norm = rv / (np.linalg.norm(rv) + 1e-15)
+
+        if rel_type not in self._global_relation_priors:
+            self._global_relation_priors[rel_type] = rv_norm.copy()
+            self._global_relation_counts[rel_type] = 1
+        else:
+            count = self._global_relation_counts[rel_type]
+            alpha = 0.05  # EMA smoothing
+            self._global_relation_priors[rel_type] = (
+                (1 - alpha) * self._global_relation_priors[rel_type] + alpha * rv_norm
+            )
+            # Renormalize
+            norm = np.linalg.norm(self._global_relation_priors[rel_type])
+            if norm > 0:
+                self._global_relation_priors[rel_type] /= norm
+            self._global_relation_counts[rel_type] = count + 1
+
+    def _analogy_predict(self, source_node, token_norms, concept_scores, hop_decay=0.4):
+        """Analogy-based prediction for concepts with no outgoing edges.
+
+        Finds the most similar concept that HAS outgoing edges, then follows
+        those edges to predict the target. Enables generalization to novel tokens
+        by leveraging learned structure from similar concepts.
+        """
+        src_vec = source_node.vector
+        src_norm = np.linalg.norm(src_vec)
+        if src_norm < 1e-10:
+            return concept_scores
+
+        # Find concepts similar to source that have outgoing edges
+        src_dir = src_vec / src_norm
+        similar = self.graph.find_similar(src_dir, k=10)
+
+        for cid, sim in similar:
+            if sim < 0.5 or cid == source_node.id:
+                continue
+            # Check if this concept has outgoing edges
+            outgoing = self.graph._outgoing.get(cid, [])
+            if not outgoing:
+                continue
+
+            # Use this concept's edges to predict
+            for tgt_id, edge in outgoing:
+                if edge.edge_type == "inhibitory" or edge.weight < 0.05:
+                    continue
+                tgt_node = self.graph.get_node(tgt_id)
+                if tgt_node is None:
+                    continue
+
+                # Score bound tokens from the similar concept's target
+                hop_score = source_node.activation * edge.weight * hop_decay * sim * 0.5
+                bound_tokens = self._concept_to_tokens.get(tgt_id, set())
+                for tok_id in bound_tokens:
+                    if tok_id >= self.vocab_size:
+                        continue
+                    if concept_scores[tok_id] < -1e8:
+                        concept_scores[tok_id] = hop_score
+                    else:
+                        concept_scores[tok_id] += hop_score
+
+                # Also score by vector similarity to target
+                if tgt_id < self.vocab_size:
+                    tgt_vec_norm = tgt_node.vector / (np.linalg.norm(tgt_node.vector) + 1e-15)
+                    tgt_embed_norm = self._project_to_embed(tgt_vec_norm)
+                    tgt_embed_norm = tgt_embed_norm / (np.linalg.norm(tgt_embed_norm) + 1e-15)
+                    tgt_local = (token_norms @ tgt_embed_norm) * hop_score
+                    concept_scores = np.maximum(concept_scores, tgt_local)
+
+            # Only use the most similar concept's edges
+            break
+
+        # Fallback: use global relation prior if no similar concept found
+        if self._global_relation_priors:
+            best_type = max(self._global_relation_counts,
+                           key=lambda k: self._global_relation_counts[k])
+            prior = self._global_relation_priors[best_type]
+            predicted = src_dir + prior
+            pred_norm = np.linalg.norm(predicted)
+            if pred_norm > 1e-10:
+                predicted = predicted / pred_norm
+                predicted_embed = self._project_to_embed(predicted)
+                predicted_embed = predicted_embed / (np.linalg.norm(predicted_embed) + 1e-15)
+                analogy_score = (token_norms @ predicted_embed) * source_node.activation * hop_decay
+                concept_scores = np.maximum(concept_scores, analogy_score)
+
+        return concept_scores
+
     def concept_attention(self, active_nodes: list):
         """Active concepts attend to each other — Hebbian attention.
 
@@ -551,9 +655,11 @@ class RLM(Module):
         hop_decay = 0.6  # each hop reduces signal by 40%
         for node in all_active:
             outgoing = self.graph._outgoing.get(node.id, [])
+            has_edges = False
             for tgt_id, edge in outgoing:
                 if edge.edge_type == "inhibitory" or edge.weight < 0.05:
                     continue
+                has_edges = True
                 tgt_node = self.graph.get_node(tgt_id)
                 if tgt_node is None:
                     continue
@@ -575,6 +681,10 @@ class RLM(Module):
                     tgt_local = (token_norms @ tgt_embed_norm) * hop_score
                     concept_scores = np.maximum(concept_scores, tgt_local)
 
+            # Analogy fallback: if no outgoing edges, use global relation prior
+            if not has_edges:
+                concept_scores = self._analogy_predict(node, token_norms, concept_scores, hop_decay)
+
         concept_scores = np.maximum(concept_scores, -1e8)
         # Proper softmax normalization: temperature-controlled probability distribution
         # Replaces the raw *15.0 scaling hack with mathematically sound softmax
@@ -588,11 +698,22 @@ class RLM(Module):
         # Context path: hidden state predicts token logits
         ctx_logits = self.context_logits.forward_raw(h[np.newaxis, :]).flatten()
 
+        # Concept attention head: multi-head attention over active concept embeddings
+        if len(all_active) > 0:
+            active_vecs = np.array([n.vector for n in all_active], dtype=np.float32)
+            concept_attn_logits = self.concept_attn_head.forward_raw(active_vecs)
+        else:
+            concept_attn_logits = np.zeros(self.vocab_size, dtype=np.float32)
+
         # ── Cognitive modulation: emotion + identity shape logit blend ──
         # High arousal → exploration (boost concept path), positive valence → trust concepts
         emotion_scale = 1.0 + 0.3 * self.arousal - 0.1 * max(0.0, -self.valence)
         identity_scale = 0.5 + 0.5 * self.identity_strength
-        logits = concept_logits * identity_scale * emotion_scale + ctx_logits * self.context_scale
+        # Original blend: context_logits dominates for learning, concept path adds structure
+        # Concept attention head adds a small trainable concept signal
+        logits = (concept_logits * identity_scale * emotion_scale
+                  + ctx_logits * self.context_scale
+                  + concept_attn_logits * 0.1)
         self._last_ctx_logits = ctx_logits
         return StateTensor(logits[np.newaxis, :])[0]
 
@@ -640,6 +761,9 @@ class RLM(Module):
                 rv_norm = np.linalg.norm(edge.relation_vector)
                 if rv_norm > 0:
                     edge.relation_vector /= rv_norm
+
+            # ── Update global relation prior (analogy-based generalization) ──
+            self._update_global_relation_prior(edge)
 
             # ── Contrastive relation learning (Gap 1 fix) ──
             # Push relation vectors apart for edges with different targets from same source
@@ -863,6 +987,24 @@ class RLM(Module):
             self.context_logits.weight.data += direct_update
             np.clip(self.context_logits.weight.data, -5.0, 5.0,
                     out=self.context_logits.weight.data)
+
+            # Train concept attention head via local Hebbian
+            all_active_learn = [n for n in sorted(self.graph.nodes.values(),
+                                                   key=lambda n: n.activation, reverse=True)
+                                if n.activation > 0.01][:7]
+            if len(all_active_learn) > 0:
+                active_vecs = np.array([n.vector for n in all_active_learn], dtype=np.float32)
+                concept_attn_now = self.concept_attn_head.forward_raw(active_vecs)
+                concept_attn_probs = np.exp(concept_attn_now - np.max(concept_attn_now))
+                concept_attn_probs = concept_attn_probs / (np.sum(concept_attn_probs) + 1e-10)
+                concept_attn_error = target_onehot - concept_attn_probs
+
+                # Hebbian update for output projection
+                pooled = np.mean(active_vecs, axis=0).reshape(1, -1)
+                attn_update = (concept_attn_error.reshape(-1, 1) @ pooled) * direct_lr
+                self.concept_attn_head.output_proj.weight.data += attn_update
+                np.clip(self.concept_attn_head.output_proj.weight.data, -5.0, 5.0,
+                        out=self.concept_attn_head.output_proj.weight.data)
 
             # Direct Hebbian update for GRU cell (was frozen — bug fix)
             # Project error back to hidden dim through context_logits weights

@@ -148,14 +148,26 @@ class Linear(Module):
             self.bias = None
             self._bias_free_energy = None
         self._trace_x = None
+        # Cached raw numpy views (stay in sync with in-place weight updates)
+        self._w_raw = self.weight.data.view()
+        self._b_raw = self.bias.data.view() if self.bias is not None else None
+
+    def _rebuild_raw_cache(self):
+        """Rebuild cached numpy views after weight replacement (e.g. after sleep_cycle)."""
+        self._w_raw = self.weight.data.view()
+        self._b_raw = self.bias.data.view() if self.bias is not None else None
+
+    def forward_raw(self, x_data):
+        """Fast path: takes/returns raw numpy ndarray, skips StateTensor wrapping,
+        skips _trace_x copy. Use for settle loops and inference-only paths."""
+        result = x_data @ self._w_raw.T
+        if self._b_raw is not None:
+            result = result + self._b_raw
+        return result
 
     def forward(self, x):
-        x_data = x.data if isinstance(x, RawTensor) else np.array(x)
-        w_data = self.weight.data if isinstance(self.weight, Parameter) else self.weight
-        result = x_data @ w_data.T
-        if self.bias is not None:
-            b_data = self.bias.data if isinstance(self.bias, Parameter) else self.bias
-            result = result + b_data
+        x_data = x.data if isinstance(x, RawTensor) else np.asarray(x, dtype=np.float32)
+        result = self.forward_raw(x_data)
         self._trace_x = x_data.copy()
         return StateTensor(result)
 
@@ -199,6 +211,7 @@ class Linear(Module):
             self.bias.data += self._bias_free_energy.data * plasticity * 0.1
             self._bias_free_energy = StateTensor(np.zeros_like(self._bias_free_energy.data))
             self.bias.stability = min(1.0, self.bias.stability + 0.005)
+        self._rebuild_raw_cache()
 
     def __repr__(self):
         return f"Linear(in={self.in_features}, out={self.out_features}, bias={self.bias is not None})"
@@ -219,15 +232,23 @@ class Embedding(Module):
         self.register_parameter('weight', Parameter(w))
         self._weight_free_energy = StateTensor(np.zeros((num_embeddings, embedding_dim), dtype=np.float32))
         self._trace_indices = None
+        self._w_raw = self.weight.data.view()
 
     def forward(self, indices):
         if isinstance(indices, RawTensor):
             idx = indices.data.astype(np.int64)
         else:
-            idx = np.array(indices, dtype=np.int64)
+            idx = np.asarray(indices, dtype=np.int64)
         self._trace_indices = idx.copy()
-        w = self.weight.data if isinstance(self.weight, Parameter) else self.weight
-        return StateTensor(w[idx])
+        return StateTensor(self._w_raw[idx])
+
+    def embed_raw(self, idx_scalar):
+        """Fast path: single int → (embed_dim,) numpy array, no StateTensor."""
+        return self._w_raw[idx_scalar]
+
+    def embed_batch_raw(self, idx_array):
+        """Fast path: array of ints → (N, embed_dim) numpy array."""
+        return self._w_raw[np.asarray(idx_array, dtype=np.int64)]
 
     def accumulate_free_energy(self, error):
         if self._trace_indices is None:
@@ -246,6 +267,7 @@ class Embedding(Module):
         self.weight.stability = min(1.0, self.weight.stability + 0.005)
         if self.padding_idx is not None:
             self.weight.data[self.padding_idx] = 0.0
+        self._w_raw = self.weight.data.view()
 
     def __repr__(self):
         return f"Embedding({self.num_embeddings}, {self.embedding_dim})"
@@ -264,18 +286,25 @@ class LayerNorm(Module):
             b = StateTensor(np.zeros(self.normalized_shape, dtype=np.float32))
             self.register_parameter('weight', Parameter(s))
             self.register_parameter('bias', Parameter(b))
+            self._w_ln_raw = self.weight.data.view()
+            self._b_ln_raw = self.bias.data.view()
+        else:
+            self._w_ln_raw = None
+            self._b_ln_raw = None
 
     def forward(self, x):
-        x_data = x.data if isinstance(x, RawTensor) else np.array(x)
+        x_data = x.data if isinstance(x, RawTensor) else np.asarray(x, dtype=np.float32)
+        return StateTensor(self.forward_raw(x_data))
+
+    def forward_raw(self, x_data):
+        """Fast path: takes/returns raw numpy ndarray."""
         axis = tuple(-i - 1 for i in range(len(self.normalized_shape)))
         mean = np.mean(x_data, axis=axis, keepdims=True)
         var = np.var(x_data, axis=axis, keepdims=True)
         x_norm = (x_data - mean) / np.sqrt(var + self.eps)
         if self.elementwise_affine:
-            w = self.weight.data if isinstance(self.weight, Parameter) else self.weight
-            b = self.bias.data if isinstance(self.bias, Parameter) else self.bias
-            x_norm = x_norm * w + b
-        return StateTensor(x_norm)
+            x_norm = x_norm * self._w_ln_raw + self._b_ln_raw
+        return x_norm
 
     def __repr__(self):
         return f"LayerNorm({self.normalized_shape}, eps={self.eps})"
@@ -336,15 +365,14 @@ class GRUCell(Module):
         x_data = np.asarray(x, dtype=np.float32)
         h_data = np.asarray(h_prev, dtype=np.float32)
         combined = np.concatenate([x_data, h_data])
-        combined_t = StateTensor(combined[np.newaxis, :])
+        combined_2d = combined[np.newaxis, :]
 
         z = 1.0 / (1.0 + np.exp(-np.clip(
-            self.W_z(combined_t).data[0], -100, 100)))  # sigmoid
+            self.W_z.forward_raw(combined_2d)[0], -100, 100)))  # sigmoid
         r = 1.0 / (1.0 + np.exp(-np.clip(
-            self.W_r(combined_t).data[0], -100, 100)))  # sigmoid
+            self.W_r.forward_raw(combined_2d)[0], -100, 100)))  # sigmoid
         combined_r = np.concatenate([x_data, r * h_data])
-        h_candidate = np.tanh(
-            self.W_h(StateTensor(combined_r[np.newaxis, :])).data[0])
+        h_candidate = np.tanh(self.W_h.forward_raw(combined_r[np.newaxis, :])[0])
         h_new = (1.0 - z) * h_data + z * h_candidate
 
         # Store combined inputs for Hebbian learning in RLM.learn()
@@ -359,3 +387,48 @@ class GRUCell(Module):
 
     def __repr__(self):
         return f"GRUCell({self.input_size}, {self.hidden_size})"
+
+
+# ─── Concept Attention Head ────────────────────────────────────────────
+
+class ConceptAttentionHead(Module):
+    """Multi-head attention over concept embeddings → vocab logits."""
+
+    def __init__(self, concept_dim, vocab_size, n_heads=2):
+        super().__init__()
+        self.concept_dim = concept_dim
+        self.vocab_size = vocab_size
+        self.n_heads = n_heads
+        self.head_dim = concept_dim // n_heads
+        self.W_q = Linear(concept_dim, concept_dim)
+        self.W_k = Linear(concept_dim, concept_dim)
+        self.W_v = Linear(concept_dim, concept_dim)
+        self.output_proj = Linear(concept_dim, vocab_size)
+
+    def forward_raw(self, concept_vecs):
+        """concept_vecs: (n_concepts, concept_dim) → (vocab_size,) logits"""
+        # Multi-head attention
+        Q = self.W_q.forward_raw(concept_vecs)  # (n, d)
+        K = self.W_k.forward_raw(concept_vecs)
+        V = self.W_v.forward_raw(concept_vecs)
+
+        # Reshape for multi-head: (n_heads, n_concepts, head_dim)
+        n = concept_vecs.shape[0]
+        Q = Q.reshape(n, self.n_heads, self.head_dim).transpose(1, 0, 2)
+        K = K.reshape(n, self.n_heads, self.head_dim).transpose(1, 0, 2)
+        V = V.reshape(n, self.n_heads, self.head_dim).transpose(1, 0, 2)
+
+        # Attention scores
+        scores = Q @ K.transpose(0, 2, 1) / np.sqrt(self.head_dim)
+        weights = np.exp(scores - np.max(scores, axis=-1, keepdims=True))
+        weights = weights / (np.sum(weights, axis=-1, keepdims=True) + 1e-10)
+
+        # Attend
+        attended = weights @ V  # (n_heads, n_concepts, head_dim)
+        attended = attended.transpose(1, 0, 2).reshape(n, -1)  # (n_concepts, concept_dim)
+
+        # Pool over concepts (mean)
+        pooled = np.mean(attended, axis=0)  # (concept_dim,)
+
+        # Project to vocab
+        return self.output_proj.forward_raw(pooled[np.newaxis, :])[0]  # (vocab_size,)
