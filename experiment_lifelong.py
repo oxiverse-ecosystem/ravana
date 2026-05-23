@@ -393,10 +393,12 @@ def evaluate_probe_accuracy(model, probes: List[Dict], tokenizer) -> float:
         return 0.0
     correct = 0
     for probe in probes:
-        entity_ids = tokenizer.encode(probe['entity'])
-        if not entity_ids:
+        # Use 'prompt' (e.g. "zorbax is") not 'entity' (e.g. "zorbax") — matches training format
+        prompt = probe.get('prompt', f"{probe['entity']} is")
+        prompt_ids = tokenizer.encode(prompt)
+        if not prompt_ids:
             continue
-        ctx = np.array([entity_ids], dtype=np.int64)
+        ctx = np.array([prompt_ids], dtype=np.int64)
         logits = model.forward(ctx).data
         target_ids = tokenizer.encode(probe['target'])
         if not target_ids:
@@ -675,10 +677,11 @@ def run_lifelong_benchmark(config: Optional[BenchmarkConfig] = None) -> Dict[str
         print(f"\n  Compositional transfer ({len(transfer_tests)} tests):")
         transfer_correct = 0
         for tt in transfer_tests[:10]:
-            entity_ids = tok.encode(tt['entity'])
-            if not entity_ids:
+            prompt = tt.get('prompt', f"{tt['entity']} is")
+            prompt_ids = tok.encode(prompt)
+            if not prompt_ids:
                 continue
-            ctx = np.array([entity_ids], dtype=np.int64)
+            ctx = np.array([prompt_ids], dtype=np.int64)
             logits = rlm.forward(ctx).data
             hop2_ids = tok.encode(tt['hop2_target'])
             if hop2_ids:
