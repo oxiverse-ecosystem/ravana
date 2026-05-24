@@ -956,15 +956,32 @@ class RLM(Module):
             concept_attn_logits = np.zeros(self.vocab_size, dtype=np.float32)
 
         # ── Relation Predictor (backprop-trained) ──
-        # Try ALL active concepts (not just top-1) to find one with outgoing edges
+        # Use ALL active concepts with outgoing relations instead of stopping at the
+        # first match. This reduces brittle dependence on whichever concept happens
+        # to appear first in activation order and improves structural / cross-domain
+        # transfer when several concepts partially match the prompt.
         self._rp_input_concept = None
         rp_logits = np.zeros(self.vocab_size, dtype=np.float32)
+        rp_total_weight = 0.0
+        rp_best_weight = -1.0
+        rp_best_concept = None
         for cand in all_active:
             rel_vecs = self._rp_collect_relations(cand.id)
-            if len(rel_vecs) > 0:
-                rp_logits = self._rp_forward(cand.vector, rel_vecs, concept_id=cand.id)
-                self._rp_input_concept = cand.id
-                break
+            if len(rel_vecs) == 0:
+                continue
+
+            cand_logits = self._rp_forward(cand.vector, rel_vecs, concept_id=cand.id)
+            cand_weight = max(cand.effective_activation, 0.05) * (1.0 + 0.1 * min(len(rel_vecs), 10))
+            rp_logits += cand_weight * cand_logits
+            rp_total_weight += cand_weight
+
+            if cand_weight > rp_best_weight:
+                rp_best_weight = cand_weight
+                rp_best_concept = cand.id
+
+        if rp_total_weight > 0.0:
+            rp_logits /= rp_total_weight
+            self._rp_input_concept = rp_best_concept
 
         # ── Cognitive modulation: emotion + identity shape logit blend ──
         # High arousal → exploration (boost concept path), positive valence → trust concepts

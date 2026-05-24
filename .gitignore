@@ -20,3 +20,4 @@ checkpoints*/
 
 # Experiment output logs
 experiment_results/*_output.txt
+.openclaude/
