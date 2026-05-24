@@ -37,6 +37,8 @@ import os
 import sys
 import time
 import json
+import pickle
+import glob
 import numpy as np
 from typing import List, Dict, Any, Tuple, Optional
 from collections import defaultdict
@@ -61,6 +63,8 @@ class BenchmarkConfig:
     retention_check_interval: int = 5_000
     graph_snapshot_interval: int = 10_000
     transfer_test_interval: int = 20_000
+    checkpoint_interval: int = 1_000    # save checkpoint every N steps
+    checkpoint_dir: str = "checkpoints/lifelong"
     seed: int = 42
     skip_baselines: bool = False
 
@@ -554,11 +558,55 @@ def run_lifelong_benchmark(config: Optional[BenchmarkConfig] = None) -> Dict[str
 
         return snap
 
+    # ── Resume from checkpoint if available ──
+    start_step = 0
+    ckpt_dir = config.checkpoint_dir
+    if os.path.isdir(ckpt_dir):
+        ckpt_files = sorted(glob.glob(os.path.join(ckpt_dir, "step_*.pkl")))
+        if ckpt_files:
+            latest_ckpt = ckpt_files[-1]
+            print(f"  Resuming from checkpoint: {latest_ckpt}")
+            ckpt_data = pickle.load(open(latest_ckpt, 'rb'))
+            rlm = RLM.load(latest_ckpt)
+            start_step = ckpt_data.get("_resume_step", 0) if isinstance(ckpt_data, dict) and "_resume_step" in ckpt_data else 0
+            # Try to recover step from filename
+            fname = os.path.basename(latest_ckpt)
+            if 'step_' in fname:
+                try:
+                    start_step = int(fname.split('step_')[1].split('.')[0])
+                except (ValueError, IndexError):
+                    pass
+            # Restore snapshots from saved results if available
+            results_path = os.path.join(ckpt_dir, "snapshots.json")
+            if os.path.exists(results_path):
+                with open(results_path, 'r') as sf:
+                    saved_snaps = json.load(sf)
+                    for s in saved_snaps:
+                        snap = Snapshot(step=s['step'], timestamp=s.get('timestamp', 0))
+                        for k, v in s.items():
+                            if hasattr(snap, k):
+                                setattr(snap, k, v)
+                        snapshots.append(snap)
+                print(f"  Restored {len(snapshots)} snapshots from previous run")
+            # Restore baselines state if available
+            bl_path = os.path.join(ckpt_dir, "baselines_state.json")
+            if os.path.exists(bl_path) and not config.skip_baselines:
+                with open(bl_path, 'r') as blf:
+                    bl_state = json.load(blf)
+                    if mlp is not None and 'mlp_total_time' in bl_state:
+                        mlp_total_time = bl_state.get('mlp_total_time', 0)
+                    rlm_total_time = bl_state.get('rlm_total_time', 0)
+            print(f"  Continuing from step {start_step}...")
+
     # ── Main streaming loop ──
     print("Streaming experiences...")
     loop_start = time.time()
 
     for step, exp in enumerate(experiences):
+        # Skip already-processed steps when resuming
+        if step < start_step:
+            continue
+
         text = exp['text']
         ids = tok.encode(text)
 
@@ -593,13 +641,44 @@ def run_lifelong_benchmark(config: Optional[BenchmarkConfig] = None) -> Dict[str
         if knn is not None:
             knn.learn(text)
 
+        # ── Periodic checkpoint ──
+        if (step + 1) % config.checkpoint_interval == 0:
+            os.makedirs(ckpt_dir, exist_ok=True)
+            ckpt_path = os.path.join(ckpt_dir, f"step_{step+1:07d}.pkl")
+            rlm.save(ckpt_path)
+            # Save snapshots so far
+            snap_path = os.path.join(ckpt_dir, "snapshots.json")
+            snap_dicts = []
+            for s in snapshots:
+                sd = {k: v for k, v in s.__dict__.items()}
+                sd['timestamp'] = s.timestamp
+                snap_dicts.append(sd)
+            with open(snap_path, 'w') as sf:
+                json.dump(snap_dicts, sf, indent=2, default=str)
+            # Save baselines state
+            bl_path = os.path.join(ckpt_dir, "baselines_state.json")
+            with open(bl_path, 'w') as blf:
+                json.dump({'rlm_total_time': rlm_total_time, 'mlp_total_time': mlp_total_time}, blf)
+            # Clean up old checkpoints (keep latest + every 10k)
+            old_ckpts = sorted(glob.glob(os.path.join(ckpt_dir, "step_*.pkl")))
+            for old in old_ckpts[:-1]:  # keep latest
+                old_fname = os.path.basename(old)
+                if 'step_' in old_fname:
+                    try:
+                        old_step_num = int(old_fname.split('step_')[1].split('.')[0])
+                        if old_step_num % 10_000 == 0:
+                            continue  # keep every 10k milestone
+                    except (ValueError, IndexError):
+                        pass
+                os.remove(old)
+
         # ── Periodic evaluation ──
         if (step + 1) % config.retention_check_interval == 0 or step == len(experiences) - 1:
             snap = take_snapshot(step)
             snapshots.append(snap)
 
             elapsed = time.time() - loop_start
-            eta_s = elapsed / (step + 1) * (config.n_experiences - step - 1)
+            eta_s = elapsed / (step + 1 - start_step) * (config.n_experiences - step - 1) if step > start_step else 0
 
             epoch = stream._get_epoch(step)
             print(f"  Step {step + 1:>8,}/{config.n_experiences:,} | "
@@ -760,6 +839,9 @@ if __name__ == "__main__":
     parser.add_argument('--skip-baselines', action='store_true', help='Skip MLP/sliding/kNN')
     parser.add_argument('--epochs', type=int, default=5, help='Number of entity epochs')
     parser.add_argument('--check-interval', type=int, default=5000, help='Retention check interval')
+    parser.add_argument('--checkpoint-interval', type=int, default=1000, help='Checkpoint save interval')
+    parser.add_argument('--checkpoint-dir', type=str, default='checkpoints/lifelong', help='Checkpoint directory')
+    parser.add_argument('--fresh', action='store_true', help='Start fresh, ignore existing checkpoints')
     args = parser.parse_args()
 
     config = BenchmarkConfig(
@@ -769,6 +851,13 @@ if __name__ == "__main__":
         skip_baselines=args.skip_baselines,
         n_entity_epochs=args.epochs,
         retention_check_interval=args.check_interval,
+        checkpoint_interval=args.checkpoint_interval,
+        checkpoint_dir=args.checkpoint_dir,
     )
+
+    if args.fresh and os.path.isdir(config.checkpoint_dir):
+        import shutil
+        shutil.rmtree(config.checkpoint_dir)
+        print(f"  Cleared checkpoint dir: {config.checkpoint_dir}")
 
     run_lifelong_benchmark(config)

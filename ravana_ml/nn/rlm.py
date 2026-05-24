@@ -13,6 +13,8 @@ from ..free_energy import FreeEnergyAccumulator
 from ..plasticity import HebbianPlasticity, AntiHebbianPlasticity, StructuralPlasticity
 from . import functional as F
 from .module import Module, Linear, Embedding, LayerNorm, GRUCell, ConceptAttentionHead
+from ..currency import CognitiveCurrency, create_rlm_currency
+from ..currencies import CognitiveCurrencies
 
 
 class RLM(Module):
@@ -139,30 +141,9 @@ class RLM(Module):
         self._running_avg_states = None  # for energy floor / anti-collapse
 
         # ═══════════════════════════════════════════════════════════
-        # Cognitive State (native to RLM — no external module deps)
+        # Cognitive State — unified via CognitiveCurrencies
         # ═══════════════════════════════════════════════════════════
-
-        # Identity (from IdentityEngine)
-        self.identity_strength = 0.5        # [0,1] — self-concept coherence
-        self.identity_momentum = 0.0        # directional inertia
-        self.identity_history: List[float] = []  # last 100 values
-
-        # Emotion (from VADEmotionEngine — 3D VAD via differential equations)
-        self.valence = 0.0                   # [-1,1] — positive/negative affect
-        self.arousal = 0.3                   # [0,1] — activation level (baseline=0.3)
-        self.dominance = 0.5                 # [0,1] — sense of control
-
-        # Meaning (from MeaningEngine)
-        self.accumulated_meaning = 0.0       # running meaning total
-        self.meaning_history: List[float] = []  # last 100 values
-
-        # Sleep pressure (from SleepConsolidation + GlobalWorkspace)
-        self.sleep_pressure = 0.0            # [0,1] — accumulates from free energy + contradictions
-        self.sleep_pressure_threshold = 0.7  # when to trigger auto-sleep
-
-        # Regulation (lightweight Governor)
-        self.regulation_mode = "NORMAL"      # NORMAL, EXPLORATION, RESOLUTION, RECOVERY, PLATEAU
-        self.dissonance_ema = 0.5            # exponential moving average of prediction error
+        self.currencies = CognitiveCurrencies()
 
         # Native Memory (lightweight episodic buffer + semantic consolidation)
         self._episodic_buffer: List[Dict] = []    # recent experiences
@@ -172,6 +153,10 @@ class RLM(Module):
 
         # Concept emotion tags (from VADEmotionEngine._concept_tags)
         self._concept_vad: Dict[int, Tuple[float, float, float]] = {}  # {concept_id: (v, a, d)}
+
+        # ── Unified Cognitive Currency ──
+        # Additive layer — mirrors existing scalars, provides unified view
+        self.currency = create_rlm_currency()
 
         # Global relation priors: learned "default direction" per relation type
         # Used for analogy-based prediction when a concept has no outgoing edges.
@@ -202,6 +187,114 @@ class RLM(Module):
         self._rp_mb2 = np.zeros_like(self._rp_b2)
         # Cache for backward pass
         self._rp_cache = None
+
+        # ── Interleaved Replay Buffer (for continual learning) ──
+        # Stores (input_ids, target_ids) pairs from previous domains.
+        # During sleep (SWS), old experiences are replayed to prevent
+        # catastrophic forgetting — the model's analog of memory consolidation.
+        self._replay_buffer: List[Tuple[np.ndarray, np.ndarray]] = []
+        self._replay_buffer_max: int = 500
+        self._domain_memories: Dict[str, List[Tuple[np.ndarray, np.ndarray]]] = {}
+
+    # ──────────────────────────────────────────────────────────────
+    # Property aliases for backward compatibility with CognitiveCurrencies
+    # ──────────────────────────────────────────────────────────────
+
+    @property
+    def identity_strength(self):
+        return self.currencies.identity_strength
+
+    @identity_strength.setter
+    def identity_strength(self, val):
+        self.currencies.identity_strength = val
+
+    @property
+    def identity_momentum(self):
+        return self.currencies.identity_momentum
+
+    @identity_momentum.setter
+    def identity_momentum(self, val):
+        self.currencies.identity_momentum = val
+
+    @property
+    def identity_history(self):
+        return self.currencies.identity_history
+
+    @identity_history.setter
+    def identity_history(self, val):
+        self.currencies.identity_history = val
+
+    @property
+    def valence(self):
+        return self.currencies.valence
+
+    @valence.setter
+    def valence(self, val):
+        self.currencies.valence = val
+
+    @property
+    def arousal(self):
+        return self.currencies.arousal
+
+    @arousal.setter
+    def arousal(self, val):
+        self.currencies.arousal = val
+
+    @property
+    def dominance(self):
+        return self.currencies.dominance
+
+    @dominance.setter
+    def dominance(self, val):
+        self.currencies.dominance = val
+
+    @property
+    def accumulated_meaning(self):
+        return self.currencies.accumulated_meaning
+
+    @accumulated_meaning.setter
+    def accumulated_meaning(self, val):
+        self.currencies.accumulated_meaning = val
+
+    @property
+    def meaning_history(self):
+        return self.currencies.meaning_history
+
+    @meaning_history.setter
+    def meaning_history(self, val):
+        self.currencies.meaning_history = val
+
+    @property
+    def sleep_pressure(self):
+        return self.currencies.sleep_pressure
+
+    @sleep_pressure.setter
+    def sleep_pressure(self, val):
+        self.currencies.sleep_pressure = val
+
+    @property
+    def sleep_pressure_threshold(self):
+        return self.currencies.sleep_pressure_threshold
+
+    @sleep_pressure_threshold.setter
+    def sleep_pressure_threshold(self, val):
+        self.currencies.sleep_pressure_threshold = val
+
+    @property
+    def regulation_mode(self):
+        return self.currencies.regulation_mode
+
+    @regulation_mode.setter
+    def regulation_mode(self, val):
+        self.currencies.regulation_mode = val
+
+    @property
+    def dissonance_ema(self):
+        return self.currencies.dissonance_ema
+
+    @dissonance_ema.setter
+    def dissonance_ema(self, val):
+        self.currencies.dissonance_ema = val
 
     def _init_structured_embeddings(self):
         n, d = self.vocab_size, self.embed_dim
@@ -1250,37 +1343,9 @@ class RLM(Module):
         self.conceptual_accuracy = 0.9 * self.conceptual_accuracy + 0.1 * factor
         self.n_predictions += 1
 
-        # ── Cognitive Updates ──
+        # ── Cognitive Updates (unified via CognitiveCurrencies) ──
         is_correct = single_correct
-
-        # 1. Dissonance EMA (for Governor)
-        self.dissonance_ema = 0.9 * self.dissonance_ema + 0.1 * conceptual_error
-
-        # 2. Identity update
-        identity_delta = self._compute_identity_update(conceptual_error, is_correct)
-        self.identity_strength = np.clip(self.identity_strength + identity_delta, 0.0, 1.0)
-        self.identity_momentum = 0.6 * self.identity_momentum + 0.4 * identity_delta
-        self.identity_history.append(self.identity_strength)
-        if len(self.identity_history) > 100:
-            self.identity_history.pop(0)
-
-        # 3. Emotion update (VAD differential equations)
-        valence_stimulus = -conceptual_error if is_correct else conceptual_error
-        self._update_emotion(valence_stimulus, arousal_stimulus=conceptual_error)
-
-        # 4. Meaning computation
-        meaning_gain = self._compute_meaning(conceptual_error)
-        self.accumulated_meaning += meaning_gain
-        self.meaning_history.append(meaning_gain)
-        if len(self.meaning_history) > 100:
-            self.meaning_history.pop(0)
-
-        # 5. Sleep pressure accumulation
-        # Reduced rates: was 0.05+0.02=0.07/step (auto-sleep every ~10 steps!)
-        # Now 0.01+0.005=0.015/step (auto-sleep every ~47 steps)
-        self.sleep_pressure = min(1.0, self.sleep_pressure
-                                  + conceptual_error * 0.01
-                                  + (0.005 if not is_correct else 0.0))
+        self.currencies.update(conceptual_error, is_correct)
 
         # 6. Episodic memory storage
         self._store_episode(conceptual_error, is_correct)
@@ -1288,6 +1353,21 @@ class RLM(Module):
         # 7. Emotion-tag active concepts
         for cid in self._last_predicted_concepts:
             self._concept_vad[cid] = (self.valence, self.arousal, self.dominance)
+
+        # 7b. Sync currency from canonical scalars
+        self.currency.update('identity_strength', self.identity_strength)
+        self.currency.update('dissonance_ema', self.dissonance_ema)
+        self.currency.update('sleep_pressure', self.sleep_pressure)
+        self.currency.update('conceptual_accuracy', self.conceptual_accuracy)
+        self.currency.update('valence', self.valence)
+        self.currency.update('arousal', self.arousal)
+        self.currency.update('dominance', self.dominance)
+        self.currency.update('accumulated_meaning', self.accumulated_meaning)
+        self.currency.update('total_free_energy', self.total_free_energy)
+        self.currency.update('edge_weight_ema', self._edge_weight_ema)
+        self.currency.update('token_hit_ema', self._token_hit_ema)
+        self.currency.compute_derived()
+        self.currency.record_history()
 
         # 8. Lightweight self-regulation
         # Only run full regulation every 100 steps (graph_diagnostics is expensive)
@@ -1551,32 +1631,11 @@ class RLM(Module):
             self._episodic_buffer.pop(0)
 
     def _regulate_cognitive_state(self):
-        """Lightweight Governor — prevents runaway state, detects mode."""
-        # Hard constraints
-        self.identity_strength = np.clip(self.identity_strength, 0.1, 0.95)
-        self.sleep_pressure = np.clip(self.sleep_pressure, 0.0, 1.0)
+        """Lightweight Governor — prevents runaway state, detects mode.
 
-        # Mode detection
-        if self.dissonance_ema > 0.8:
-            self.regulation_mode = "RECOVERY"
-        elif self.dissonance_ema > 0.5:
-            self.regulation_mode = "RESOLUTION"
-        elif self.dissonance_ema < 0.15:
-            self.regulation_mode = "EXPLORATION"
-        else:
-            self.regulation_mode = "NORMAL"
-
-        # Boundary pressure (sigmoid near limits)
-        if self.identity_strength > 0.85:
-            overshoot = (self.identity_strength - 0.85) / 0.15
-            self.identity_strength -= 0.01 * overshoot
-        if self.identity_strength < 0.2:
-            recovery = (0.2 - self.identity_strength) / 0.2
-            self.identity_strength += 0.02 * recovery
-
-        # Dissonance dampening
-        if self.dissonance_ema > 0.9:
-            self.dissonance_ema *= 0.95
+        Delegates to CognitiveCurrencies.regulate() for the canonical logic.
+        """
+        self.currencies.regulate()
 
     # ──────────────────────────────────────────────────────────────
     # Native Memory System (episodic → semantic → graph weights)
@@ -1601,6 +1660,84 @@ class RLM(Module):
                         if coact > 0.05:
                             self.graph.hebbian_update(n1.id, n2.id, coactivation=coact, lr=0.01)
                 self.graph.reset_activation()
+
+    def buffer_experience(self, input_ids: np.ndarray, target_ids: np.ndarray,
+                          domain: Optional[str] = None):
+        """Add an experience to the replay buffer for interleaved replay.
+
+        Args:
+            input_ids: shape (seq_len,) — input token IDs
+            target_ids: shape (1,) — target token ID
+            domain: optional domain label (e.g. "science"). If provided,
+                    experience is also stored in _domain_memories[domain]
+                    for cross-domain interleaved replay.
+        """
+        # Store copies to avoid mutation
+        entry = (input_ids.copy(), target_ids.copy())
+        self._replay_buffer.append(entry)
+
+        # Also store in domain-specific memory if labeled
+        if domain is not None:
+            if domain not in self._domain_memories:
+                self._domain_memories[domain] = []
+            self._domain_memories[domain].append(entry)
+
+        # Evict oldest if over capacity
+        if len(self._replay_buffer) > self._replay_buffer_max:
+            self._replay_buffer = self._replay_buffer[-self._replay_buffer_max:]
+
+    def snapshot_replay_buffer(self, domain_name: str):
+        """Freeze current replay buffer as a named domain memory and clear buffer.
+
+        Call this between domains: after training Domain A, snapshot its
+        buffer before starting Domain B. Then call
+        activate_domain_memories() to load it back for interleaved replay.
+        """
+        self._domain_memories[domain_name] = list(self._replay_buffer)
+        self._replay_buffer = []
+        print(f"  [Replay] Snapshot '{domain_name}': {len(self._domain_memories[domain_name])} experiences frozen")
+
+    def activate_domain_memories(self, domain_name: str, n_samples: int = 0):
+        """Load a named domain's frozen memories into the replay buffer.
+
+        Args:
+            domain_name: key in _domain_memories
+            n_samples: if >0, load only this many; if 0, load all
+        """
+        if domain_name not in self._domain_memories:
+            print(f"  [Replay] WARNING: domain '{domain_name}' not found in memories")
+            return
+        src = self._domain_memories[domain_name]
+        if n_samples > 0 and len(src) > n_samples:
+            rng = np.random.RandomState(42)
+            indices = rng.choice(len(src), size=n_samples, replace=False)
+            to_load = [src[i] for i in indices]
+        else:
+            to_load = list(src)
+        self._replay_buffer.extend(to_load)
+        print(f"  [Replay] Loaded {len(to_load)} experiences from '{domain_name}' into replay buffer")
+
+    def _replay_old_memories(self, n_samples: int = 20):
+        """Interleaved replay: sample old experiences and re-learn them.
+
+        Called during SWS to reinforce knowledge from previous domains.
+        This is the core mechanism that fights catastrophic forgetting —
+        by re-exposing the model to old domain experiences during sleep,
+        the Hebbian weights and concept bindings are refreshed.
+        """
+        if not self._replay_buffer:
+            return
+
+        # Sample with replacement (faster, and sleep is approximate anyway)
+        n = min(n_samples, len(self._replay_buffer))
+        rng = np.random.RandomState()
+        indices = rng.choice(len(self._replay_buffer), size=n, replace=False)
+
+        replayed = 0
+        for idx in indices:
+            input_ids, target_ids = self._replay_buffer[idx]
+            self.learn(input_ids, target_ids)
+            replayed += 1
 
     def _consolidate_episodic_to_semantic(self):
         """Promote frequently-accessed episodic memories to semantic."""
@@ -1701,6 +1838,10 @@ class RLM(Module):
         # Memory replay happens during SWS (not after REM) — matches neuroscience
         self._replay_memories_through_graph()
 
+        # Domain-interleaved replay: re-learn old-domain experiences to prevent forgetting
+        # This is the core anti-catastrophic-forgetting mechanism (hippocampal replay)
+        self._replay_old_memories(n_samples=20)
+
         self._normalize_outgoing_weights()
         self.graph.spread_activation(steps=3)
         self.structural.step()
@@ -1751,6 +1892,12 @@ class RLM(Module):
             compressed = self.graph.compress_paths(compressible, min_chain_score=0.15)
             if compressed > 0:
                 self.graph._vectors_dirty = True
+
+        # Interleaved Replay: re-learn old domain experiences during sleep
+        # This is the core anti-forgetting mechanism — by replaying old
+        # experiences through the Hebbian pipeline during SWS, the model
+        # reinforces Domain A weights while Domain B is being learned.
+        self._replay_old_memories(n_samples=20)
 
     def _sleep_rem(self):
         """REM Sleep: creative exploration via noise injection and perturbation.
@@ -1828,21 +1975,10 @@ class RLM(Module):
         # 4. Memory → weights bridge
         self._bridge_memories_to_graph()
 
-        # 5. Emotion processing
-        self.arousal = 0.3 + (self.arousal - 0.3) * 0.5
-        self.valence *= 0.8
-        self.dominance = 0.5 + (self.dominance - 0.5) * 0.7
+        # 5. Cognitive currency consolidation (emotion, identity, meaning, sleep)
+        self.currencies.consolidate_on_sleep()
 
-        # 6. Identity consolidation
-        self._consolidate_identity()
-
-        # 7. Meaning integration
-        self.accumulated_meaning *= 0.99
-
-        # 8. Sleep pressure reset — fully release pressure after sleeping
-        self.sleep_pressure = 0.0
-
-        # 9. Final self-regulation
+        # 6. Final self-regulation
         self._regulate_cognitive_state()
 
     def __repr__(self):
@@ -2305,20 +2441,8 @@ class RLM(Module):
                 "linguistic_free_energy": self.free_energy_engine.linguistic_free_energy,
                 "abstraction_free_energy": self.free_energy_engine.abstraction_free_energy,
             },
-            # ── Cognitive State ──
-            "cognitive_state": {
-                "identity_strength": self.identity_strength,
-                "identity_momentum": self.identity_momentum,
-                "identity_history": self.identity_history,
-                "valence": self.valence,
-                "arousal": self.arousal,
-                "dominance": self.dominance,
-                "accumulated_meaning": self.accumulated_meaning,
-                "meaning_history": self.meaning_history,
-                "sleep_pressure": self.sleep_pressure,
-                "sleep_pressure_threshold": self.sleep_pressure_threshold,
-                "regulation_mode": self.regulation_mode,
-                "dissonance_ema": self.dissonance_ema,
+            # ── Cognitive State (via CognitiveCurrencies) ──
+            "cognitive_state": self.currencies.get_state() | {
                 "edge_weight_ema": self._edge_weight_ema,
                 "token_hit_ema": self._token_hit_ema,
                 "episodic_buffer": self._episodic_buffer,
@@ -2330,6 +2454,9 @@ class RLM(Module):
                 "hebbian_lr": self.hebbian.lr,
                 "anti_hebbian_lr": self.anti_hebbian.lr,
             },
+            # ── Replay Buffer (interleaved replay for continual learning) ──
+            "replay_buffer": self._replay_buffer,
+            "domain_memories": self._domain_memories,
         }
         os.makedirs(os.path.dirname(path) if os.path.dirname(path) else '.', exist_ok=True)
         with open(path, 'wb') as f:
@@ -2404,26 +2531,19 @@ class RLM(Module):
         model.free_energy_engine.linguistic_free_energy = ps.get("linguistic_free_energy", 0.0)
         model.free_energy_engine.abstraction_free_energy = ps.get("abstraction_free_energy", 0.0)
 
-        # Restore cognitive state
+        # Restore cognitive state (via CognitiveCurrencies)
         cs = checkpoint.get("cognitive_state", {})
         if cs:
-            model.identity_strength = cs.get("identity_strength", 0.5)
-            model.identity_momentum = cs.get("identity_momentum", 0.0)
-            model.identity_history = cs.get("identity_history", [])
-            model.valence = cs.get("valence", 0.0)
-            model.arousal = cs.get("arousal", 0.3)
-            model.dominance = cs.get("dominance", 0.5)
-            model.accumulated_meaning = cs.get("accumulated_meaning", 0.0)
-            model.meaning_history = cs.get("meaning_history", [])
-            model.sleep_pressure = cs.get("sleep_pressure", 0.0)
-            model.sleep_pressure_threshold = cs.get("sleep_pressure_threshold", 0.7)
-            model.regulation_mode = cs.get("regulation_mode", "NORMAL")
-            model.dissonance_ema = cs.get("dissonance_ema", 0.5)
+            model.currencies.load_state(cs)
             model._edge_weight_ema = cs.get("edge_weight_ema", 0.0)
             model._token_hit_ema = cs.get("token_hit_ema", 0.5)
             model._episodic_buffer = cs.get("episodic_buffer", [])
             model._semantic_memories = cs.get("semantic_memories", {})
             model._concept_vad = {int(k): tuple(v) for k, v in cs.get("concept_vad", {}).items()}
+
+        # Restore replay buffer (interleaved replay for continual learning)
+        model._replay_buffer = checkpoint.get("replay_buffer", [])
+        model._domain_memories = checkpoint.get("domain_memories", {})
 
         return model
 
@@ -2603,19 +2723,7 @@ class RLM(Module):
                 ep_copy['vector'] = ep_copy['vector'].tolist()
             episodes_json.append(ep_copy)
 
-        metadata_json["cognitive_state"] = {
-            "identity_strength": self.identity_strength,
-            "identity_momentum": self.identity_momentum,
-            "identity_history": self.identity_history,
-            "valence": self.valence,
-            "arousal": self.arousal,
-            "dominance": self.dominance,
-            "accumulated_meaning": self.accumulated_meaning,
-            "meaning_history": self.meaning_history,
-            "sleep_pressure": self.sleep_pressure,
-            "sleep_pressure_threshold": self.sleep_pressure_threshold,
-            "regulation_mode": self.regulation_mode,
-            "dissonance_ema": self.dissonance_ema,
+        metadata_json["cognitive_state"] = self.currencies.get_state() | {
             "edge_weight_ema": self._edge_weight_ema,
             "token_hit_ema": self._token_hit_ema,
             "episodic_buffer": episodes_json,
@@ -2879,21 +2987,10 @@ class RLM(Module):
             if settle_keys:
                 model._running_avg_states = [npz[k] for k in sorted(settle_keys)]
 
-            # Restore cognitive state
+            # Restore cognitive state (via CognitiveCurrencies)
             cs = meta.get("cognitive_state", {})
             if cs:
-                model.identity_strength = cs.get("identity_strength", 0.5)
-                model.identity_momentum = cs.get("identity_momentum", 0.0)
-                model.identity_history = cs.get("identity_history", [])
-                model.valence = cs.get("valence", 0.0)
-                model.arousal = cs.get("arousal", 0.3)
-                model.dominance = cs.get("dominance", 0.5)
-                model.accumulated_meaning = cs.get("accumulated_meaning", 0.0)
-                model.meaning_history = cs.get("meaning_history", [])
-                model.sleep_pressure = cs.get("sleep_pressure", 0.0)
-                model.sleep_pressure_threshold = cs.get("sleep_pressure_threshold", 0.7)
-                model.regulation_mode = cs.get("regulation_mode", "NORMAL")
-                model.dissonance_ema = cs.get("dissonance_ema", 0.5)
+                model.currencies.load_state(cs)
                 model._edge_weight_ema = cs.get("edge_weight_ema", 0.0)
                 model._token_hit_ema = cs.get("token_hit_ema", 0.5)
                 # Restore episodic buffer (convert vector lists back to numpy)

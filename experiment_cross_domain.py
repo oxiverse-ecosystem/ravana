@@ -197,8 +197,15 @@ def encode_fact(tokenizer, input_text: str, target_text: str):
 
 
 def train_rlm_on_domain(model: RLM, facts: List[Tuple[str, str, str]],
-                         tokenizer, n_repeats: int = 3):
-    """Train RLM on a set of facts. Returns per-step accuracy history."""
+                         tokenizer, n_repeats: int = 3,
+                         domain_tag: Optional[str] = None,
+                         buffer_for_replay: bool = False):
+    """Train RLM on a set of facts. Returns per-step accuracy history.
+
+    Args:
+        domain_tag: if provided, experiences are buffered for interleaved replay
+        buffer_for_replay: if True, buffer experiences in the model's replay system
+    """
     acc_history = []
     errors = []
 
@@ -208,6 +215,10 @@ def train_rlm_on_domain(model: RLM, facts: List[Tuple[str, str, str]],
             err = model.learn(input_ids, target_ids)
             errors.append(err)
             acc_history.append(model.conceptual_accuracy)
+
+            # Buffer experience for interleaved replay during sleep
+            if buffer_for_replay and domain_tag:
+                model.buffer_experience(input_ids, target_ids, domain=domain_tag)
 
     return acc_history, errors
 
@@ -460,8 +471,14 @@ def run_cross_domain_experiment(config: CrossDomainConfig) -> Dict[str, Any]:
     acc_a, errors_a = train_rlm_on_domain(
         model, domain_a["train"], tokenizer,
         n_repeats=config.n_train_repeats,
+        domain_tag="science", buffer_for_replay=True,
     )
     phase1_time = time.time() - t0
+
+    # Snapshot Domain A buffer so it persists during Domain B training
+    model.snapshot_replay_buffer("science")
+    # Immediately activate it for interleaved replay during sleep
+    model.activate_domain_memories("science")
 
     post_a_on_a = evaluate_rlm(model, domain_a["test"], tokenizer)
     post_a_on_b = evaluate_rlm(model, domain_b["test"], tokenizer)
@@ -474,12 +491,14 @@ def run_cross_domain_experiment(config: CrossDomainConfig) -> Dict[str, Any]:
     print(f"  Relation types: {graph_after_a['relation_types']}")
     print(f"  Conceptual accuracy: {model.conceptual_accuracy:.3f}")
 
-    # ── Phase 2: Train on Domain B ──
+    # ── Phase 2: Train on Domain B with interleaved sleep replay ──
     print("\n[Phase 2] Training on Domain B (Social)...")
+    print("  (Domain A memories active for interleaved replay during sleep)")
     t0 = time.time()
     acc_b, errors_b = train_rlm_on_domain(
         model, domain_b["train"], tokenizer,
         n_repeats=config.n_train_repeats,
+        domain_tag="social", buffer_for_replay=True,
     )
     phase2_time = time.time() - t0
 
