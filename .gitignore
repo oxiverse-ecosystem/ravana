@@ -2,14 +2,21 @@ __pycache__/
 *.pyc
 *.pyo
 .env
-.venv
+.venv/
 venv/
 *.db
-results/*.json
-results/*.txt
+*.log
 *.egg-info/
 .DS_Store
 context.db
+results/*.json
+results/*.txt
 */results/*.json
 */results/*.txt
-*.log
+
+# Checkpoints (large binary files)
+checkpoints/
+checkpoints*/
+
+# Experiment output logs
+experiment_results/*_output.txt
