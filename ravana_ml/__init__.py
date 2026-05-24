@@ -25,6 +25,7 @@ from . import plasticity
 from . import world
 from . import nn
 from . import currency
+from . import currencies
 
 # ── device management (CPU-only, for API compatibility) ──
 
