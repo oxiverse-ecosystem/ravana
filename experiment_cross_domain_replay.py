@@ -403,20 +403,56 @@ if __name__ == "__main__":
     parser.add_argument("--n", type=int, default=3, help="Repeats of each fact during training")
     parser.add_argument("--skip-baselines", action="store_true", help="Skip baseline comparison")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--seeds", type=str, default=None, help="Comma-separated seeds for multi-seed runs (e.g. '42,123,456')")
     parser.add_argument("--replay-samples", type=int, default=20, help="Samples per sleep cycle replay")
     parser.add_argument("--sleep-interval", type=int, default=100, help="Steps between sleep cycles")
     parser.add_argument("--output", type=str, default="experiment_results/cross_domain_replay.json")
     args = parser.parse_args()
 
-    config = ReplayConfig(
-        n_train_repeats=args.n,
-        seed=args.seed,
-        skip_baselines=args.skip_baselines,
-        replay_n_samples=args.replay_samples,
-        sleep_interval=args.sleep_interval,
-    )
+    # Multi-seed: run across multiple seeds and aggregate
+    if args.seeds:
+        seed_list = [int(s.strip()) for s in args.seeds.split(",")]
+    else:
+        seed_list = [args.seed]
 
-    results = run_experiment(config)
+    all_results = []
+    for seed in seed_list:
+        print(f"\n{'='*70}")
+        print(f"  SEED {seed} ({seed_list.index(seed)+1}/{len(seed_list)})")
+        print(f"{'='*70}")
+        config = ReplayConfig(
+            n_train_repeats=args.n,
+            seed=seed,
+            skip_baselines=args.skip_baselines,
+            replay_n_samples=args.replay_samples,
+            sleep_interval=args.sleep_interval,
+        )
+        results = run_experiment(config)
+        all_results.append(results)
+
+    # Aggregate multi-seed results
+    if len(all_results) > 1:
+        import numpy as np
+        print(f"\n{'='*70}")
+        print(f"  MULTI-SEED AGGREGATE ({len(all_results)} seeds)")
+        print(f"{'='*70}")
+        metrics = ["retention_top10", "retention_top1", "replay_top10", "replay_top1"]
+        for metric in metrics:
+            vals = [r.get(metric, 0.0) for r in all_results]
+            mean = np.mean(vals)
+            std = np.std(vals)
+            print(f"  {metric}: {mean:.3f} +/- {std:.3f}")
+        # Use first result as primary, attach all
+        results = all_results[0]
+        results["multi_seed"] = {
+            "n_seeds": len(all_results),
+            "seeds": seed_list,
+            "aggregate": {m: {"mean": float(np.mean([r.get(m, 0.0) for r in all_results])),
+                              "std": float(np.std([r.get(m, 0.0) for r in all_results]))}
+                          for m in metrics}
+        }
+    else:
+        results = all_results[0]
 
     # Save results
     os.makedirs(os.path.dirname(args.output) if os.path.dirname(args.output) else '.', exist_ok=True)

@@ -149,6 +149,13 @@ class ConceptEdge:
         # Relation embedding: learned vector encoding the relational pattern
         # Initialized from relation_type seed, updated by Hebbian learning
         self.relation_vector = self._init_relation_vector(relation_type, relation_dim)
+        # EWC (Elastic Weight Consolidation) fields
+        self.fisher_importance: float = 0.0  # per-edge importance for old tasks
+        self.old_weight: float = 0.5         # weight snapshot at domain boundary
+        # Bayesian posterior: Beta(alpha, beta) over edge weight
+        # alpha = 1 + successes, beta = 1 + failures — starts as uniform Beta(1,1)
+        self.posterior_alpha: float = 1.0 + weight * 10.0  # prior from initial weight
+        self.posterior_beta: float = 1.0 + (1.0 - weight) * 10.0
 
     @staticmethod
     def _init_relation_vector(relation_type: str, dim: int) -> np.ndarray:
@@ -168,6 +175,17 @@ class ConceptEdge:
         if self.edge_type == "inhibitory":
             return -self.weight
         return self.weight
+
+    @property
+    def posterior_mean(self) -> float:
+        """Bayesian posterior mean E[w] = alpha / (alpha + beta)."""
+        return self.posterior_alpha / (self.posterior_alpha + self.posterior_beta + 1e-10)
+
+    @property
+    def posterior_uncertainty(self) -> float:
+        """Posterior variance — high = uncertain about this edge's strength."""
+        a, b = self.posterior_alpha, self.posterior_beta
+        return (a * b) / ((a + b) ** 2 * (a + b + 1) + 1e-10)
 
     @property
     def plasticity(self):
@@ -1036,7 +1054,16 @@ class ConceptGraph:
                         rel_boost = 1.0 + 0.3 * float(np.dot(edge.relation_vector[:len(src_vec)], src_vec / src_norm))
                     else:
                         rel_boost = 1.0
-                    act = node.activation * edge.weight * edge.confidence * decay * rel_boost
+                    # Use Bayesian posterior mean for activation spreading
+                    # Falls back to raw weight if posterior not initialized
+                    eff_weight = edge.posterior_mean if hasattr(edge, 'posterior_mean') else edge.weight
+                    # Uncertainty penalty: high-uncertainty edges transmit less signal
+                    if hasattr(edge, 'posterior_uncertainty'):
+                        uncertainty = edge.posterior_uncertainty
+                        precision_gate = 1.0 / (1.0 + uncertainty * 50.0)  # [0.3, 1.0] range
+                    else:
+                        precision_gate = 1.0
+                    act = node.activation * eff_weight * edge.confidence * decay * rel_boost * precision_gate
                     if edge.edge_type == "inhibitory":
                         act = -act
                     # Fan effect: normalize by in-degree
@@ -1241,16 +1268,26 @@ class ConceptGraph:
         # Surprise = how wrong we were * how confident we were about it
         surprise = abs(pred_error) * edge.confidence
         effective_lr = lr * (1.0 + surprise * 5.0)
+        delta = effective_lr * source.activation * target.activation * pred_error * source.salience * target.plasticity
+        # EWC penalty: protect important weights from drifting away from old-task optimum
+        ewc_penalty = 0.4 * edge.fisher_importance * (edge.weight - edge.old_weight)
+        delta -= ewc_penalty
         if edge.edge_type == "inhibitory":
-            delta = effective_lr * source.activation * target.activation * pred_error * source.salience * target.plasticity
             edge.weight = min(1.0, edge.weight + delta)
-            edge.confidence = min(1.0, edge.confidence + abs(delta) * 0.1)
         else:
-            delta = effective_lr * source.activation * target.activation * pred_error * source.salience * target.plasticity
             edge.weight = max(0.0, min(1.0, edge.weight + delta))
-            edge.confidence = min(1.0, edge.confidence + abs(delta) * 0.1)
+        edge.confidence = min(1.0, edge.confidence + abs(delta) * 0.1)
         edge.prediction_count += 1
         edge.stability = min(1.0, edge.stability + 0.001)
+
+        # Bayesian posterior update: Beta(alpha, beta) via prediction outcomes
+        # Correct prediction (low error) → increase alpha (evidence for edge)
+        # Incorrect prediction (high error) → increase beta (evidence against)
+        evidence = coactivation * source.salience
+        if pred_error < 0.5:
+            edge.posterior_alpha += evidence  # successful prediction
+        else:
+            edge.posterior_beta += evidence   # failed prediction
 
         # Relation vector learning: push-pull dynamics (rate-limited — expensive)
         # Only update relation vectors every 5th call per edge to reduce overhead

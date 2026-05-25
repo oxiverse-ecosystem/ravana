@@ -1,8 +1,9 @@
 """
 Lifelong Learning Benchmark (100K+ Experiences)
 
-The definitive test for RLM: streaming sequential experiences with NO replay
-buffer, measuring retention, interference, adaptation, transfer, and compute.
+The definitive test for RLM: streaming sequential experiences with sleep-time
+replay at entity-epoch boundaries, measuring retention, interference,
+adaptation, transfer, and compute.
 
 RLM advantages being tested:
 - Hebbian plasticity (no backprop, bounded compute per step)
@@ -602,6 +603,9 @@ def run_lifelong_benchmark(config: Optional[BenchmarkConfig] = None) -> Dict[str
     print("Streaming experiences...")
     loop_start = time.time()
 
+    # Track entity epoch transitions for replay buffer management
+    current_epoch = 0
+
     for step, exp in enumerate(experiences):
         # Skip already-processed steps when resuming
         if step < start_step:
@@ -610,12 +614,25 @@ def run_lifelong_benchmark(config: Optional[BenchmarkConfig] = None) -> Dict[str
         text = exp['text']
         ids = tok.encode(text)
 
+        # Detect entity-epoch boundary — snapshot prior epoch's replay buffer + EWC
+        new_epoch = stream._get_epoch(step)
+        if new_epoch > current_epoch:
+            # EWC: snapshot weights and compute Fisher before domain transition
+            rlm.snapshot_weights()
+            rlm.compute_fisher(rlm._replay_buffer)
+            # Replay: snapshot and activate prior epoch's experiences
+            rlm.snapshot_replay_buffer(f"epoch_{current_epoch}")
+            rlm.activate_domain_memories(f"epoch_{current_epoch}")
+            current_epoch = new_epoch
+
         # RLM learn — one learn call per experience (whole text sequence)
         t0 = time.time()
         if len(ids) >= 2:
             ctx = np.array([ids[:-1]], dtype=np.int64)
             tgt = np.array([[ids[-1]]], dtype=np.int64)
             rlm.learn(ctx, tgt)
+            # Buffer experience for sleep-time replay
+            rlm.buffer_experience(ctx, tgt, domain=f"epoch_{current_epoch}")
         rlm_total_time += time.time() - t0
 
         # Periodic sleep
