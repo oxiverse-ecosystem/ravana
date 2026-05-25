@@ -634,6 +634,65 @@ class RLM(Module):
 
         return concept_scores
 
+    def _chain_expand_predictions(self, active_nodes, token_norms, concept_scores,
+                                  hop_decay=0.75, max_seeds=3,
+                                  max_hops=3, confidence_threshold=0.12,
+                                  min_weight=0.2, frontier_budget=4):
+        """Use sparse graph chains as an extra transfer signal.
+
+        This complements direct edge traversal with explicit chain inference so
+        structurally similar but semantically distinct concepts can borrow
+        evidence from confident multi-hop paths.
+        """
+        if not active_nodes:
+            return concept_scores
+
+        for source in active_nodes[:max_seeds]:
+            source_strength = getattr(source, "effective_activation", source.activation)
+            if source_strength <= 0.01:
+                continue
+
+            chains = self.graph.infer_chain(
+                source.id,
+                max_hops=max_hops,
+                confidence_threshold=confidence_threshold,
+                min_weight=min_weight,
+                k=5,
+                frontier_budget=frontier_budget,
+            )
+            if not chains:
+                continue
+
+            for target_id, chain_score, path in chains:
+                if target_id == source.id or chain_score <= 0.0:
+                    continue
+                target_node = self.graph.get_node(target_id)
+                if target_node is None:
+                    continue
+
+                path_bonus = 1.0 + 0.08 * max(0, len(path) - 1)
+                chain_boost = chain_score * source_strength * hop_decay * path_bonus
+                if chain_boost <= 0.0:
+                    continue
+
+                bound_tokens = self._concept_to_tokens.get(target_id, set())
+                for tok_id in bound_tokens:
+                    if tok_id >= self.vocab_size:
+                        continue
+                    if concept_scores[tok_id] < -1e8:
+                        concept_scores[tok_id] = chain_boost * 0.35
+                    else:
+                        concept_scores[tok_id] += chain_boost * 0.35
+
+                if target_id < self.vocab_size:
+                    tgt_vec_norm = target_node.vector / (np.linalg.norm(target_node.vector) + 1e-15)
+                    tgt_embed_norm = self._project_to_embed(tgt_vec_norm)
+                    tgt_embed_norm = tgt_embed_norm / (np.linalg.norm(tgt_embed_norm) + 1e-15)
+                    chain_local = (token_norms @ tgt_embed_norm) * chain_boost
+                    concept_scores = np.maximum(concept_scores, chain_local)
+
+        return concept_scores
+
     def _rp_forward(self, source_vec, relation_vecs, concept_id=None):
         """Relation predictor forward pass.
 
@@ -934,6 +993,18 @@ class RLM(Module):
             # Analogy fallback: if no outgoing edges, use global relation prior
             if not has_edges:
                 concept_scores = self._analogy_predict(node, token_norms, concept_scores, hop_decay)
+
+        concept_scores = self._chain_expand_predictions(
+            all_active,
+            token_norms,
+            concept_scores,
+            hop_decay=0.72,
+            max_seeds=3,
+            max_hops=3,
+            confidence_threshold=0.12,
+            min_weight=0.2,
+            frontier_budget=4,
+        )
 
         concept_scores = np.maximum(concept_scores, -1e8)
         # Proper softmax normalization: temperature-controlled probability distribution
@@ -2156,6 +2227,18 @@ class RLM(Module):
                     tgt_embed_norm = tgt_embed_norm / (np.linalg.norm(tgt_embed_norm) + 1e-15)
                     tgt_local = (token_norms @ tgt_embed_norm) * hop_score
                     concept_scores = np.maximum(concept_scores, tgt_local)
+
+        concept_scores = self._chain_expand_predictions(
+            all_active,
+            token_norms,
+            concept_scores,
+            hop_decay=0.72,
+            max_seeds=3,
+            max_hops=3,
+            confidence_threshold=0.12,
+            min_weight=0.2,
+            frontier_budget=4,
+        )
 
         concept_scores = np.maximum(concept_scores, -1e8)
         # Proper softmax normalization: temperature-controlled probability distribution
