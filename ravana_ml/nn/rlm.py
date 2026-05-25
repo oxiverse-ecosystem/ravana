@@ -29,7 +29,8 @@ class RLM(Module):
     def __init__(self, vocab_size: int, embed_dim: int, concept_dim: int,
                  n_concepts: int, n_hidden: int, n_layers: int = 3,
                  max_seq_len: int = 128, free_energy_threshold: float = 8.0,
-                 sleep_interval: int = 100, tokenizer=None):
+                 sleep_interval: int = 100, tokenizer=None,
+                 replay_buffer_max: int = 500, replay_n_samples: int = 20):
         super().__init__()
         self.vocab_size = vocab_size
         self.embed_dim = embed_dim
@@ -147,7 +148,7 @@ class RLM(Module):
 
         # Native Memory (lightweight episodic buffer + semantic consolidation)
         self._episodic_buffer: List[Dict] = []    # recent experiences
-        self._episodic_buffer_max = 100
+        self._episodic_buffer_max = 500
         self._semantic_memories: Dict[int, Dict] = {}  # consolidated: {concept_id: {strength, access_count, last_access}}
         self._semantic_memory_max = 1000
 
@@ -193,7 +194,8 @@ class RLM(Module):
         # During sleep (SWS), old experiences are replayed to prevent
         # catastrophic forgetting — the model's analog of memory consolidation.
         self._replay_buffer: List[Tuple[np.ndarray, np.ndarray]] = []
-        self._replay_buffer_max: int = 500
+        self._replay_buffer_max: int = replay_buffer_max
+        self._replay_n_samples: int = replay_n_samples
         self._domain_memories: Dict[str, List[Tuple[np.ndarray, np.ndarray]]] = {}
 
     # ──────────────────────────────────────────────────────────────
@@ -377,6 +379,24 @@ class RLM(Module):
         cvec = self._project_to_concept(embed_vec)
         results = self.graph.find_similar(cvec, k=k)
         return [r[0] for r in results]
+
+    def _concept_posterior(self, embed_vec: np.ndarray, k: int = 5) -> List[Tuple[int, float]]:
+        """Bayesian soft concept assignment: returns top-K (concept_id, probability) pairs.
+
+        Converts cosine similarities to a probability distribution via softmax
+        with temperature scaling. High entropy = "I don't know" (uncertainty).
+        """
+        cvec = self._project_to_concept(embed_vec)
+        results = self.graph.find_similar(cvec, k=k)
+        if not results:
+            return []
+        sims = np.array([s for _, s in results], dtype=np.float32)
+        # Temperature-scaled softmax (tau=0.1 concentrates, tau=1.0 softens)
+        tau = 0.15
+        logits = sims / tau
+        logits -= logits.max()  # numerical stability
+        probs = np.exp(logits) / (np.exp(logits).sum() + 1e-10)
+        return [(results[i][0], float(probs[i])) for i in range(len(results))]
 
     def _classify_relation(self, token_ids: np.ndarray) -> str:
         """Classify relation type from input token sequence.
@@ -825,10 +845,21 @@ class RLM(Module):
             x = x + self._positional_encoding[pos]
             self._seq_position += 1
 
-            # Update nearest concept for propagation
-            nid = self._nearest_concept(x)
-            if nid >= 0:
-                context_concepts.append(nid)
+            # Soft concept assignment for context — activate top-K concepts
+            # with probability weights instead of hard winner-take-all
+            posterior = self._concept_posterior(x, k=3)
+            if posterior:
+                best_nid = posterior[0][0]
+                context_concepts.append(best_nid)
+                # Distribute activation across posterior for richer context
+                for c_id, c_prob in posterior:
+                    if c_id >= 0 and c_prob > 0.1:
+                        nid = c_id
+                        break
+                # Store soft context for downstream use
+                if not hasattr(self, '_soft_context'):
+                    self._soft_context = []
+                self._soft_context = posterior
             
             # Recurrent step (GRU cell with gating)
             h = self.recurrent_cell(x, h)
@@ -907,7 +938,11 @@ class RLM(Module):
             outgoing = self.graph._outgoing.get(node.id, [])
             has_edges = False
             for tgt_id, edge in outgoing:
-                if edge.edge_type == "inhibitory" or edge.weight < 0.05:
+                if edge.edge_type == "inhibitory":
+                    continue
+                # Use Bayesian posterior mean for edge weight
+                eff_w = edge.posterior_mean if hasattr(edge, 'posterior_mean') else edge.weight
+                if eff_w < 0.05:
                     continue
                 has_edges = True
                 tgt_node = self.graph.get_node(tgt_id)
@@ -915,7 +950,7 @@ class RLM(Module):
                     continue
                 # Phase 2: relation-type-aware hop scoring
                 rel_boost = {"causal": 1.3, "temporal": 1.2, "inferred": 0.8}.get(edge.relation_type, 1.0)
-                hop_score = node.activation * edge.weight * hop_decay * rel_boost
+                hop_score = node.activation * eff_w * hop_decay * rel_boost
                 bound_tokens = self._concept_to_tokens.get(tgt_id, set())
                 for tok_id in bound_tokens:
                     if tok_id >= self.vocab_size:
@@ -1063,6 +1098,32 @@ class RLM(Module):
             self._concept_to_tokens[input_concept].add(last_input_id)
             self._concept_to_tokens[output_concept].add(next_id)
             self._concept_to_tokens[output_concept].add(last_input_id)
+
+            # ── Bayesian soft concept assignment (Phase 2.1) ──
+            # After the hard primary edge, also distribute probability-weighted
+            # learning across top-K alternative concept pairs. This allows the model
+            # to maintain uncertainty about concept mapping and strengthens weak but
+            # correct associations that would otherwise be ignored.
+            if self._step_counter % 3 == 0:  # rate-limited for efficiency
+                input_posterior = self._concept_posterior(
+                    self.token_embed.embed_raw(last_input_id), k=3)
+                output_posterior = self._concept_posterior(next_embed, k=3)
+                for alt_in, p_in in input_posterior:
+                    for alt_out, p_out in output_posterior:
+                        if alt_in == input_concept and alt_out == output_concept:
+                            continue  # already handled by hard assignment
+                        if alt_in == alt_out:
+                            continue  # skip self-loops
+                        joint_prob = p_in * p_out
+                        if joint_prob < 0.05:
+                            continue  # too unlikely to bother
+                        alt_edge = self.graph.get_edge(alt_in, alt_out)
+                        if alt_edge is not None:
+                            # Soft boost proportional to joint probability
+                            alt_edge.weight = min(1.0, alt_edge.weight + 0.01 * joint_prob)
+                            alt_edge.confidence = min(1.0, alt_edge.confidence + 0.005 * joint_prob)
+                            # Bayesian update: soft evidence for the alternative
+                            alt_edge.posterior_alpha += 0.3 * joint_prob
 
             # ── Vector Updates (Gap 3 fix: concept vectors were frozen) ──
             # Pull: drift concept vectors toward their bound token embeddings
@@ -1615,8 +1676,20 @@ class RLM(Module):
         predictive_power = max(0, 1.0 - error)
         return 0.4 * dissonance_reduction + 0.3 * max(0, identity_gain) + 0.3 * predictive_power
 
-    def _store_episode(self, error: float, is_correct: bool):
-        """Store experience in episodic buffer for memory consolidation."""
+    def _store_episode(self, error: float, is_correct: bool,
+                       domain: Optional[str] = None):
+        """Store experience in episodic buffer for memory consolidation.
+
+        Enriched with importance scoring for salience-weighted eviction
+        and retrieval (Phase 2.2 upgrade).
+        """
+        # Importance: high-error episodes are more informative (harder to predict)
+        importance = 1.0 - min(1.0, error)
+        if is_correct:
+            importance *= 0.8  # correct predictions are slightly less critical
+        else:
+            importance = min(1.0, importance + 0.3)  # failures are salient
+
         episode = {
             'vector': self._last_hidden_state.copy() if self._last_hidden_state is not None else None,
             'concepts': list(self._last_predicted_concepts),
@@ -1625,10 +1698,16 @@ class RLM(Module):
             'valence': self.valence,
             'arousal': self.arousal,
             'timestamp': time.time(),
+            # Phase 2.2 enrichments
+            'importance': importance,
+            'domain': domain,
+            'access_count': 0,
+            'consolidation_state': 'fresh',  # fresh -> replaying -> consolidated
         }
         self._episodic_buffer.append(episode)
+        # Salience-weighted eviction: evict the least salient, not just the oldest
         if len(self._episodic_buffer) > self._episodic_buffer_max:
-            self._episodic_buffer.pop(0)
+            self._episodic_buffer = self._evict_lowest_salience(self._episodic_buffer)
 
     def _regulate_cognitive_state(self):
         """Lightweight Governor — prevents runaway state, detects mode.
@@ -1641,12 +1720,67 @@ class RLM(Module):
     # Native Memory System (episodic → semantic → graph weights)
     # ──────────────────────────────────────────────────────────────
 
+    def _evict_lowest_salience(self, buffer: List[Dict]) -> List[Dict]:
+        """Remove the lowest-salience episode from the buffer.
+
+        Salience = importance * 0.4 + recency * 0.3 + error_signal * 0.3
+        Preserves high-importance and recent experiences over stale, low-error ones.
+        """
+        now = time.time()
+        min_score = float('inf')
+        min_idx = 0
+        for i, ep in enumerate(buffer):
+            age = now - ep.get('timestamp', now)
+            recency = 1.0 / (1.0 + age * 0.01)  # decays with time
+            importance = ep.get('importance', 0.5)
+            # Higher error = more salient (more to learn from)
+            error_signal = min(1.0, ep.get('error', 0.5))
+            score = importance * 0.4 + recency * 0.3 + error_signal * 0.3
+            if score < min_score:
+                min_score = score
+                min_idx = i
+        buffer.pop(min_idx)
+        return buffer
+
+    def _scored_retrieval(self, k: int = 20) -> List[Dict]:
+        """Retrieve top-K episodes by salience score for sleep replay.
+
+        Score = recency * 0.3 + importance * 0.5 + (access_count decay) * 0.2
+        Falls back to last-K for old-format episodes without enrichment fields.
+        """
+        if not self._episodic_buffer:
+            return []
+        # Fallback for legacy episodes (loaded from old checkpoints)
+        if not any('importance' in ep for ep in self._episodic_buffer[-k:]):
+            return self._episodic_buffer[-k:]
+
+        now = time.time()
+        scored = []
+        for i, ep in enumerate(self._episodic_buffer):
+            age = now - ep.get('timestamp', now)
+            recency = 1.0 / (1.0 + age * 0.005)
+            importance = ep.get('importance', 0.5)
+            # Access count reward decays — frequently-replayed episodes
+            # get slightly less priority (diversity in replay)
+            access_bonus = 1.0 / (1.0 + ep.get('access_count', 0) * 0.2)
+            score = recency * 0.3 + importance * 0.5 + access_bonus * 0.2
+            scored.append((score, i))
+        scored.sort(reverse=True)
+        return [self._episodic_buffer[idx] for _, idx in scored[:k]]
+
     def _replay_memories_through_graph(self):
-        """Hippocampal replay — re-activate memories through ConceptGraph."""
+        """Hippocampal replay — re-activate memories through ConceptGraph.
+
+        Uses scored retrieval (importance + recency) and tracks access counts
+        for replay diversity (Phase 2.2 upgrade).
+        """
         if not self._episodic_buffer:
             return
-        episodes = self._episodic_buffer[-20:]
+        episodes = self._scored_retrieval(k=20)
         for ep in episodes:
+            # Track replay access
+            ep['access_count'] = ep.get('access_count', 0) + 1
+            ep['consolidation_state'] = 'replaying'
             if ep['concepts']:
                 for cid in ep['concepts'][:3]:
                     node = self.graph.get_node(cid)
@@ -1660,6 +1794,8 @@ class RLM(Module):
                         if coact > 0.05:
                             self.graph.hebbian_update(n1.id, n2.id, coactivation=coact, lr=0.01)
                 self.graph.reset_activation()
+            # Mark fully consolidated after replay
+            ep['consolidation_state'] = 'consolidated'
 
     def buffer_experience(self, input_ids: np.ndarray, target_ids: np.ndarray,
                           domain: Optional[str] = None):
@@ -1717,6 +1853,84 @@ class RLM(Module):
         self._replay_buffer.extend(to_load)
         print(f"  [Replay] Loaded {len(to_load)} experiences from '{domain_name}' into replay buffer")
 
+    # ── EWC (Elastic Weight Consolidation) ──────────────────────────────
+
+    def snapshot_weights(self):
+        """Snapshot current weights as the EWC 'old optimal' for the current domain.
+
+        Call this at domain/epoch boundaries, BEFORE starting training on
+        the next domain. Captures:
+        - Neural parameter snapshots (Linear, Embedding, GRUCell)
+        - Graph edge weight snapshots
+        Also normalizes accumulated Fisher information.
+        """
+        # Snapshot neural parameters
+        for name, module in self._modules.items():
+            if hasattr(module, '_old_weight_snapshot'):
+                module._old_weight_snapshot = module.weight.data.copy()
+                # Normalize Fisher by count to get mean
+                if module._fisher_count > 0:
+                    module._fisher_diagonal.data /= module._fisher_count
+                module._fisher_count = 0
+
+        # Snapshot graph edge weights
+        for edge in self.graph.edges.values():
+            edge.old_weight = edge.weight
+            # Normalize accumulated Fisher
+            if hasattr(edge, '_fisher_raw_count') and edge._fisher_raw_count > 0:
+                edge.fisher_importance /= edge._fisher_raw_count
+            elif edge.fisher_importance > 0:
+                pass  # already normalized or manually set
+
+        n_edges = sum(1 for e in self.graph.edges.values() if e.fisher_importance > 0)
+        print(f"  [EWC] Weight snapshot captured. {n_edges} edges with Fisher > 0")
+
+    def compute_fisher(self, sample_experiences: List[Tuple[np.ndarray, np.ndarray]],
+                       n_samples: int = 50):
+        """Compute empirical Fisher information for graph edges.
+
+        Measures edge importance based on current activation patterns and
+        prediction error. Edges that carry more predictive signal get higher
+        Fisher scores and are protected more strongly by EWC.
+
+        Args:
+            sample_experiences: list of (input_ids, target_ids) tuples
+            n_samples: number of experiences to use for Fisher estimation
+        """
+        if not sample_experiences:
+            return
+
+        # Reset Fisher accumulators on edges
+        for edge in self.graph.edges.values():
+            edge.fisher_importance = 0.0
+            edge._fisher_raw_count = 0
+
+        # Run a few learn steps to measure edge activation patterns
+        import random as _random
+        rng = _random.Random(42)
+        sample = rng.sample(sample_experiences, min(n_samples, len(sample_experiences)))
+
+        for inp, tgt in sample:
+            self.learn(inp, tgt)
+            # After learn, measure which edges were active and important
+            for (src_id, tgt_id), edge in self.graph.edges.items():
+                src_node = self.graph.nodes.get(src_id)
+                tgt_node = self.graph.nodes.get(tgt_id)
+                if src_node is None or tgt_node is None:
+                    continue
+                # Fisher = how much this edge's signal contributes to prediction
+                signal = src_node.activation * tgt_node.activation * (1.0 - edge.confidence)
+                edge.fisher_importance += signal ** 2
+                edge._fisher_raw_count = getattr(edge, '_fisher_raw_count', 0) + 1
+
+        # Normalize edge Fisher
+        for edge in self.graph.edges.values():
+            if hasattr(edge, '_fisher_raw_count') and edge._fisher_raw_count > 0:
+                edge.fisher_importance /= edge._fisher_raw_count
+
+        n_edges = sum(1 for e in self.graph.edges.values() if e.fisher_importance > 0)
+        print(f"  [EWC] Fisher computed on {len(sample)} experiences. {n_edges} edges have Fisher > 0")
+
     def _replay_old_memories(self, n_samples: int = 20):
         """Interleaved replay: sample old experiences and re-learn them.
 
@@ -1740,18 +1954,28 @@ class RLM(Module):
             replayed += 1
 
     def _consolidate_episodic_to_semantic(self):
-        """Promote frequently-accessed episodic memories to semantic."""
+        """Promote frequently-accessed episodic memories to semantic.
+
+        Uses importance-weighted consolidation strength (Phase 2.2):
+        important episodes (high error, not yet consolidated) get stronger
+        promotion signals.
+        """
         for ep in self._episodic_buffer:
             if ep['correct'] and ep['error'] < 0.3:
+                # Weight consolidation strength by episode importance
+                importance = ep.get('importance', 0.5)
+                # Never-consolidated episodes get a boost (they're novel)
+                is_novel = ep.get('consolidation_state', 'fresh') == 'fresh'
+                strength_delta = 0.05 * importance * (1.5 if is_novel else 1.0)
                 for cid in ep['concepts']:
                     if cid in self._semantic_memories:
                         self._semantic_memories[cid]['strength'] = min(1.0,
-                            self._semantic_memories[cid]['strength'] + 0.05)
+                            self._semantic_memories[cid]['strength'] + strength_delta)
                         self._semantic_memories[cid]['access_count'] += 1
                     else:
                         if len(self._semantic_memories) < self._semantic_memory_max:
                             self._semantic_memories[cid] = {
-                                'strength': 0.3,
+                                'strength': 0.3 * importance,
                                 'access_count': 1,
                                 'last_access': time.time(),
                             }
@@ -1840,7 +2064,7 @@ class RLM(Module):
 
         # Domain-interleaved replay: re-learn old-domain experiences to prevent forgetting
         # This is the core anti-catastrophic-forgetting mechanism (hippocampal replay)
-        self._replay_old_memories(n_samples=20)
+        self._replay_old_memories(n_samples=self._replay_n_samples)
 
         self._normalize_outgoing_weights()
         self.graph.spread_activation(steps=3)
@@ -1897,7 +2121,7 @@ class RLM(Module):
         # This is the core anti-forgetting mechanism — by replaying old
         # experiences through the Hebbian pipeline during SWS, the model
         # reinforces Domain A weights while Domain B is being learned.
-        self._replay_old_memories(n_samples=20)
+        self._replay_old_memories(n_samples=self._replay_n_samples)
 
     def _sleep_rem(self):
         """REM Sleep: creative exploration via noise injection and perturbation.
