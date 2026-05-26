@@ -103,6 +103,11 @@ class Module:
                 else:
                     # Backwards compat: bare numpy array
                     param.data = entry.copy()
+        # Rebuild raw numpy caches in submodules (Linear, Embedding, LayerNorm)
+        # after weight replacement — _w_raw/_b_raw are stale views into old arrays
+        for mod in self.modules():
+            if hasattr(mod, '_rebuild_raw_cache'):
+                mod._rebuild_raw_cache()
 
     def __repr__(self):
         params = sum(p.data.size for _, p in self.named_parameters())
@@ -250,6 +255,10 @@ class Embedding(Module):
         self._old_weight_snapshot = None
         self._fisher_count = 0
 
+    def _rebuild_raw_cache(self):
+        """Rebuild cached numpy view after weight replacement."""
+        self._w_raw = self.weight.data.view()
+
     def forward(self, indices):
         if isinstance(indices, RawTensor):
             idx = indices.data.astype(np.int64)
@@ -315,6 +324,12 @@ class LayerNorm(Module):
         else:
             self._w_ln_raw = None
             self._b_ln_raw = None
+
+    def _rebuild_raw_cache(self):
+        """Rebuild cached numpy views after weight replacement."""
+        if self.elementwise_affine:
+            self._w_ln_raw = self.weight.data.view()
+            self._b_ln_raw = self.bias.data.view()
 
     def forward(self, x):
         x_data = x.data if isinstance(x, RawTensor) else np.asarray(x, dtype=np.float32)

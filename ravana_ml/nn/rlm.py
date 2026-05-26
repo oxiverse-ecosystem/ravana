@@ -30,7 +30,10 @@ class RLM(Module):
                  n_concepts: int, n_hidden: int, n_layers: int = 3,
                  max_seq_len: int = 128, free_energy_threshold: float = 8.0,
                  sleep_interval: int = 100, tokenizer=None,
-                 replay_buffer_max: int = 500, replay_n_samples: int = 20):
+                 replay_buffer_max: int = 500, replay_n_samples: int = 20,
+                 anchor_relation_vectors: bool = True,
+                 gate_concept_creation: bool = True,
+                 adaptive_downscale: bool = True):
         super().__init__()
         self.vocab_size = vocab_size
         self.embed_dim = embed_dim
@@ -43,12 +46,17 @@ class RLM(Module):
         self.free_energy_threshold = free_energy_threshold
         self.sleep_interval = sleep_interval
 
+        # Ablation flags — toggle individual architectural fixes
+        self._anchor_relation_vectors = anchor_relation_vectors
+        self._gate_concept_creation = gate_concept_creation
+        self._adaptive_downscale = adaptive_downscale
+
         # Core layers
         self.token_embed = Embedding(vocab_size, embed_dim)
         self._init_structured_embeddings()
 
         # Sinusoidal positional encoding
-        max_len = 512
+        max_len = 1024
         pe = np.zeros((max_len, embed_dim), dtype=np.float32)
         position = np.arange(max_len)[:, np.newaxis]
         div_term = np.exp(np.arange(0, embed_dim, 2) * -(np.log(10000.0) / embed_dim))
@@ -79,7 +87,9 @@ class RLM(Module):
 
         # Concept graph: more concepts than tokens for clustering
         actual_n = max(n_concepts, vocab_size * 2)
-        self.graph = ConceptGraph(dim=concept_dim, max_nodes=actual_n * 2)
+        self.graph = ConceptGraph(dim=concept_dim, max_nodes=actual_n * 2,
+                                  anchor_relation_vectors=anchor_relation_vectors,
+                                  adaptive_downscale=adaptive_downscale)
         self._init_structured_concepts()
 
         self.propagation = PropagationEngine(self.graph)
@@ -300,14 +310,13 @@ class RLM(Module):
 
     def _init_structured_embeddings(self):
         n, d = self.vocab_size, self.embed_dim
-        vectors = np.zeros((n, d), dtype=np.float32)
+        data = self.token_embed.weight.data  # modify in-place to keep _w_raw in sync
         for i in range(n):
             angle = 2.0 * np.pi * i / n
-            vectors[i, 0] = np.cos(angle)
-            vectors[i, 1] = np.sin(angle)
+            data[i, 0] = np.cos(angle)
+            data[i, 1] = np.sin(angle)
             if d > 2:
-                vectors[i, 2:] = np.random.randn(d - 2).astype(np.float32) * 0.02
-        self.token_embed.weight.data = vectors
+                data[i, 2:] = np.random.randn(d - 2).astype(np.float32) * 0.02
 
     def _init_structured_concepts(self):
         d = self.concept_dim  # concept vectors live in concept_dim space (matches graph.dim and attn layers)
@@ -365,7 +374,7 @@ class RLM(Module):
         if results:
             best_id, best_sim = results[0]
             # Gap 3: creation-gating — reuse existing concept if similar enough
-            if best_sim >= self._concept_similarity_threshold:
+            if self._gate_concept_creation and best_sim >= self._concept_similarity_threshold:
                 return best_id
         # No good match — create new concept if below capacity
         if len(self.graph.nodes) < self._max_concepts:
@@ -1586,7 +1595,7 @@ class RLM(Module):
                 if self.noise_sigma > 0:
                     states[i] += np.random.normal(0, self.noise_sigma, states[i].shape)
 
-                states[i] = np.tanh(states[i])  # keep bounded
+                states[i] = np.tanh(states[i])  # keep bounded — tanh needed for stable Hebbian learning
 
         # Update running average for anti-collapse
         if self._running_avg_states is None:
@@ -2856,9 +2865,15 @@ class RLM(Module):
                 "stability": float(edge.stability),
                 "timestamp": float(edge.timestamp),
                 "prediction_count": int(edge.prediction_count),
+                "forward_pred_count": int(edge.forward_pred_count),
+                "backward_pred_count": int(edge.backward_pred_count),
                 "shortcut": bool(edge.shortcut),
                 "edge_type": edge.edge_type,
                 "relation_type": edge.relation_type,
+                "posterior_alpha": float(edge.posterior_alpha),
+                "posterior_beta": float(edge.posterior_beta),
+                "fisher_importance": float(edge.fisher_importance),
+                "old_weight": float(edge.old_weight),
             }
             if edge.relation_vector is not None:
                 edge_relation_vectors[f"({s}, {t})"] = edge.relation_vector
@@ -3093,22 +3108,37 @@ class RLM(Module):
                 edge = ConceptEdge(
                     source=ed["source"],
                     target=ed["target"],
-                    weight=ed["weight"],
+                    weight=1.0,  # placeholder; actual weight set below to avoid clamp
                     edge_type=ed.get("edge_type", "excitatory"),
                     relation_type=ed.get("relation_type", "semantic"),
                 )
+                edge.weight = float(ed["weight"])  # bypass __init__ clamp
                 edge.confidence = ed["confidence"]
                 edge.prediction_free_energy = ed.get("free_energy", ed.get("pressure", 0.0))
                 edge.stability = ed["stability"]
                 edge.timestamp = ed["timestamp"]
                 edge.prediction_count = ed["prediction_count"]
+                edge.forward_pred_count = ed.get("forward_pred_count", 0)
+                edge.backward_pred_count = ed.get("backward_pred_count", 0)
                 edge.shortcut = ed["shortcut"]
+                # Bayesian posterior
+                edge.posterior_alpha = ed.get("posterior_alpha", 1.0 + ed["weight"] * 10.0)
+                edge.posterior_beta = ed.get("posterior_beta", 1.0 + (1.0 - ed["weight"]) * 10.0)
+                # EWC fields
+                edge.fisher_importance = ed.get("fisher_importance", 0.0)
+                edge.old_weight = ed.get("old_weight", 0.5)
                 # Restore relation vector from arrays
                 safe_key = key.replace("(", "").replace(")", "").replace(",", "_").replace(" ", "")
                 rel_key = f"edge_rel/{safe_key}"
                 if rel_key in npz:
                     edge.relation_vector = npz[rel_key]
                 model.graph.edges[(ed["source"], ed["target"])] = edge
+                # Rebuild adjacency indices (load_zip bypasses add_edge)
+                model.graph._outgoing[ed["source"]].append((ed["target"], edge))
+                model.graph._incoming[ed["target"]].append((ed["source"], edge))
+
+            # Mark vector matrix as stale so it's rebuilt on next forward pass
+            model.graph._vectors_dirty = True
 
             # Rebuild engines with restored graph
             model.propagation = PropagationEngine(model.graph)
