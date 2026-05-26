@@ -20,3 +20,20 @@ checkpoints*/
 
 # Experiment output logs
 experiment_results/*_output.txt
+
+# Output traces and data
+output/*.json
+output/*.md
+
+# Root-level generated trace files
+cognitive_trace.json
+cognitive_trace.md
+compression_trace.json
+compression_trace.md
+comparison_results.json
+
+# Experiment results
+experiment_results/
+
+# Downloaded datasets
+data/

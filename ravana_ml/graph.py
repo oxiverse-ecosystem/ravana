@@ -826,11 +826,31 @@ class GeometryHistory:
 
 
 class ConceptGraph:
-    def __init__(self, dim: int = 64, max_nodes: int = 10000):
+    def __init__(self, dim: int = 64, max_nodes: int = 10000,
+                 anchor_relation_vectors: bool = True,
+                 adaptive_downscale: bool = True):
         self.dim = dim
         self.max_nodes = max_nodes
+        self._anchor_relation_vectors = anchor_relation_vectors
+        self._adaptive_downscale = adaptive_downscale
         self.nodes: Dict[int, ConceptNode] = {}
         self.edges: Dict[Tuple[int, int], ConceptEdge] = {}
+
+        # Scalability: optional FAISS index for O(log N) similarity search
+        self._faiss_index = None
+        self._use_faiss = False
+        try:
+            import faiss
+            self._use_faiss = True
+            self._faiss = faiss
+        except ImportError:
+            pass
+
+        # Scalability: incremental consolidation tracking
+        self._activated_since_sleep: Set[int] = set()
+
+        # Scalability: pre-bucketed edges by relation type for contrastive sampling
+        self._edges_by_relation_type: Dict[str, List[Tuple[Tuple[int,int], ConceptEdge]]] = defaultdict(list)
         self.next_id = 0
         self.total_free_energy = 0.0
         self.contradiction_hotspots: Set[int] = set()
@@ -939,6 +959,7 @@ class ConceptGraph:
             self._node_id_order = []
             self._vectors_dirty = False
             self._cached_norms = None
+            self._faiss_index = None
             return
         ids = sorted(self.nodes.keys())
         self._node_id_order = ids
@@ -947,6 +968,15 @@ class ConceptGraph:
         self._vector_matrix_normed = vecs / (norms + 1e-15)
         self._cached_norms = norms.squeeze(1)  # (N,) for reuse in drift_magnitude etc.
         self._vectors_dirty = False
+
+        # Build FAISS index for O(log N) search when graph is large enough
+        if self._use_faiss and len(ids) >= 64:
+            vecs_normed = self._vector_matrix_normed.copy()
+            index = self._faiss.IndexFlatIP(self.dim)  # inner product on normalized = cosine
+            index.add(vecs_normed)
+            self._faiss_index = index
+        else:
+            self._faiss_index = None
 
     def get_activation_vector(self) -> Tuple[List[int], np.ndarray]:
         """Get ordered activation vector aligned with node_id_order."""
@@ -974,10 +1004,16 @@ class ConceptGraph:
         edge = ConceptEdge(source, target, weight, shortcut=shortcut,
                           edge_type=edge_type, relation_type=relation_type,
                           relation_dim=self._relation_dim)
+        # Ablation: randomize relation vector if type-anchoring is disabled
+        if not self._anchor_relation_vectors:
+            edge.relation_vector = np.random.randn(self._relation_dim).astype(np.float32)
+            edge.relation_vector /= (np.linalg.norm(edge.relation_vector) + 1e-15)
         self.edges[key] = edge
         # Maintain adjacency indices
         self._outgoing[source].append((target, edge))
         self._incoming[target].append((source, edge))
+        # Maintain relation-type bucket index for scalable contrastive sampling
+        self._edges_by_relation_type[relation_type].append((key, edge))
         return edge
 
     def get_edge(self, source: int, target: int) -> Optional[ConceptEdge]:
@@ -997,6 +1033,7 @@ class ConceptGraph:
             node.activation = min(1.0, node.activation + amount)
             node.record_activation(context_vector)
             self._active_nodes.add(nid)
+            self._activated_since_sleep.add(nid)  # track for incremental consolidation
 
     def update_temporal_context(self):
         """Drift temporal context toward the centroid of currently active concepts.
@@ -1155,9 +1192,22 @@ class ConceptGraph:
             self._rebuild_vector_matrix()
         if self._vector_matrix_normed is None or len(self._node_id_order) == 0:
             return []
+        k = min(k, len(self._node_id_order))
+
+        # FAISS path: O(log N) approximate NN
+        if self._use_faiss and self._faiss_index is not None and len(self._node_id_order) >= 64:
+            vec = vector.reshape(1, -1).astype(np.float32)
+            vec /= (np.linalg.norm(vec) + 1e-15)
+            sims, idxs = self._faiss_index.search(vec, k)
+            results = []
+            for sim, idx in zip(sims[0], idxs[0]):
+                if idx >= 0:
+                    results.append((self._node_id_order[idx], float(sim)))
+            return results
+
+        # Brute-force path: O(N·D) matrix multiply
         vec_norm = vector / (np.linalg.norm(vector) + 1e-15)
         sims = self._vector_matrix_normed @ vec_norm.astype(np.float32)  # (N,)
-        k = min(k, len(self._node_id_order))
         top_k_idx = np.argpartition(sims, -k)[-k:]
         top_k_idx = top_k_idx[np.argsort(sims[top_k_idx])[::-1]]
         return [(self._node_id_order[i], float(sims[i])) for i in top_k_idx]
@@ -1306,10 +1356,18 @@ class ConceptGraph:
             edge.relation_vector += effective_lr * 0.1 * (hebbian_signal - edge.relation_vector)
 
             # Contrastive push: explicit negative sampling from different relation types
-            # Sample edges and push away from those with different relation_type
+            # Use pre-bucketed index for O(bucket_size) instead of O(E) linear scan
             sample_edges = list(self.edges.values())[:200]
-            negatives = [e for e in sample_edges
-                         if e.relation_type != edge.relation_type and e is not edge]
+            if self._edges_by_relation_type:
+                negatives = []
+                for rtype, bucket in self._edges_by_relation_type.items():
+                    if rtype != edge.relation_type:
+                        for item in bucket[:20]:
+                            e = item[1] if isinstance(item, tuple) and hasattr(item[1], 'relation_vector') else item
+                            negatives.append(e)
+            else:
+                negatives = [e for e in sample_edges
+                             if e.relation_type != edge.relation_type and e is not edge]
             # Sample up to 3 negatives for explicit push
             if negatives:
                 np.random.shuffle(negatives)
@@ -1320,8 +1378,13 @@ class ConceptGraph:
                     edge.relation_vector -= repel_strength * neg_rv
 
                 # Also pull toward centroid of same type (cluster cohesion)
-                same_type = [e.relation_vector for e in sample_edges
-                             if e.relation_type == edge.relation_type and e is not edge]
+                if self._edges_by_relation_type:
+                    bucket = self._edges_by_relation_type.get(edge.relation_type, [])
+                    same_type = [e.relation_vector for _, e in bucket
+                                 if e is not edge]
+                else:
+                    same_type = [e.relation_vector for e in sample_edges
+                                 if e.relation_type == edge.relation_type and e is not edge]
                 if same_type:
                     same_centroid = np.mean(same_type, axis=0)
                     same_centroid = same_centroid / (np.sqrt(np.sum(same_centroid * same_centroid)) + 1e-15)
@@ -1707,7 +1770,7 @@ class ConceptGraph:
                 self._structural_importance_cache = si
                 self._si_cache_step = len(self.edges)
 
-        # First pass: adaptive downscale with protection
+        # First pass: downscale with protection
         for key, edge in self.edges.items():
             # Fully protected edges: skip downscale
             if edge.stability >= protection_threshold:
@@ -1715,11 +1778,15 @@ class ConceptGraph:
             if si.get(key, 0.0) >= structural_protection:
                 continue
 
-            # Adaptive factor: confident, frequently-used edges resist downscale
-            # Floor raised from 0.6 to 0.85 — prevents catastrophic forgetting
-            usage = min(1.0, edge.confidence * edge.prediction_count / 10.0)
-            adaptive_factor = 0.85 + 0.14 * usage  # range: 0.85-0.99
-            edge.weight *= adaptive_factor
+            if self._adaptive_downscale:
+                # Adaptive factor: confident, frequently-used edges resist downscale
+                # Floor raised from 0.6 to 0.85 — prevents catastrophic forgetting
+                usage = min(1.0, edge.confidence * edge.prediction_count / 10.0)
+                factor = 0.85 + 0.14 * usage  # range: 0.85-0.99
+            else:
+                # Uniform downscale: all edges equally weakened (ablation mode)
+                factor = downscale_factor  # 0.8
+            edge.weight *= factor
 
         # Post-downscale renormalization: prevent concept orphaning
         # If a node's mean outgoing weight drops below 0.1, restore top-3 edges
@@ -1833,17 +1900,30 @@ class ConceptGraph:
 
     # ── vector consolidation ──
 
-    def consolidate_vectors(self, rate: float = 0.1):
+    def consolidate_vectors(self, rate: float = 0.1, incremental: bool = True):
         """Sleep consolidation: merge active_vector toward core_vector.
 
         This is the SWS analogue — during sleep, fast-changing active
         representations consolidate into the stable identity anchor.
         rate: how much active_vector moves toward core_vector (0.0-1.0)
+        incremental: if True, only consolidate nodes activated since last sleep
+                     (O(active_N) instead of O(N))
         """
         if not self.nodes:
             return
-        # Vectorized: batch all nodes at once instead of per-node loops
-        ids = sorted(self.nodes.keys())
+
+        # Incremental mode: only consolidate recently activated nodes
+        if incremental and self._activated_since_sleep:
+            ids = sorted(self._activated_since_sleep)
+            self._activated_since_sleep.clear()
+        else:
+            ids = sorted(self.nodes.keys())
+            self._activated_since_sleep.clear()
+
+        if not ids:
+            return
+
+        # Vectorized: batch selected nodes
         active_vecs = np.stack([self.nodes[nid].vector for nid in ids]).astype(np.float32)
         core_vecs = np.stack([self.nodes[nid].core_vector for nid in ids]).astype(np.float32)
         # Move active toward core (consolidation)
