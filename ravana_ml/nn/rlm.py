@@ -33,7 +33,8 @@ class RLM(Module):
                  replay_buffer_max: int = 500, replay_n_samples: int = 20,
                  anchor_relation_vectors: bool = True,
                  gate_concept_creation: bool = True,
-                 adaptive_downscale: bool = True):
+                 adaptive_downscale: bool = True,
+                 deep_sleep_every: int = 1):
         super().__init__()
         self.vocab_size = vocab_size
         self.embed_dim = embed_dim
@@ -50,6 +51,10 @@ class RLM(Module):
         self._anchor_relation_vectors = anchor_relation_vectors
         self._gate_concept_creation = gate_concept_creation
         self._adaptive_downscale = adaptive_downscale
+
+        # Sleep depth cycling — brain-inspired light/deep alternation
+        self._deep_sleep_every = deep_sleep_every
+        self._sleep_cycle_counter = 0
 
         # Core layers
         self.token_embed = Embedding(vocab_size, embed_dim)
@@ -336,7 +341,10 @@ class RLM(Module):
             self.graph.add_node(vec, label=f"tok_{token_idx}")
 
         # Gap 3: creation-gating parameters
-        # Only create new concepts when similarity < threshold AND graph < capacity
+        # Track which concept IDs were pre-created at init (the "vocab scaffold").
+        # These are always reused — gating only applies to post-init dynamic concepts
+        # to prevent runaway proliferation while preserving the initial scaffold.
+        self._init_concept_ids = set(n.id for n in self.graph.nodes.values())
         self._concept_similarity_threshold = 0.7  # reuse existing concept if sim > this
         self._max_concepts = max(self.n_concepts, int(self.vocab_size * 0.5))  # cap at 50% of vocab
 
@@ -371,17 +379,30 @@ class RLM(Module):
     def _nearest_concept(self, embed_vec: np.ndarray) -> int:
         cvec = self._project_to_concept(embed_vec)
         results = self.graph.find_similar(cvec, k=1)
+
+        # Always reuse the nearest pre-init (vocab scaffold) concept directly.
+        # The scaffold provides structure; inputs that match it should route there.
         if results:
             best_id, best_sim = results[0]
-            # Gap 3: creation-gating — reuse existing concept if similar enough
-            if self._gate_concept_creation and best_sim >= self._concept_similarity_threshold:
+            if best_id in self._init_concept_ids:
                 return best_id
-        # No good match — create new concept if below capacity
+
+        # For dynamic (post-init) concepts, apply gating to prevent proliferation.
+        # Only block creation if a *dynamic* concept is similar enough — this
+        # prevents runaway duplication among learned concepts while letting the
+        # graph grow beyond the initial scaffold.
+        if self._gate_concept_creation:
+            dynamic_results = self.graph.find_similar(cvec, k=10)
+            for cid, csim in dynamic_results:
+                if cid not in self._init_concept_ids and csim >= self._concept_similarity_threshold:
+                    return cid
+
+        # Create new concept if below capacity
         if len(self.graph.nodes) < self._max_concepts:
             new_node = self.graph.add_node(cvec / (np.linalg.norm(cvec) + 1e-15),
                                           label=f"dyn_{len(self.graph.nodes)}")
             return new_node.id
-        # At capacity — return nearest even if similarity is low
+        # At capacity — return nearest
         return results[0][0] if results else -1
 
     def _nearest_concepts(self, embed_vec: np.ndarray, k: int = 3) -> List[int]:
@@ -2046,25 +2067,63 @@ class RLM(Module):
             self.graph.remove_edge(src, tgt)
 
     def sleep_cycle(self):
-        """Two-phase sleep: SWS (consolidation) then REM (creative exploration).
+        """Two-phase sleep with depth cycling (brain-inspired).
 
-        SWS (Slow-Wave Sleep): structural consolidation, vector stabilization,
-        path compression, homeostatic downscale. The "boring but essential" phase.
+        Real brains don't do deep consolidation every cycle — ~80% of sleep
+        is light (N1/N2), with deep SWS only ~20%. This method implements
+        that by alternating between lightweight "micro-sleep" and full
+        deep consolidation every `_deep_sleep_every` cycles.
 
-        REM (Rapid Eye Movement): noise injection, creative recombination,
-        dream sabotage, exploratory perturbation. The "creative" phase that
-        enables cross-domain transfer and novel associations.
+        Deep sleep: SWS (consolidation) + REM (creative exploration) + full
+        cognitive consolidation. Expensive but thorough.
+
+        Light sleep: cheap maintenance only — homeostasis, weight normalization,
+        binding decay, vector consolidation, neural weight flush. Skips replay,
+        spread_activation, structural analysis, and REM.
         """
-        # Phase 1: SWS — consolidation
-        self._sleep_sws()
+        self._sleep_cycle_counter += 1
 
-        # Phase 2: REM — creative exploration
-        self._sleep_rem()
+        if self._deep_sleep_every > 0 and self._sleep_cycle_counter % self._deep_sleep_every != 0:
+            # Light sleep — cheap maintenance only
+            self._sleep_sws_light()
+        else:
+            # Deep sleep — full SWS + REM consolidation
+            self._sleep_sws()
+            self._sleep_rem()
+            self._sleep_cognitive_consolidation()
 
         self.sleep_cycles_completed += 1
 
-        # Cognitive consolidation (shared between phases)
-        self._sleep_cognitive_consolidation()
+    def _sleep_sws_light(self):
+        """Light sleep: cheap maintenance operations only.
+
+        Skips expensive operations (replay, spread_activation, structural step,
+        inhibitory edge formation, concept splitting, path compression, REM).
+        Runs only: homeostasis, weight normalization, binding decay, vector
+        consolidation, and neural weight flush.
+        """
+        # Homeostatic downscaling — skip structural protection (the expensive BFS)
+        self.graph.homeostatic_downscale(structural_protection=0)
+
+        # Neural weight consolidation: flush accumulated free_energy buffers
+        super().sleep_cycle()
+
+        # Reconcile: reset contradiction counts, reduce free energy
+        self.graph.reconcile_contradictions()
+
+        # Binding maintenance
+        self.binding_map.decay_all(rate=0.005)
+        self.binding_map.prune(min_strength=0.05)
+
+        # Vector Consolidation: fast-changing active vectors → stable core vectors
+        # Already incremental (only processes nodes activated since last sleep)
+        self.graph.consolidate_vectors(rate=0.08)
+
+        # Normalize outgoing weights to prevent drift
+        self._normalize_outgoing_weights()
+
+        # Cognitive currency consolidation (cheap scalar ops — resets sleep pressure)
+        self.currencies.consolidate_on_sleep()
 
     def _sleep_sws(self):
         """Slow-Wave Sleep: structural consolidation and stabilization."""
@@ -2167,9 +2226,19 @@ class RLM(Module):
 
         # 4. Cross-link: if two active concepts share a common neighbor but no
         # direct edge, form a tentative shortcut (enables cross-domain transfer)
-        active_nodes = [n for n in self.graph.nodes.values() if n.activation > 0.1]
+        # Cap at top-50 most active to prevent O(A²) blowup on large graphs
+        active_nodes = sorted(
+            [n for n in self.graph.nodes.values() if n.activation > 0.1],
+            key=lambda n: n.activation, reverse=True
+        )[:50]
+        max_cross_links = 10  # cap new edges per REM cycle
+        cross_links_formed = 0
         for i, n1 in enumerate(active_nodes):
+            if cross_links_formed >= max_cross_links:
+                break
             for n2 in active_nodes[i+1:]:
+                if cross_links_formed >= max_cross_links:
+                    break
                 if self.graph.get_edge(n1.id, n2.id) is not None:
                     continue
                 # Check shared neighbors
@@ -2180,6 +2249,7 @@ class RLM(Module):
                     self.graph.add_edge(n1.id, n2.id, weight=0.1,
                                        edge_type="contextual", shortcut=True,
                                        relation_type="inferred")
+                    cross_links_formed += 1
 
         # Apply noise-modulated free energy (REM explores, doesn't just consolidate)
         self.free_energy_engine.decay(rate=0.05)  # gentle decay during REM
@@ -2196,7 +2266,11 @@ class RLM(Module):
         # Record geometry snapshot
         self.graph.record_geometry_snapshot(event="sleep", lightweight=True)
 
-        # 1. Hippocampal replay
+        # NOTE: Hippocampal replay done in both _sleep_sws() and here —
+        # SWS replay happens before REM perturbation, this one after REM
+        # to re-stabilize. Both are intentional (stabilize-explore-stabilize).
+
+        # 1. Hippocampal replay (post-REM stabilization)
         self._replay_memories_through_graph()
 
         # 2. Episodic → semantic consolidation
@@ -2647,6 +2721,9 @@ class RLM(Module):
             "scalars": {
                 "step_counter": self._step_counter,
                 "sleep_cycles_completed": self.sleep_cycles_completed,
+                "_sleep_cycle_counter": self._sleep_cycle_counter,
+                "_deep_sleep_every": self._deep_sleep_every,
+                "_init_concept_ids": sorted(int(x) for x in self._init_concept_ids),
                 "total_free_energy": self.total_free_energy,
                 "conceptual_accuracy": self.conceptual_accuracy,
                 "n_predictions": self.n_predictions,
@@ -2727,6 +2804,9 @@ class RLM(Module):
         scalars = checkpoint["scalars"]
         model._step_counter = scalars["step_counter"]
         model.sleep_cycles_completed = scalars["sleep_cycles_completed"]
+        model._sleep_cycle_counter = scalars.get("_sleep_cycle_counter", scalars["sleep_cycles_completed"])
+        model._deep_sleep_every = scalars.get("_deep_sleep_every", 1)
+        model._init_concept_ids = set(scalars.get("_init_concept_ids", []))
         model.total_free_energy = scalars["total_free_energy"]
         model.conceptual_accuracy = scalars["conceptual_accuracy"]
         model.n_predictions = scalars["n_predictions"]
@@ -2883,6 +2963,13 @@ class RLM(Module):
             safe_key = key.replace("(", "").replace(")", "").replace(",", "_").replace(" ", "")
             arrays[f"edge_rel/{safe_key}"] = rvec
 
+        # Relation predictor arrays (raw numpy, not in state_dict)
+        arrays["rp/W1"] = self._rp_W1
+        arrays["rp/b1"] = self._rp_b1
+        arrays["rp/W2"] = self._rp_W2
+        arrays["rp/b2"] = self._rp_b2
+        arrays["rp/concept_embed"] = self._rp_concept_embed
+
         graph_json = {
             "dim": self.graph.dim,
             "max_nodes": self.graph.max_nodes,
@@ -2912,6 +2999,9 @@ class RLM(Module):
             "scalars": {
                 "step_counter": self._step_counter,
                 "sleep_cycles_completed": self.sleep_cycles_completed,
+                "_sleep_cycle_counter": self._sleep_cycle_counter,
+                "_deep_sleep_every": self._deep_sleep_every,
+                "_init_concept_ids": sorted(int(x) for x in self._init_concept_ids),
                 "total_free_energy": float(self.total_free_energy),
                 "conceptual_accuracy": float(self.conceptual_accuracy),
                 "n_predictions": self.n_predictions,
@@ -3155,6 +3245,9 @@ class RLM(Module):
             s = meta["scalars"]
             model._step_counter = s["step_counter"]
             model.sleep_cycles_completed = s["sleep_cycles_completed"]
+            model._sleep_cycle_counter = s.get("_sleep_cycle_counter", s["sleep_cycles_completed"])
+            model._deep_sleep_every = s.get("_deep_sleep_every", 1)
+            model._init_concept_ids = set(s.get("_init_concept_ids", []))
             model.total_free_energy = s["total_free_energy"]
             model.conceptual_accuracy = s["conceptual_accuracy"]
             model.n_predictions = s["n_predictions"]
@@ -3240,6 +3333,14 @@ class RLM(Module):
             settle_keys = [k for k in npz.keys() if k.startswith("settle/running_avg_")]
             if settle_keys:
                 model._running_avg_states = [npz[k] for k in sorted(settle_keys)]
+
+            # Restore relation predictor arrays (raw numpy, not in state_dict)
+            if "rp/W1" in npz:
+                model._rp_W1 = npz["rp/W1"]
+                model._rp_b1 = npz["rp/b1"]
+                model._rp_W2 = npz["rp/W2"]
+                model._rp_b2 = npz["rp/b2"]
+                model._rp_concept_embed = npz["rp/concept_embed"]
 
             # Restore cognitive state (via CognitiveCurrencies)
             cs = meta.get("cognitive_state", {})

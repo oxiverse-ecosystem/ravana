@@ -1482,8 +1482,8 @@ class ConceptGraph:
 
     def prune_edges(self, threshold: float = 0.05):
         to_remove = [k for k, e in self.edges.items() if e.confidence < threshold]
-        for k in to_remove:
-            del self.edges[k]
+        for (s, t) in to_remove:
+            self.remove_edge(s, t)
         return len(to_remove)
 
     def form_edges(self, coactivation_threshold: float = 0.5):
@@ -1761,14 +1761,11 @@ class ConceptGraph:
         # Compute structural importance (reuse cache from regulate() if fresh)
         si = {}
         if structural_protection > 0 and len(self.edges) > 0:
-            if hasattr(self, '_structural_importance_cache') and \
-               hasattr(self, '_si_cache_step') and \
-               self._si_cache_step >= len(self.edges) - 100:
+            if self._si_cache_is_fresh():
                 si = self._structural_importance_cache
             else:
                 si = self.compute_edge_structural_importance()
-                self._structural_importance_cache = si
-                self._si_cache_step = len(self.edges)
+                self._update_si_cache(si)
 
         # First pass: downscale with protection
         for key, edge in self.edges.items():
@@ -1810,6 +1807,26 @@ class ConceptGraph:
 
         total_after = sum(e.weight for e in self.edges.values())
         return total_before, total_after
+
+    # ── structural importance cache (shared across homeostasis + regulate) ──
+
+    def _si_cache_is_fresh(self) -> bool:
+        """Check if the structural importance cache is still fresh.
+
+        Fresh = edge count hasn't changed significantly since last computation.
+        Both homeostatic_downscale() and regulate() share this cache to avoid
+        redundant O(sample_size × E) BFS computation in the same sleep cycle.
+        """
+        if not hasattr(self, '_structural_importance_cache') or \
+           not hasattr(self, '_si_cache_n_edges'):
+            return False
+        # Fresh if edge count hasn't drifted more than 5% since last computation
+        return abs(len(self.edges) - self._si_cache_n_edges) <= max(5, len(self.edges) * 0.05)
+
+    def _update_si_cache(self, si: Dict[Tuple[int, int], float]):
+        """Update the structural importance cache with current edge count snapshot."""
+        self._structural_importance_cache = si
+        self._si_cache_n_edges = len(self.edges)
 
     # ── sleep support ──
 
@@ -3315,11 +3332,10 @@ class ConceptGraph:
         # Topology-aware: protect structurally important edges (bridges, hubs, used paths)
         if metrics.get("graph_entropy", 0) > 0.8 and len(self.edges) > 10:
             prune_threshold = 0.15  # prune edges below this weight
-            # Compute structural importance (cached periodically)
-            if not hasattr(self, '_structural_importance_cache') or \
-               getattr(self, '_si_cache_step', 0) < self._regulator._step - 10:
-                self._structural_importance_cache = self.compute_edge_structural_importance()
-                self._si_cache_step = self._regulator._step
+            # Compute structural importance (cached, shared with homeostatic_downscale)
+            if not self._si_cache_is_fresh():
+                si = self.compute_edge_structural_importance()
+                self._update_si_cache(si)
             si = self._structural_importance_cache
 
             # Only prune edges with low structural importance

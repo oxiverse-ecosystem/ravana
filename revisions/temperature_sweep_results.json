@@ -1,0 +1,119 @@
+{
+  "config": {
+    "n_repeats": 2,
+    "seed": 42
+  },
+  "sweep": {
+    "0.1": {
+      "domain_a": {
+        "top1_accuracy": 0.0,
+        "top10_accuracy": 0.6,
+        "n_tested": 15
+      },
+      "domain_b": {
+        "top1_accuracy": 0.0,
+        "top10_accuracy": 0.4,
+        "n_tested": 15
+      }
+    },
+    "0.15": {
+      "domain_a": {
+        "top1_accuracy": 0.0,
+        "top10_accuracy": 0.6,
+        "n_tested": 15
+      },
+      "domain_b": {
+        "top1_accuracy": 0.0,
+        "top10_accuracy": 0.4,
+        "n_tested": 15
+      }
+    },
+    "0.2": {
+      "domain_a": {
+        "top1_accuracy": 0.0,
+        "top10_accuracy": 0.6,
+        "n_tested": 15
+      },
+      "domain_b": {
+        "top1_accuracy": 0.0,
+        "top10_accuracy": 0.4,
+        "n_tested": 15
+      }
+    },
+    "0.25": {
+      "domain_a": {
+        "top1_accuracy": 0.0,
+        "top10_accuracy": 0.6,
+        "n_tested": 15
+      },
+      "domain_b": {
+        "top1_accuracy": 0.0,
+        "top10_accuracy": 0.4,
+        "n_tested": 15
+      }
+    },
+    "0.3": {
+      "domain_a": {
+        "top1_accuracy": 0.0,
+        "top10_accuracy": 0.6,
+        "n_tested": 15
+      },
+      "domain_b": {
+        "top1_accuracy": 0.0,
+        "top10_accuracy": 0.4,
+        "n_tested": 15
+      }
+    },
+    "0.4": {
+      "domain_a": {
+        "top1_accuracy": 0.0,
+        "top10_accuracy": 0.6,
+        "n_tested": 15
+      },
+      "domain_b": {
+        "top1_accuracy": 0.0,
+        "top10_accuracy": 0.4,
+        "n_tested": 15
+      }
+    },
+    "0.5": {
+      "domain_a": {
+        "top1_accuracy": 0.0,
+        "top10_accuracy": 0.6,
+        "n_tested": 15
+      },
+      "domain_b": {
+        "top1_accuracy": 0.0,
+        "top10_accuracy": 0.4,
+        "n_tested": 15
+      }
+    },
+    "0.7": {
+      "domain_a": {
+        "top1_accuracy": 0.0,
+        "top10_accuracy": 0.6,
+        "n_tested": 15
+      },
+      "domain_b": {
+        "top1_accuracy": 0.0,
+        "top10_accuracy": 0.4,
+        "n_tested": 15
+      }
+    },
+    "1.0": {
+      "domain_a": {
+        "top1_accuracy": 0.0,
+        "top10_accuracy": 0.6,
+        "n_tested": 15
+      },
+      "domain_b": {
+        "top1_accuracy": 0.0,
+        "top10_accuracy": 0.4,
+        "n_tested": 15
+      }
+    }
+  },
+  "best_T": 0.1,
+  "baseline_T1_domain_b_top1": 0.0,
+  "improvement_pp": 0.0
+}

@@ -72,6 +72,6 @@ class StructuralPlasticity:
         now = __import__('time').time()
         to_remove = [k for k, e in self.graph.edges.items()
                      if now - e.timestamp > max_age and e.prediction_count < 3]
-        for k in to_remove:
-            del self.graph.edges[k]
+        for (s, t) in to_remove:
+            self.graph.remove_edge(s, t)
         return len(to_remove)
