@@ -152,13 +152,32 @@ class ConceptEdge:
 
     @staticmethod
     def _init_relation_vector(relation_type: str, dim: int) -> np.ndarray:
-        """Initialize relation vector from type label with deterministic seeding."""
-        type_seeds = {
-            "semantic": 0, "causal": 1, "temporal": 2,
-            "analogical": 3, "contextual": 4, "inferred": 5,
+        """Initialize relation vector from type label with deterministic seeding.
+
+        The first few dimensions act like type anchors so the initial relation
+        families are genuinely separable instead of merely pseudo-random.
+        Small deterministic noise keeps vectors from collapsing into one-hot
+        aliases while preserving a strong type signature.
+        """
+        type_order = {
+            "semantic": 0,
+            "causal": 1,
+            "temporal": 2,
+            "analogical": 3,
+            "contextual": 4,
+            "inferred": 5,
         }
-        rng = np.random.RandomState(type_seeds.get(relation_type, 0) + 42)
-        vec = rng.randn(dim).astype(np.float32) * 0.1
+        type_idx = type_order.get(relation_type, 0)
+        vec = np.zeros(dim, dtype=np.float32)
+        if dim > 0:
+            vec[type_idx % dim] = 1.0
+
+        if dim > 1:
+            rng = np.random.RandomState(type_idx + 42)
+            noise = rng.randn(dim).astype(np.float32) * (0.02 if dim >= 6 else 0.01)
+            noise[type_idx % dim] = 0.0
+            vec += noise
+
         norm = np.linalg.norm(vec)
         return vec / norm if norm > 0 else vec
 

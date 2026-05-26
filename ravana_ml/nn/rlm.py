@@ -1097,36 +1097,51 @@ class RLM(Module):
 
             # ── Hebbian relation vector update ──
             # Problem: EMA toward tgt_vec erases type-specific seed structure.
-            # Fix: blend type seed into update to maintain type identity.
-            # 70% current RV + 20% target signal + 10% type seed anchor
+            # Fix: make relation type the primary anchor, with target identity as a weaker cue.
+            # 55% current RV + 35% type seed anchor + 10% target signal
             from ravana_ml.graph import ConceptEdge as _CE
             tgt_vec = self.graph.nodes[output_concept].vector
             tgt_norm = np.linalg.norm(tgt_vec)
+            type_seed = _CE._init_relation_vector(edge.relation_type, len(edge.relation_vector))
             if tgt_norm > 0:
                 tgt_signal = tgt_vec / tgt_norm
-                type_seed = _CE._init_relation_vector(edge.relation_type, len(edge.relation_vector))
-                edge.relation_vector = (0.70 * edge.relation_vector
-                                        + 0.20 * tgt_signal
-                                        + 0.10 * type_seed)
-                rv_norm = np.linalg.norm(edge.relation_vector)
-                if rv_norm > 0:
-                    edge.relation_vector /= rv_norm
+                edge.relation_vector = (0.55 * edge.relation_vector
+                                        + 0.35 * type_seed
+                                        + 0.10 * tgt_signal)
+            else:
+                edge.relation_vector = 0.60 * edge.relation_vector + 0.40 * type_seed
+            rv_norm = np.linalg.norm(edge.relation_vector)
+            if rv_norm > 0:
+                edge.relation_vector /= rv_norm
 
             # ── Update global relation prior (analogy-based generalization) ──
             self._update_global_relation_prior(edge)
 
+            # Keep each relation family clustered around its own learned prior.
+            # This prevents long training from washing out the type signature.
+            type_prior = self._global_relation_priors.get(edge.relation_type)
+            if type_prior is not None:
+                type_anchor = type_prior / (np.linalg.norm(type_prior) + 1e-15)
+                edge.relation_vector = 0.72 * edge.relation_vector + 0.28 * type_anchor
+                rv_norm = np.linalg.norm(edge.relation_vector)
+                if rv_norm > 0:
+                    edge.relation_vector /= rv_norm
+
             # ── Contrastive relation learning (Gap 1 fix) ──
-            # Push relation vectors apart for edges with different targets from same source
+            # Push relation vectors apart for edges with different targets from same source.
+            # Same-type edges get a mild attraction; different-type edges get a stronger repulsion.
             if self._step_counter % self._vector_update_interval == 0:
                 src_edges = self.graph._outgoing.get(input_concept, [])
                 for tgt_id, other_edge in src_edges:
                     if tgt_id == output_concept or other_edge.edge_type == "inhibitory":
                         continue
-                    # Different target = potentially different relation type
-                    # Push relation vectors apart
                     rv_diff = edge.relation_vector - other_edge.relation_vector
-                    edge.relation_vector += 0.05 * rv_diff
-                    other_edge.relation_vector -= 0.05 * rv_diff
+                    if other_edge.relation_type == edge.relation_type:
+                        edge.relation_vector -= 0.015 * rv_diff
+                        other_edge.relation_vector += 0.015 * rv_diff
+                    else:
+                        edge.relation_vector += 0.08 * rv_diff
+                        other_edge.relation_vector -= 0.08 * rv_diff
                     # Renormalize
                     rv1_norm = np.linalg.norm(edge.relation_vector)
                     if rv1_norm > 0:
