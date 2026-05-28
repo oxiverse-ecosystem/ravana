@@ -1,7 +1,7 @@
 # RAVANA Reviewer Response — Running Document
 
 **Status:** Draft — all 4 concerns addressed, pathway diagnostic complete (2026-05-28)  
-**Last updated:** 2026-05-28 (pathway decomposition: concept path = 0% alone, ctx_logits carries ALL signal, RP helps despite frequency bias)  
+**Last updated:** 2026-05-28 (hybrid memory architecture added — SharedVectorIndex, MemoryReconstructor, natural decay, Hebbian sleep updates; 61/61 tests pass)  
 **Paper:** CogSys submission COGSYS-S-26-00688  
 **Paper files:** `paper/main.tex` (full), `paper/main_anon.tex` (anonymized), `paper/title_page.tex`, `paper/COGSYS-S-26-00688.pdf`, `paper/Cover_Letter.pdf`  
 
@@ -566,7 +566,52 @@ This prevents reward-hacking: the system cannot achieve high reward by destabili
 - [x] **Concern 3:** LayerNorm on logits (verified mean=0, std=1), tanh retained in settle loop (ReLU reverted), temperature sweep integrated, 41/41 tests pass. **Critical finding:** Temperature scaling is mathematically monotonic (LayerNorm + division by T preserves argmax ranking). It CANNOT improve Top-1 accuracy — this was verified experimentally and mathematically. The Top-1 gap is a fundamental architectural limitation of Hebbian learning.
 - [x] **Concern 4:** Ablation flags added to RLM + ConceptGraph, 6-condition experiment + sensitivity sweeps run. **Critical finding:** With 300 epochs of training, the baseline (all fixes OFF) achieves 53% Top-1 / 100% Top-10 — the HIGHEST of all conditions. The architectural fixes are about convergence speed and stability under sleep pressure, not about enabling learning. The "0% to 100%" claim refers to Top-10 under the original training regime (50 epochs + sleep every 5), where the baseline underperforms due to insufficient training.
 - [x] All mathematical proofs reviewed and formatted
-- [x] **Serialization fidelity:** Adjacency index desync + relation predictor serialization bugs traced and fixed — 41/41 tests pass, identity persistence 100% consistency
+- [x] **Serialization fidelity:** Adjacency index desync + relation predictor serialization bugs traced and fixed — 61/61 tests pass, identity persistence 100% consistency
+- [x] **Hybrid memory architecture:** SharedVectorIndex (cosine similarity retrieval), MemoryReconstructor (reconstructive recall from partial cues), natural Ebbinghaus decay per cycle, Hebbian model updates during sleep — 61/61 tests pass
+
+---
+
+## Concern 5: Human-Like Memory Architecture (2026-05-28)
+
+**Status:** [x] Implemented [x] Tested [x] Committed (94349af)
+
+The reviewer response addresses a key architectural gap: memory retrieval was keyword-based and lacked human-like reconstructive properties. Three new modules were added:
+
+### SharedVectorIndex (`ravana-v2/core/vector_index.py`)
+
+A fast approximate-nearest-neighbor index for memory embeddings:
+- **Cosine similarity search** via vectorized NumPy matrix multiply (O(N·D) for <10K vectors)
+- Optional FAISS support for O(log N) at scale
+- Lazy rebuild on dirty flag, argpartition for O(N) partial sort
+- Persistence via `.npz` + JSON sidecar
+- **Used by:** HumanMemoryEngine (primary recall path), SleepConsolidation (hippocampal replay), MemoryReconstructor (candidate retrieval)
+
+### MemoryReconstructor (`ravana-v2/core/memory_reconstructor.py`)
+
+Implements human-like reconstructive recall from partial cues:
+1. Vector search for candidates via SharedVectorIndex
+2. Optional text boost (hybrid 0.7 cosine + 0.3 text overlap)
+3. Graph spreading activation for neighbor context
+4. Weighted blending of seed + neighbor content
+5. **Fidelity scoring**: how much is direct recall vs inferred from neighbors
+
+This models the cognitive phenomenon where humans do not retrieve exact records but reconstruct memories from fragments, filling in gaps from associated context.
+
+### Natural Degradation Design
+
+Ebbinghaus decay runs **every cognitive cycle** inside `process_step()` (state.py:367-369). There is no separate degradation module. Without sleep consolidation, decay accumulates naturally — the system's memory quality degrades, modeling the cognitive effects of sleep deprivation.
+
+**Why this design:** The user explicitly requested that degradation be a natural property of the memory system, not a separately coded module. This is achieved by having `_apply_decay()` called at the end of every `process_step()`, so memories naturally fade without reinforcement from sleep consolidation.
+
+### Sleep Model Updates (`_update_memory_model()`)
+
+Stage 3.5 of the six-stage sleep cycle performs:
+1. **Vector-based hippocampal replay**: high-importance memories reactivated through ConceptGraph via vector similarity
+2. **Hebbian strengthening**: co-activated concept edges reinforced (lr=0.02)
+3. **Embedding drift**: memory vectors drift toward concept centroids (blend=0.1)
+4. **Edge pruning**: low-confidence unreinforced edges removed (confidence < 0.05, prediction_count == 0)
+
+This is the mechanism by which sleep consolidates memories into model weights — not just reorganization, but actual Hebbian learning during offline replay.
 
 ---
 

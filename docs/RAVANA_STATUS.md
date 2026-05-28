@@ -1,5 +1,5 @@
 # RAVANA — Codebase Status Report
-**Date:** 2026-05-24 (updated — lifelong 100k complete, replay verified at scale, replay+EWC+Bayesian+episodic buffer all implemented, all deliverables done)
+**Date:** 2026-05-28 (updated — hybrid memory architecture: SharedVectorIndex, MemoryReconstructor, natural decay, Hebbian sleep updates, 61/61 tests pass)
 **Author:** Likhith
 **Purpose:** Shareable status document for LLM collaborators
 
@@ -67,10 +67,12 @@ The GRACE architecture (Governance, Reflection, Adaptation, Constraint, Explorat
 | `emotion.py` | M | VAD (Valence, Arousal, Dominance) via differential equations (234 lines) |
 | `memory.py` | — | Episodic, semantic, working memory |
 | `global_workspace.py` | N | **NEW** — Competitive broadcast system, consciousness bottleneck |
-| `human_memory.py` | O | Persistent episodic/semantic memory with Ebbinghaus decay, spreading activation, reconstructive recall. **NEW:** Interference-based decay (similar memories accelerate each other's forgetting), retrieval-induced forgetting (recall suppresses competitors), temporal context storage (encoding specificity) |
+| `human_memory.py` | O | Persistent episodic/semantic memory with Ebbinghaus decay, spreading activation, reconstructive recall. **NEW:** Interference-based decay (similar memories accelerate each other's forgetting), retrieval-induced forgetting (recall suppresses competitors), temporal context storage (encoding specificity). **Vector-based retrieval** via SharedVectorIndex (primary recall path), cosine similarity search, keyword fallback |
+| `vector_index.py` | P | **NEW** — SharedVectorIndex: fast ANN index for memory embeddings. Cosine similarity via vectorized NumPy (<10K vectors) or optional FAISS. Lazy rebuild, argpartition, persistence via .npz + JSON. Used by HumanMemoryEngine, SleepConsolidation, MemoryReconstructor |
+| `memory_reconstructor.py` | P | **NEW** — MemoryReconstructor: reconstructive recall from partial cues. Vector search → graph spreading → content blending → fidelity scoring. Models human-like memory reconstruction where recall is inferred from fragments, not exact lookup |
 
 **Additional systems (inside `core/`):**
-- `sleep.py` (540+ lines) — 5-stage consolidation: topology analysis, pattern compression, abstraction compression (hierarchical concept merging), contradiction resolution, integration. Dream sabotage (20% counterfactual reversals, 10% valence flipping, 1.5x failure oversampling). Tier-0 identity protection. Triggers human memory decay + consolidation. `replay_through_graph()` — hippocampal replay that re-activates memories through the ConceptGraph, applying Hebbian learning on replayed activations.
+- `sleep.py` (540+ lines) — 6-stage consolidation: topology analysis, pattern compression, abstraction compression (hierarchical concept merging), contradiction resolution, **model update** (Hebbian replay, vector drift, edge pruning), integration. Dream sabotage (20% counterfactual reversals, 10% valence flipping, 1.5x failure oversampling). Tier-0 identity protection. Triggers human memory decay + consolidation. `replay_through_graph()` — hippocampal replay that re-activates memories through the ConceptGraph, applying Hebbian learning on replayed activations. `_update_memory_model()` — vector-based replay through ConceptGraph with Hebbian strengthening between co-activated concepts.
 - `dual_process.py` (209 lines) — System 1 (fast/intuitive) vs System 2 (slow/deliberate) with override logic
 - `meaning.py` (224 lines) — Intrinsic motivation: `M = w1(-D_future) + w2(identity_coherence) + w3(predictive_power) * (1 + kappa * effort_cost)`
 - `empathy.py` — Theory of Mind via Gaussian Process regression
@@ -180,12 +182,15 @@ Episodic Buffer (500 episodes, salience-weighted eviction + scored retrieval)
 Semantic Memories (1000 concepts)
     ↓ bridge_to_graph
 ConceptGraph Edges (Beta posteriors, Fisher importance, memory-as-weights)
+    ↑ SharedVectorIndex (cosine similarity retrieval, primary recall path)
 ```
 
 - **Episodic buffer**: stores recent experiences (hidden state vector, active concepts, error, correctness, emotion, timestamp, importance, domain, access_count, consolidation_state). Salience-weighted eviction: importance×0.4 + recency×0.3 + error×0.3. Scored retrieval for sleep replay: recency×0.3 + importance×0.5 + access_diversity×0.2
 - **Semantic consolidation**: promotes correct low-error episodes to semantic memory with strength/access_count tracking
-- **Ebbinghaus decay**: `retention = strength * exp(-0.001 * dt / access_factor)` — unused memories fade
+- **Ebbinghaus decay**: `retention = strength * exp(-0.001 * dt / access_factor)` — unused memories fade. **Runs every cycle** in `process_step()` (natural degradation, no separate module)
 - **Memory → weights bridge**: co-stored semantic memories strengthen ConceptGraph edges between their concepts
+- **SharedVectorIndex**: fast cosine similarity retrieval for memory embeddings (primary recall path, keyword fallback preserved)
+- **Reconstructive recall**: partial cues activate vector neighbors, spread through graph, blend content with context, track fidelity (direct vs inferred)
 
 ### Cognitive Processing Pipeline
 
@@ -217,6 +222,7 @@ ConceptGraph Edges (Beta posteriors, Fisher importance, memory-as-weights)
 8. NEW: meaning decay
 9. NEW: sleep pressure reset
 10. NEW: final self-regulation
+11. NEW: **6-stage sleep cycle** with `_update_memory_model()` (Stage 3.5) — vector-based hippocampal replay through ConceptGraph, Hebbian strengthening between co-activated concepts (lr=0.02), embedding vector drift toward concept centroids (blend=0.1), low-confidence edge pruning. Dream sabotage (20% counterfactual reversals, 10% valence flip, 1.5x failure oversampling) during pattern compression stage
 
 ### Save/Load Fixes (9 bugs fixed)
 
@@ -578,6 +584,71 @@ results = engine.recall_with_concepts(active_concept_ids, concept_graph)
 
 ---
 
+## Hybrid Memory Architecture (NEW — 2026-05-28)
+
+Unified vector-based retrieval and reconstructive recall across both memory systems.
+
+### SharedVectorIndex (`ravana-v2/core/vector_index.py`)
+
+Fast approximate-nearest-neighbor index for memory embeddings:
+- **Cosine similarity search** via vectorized NumPy matrix multiply (O(N·D) for <10K vectors)
+- Optional FAISS IndexFlatIP for O(log N) at scale
+- Lazy rebuild on dirty flag, argpartition for O(N) partial sort
+- Persistence via `.npz` + JSON sidecar (`save()`/`load()`)
+- **Used by:** HumanMemoryEngine (primary recall path), SleepConsolidation (hippocampal replay), MemoryReconstructor (candidate retrieval)
+
+```python
+from core.vector_index import SharedVectorIndex
+
+index = SharedVectorIndex(dim=64)
+index.add(memory_id=1, vector=np.random.randn(64).astype(np.float32))
+results = index.search(query_vector, k=10, min_score=0.3)  # [(id, score), ...]
+```
+
+### MemoryReconstructor (`ravana-v2/core/memory_reconstructor.py`)
+
+Human-like reconstructive recall from partial cues:
+1. Vector search for candidates via SharedVectorIndex
+2. Optional text boost (hybrid 0.7 cosine + 0.3 text overlap)
+3. Graph spreading activation for neighbor context
+4. Weighted blending of seed + neighbor content by activation strength
+5. **Fidelity scoring**: how much is direct recall vs inferred from neighbors
+
+```python
+from core.memory_reconstructor import MemoryReconstructor
+
+reconstructor = MemoryReconstructor(vector_index=index, concept_graph=graph)
+results = reconstructor.reconstruct(cue_vector=query_vec, cue_text="python", k=5, blend_depth=3)
+# Each result has: content, score, fidelity (direct vs inferred), sources
+```
+
+### Vector-Based Retrieval in HumanMemoryEngine
+
+`HumanMemoryEngine` now uses `SharedVectorIndex` as its **primary recall path**:
+- `_store()`: computes 64-dim hash-based embedding, persists as BLOB, adds to vector index
+- `_recall()`: vector-based retrieval via `vector_index.search()`, keyword fallback preserved
+- `semantic_search()`: hybrid 0.6 cosine + 0.4 stem overlap scoring
+- `bridge_to_graph()`: uses `vector_index.get_vector()` + `concept_graph.find_similar()` for concept matching
+- `process_step()`: auto-links new memories via `vector_index.search()` instead of O(N) tag scan
+
+### Natural Degradation Design
+
+Ebbinghaus decay runs **every cognitive cycle** inside `process_step()` (state.py:367-369). There is no separate degradation module. Without sleep consolidation, decay accumulates naturally — the system's memory quality degrades, modeling the cognitive effects of sleep deprivation.
+
+**Why this design:** Degradation is a natural property of the memory system, not a separately coded module. `_apply_decay()` is called at the end of every `process_step()`, so memories naturally fade without reinforcement from sleep consolidation.
+
+### Sleep Model Updates (`_update_memory_model()`)
+
+Stage 3.5 of the six-stage sleep cycle performs:
+1. **Vector-based hippocampal replay**: high-importance memories reactivated through ConceptGraph via vector similarity
+2. **Hebbian strengthening**: co-activated concept edges reinforced (lr=0.02)
+3. **Embedding drift**: memory vectors drift toward concept centroids (blend=0.1)
+4. **Edge pruning**: low-confidence unreinforced edges removed (confidence < 0.05, prediction_count == 0)
+
+This is the mechanism by which sleep consolidates memories into model weights — not just reorganization, but actual Hebbian learning during offline replay.
+
+---
+
 ## Model Persistence (NEW)
 
 **RLM save/load** (pickle + zip formats):
@@ -733,6 +804,7 @@ Based on cognitive science research (spreading activation, synaptic homeostasis,
 | `test_relation_vector_separation.py` | **NEW** — Relation vector separation by type: intra-cluster similarity, inter-cluster separation, contrastive dynamics verification |
 | `test_rv_impact.py` | **NEW** — Relation vector impact on prediction: measures how typed edges affect forward pass and generation quality |
 | `test_sleep_quality.py` | **NEW** — Sleep cycle quality metrics: weight convergence, edge pruning, consolidation effectiveness, graph entropy after sleep |
+| `tests/test_memory_architecture.py` | **NEW** — Hybrid memory architecture: SharedVectorIndex (8 tests), MemoryReconstructor (7 tests), vector index integration with HumanMemoryEngine (5 tests) — cosine retrieval, reconstructive recall, persistence, natural decay |
 | `test_ravana.py` | Unified package integration: imports, tensor ops, graph ops, cognitive modules, CognitiveFramework |
 | `experiment_resilience.py` | Closed-loop resilience: induces semantic diffusion, measures regulation response and recovery (4/4 criteria) |
 | `experiment_rigorous.py` | Deep compositional experiment: 3-hop chains, relational transfer, negative rejection |
@@ -749,7 +821,7 @@ Based on cognitive science research (spreading activation, synaptic homeostasis,
 | `agent/test_harness.py` | Structured interview system with 8 situation cards |
 | `research/core_k0/test_k*.py` | K-series agent robustness, learning, adversarial breaking, regime shifts (10 files) |
 
-**RLC integration tests (14/14 passing):**
+**RLC integration tests (14/14 passing). Full CI suite: 61/61 passing.**
 - `import ravana`, tensor creation, nn.Linear, ConceptGraph via ravana.graph
 - Cognitive modules (Governor, Emotion, GlobalWorkspace)
 - GlobalWorkspace bidding and broadcast
