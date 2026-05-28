@@ -822,7 +822,7 @@ Based on cognitive science research (spreading activation, synaptic homeostasis,
 | `agent/test_harness.py` | Structured interview system with 8 situation cards |
 | `research/core_k0/test_k*.py` | K-series agent robustness, learning, adversarial breaking, regime shifts (10 files) |
 
-**RLC integration tests (14/14 passing). Full CI suite: 61/61 passing.**
+**RLC integration tests (14/14 passing). Full CI suite: 67/67 passing.**
 - `import ravana`, tensor creation, nn.Linear, ConceptGraph via ravana.graph
 - Cognitive modules (Governor, Emotion, GlobalWorkspace)
 - GlobalWorkspace bidding and broadcast

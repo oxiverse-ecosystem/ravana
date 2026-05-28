@@ -79,7 +79,7 @@ class ConceptNode:
 
         Returns 1.0 if just activated, approaches 0.0 over time.
         """
-        if self.last_activated <= 0:
+        if self.last_activated is None or self.last_activated <= 0:
             return 0.0
         elapsed = time.time() - self.last_activated
         return float(np.exp(-decay_rate * elapsed / 3600.0))  # decay per hour
