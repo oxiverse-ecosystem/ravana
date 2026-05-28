@@ -1,5 +1,5 @@
 # RAVANA — Codebase Status Report
-**Date:** 2026-05-28 (updated — hybrid memory architecture: SharedVectorIndex, MemoryReconstructor, natural decay, Hebbian sleep updates, 61/61 tests pass)
+**Date:** 2026-05-28 (updated — hybrid memory architecture + serialization stress test: 67/67 tests pass)
 **Author:** Likhith
 **Purpose:** Shareable status document for LLM collaborators
 
@@ -805,6 +805,7 @@ Based on cognitive science research (spreading activation, synaptic homeostasis,
 | `test_rv_impact.py` | **NEW** — Relation vector impact on prediction: measures how typed edges affect forward pass and generation quality |
 | `test_sleep_quality.py` | **NEW** — Sleep cycle quality metrics: weight convergence, edge pruning, consolidation effectiveness, graph entropy after sleep |
 | `tests/test_memory_architecture.py` | **NEW** — Hybrid memory architecture: SharedVectorIndex (8 tests), MemoryReconstructor (7 tests), vector index integration with HumanMemoryEngine (5 tests) — cosine retrieval, reconstructive recall, persistence, natural decay |
+| `tests/test_serialization_stress.py` | **NEW** — Serialization stress test: adjacency index consistency, 5-cycle learn-serialize drift, post-sleep roundtrip, relation predictor value preservation, cross-format consistency (pickle vs zip), large graph roundtrip (100+ steps) |
 | `test_ravana.py` | Unified package integration: imports, tensor ops, graph ops, cognitive modules, CognitiveFramework |
 | `experiment_resilience.py` | Closed-loop resilience: induces semantic diffusion, measures regulation response and recovery (4/4 criteria) |
 | `experiment_rigorous.py` | Deep compositional experiment: 3-hop chains, relational transfer, negative rejection |
