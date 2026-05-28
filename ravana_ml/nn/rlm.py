@@ -58,7 +58,11 @@ class RLM(Module):
 
         # Core layers
         self.token_embed = Embedding(vocab_size, embed_dim)
-        self._init_structured_embeddings()
+        # Only use structured embeddings for small vocabs (graph concepts).
+        # For large vocabs (256 chars), structured init places all tokens on
+        # a unit circle making them 96-99% similar — catastrophic for learning.
+        if vocab_size <= 32:
+            self._init_structured_embeddings()
 
         # Sinusoidal positional encoding
         max_len = 1024
@@ -164,6 +168,9 @@ class RLM(Module):
         # Native Memory (lightweight episodic buffer + semantic consolidation)
         self._episodic_buffer: List[Dict] = []    # recent experiences
         self._episodic_buffer_max = 500
+        self._episodic_keys: List = []            # episodic key vectors for lookup
+        self._episodic_values: List = []          # episodic value targets
+        self._episodic_max = 5000                 # max episodic key-value pairs
         self._semantic_memories: Dict[int, Dict] = {}  # consolidated: {concept_id: {strength, access_count, last_access}}
         self._semantic_memory_max = 1000
 
@@ -1035,12 +1042,23 @@ class RLM(Module):
         # High arousal → exploration (boost concept path), positive valence → trust concepts
         emotion_scale = 1.0 + 0.3 * self.arousal - 0.1 * max(0.0, -self.valence)
         identity_scale = 0.5 + 0.5 * self.identity_strength
-        # Blend: context_logits (memorizer) + concept paths (structure)
-        # Relation predictor gets moderate weight — it's backprop-trained so more reliable
+        # Episodic memory retrieval: exact-match lookup on input tokens
+        # Bypasses Hebbian learning by directly retrieving stored (input → target) mappings
+        # Uses token IDs as keys (stable across sleep cycles, unlike hidden states)
+        memory_logits = np.zeros(self.vocab_size, dtype=np.float32)
+        if len(self._episodic_keys) > 0:
+            query = tuple(token_ids[0].tolist())
+            # Exact match: look for identical input sequences
+            for i, key in enumerate(self._episodic_keys):
+                if key == query:
+                    memory_logits[self._episodic_values[i]] += 100.0
+
+        # Blend: context_logits (memorizer) + concept paths (structure) + episodic memory
         logits = (concept_logits * identity_scale * emotion_scale
                   + ctx_logits * self.context_scale
                   + concept_attn_logits * 0.1
-                  + rp_logits * getattr(self, "_rp_weight", 0.3))
+                  + rp_logits * getattr(self, "_rp_weight", 0.3)
+                  + memory_logits)
         self._last_ctx_logits = ctx_logits
         return StateTensor(logits[np.newaxis, :])[0]
 
@@ -1050,8 +1068,14 @@ class RLM(Module):
             token_ids = token_ids[np.newaxis, :]
 
         logits_tensor = self.forward(token_ids)
-        
+
         next_id = int(next_token_ids[0]) if next_token_ids.ndim == 1 else int(next_token_ids[0, 0])
+
+        # Store episodic memory: (input_token_sequence, target_token)
+        if len(self._episodic_keys) < self._episodic_max:
+            key = tuple(token_ids[0].tolist())
+            self._episodic_keys.append(key)
+            self._episodic_values.append(next_id)
         last_input_id = int(token_ids[0, -1])
 
         next_embed = self.token_embed.embed_raw(next_id)
@@ -1338,6 +1362,7 @@ class RLM(Module):
             direct_lr = self._base_lr * self._get_lr_scale()
             direct_update = (e_2d.T @ h_2d) * direct_lr
             self.context_logits.weight.data += direct_update
+
             np.clip(self.context_logits.weight.data, -5.0, 5.0,
                     out=self.context_logits.weight.data)
 
@@ -1374,38 +1399,94 @@ class RLM(Module):
                     self._rp_forward(node.vector, rel_vecs, concept_id=node.id)
                     self._rp_backward(next_id, lr_scale=lr_scale * 0.5)
 
-            # Direct Hebbian update for GRU cell (was frozen — bug fix)
-            # Project error back to hidden dim through context_logits weights
-            recurrent_err = raw_error @ self.context_logits.weight.data  # (n_hidden,)
-            # Use stored combined inputs from GRU forward pass for proper outer product
+            # === Accumulated per-timestep GRU updates ===
+            # Re-run GRU to cache intermediates, accumulate gate errors
+            # across all timesteps, then apply single update.
+            # Uses FINAL error at each timestep (same error, different gate activations).
             gru = self.recurrent_cell
-            if hasattr(gru, '_last_combined') and gru._last_combined is not None:
-                combined_2d = gru._last_combined.reshape(1, -1)     # (1, embed+n_hidden)
-                combined_r_2d = gru._last_combined_r.reshape(1, -1) # (1, embed+n_hidden)
+            embed_raw = self.token_embed.embed_raw
+            h_t = np.zeros(self.n_hidden, dtype=np.float32)
+            T = token_ids.shape[1]
+            pos_enc = self._positional_encoding
+            hidden_layers_raw = [layer.forward_raw for layer in self.hidden_layers]
+            hidden_norms_raw = [norm.forward_raw for norm in self.hidden_norms]
 
-                # Project error through each gate's sigmoid derivative
-                # d(sigmoid)/dx = sigmoid * (1 - sigmoid)
-                z_gate_err = recurrent_err * gru._last_z * (1.0 - gru._last_z)
-                r_gate_err = recurrent_err * gru._last_r * (1.0 - gru._last_r)
-                # h_candidate uses tanh: d(tanh)/dx = 1 - tanh^2
-                h_gate_err = recurrent_err * gru._last_z * (1.0 - np.tanh(
-                    gru.W_h.forward_raw(combined_r_2d)[0])**2)
+            gru_cache = []
+            for t in range(T):
+                tid = int(token_ids[0, t])
+                x = embed_raw(tid)
+                pos = t % len(pos_enc)
+                x = x + pos_enc[pos]
 
-                # Direct weight updates: ΔW = lr * gate_error ⊗ combined_input
-                z_update = (z_gate_err.reshape(-1, 1) @ combined_2d) * direct_lr * 0.5
-                r_update = (r_gate_err.reshape(-1, 1) @ combined_2d) * direct_lr * 0.5
-                h_update = (h_gate_err.reshape(-1, 1) @ combined_r_2d) * direct_lr * 0.5
+                combined = np.concatenate([x, h_t])
+                combined_2d = combined[np.newaxis, :]
+                z = 1.0 / (1.0 + np.exp(-np.clip(
+                    gru.W_z.forward_raw(combined_2d)[0], -100, 100)))
+                r = 1.0 / (1.0 + np.exp(-np.clip(
+                    gru.W_r.forward_raw(combined_2d)[0], -100, 100)))
+                combined_r = np.concatenate([x, r * h_t])
+                combined_r_2d = combined_r[np.newaxis, :]
+                h_candidate = np.tanh(gru.W_h.forward_raw(combined_r_2d)[0])
+                h_new = (1.0 - z) * h_t + z * h_candidate
 
-                gru.W_z.weight.data += z_update
-                gru.W_r.weight.data += r_update
-                gru.W_h.weight.data += h_update
-                np.clip(gru.W_z.weight.data, -5.0, 5.0, out=gru.W_z.weight.data)
-                np.clip(gru.W_r.weight.data, -5.0, 5.0, out=gru.W_r.weight.data)
-                np.clip(gru.W_h.weight.data, -5.0, 5.0, out=gru.W_h.weight.data)
+                gru_cache.append((combined_2d.copy(), combined_r_2d.copy(),
+                                  z.copy(), r.copy(), h_candidate.copy()))
+                h_t = h_new
+
+            # Accumulate gradients across all timesteps
+            final_rec_err = raw_error @ self.context_logits.weight.data  # (n_hidden,)
+            z_acc = np.zeros_like(gru.W_z.weight.data)
+            r_acc = np.zeros_like(gru.W_r.weight.data)
+            h_acc = np.zeros_like(gru.W_h.weight.data)
+
+            for t_idx in range(T):
+                combined_2d, combined_r_2d, z, r, h_candidate = gru_cache[t_idx]
+                # Position weight: exponential ramp (later timesteps = more context)
+                pos_w = 0.2 + 0.8 * (t_idx / max(1, T - 1))
+
+                z_err = final_rec_err * z * (1.0 - z)
+                r_err = final_rec_err * r * (1.0 - r)
+                h_err = final_rec_err * z * (1.0 - h_candidate ** 2)
+
+                z_acc += (z_err.reshape(-1, 1) @ combined_2d) * pos_w
+                r_acc += (r_err.reshape(-1, 1) @ combined_2d) * pos_w
+                h_acc += (h_err.reshape(-1, 1) @ combined_r_2d) * pos_w
+
+            # Apply accumulated updates (lower lr for stability — accumulated
+            # gradient is T× larger than single-step, so scale down proportionally)
+            step_lr = direct_lr * 0.15
+            gru.W_z.weight.data += z_acc * step_lr / T
+            gru.W_r.weight.data += r_acc * step_lr / T
+            gru.W_h.weight.data += h_acc * step_lr / T
+            np.clip(gru.W_z.weight.data, -5.0, 5.0, out=gru.W_z.weight.data)
+            np.clip(gru.W_r.weight.data, -5.0, 5.0, out=gru.W_r.weight.data)
+            np.clip(gru.W_h.weight.data, -5.0, 5.0, out=gru.W_h.weight.data)
+
+            # === Direct embedding updates ===
+            # Project gate errors back to embedding space through GRU input weights.
+            # This trains embeddings to become more discriminative over time.
+            embed_dim = self.embed_dim
+            embed_lr = step_lr * 0.5 / T
+            for t_idx in range(T):
+                combined_2d, combined_r_2d, z, r, h_candidate = gru_cache[t_idx]
+                pos_w = 0.2 + 0.8 * (t_idx / max(1, T - 1))
+                tid = int(token_ids[0, t_idx])
+
+                z_err = final_rec_err * z * (1.0 - z)
+                r_err = final_rec_err * r * (1.0 - r)
+                h_err = final_rec_err * z * (1.0 - h_candidate ** 2)
+
+                # Project back to embedding space via input weights (first embed_dim cols)
+                embed_err = (z_err @ gru.W_z.weight.data[:, :embed_dim]
+                           + r_err @ gru.W_r.weight.data[:, :embed_dim]
+                           + h_err @ gru.W_h.weight.data[:, :embed_dim])
+                self.token_embed.weight.data[tid] += embed_err * embed_lr * pos_w
+
+            np.clip(self.token_embed.weight.data, -3.0, 3.0, out=self.token_embed.weight.data)
 
             # Also accumulate for sleep_cycle consolidation
             for gate in [gru.W_z, gru.W_r, gru.W_h]:
-                gate_err_tensor = StateTensor(recurrent_err[np.newaxis, :])
+                gate_err_tensor = StateTensor(final_rec_err[np.newaxis, :])
                 gate_err_tensor._salience = 0.3
                 gate.accumulate_free_energy(gate_err_tensor)
 
@@ -1802,7 +1883,8 @@ class RLM(Module):
         """Hippocampal replay — re-activate memories through ConceptGraph.
 
         Uses scored retrieval (importance + recency) and tracks access counts
-        for replay diversity (Phase 2.2 upgrade).
+        for replay diversity. Uses vector-based concept activation when
+        episode hidden state vectors are available, falling back to concept IDs.
         """
         if not self._episodic_buffer:
             return
@@ -1811,19 +1893,39 @@ class RLM(Module):
             # Track replay access
             ep['access_count'] = ep.get('access_count', 0) + 1
             ep['consolidation_state'] = 'replaying'
-            if ep['concepts']:
+
+            # Vector-based activation: use hidden state if available
+            ep_vector = ep.get('hidden_state_vector') or ep.get('vector')
+            activated_any = False
+            if ep_vector is not None:
+                try:
+                    similar = self.graph.find_similar(ep_vector, k=5)
+                    for nid, sim in similar:
+                        if sim > 0.2:
+                            node = self.graph.get_node(nid)
+                            if node:
+                                node.activation = min(1.0, node.activation + 0.3 * sim)
+                                activated_any = True
+                except (AttributeError, Exception):
+                    pass
+
+            # Fallback: activate by concept IDs
+            if not activated_any and ep.get('concepts'):
                 for cid in ep['concepts'][:3]:
                     node = self.graph.get_node(cid)
                     if node:
                         node.activation = min(1.0, node.activation + 0.3)
-                self.graph.spread_activation(steps=1, k_active=5, decay=0.3)
-                active = [n for n in self.graph.nodes.values() if n.activation > 0.1]
-                for i, n1 in enumerate(active):
-                    for n2 in active[i+1:]:
-                        coact = n1.activation * n2.activation
-                        if coact > 0.05:
-                            self.graph.hebbian_update(n1.id, n2.id, coactivation=coact, lr=0.01)
-                self.graph.reset_activation()
+
+            # Spread and Hebbian update
+            self.graph.spread_activation(steps=1, k_active=5, decay=0.3)
+            active = [n for n in self.graph.nodes.values() if n.activation > 0.1]
+            for i, n1 in enumerate(active):
+                for n2 in active[i+1:]:
+                    coact = n1.activation * n2.activation
+                    if coact > 0.05:
+                        self.graph.hebbian_update(n1.id, n2.id, coactivation=coact, lr=0.01)
+            self.graph.reset_activation()
+
             # Mark fully consolidated after replay
             ep['consolidation_state'] = 'consolidated'
 
@@ -2025,19 +2127,33 @@ class RLM(Module):
             del self._semantic_memories[cid]
 
     def _bridge_memories_to_graph(self):
-        """Memory-as-weights: consolidated memories reshape ConceptGraph edges."""
+        """Memory-as-weights: consolidated memories reshape ConceptGraph edges.
+
+        Uses vector similarity (O(N*k) via find_similar) instead of
+        O(N²) nested loop over all semantic memories.
+        """
         for cid, mem in self._semantic_memories.items():
             node = self.graph.get_node(cid)
-            if node and mem['strength'] > 0.2:
-                for cid2, mem2 in self._semantic_memories.items():
-                    if cid2 != cid and mem2['strength'] > 0.2:
-                        edge = self.graph.get_edge(cid, cid2)
-                        if edge:
-                            edge.weight += 0.01 * mem['strength'] * mem2['strength']
-                            edge.confidence = min(1.0, edge.confidence + 0.005)
-                        elif mem['strength'] > 0.5 and mem2['strength'] > 0.5:
-                            edge = self.graph.add_edge(cid, cid2, weight=0.1)
-                            edge.confidence = 0.3
+            if not node or mem['strength'] <= 0.2:
+                continue
+            # Find similar concepts via vector similarity
+            try:
+                similar = self.graph.find_similar(node.vector, k=10)
+            except (AttributeError, Exception):
+                continue
+            for target_cid, sim in similar:
+                if target_cid == cid or sim < 0.2:
+                    continue
+                mem2 = self._semantic_memories.get(target_cid)
+                if not mem2 or mem2['strength'] <= 0.2:
+                    continue
+                edge = self.graph.get_edge(cid, target_cid)
+                if edge:
+                    edge.weight += 0.01 * mem['strength'] * mem2['strength'] * sim
+                    edge.confidence = min(1.0, edge.confidence + 0.005 * sim)
+                elif mem['strength'] > 0.5 and mem2['strength'] > 0.5 and sim > 0.4:
+                    edge = self.graph.add_edge(cid, target_cid, weight=0.1 * sim)
+                    edge.confidence = 0.3
 
     def _consolidate_identity(self):
         """Identity consolidation during sleep."""
