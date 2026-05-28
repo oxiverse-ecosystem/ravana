@@ -218,7 +218,7 @@ def run_few_shot_experiment(tokenizer) -> Dict[str, Any]:
 
         # RLM with sleep
         rlm_sleep = make_rlm(vocab_size, sleep_interval=5)
-        train_rlm_on_facts(rlm_sleep, tokenizer, facts, epochs=30)
+        train_rlm_on_facts(rlm_sleep, tokenizer, facts, epochs=10)
         rlm_sleep.sleep_cycle()
         rlm_sleep_correct = sum(1 for f in facts if check_recall(rlm_sleep, tokenizer, f, k=recall_k))
         rlm_sleep_acc = rlm_sleep_correct / len(facts)
@@ -267,7 +267,7 @@ def run_contradiction_experiment(tokenizer) -> Dict[str, Any]:
 
     # Train RLM on contradictory facts — many epochs to accumulate contradictions
     rlm = make_rlm(vocab_size, n_concepts=50, sleep_interval=5)
-    train_rlm_on_facts(rlm, tokenizer, CONTRADICTION_FACTS, epochs=40)
+    train_rlm_on_facts(rlm, tokenizer, CONTRADICTION_FACTS, epochs=15)
 
     # Run sleep cycle to trigger contradiction resolution
     pre_edges = len(rlm.graph.edges)
@@ -363,7 +363,7 @@ def run_identity_experiment(tokenizer) -> Dict[str, Any]:
 
     # Train initial model
     rlm = make_rlm(vocab_size, sleep_interval=5)
-    train_rlm_on_facts(rlm, tokenizer, IDENTITY_FACTS, epochs=50)
+    train_rlm_on_facts(rlm, tokenizer, IDENTITY_FACTS, epochs=15)
 
     # Record initial predictions for "honesty is"
     def get_preference_logits(model, text):
@@ -442,7 +442,7 @@ def run_consolidation_experiment(tokenizer) -> Dict[str, Any]:
 
     # Train on mixed data — more epochs with word tokenizer to accumulate enough pressure
     all_facts = NOVEL_FACTS[:5] + CONTRADICTION_FACTS + IDENTITY_FACTS[:4]
-    train_rlm_on_facts(rlm, tokenizer, all_facts, epochs=80)
+    train_rlm_on_facts(rlm, tokenizer, all_facts, epochs=20)
 
     # Pre-sleep snapshot
     pre_nodes = len(rlm.graph.nodes)

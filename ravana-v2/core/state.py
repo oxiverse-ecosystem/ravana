@@ -363,7 +363,11 @@ class StateManager:
                 episode_data=step_record,
                 state_snapshot=self.state.snapshot()
             )
-        
+
+        # Degradation is natural: Ebbinghaus decay runs every cycle in
+        # process_step(). Without sleep consolidation, decay accumulates.
+        # No separate tracking needed — the memory system degrades on its own.
+
         if debug:
             self._log_step(step_record)
         

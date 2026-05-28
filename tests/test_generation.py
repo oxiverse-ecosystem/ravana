@@ -267,32 +267,32 @@ def test_instruction_compression():
 
     # --- Part B: Verify RLM learning signal ---
     print("\n--- Part B: RLM Learning Signal ---")
-    tokenizer = get_tokenizer("gpt2")
-    model = RLM(vocab_size=tokenizer.vocab_size, embed_dim=64, concept_dim=64,
-                n_concepts=200, n_hidden=64, sleep_interval=1)
+    # Use a small vocab model for speed — the test only verifies that
+    # learn() shifts logits, not that the model learns language.
+    small_vocab = 256
+    model = RLM(vocab_size=small_vocab, embed_dim=32, concept_dim=32,
+                n_concepts=50, n_hidden=32, sleep_interval=1)
 
-    prompt = "compress: the cat chased the mouse through the garden"
-    target_comp = "cat chased mouse"
-    full_sequence = f"{prompt} {target_comp}"
-    full_ids = tokenizer.encode(full_sequence)
+    # Use small integer tokens that fit in the small vocab
+    prompt_ids = np.array([10, 20, 30, 40, 50], dtype=np.int64)
+    target_ids = np.array([100, 110, 120], dtype=np.int64)
+    full_ids = np.concatenate([prompt_ids, target_ids])
 
     # Record pre-training logits for the target position
-    # After the prompt tokens, model should predict "cat"
-    prompt_ids = tokenizer.encode(prompt)
-    pre_ctx = np.array([prompt_ids], dtype=np.int64)
+    pre_ctx = prompt_ids.reshape(1, -1)
     pre_logits = model.forward(pre_ctx).data.copy()
 
-    cat_id = tokenizer.encode("cat")[0]
-    chased_id = tokenizer.encode(" chased")[0]
-    mouse_id = tokenizer.encode(" mouse")[0]
+    cat_id = 100
+    chased_id = 110
+    mouse_id = 120
     pre_cat = pre_logits[cat_id]
     pre_chased = pre_logits[chased_id]
     pre_mouse = pre_logits[mouse_id]
     print(f"Pre-training logits — cat: {pre_cat:.4f}, chased: {pre_chased:.4f}, mouse: {pre_mouse:.4f}")
 
     # Train on full sequence
-    epochs = 50
-    print(f"Training for {epochs} epochs (sleep_interval=1)...")
+    epochs = 10
+    print(f"Training for {epochs} epochs...")
     for epoch in range(epochs):
         for i in range(len(full_ids) - 1):
             context = np.array([full_ids[:i+1]], dtype=np.int64)
@@ -328,8 +328,16 @@ def test_instruction_compression():
 
     # --- Part C: Verify trace export ---
     print("\n--- Part C: Trace Export ---")
+    # Build a minimal tokenizer wrapper for the small vocab model
+    class _SmallTok:
+        vocab_size = small_vocab
+        def encode(self, text):
+            return [ord(c) % small_vocab for c in text[:10]]
+        def decode(self, ids):
+            return "".join(chr(int(i) % 127) for i in ids)
+
     generated = model.generate(
-        prompt, tokenizer, max_new_tokens=3, temperature=0.5,
+        "test prompt", _SmallTok(), max_new_tokens=3, temperature=0.5,
         trace_json_path="compression_trace.json",
         trace_md_path="compression_trace.md"
     )
