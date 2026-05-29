@@ -103,12 +103,16 @@ class RLM(Module):
         if vocab_size <= 32:
             self._init_structured_concepts()
         else:
-            # Random concept vectors for large vocabs (avoid structured init's 98%+ similarity)
+            # Initialize concept vectors FROM token embeddings so that
+            # _nearest_concept(token_embed[i]) naturally returns concept i.
+            # Random init caused concept conflation (patience→rejection mapping)
+            # after interleaved replay drifted vectors.
             d = concept_dim
             for i in range(n_concepts):
-                vec = np.random.randn(d).astype(np.float32) * np.sqrt(2.0 / d)
-                vec = vec / (np.linalg.norm(vec) + 1e-15)
                 token_idx = int(i * vocab_size / n_concepts) if n_concepts > 0 else i
+                token_vec = self.token_embed.embed_raw(token_idx)
+                vec = self._project_to_concept(token_vec)
+                vec = vec / (np.linalg.norm(vec) + 1e-15)
                 self.graph.add_node(vec, label=f"tok_{token_idx}")
         self._init_concept_gating()
 
@@ -984,11 +988,15 @@ class RLM(Module):
         # from the subject concept (e.g., "anger" from Domain B).
         subject_cid = -1
         input_rel_type = "semantic"
+        input_verb_tid = -1  # verb token ID for predicate matching; -1 = unknown
         if T >= 1:
             first_tid = int(token_ids[0, 0])
             first_embed = embed_raw(first_tid)
             subject_cid = self._nearest_concept(first_embed)
             input_rel_type = self._classify_relation(token_ids[0])
+            # Extract input verb token for predicate matching
+            # Verb is typically the second token (first=subject, second=verb)
+            input_verb_tid = int(token_ids[0, 1]) if token_ids.shape[1] > 1 else -1
             if subject_cid >= 0:
                 subj_node = self.graph.get_node(subject_cid)
                 if subj_node is not None:
@@ -1059,7 +1067,18 @@ class RLM(Module):
                 subj_rel_boost = 1.0
                 if node.id == subject_cid and edge.relation_type == input_rel_type:
                     subj_rel_boost = 2.0
-                hop_score = node.activation * eff_w * hop_decay * rel_boost * subj_rel_boost
+                # Predicate (verb) matching: edges whose stored verb token matches
+                # the input verb get a significant boost. Distinguishes between
+                # same-relation-type edges like heat→expansion (from "causes")
+                # and heat→ice (from "melts") when both are classified as "causal".
+                pred_boost = 1.0
+                if (input_verb_tid >= 0 and hasattr(edge, 'predicate_token_id')
+                        and edge.predicate_token_id >= 0):
+                    if edge.predicate_token_id == input_verb_tid:
+                        pred_boost = 2.5  # verb matches — strong boost
+                    else:
+                        pred_boost = 0.4  # verb doesn't match — suppress
+                hop_score = node.activation * eff_w * hop_decay * rel_boost * subj_rel_boost * pred_boost
                 bound_tokens = self._concept_to_tokens.get(tgt_id, set())
                 for tok_id in bound_tokens:
                     if tok_id >= self.vocab_size:
@@ -1095,10 +1114,18 @@ class RLM(Module):
                     continue
                 if edge.relation_type == input_rel_type:
                     matching_tgt_ids.add(tgt_id)
+                    # Predicate (verb) matching: edges whose verb matches the input
+                    # get a stronger boost. This disambiguates same-relation-type
+                    # targets (e.g., heat→expansion from "causes" vs heat→ice from
+                    # "melts" when both are classified as "causal").
+                    verb_match_boost = 1.0
+                    if (input_verb_tid >= 0 and hasattr(edge, 'predicate_token_id')
+                            and edge.predicate_token_id >= 0):
+                        verb_match_boost = 2.0 if edge.predicate_token_id == input_verb_tid else 0.3
                     bound_tokens = self._concept_to_tokens.get(tgt_id, set())
                     for tok_id in bound_tokens:
                         if tok_id < self.vocab_size:
-                            concept_scores[tok_id] += edge.weight * 5.0
+                            concept_scores[tok_id] += edge.weight * 5.0 * verb_match_boost
                 else:
                     nonmatching_tgt_ids.add(tgt_id)
             # Suppress the subject token in concept_scores and ctx_logits.
@@ -1414,6 +1441,10 @@ class RLM(Module):
             rel_type = self._classify_relation(token_ids[0])
             edge = self.graph.get_or_create_edge(input_concept, output_concept,
                                                   weight=0.3, relation_type=rel_type)
+            # Store the predicate verb token for verb-level discrimination
+            # The verb is typically the second token (first=subject, second=verb)
+            if token_ids.shape[1] > 1 and edge.predicate_token_id < 0:
+                edge.predicate_token_id = int(token_ids[0, 1])
             edge.weight = min(1.0, edge.weight + 0.05)
             edge.confidence = min(1.0, edge.confidence + 0.03)
             edge.prediction_count += 1
@@ -3435,6 +3466,7 @@ class RLM(Module):
                 "posterior_beta": float(edge.posterior_beta),
                 "fisher_importance": float(edge.fisher_importance),
                 "old_weight": float(edge.old_weight),
+                "predicate_token_id": int(getattr(edge, 'predicate_token_id', -1)),
             }
             if edge.relation_vector is not None:
                 edge_relation_vectors[f"({s}, {t})"] = edge.relation_vector
@@ -3701,6 +3733,7 @@ class RLM(Module):
                 # EWC fields
                 edge.fisher_importance = ed.get("fisher_importance", 0.0)
                 edge.old_weight = ed.get("old_weight", 0.5)
+                edge.predicate_token_id = ed.get("predicate_token_id", -1)
                 # Restore relation vector from arrays
                 safe_key = key.replace("(", "").replace(")", "").replace(",", "_").replace(" ", "")
                 rel_key = f"edge_rel/{safe_key}"
