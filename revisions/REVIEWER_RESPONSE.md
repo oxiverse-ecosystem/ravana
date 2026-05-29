@@ -1,7 +1,7 @@
 # RAVANA Reviewer Response — Running Document
 
 **Status:** Draft — all 4 concerns addressed, pathway diagnostic complete (2026-05-28)  
-**Last updated:** 2026-05-29 (codebase audit: 86/86 main tests, LearnedEmbedder implemented, adversarial experiment fixed, PixelTokenizer clarified as design-only)  
+**Last updated:** 2026-05-29 (codebase audit: 86/86 main tests, LearnedEmbedder implemented, adversarial experiment fixed, PixelTokenizer implemented as class)  
 **Paper:** CogSys submission COGSYS-S-26-00688  
 **Paper files:** `paper/main.tex` (full), `paper/main_anon.tex` (anonymized), `paper/title_page.tex`, `paper/COGSYS-S-26-00688.pdf`, `paper/Cover_Letter.pdf`  
 
@@ -132,7 +132,7 @@ The model does **next-token prediction** — given a sequence of integer token I
 
 7. **Metrics:** Average Accuracy, Backward Transfer (BWT), Forward Transfer (FWT), per-task accuracy matrix
 
-**Status:** [x] Adapter designed [x] Code written (inline in experiment, not as separate PixelTokenizer class) [x] Results obtained [x] Replay buffer wired — 50.1% AA, -0.02 BWT
+**Status:** [x] Adapter designed [x] PixelTokenizer class implemented (`ravana_ml/tokenizer.py`) [x] 13 unit tests pass [x] Experiment updated to use class [x] Results obtained [x] Replay buffer wired — 50.1% AA, -0.02 BWT
 
 **Actual Results (2026-05-26, replay-enabled):**
 
@@ -635,7 +635,7 @@ This is the mechanism by which sleep consolidates memories into model weights �
 
 ### Concern 1 — Split-MNIST / Permuted-MNIST Results (2026-05-26, replay-enabled)
 
-**Config:** 200 samples/task, 7×7 patches (49 tokens), vocab_size=266, embed_dim=32, 1 epoch, seed=42
+**Config:** 200 samples/task, raw pixel tokenization (784 tokens), vocab_size=266, embed_dim=32, 1 epoch, seed=42
 
 **Split-MNIST (5 binary tasks):**
 

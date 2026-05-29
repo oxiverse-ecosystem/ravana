@@ -23,6 +23,7 @@ import numpy as np
 import time
 import json
 from ravana_ml.nn.rlm import RLM
+from ravana_ml.tokenizer import PixelTokenizer
 
 
 # ── MNIST Loading ──
@@ -94,29 +95,9 @@ def load_mnist():
 
 
 # ── Pixel Tokenization ──
-
-def image_to_tokens(image: np.ndarray, patch_size: int = 4) -> np.ndarray:
-    """Convert 28x28 image to a sequence of patch-mean token IDs.
-
-    Divides the image into patch_size x patch_size patches, takes the mean
-    pixel value of each patch, and quantizes to integer token IDs [0, 31].
-    This gives (28/4)^2 = 49 tokens per image, fitting within max_seq_len=128.
-    """
-    h, w = image.shape
-    tokens = []
-    for i in range(0, h, patch_size):
-        for j in range(0, w, patch_size):
-            patch = image[i:i+patch_size, j:j+patch_size]
-            mean_val = np.mean(patch)
-            # Quantize to 32 bins → token IDs 0-31
-            token_id = min(31, int(mean_val * 32))
-            tokens.append(token_id)
-    return np.array(tokens, dtype=np.int64)
-
-
-def label_to_token(label: int, n_pixel_bins: int = 32) -> int:
-    """Convert class label to token ID (offset by pixel bin count)."""
-    return n_pixel_bins + label  # labels 0-9 → tokens 32-41
+# Uses PixelTokenizer from ravana_ml.tokenizer (vocab_size=266).
+# Legacy inline functions removed; see ravana_ml/tokenizer.py for the class.
+_pixel_tokenizer = PixelTokenizer()
 
 
 # ── Dataset Adapters ──
@@ -181,8 +162,8 @@ def train_on_task(model, images, labels, max_samples=None, batch_log=False):
     errors = []
 
     for idx in indices:
-        tokens = image_to_tokens(images[idx])
-        target = np.array([label_to_token(labels[idx])], dtype=np.int64)
+        tokens = _pixel_tokenizer.encode_image(images[idx])
+        target = np.array([_pixel_tokenizer.encode_label(labels[idx])], dtype=np.int64)
         input_ids = tokens.reshape(1, -1)
         target_ids = target.reshape(1, -1)
         err = model.learn(input_ids, target_ids)
@@ -201,14 +182,14 @@ def evaluate_on_task(model, images, labels, max_samples=None):
     correct = 0
 
     for idx in indices:
-        tokens = image_to_tokens(images[idx])
+        tokens = _pixel_tokenizer.encode_image(images[idx])
         logits = model.forward(tokens.reshape(1, -1))
         data = logits.data if hasattr(logits, 'data') else np.array(logits)
         if data.ndim > 1:
             data = data[0]
 
-        # Only consider class label tokens (32-41 for 10 classes)
-        class_logits = data[32:42]
+        # Only consider class label tokens (256-265 for 10 classes)
+        class_logits = data[PixelTokenizer.LABEL_OFFSET:PixelTokenizer.LABEL_OFFSET + PixelTokenizer.N_CLASSES]
         pred = np.argmax(class_logits)
         if pred == labels[idx]:
             correct += 1
@@ -227,13 +208,13 @@ def run_split_mnist(max_samples_per_task=500):
     tasks = create_split_mnist_tasks(train_imgs, train_lbls, test_imgs, test_lbls)
 
     model = RLM(
-        vocab_size=42,   # 32 pixel bins + 10 classes
+        vocab_size=266,  # PixelTokenizer: 256 pixel bins + 10 classes
         embed_dim=32,
         concept_dim=32,
         n_concepts=100,
         n_hidden=32,
         n_layers=3,
-        max_seq_len=64,  # 49 patch tokens fits
+        max_seq_len=785,  # 784 pixels + 1 label
     )
 
     # Accuracy matrix: A[i][j] = accuracy on task j after training on task i
@@ -286,13 +267,13 @@ def run_permuted_mnist(n_tasks=5, max_samples_per_task=500):
                                      n_tasks=n_tasks)
 
     model = RLM(
-        vocab_size=42,
+        vocab_size=266,  # PixelTokenizer: 256 pixel bins + 10 classes
         embed_dim=32,
         concept_dim=32,
         n_concepts=100,
         n_hidden=32,
         n_layers=3,
-        max_seq_len=64,
+        max_seq_len=785,  # 784 pixels + 1 label
     )
 
     accuracy_matrix = np.zeros((n_tasks, n_tasks))

@@ -30,7 +30,7 @@
 \end{center}
 
 \begin{abstract}
-Continual learning systems must acquire new structure without erasing prior knowledge, transfer relational schemas across domains, and regulate behavior under uncertainty. This paper presents RAVANA (Recursive Adaptive Variable Architecture for Neurocognitive Autonomy), a pressure-driven cognitive architecture that combines a Recursive Learning Model (RLM), a typed ConceptGraph, predictive-coding style local settling, vector-based memory retrieval, reconstructive recall, continuous Ebbinghaus decay, six-stage sleep consolidation with Hebbian model updates, and homeostatic cognitive variables. Unlike standard reward-maximizing or end-to-end backpropagation systems, RAVANA treats error, dissonance, novelty, identity stability, and memory pressure as interacting control signals. Memory retrieval uses cosine similarity over learned embeddings as the primary path, with reconstructive recall that blends direct matches with graph-neighbor context and tracks fidelity. Decay runs continuously on every cognitive cycle; without sleep consolidation, memory quality degrades naturally. We describe the architecture in detail and report internal benchmark results from within-domain association learning, cross-domain analogy probes, lifelong streaming retention, and synthetic fairness stress tests. In these experiments, architectural fixes raised within-domain top-1 accuracy from 0\% to 100\%; cross-domain probes reached 14.3\% top-1 and 71.4\% top-10; and a combined replay, elastic-weight-consolidation, and Bayesian edge-posterior mechanism reduced measured catastrophic forgetting from 12.0\% to 0.0\% in a 15,000-experience stream. These results should be interpreted as prototype evidence rather than final cognitive validity: the benchmarks are synthetic, the architecture is small, and independent replication is required. Nevertheless, the system offers a concrete computational hypothesis for cognitive science: robust generalization may emerge not only from reward maximization, but from regulated tensions among prediction error, structural analogy, memory consolidation, and self-stabilizing identity constraints.
+Continual learning systems must acquire new structure without erasing prior knowledge, transfer relational schemas across domains, and regulate behavior under uncertainty. This paper presents RAVANA (Recursive Adaptive Variable Architecture for Neurocognitive Autonomy), a pressure-driven cognitive architecture that combines a Recursive Learning Model (RLM), a typed ConceptGraph, predictive-coding style local settling, vector-based memory retrieval, reconstructive recall, continuous Ebbinghaus decay, six-stage sleep consolidation with Hebbian model updates, and homeostatic cognitive variables. Unlike standard reward-maximizing or end-to-end backpropagation systems, RAVANA treats error, dissonance, novelty, identity stability, and memory pressure as interacting control signals. Memory retrieval uses cosine similarity over learned embeddings as the primary path, with reconstructive recall that blends direct matches with graph-neighbor context and tracks fidelity. Decay runs continuously on every cognitive cycle; without sleep consolidation, memory quality degrades naturally. We describe the architecture in detail and report internal benchmark results from within-domain association learning, cross-domain analogy probes, lifelong streaming retention, and synthetic fairness stress tests. In these experiments, under sleep-pressured streaming (50 epochs), architectural fixes raised within-domain top-10 accuracy from 0\% to 100\% and top-1 to 53\%, matching the baseline's 300-epoch performance in one-sixth the training time; cross-domain probes reached 14.3\% top-1 and 71.4\% top-10; and a combined replay, elastic-weight-consolidation, and Bayesian edge-posterior mechanism reduced measured catastrophic forgetting from 12.0\% to 0.0\% in a 15,000-experience stream. These results should be interpreted as prototype evidence rather than final cognitive validity: the benchmarks are synthetic, the architecture is small, and independent replication is required. Nevertheless, the system offers a concrete computational hypothesis for cognitive science: robust generalization may emerge not only from reward maximization, but from regulated tensions among prediction error, structural analogy, memory consolidation, and self-stabilizing identity constraints.
 \end{abstract}
 
 \textbf{Keywords:} cognitive architecture; continual learning; predictive coding; complementary learning systems; catastrophic forgetting; analogy; sleep consolidation; reconstructive memory; vector retrieval; self-organization
@@ -208,17 +208,18 @@ The fairness experiment used a synthetic student-interaction dataset with $N=10{
 
 \section{Results}
 \subsection{Within-Domain Learning}
-After the architectural fixes, within-domain top-1 accuracy rose from 0\% to 100\% in the reported association benchmark. The result indicates that the original failure was not simply an inherent limitation of local learning; it was caused by identifiable architectural defects in relation separation, concept growth, and sleep downscaling.
+Under sleep-pressured streaming (50 epochs), the baseline configuration stalls at 0\% top-1 accuracy. With the architectural fixes (contrastive relation separation, soft concept blending, gated concept growth, and sleep-consistent downscaling), top-10 accuracy reaches 100\% and top-1 reaches 53\% --- matching the baseline's 300-epoch performance in one-sixth the training time. The original failure was not an inherent limitation of local learning; it was caused by identifiable architectural defects that are amplified under sleep pressure.
 
 \begin{table}[h]
 \centering
-\caption{Within-domain learning before and after architectural fixes.}
-\begin{tabular}{lcc}
+\caption{Within-domain learning before and after architectural fixes (50 epochs, sleep-pressured streaming).}
+\begin{tabular}{lccc}
 \toprule
-Condition & Top-1 accuracy & Primary failure or mechanism \\
+Condition & Top-1 & Top-10 & Primary failure or mechanism \\
 \midrule
-Initial RLM & 0\% & Relation collapse; concept ballooning; sleep erasure \\
-Fixed RLM & 100\% & Anchored relation vectors; gated concepts; adaptive downscaling \\
+Initial RLM & 0\% & $\sim$60\% & Relation collapse; concept ballooning; sleep erasure \\
+Fixed RLM & 53\% & 100\% & Anchored relation vectors; gated concepts; adaptive downscaling \\
+Baseline (300 epochs) & 53\% & 100\% & Same as Initial, but sufficient training compensates \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -228,7 +229,7 @@ The RLM outperformed the backpropagation MLP baseline on the reported structural
 
 \begin{table}[h]
 \centering
-\caption{Cross-domain transfer probe performance.}
+\caption{Cross-domain transfer probe performance.\footnote{Cross-domain probe results (15 probes, character-level tokenization, seed 42). Fair evaluation results from the separate fairness benchmark (\texttt{fair\_evaluation.json}). Forward transfer and zero-shot metrics from the cross-domain experiment.}}
 \begin{tabular}{lcc}
 \toprule
 Metric & RLM & MLP baseline \\
@@ -373,7 +374,7 @@ No dissonance engine & 14.4\% & +6.6 pp \\
 
 \section{Discussion}
 \subsection{What the Results Suggest}
-The results support four cautious claims. First, local learning can fail catastrophically for fixable architectural reasons. The move from 0\% to 100\% within-domain accuracy was achieved not by abandoning local learning but by correcting relation collapse, uncontrolled concept creation, and sleep-time erasure. Second, relation-specific structure can support limited cross-domain transfer. The RLM's top-10 advantage over the MLP baseline suggests that typed relations and graph structure can make analogical candidates available even when ranking remains imperfect. Third, replay and consolidation are central rather than optional. The anti-forgetting triad improved both retention and graph efficiency. Fourth, governance variables can alter policy dynamics in ways that resemble internal regulation rather than external reward maximization alone.
+The results support four cautious claims. First, local learning can fail catastrophically for fixable architectural reasons. Under sleep-pressured streaming, the architectural fixes achieved 100\% top-10 and 53\% top-1 in 50 epochs --- matching the baseline's 300-epoch performance --- not by abandoning local learning but by correcting relation collapse, uncontrolled concept creation, and sleep-time erasure. Second, relation-specific structure can support limited cross-domain transfer. The RLM's top-10 advantage over the MLP baseline suggests that typed relations and graph structure can make analogical candidates available even when ranking remains imperfect. Third, replay and consolidation are central rather than optional. The anti-forgetting triad improved both retention and graph efficiency. Fourth, governance variables can alter policy dynamics in ways that resemble internal regulation rather than external reward maximization alone.
 
 \subsection{Relation to Cognitive Science}
 RAVANA connects several cognitive-science traditions. Its graph dynamics and inhibition echo adaptive resonance and self-organizing cognitive codes \cite{grossberg1980}. Its local error minimization echoes predictive coding and free-energy accounts \cite{friston2010}. Its fast memory plus slow consolidation reflects Complementary Learning Systems theory \cite{mcclelland1995,kumaran2016}. Its sleep replay mechanisms are inspired by evidence for hippocampal and cortical memory reactivation \cite{wilson1994,ji2007,diekelmann2010}. Its global workspace module follows the idea that conscious access is a limited-capacity broadcast process \cite{baars1997}. Its governance layer extends these ideas by treating identity, dissonance, and uncertainty as computational regulators.
