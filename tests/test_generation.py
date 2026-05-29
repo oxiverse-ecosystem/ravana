@@ -50,14 +50,13 @@ def test_stateful_equivalence():
     """
     print("\n=== Test 2: Stateful Step Equivalence ===")
     tokenizer = get_tokenizer("gpt2")
-    vocab_size = tokenizer.vocab_size
-
-    # Initialize a small RLM with BPE vocab size
-    model = RLM(vocab_size=vocab_size, embed_dim=32, concept_dim=32, n_concepts=50, n_hidden=32)
-    print(f"Created RLM with BPE vocab size {vocab_size} and 50 concept nodes.")
-
     prompt = "Cognitive pressure"
     token_ids = tokenizer.encode(prompt)
+    # Ensure minimum vocab so top-5 overlap is meaningful
+    vocab_size = max(tokenizer.vocab_size, 100)
+
+    model = RLM(vocab_size=vocab_size, embed_dim=32, concept_dim=32, n_concepts=50, n_hidden=32)
+    print(f"Created RLM with vocab size {vocab_size} and 50 concept nodes.")
 
     # 1. Run standard forward pass (sequential O(T))
     inputs = np.array([token_ids], dtype=np.int64)
@@ -94,13 +93,14 @@ def test_stateful_equivalence():
 def test_generation_and_acf():
     print("\n=== Test 3: Autoregressive Generation & ACF ===")
     tokenizer = get_tokenizer("gpt2")
-    model = RLM(vocab_size=tokenizer.vocab_size, embed_dim=32, concept_dim=32, n_concepts=100, n_hidden=32)
-    
+    prompt = "Persistent identity structures"
+    tokenizer.encode(prompt)  # build vocab
+    vocab_size = max(tokenizer.vocab_size, 100)
+    model = RLM(vocab_size=vocab_size, embed_dim=32, concept_dim=32, n_concepts=100, n_hidden=32)
+
     # Setup some concept labels for visual verification
     for i, nid in enumerate(list(model.graph.nodes.keys())[:10]):
         model.graph.nodes[nid].label = f"Concept_{i}"
-        
-    prompt = "Persistent identity structures"
     print(f"Prompt: '{prompt}'")
     
     # Greedy generation (temp=0.0)
@@ -141,7 +141,9 @@ def test_generation_and_acf():
 def test_repetition_and_fatigue_stabilization():
     print("\n=== Test 4: Repetition Penalty & Fatigue Stabilization ===")
     tokenizer = get_tokenizer("gpt2")
-    model = RLM(vocab_size=tokenizer.vocab_size, embed_dim=32, concept_dim=32, n_concepts=100, n_hidden=32)
+    tokenizer.encode("system persistent identity")  # build vocab
+    vocab_size = max(tokenizer.vocab_size, 100)
+    model = RLM(vocab_size=vocab_size, embed_dim=32, concept_dim=32, n_concepts=100, n_hidden=32)
     
     # 1. Verify Concept Fatigue Accumulation
     h = np.zeros(model.n_hidden, dtype=np.float32)
