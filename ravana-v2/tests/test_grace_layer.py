@@ -32,7 +32,7 @@ def test_soft_boundary_function():
     test_points = [
         (0.50, 1.0, "safe zone - no pressure"),
         (0.75, 1.0, "threshold - pressure starts"),
-        (0.80, 0.4375, "moderate pressure"),
+        (0.80, 0.5625, "moderate pressure"),
         (0.90, 0.0625, "high pressure"),
         (0.94, 0.0025, "near wall - extreme pressure"),
     ]

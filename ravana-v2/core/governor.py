@@ -28,6 +28,7 @@ class GovernorConfig:
     max_dissonance: float = 0.95
     min_dissonance: float = 0.15
     target_dissonance: float = 0.30  # Paper target
+    center_target: float = 0.50  # Governor homeostatic target (center-seeking)
     max_identity: float = 0.95
     soft_limit: float = 0.70  # Start pressure here
     boundary_k: float = 12.0  # Slightly steeper
@@ -258,14 +259,15 @@ class Governor:
         """
         # Count this as an upstream suggestion
         self.clamp_diagnostics.record_upstream_suggestion()
-        
+        self._was_dampened = False
+
         # Detect current mode
         mode = self._detect_mode(
             current_dissonance,
             current_identity,
             signals
         )
-        
+
         # Apply hard constraints FIRST
         dissonance_delta, identity_delta, constraints = self._apply_hard_constraints(
             current_dissonance,
@@ -273,17 +275,14 @@ class Governor:
             signals,
             episode
         )
-        
+
         # 🔮 PHASE B.0: Grace Layer — Predictive & Soft Regulation
         # 1. Look ahead: dampen based on predicted future state
         dissonance_delta = self._predictive_dampening(current_dissonance, dissonance_delta, signals)
-        
+
         # 2. Feel the boundary: air resistance near limits
-        dissonance_delta = self._boundary_pressure(current_dissonance, dissonance_delta)
-        
-        # 3. Return to center: homeostatic pull
-        dissonance_delta = self._center_seeking_force(current_dissonance, dissonance_delta)
-        
+        dissonance_delta *= self._boundary_pressure(current_dissonance, dissonance_delta)
+
         # Apply mode-specific regulation
         dissonance_delta, identity_delta = self._apply_mode_regulation(
             mode,
@@ -293,22 +292,17 @@ class Governor:
             current_identity,
             episode
         )
-        
-        # NOTE: The old universal suppression (dd < 0 and current_dissonance > 0.35)
-        # has been removed. It was preventing correct episodes from reducing
-        # dissonance even when appropriate. Boundary pressure and mode-specific
-        # regulation in RESOLUTION mode handle high-D cases properly.
-        # 
-        # The boundary_pressure() function disables itself when D >= resolution_threshold
-        # (_apply_mode_regulation RESOLUTION case) so dissonance can grow naturally.
-        # The _apply_mode_regulation RESOLUTION case also suppresses reduction when D > 0.35.
-        
+
+        # 3. Return to center: homeostatic pull (AFTER mode regulation
+        #    so RESOLUTION mode suppression doesn't kill center-seeking)
+        dissonance_delta = self._center_seeking_force(current_dissonance, dissonance_delta)
+
         # Build output
         output = RegulatedOutput(
             dissonance_delta=dissonance_delta,
             identity_delta=identity_delta,
             mode=mode,
-            dampened=constraints.get('dampened', False),
+            dampened=constraints.get('dampened', False) or self._was_dampened,
             boosted=constraints.get('boosted', False),
             capped=constraints.get('capped', False),
             reason=constraints.get('reason', ''),
@@ -516,6 +510,7 @@ class Governor:
             reduction = 1.0 / (1.0 + overshoot * 2.0)  # Smooth decay
             dd *= reduction
             self.predictions_made += 1
+            self._was_dampened = True
             if hasattr(self, '_last_log') and self._last_log:
                 print(f"  [PREDICTIVE] D={current_d:.3f} → predicted={predicted_d:.3f}, reducing dd by {reduction:.2f}x")
         
@@ -527,48 +522,30 @@ class Governor:
         dd: float
     ) -> float:
         """
-        🌊 Soft boundary pressure: air resistance, not brick wall.
-        
-        Starts subtle, becomes dominant near boundary.
-        Returns dampened dd.
-        
-        FIX (high_dissonance_pressure): When D is already high (>= resolution_threshold),
-        we're in RESOLUTION mode — the system needs D to grow naturally to drive conflict.
-        Disable boundary pressure when D is high so failures CAN increase D.
+        🌊 Soft boundary pressure: returns permeability coefficient [0, 1].
+
+        1.0 = no pressure (full delta passes through).
+        0.0 = extreme pressure (delta fully blocked).
+
+        Quadratic falloff from soft_limit (0.75) to hard wall (0.95).
         """
-        # Below soft limit: no pressure
-        if current_d < self.config.soft_limit:
-            if hasattr(self, 'boundary_pressure_history'):
-                self.boundary_pressure_history.append(0.0)
-                if len(self.boundary_pressure_history) > 100:
-                    self.boundary_pressure_history.pop(0)
-            return dd
-        
-        # FIX: When D >= resolution_threshold, we're in RESOLUTION mode.
-        # Boundary pressure fights against the natural D increase needed for conflict.
-        # Disable it here so failures can increase D even when D is high.
-        if current_d >= self.config.resolution_threshold:
-            if hasattr(self, 'boundary_pressure_history'):
-                self.boundary_pressure_history.append(0.0)
-                if len(self.boundary_pressure_history) > 100:
-                    self.boundary_pressure_history.pop(0)
-            return dd
-        
-        # Sigmoid pressure curve for moderate D
-        excess = current_d - self.config.soft_limit
-        k = getattr(self.config, 'boundary_k', 10.0)
-        
-        import math
-        pressure = 1.0 / (1.0 + math.exp(-k * (excess - 0.05)))
-        
-        dampened_dd = dd * (1.0 - pressure * 0.8)
-        
+        soft = 0.75
+        hard = 0.95
+
+        if current_d < soft:
+            coeff = 1.0
+        else:
+            coeff = max(0.0, (hard - current_d) / (hard - soft)) ** 2
+
+        if coeff < 1.0:
+            self._was_dampened = True
+
         if hasattr(self, 'boundary_pressure_history'):
-            self.boundary_pressure_history.append(pressure)
+            self.boundary_pressure_history.append(1.0 - coeff)
             if len(self.boundary_pressure_history) > 100:
                 self.boundary_pressure_history.pop(0)
-        
-        return dampened_dd
+
+        return coeff
 
     def _apply_mode_regulation(
         self,
@@ -714,29 +691,26 @@ class Governor:
         dd: float
     ) -> float:
         """
-        🎯 Anti-overshoot term: pull toward center when far from it.
-        
-        Prevents drift accumulation, creates homeostasis.
-        
-        FIX (high_dissonance_pressure): When D is high (> 0.35),
-        the system should be in resolution mode, NOT auto-correcting downward.
-        Center-seeking is DISABLED when D > 0.35 so failures can increase D naturally.
+        🎯 Anti-overshoot term: pull toward homeostatic center when far from it.
+
+        Uses asymmetric k: gentle pull-down when D is high, stronger push-up
+        when D is low (to maintain healthy minimum).
         """
-        target = self.config.target_dissonance
-        distance_from_center = current_d - target
-        
-        # FIX: Only apply center-seeking when D is below 0.35 (moderate range).
-        # When D > 0.35, we're in high-dissonance territory where failures
-        # should naturally increase D. Disable center-seeking here.
-        if abs(distance_from_center) > 0.12 and current_d < 0.35:
-            k_center = 0.06
-            center_force = -distance_from_center * k_center
+        target = self.config.center_target
+        distance = current_d - target
+
+        if abs(distance) > 0.02:
+            if distance > 0:
+                k = 0.06   # gentle pull-down when D is high
+            else:
+                k = 0.15   # stronger push-up when D is low
+            center_force = -distance * k
             dd += center_force
-            
+
             if hasattr(self, '_last_log') and self._last_log:
                 direction = "→" if center_force > 0 else "←"
                 print(f"  [CENTER] D={current_d:.3f} {direction} target={target:.3f} (force={center_force:.4f})")
-        
+
         return dd
 
     def _update_tracking(self, dissonance: float, identity: float):
