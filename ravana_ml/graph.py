@@ -867,10 +867,11 @@ class ConceptGraph:
         self._incoming: Dict[int, List[Tuple[int, ConceptEdge]]] = defaultdict(list)
         # Active node tracking: avoids O(N) scan in propagation
         self._active_nodes: Set[int] = set()
-        # Vectorized similarity matrix (lazy-built, dirty-flagged)
+        # Vectorized similarity matrix (lazy-built, incremental updates)
         self._vector_matrix_normed: Optional[np.ndarray] = None
         self._node_id_order: List[int] = []
         self._vectors_dirty: bool = True
+        self._dirty_nodes: Set[int] = set()  # nodes needing matrix row update
 
         # ── Relational inference tracking ──
         # Successful inference paths: (source, target) -> usage_count
@@ -953,21 +954,46 @@ class ConceptGraph:
         return self._incoming.get(nid, [])
 
     def _rebuild_vector_matrix(self):
-        """Rebuild the normalized vector matrix for fast cosine similarity."""
+        """Rebuild the normalized vector matrix for fast cosine similarity.
+
+        Incremental: only updates rows for dirty nodes when possible.
+        Full rebuild only when matrix doesn't exist, node set changed,
+        or dirty set exceeds 50% of nodes.
+        """
+        ids = sorted(self.nodes.keys())
+        need_full = (
+            not self.nodes
+            or self._vector_matrix_normed is None
+            or set(ids) != set(self._node_id_order)
+            or len(self._dirty_nodes) > len(ids) * 0.5
+        )
         if not self.nodes:
             self._vector_matrix_normed = None
             self._node_id_order = []
             self._vectors_dirty = False
+            self._dirty_nodes.clear()
             self._cached_norms = None
             self._faiss_index = None
             return
-        ids = sorted(self.nodes.keys())
-        self._node_id_order = ids
-        vecs = np.stack([self.nodes[i].vector for i in ids]).astype(np.float32)
-        norms = np.linalg.norm(vecs, axis=1, keepdims=True)
-        self._vector_matrix_normed = vecs / (norms + 1e-15)
-        self._cached_norms = norms.squeeze(1)  # (N,) for reuse in drift_magnitude etc.
+        if need_full:
+            self._node_id_order = ids
+            vecs = np.stack([self.nodes[i].vector for i in ids]).astype(np.float32)
+            norms = np.linalg.norm(vecs, axis=1, keepdims=True)
+            self._vector_matrix_normed = vecs / (norms + 1e-15)
+            self._cached_norms = norms.squeeze(1)
+        else:
+            # Incremental: update only dirty rows
+            id_to_row = {nid: row for row, nid in enumerate(self._node_id_order)}
+            for nid in self._dirty_nodes:
+                row = id_to_row.get(nid)
+                if row is not None and nid in self.nodes:
+                    vec = self.nodes[nid].vector.astype(np.float32)
+                    norm = np.linalg.norm(vec)
+                    self._vector_matrix_normed[row] = vec / (norm + 1e-15)
+                    if self._cached_norms is not None:
+                        self._cached_norms[row] = norm
         self._vectors_dirty = False
+        self._dirty_nodes.clear()
 
         # Build FAISS index for O(log N) search when graph is large enough
         if self._use_faiss and len(ids) >= 64:
@@ -1283,6 +1309,7 @@ class ConceptGraph:
         if core_norm > 0:
             node.core_vector /= core_norm
         self._vectors_dirty = True
+        self._dirty_nodes.add(nid)
 
     def get_or_create_edge(self, source: int, target: int, weight: float = 0.3,
                            shortcut: bool = False, edge_type: str = "excitatory",

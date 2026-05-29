@@ -15,6 +15,7 @@ from . import functional as F
 from .module import Module, Linear, Embedding, LayerNorm, GRUCell, ConceptAttentionHead
 from ..currency import CognitiveCurrency, create_rlm_currency
 from ..currencies import CognitiveCurrencies
+from ..embedder import LearnedEmbedder
 
 
 class RLM(Module):
@@ -99,7 +100,17 @@ class RLM(Module):
         self.graph = ConceptGraph(dim=concept_dim, max_nodes=actual_n * 2,
                                   anchor_relation_vectors=anchor_relation_vectors,
                                   adaptive_downscale=adaptive_downscale)
-        self._init_structured_concepts()
+        if vocab_size <= 32:
+            self._init_structured_concepts()
+        else:
+            # Random concept vectors for large vocabs (avoid structured init's 98%+ similarity)
+            d = concept_dim
+            for i in range(n_concepts):
+                vec = np.random.randn(d).astype(np.float32) * np.sqrt(2.0 / d)
+                vec = vec / (np.linalg.norm(vec) + 1e-15)
+                token_idx = int(i * vocab_size / n_concepts) if n_concepts > 0 else i
+                self.graph.add_node(vec, label=f"tok_{token_idx}")
+        self._init_concept_gating()
 
         self.propagation = PropagationEngine(self.graph)
         self.free_energy_engine = FreeEnergyAccumulator(self.graph)
@@ -151,7 +162,7 @@ class RLM(Module):
 
         # Context modulation strength
         self.context_bias = 0.5
-        self.context_scale = 1.0  # active — context_logits head is trained by settle loop
+        self.context_scale = 0.3  # reduced from 1.0 — prevents context_logits (frequency memorizer) from dominating blend
 
         # Predictive coding config
         self.settle_steps = 5       # inference settling iterations
@@ -171,6 +182,12 @@ class RLM(Module):
         self._episodic_keys: List = []            # episodic key vectors for lookup
         self._episodic_values: List = []          # episodic value targets
         self._episodic_max = 5000                 # max episodic key-value pairs
+        # Vector-based episodic retrieval (replaces exact-match)
+        self._epi_embedder = LearnedEmbedder(dim=64)
+        self._epi_vectors: Dict[int, np.ndarray] = {}  # idx -> 64-dim vector
+        self._epi_next_idx: int = 0
+        self._epi_matrix: Optional[np.ndarray] = None  # lazy (N, 64) matrix
+        self._epi_dirty: bool = True
         self._semantic_memories: Dict[int, Dict] = {}  # consolidated: {concept_id: {strength, access_count, last_access}}
         self._semantic_memory_max = 1000
 
@@ -347,7 +364,8 @@ class RLM(Module):
             vec = vec / (np.linalg.norm(vec) + 1e-15)
             self.graph.add_node(vec, label=f"tok_{token_idx}")
 
-        # Gap 3: creation-gating parameters
+    def _init_concept_gating(self):
+        """Set concept creation gating parameters. Called after graph initialization."""
         # Track which concept IDs were pre-created at init (the "vocab scaffold").
         # These are always reused — gating only applies to post-init dynamic concepts
         # to prevent runaway proliferation while preserving the initial scaffold.
@@ -961,7 +979,7 @@ class RLM(Module):
             vec_embed_norm = self._project_to_embed(vec_norm)
             vec_embed_norm = vec_embed_norm / (np.linalg.norm(vec_embed_norm) + 1e-15)
             local = (token_norms @ vec_embed_norm) * node.activation
-            concept_scores = np.maximum(concept_scores, local)
+            concept_scores += local * 0.3  # soft blend: multiple concepts contribute
 
         self._last_predicted_concepts = [n.id for n in all_active][:5]
         self._last_edge_pred = self.propagation.get_prediction(self._last_predicted_concepts, top_k=5)
@@ -1042,16 +1060,26 @@ class RLM(Module):
         # High arousal → exploration (boost concept path), positive valence → trust concepts
         emotion_scale = 1.0 + 0.3 * self.arousal - 0.1 * max(0.0, -self.valence)
         identity_scale = 0.5 + 0.5 * self.identity_strength
-        # Episodic memory retrieval: exact-match lookup on input tokens
-        # Bypasses Hebbian learning by directly retrieving stored (input → target) mappings
-        # Uses token IDs as keys (stable across sleep cycles, unlike hidden states)
+        # Episodic memory retrieval: vector cosine similarity
         memory_logits = np.zeros(self.vocab_size, dtype=np.float32)
-        if len(self._episodic_keys) > 0:
-            query = tuple(token_ids[0].tolist())
-            # Exact match: look for identical input sequences
-            for i, key in enumerate(self._episodic_keys):
-                if key == query:
-                    memory_logits[self._episodic_values[i]] += 100.0
+        if len(self._epi_vectors) > 0:
+            query_text = self._token_ids_to_text(token_ids[0])
+            query_vec = self._epi_embedder.encode(query_text)
+            # Rebuild matrix if dirty
+            if self._epi_dirty:
+                self._rebuild_epi_matrix()
+            # Cosine similarity search
+            if self._epi_matrix is not None and len(self._epi_matrix) > 0:
+                sims = self._epi_matrix @ query_vec  # (N,)
+                # Soft-boost top-K matches proportional to similarity
+                k = min(5, len(sims))
+                top_k_idx = np.argpartition(sims, -k)[-k:]
+                for idx in top_k_idx:
+                    sim = float(sims[idx])
+                    if sim > 0.05:  # minimum relevance threshold
+                        epi_idx = self._epi_idx_order[idx]
+                        target = self._episodic_values[epi_idx]
+                        memory_logits[target] += 50.0 * sim  # soft boost
 
         # Blend: context_logits (memorizer) + concept paths (structure) + episodic memory
         logits = (concept_logits * identity_scale * emotion_scale
@@ -1061,6 +1089,31 @@ class RLM(Module):
                   + memory_logits)
         self._last_ctx_logits = ctx_logits
         return StateTensor(logits[np.newaxis, :])[0]
+
+    def _token_ids_to_text(self, token_ids: np.ndarray) -> str:
+        """Convert token IDs to a string for the episodic embedder."""
+        if self._tokenizer is not None:
+            try:
+                return self._tokenizer.decode(token_ids.tolist())
+            except Exception:
+                pass
+        # Fallback: treat IDs as character codes
+        return "".join(chr(int(t) % 128) for t in token_ids)
+
+    def _rebuild_epi_matrix(self) -> None:
+        """Rebuild the episodic vector matrix from stored vectors."""
+        if not self._epi_vectors:
+            self._epi_matrix = None
+            self._epi_idx_order = []
+            return
+        self._epi_idx_order = sorted(self._epi_vectors.keys())
+        rows = [self._epi_vectors[i] for i in self._epi_idx_order]
+        mat = np.array(rows, dtype=np.float32)
+        # Normalize rows for cosine similarity
+        norms = np.linalg.norm(mat, axis=1, keepdims=True)
+        norms = np.maximum(norms, 1e-8)
+        self._epi_matrix = mat / norms
+        self._epi_dirty = False
 
     def learn(self, token_ids: np.ndarray, next_token_ids: np.ndarray):
         self._step_counter += 1
@@ -1074,8 +1127,14 @@ class RLM(Module):
         # Store episodic memory: (input_token_sequence, target_token)
         if len(self._episodic_keys) < self._episodic_max:
             key = tuple(token_ids[0].tolist())
+            epi_idx = self._epi_next_idx
             self._episodic_keys.append(key)
             self._episodic_values.append(next_id)
+            # Store vector embedding for cosine similarity retrieval
+            query_text = self._token_ids_to_text(token_ids[0])
+            self._epi_vectors[epi_idx] = self._epi_embedder.encode(query_text)
+            self._epi_next_idx += 1
+            self._epi_dirty = True
         last_input_id = int(token_ids[0, -1])
 
         next_embed = self.token_embed.embed_raw(next_id)
@@ -2445,17 +2504,25 @@ class RLM(Module):
         z = self.concept_predictor(StateTensor(h[np.newaxis, :])).data[0]
         z_norm = z / (np.linalg.norm(z) + 1e-15)
 
-        # Update concept fatigue values globally
-        for node in self.graph.nodes.values():
-            node.fatigue = max(0.0, node.fatigue * (1.0 - fatigue_decay_rate))
+        # Fatigue decay: apply to previously active + currently active nodes only
+        # (instead of O(N) sweep over all nodes)
+        if not hasattr(self, '_prev_active_nodes'):
+            self._prev_active_nodes: Set[int] = set()
+        all_relevant = self._prev_active_nodes | self.graph._active_nodes
+        for nid in all_relevant:
+            node = self.graph.nodes.get(nid)
+            if node is not None:
+                node.fatigue = max(0.0, node.fatigue * (1.0 - fatigue_decay_rate))
 
         # Active Cognitive Frontier: persistent activation & selective decay/spreading
         if not persist_activation:
             self.graph.reset_activation()
         else:
-            # Decay existing activations slightly before injecting new ones
-            for node in self.graph.nodes.values():
-                node.activation *= 0.8
+            # Decay only active nodes instead of ALL nodes
+            for nid in self.graph._active_nodes:
+                node = self.graph.nodes.get(nid)
+                if node is not None:
+                    node.activation *= 0.8
 
         # Activate based on conceptual similarity, scaled by fatigue
         # Use vectorized matrix multiply instead of per-node Python loop
@@ -2482,10 +2549,12 @@ class RLM(Module):
         # Spreading activation with soft lateral inhibition (using k_active_acf to enforce ACF)
         self.graph.spread_activation(steps=steps, k_active=k_active_acf, decay=0.5)
 
-        # Accumulate fatigue for currently active nodes based on actual activation level
-        for node in self.graph.nodes.values():
-            if node.activation > 0.01:
+        # Accumulate fatigue only for active nodes (not O(N))
+        for nid in self.graph._active_nodes:
+            node = self.graph.nodes.get(nid)
+            if node is not None and node.activation > 0.01:
                 node.fatigue = min(1.0, node.fatigue + (1.0 - node.fatigue) * node.activation * fatigue_accumulation_rate)
+        self._prev_active_nodes = set(self.graph._active_nodes)
 
         # Scoring vocab based on active concepts (using effective_activation)
         token_vecs = self.token_embed.weight.data
@@ -3172,6 +3241,8 @@ class RLM(Module):
             "edge_weight_ema": self._edge_weight_ema,
             "token_hit_ema": self._token_hit_ema,
             "episodic_buffer": episodes_json,
+            "episodic_keys": [list(k) for k in self._episodic_keys],
+            "episodic_values": self._episodic_values,
             "semantic_memories": self._semantic_memories,
             "concept_vad": {str(k): list(v) for k, v in self._concept_vad.items()},
         }
@@ -3361,6 +3432,8 @@ class RLM(Module):
             model.structural = StructuralPlasticity(model.graph,
                                                     prune_threshold=0.005,
                                                     form_threshold=0.3)
+            # Concept gating is restored from saved scalars (line 3442),
+            # don't call _init_concept_gating() here — it would overwrite with wrong IDs
 
             # Restore scalars
             s = meta["scalars"]
@@ -3478,5 +3551,16 @@ class RLM(Module):
                     model._episodic_buffer.append(ep_copy)
                 model._semantic_memories = cs.get("semantic_memories", {})
                 model._concept_vad = {int(k): tuple(v) for k, v in cs.get("concept_vad", {}).items()}
+                # Restore episodic key-value pairs (exact-match buffer)
+                model._episodic_keys = [tuple(k) for k in cs.get("episodic_keys", [])]
+                model._episodic_values = list(cs.get("episodic_values", []))
+                # Rebuild episodic vector index from restored keys
+                model._epi_vectors = {}
+                model._epi_next_idx = 0
+                for i, key in enumerate(model._episodic_keys):
+                    query_text = model._token_ids_to_text(np.array(key))
+                    model._epi_vectors[i] = model._epi_embedder.encode(query_text)
+                    model._epi_next_idx = i + 1
+                model._epi_dirty = True
 
             return model

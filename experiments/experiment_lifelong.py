@@ -74,9 +74,9 @@ class BenchmarkConfig:
     skip_baselines: bool = False
 
     # RLM architecture
-    embed_dim: int = 32
-    concept_dim: int = 32
-    n_hidden: int = 32
+    embed_dim: int = 64
+    concept_dim: int = 64
+    n_hidden: int = 128
     n_layers: int = 3
     sleep_interval: int = 100
 
