@@ -13,7 +13,7 @@ from core import Governor, ResolutionEngine, IdentityEngine, StateManager
 
 def test_governor_hard_constraints():
     """Test that governor enforces hard constraints."""
-    print("\n🧪 Testing Governor Hard Constraints...")
+    print("\n[TEST] Testing Governor Hard Constraints...")
     
     governor = Governor()
     from core.governor import CognitiveSignals
@@ -30,7 +30,7 @@ def test_governor_hard_constraints():
     # Should be capped
     projected = 0.8 + result.dissonance_delta
     assert projected <= 0.96, f"Ceiling failed: {projected}"
-    print(f"  ✓ Dissonance ceiling: {projected:.3f} <= 0.96")
+    print(f"  [OK] Dissonance ceiling: {projected:.3f} <= 0.96")
     
     # Test 2: Identity floor
     signals = CognitiveSignals(dissonance_delta=0.0, identity_delta=-0.5)
@@ -43,23 +43,23 @@ def test_governor_hard_constraints():
     
     projected = 0.12 + result.identity_delta
     assert projected >= 0.09, f"Floor failed: {projected}"
-    print(f"  ✓ Identity floor: {projected:.3f} >= 0.09")
+    print(f"  [OK] Identity floor: {projected:.3f} >= 0.09")
     
-    print("  ✅ All hard constraints working!")
+    print("  [PASS] All hard constraints working!")
 
 
 def test_resolution_partial_credit():
     """Test resolution engine partial credit accumulation."""
-    print("\n🧪 Testing Resolution Partial Credit...")
+    print("\n[TEST] Testing Resolution Partial Credit...")
     
     engine = ResolutionEngine(partial_threshold=0.15)
     
-    # Add several small resolution events
+    # Add several resolution events with deltas above the 0.08 guard
     for i in range(5):
         result = engine.compute(
             episode=i,
             prev_dissonance=0.5,
-            current_dissonance=0.48,  # Small reduction
+            current_dissonance=0.40,  # 0.10 reduction — above 0.08 guard
             correctness=True,
             difficulty=0.5,
         )
@@ -68,13 +68,13 @@ def test_resolution_partial_credit():
     # Check for wisdom generation or accumulation
     status = engine.get_memory_status()
     assert status['accumulated_partial'] > 0, "No partial credit accumulated"
-    print(f"  ✓ Accumulated partial credit: {status['accumulated_partial']:.4f}")
-    print("  ✅ Partial credit system working!")
+    print(f"  [OK] Accumulated partial credit: {status['accumulated_partial']:.4f}")
+    print("  [PASS] Partial credit system working!")
 
 
 def test_identity_momentum():
     """Test identity momentum and recovery."""
-    print("\n🧪 Testing Identity Momentum...")
+    print("\n[TEST] Testing Identity Momentum...")
     
     engine = IdentityEngine(initial_strength=0.2)
     
@@ -93,12 +93,12 @@ def test_identity_momentum():
     # Should show growth (with possible momentum effects)
     print(f"  Start: {strengths[0]:.3f}, End: {strengths[-1]:.3f}")
     assert strengths[-1] > strengths[0], "Identity should grow"
-    print("  ✅ Identity dynamics working!")
+    print("  [PASS] Identity dynamics working!")
 
 
 def test_integration():
     """Test full integration via StateManager."""
-    print("\n🧪 Testing Full Integration...")
+    print("\n[TEST] Testing Full Integration...")
     
     governor = Governor()
     resolution = ResolutionEngine()
@@ -122,7 +122,7 @@ def test_integration():
     assert 0.1 < status['state']['dissonance'] < 1.0, "Dissonance in sane range"
     assert 0.1 < status['state']['identity'] < 1.0, "Identity in sane range"
     
-    print("  ✅ Full integration working!")
+    print("  [PASS] Full integration working!")
 
 
 def main():
@@ -138,15 +138,15 @@ def main():
         test_integration()
         
         print("\n" + "=" * 60)
-        print("🎉 ALL TESTS PASSED — Phase A Ready!")
+        print("[DONE] ALL TESTS PASSED — Phase A Ready!")
         print("=" * 60)
         return True
         
     except AssertionError as e:
-        print(f"\n❌ TEST FAILED: {e}")
+        print(f"\n[FAIL] TEST FAILED: {e}")
         return False
     except Exception as e:
-        print(f"\n💥 ERROR: {e}")
+        print(f"\n[ERROR] ERROR: {e}")
         import traceback
         traceback.print_exc()
         return False

@@ -37,3 +37,11 @@ experiment_results/
 
 # Downloaded datasets
 data/
+
+# Pickle files
+*.pickle
+
+# LaTeX build artifacts
+paper/*.pdf
+paper/*.aux
+paper/*.out
