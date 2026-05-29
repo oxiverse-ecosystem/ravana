@@ -26,6 +26,7 @@ except ImportError:
     nx = None
 
 from core.vector_index import SharedVectorIndex
+from core.embedder import LearnedEmbedder
 
 
 # ─── Config ──────────────────────────────────────────────────────────────────
@@ -191,6 +192,7 @@ class HumanMemoryEngine:
         self._history: List[HumanMemoryRecord] = []
         self._graph: Any = None
         self.vector_index = SharedVectorIndex(dim=64, use_faiss=False)
+        self._embedder = LearnedEmbedder(dim=64)
         self._init_db()
         self._load_graph()
         self._rebuild_vector_index()
@@ -262,56 +264,49 @@ class HumanMemoryEngine:
                           importance: float = 0.5, emotional: float = 0.5) -> np.ndarray:
         """Encode a memory into a 64-dim embedding vector.
 
-        Uses a deterministic hash-based encoding: each token is hashed to a
-        position in the 64-dim space, weighted by importance/emotional salience.
-        This is fast and consistent — no ML model needed for the index layer.
-        The ConceptGraph's learned vectors handle the semantic richness.
+        Uses character n-gram + random projection encoding that captures
+        subword structure and morphological patterns. If the embedder has
+        been fitted with corpus statistics, IDF weighting is applied.
         """
-        dim = self.vector_index.dim
-        vec = np.zeros(dim, dtype=np.float32)
-        tokens = (content + " " + tags).lower().split()
-        if not tokens:
-            # Encode from importance/emotional even with no tokens
-            vec[0] = importance
-            vec[1] = emotional
-            return vec
-        for token in tokens:
-            # Deterministic hash -> position + sign
-            h = int(hashlib.md5(token.encode()).hexdigest(), 16)
-            pos = h % dim
-            sign = 1.0 if (h // dim) % 2 == 0 else -1.0
-            vec[pos] += sign
-        # Normalize
-        norm = np.linalg.norm(vec)
-        if norm > 0:
-            vec /= norm
-        # Blend in salience signals
-        vec[0] += importance * 0.1
-        vec[1] += emotional * 0.1
-        # Re-normalize
-        norm = np.linalg.norm(vec)
-        if norm > 0:
-            vec /= norm
-        return vec
+        return self._embedder.encode(content, tags=tags,
+                                     importance=importance, emotional=emotional)
 
     def _rebuild_vector_index(self) -> None:
-        """Load all embedding vectors from DB into SharedVectorIndex."""
+        """Load all embedding vectors from DB into SharedVectorIndex.
+
+        Also fits the embedder's IDF weights from existing memory content
+        and re-encodes all memories with the learned embeddings.
+        """
         conn = self._get_conn()
         try:
             rows = conn.execute(
-                "SELECT id, embedding FROM memories WHERE suppressed = 0 AND embedding IS NOT NULL"
+                "SELECT id, content, tags, importance, emotional FROM memories "
+                "WHERE suppressed = 0"
             ).fetchall()
         except sqlite3.OperationalError:
             conn.close()
             return
+        # Fit embedder IDF from corpus
+        corpus = [str(r[1] or "") + " " + str(r[2] or "") for r in rows]
+        if corpus:
+            self._embedder.fit(corpus)
+        # Re-encode all memories with learned embeddings and update index + DB
+        for mid, content, tags, importance, emotional in rows:
+            try:
+                vec = self._encode_to_vector(
+                    str(content or ""), str(tags or ""),
+                    float(importance or 0.5), float(emotional or 0.5)
+                )
+                self.vector_index.add(int(mid), vec)
+                # Persist updated embedding to DB
+                conn.execute(
+                    "UPDATE memories SET embedding = ? WHERE id = ?",
+                    (vec.tobytes(), int(mid))
+                )
+            except (ValueError, Exception):
+                pass
+        conn.commit()
         conn.close()
-        for mid, blob in rows:
-            if blob:
-                try:
-                    vec = np.frombuffer(blob, dtype=np.float32).copy()
-                    self.vector_index.add(int(mid), vec)
-                except (ValueError, Exception):
-                    pass
 
     def _store(self, content: str, memory_type: str = "experience",
                semantic_type: str = None, context: str = None,

@@ -3317,6 +3317,7 @@ class RLM(Module):
                     weight=1.0,  # placeholder; actual weight set below to avoid clamp
                     edge_type=ed.get("edge_type", "excitatory"),
                     relation_type=ed.get("relation_type", "semantic"),
+                    relation_dim=model.graph.dim,
                 )
                 edge.weight = float(ed["weight"])  # bypass __init__ clamp
                 edge.confidence = ed["confidence"]
@@ -3342,6 +3343,10 @@ class RLM(Module):
                 # Rebuild adjacency indices (load_zip bypasses add_edge)
                 model.graph._outgoing[ed["source"]].append((ed["target"], edge))
                 model.graph._incoming[ed["target"]].append((ed["source"], edge))
+                # Rebuild relation-type index (add_edge normally does this)
+                model.graph._edges_by_relation_type[edge.relation_type].append(
+                    ((ed["source"], ed["target"]), edge)
+                )
 
             # Mark vector matrix as stale so it's rebuilt on next forward pass
             model.graph._vectors_dirty = True
