@@ -1,7 +1,7 @@
 # RAVANA Reviewer Response — Running Document
 
 **Status:** Draft — all 4 concerns addressed, pathway diagnostic complete (2026-05-28)  
-**Last updated:** 2026-05-28 (serialization stress test added — 6 new tests covering adjacency consistency, multi-cycle drift, post-sleep roundtrip, RP preservation, cross-format, large graph; 67/67 pass)  
+**Last updated:** 2026-05-29 (codebase audit: 86/86 main tests, LearnedEmbedder implemented, adversarial experiment fixed, PixelTokenizer clarified as design-only)  
 **Paper:** CogSys submission COGSYS-S-26-00688  
 **Paper files:** `paper/main.tex` (full), `paper/main_anon.tex` (anonymized), `paper/title_page.tex`, `paper/COGSYS-S-26-00688.pdf`, `paper/Cover_Letter.pdf`  
 
@@ -132,7 +132,7 @@ The model does **next-token prediction** — given a sequence of integer token I
 
 7. **Metrics:** Average Accuracy, Backward Transfer (BWT), Forward Transfer (FWT), per-task accuracy matrix
 
-**Status:** [x] Adapter designed [x] Code written [x] Results obtained [x] Replay buffer wired — 50.1% AA, -0.02 BWT
+**Status:** [x] Adapter designed [x] Code written (inline in experiment, not as separate PixelTokenizer class) [x] Results obtained [x] Replay buffer wired — 50.1% AA, -0.02 BWT
 
 **Actual Results (2026-05-26, replay-enabled):**
 
@@ -566,8 +566,8 @@ This prevents reward-hacking: the system cannot achieve high reward by destabili
 - [x] **Concern 3:** LayerNorm on logits (verified mean=0, std=1), tanh retained in settle loop (ReLU reverted), temperature sweep integrated, 41/41 tests pass. **Critical finding:** Temperature scaling is mathematically monotonic (LayerNorm + division by T preserves argmax ranking). It CANNOT improve Top-1 accuracy — this was verified experimentally and mathematically. The Top-1 gap is a fundamental architectural limitation of Hebbian learning.
 - [x] **Concern 4:** Ablation flags added to RLM + ConceptGraph, 6-condition experiment + sensitivity sweeps run. **Critical finding:** With 300 epochs of training, the baseline (all fixes OFF) achieves 53% Top-1 / 100% Top-10 — the HIGHEST of all conditions. The architectural fixes are about convergence speed and stability under sleep pressure, not about enabling learning. The "0% to 100%" claim refers to Top-10 under the original training regime (50 epochs + sleep every 5), where the baseline underperforms due to insufficient training.
 - [x] All mathematical proofs reviewed and formatted
-- [x] **Serialization fidelity:** Adjacency index desync + relation predictor serialization bugs traced and fixed — 67/67 tests pass (6 new stress tests), identity persistence 100% consistency, 5-cycle drift test, post-sleep roundtrip, cross-format consistency, large graph roundtrip
-- [x] **Hybrid memory architecture:** SharedVectorIndex (cosine similarity retrieval), MemoryReconstructor (reconstructive recall from partial cues), natural Ebbinghaus decay per cycle, Hebbian model updates during sleep — 67/67 tests pass
+- [x] **Serialization fidelity:** Adjacency index desync + relation predictor serialization bugs traced and fixed — 86/86 tests pass (6 new stress tests), identity persistence 100% consistency, 5-cycle drift test, post-sleep roundtrip, cross-format consistency, large graph roundtrip
+- [x] **Hybrid memory architecture:** SharedVectorIndex (cosine similarity retrieval), MemoryReconstructor (reconstructive recall from partial cues), natural Ebbinghaus decay per cycle, Hebbian model updates during sleep — 86/86 tests pass
 
 ---
 
