@@ -1098,26 +1098,43 @@ class RLM(Module):
                     bound_tokens = self._concept_to_tokens.get(tgt_id, set())
                     for tok_id in bound_tokens:
                         if tok_id < self.vocab_size:
-                            concept_scores[tok_id] += edge.weight * 1.5
+                            concept_scores[tok_id] += edge.weight * 5.0
                 else:
                     nonmatching_tgt_ids.add(tgt_id)
-            # Also collect ALL targets from non-subject active concepts.
-            # Prevents cross-domain bleed where e.g. "fire" (activated by
-            # "produces") boosts "warmth" through a causal edge that shares
-            # the same relation type as the subject's correct edge.
-            # Previous logic only suppressed targets with DIFFERENT relation
-            # types, which missed the case where Domain A concepts (fire→warmth
-            # causal) share the relation type with Domain B (anger→conflict
-            # causal). When we have a subject with matching edges, the subject's
-            # edges are the authoritative signal — other concepts were activated
-            # by verb-domain bias, not by relevance to the subject.
+            # Suppress the subject token in concept_scores and ctx_logits.
+            # When "heat causes" → the answer is the target (expansion),
+            # not the subject (heat). The subject-concept anchoring makes
+            # the subject's direct vector mapping dominate without this.
+            if matching_tgt_ids and T >= 1:
+                first_tid = int(token_ids[0, 0])
+                if first_tid < self.vocab_size:
+                    concept_scores[first_tid] *= 0.1
+            # Also collect targets from non-subject active concepts.
+            # Distinguish same-domain vs cross-domain concepts using graph
+            # connectivity: if a concept has edges to/from the subject, it's
+            # likely same-domain (e.g., heat↔fire) and its targets provide
+            # helpful signal. If NOT connected, it was activated by verb-domain
+            # bias (e.g., fire activated by "produces" when subject is "anger")
+            # and ALL its targets should be suppressed.
+            subj_outgoing_ids = {tgt for tgt, _ in self.graph._outgoing.get(subject_cid, [])}
+            subj_incoming_ids = {src for src, _ in self.graph._incoming.get(subject_cid, [])}
+            subj_neighbors = subj_outgoing_ids | subj_incoming_ids
             for other_node in all_active:
                 if other_node.id == subject_cid:
                     continue
-                for tgt_id, edge in self.graph._outgoing.get(other_node.id, []):
-                    if edge.weight <= 0.05:
-                        continue
-                    nonmatching_tgt_ids.add(tgt_id)
+                if other_node.id in subj_neighbors:
+                    # Same-domain concept: only suppress non-matching relation types
+                    for tgt_id, edge in self.graph._outgoing.get(other_node.id, []):
+                        if edge.weight <= 0.05:
+                            continue
+                        if input_rel_type != "semantic" and edge.relation_type != input_rel_type:
+                            nonmatching_tgt_ids.add(tgt_id)
+                else:
+                    # Cross-domain concept (verb-domain bias): suppress ALL targets
+                    for tgt_id, edge in self.graph._outgoing.get(other_node.id, []):
+                        if edge.weight <= 0.05:
+                            continue
+                        nonmatching_tgt_ids.add(tgt_id)
             # Suppress concept_scores at tokens bound to non-matching relation
             # edges. E.g., "kindness causes" should suppress "powerful" (from
             # semantic edge kindness→powerful) so that "trust" (from causal
@@ -1137,6 +1154,23 @@ class RLM(Module):
                         if tok_id < self.vocab_size and tok_id not in matching_tgt_tokens:
                             concept_scores[tok_id] *= 0.05
                             self._nonmatching_tgt_tokens.add(tok_id)
+                # Suppress the concept node's OWN token for non-subject,
+                # non-matching active concepts. The base concept scoring
+                # (vector similarity) gives these tokens high scores even
+                # without edge-based support (e.g., "ice" concept active
+                # from Domain A training → "ice" token scores high).
+                # Add to _nonmatching_tgt_tokens so they get suppressed
+                # across ALL blend components (rp, attn, memory).
+                for node in all_active:
+                    if node.id == subject_cid or node.id in matching_tgt_ids:
+                        continue
+                    if node.id < self.vocab_size and node.id not in matching_tgt_tokens:
+                        concept_scores[node.id] *= 0.1
+                        self._nonmatching_tgt_tokens.add(node.id)
+                # Ensure matching targets dominate: set a floor so they
+                # always beat non-matching tokens regardless of base scoring
+                for tok_id in matching_tgt_tokens:
+                    concept_scores[tok_id] = max(concept_scores[tok_id], 3.0)
 
         # Proper softmax normalization: temperature-controlled probability distribution
         # Replaces the raw *15.0 scaling hack with mathematically sound softmax
@@ -1161,6 +1195,12 @@ class RLM(Module):
         # Only applied during eval to avoid weakening ctx_logits during training.
         if eval_mode and input_rel_type != "semantic" and subject_cid >= 0:
             has_matching = False
+            # Suppress the subject token in ctx_logits too — the hidden state
+            # may echo the subject (e.g., "heat" for "heat causes")
+            if T >= 1:
+                first_tid = int(token_ids[0, 0])
+                if first_tid < self.vocab_size:
+                    ctx_logits[first_tid] -= 3.0
             for tgt_id, edge in self.graph._outgoing.get(subject_cid, []):
                 if edge.relation_type == "semantic" and edge.weight > 0.05:
                     for tok_id in self._concept_to_tokens.get(tgt_id, set()):
@@ -1287,7 +1327,7 @@ class RLM(Module):
         if eval_mode and hasattr(self, '_tokenizer') and self._tokenizer:
             try:
                 txt = self._tokenizer.decode(token_ids[0].tolist()).lower().strip()
-                if any(kw in txt for kw in ['kindness cause', 'anger produce']):
+                if any(kw in txt for kw in ['kindness cause', 'anger produce', 'patience create', 'heat cause']):
                     def _topk(arr, k=5):
                         idx = np.argsort(arr)[::-1][:k]
                         return [(self._tokenizer.decode([int(i)]), float(arr[i])) for i in idx]
