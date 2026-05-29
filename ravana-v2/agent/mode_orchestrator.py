@@ -140,7 +140,9 @@ class ModeOrchestrator:
 
     def run_interview_mode(self) -> Dict[str, Any]:
         """Groq → RAVANA → test/evaluate"""
-        from test_harness import TestHarness
+        raise NotImplementedError(
+            "Interview mode requires ravana_wrapper which is not available in this environment."
+        )
         
         if self.test_harness is None:
             self.test_harness = TestHarness(
