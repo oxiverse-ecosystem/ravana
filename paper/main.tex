@@ -20,7 +20,7 @@
 
 \title{Beyond Reward Maximization: A Pressure-Driven Cognitive Architecture for Continual Cross-Domain Generalization and Stability}
 \author{Likhith Sai Seemala\\RAVANA Research Initiative\\Independent Researcher\\Andhra Pradesh, India\\Email: likhith@oxiverse.com}
-\date{May 25, 2026}
+\date{May 29, 2026}
 
 \begin{document}
 \maketitle
@@ -461,7 +461,7 @@ All experiments reported in this paper can be reproduced from the public reposit
 \begin{itemize}[leftmargin=*]
     \item \textbf{URL:} \url{https://codeberg.org/oxiverse/ravana}
     \item \textbf{License:} OCL (Oxiverse Community License)
-    \item \textbf{Commit at time of submission:} \texttt{13ab09c}
+    \item \textbf{Commit at time of submission:} \texttt{4803258}
 \end{itemize}
 
 \subsection{Environment}
@@ -517,6 +517,8 @@ To verify that the reported results are reproducible, run any of the experiment 
     \item \textbf{Lifelong 15k (full triad):} 47.6\% retention, 0.0\% catastrophic forgetting, 42 ms/step.
     \item \textbf{Fairness:} Demographic parity gap reduced from 19.58\% to 7.81\%.
 \end{itemize}
+
+The full test suite (99 unit tests across the ML framework, 11 tests across the cognitive core) passes with zero failures. Run \texttt{python -m pytest tests/ -v} and \texttt{python -m pytest ravana-v2/tests/ -v} to verify.
 
 Minor numerical deviations ($\pm$0.5 pp) may occur across platforms due to floating-point ordering in NumPy operations. The qualitative conclusions are stable across runs with different random seeds.
 
