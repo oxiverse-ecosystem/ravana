@@ -51,7 +51,7 @@ def run_fair_eval(vocab_size=30, n_train=10, n_test=5, train_steps=500, seed=42)
     ood_tokens = all_tokens[n_train * 2 + n_test * 2:]
     ood_pairs = [(ood_tokens[i], ood_tokens[i+1]) for i in range(0, len(ood_tokens) - 1, 2)]
     
-    model = RLM(vocab_size=vocab_size, embed_dim=32, concept_dim=32, n_hidden=64, 
+    model = RLM(vocab_size=vocab_size, embed_dim=64, concept_dim=64, n_hidden=128,
                 n_concepts=vocab_size, sleep_interval=999999)  # no sleep for clean eval
     
     # Baseline (before training)
