@@ -1354,6 +1354,13 @@ class RLM(Module):
                   + _log_softmax(concept_attn_logits) * attn_weight
                   + _log_softmax(rp_logits) * rp_weight
                   + _log_softmax(memory_logits) * mem_weight)
+
+        # Ablation: zero out concept graph path for diagnostic comparison
+        if getattr(self, '_ablate_graph', False):
+            logits = (_log_softmax(ctx_logits) * ctx_weight
+                      + _log_softmax(concept_attn_logits) * attn_weight
+                      + _log_softmax(rp_logits) * rp_weight
+                      + _log_softmax(memory_logits) * mem_weight)
         self._last_ctx_logits = ctx_logits
 
         # DEBUG: trace individual path contributions for failing probes
