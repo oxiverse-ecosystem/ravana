@@ -153,13 +153,14 @@ def create_permutation_tasks(train_images, train_labels, test_images, test_label
 # ── Training and Evaluation ──
 
 def train_on_task(model, images, labels, max_samples=None, batch_log=False):
-    """Train RLM on a task's training data."""
+    """Train RLM on a task's training data. Returns list of (input_ids, target_ids) for Fisher computation."""
     n = len(images)
     if max_samples:
         n = min(n, max_samples)
 
     indices = np.random.permutation(len(images))[:n]
     errors = []
+    experiences = []
 
     for idx in indices:
         tokens = _pixel_tokenizer.encode_image(images[idx])
@@ -167,9 +168,10 @@ def train_on_task(model, images, labels, max_samples=None, batch_log=False):
         input_ids = tokens.reshape(1, -1)
         target_ids = target.reshape(1, -1)
         err = model.learn(input_ids, target_ids)
+        experiences.append((input_ids.squeeze(0), target_ids.squeeze(0)))
         errors.append(err)
 
-    return errors
+    return errors, experiences
 
 
 def evaluate_on_task(model, images, labels, max_samples=None):
@@ -222,15 +224,19 @@ def run_split_mnist(max_samples_per_task=500):
     accuracy_matrix = np.zeros((n_tasks, n_tasks))
 
     for train_id, task in enumerate(tasks):
+        # Reset hidden state between tasks to prevent cross-task contamination
+        model._prev_hidden_state = None
+
         print(f"\n  Training on {task['name']}...")
         t0 = time.time()
-        train_on_task(model, task["train_imgs"], task["train_lbls"],
+        _, experiences = train_on_task(model, task["train_imgs"], task["train_lbls"],
                       max_samples=max_samples_per_task)
         dt = time.time() - t0
         print(f"    Trained in {dt:.1f}s")
 
-        # Domain boundary management
-        model.snapshot_replay_buffer(f"split_mnist_task_{train_id}")
+        # Compute Fisher information from this task's experiences before snapshotting
+        model.compute_fisher(experiences, n_samples=50)
+        del experiences  # free memory
         model.snapshot_weights()
 
         # Evaluate on all seen tasks
@@ -279,14 +285,19 @@ def run_permuted_mnist(n_tasks=5, max_samples_per_task=500):
     accuracy_matrix = np.zeros((n_tasks, n_tasks))
 
     for train_id, task in enumerate(tasks):
+        # Reset hidden state between tasks to prevent cross-task contamination
+        model._prev_hidden_state = None
+
         print(f"\n  Training on {task['name']}...")
         t0 = time.time()
-        train_on_task(model, task["train_imgs"], task["train_lbls"],
+        _, experiences = train_on_task(model, task["train_imgs"], task["train_lbls"],
                       max_samples=max_samples_per_task)
         dt = time.time() - t0
         print(f"    Trained in {dt:.1f}s")
 
-        model.snapshot_replay_buffer(f"permuted_task_{train_id}")
+        # Compute Fisher information from this task's experiences before snapshotting
+        model.compute_fisher(experiences, n_samples=50)
+        del experiences  # free memory
         model.snapshot_weights()
 
         for eval_id in range(train_id + 1):

@@ -1,13 +1,13 @@
 # RAVANA Cognitive Trace Log
 
-**Prompt:** `compress: the cat chased the mouse through the garden`
+**Prompt:** `test prompt`
 
-**Generated Text:** `compress: the cat chased the mouse through the gardenddd`
+**Generated Text:** `test prompdg%`
 
 ## Step-by-Step Cognitive Metrics
 
 | Step | Token | Entropy | Repetition Score | Exploration Drive | Temperature | ACF | Steps | Top Active Concepts (Label, Activation, Fatigue) |
 |------|-------|---------|------------------|-------------------|-------------|-----|-------|--------------------------------------------------|
-| 0 | `d` | 0.011 | 0.27 | 0.25 | 0.70 | 6 | 3 | tok_126 (act=0.41, fat=0.37), tok_134 (act=0.41, fat=0.37), tok_135 (act=0.41, fat=0.37), tok_177 (act=0.05, fat=0.02), tok_179_a (act=0.05, fat=0.01) |
-| 1 | `d` | 0.009 | 0.33 | 0.31 | 0.82 | 6 | 3 | tok_126 (act=0.22, fat=0.46), tok_134 (act=0.22, fat=0.46), tok_135 (act=0.22, fat=0.46), tok_177 (act=0.09, fat=0.07), tok_170 (act=0.05, fat=0.01) |
-| 2 | `d` | 0.006 | 0.40 | 0.37 | 0.95 | 7 | 3 | tok_126 (act=0.14, fat=0.47), tok_134 (act=0.14, fat=0.47), tok_135 (act=0.14, fat=0.47), tok_183 (act=0.04, fat=0.01), tok_166 (act=0.04, fat=0.03) |
+| 0 | `d` | 0.312 | 0.20 | 0.13 | 0.50 | 5 | 2 | tok_225 (act=0.53, fat=0.20), tok_230 (act=0.43, fat=0.15), tok_133 (act=0.38, fat=0.13), tok_174 (act=0.24, fat=0.08), dyn_75 (act=0.24, fat=0.08) |
+| 1 | `g` | 0.261 | 0.18 | 0.12 | 0.50 | 5 | 2 | tok_225 (act=0.49, fat=0.37), tok_230 (act=0.48, fat=0.32), tok_133 (act=0.40, fat=0.26), dyn_75 (act=0.32, fat=0.18), tok_174 (act=0.24, fat=0.15) |
+| 2 | `%` | 0.280 | 0.17 | 0.11 | 0.50 | 5 | 2 | tok_230 (act=0.42, fat=0.45), tok_225 (act=0.40, fat=0.49), tok_133 (act=0.36, fat=0.37), tok_174 (act=0.23, fat=0.21), dyn_75 (act=0.20, fat=0.23) |

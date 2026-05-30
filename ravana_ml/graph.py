@@ -1428,7 +1428,7 @@ class ConceptGraph:
         effective_lr = lr * (1.0 + surprise * 5.0)
         delta = effective_lr * source.activation * target.activation * pred_error * source.salience * target.plasticity
         # EWC penalty: protect important weights from drifting away from old-task optimum
-        ewc_penalty = 0.4 * edge.fisher_importance * (edge.weight - edge.old_weight)
+        ewc_penalty = 0.1 * edge.fisher_importance * (edge.weight - edge.old_weight)
         delta -= ewc_penalty
         if edge.edge_type == "inhibitory":
             edge.weight = min(1.0, edge.weight + delta)
