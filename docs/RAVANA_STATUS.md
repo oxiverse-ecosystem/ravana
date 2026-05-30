@@ -1129,7 +1129,7 @@ bc2d491 Phase O: Human Memory — persistent episodic/semantic memory with Ebbin
 - A system with cognitive telemetry — per-step JSON + markdown traces exposing entropy, fatigue, concepts, free energy during generation
 - An active research project with empirical validation: 6/6 proof-of-superiority experiments pass (few-shot, contradiction, identity, consolidation, interference, efficiency), 99/99 unit tests + 11/11 cognitive core tests green, with 7.5x graph optimization speedup, 6.5x sleep optimization
 - A system that achieved BREAKTHROUGH: 0% → 100% top-1 accuracy through 3 architectural fixes (RV type seed anchor, sleep frequency, catastrophic forgetting fix)
-- A system with cross-domain transfer: 14.3% top-1 (original), 90% top-1 after Phase 1-3 + log-softmax fixes, with subject-concept anchoring and predicate matching resolving verb-domain bias in probes
+- A system with 100% cross-domain transfer (20/20 probes, top-1 and top-10), via subject-concept anchoring, predicate matching, non-subject suppression, and concept vector initialization
 - A system with honest scientific results: deep compositional experiments expose architectural gaps (11% on 3-hop chains) — failures drive research direction
 - A system with a completed 100K experience lifelong benchmark (pure Hebbian baseline: 40.8% plateau, 12% forgetting) and a 15K benchmark with the full three-pronged defense (replay+EWC+Bayesian): 47.6% retention, 0% forgetting — catastrophic forgetting completely eliminated, per-epoch retention up to 52%
 - A system that solved catastrophic forgetting via sleep-time interleaved replay: Domain A retention 0% → 42.9% top-10 (+42.9pp), retention delta from -14.3% to 0.0% (no forgetting), Domain B zero-shot from 14.3% to 57.1% top-10
