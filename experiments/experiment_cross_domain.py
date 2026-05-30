@@ -796,6 +796,45 @@ def run_cross_domain_experiment(config: CrossDomainConfig) -> Dict[str, Any]:
     results["temperature_sweep"] = temp_results
     print()
 
+    # ── Concept Graph Ablation ───────────────────────────────────────
+    # The critical test: remove the concept graph path entirely and
+    # re-measure cross-domain accuracy. If the graph is necessary,
+    # accuracy should drop significantly.
+    print("\n  Concept Graph Ablation:")
+    print("  " + "-" * 50)
+
+    # Ablated: full model, graph path zeroed
+    model._ablate_graph = True
+    ablated_probes = test_structural_transfer(model, tokenizer)
+    model._ablate_graph = False
+
+    print(f"    Without graph path:")
+    print(f"      Cross-domain probes:  top1={ablated_probes['top1_accuracy']:.1%}  top10={ablated_probes['top10_accuracy']:.1%}")
+    print(f"    With graph path (reference):")
+    print(f"      Cross-domain probes:  top1={transfer_probes['top1_accuracy']:.1%}  top10={transfer_probes['top10_accuracy']:.1%}")
+
+    graph_delta_top1 = transfer_probes['top1_accuracy'] - ablated_probes['top1_accuracy']
+    graph_delta_top10 = transfer_probes['top10_accuracy'] - ablated_probes['top10_accuracy']
+    print(f"    Graph contribution:")
+    print(f"      Cross-domain delta:   top1={graph_delta_top1:+.1%}  top10={graph_delta_top10:+.1%}")
+
+    if graph_delta_top1 > 0.3:
+        print(f"    [PASS] Graph path is necessary ({graph_delta_top1:+.1%} top-1 drop without it)")
+    elif graph_delta_top1 > 0.1:
+        print(f"    [PARTIAL] Graph path contributes ({graph_delta_top1:+.1%} top-1 drop)")
+    else:
+        print(f"    [FAIL] Graph path is NOT necessary ({graph_delta_top1:+.1%} top-1 drop)")
+
+    results["ablation"] = {
+        "without_graph_top1": ablated_probes['top1_accuracy'],
+        "without_graph_top10": ablated_probes['top10_accuracy'],
+        "with_graph_top1": transfer_probes['top1_accuracy'],
+        "with_graph_top10": transfer_probes['top10_accuracy'],
+        "graph_delta_top1": graph_delta_top1,
+        "graph_delta_top10": graph_delta_top10,
+    }
+    print()
+
     # Verdict
     print("-" * 70)
     has_positive_transfer = (retention_delta > -0.05 and
