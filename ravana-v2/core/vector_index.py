@@ -186,7 +186,12 @@ class SharedVectorIndex:
             try:
                 import faiss
 
-                self._faiss_index = faiss.IndexFlatIP(self.dim)
+                if len(self._id_order) >= 1000:
+                    # HNSW for O(log N) approximate NN at scale
+                    self._faiss_index = faiss.IndexHNSWFlat(self.dim, 32)
+                    self._faiss_index.hnsw.efSearch = 64
+                else:
+                    self._faiss_index = faiss.IndexFlatIP(self.dim)
                 self._faiss_index.add(self._matrix)
             except ImportError:
                 self._faiss_index = None
@@ -243,7 +248,11 @@ class SharedVectorIndex:
             try:
                 import faiss
 
-                self._faiss_index = faiss.IndexFlatIP(self.dim)
+                if len(self._id_order) >= 1000:
+                    self._faiss_index = faiss.IndexHNSWFlat(self.dim, 32)
+                    self._faiss_index.hnsw.efSearch = 64
+                else:
+                    self._faiss_index = faiss.IndexFlatIP(self.dim)
                 self._faiss_index.add(self._matrix)
             except ImportError:
                 self._faiss_index = None
