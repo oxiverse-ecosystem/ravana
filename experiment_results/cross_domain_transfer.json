@@ -22,82 +22,84 @@
       "n_tested": 60
     },
     "post_train_a_on_a": {
-      "top1_accuracy": 0.95,
-      "top10_accuracy": 1.0,
+      "top1_accuracy": 0.9666666666666667,
+      "top10_accuracy": 0.9833333333333333,
       "n_tested": 60
     },
     "post_train_a_on_b": {
       "top1_accuracy": 0.0,
-      "top10_accuracy": 0.03333333333333333,
+      "top10_accuracy": 0.06666666666666667,
       "n_tested": 60
     },
     "post_train_b_on_a": {
-      "top1_accuracy": 0.9833333333333333,
-      "top10_accuracy": 1.0,
+      "top1_accuracy": 0.95,
+      "top10_accuracy": 0.9833333333333333,
       "n_tested": 60
     },
     "post_train_b_on_b": {
-      "top1_accuracy": 0.9833333333333333,
+      "top1_accuracy": 1.0,
       "top10_accuracy": 1.0,
       "n_tested": 60
     },
     "post_sleep_a": {
-      "top1_accuracy": 1.0,
-      "top10_accuracy": 1.0,
+      "top1_accuracy": 0.9666666666666667,
+      "top10_accuracy": 0.9833333333333333,
       "n_tested": 60
     },
     "post_sleep_b": {
-      "top1_accuracy": 1.0,
+      "top1_accuracy": 0.9833333333333333,
       "top10_accuracy": 1.0,
       "n_tested": 60
     },
     "graph_after_a": {
-      "n_nodes": 260,
-      "n_edges": 2003,
-      "n_shortcut_edges": 6,
-      "n_inferred_edges": 3,
+      "n_nodes": 252,
+      "n_edges": 441,
+      "n_shortcut_edges": 4,
+      "n_inferred_edges": 1,
       "relation_types": {
-        "causal": 41,
-        "temporal": 7,
-        "semantic": 1952,
-        "inferred": 3
+        "causal": 38,
+        "temporal": 9,
+        "semantic": 393,
+        "inferred": 1
       },
-      "mean_edge_weight": 0.20702419870681463,
-      "max_edge_weight": 0.7479768395423889,
-      "sleep_cycles": 4,
-      "conceptual_accuracy": 0.26132439781721795
+      "mean_edge_weight": 0.2217905450609209,
+      "max_edge_weight": 0.5581939712128413,
+      "sleep_cycles": 2,
+      "conceptual_accuracy": 0.13977959606135923
     },
     "graph_after_b": {
-      "n_nodes": 284,
-      "n_edges": 7374,
-      "n_shortcut_edges": 7,
-      "n_inferred_edges": 3,
+      "n_nodes": 264,
+      "n_edges": 2657,
+      "n_shortcut_edges": 11,
+      "n_inferred_edges": 2,
       "relation_types": {
-        "causal": 62,
-        "temporal": 5,
-        "semantic": 7304,
-        "inferred": 3
+        "causal": 59,
+        "contextual": 1,
+        "temporal": 6,
+        "semantic": 2589,
+        "inferred": 2
       },
-      "mean_edge_weight": 0.22258161021105685,
-      "max_edge_weight": 0.8979768753051758,
-      "sleep_cycles": 10,
-      "conceptual_accuracy": 0.0513416905606372
+      "mean_edge_weight": 0.20773727353542323,
+      "max_edge_weight": 0.6414485603610487,
+      "sleep_cycles": 5,
+      "conceptual_accuracy": 0.1168488033041675
     },
     "graph_after_sleep": {
-      "n_nodes": 296,
-      "n_edges": 9194,
-      "n_shortcut_edges": 9,
-      "n_inferred_edges": 5,
+      "n_nodes": 272,
+      "n_edges": 3504,
+      "n_shortcut_edges": 15,
+      "n_inferred_edges": 2,
       "relation_types": {
-        "causal": 62,
-        "temporal": 5,
-        "semantic": 9122,
-        "inferred": 5
+        "causal": 59,
+        "contextual": 1,
+        "temporal": 6,
+        "semantic": 3436,
+        "inferred": 2
       },
-      "mean_edge_weight": 0.23812068422233132,
-      "max_edge_weight": 0.9479768872261047,
-      "sleep_cycles": 13,
-      "conceptual_accuracy": 0.24073270583794787
+      "mean_edge_weight": 0.21020527043380674,
+      "max_edge_weight": 0.7031915224578009,
+      "sleep_cycles": 7,
+      "conceptual_accuracy": 0.05202824906038887
     },
     "transfer_probes": {
       "probes": [
@@ -111,8 +113,8 @@
             "trust",
             "lying",
             "kindness",
-            "fragile",
-            "noble"
+            "growth",
+            "bonds"
           ],
           "description": "B vocab + A causal pattern"
         },
@@ -126,8 +128,8 @@
             "conflict",
             "humor",
             "anger",
-            "warmth",
-            "action"
+            "bonds",
+            "warmth"
           ],
           "description": "'produces' from A, B vocab"
         },
@@ -140,24 +142,24 @@
           "top5": [
             "friendship",
             "combustion",
-            "warmth",
-            "growth",
-            "bonds"
+            "slippery",
+            "trust",
+            "noble"
           ],
           "description": "'enables' from A, B vocab"
         },
         {
           "input": "heat causes ",
           "expected": "expansion",
-          "predicted": "expansion",
-          "correct": true,
+          "predicted": "ice",
+          "correct": false,
           "in_top10": true,
           "top5": [
-            "expansion",
             "ice",
+            "expansion",
             "heat",
             "warmth",
-            "versatile"
+            "growth"
           ],
           "description": "pure A recall"
         },
@@ -170,24 +172,24 @@
           "top5": [
             "fragile",
             "vulnerability",
-            "warmth",
             "trust",
-            "growth"
+            "warmth",
+            "noble"
           ],
           "description": "pure B recall"
         },
         {
           "input": "friction produces ",
           "expected": "heat",
-          "predicted": "heat",
-          "correct": true,
-          "in_top10": true,
+          "predicted": "static",
+          "correct": false,
+          "in_top10": false,
           "top5": [
-            "heat",
             "static",
             "motion",
             "friction",
-            "warmth"
+            "bonds",
+            "growth"
           ],
           "description": "pure A recall (held out)"
         },
@@ -200,9 +202,9 @@
           "top5": [
             "understanding",
             "patience",
-            "warmth",
-            "fragile",
-            "action"
+            "bonds",
+            "liquid",
+            "growth"
           ],
           "description": "pure B recall (held out)"
         },
@@ -215,9 +217,9 @@
           "top5": [
             "mistrust",
             "particles",
-            "warmth",
             "bonds",
-            "trust"
+            "trust",
+            "warmth"
           ],
           "description": "B causal recall"
         },
@@ -230,9 +232,9 @@
           "top5": [
             "innovation",
             "collaboration",
-            "warmth",
-            "fragile",
-            "action"
+            "bonds",
+            "liquid",
+            "warmth"
           ],
           "description": "'produces' from A, B vocab"
         },
@@ -244,10 +246,10 @@
           "in_top10": true,
           "top5": [
             "objects",
-            "warmth",
             "bonds",
-            "growth",
-            "heat"
+            "noble",
+            "slippery",
+            "warmth"
           ],
           "description": "pure A recall"
         },
@@ -259,10 +261,10 @@
           "in_top10": true,
           "top5": [
             "belonging",
-            "warmth",
+            "particles",
             "bonds",
             "action",
-            "growth"
+            "inert"
           ],
           "description": "B causal recall"
         },
@@ -276,7 +278,7 @@
             "suffering",
             "objects",
             "warmth",
-            "bonds",
+            "trust",
             "growth"
           ],
           "description": "B causal recall"
@@ -289,10 +291,10 @@
           "in_top10": true,
           "top5": [
             "warmth",
-            "sunlight",
             "hot",
+            "sunlight",
             "fire",
-            "action"
+            "bonds"
           ],
           "description": "pure A recall"
         },
@@ -304,10 +306,10 @@
           "in_top10": true,
           "top5": [
             "action",
+            "trust",
             "warmth",
             "bonds",
-            "trust",
-            "heat"
+            "oxygen"
           ],
           "description": "B causal recall"
         },
@@ -319,10 +321,10 @@
           "in_top10": true,
           "top5": [
             "harmony",
-            "warmth",
-            "bonds",
-            "action",
-            "trust"
+            "tension",
+            "trust",
+            "slippery",
+            "bonds"
           ],
           "description": "B causal recall"
         },
@@ -334,9 +336,9 @@
           "in_top10": true,
           "top5": [
             "combustion",
-            "warmth",
-            "growth",
+            "vulnerability",
             "suffering",
+            "surfaces",
             "bonds"
           ],
           "description": "pure A recall"
@@ -350,9 +352,9 @@
           "top5": [
             "growth",
             "essential",
-            "warmth",
-            "bonds",
-            "action"
+            "trust",
+            "restorative",
+            "bonds"
           ],
           "description": "B causal recall"
         },
@@ -364,10 +366,10 @@
           "in_top10": true,
           "top5": [
             "empathy",
-            "warmth",
+            "belonging",
             "trust",
-            "bonds",
-            "growth"
+            "noble",
+            "ice"
           ],
           "description": "B causal recall"
         },
@@ -380,9 +382,9 @@
           "top5": [
             "discovery",
             "shivering",
-            "warmth",
-            "growth",
-            "bonds"
+            "noble",
+            "water",
+            "warmth"
           ],
           "description": "B causal recall"
         },
@@ -396,14 +398,14 @@
             "vulnerability",
             "vision",
             "warmth",
-            "bonds",
-            "trust"
+            "trust",
+            "noble"
           ],
           "description": "'enables' from A, B vocab"
         }
       ],
-      "top1_accuracy": 1.0,
-      "top10_accuracy": 1.0
+      "top1_accuracy": 0.9,
+      "top10_accuracy": 0.95
     },
     "post_sleep_probes": {
       "probes": [
@@ -417,8 +419,8 @@
             "trust",
             "lying",
             "kindness",
-            "growth",
-            "loneliness"
+            "warmth",
+            "growth"
           ],
           "description": "B vocab + A causal pattern"
         },
@@ -433,7 +435,7 @@
             "humor",
             "anger",
             "warmth",
-            "growth"
+            "trust"
           ],
           "description": "'produces' from A, B vocab"
         },
@@ -446,23 +448,23 @@
           "top5": [
             "friendship",
             "combustion",
-            "growth",
             "warmth",
-            "bonds"
+            "trust",
+            "noble"
           ],
           "description": "'enables' from A, B vocab"
         },
         {
           "input": "heat causes ",
           "expected": "expansion",
-          "predicted": "expansion",
-          "correct": true,
+          "predicted": "ice",
+          "correct": false,
           "in_top10": true,
           "top5": [
-            "expansion",
             "ice",
+            "expansion",
             "heat",
-            "destruction",
+            "warmth",
             "growth"
           ],
           "description": "pure A recall"
@@ -475,25 +477,25 @@
           "in_top10": true,
           "top5": [
             "fragile",
-            "growth",
+            "vulnerability",
             "warmth",
-            "bonds",
-            "loneliness"
+            "trust",
+            "noble"
           ],
           "description": "pure B recall"
         },
         {
           "input": "friction produces ",
           "expected": "heat",
-          "predicted": "heat",
-          "correct": true,
-          "in_top10": true,
+          "predicted": "static",
+          "correct": false,
+          "in_top10": false,
           "top5": [
-            "heat",
-            "motion",
             "static",
+            "motion",
             "friction",
-            "growth"
+            "warmth",
+            "conflict"
           ],
           "description": "pure A recall (held out)"
         },
@@ -506,9 +508,9 @@
           "top5": [
             "understanding",
             "patience",
-            "slippery",
-            "growth",
-            "versatile"
+            "trust",
+            "warmth",
+            "slippery"
           ],
           "description": "pure B recall (held out)"
         },
@@ -521,9 +523,9 @@
           "top5": [
             "mistrust",
             "particles",
-            "bonds",
-            "growth",
-            "warmth"
+            "warmth",
+            "trust",
+            "bonds"
           ],
           "description": "B causal recall"
         },
@@ -536,9 +538,9 @@
           "top5": [
             "innovation",
             "collaboration",
-            "slippery",
             "warmth",
-            "toxic"
+            "trust",
+            "growth"
           ],
           "description": "'produces' from A, B vocab"
         },
@@ -550,10 +552,10 @@
           "in_top10": true,
           "top5": [
             "objects",
-            "bonds",
-            "growth",
             "warmth",
-            "loneliness"
+            "bonds",
+            "noble",
+            "trust"
           ],
           "description": "pure A recall"
         },
@@ -565,10 +567,10 @@
           "in_top10": true,
           "top5": [
             "belonging",
-            "bonds",
-            "growth",
+            "particles",
+            "action",
             "warmth",
-            "action"
+            "bonds"
           ],
           "description": "B causal recall"
         },
@@ -580,10 +582,10 @@
           "in_top10": true,
           "top5": [
             "suffering",
-            "growth",
+            "objects",
             "warmth",
-            "bonds",
-            "loneliness"
+            "trust",
+            "success"
           ],
           "description": "B causal recall"
         },
@@ -611,9 +613,9 @@
           "top5": [
             "action",
             "warmth",
-            "bonds",
-            "growth",
-            "loneliness"
+            "success",
+            "trust",
+            "versatile"
           ],
           "description": "B causal recall"
         },
@@ -625,10 +627,10 @@
           "in_top10": true,
           "top5": [
             "harmony",
-            "bonds",
-            "growth",
+            "tension",
             "warmth",
-            "loneliness"
+            "trust",
+            "action"
           ],
           "description": "B causal recall"
         },
@@ -640,10 +642,10 @@
           "in_top10": true,
           "top5": [
             "combustion",
-            "growth",
             "warmth",
-            "bonds",
-            "suffering"
+            "success",
+            "trust",
+            "growth"
           ],
           "description": "pure A recall"
         },
@@ -655,10 +657,10 @@
           "in_top10": true,
           "top5": [
             "growth",
-            "bonds",
+            "essential",
             "warmth",
-            "loneliness",
-            "inert"
+            "action",
+            "trust"
           ],
           "description": "B causal recall"
         },
@@ -670,10 +672,10 @@
           "in_top10": true,
           "top5": [
             "empathy",
-            "growth",
             "warmth",
-            "bonds",
-            "loneliness"
+            "trust",
+            "noble",
+            "growth"
           ],
           "description": "B causal recall"
         },
@@ -686,9 +688,9 @@
           "top5": [
             "discovery",
             "shivering",
-            "growth",
             "warmth",
-            "bonds"
+            "success",
+            "trust"
           ],
           "description": "B causal recall"
         },
@@ -700,21 +702,21 @@
           "in_top10": true,
           "top5": [
             "vulnerability",
-            "growth",
+            "vision",
             "warmth",
-            "bonds",
-            "loneliness"
+            "trust",
+            "gratitude"
           ],
           "description": "'enables' from A, B vocab"
         }
       ],
-      "top1_accuracy": 1.0,
-      "top10_accuracy": 1.0
+      "top1_accuracy": 0.9,
+      "top10_accuracy": 0.95
     },
-    "phase1_time": 4.976267337799072,
-    "phase2_time": 14.489935874938965,
-    "sleep_cycles": 13,
-    "total_edges_learned": 880
+    "phase1_time": 1.9806184768676758,
+    "phase2_time": 3.719747543334961,
+    "sleep_cycles": 7,
+    "total_edges_learned": 640
   },
   "mlp_baseline": {
     "baseline_a": {
@@ -747,19 +749,19 @@
       "top10_accuracy": 0.2,
       "n_tested": 60
     },
-    "phase1_time": 0.030318260192871094,
-    "phase2_time": 0.031005382537841797
+    "phase1_time": 0.026885271072387695,
+    "phase2_time": 0.02794647216796875
   },
   "transfer_metrics": {
     "retention_delta_domain_a": 0.0,
     "forward_transfer_to_b": 0.9333333333333333,
-    "zero_shot_transfer_a_to_b": -0.03333333333333333,
+    "zero_shot_transfer_a_to_b": 0.0,
     "sleep_benefit_a": 0.0,
     "sleep_benefit_b": 0.0,
-    "cross_domain_probe_top1": 1.0,
-    "cross_domain_probe_top10": 1.0,
-    "post_sleep_probe_top1": 1.0,
-    "post_sleep_probe_top10": 1.0,
+    "cross_domain_probe_top1": 0.9,
+    "cross_domain_probe_top10": 0.95,
+    "post_sleep_probe_top1": 0.9,
+    "post_sleep_probe_top10": 0.95,
     "mlp_retention_delta": -0.016666666666666663,
     "mlp_forward_transfer": 0.16666666666666669,
     "mlp_zero_shot_transfer": 0.0,
@@ -768,22 +770,22 @@
   },
   "temperature_sweep": {
     "1.0": {
-      "top1_accuracy": 1.0,
+      "top1_accuracy": 0.9833333333333333,
       "top10_accuracy": 1.0,
       "n_tested": 60
     },
     "0.5": {
-      "top1_accuracy": 1.0,
+      "top1_accuracy": 0.9833333333333333,
       "top10_accuracy": 1.0,
       "n_tested": 60
     },
     "0.2": {
-      "top1_accuracy": 1.0,
+      "top1_accuracy": 0.9833333333333333,
       "top10_accuracy": 1.0,
       "n_tested": 60
     },
     "0.1": {
-      "top1_accuracy": 1.0,
+      "top1_accuracy": 0.9833333333333333,
       "top10_accuracy": 1.0,
       "n_tested": 60
     }
