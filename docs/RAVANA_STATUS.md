@@ -1,6 +1,6 @@
 # RAVANA — Codebase Status Report
 **Date:** 2026-05-30 (updated — concept graph path fix, RP weight decay fix, concept graph ablation, MNIST diagnostic)
-**Commit:** 08ef0ce
+**Commit:** 8f32497
 **Author:** Likhith
 **Purpose:** Shareable status document for LLM collaborators
 
@@ -16,7 +16,7 @@ A cognitive architecture research project proposing **pressure-driven self-organ
 
 ## Architecture: Three-Layer Package
 
-### Layer 1: `ravana_ml/` — The ML Framework (9,072 lines, 14 files)
+### Layer 1: `ravana_ml/` — The ML Framework (10,138 lines, 16 files)
 
 A PyTorch-compatible API surface built on NumPy. Only hard dependency: `numpy`.
 
@@ -798,6 +798,7 @@ Based on cognitive science research (spreading activation, synaptic homeostasis,
 | RP Weight Decay Fix (2026-05-30) | **Relation predictor weight collapse root cause found and fixed.** `0.999` decay on `_rp_W1` and `_rp_W2` was inside `_rp_backward()`, called 2-4 times per `learn()` step. Net decay per step: `0.999^4 = 0.996`. After ~5000 steps, weights collapse to near-zero; biases (not decayed) survive, encoding frequency distribution → RP always predicts concept_id=50. **Fix:** Moved decay to once per `learn()` call (0.999 per step, not per backward call). |
 | Concept Graph Ablation (2026-05-30) | **Core evidence that the concept graph drives cross-domain transfer.** Added `_ablate_graph` flag to zero out concept_logits in the logit blend. Cross-domain probes with graph path: **95% top-1, 100% top-10**. Without graph path: **70% top-1, 85% top-10**. Graph contribution: **+25pp top-1, +15pp top-10**. MLP baseline: 0% top-1. This confirms the concept graph is the primary prediction mechanism, not decorative. |
 | MNIST Classification Head Diagnostic (2026-05-30) | **Hidden state has zero digit-distinguishing signal.** MLP(32→16→2) trained on the GRU's final hidden state achieves 49.5% on Split-MNIST binary classification (random chance). The 32-dim bottleneck over 784 sequential pixel tokens destroys all spatial information. Split-MNIST RLM accuracy: 42.7% (below chance). **Conclusion:** Architecture is not suited for visual/spatial tasks. Focus shifted to text-based relational reasoning only. |
+| RLMv2 Triple Architecture (2026-05-31) | **Brain-inspired triple decomposition achieves cross-domain transfer.** New architecture: triple decomposition (subject, relation_type, object) replaces character GRU. Learned relation type embeddings (6 types). Spreading activation inference with graph-wide relation-type query. Hebbian learning on typed edges. **Results: Train memorization 100%, Relation type transfer 100% (produces/creates/leads_to→CAUSAL), Cross-subject causal 66.7% (fire causes expansion via heat similarity), Cross-domain relation filter 100%.** V1 cross-domain: 0% → V2: 66.7%. Edge types: 8 causal, 5 semantic (properly classified). Relation vector separation: causal↔semantic cosine = -0.109. 11/11 tests pass. Files: `ravana_ml/nn/rlm_v2.py` (960 lines), `test_rlm_v2.py`, `experiment_triple_benchmark.py`. Commit f4e4d89. |
 
 **Note:** Paper claims dissonance trajectory 0.800→0.200 but `final_results.json` shows 0.323→0.322 from a different run configuration. These need reconciliation.
 
@@ -881,7 +882,7 @@ These target the core problem that hidden states are near-constant (86-99% cosin
 **Phase 4 unchecked items:**
 - [ ] Hypothesis generation expansion
 - [ ] Surgical probing at scale
-- [x] Cross-domain transfer (**90% top-1 after Phase 1-3 + log-softmax; 100% on probe set with subject-concept anchoring**)
+- [x] Cross-domain transfer (**90%→95% top-1 after Phase 1-3 + log-softmax; 100% top-10; graph ablation confirms +25pp from graph path**)
 
 **Final target:** "Jensen Huang" functional milestone — Composite Wisdom Score 0.85, Brier Score < 0.1, DeepMind Level 3
 
@@ -977,7 +978,7 @@ These target the core problem that hidden states are near-constant (86-99% cosin
 - ~~Semantic drift defense~~ — wired into `learn()` lines 506-540
 - ~~REM vs SWS distinction~~ — two-phase `sleep_cycle()` with `_sleep_sws()` + `_sleep_rem()`
 - ~~Concept splitting never triggers~~ — count-reset + level-guard bugs fixed, 6 splits/cycle
-- ~~Learning rate too slow~~ — `_base_lr` 0.0001→0.001 (10x)
+- ~~Learning rate too slow~~ — `_base_lr` 0.0001→0.001→0.005
 - ~~No transitive inference~~ — RIE v1 + sparse inference + anchor field
 - ~~Graph balloons to 1024 concepts~~ — concept creation gating added
 - ~~Phase classifier blind spot~~ — entropy-driven diffuse detection
@@ -1015,7 +1016,18 @@ These target the core problem that hidden states are near-constant (86-99% cosin
 ## Git History
 
 ```
-[latest]     fix: initialize concept vectors from token embeddings — fixes concept conflation
+[latest]     docs: update paper and status with concept graph fix, ablation, limitations
+8f32497      docs: update paper and status with concept graph fix, ablation, limitations
+eeb49df      results: update cross-domain results with ablation data
+08ef0ce      feat: concept graph ablation — graph path contributes +25% top-1
+ef7d5ae      results: update traces and MNIST results after graph path fixes
+c17d374      fix: concept graph now drives predictions + RP weight decay collapse
+81196ee      diagnostic: classification head on h_final — 49.5% (random chance)
+628e0ea      feat: Fisher information for EWC + tune EWC penalty in MNIST benchmark
+f9d1dcb      results: cross-domain experiment rerun — 90% top-1, 95% top-10
+b25c565      results: cross-domain experiment rerun — 100% top-1/top-10
+533bfac      docs: update paper and status doc — 100% cross-domain, test fixes
+ab0daab      docs: update paper and status doc with cross-domain probe fixes
 4880fd9      fix: initialize concept vectors from token embeddings — fixes concept conflation
 0f8580a      fix: improve cross-domain probe resolution — subject suppression + matching boost + neighborhood-aware filtering
 46bb4e5      fix: cross-domain probe failures — suppress non-subject targets + rp_logits bleed
@@ -1133,9 +1145,9 @@ bc2d491 Phase O: Human Memory — persistent episodic/semantic memory with Ebbin
 - A system with saturating concept fatigue that prevents persistent activation loops and forces exploration
 - A system with composite exploratory drive that dynamically scales temperature and search breadth when repetition is detected
 - A system with cognitive telemetry — per-step JSON + markdown traces exposing entropy, fatigue, concepts, free energy during generation
-- An active research project with empirical validation: 6/6 proof-of-superiority experiments pass (few-shot, contradiction, identity, consolidation, interference, efficiency), 99/99 unit tests + 11/11 cognitive core tests green, with 7.5x graph optimization speedup, 6.5x sleep optimization
+- An active research project with empirical validation: 6/6 proof-of-superiority experiments pass (few-shot, contradiction, identity, consolidation, interference, efficiency), 100/100 unit tests + 11/11 cognitive core tests green, with 7.5x graph optimization speedup, 6.5x sleep optimization
 - A system that achieved BREAKTHROUGH: 0% → 100% top-1 accuracy through 3 architectural fixes (RV type seed anchor, sleep frequency, catastrophic forgetting fix)
-- A system with 100% cross-domain transfer (20/20 probes, top-1 and top-10), via subject-concept anchoring, predicate matching, non-subject suppression, and concept vector initialization
+- A system with 95% top-1, 100% top-10 cross-domain transfer (20 probes), via subject-concept anchoring, predicate matching, non-subject suppression, concept vector initialization, and concept graph fixes (graph ablation: +25pp top-1)
 - A system with honest scientific results: deep compositional experiments expose architectural gaps (11% on 3-hop chains) — failures drive research direction
 - A system with a completed 100K experience lifelong benchmark (pure Hebbian baseline: 40.8% plateau, 12% forgetting) and a 15K benchmark with the full three-pronged defense (replay+EWC+Bayesian): 47.6% retention, 0% forgetting — catastrophic forgetting completely eliminated, per-epoch retention up to 52%
 - A system that solved catastrophic forgetting via sleep-time interleaved replay: Domain A retention 0% → 42.9% top-10 (+42.9pp), retention delta from -14.3% to 0.0% (no forgetting), Domain B zero-shot from 14.3% to 57.1% top-10
@@ -1146,4 +1158,4 @@ bc2d491 Phase O: Human Memory — persistent episodic/semantic memory with Ebbin
 
 ---
 
-*Updated 2026-05-30 (cross-domain probe fixes, concept vector init, subject-concept anchoring, contrastive buffer, commit 4880fd9). Share freely with LLM collaborators for guidance on next steps.*
+*Updated 2026-05-30 (concept graph path fix, RP weight decay fix, concept graph ablation +25pp, cross-domain 95%/100%, commit 8f32497). Share freely with LLM collaborators for guidance on next steps.*
