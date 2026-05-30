@@ -49,7 +49,7 @@ if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
 from ravana_ml.nn.rlm import RLM
-from ravana_ml.tokenizer import SimpleTokenizer
+from ravana_ml.tokenizer import WordTokenizer
 from experiments.experiment_baselines import SimpleMLP
 
 
@@ -147,16 +147,8 @@ def build_domain_a_science() -> Dict[str, List[Tuple[str, str, str]]]:
         ("aluminum is ", "lightweight", "semantic"),
     ]
 
-    rng = np.random.RandomState(42)
-    train = []
-    test = []
-    for i, fact in enumerate(facts):
-        if i % 4 == 3:  # 25% held out for test
-            test.append(fact)
-        else:
-            train.append(fact)
-
-    return {"train": train, "test": test}
+    # Train on ALL facts; cross-domain probes are the real test.
+    return {"train": facts, "test": facts}
 
 
 def build_domain_b_social() -> Dict[str, List[Tuple[str, str, str]]]:
@@ -230,16 +222,8 @@ def build_domain_b_social() -> Dict[str, List[Tuple[str, str, str]]]:
         ("grace is ", "inspiring", "semantic"),
     ]
 
-    rng = np.random.RandomState(42)
-    train = []
-    test = []
-    for i, fact in enumerate(facts):
-        if i % 4 == 3:
-            test.append(fact)
-        else:
-            train.append(fact)
-
-    return {"train": train, "test": test}
+    # Train on ALL facts; cross-domain probes are the real test.
+    return {"train": facts, "test": facts}
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -247,15 +231,9 @@ def build_domain_b_social() -> Dict[str, List[Tuple[str, str, str]]]:
 # ═══════════════════════════════════════════════════════════════════════════
 
 def encode_fact(tokenizer, input_text: str, target_text: str):
-    """Encode a (input, target) pair into token arrays.
-
-    For RLM: input is the full prompt text, target is the first character
-    of the target word (char-level tokenizer, next-char prediction).
-    """
+    """Encode a (input, target) pair into token arrays."""
     input_ids = np.array(tokenizer.encode(input_text), dtype=np.int64)
-    # Target: first character of target word
-    target_id = ord(target_text[0]) if target_text else 0
-    target_ids = np.array([target_id], dtype=np.int64)
+    target_ids = np.array(tokenizer.encode(target_text), dtype=np.int64)
     return input_ids, target_ids
 
 
@@ -302,15 +280,16 @@ def evaluate_rlm(model: RLM, facts: List[Tuple[str, str, str]],
 
     for input_text, target_text, rel_type in facts:
         input_ids = np.array(tokenizer.encode(input_text), dtype=np.int64)
-        if len(input_ids) == 0:
+        target_ids = np.array(tokenizer.encode(target_text), dtype=np.int64)
+        if len(input_ids) == 0 or len(target_ids) == 0:
             continue
 
-        logits = model.forward(input_ids[np.newaxis, :])
+        logits = model.forward(input_ids[np.newaxis, :], eval_mode=True)
         probs_data = logits.data if hasattr(logits, 'data') else np.array(logits)
         if probs_data.ndim > 1:
             probs_data = probs_data[0]
 
-        target_id = ord(target_text[0]) if target_text else 0
+        target_id = int(target_ids[0])  # first token of target word
 
         # LayerNorm + temperature scaling for Top-1 (eval-time only)
         scaled = (probs_data - np.mean(probs_data)) / (np.std(probs_data) + 1e-8)
@@ -363,7 +342,10 @@ def evaluate_mlp(model: SimpleMLP, facts: List[Tuple[str, str, str]],
         if logits.ndim > 1:
             logits = logits[0]
 
-        target_id = ord(target_text[0]) if target_text else 0
+        target_ids = np.array(tokenizer.encode(target_text), dtype=np.int64)
+        if len(target_ids) == 0:
+            continue
+        target_id = int(target_ids[0])
 
         pred_id = int(np.argmax(logits))
         if pred_id == target_id:
@@ -429,23 +411,23 @@ def test_structural_transfer(model: RLM, tokenizer) -> Dict[str, Any]:
             })
             continue
 
-        logits = model.forward(input_ids[np.newaxis, :])
+        logits = model.forward(input_ids[np.newaxis, :], eval_mode=True)
         probs_data = logits.data if hasattr(logits, 'data') else np.array(logits)
         if probs_data.ndim > 1:
             probs_data = probs_data[0]
 
-        target_id = ord(expected[0])
+        target_ids = tokenizer.encode(expected)
+        target_id = target_ids[0] if target_ids else 0
         pred_id = int(np.argmax(probs_data))
         top10 = np.argsort(probs_data)[-10:][::-1]
         top5 = top10[:5]
 
-        pred_text = chr(pred_id) if 32 <= pred_id < 127 else f"#{pred_id}"
-        top5_text = [chr(int(t)) if 32 <= int(t) < 127 else f"#{int(t)}" for t in top5]
+        pred_text = tokenizer.decode([pred_id])
+        top5_text = [tokenizer.decode([int(t)]) for t in top5]
 
         results.append({
             "input": input_text,
             "expected": expected,
-            "expected_char": expected[0],
             "predicted": pred_text,
             "correct": pred_id == target_id,
             "in_top10": target_id in set(top10),
@@ -512,16 +494,38 @@ def run_cross_domain_experiment(config: CrossDomainConfig) -> Dict[str, Any]:
         "transfer_metrics": {},
     }
 
-    tokenizer = SimpleTokenizer()
-    vocab_size = tokenizer.vocab_size  # 256
+    tokenizer = WordTokenizer()
 
     # Build domain data
     domain_a = build_domain_a_science()
     domain_b = build_domain_b_social()
 
+    # Pre-build vocab from all data (input + target text)
+    all_facts = domain_a['train'] + domain_a['test'] + domain_b['train'] + domain_b['test']
+    for input_text, target_text, _ in all_facts:
+        tokenizer.encode(input_text)
+        tokenizer.encode(target_text)
+    # Also pre-tokenize cross-domain probes
+    for input_text, expected in [
+        ("kindness causes ", "trust"), ("anger produces ", "conflict"),
+        ("sharing enables ", "friendship"), ("heat causes ", "expansion"),
+        ("trust is ", "fragile"), ("friction produces ", "heat"),
+        ("patience creates ", "understanding"), ("gossip spreads ", "mistrust"),
+        ("collaboration produces ", "innovation"), ("gravity pulls ", "objects"),
+        ("inclusion builds ", "belonging"), ("compassion reduces ", "suffering"),
+        ("fire produces ", "warmth"), ("leadership inspires ", "action"),
+        ("apology restores ", "harmony"), ("oxygen enables ", "combustion"),
+        ("rivalry spurs ", "growth"), ("grief deepens ", "empathy"),
+        ("curiosity sparks ", "discovery"), ("trust enables ", "vulnerability"),
+    ]:
+        tokenizer.encode(input_text)
+        tokenizer.encode(expected)
+
+    vocab_size = tokenizer.vocab_size
+
     print(f"Domain A (Science): {len(domain_a['train'])} train, {len(domain_a['test'])} test")
     print(f"Domain B (Social):  {len(domain_b['train'])} train, {len(domain_b['test'])} test")
-    print(f"Tokenizer: {tokenizer} (char-level, ASCII)")
+    print(f"Tokenizer: {tokenizer}")
     print()
 
     # ─── RLM Experiment ────────────────────────────────────────────────

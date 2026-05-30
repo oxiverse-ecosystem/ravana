@@ -374,7 +374,7 @@ def run_interpretability():
             node = rlm.graph.nodes.get(nid)
             if node:
                 print(f"      [{nid}] {node.label}: contradiction_count={node.contradiction_count}, "
-                      f"pressure={node.contradiction_pressure:.2f}")
+                      f"pressure={node.contradiction_free_energy:.2f}")
 
     # MLP: what can we inspect?
     print(f"\n  MLP (black box):")

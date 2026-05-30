@@ -4,6 +4,12 @@ from typing import Any, Optional, List, Tuple, Dict, Set
 from .tensor import StateTensor, RawTensor, tensor
 from collections import defaultdict
 
+try:
+    from scipy.sparse import csr_matrix
+    _HAS_SCIPY_SPARSE = True
+except ImportError:
+    _HAS_SCIPY_SPARSE = False
+
 
 class ConceptNode:
     def __init__(self, node_id: int, vector: np.ndarray, label: str = ""):
@@ -146,6 +152,11 @@ class ConceptEdge:
         self.shortcut = shortcut  # context→target edges are exempt from competition
         self.edge_type = edge_type  # "excitatory" or "inhibitory"
         self.relation_type = relation_type  # "semantic", "causal", "temporal", "analogical", "contextual", "inferred"
+        # Predicate token: the verb token ID that created/primarily trains this edge.
+        # Enables verb-level discrimination within the same relation type.
+        # E.g., heat→expansion has predicate "causes", heat→ice has predicate "melts".
+        # -1 means unset (edges created by non-token mechanisms).
+        self.predicate_token_id: int = -1
         # Relation embedding: learned vector encoding the relational pattern
         # Initialized from relation_type seed, updated by Hebbian learning
         self.relation_vector = self._init_relation_vector(relation_type, relation_dim)
@@ -872,6 +883,10 @@ class ConceptGraph:
         self._node_id_order: List[int] = []
         self._vectors_dirty: bool = True
         self._dirty_nodes: Set[int] = set()  # nodes needing matrix row update
+        # Sparse adjacency matrix for bulk spread_activation (Phase 3a)
+        self._adj_sparse = None  # scipy.sparse CSR, lazy-built
+        self._adj_dirty: bool = True
+        self._sparse_threshold = 1000  # use sparse path when nodes > this
 
         # ── Relational inference tracking ──
         # Successful inference paths: (source, target) -> usage_count
@@ -995,10 +1010,16 @@ class ConceptGraph:
         self._vectors_dirty = False
         self._dirty_nodes.clear()
 
-        # Build FAISS index for O(log N) search when graph is large enough
+        # Build FAISS index for similarity search
         if self._use_faiss and len(ids) >= 64:
             vecs_normed = self._vector_matrix_normed.copy()
-            index = self._faiss.IndexFlatIP(self.dim)  # inner product on normalized = cosine
+            if len(ids) >= 1000:
+                # HNSW for O(log N) approximate NN at scale
+                index = self._faiss.IndexHNSWFlat(self.dim, 32)
+                index.hnsw.efSearch = 64
+            else:
+                # Exact search for small graphs
+                index = self._faiss.IndexFlatIP(self.dim)
             index.add(vecs_normed)
             self._faiss_index = index
         else:
@@ -1010,6 +1031,39 @@ class ConceptGraph:
         for i, nid in enumerate(self._node_id_order):
             acts[i] = self.nodes[nid].activation
         return self._node_id_order, acts
+
+    def _rebuild_sparse_adj(self):
+        """Build scipy.sparse CSR adjacency matrix for bulk spread_activation.
+
+        Only used when graph exceeds _sparse_threshold nodes.
+        Edge weights include posterior_mean, confidence, and relation boost.
+        """
+        if len(self.edges) == 0:
+            self._adj_sparse = None
+            self._adj_dirty = False
+            return
+        try:
+            from scipy.sparse import csr_matrix
+        except ImportError:
+            self._adj_sparse = None
+            self._adj_dirty = False
+            return
+        n = max(self.nodes.keys()) + 1 if self.nodes else 0
+        if n == 0:
+            self._adj_sparse = None
+            self._adj_dirty = False
+            return
+        rows, cols, data = [], [], []
+        for (src, tgt), edge in self.edges.items():
+            eff_w = edge.posterior_mean if hasattr(edge, 'posterior_mean') else edge.weight
+            w = eff_w * edge.confidence
+            if edge.edge_type == "inhibitory":
+                w = -w
+            rows.append(src)
+            cols.append(tgt)
+            data.append(w)
+        self._adj_sparse = csr_matrix((data, (rows, cols)), shape=(n, n), dtype=np.float32)
+        self._adj_dirty = False
 
     # ── edge management ──
 
@@ -1040,6 +1094,7 @@ class ConceptGraph:
         self._incoming[target].append((source, edge))
         # Maintain relation-type bucket index for scalable contrastive sampling
         self._edges_by_relation_type[relation_type].append((key, edge))
+        self._adj_dirty = True
         return edge
 
     def get_edge(self, source: int, target: int) -> Optional[ConceptEdge]:
@@ -1050,6 +1105,7 @@ class ConceptGraph:
         if edge is not None:
             self._outgoing[source] = [(t, e) for t, e in self._outgoing.get(source, []) if t != target]
             self._incoming[target] = [(s, e) for s, e in self._incoming.get(target, []) if s != source]
+            self._adj_dirty = True
 
     # ── activation ──
 
@@ -1101,39 +1157,64 @@ class ConceptGraph:
         for _ in range(steps):
             new_activations: Dict[int, float] = {}
 
-            # Use active node set instead of scanning all nodes
-            for nid in list(self._active_nodes):
-                node = self.nodes.get(nid)
-                if node is None or node.activation <= 0.01:
-                    continue
-                # O(degree) neighbor lookup via adjacency list
-                for target_id, edge in self._outgoing.get(nid, []):
-                    # Precision weighting: edge.confidence modulates signal strength
-                    # Relation vector gate: RV alignment with source concept boosts flow
-                    src_vec = node.vector
-                    src_norm = np.linalg.norm(src_vec)
-                    rv_norm = np.linalg.norm(edge.relation_vector)
-                    if src_norm > 0 and rv_norm > 0:
-                        rel_boost = 1.0 + 0.3 * float(np.dot(edge.relation_vector[:len(src_vec)], src_vec / src_norm))
-                    else:
-                        rel_boost = 1.0
-                    # Use Bayesian posterior mean for activation spreading
-                    # Falls back to raw weight if posterior not initialized
-                    eff_weight = edge.posterior_mean if hasattr(edge, 'posterior_mean') else edge.weight
-                    # Uncertainty penalty: high-uncertainty edges transmit less signal
-                    if hasattr(edge, 'posterior_uncertainty'):
-                        uncertainty = edge.posterior_uncertainty
-                        precision_gate = 1.0 / (1.0 + uncertainty * 50.0)  # [0.3, 1.0] range
-                    else:
-                        precision_gate = 1.0
-                    act = node.activation * eff_weight * edge.confidence * decay * rel_boost * precision_gate
-                    if edge.edge_type == "inhibitory":
-                        act = -act
-                    # Fan effect: normalize by in-degree
-                    in_deg = len(self._incoming.get(target_id, []))
-                    fan_factor = 1.0 / (in_deg ** 0.5 + 1.0)
-                    act *= fan_factor
-                    new_activations[target_id] = new_activations.get(target_id, 0.0) + act
+            # Sparse bulk path for large graphs (Phase 3a)
+            # Handles base propagation; relation boost still per-edge
+            if (self._adj_sparse is not None
+                    and len(self.nodes) > self._sparse_threshold
+                    and not self._adj_dirty):
+                # Build activation vector for all nodes
+                n = self._adj_sparse.shape[0]
+                act_vec = np.zeros(n, dtype=np.float32)
+                for nid in self._active_nodes:
+                    node = self.nodes.get(nid)
+                    if node is not None and node.activation > 0.01:
+                        act_vec[nid] = node.activation
+                # Bulk propagation: sparse.T @ act_vec gives incoming activation
+                bulk_prop = self._adj_sparse.T @ act_vec  # (n,)
+                # Apply fan effect vectorized
+                in_degrees = np.array(self._adj_sparse.sum(axis=0)).flatten()
+                fan_factors = 1.0 / (np.sqrt(in_degrees) + 1.0)
+                bulk_prop *= fan_factors * decay
+                # Accumulate
+                for nid in self._active_nodes:
+                    if bulk_prop[nid] != 0:
+                        new_activations[nid] = new_activations.get(nid, 0.0) + float(bulk_prop[nid])
+
+            # Fine-grained path: handles relation vector gate + precision weighting
+            # (only when sparse path is not active — avoids double-counting)
+            else:
+                for nid in list(self._active_nodes):
+                    node = self.nodes.get(nid)
+                    if node is None or node.activation <= 0.01:
+                        continue
+                    # O(degree) neighbor lookup via adjacency list
+                    for target_id, edge in self._outgoing.get(nid, []):
+                        # Precision weighting: edge.confidence modulates signal strength
+                        # Relation vector gate: RV alignment with source concept boosts flow
+                        src_vec = node.vector
+                        src_norm = np.linalg.norm(src_vec)
+                        rv_norm = np.linalg.norm(edge.relation_vector)
+                        if src_norm > 0 and rv_norm > 0:
+                            rel_boost = 1.0 + 0.3 * float(np.dot(edge.relation_vector[:len(src_vec)], src_vec / src_norm))
+                        else:
+                            rel_boost = 1.0
+                        # Use Bayesian posterior mean for activation spreading
+                        # Falls back to raw weight if posterior not initialized
+                        eff_weight = edge.posterior_mean if hasattr(edge, 'posterior_mean') else edge.weight
+                        # Uncertainty penalty: high-uncertainty edges transmit less signal
+                        if hasattr(edge, 'posterior_uncertainty'):
+                            uncertainty = edge.posterior_uncertainty
+                            precision_gate = 1.0 / (1.0 + uncertainty * 50.0)  # [0.3, 1.0] range
+                        else:
+                            precision_gate = 1.0
+                        act = node.activation * eff_weight * edge.confidence * decay * rel_boost * precision_gate
+                        if edge.edge_type == "inhibitory":
+                            act = -act
+                        # Fan effect: normalize by in-degree
+                        in_deg = len(self._incoming.get(target_id, []))
+                        fan_factor = 1.0 / (in_deg ** 0.5 + 1.0)
+                        act *= fan_factor
+                        new_activations[target_id] = new_activations.get(target_id, 0.0) + act
 
             for nid, act in new_activations.items():
                 if nid in self.nodes:
@@ -1458,7 +1539,7 @@ class ConceptGraph:
             if node is None:
                 continue
             # Trigger on: cumulative count OR high pressure OR escalating gradient
-            pressure_trigger = (node.contradiction_pressure > 2.0 and node.pressure_gradient > 0.0)
+            pressure_trigger = (node.contradiction_free_energy > 2.0 and node.free_energy_gradient > 0.0)
             if node.contradiction_count < contradiction_threshold and not pressure_trigger:
                 continue
 
@@ -1659,8 +1740,8 @@ class ConceptGraph:
                         return True
 
         # Signal 4: Escalating contradiction pressure
-        if hasattr(node, 'contradiction_pressure') and hasattr(node, 'pressure_gradient'):
-            if node.contradiction_pressure > 3.0 and node.pressure_gradient > 0.0:
+        if hasattr(node, 'contradiction_free_energy') and hasattr(node, 'free_energy_gradient'):
+            if node.contradiction_free_energy > 3.0 and node.free_energy_gradient > 0.0:
                 return True
 
         return False
