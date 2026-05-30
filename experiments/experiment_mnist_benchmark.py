@@ -260,7 +260,7 @@ def run_split_mnist(max_samples_per_task=500):
         "avg_accuracy": float(avg_accuracy),
         "avg_bwt": float(avg_bwt),
         "per_task_final": [float(accuracy_matrix[n_tasks-1][j]) for j in range(n_tasks)],
-    }
+    }, model, tasks
 
 
 def run_permuted_mnist(n_tasks=5, max_samples_per_task=500):
@@ -321,6 +321,109 @@ def run_permuted_mnist(n_tasks=5, max_samples_per_task=500):
     }
 
 
+def classification_head_diagnostic(model, tasks, max_samples=200):
+    """Diagnostic: train a simple MLP on h_final to measure signal in hidden state.
+
+    If accuracy is high (75%+), the GRU is learning digit-distinguishing features
+    but the concept graph path can't extract them. If low (~50%), the hidden state
+    itself lacks signal.
+    """
+    print("\n  Classification Head Diagnostic")
+    print("  " + "-" * 50)
+
+    # Collect hidden states for all tasks
+    all_train_h, all_train_lbls = [], []
+    all_test_h, all_test_lbls = [], []
+
+    for task in tasks:
+        # Train hidden states
+        n_train = min(max_samples, len(task["train_imgs"]))
+        indices = np.random.permutation(len(task["train_imgs"]))[:n_train]
+        for idx in indices:
+            tokens = _pixel_tokenizer.encode_image(task["train_imgs"][idx])
+            model.forward(tokens.reshape(1, -1))
+            h = model._last_hidden_state.copy()
+            all_train_h.append(h)
+            all_train_lbls.append(task["train_lbls"][idx])
+
+        # Test hidden states
+        n_test = min(max_samples, len(task["test_imgs"]))
+        indices = np.random.permutation(len(task["test_imgs"]))[:n_test]
+        for idx in indices:
+            tokens = _pixel_tokenizer.encode_image(task["test_imgs"][idx])
+            model.forward(tokens.reshape(1, -1))
+            h = model._last_hidden_state.copy()
+            all_test_h.append(h)
+            all_test_lbls.append(task["test_lbls"][idx])
+
+    X_train = np.array(all_train_h)  # (N, 32)
+    y_train = np.array(all_train_lbls)
+    X_test = np.array(all_test_h)
+    y_test = np.array(all_test_lbls)
+
+    print(f"  Collected {len(X_train)} train / {len(X_test)} test hidden states")
+
+    # Simple 2-layer MLP: 32 -> 16 -> 2, trained with numpy backprop
+    rng = np.random.RandomState(42)
+    W1 = rng.randn(32, 16).astype(np.float32) * 0.1
+    b1 = np.zeros(16, dtype=np.float32)
+    W2 = rng.randn(16, 2).astype(np.float32) * 0.1
+    b2 = np.zeros(2, dtype=np.float32)
+
+    lr = 0.01
+    for epoch in range(200):
+        # Forward
+        z1 = X_train @ W1 + b1
+        a1 = np.maximum(0, z1)  # ReLU
+        z2 = a1 @ W2 + b2
+        # Softmax
+        exp_z = np.exp(z2 - np.max(z2, axis=1, keepdims=True))
+        probs = exp_z / np.sum(exp_z, axis=1, keepdims=True)
+
+        # Cross-entropy loss
+        N = len(y_train)
+        loss = -np.mean(np.log(probs[np.arange(N), y_train] + 1e-10))
+
+        # Backward
+        dz2 = probs.copy()
+        dz2[np.arange(N), y_train] -= 1
+        dz2 /= N
+        dW2 = a1.T @ dz2
+        db2 = np.sum(dz2, axis=0)
+        da1 = dz2 @ W2.T
+        dz1 = da1 * (z1 > 0)
+        dW1 = X_train.T @ dz1
+        db1 = np.sum(dz1, axis=0)
+
+        W1 -= lr * dW1
+        b1 -= lr * db1
+        W2 -= lr * dW2
+        b2 -= lr * db2
+
+    # Evaluate
+    z1 = X_test @ W1 + b1
+    a1 = np.maximum(0, z1)
+    z2 = a1 @ W2 + b2
+    preds = np.argmax(z2, axis=1)
+    acc = np.mean(preds == y_test)
+
+    # Also measure per-task accuracy
+    offset = 0
+    per_task_acc = []
+    for task in tasks:
+        n_test = min(max_samples, len(task["test_imgs"]))
+        task_preds = preds[offset:offset + n_test]
+        task_labels = y_test[offset:offset + n_test]
+        per_task_acc.append(np.mean(task_preds == task_labels))
+        offset += n_test
+
+    print(f"  MLP(32->16->2) accuracy: {acc:.1%}")
+    print(f"  Per-task: {[f'{a:.1%}' for a in per_task_acc]}")
+    print(f"  Baseline (random): 50.0%")
+
+    return float(acc)
+
+
 def main():
     import argparse
     parser = argparse.ArgumentParser()
@@ -338,12 +441,19 @@ def main():
     print("\n" + "=" * 70)
     print("  SPLIT-MNIST")
     print("=" * 70)
-    split_results = run_split_mnist(max_samples_per_task=max_samples)
+    split_results, split_model, split_tasks = run_split_mnist(max_samples_per_task=max_samples)
 
     print(f"\n  Split-MNIST Results:")
     print(f"    Average Accuracy: {split_results['avg_accuracy']:.1%}")
     print(f"    Average BWT: {split_results['avg_bwt']:.1%}")
     print(f"    Per-task final accuracy: {[f'{a:.1%}' for a in split_results['per_task_final']]}")
+
+    # ── Classification Head Diagnostic ──
+    print("\n" + "=" * 70)
+    print("  CLASSIFICATION HEAD DIAGNOSTIC")
+    print("=" * 70)
+    head_acc = classification_head_diagnostic(split_model, split_tasks,
+                                              max_samples=max_samples)
 
     # ── Permuted-MNIST ──
     print("\n" + "=" * 70)
@@ -360,6 +470,7 @@ def main():
     output = {
         "split_mnist": split_results,
         "permuted_mnist": perm_results,
+        "classification_head_diagnostic": head_acc,
         "config": {"max_samples": max_samples, "n_permuted_tasks": args.tasks},
     }
     out_path = os.path.join(_PROJECT_ROOT, "revisions", "mnist_results.json")
