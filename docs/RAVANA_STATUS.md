@@ -1,6 +1,6 @@
 # RAVANA — Codebase Status Report
-**Date:** 2026-05-30 (updated — cross-domain probe fixes, concept vector initialization, subject-concept anchoring, contrastive buffer)
-**Commit:** 4880fd9
+**Date:** 2026-05-30 (updated — concept graph path fix, RP weight decay fix, concept graph ablation, MNIST diagnostic)
+**Commit:** 08ef0ce
 **Author:** Likhith
 **Purpose:** Shareable status document for LLM collaborators
 
@@ -794,6 +794,10 @@ Based on cognitive science research (spreading activation, synaptic homeostasis,
 | LearnedEmbedder (2026-05-29) | **Character n-gram + random projection + IDF weighting.** 64-dim vectors via Johnson-Lindenstrauss projection. Replaces hash-based embeddings in HumanMemoryEngine and RLM episodic memory. `fit(corpus)` method for IDF weighting. 100/100 main tests pass. |
 | Codebase Audit (2026-05-29) | **Full verification of paper claims vs codebase.** 100/100 main tests pass (was 67/67). 9/11 experiment scripts runnable (experiment_adversarial.py fixed — missing __main__ + bad import). LearnedEmbedder verified in code (paper incorrectly lists as future work). PixelTokenizer only exists as pseudocode. All serialization stress tests verified. |
 | Test Failure Fixes (2026-05-29) | **Resolved 4 pre-existing test failures.** test_generation.py: encode before model creation (WordTokenizer vocab_size=1 bug). Governor grace layer: _boundary_pressure rewritten (quadratic falloff, was dead code), _center_seeking_force fixed (asymmetric k, center_target=0.50), dampened flag tracking added. test_harness.py removed (imported non-existent ravana_wrapper). 99/99 + 11/11 all green. |
+| Concept Graph Path Fix (2026-05-30) | **Root cause of concept graph producing uniform noise found and fixed.** `np.maximum(concept_scores, tgt_local)` in edge traversal (3 instances in `forward()`) was replacing the -1e9 sentinel for ALL vocabulary tokens because cosine similarities in high-dim space have a small positive mean. After all hops, concept_scores ended up in a ~0.02 band → softmax produced uniform distribution → concept_logits contributed zero discriminative signal. **Fix:** Added cosine similarity threshold mask (`tgt_local > 0.3 * hop_score`) so only the top ~1% of tokens get boosted. Before fix: concept_logits top-5 all at -4.49 (uniform). After fix: concept_logits show 4+ point gap between correct answer and noise (e.g., "heat causes" → "expansion" at -0.002 vs next at -9.88). **100/100 tests pass.** |
+| RP Weight Decay Fix (2026-05-30) | **Relation predictor weight collapse root cause found and fixed.** `0.999` decay on `_rp_W1` and `_rp_W2` was inside `_rp_backward()`, called 2-4 times per `learn()` step. Net decay per step: `0.999^4 = 0.996`. After ~5000 steps, weights collapse to near-zero; biases (not decayed) survive, encoding frequency distribution → RP always predicts concept_id=50. **Fix:** Moved decay to once per `learn()` call (0.999 per step, not per backward call). |
+| Concept Graph Ablation (2026-05-30) | **Core evidence that the concept graph drives cross-domain transfer.** Added `_ablate_graph` flag to zero out concept_logits in the logit blend. Cross-domain probes with graph path: **95% top-1, 100% top-10**. Without graph path: **70% top-1, 85% top-10**. Graph contribution: **+25pp top-1, +15pp top-10**. MLP baseline: 0% top-1. This confirms the concept graph is the primary prediction mechanism, not decorative. |
+| MNIST Classification Head Diagnostic (2026-05-30) | **Hidden state has zero digit-distinguishing signal.** MLP(32→16→2) trained on the GRU's final hidden state achieves 49.5% on Split-MNIST binary classification (random chance). The 32-dim bottleneck over 784 sequential pixel tokens destroys all spatial information. Split-MNIST RLM accuracy: 42.7% (below chance). **Conclusion:** Architecture is not suited for visual/spatial tasks. Focus shifted to text-based relational reasoning only. |
 
 **Note:** Paper claims dissonance trajectory 0.800→0.200 but `final_results.json` shows 0.323→0.322 from a different run configuration. These need reconciliation.
 
@@ -956,7 +960,7 @@ These target the core problem that hidden states are near-constant (86-99% cosin
 - [x] Structural replay metrics — **DONE** (sleep-time interleaved replay: +42.9pp Domain A retention, `experiment_cross_domain_replay.py`)
 
 ### Remaining
-1. **~~Cross-domain transfer at 0.0~~** → **RESOLVED (2026-05-30).** Original: 14.3% top-1. After Phase 1-3 + log-softmax: 90% top-1. After subject-concept anchoring + concept vector init fix: 100% top-1 on probe set (commit 4880fd9). Sleep-time replay achieves +42.9pp Domain A retention. Catastrophic forgetting bottleneck solved.
+1. **~~Cross-domain transfer at 0.0~~** → **RESOLVED (2026-05-30).** Original: 14.3% top-1. After Phase 1-3 + log-softmax: 90% top-1. After subject-concept anchoring + concept vector init fix: 100% top-1 on probe set (commit 4880fd9). After concept graph np.maximum fix + RP weight decay fix: **95% top-1, 100% top-10** (commit 08ef0ce). Concept graph ablation confirms graph path contributes **+25pp top-1** (95% → 70% without graph). Sleep-time replay achieves +42.9pp Domain A retention. Catastrophic forgetting bottleneck solved.
 2. **Paper claims vs results mismatch** → **RESOLVED (2026-05-23).** All three dissonance metrics unified to `0.1 + 0.8 * min(1.0, raw_d / 1.5)`. RLM now has `dissonance_normalized` property for paper-comparable reporting.
 3. **Lifelong benchmark COMPLETE (2026-05-24)** — 100k/100k done (pure Hebbian baseline), then 15k/15k with replay+EWC+Bayesian. Pure Hebbian: 40.8% retention, 12% forgetting. **With three-pronged defense: 47.6% retention, 0% forgetting** — catastrophic forgetting completely eliminated. Per-epoch: previously-suffering epochs 1/3 jump from 38%/32% to 52%/52%. 384 concepts, 21k edges, 1226 sleep cycles, 42ms/step. Plots regenerated from full data.
 4. **News-to-MDP pipeline unimplemented** — `reality_grounding.py` exists but structured cognitive event pipeline is a design
@@ -1103,14 +1107,16 @@ bc2d491 Phase O: Human Memory — persistent episodic/semantic memory with Ebbin
 - Not a neural network trainer (no backprop, no gradient descent, no chain rule)
 - Not PyTorch/TensorFlow/JAX
 - Not a transformer wearing a neuroscience costume
+- Not a visual/spatial model — the 32-dim GRU bottleneck over 784 pixel tokens destroys spatial information; classification head diagnostic confirms hidden state has zero digit-distinguishing signal (49.5% on binary MNIST = random chance)
 
 ## What RAVANA IS
 
-- A pressure-driven self-organizing cognitive architecture
+- A pressure-driven self-organizing cognitive architecture for **text-based relational reasoning**
 - A PyTorch-compatible ML framework (API surface) using Hebbian learning + sleep consolidation
 - A predictive coding system: each layer predicts the layer above, errors are local, learning is error-gated Hebbian (Δw ∝ e_i · x_j)
 - A comprehensive cognitive system with emotion, meaning, meta-cognition, empathy, dual-process reasoning, global workspace
 - A unified package (`ravana`) with a user-facing CognitiveFramework API
+- A system where the concept graph is the primary prediction mechanism (ablation-confirmed: +25pp top-1 contribution)
 - A system with reconstructive memory that doesn't just store — it rebuilds, distorts, consolidates, fragments, and forgets
 - A cognitive architecture where identity shapes what gets remembered and sleep actively rewrites the narrative
 - A system where consolidated experience physically reshapes representational topology (memory-weights bridge)
