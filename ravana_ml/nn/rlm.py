@@ -697,7 +697,12 @@ class RLM(Module):
                     tgt_embed_norm = self._project_to_embed(tgt_vec_norm)
                     tgt_embed_norm = tgt_embed_norm / (np.linalg.norm(tgt_embed_norm) + 1e-15)
                     tgt_local = (token_norms @ tgt_embed_norm) * hop_score
-                    concept_scores = np.maximum(concept_scores, tgt_local)
+                    # Only boost tokens with cosine sim > 0.3 (top ~1% in 64-dim).
+                    # Without the mask, np.maximum replaces the -1e9 sentinel for ALL
+                    # tokens since cosine similarities have small positive mean in
+                    # high-dim space, flattening concept_scores to uniform noise.
+                    mask = tgt_local > 0.3 * hop_score
+                    concept_scores[mask] = np.maximum(concept_scores[mask], tgt_local[mask])
 
             # Continue to next similar concept (aggregate top-3)
 
@@ -824,10 +829,6 @@ class RLM(Module):
                 - self._rp_ce_lr * lr_scale * ce_grad
             )
             self._rp_concept_embed[concept_id] += self._rp_concept_embed_m[concept_id]
-
-        # Weight decay (L2 regularization) — stronger decay to resist concept vector drift
-        self._rp_W1 *= 0.999
-        self._rp_W2 *= 0.999
 
         # Clear cache
         self._rp_cache = None
@@ -1092,7 +1093,12 @@ class RLM(Module):
                     tgt_embed_norm = self._project_to_embed(tgt_vec_norm)
                     tgt_embed_norm = tgt_embed_norm / (np.linalg.norm(tgt_embed_norm) + 1e-15)
                     tgt_local = (token_norms @ tgt_embed_norm) * hop_score
-                    concept_scores = np.maximum(concept_scores, tgt_local)
+                    # Only boost tokens with cosine sim > 0.3 (top ~1% in 64-dim).
+                    # Without the mask, np.maximum replaces the -1e9 sentinel for ALL
+                    # tokens since cosine similarities have small positive mean in
+                    # high-dim space, flattening concept_scores to uniform noise.
+                    mask = tgt_local > 0.3 * hop_score
+                    concept_scores[mask] = np.maximum(concept_scores[mask], tgt_local[mask])
 
             # Analogy fallback: if no outgoing edges, use global relation prior
             if not has_edges:
@@ -1781,6 +1787,13 @@ class RLM(Module):
                 if len(rel_vecs) > 0:
                     self._rp_forward(node.vector, rel_vecs, concept_id=node.id)
                     self._rp_backward(next_id, lr_scale=lr_scale * 0.5)
+
+            # RP weight decay — applied once per learn step, not per _rp_backward call.
+            # Previously this was inside _rp_backward() which is called 2-4x per step,
+            # compounding to 0.999^4 = 0.996 per step and collapsing weights to zero
+            # within ~5000 steps.
+            self._rp_W1 *= 0.999
+            self._rp_W2 *= 0.999
 
             # === Accumulated per-timestep GRU updates ===
             # Re-run GRU to cache intermediates, accumulate gate errors
@@ -2954,7 +2967,12 @@ class RLM(Module):
                     tgt_embed_norm = self._project_to_embed(tgt_vec_norm)
                     tgt_embed_norm = tgt_embed_norm / (np.linalg.norm(tgt_embed_norm) + 1e-15)
                     tgt_local = (token_norms @ tgt_embed_norm) * hop_score
-                    concept_scores = np.maximum(concept_scores, tgt_local)
+                    # Only boost tokens with cosine sim > 0.3 (top ~1% in 64-dim).
+                    # Without the mask, np.maximum replaces the -1e9 sentinel for ALL
+                    # tokens since cosine similarities have small positive mean in
+                    # high-dim space, flattening concept_scores to uniform noise.
+                    mask = tgt_local > 0.3 * hop_score
+                    concept_scores[mask] = np.maximum(concept_scores[mask], tgt_local[mask])
 
         concept_scores = np.maximum(concept_scores, -1e8)
         # Proper softmax normalization: temperature-controlled probability distribution
