@@ -824,6 +824,46 @@ class RLMv2(Module):
             self.token_embed.weight.data[object_tid] -= delta * 0.3
             self._token_embed_norms = None  # invalidate norm cache
 
+        # ── Predictive Coding: update ALL active edges (not just S→O) ──
+        # Brain-inspired: every active edge that "predicted" gets a learning signal.
+        # Edge predicts: src_activation * edge_weight → should match target activation
+        # Prediction error = what actually happened - what edge predicted
+        # This gives 10-30 edges a learning signal per step instead of 1.
+        # Result: each training example teaches the entire activated subgraph.
+        pc_lr = self._base_lr * 0.3  # lower lr for background edges
+        obj_embed_norm = np.linalg.norm(object_embed)
+        obj_signal = object_embed / obj_embed_norm if obj_embed_norm > 0 else None
+        for nid in list(self.graph._active_nodes):
+            node = self.graph.nodes.get(nid)
+            if node is None or node.activation < 0.01:
+                continue
+            for tgt_id, edge in self.graph.get_outgoing(nid):
+                tgt_node = self.graph.nodes.get(tgt_id)
+                if tgt_node is None:
+                    continue
+                # Prediction: edge predicts what should be at target
+                predicted = node.activation * edge.weight
+                # Ground truth: how much was the target activated?
+                actual = tgt_node.activation
+                # For the correct object: boost actual signal
+                if tgt_id == object_cid:
+                    actual = max(actual, 0.5)  # ensure strong signal for correct answer
+                # Local prediction error
+                error = actual - predicted
+                # Weight update (local Hebbian)
+                w_delta = pc_lr * abs(error) * node.activation
+                if error > 0:
+                    edge.weight = min(1.0, edge.weight + w_delta * 0.5)
+                else:
+                    edge.weight = max(0.0, edge.weight - w_delta * 0.2)
+                # Relation vector: pull toward correct object signal for S→O edge
+                if tgt_id == object_cid and obj_signal is not None:
+                    edge.relation_vector += pc_lr * 0.5 * obj_signal[:len(edge.relation_vector)]
+                    rv_n = np.linalg.norm(edge.relation_vector)
+                    if rv_n > 0:
+                        edge.relation_vector /= rv_n
+                    edge._rv_norm_cache = None
+
         # ── Store episodic triple ──
         self._episodic_triples.append((subject_cid, rel_type_idx, object_cid, time.time()))
         if len(self._episodic_triples) > self._max_episodic:
