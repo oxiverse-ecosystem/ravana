@@ -65,14 +65,18 @@ class RLM(Module):
         if vocab_size <= 32:
             self._init_structured_embeddings()
 
-        # Sinusoidal positional encoding
+        # Sinusoidal positional encoding (scaled to not overwhelm token embeddings)
+        # Raw PE has norm ~sqrt(embed_dim/2) ≈ 5.66 per position, while token
+        # embeddings have norm ~1.0. Without scaling, PE dominates the GRU input
+        # and hidden states become nearly identical (cosine sim 0.96-0.99) for all
+        # inputs, destroying the model's ability to discriminate between facts.
         max_len = 1024
         pe = np.zeros((max_len, embed_dim), dtype=np.float32)
         position = np.arange(max_len)[:, np.newaxis]
         div_term = np.exp(np.arange(0, embed_dim, 2) * -(np.log(10000.0) / embed_dim))
         pe[:, 0::2] = np.sin(position * div_term[:pe[:, 0::2].shape[1]])
         pe[:, 1::2] = np.cos(position * div_term[:pe[:, 1::2].shape[1]])
-        self._positional_encoding = pe
+        self._positional_encoding = pe * (embed_dim ** -0.5)  # scale to ~0.7 norm
 
         self.recurrent_cell = GRUCell(embed_dim, n_hidden)
         self.hidden_layers = []
@@ -1017,7 +1021,7 @@ class RLM(Module):
         token_vecs = self.token_embed.weight.data
         token_norms = token_vecs / (np.linalg.norm(token_vecs, axis=1, keepdims=True) + 1e-15)
         
-        concept_scores = -np.ones(self.vocab_size, dtype=np.float32) * 1e9
+        concept_scores = np.zeros(self.vocab_size, dtype=np.float32)
         
         all_active = [n for n in sorted(self.graph.nodes.values(),
                                          key=lambda n: n.activation, reverse=True)
@@ -1293,14 +1297,21 @@ class RLM(Module):
             if self._epi_matrix is not None and len(self._epi_matrix) > 0:
                 sims = self._epi_matrix @ query_vec  # (N,)
                 # Soft-boost top-K matches proportional to similarity
-                k = min(5, len(sims))
+                k = min(10, len(sims))
                 top_k_idx = np.argpartition(sims, -k)[-k:]
+                # Deduplicate: keep best similarity per target token
+                # Prevents repeated training facts from dominating (50 repeats
+                # of "heat→expansion" shouldn't boost "expansion" 50× more)
+                best_per_target = {}
                 for idx in top_k_idx:
                     sim = float(sims[idx])
                     if sim > 0.05:  # minimum relevance threshold
                         epi_idx = self._epi_idx_order[idx]
                         target = self._episodic_values[epi_idx]
-                        memory_logits[target] += 50.0 * sim  # soft boost
+                        if target not in best_per_target or sim > best_per_target[target]:
+                            best_per_target[target] = sim
+                for target, sim in best_per_target.items():
+                    memory_logits[target] += 3.0 * sim  # soft boost (reduced from 50.0)
 
         # Normalize all sources to log-softmax so they're on comparable scales.
         # concept_logits is already log-softmax; others are raw projections.
@@ -1456,7 +1467,7 @@ class RLM(Module):
                                                   weight=0.3, relation_type=rel_type)
             # Store the predicate verb token for verb-level discrimination
             # The verb is typically the second token (first=subject, second=verb)
-            if token_ids.shape[1] > 1 and edge.predicate_token_id < 0:
+            if token_ids.shape[1] > 1 and getattr(edge, 'predicate_token_id', -1) < 0:
                 edge.predicate_token_id = int(token_ids[0, 1])
             edge.weight = min(1.0, edge.weight + 0.05)
             edge.confidence = min(1.0, edge.confidence + 0.03)
@@ -2904,7 +2915,7 @@ class RLM(Module):
         token_vecs = self.token_embed.weight.data
         token_norms = token_vecs / (np.linalg.norm(token_vecs, axis=1, keepdims=True) + 1e-15)
 
-        concept_scores = -np.ones(self.vocab_size, dtype=np.float32) * 1e9
+        concept_scores = np.zeros(self.vocab_size, dtype=np.float32)
 
         all_active = [n for n in sorted(self.graph.nodes.values(),
                                          key=lambda n: n.effective_activation, reverse=True)
