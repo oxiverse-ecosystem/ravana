@@ -71,6 +71,12 @@ _KEYWORD_MAP = {
         "decreases", "decrease", "reduces", "reduce",
         "enhances", "enhance", "diminishes", "diminish",
         "prevents", "prevent", "inhibits", "inhibit",
+        # Compound predicates (single tokens after wordpiece)
+        "contributes_to", "associated_with", "linked_to",
+        "may_cause", "can_cause", "leads_to", "results_in",
+        "correlated_with", "is_a", "is_type_of", "type_of",
+        "consists_of", "composed_of", "made_of",
+        "capable_of", "able_to", "same_as", "equivalent_to",
     ],
     "temporal": [
         "then", "after", "before", "next", "later", "during",
