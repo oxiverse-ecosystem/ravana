@@ -592,7 +592,7 @@ def main():
     # Load MiniLM and inject embeddings
     print("\nLoading MiniLM...")
     t0 = time.time()
-    st_model = SentenceTransformer('all-MiniLM-L6-v2')
+    st_model = SentenceTransformer('all-mpnet-base-v2')
     print(f"  Loaded in {time.time()-t0:.1f}s")
 
     inject_minilm_embeddings(model, tok, st_model)
