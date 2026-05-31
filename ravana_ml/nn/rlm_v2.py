@@ -117,6 +117,7 @@ class RLMv2(Module):
         self.n_concepts = n_concepts
         self.max_seq_len = max_seq_len
         self.sleep_interval = sleep_interval
+        self.predictive_coding_enabled = True  # flag for A/B testing
         self._gate_concept_creation = gate_concept_creation
 
         # ── Token Embeddings ──
@@ -415,6 +416,15 @@ class RLMv2(Module):
         rel_type_idx, rel_type_embed = self._classify_relation_learned(relation_ids)
         rel_type_name = RELATION_TYPES[rel_type_idx]
 
+        # Identify relation concept node (intermediary, not a prediction target)
+        relation_cid = -1
+        if relation_ids:
+            relation_tid = relation_ids[0]
+            # Look up existing concept without creating one
+            existing = self.binding_map.get_tokens(relation_tid, min_confidence=0.0)
+            if existing:
+                relation_cid = existing[0].concept_id
+
         # ── Vector Arithmetic (word2vec-style analogy) ──
         # Compute expected output: subject_embed + relation_vector
         # This enables cross-domain transfer via embedding space arithmetic.
@@ -448,6 +458,22 @@ class RLMv2(Module):
 
         # Activate subject concept
         self.graph.activate(subject_cid, amount=1.0)
+
+        # Phase 0: Similarity-based priming
+        # "Tiger is cat-like" — activate concepts with similar embeddings.
+        # This enables cross-subject transfer: tiger activates cat's edges,
+        # which route through has:tail → tail.
+        subject_vec = self.graph.get_node(subject_cid).vector
+        sv_norm = np.linalg.norm(subject_vec)
+        if sv_norm > 0:
+            for cid, node in self.graph.nodes.items():
+                if cid == subject_cid:
+                    continue
+                nv_norm = np.linalg.norm(node.vector)
+                if nv_norm > 0:
+                    sim = float(np.dot(subject_vec, node.vector) / (sv_norm * nv_norm))
+                    if sim > 0.3:  # similarity threshold
+                        self.graph.activate(cid, amount=sim * 0.3)
 
         # Phase 1: General spreading (3 steps, decay 0.3)
         self.graph.spread_activation(steps=3, k_active=10, decay=0.3)
@@ -557,6 +583,8 @@ class RLMv2(Module):
         for nid, node in active_nodes:
             if nid == subject_cid:
                 continue  # Don't predict subject itself
+            if nid == relation_cid:
+                continue  # Don't predict relation node (it's an intermediary)
             # Score based on activation strength (boosted heavily for multi-hop)
             act_score = node.activation * 3.0
             if nid in matching_targets:
@@ -717,74 +745,117 @@ class RLMv2(Module):
         rel_type_idx, rel_type_embed = self._classify_relation_learned(relation_ids)
         rel_type_name = RELATION_TYPES[rel_type_idx]
 
-        # ── Create/update typed edge ──
-        edge = self.graph.add_edge(
-            source=subject_cid,
-            target=object_cid,
-            weight=0.3,
-            relation_type=rel_type_name,
-        )
-
-        # Store predicate token (the verb/relation token)
+        # ── Create relation concept node ──
+        # The relation becomes a SHARED NODE in the graph, not just edge metadata.
+        # "cat has tail" and "dog has tail" both route through the same "has" node.
+        # This gives the graph real topology: cat→has→tail, dog→has→tail.
         if relation_ids:
-            edge.predicate_token_id = relation_ids[0]
+            relation_tid = relation_ids[0]  # first relation token
+            relation_embed = self.token_embed.weight.data[relation_tid]
+            relation_cid = self._get_or_create_concept(relation_tid, relation_embed)
+        else:
+            relation_cid = object_cid  # fallback: direct edge if no relation
 
-        # ── Hebbian edge update ──
-        # Strengthen edge on correct prediction, weaken on incorrect
-        pred_error = 1.0 - edge.confidence
-        surprise = abs(pred_error) * edge.confidence
-        effective_lr = self._base_lr * (1.0 + surprise * 5.0)
+        # ── Create relation-object concept node ──
+        # Instead of a global "has" hub (which gets overloaded with 10+ facts),
+        # create relation-OBJECT nodes: "has:tail", "has:wing", etc.
+        # Multiple subjects sharing the same object (cat, dog → tail) route
+        # through the same hub, enabling WITHIN-group transfer.
+        # Cross-group transfer (tiger is cat-like → tail) uses embedding similarity.
+        # Synthetic token ID to avoid collision with real tokens.
+        if relation_ids:
+            rel_obj_tid = 10000 + relation_ids[0] * 256 + object_tid
+            rel_obj_embed = 0.5 * (relation_embed + object_embed)  # blend
+            rel_obj_cid = self._get_or_create_concept(rel_obj_tid, rel_obj_embed)
+        else:
+            rel_obj_cid = object_cid
+
+        # ── Create/update edges: direct + via relation-object hub ──
+        # Use get_edge to avoid resetting learned weights via add_edge.
+        edge_direct = self.graph.get_edge(subject_cid, object_cid)
+        if edge_direct is None:
+            edge_direct = self.graph.add_edge(
+                source=subject_cid, target=object_cid,
+                weight=0.3, relation_type=rel_type_name,
+            )
+        edge_sr = self.graph.get_edge(subject_cid, rel_obj_cid)
+        if edge_sr is None:
+            edge_sr = self.graph.add_edge(
+                source=subject_cid, target=rel_obj_cid,
+                weight=0.3, relation_type=rel_type_name,
+            )
+        edge_ro = self.graph.get_edge(rel_obj_cid, object_cid)
+        if edge_ro is None:
+            edge_ro = self.graph.add_edge(
+                source=rel_obj_cid, target=object_cid,
+                weight=0.3, relation_type=rel_type_name,
+            )
+
+        # Store predicate token
+        if relation_ids:
+            edge_direct.predicate_token_id = relation_ids[0]
+            edge_sr.predicate_token_id = relation_ids[0]
+            edge_ro.predicate_token_id = relation_ids[0]
+
+        # ── Hebbian edge updates on ALL edges ──
+        # Pure Hebbian: co-activation strengthens connections.
+        # During supervised training, we activate the correct pathway
+        # (subject + relation-object hub + object via teaching signal).
 
         src_node = self.graph.get_node(subject_cid)
+        rel_obj_node = self.graph.get_node(rel_obj_cid)
         tgt_node = self.graph.get_node(object_cid)
 
-        if src_node is not None and tgt_node is not None:
-            # Hebbian update: co-activation strengthens edge
-            delta = effective_lr * src_node.activation * tgt_node.activation * pred_error
-            edge.weight = max(0.0, min(1.0, edge.weight + delta))
-            edge.confidence = min(1.0, edge.confidence + 0.03)
-            edge.stability = min(1.0, edge.stability + 0.01)
-            edge.prediction_count += 1
+        if src_node is not None and rel_obj_node is not None and tgt_node is not None:
+            # Teaching signals: activate hub and object nodes
+            rel_obj_node.activation = max(rel_obj_node.activation, 0.7)
+            tgt_node.activation = max(tgt_node.activation, 0.8)
 
+            # Direct edge: subject → object (memorization path)
+            delta = self._base_lr * src_node.activation * tgt_node.activation
+            edge_direct.weight = max(0.0, min(1.0, edge_direct.weight + delta))
+            edge_direct.confidence = edge_direct.weight
+            edge_direct.stability = min(1.0, edge_direct.stability + 0.01)
+            edge_direct.prediction_count += 1
             if is_correct:
-                edge.forward_pred_count += 1
+                edge_direct.forward_pred_count += 1
 
-            # ── Relation vector update (Hebbian pull + type anchor) ──
-            # The relation vector encodes the relational pattern.
-            # It pulls toward the target signal while maintaining type structure.
+            # Edge 1: subject → rel_obj hub (transfer path)
+            delta = self._base_lr * src_node.activation * rel_obj_node.activation
+            edge_sr.weight = max(0.0, min(1.0, edge_sr.weight + delta))
+            edge_sr.confidence = edge_sr.weight
+            edge_sr.stability = min(1.0, edge_sr.stability + 0.01)
+            edge_sr.prediction_count += 1
+            if is_correct:
+                edge_sr.forward_pred_count += 1
+
+            # Edge 2: rel_obj hub → object (transfer path)
+            delta = self._base_lr * rel_obj_node.activation * tgt_node.activation
+            edge_ro.weight = max(0.0, min(1.0, edge_ro.weight + delta))
+            edge_ro.confidence = edge_ro.weight
+            edge_ro.stability = min(1.0, edge_ro.stability + 0.01)
+            edge_ro.prediction_count += 1
+            if is_correct:
+                edge_ro.forward_pred_count += 1
+
+            # Relation vector updates
             tgt_vec = tgt_node.vector
             tgt_norm = np.linalg.norm(tgt_vec)
             if tgt_norm > 0:
                 tgt_signal = tgt_vec / tgt_norm
-                # 3-way blend: 70% current + 20% target + 10% type seed
-                # This prevents EMA from erasing type-specific structure
-                type_seed = ConceptEdge._init_relation_vector(rel_type_name, len(edge.relation_vector))
-                edge.relation_vector = (
-                    0.70 * edge.relation_vector +
-                    0.20 * tgt_signal[:len(edge.relation_vector)] +
-                    0.10 * type_seed
-                )
-                rv_norm = np.linalg.norm(edge.relation_vector)
-                if rv_norm > 0:
-                    edge.relation_vector /= rv_norm
-                edge._rv_norm_cache = None  # invalidate cached norm
-
-            # ── Contrastive push: repel from different-target edges ──
-            outgoing = self.graph.get_outgoing(subject_cid)
-            for other_tgt_id, other_edge in outgoing:
-                if other_tgt_id == object_cid:
-                    continue
-                # Push relation vectors apart for different targets
-                other_rv = other_edge.relation_vector
-                push_strength = 0.05
-                edge.relation_vector -= push_strength * other_rv[:len(edge.relation_vector)]
-                rv_norm = np.linalg.norm(edge.relation_vector)
-                if rv_norm > 0:
-                    edge.relation_vector /= rv_norm
-                edge._rv_norm_cache = None  # invalidate cached norm
+                type_seed = ConceptEdge._init_relation_vector(rel_type_name, len(edge_ro.relation_vector))
+                for e in [edge_sr, edge_ro]:
+                    e.relation_vector = (
+                        0.70 * e.relation_vector +
+                        0.20 * tgt_signal[:len(e.relation_vector)] +
+                        0.10 * type_seed
+                    )
+                    rv_norm = np.linalg.norm(e.relation_vector)
+                    if rv_norm > 0:
+                        e.relation_vector /= rv_norm
+                    e._rv_norm_cache = None
 
             # ── Concept vector updates ──
-            # Pull concept vectors toward their bound token embeddings
             pull_lr = 0.005
 
             # Subject concept → subject token embedding
@@ -796,6 +867,16 @@ class RLMv2(Module):
             if src_norm > 0:
                 src_node.vector /= src_norm
 
+            # Relation-object concept → blended embedding
+            if relation_ids:
+                rel_obj_concept_vec = self._project_to_concept(rel_obj_embed)
+                rel_obj_delta = pull_lr * (rel_obj_concept_vec - rel_obj_node.vector)
+                rel_obj_delta = np.clip(rel_obj_delta, -self.graph.max_step_delta, self.graph.max_step_delta)
+                rel_obj_node.vector += rel_obj_delta
+                rel_obj_norm = np.linalg.norm(rel_obj_node.vector)
+                if rel_obj_norm > 0:
+                    rel_obj_node.vector /= rel_obj_norm
+
             # Object concept → object embedding
             object_concept_vec = self._project_to_concept(object_embed)
             tgt_delta = pull_lr * (object_concept_vec - tgt_node.vector)
@@ -805,7 +886,7 @@ class RLMv2(Module):
             if tgt_norm > 0:
                 tgt_node.vector /= tgt_norm
 
-        # ── Update relation classifier weights (backprop on classifier only) ──
+        # ── Update relation classifier weights (local Hebbian) ──
         self._update_relation_classifier(relation_ids, rel_type_idx)
 
         # ── Train token embeddings (co-occurrence similarity) ──
@@ -824,41 +905,46 @@ class RLMv2(Module):
             self.token_embed.weight.data[object_tid] -= delta * 0.3
             self._token_embed_norms = None  # invalidate norm cache
 
-        # ── Predictive Coding: update ALL active edges (not just S→O) ──
-        # Brain-inspired: every active edge that "predicted" gets a learning signal.
+        # ── Predictive Coding: update ALL edges (not just S→O) ──
+        # Brain-inspired: every edge in the graph gets a prediction error signal.
         # Edge predicts: src_activation * edge_weight → should match target activation
-        # Prediction error = what actually happened - what edge predicted
-        # This gives 10-30 edges a learning signal per step instead of 1.
-        # Result: each training example teaches the entire activated subgraph.
-        pc_lr = self._base_lr * 0.3  # lower lr for background edges
-        obj_embed_norm = np.linalg.norm(object_embed)
-        obj_signal = object_embed / obj_embed_norm if obj_embed_norm > 0 else None
-        for nid in list(self.graph._active_nodes):
-            node = self.graph.nodes.get(nid)
-            if node is None or node.activation < 0.01:
-                continue
-            for tgt_id, edge in self.graph.get_outgoing(nid):
+        # Prediction error drives local Hebbian weight update.
+        # This is the fundamental difference from lookup-table learning:
+        # EVERY edge learns from EVERY example, not just the one edge being trained.
+        if self.predictive_coding_enabled:
+            pc_lr = self._base_lr * 0.3
+            obj_embed_norm = np.linalg.norm(object_embed)
+            obj_signal = object_embed / obj_embed_norm if obj_embed_norm > 0 else None
+            for (src_id, tgt_id), edge in list(self.graph.edges.items()):
+                src_node = self.graph.nodes.get(src_id)
                 tgt_node = self.graph.nodes.get(tgt_id)
-                if tgt_node is None:
+                if src_node is None or tgt_node is None:
                     continue
-                # Prediction: edge predicts what should be at target
-                predicted = node.activation * edge.weight
-                # Ground truth: how much was the target activated?
+                # Prediction: edge predicts target activation from source
+                predicted = src_node.activation * edge.weight
+                # Ground truth: actual target activation
                 actual = tgt_node.activation
-                # For the correct object: boost actual signal
+                # For the correct object: ensure strong signal
                 if tgt_id == object_cid:
-                    actual = max(actual, 0.5)  # ensure strong signal for correct answer
+                    actual = max(actual, 0.5)
+                # For the subject: ensure it's recognized as active
+                if src_id == subject_cid:
+                    actual_src = max(src_node.activation, 0.3)
+                    predicted = actual_src * edge.weight
                 # Local prediction error
                 error = actual - predicted
-                # Weight update (local Hebbian)
-                w_delta = pc_lr * abs(error) * node.activation
+                # Weight update (local Hebbian, scaled by source activation)
+                w_delta = pc_lr * abs(error) * max(src_node.activation, 0.01)
                 if error > 0:
-                    edge.weight = min(1.0, edge.weight + w_delta * 0.5)
+                    edge.weight = min(1.0, edge.weight + w_delta * 0.3)
                 else:
-                    edge.weight = max(0.0, edge.weight - w_delta * 0.2)
-                # Relation vector: pull toward correct object signal for S→O edge
+                    edge.weight = max(0.0, edge.weight - w_delta * 0.1)
+                # Confidence: edges that predict correctly gain confidence
+                if abs(error) < 0.3:
+                    edge.confidence = min(1.0, edge.confidence + 0.005)
+                # Relation vector: pull toward correct object for edges touching object
                 if tgt_id == object_cid and obj_signal is not None:
-                    edge.relation_vector += pc_lr * 0.5 * obj_signal[:len(edge.relation_vector)]
+                    edge.relation_vector += pc_lr * 0.3 * obj_signal[:len(edge.relation_vector)]
                     rv_n = np.linalg.norm(edge.relation_vector)
                     if rv_n > 0:
                         edge.relation_vector /= rv_n
