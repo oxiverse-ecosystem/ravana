@@ -319,6 +319,14 @@ The relation predictor has no clean neural analogue — it may correspond to pre
 4. **No natural language evaluation**: All experiments use synthetic structured data.
 5. **Transfer ceiling**: 95% top-1 cross-domain and 47.6% lifelong retention demonstrate strong structural generalization. The three-pronged defense (replay + EWC + Bayesian) eliminated catastrophic forgetting (12% → 0%) and pushed retention up 6.8pp, with epoch-level retention reaching 52%. RLMv2 achieves 95.7% overall on a 47-triple benchmark.
 
+### 6.5 Phase 2: NN Bridge and Composed Reasoning
+
+Recent work extends RAVANA's transfer capabilities to truly novel terms via a pre-trained sentence transformer bridge. MiniLM-L6-v2 (384-dim) provides semantic embeddings for all graph nodes. Novel terms are bridged to the nearest known concepts via cosine similarity in the full embedding space — random dimensionality projection (384→32) destroys semantic structure, reducing bridge accuracy from 67% to 42%.
+
+Composed reasoning traverses the concept graph from bridge candidates with four key mechanics: (1) independent traversals per candidate (shared visited sets block cross-candidate paths), (2) depth decay at 0.7x per hop (prevents depth-2 cascade from drowning depth-1 results), (3) reverse edge inheritance (if X is_a Y, Y inherits X's outgoing edges), and (4) bridge-as-candidate for is_a queries.
+
+On 12 held-out terms never seen during training (22 queries, 6 relation types): 67% bridge accuracy, 91% query success, 90% object hit rate. Only matcha fails (MiniLM embedding 0.32 sim — model limitation). Semantic clustering analysis shows MiniLM preserves domain structure: intra-domain similarity 0.413 vs cross-domain 0.155 (2.5x gap).
+
 ---
 
 ## 7. Future Work

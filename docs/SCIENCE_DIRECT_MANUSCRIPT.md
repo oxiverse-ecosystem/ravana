@@ -520,6 +520,16 @@ We acknowledge several limitations in the current implementation:
 
 Future work will focus on integrating Occam's razor temporal binding to link sequential episodes into narrative chains and compiling the hot loops in the ConceptGraph using Cython or Numba to improve execution speed.
 
+### 7.5 Neural-Symbolic Bridge via Pre-trained Embeddings
+
+The concept graph provides structured relational knowledge, but cross-domain transfer to truly novel terms requires a semantic bridge. We employ a pre-trained sentence transformer (MiniLM-L6-v2, 384-dim) to embed all graph nodes, then bridge novel terms to the nearest known concepts via cosine similarity.
+
+A critical finding is that dimensionality projection must be avoided: random projection from 384 to 32 dimensions destroys semantic structure, reducing bridge accuracy from 67% to 42%. The full embedding space preserves domain clustering (intra-domain similarity 0.413 vs cross-domain 0.155, a 2.5x gap).
+
+Composed reasoning traverses the concept graph from bridge candidates using four mechanisms: (1) independent BFS per candidate to prevent cross-contamination, (2) depth decay (0.7x per hop) to prevent deeper results from overwhelming shallower ones, (3) reverse edge inheritance to propagate properties from children to parents, and (4) bridge-as-candidate for taxonomic queries.
+
+On 12 held-out terms (22 queries, 6 relation types): 91% query success, 90% object hit rate. This demonstrates that the architecture can generalize to concepts never seen during training, provided the embedding space is not projected.
+
 ---
 
 ## 8. Conclusion

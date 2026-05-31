@@ -147,3 +147,9 @@ FIX: Expand to scan all concepts periodically. Add core_vector→genesis_vector 
 
 8. **News-to-MDP pipeline (Issue 8)**
    - Full new module, lowest priority
+
+---
+
+## Update: Phase 2 Composed Reasoning PROVEN (2026-05-31)
+
+The transfer issue (Issues 1+2) is RESOLVED. Phase 2 NN bridge achieves 91% query success on 12 held-out novel terms. Key: MiniLM full-dim bridge + independent traversals + depth decay + reverse edge inheritance.

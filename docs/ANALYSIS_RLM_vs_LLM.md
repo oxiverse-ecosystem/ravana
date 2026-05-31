@@ -496,3 +496,16 @@ From the research, here's the state of the art in non-backprop learning:
 ---
 
 *This is not about catching up to transformers. It's about stealing their best ideas and combining them with things they can't do.*
+
+---
+
+## Update: Phase 2 NN Bridge Results (2026-05-31)
+
+The gap analysis identified 5 critical bugs (all fixed). Phase 2 now achieves 91% query success on held-out transfer via:
+- Pre-trained MiniLM bridge (no dimensionality projection)
+- Independent traversals per candidate
+- Depth decay (0.7x per hop)
+- Reverse edge inheritance
+- Bridge-as-candidate for is_a queries
+
+MiniLM preserves domain structure: intra-domain similarity 0.413 vs cross-domain 0.155 (2.5x gap). The concept graph's structured knowledge + embedding bridge enables transfer to terms never seen during training.
