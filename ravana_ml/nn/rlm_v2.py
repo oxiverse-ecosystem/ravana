@@ -65,6 +65,12 @@ _KEYWORD_MAP = {
         "heats", "heat", "cools", "cool", "freezes", "freeze",
         "dissolves", "dissolve", "evaporates", "evaporate",
         "compresses", "compress", "expands", "expand",
+        "contributes", "contribute", "associated", "linked",
+        "correlates", "correlate", "worsens", "worsen",
+        "improves", "improve", "increases", "increase",
+        "decreases", "decrease", "reduces", "reduce",
+        "enhances", "enhance", "diminishes", "diminish",
+        "prevents", "prevent", "inhibits", "inhibit",
     ],
     "temporal": [
         "then", "after", "before", "next", "later", "during",
