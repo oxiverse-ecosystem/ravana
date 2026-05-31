@@ -767,6 +767,7 @@ class RLMv2(Module):
                 rv_norm = np.linalg.norm(edge.relation_vector)
                 if rv_norm > 0:
                     edge.relation_vector /= rv_norm
+                edge._rv_norm_cache = None  # invalidate cached norm
 
             # ── Contrastive push: repel from different-target edges ──
             outgoing = self.graph.get_outgoing(subject_cid)
@@ -780,6 +781,7 @@ class RLMv2(Module):
                 rv_norm = np.linalg.norm(edge.relation_vector)
                 if rv_norm > 0:
                     edge.relation_vector /= rv_norm
+                edge._rv_norm_cache = None  # invalidate cached norm
 
             # ── Concept vector updates ──
             # Pull concept vectors toward their bound token embeddings

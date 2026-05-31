@@ -145,6 +145,8 @@ class ConceptEdge:
         # alpha = 1 + successes, beta = 1 + failures — starts as uniform Beta(1,1)
         self.posterior_alpha: float = 1.0 + weight * 10.0  # prior from initial weight
         self.posterior_beta: float = 1.0 + (1.0 - weight) * 10.0
+        # Cached norm for relation_vector (invalidated when RV changes)
+        self._rv_norm_cache: Optional[float] = None
 
     @staticmethod
     def _init_relation_vector(relation_type: str, dim: int) -> np.ndarray:
@@ -1222,15 +1224,22 @@ class ConceptGraph:
                     node = self.nodes.get(nid)
                     if node is None or node.activation <= 0.01:
                         continue
+                    # Pre-compute source norm ONCE per node (not per edge)
+                    src_vec = node.vector
+                    src_norm = float(np.linalg.norm(src_vec))
+                    src_normed = src_vec / src_norm if src_norm > 0 else None
                     # O(degree) neighbor lookup via adjacency list
                     for target_id, edge in self._outgoing.get(nid, []):
                         # Precision weighting: edge.confidence modulates signal strength
                         # Relation vector gate: RV alignment with source concept boosts flow
-                        src_vec = node.vector
-                        src_norm = np.linalg.norm(src_vec)
-                        rv_norm = np.linalg.norm(edge.relation_vector)
-                        if src_norm > 0 and rv_norm > 0:
-                            rel_boost = 1.0 + 0.3 * float(np.dot(edge.relation_vector[:len(src_vec)], src_vec / src_norm))
+                        # Cache rv norm on edge (invalidated in learn() when RV changes)
+                        rv = edge.relation_vector
+                        rv_norm_cached = edge._rv_norm_cache
+                        if rv_norm_cached is None:
+                            rv_norm_cached = float(np.linalg.norm(rv))
+                            edge._rv_norm_cache = rv_norm_cached
+                        if src_normed is not None and rv_norm_cached > 0:
+                            rel_boost = 1.0 + 0.3 * float(np.dot(rv[:len(src_vec)], src_normed))
                         else:
                             rel_boost = 1.0
                         # Use Bayesian posterior mean for activation spreading
@@ -1245,7 +1254,7 @@ class ConceptGraph:
                         act = node.activation * eff_weight * edge.confidence * decay * rel_boost * precision_gate
                         if edge.edge_type == "inhibitory":
                             act = -act
-                        # Fan effect: normalize by in-degree
+                        # Fan effect: normalize by in-degree (cached per-step)
                         in_deg = len(self._incoming.get(target_id, []))
                         fan_factor = 1.0 / (in_deg ** 0.5 + 1.0)
                         act *= fan_factor
