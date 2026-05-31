@@ -398,6 +398,31 @@ class RLMv2(Module):
         rel_type_idx, rel_type_embed = self._classify_relation_learned(relation_ids)
         rel_type_name = RELATION_TYPES[rel_type_idx]
 
+        # ── Vector Arithmetic (word2vec-style analogy) ──
+        # Compute expected output: subject_embed + relation_vector
+        # This enables cross-domain transfer via embedding space arithmetic.
+        # "king - man + woman = queen" style: "anger + causal_vector ≈ expansion"
+        analogy_targets = {}
+        # Collect relation vectors from edges matching the query relation type
+        rvs = []
+        for (src, tgt), edge in self.graph.edges.items():
+            if edge.relation_type == rel_type_name and hasattr(edge, 'relation_vector') and edge.relation_vector is not None:
+                rvs.append(edge.relation_vector)
+        if rvs:
+            avg_rv = np.mean(rvs, axis=0)
+            expected = subject_embed + avg_rv  # expected output embedding
+            # Compare with all concept vectors
+            for cid, node in self.graph.nodes.items():
+                if cid == subject_cid:
+                    continue
+                cv = self._project_to_concept(expected)[:len(node.vector)]
+                cv_norm = np.linalg.norm(cv)
+                nv_norm = np.linalg.norm(node.vector)
+                if cv_norm > 0 and nv_norm > 0:
+                    sim = float(np.dot(cv, node.vector) / (cv_norm * nv_norm))
+                    if sim > 0.3:  # threshold for analogy candidates
+                        analogy_targets[cid] = sim * 2.0  # boost factor
+
         # ── Spreading Activation ──
         # Reset all activations
         for node in self.graph.nodes.values():
@@ -406,8 +431,24 @@ class RLMv2(Module):
         # Activate subject concept
         self.graph.activate(subject_cid, amount=1.0)
 
-        # Spread activation (3 steps, decay 0.3) — aggressive spreading for cross-domain
+        # Phase 1: General spreading (3 steps, decay 0.3)
         self.graph.spread_activation(steps=3, k_active=10, decay=0.3)
+
+        # Phase 2: Relation-aware spreading (2 extra steps along matching edges)
+        # This preferentially spreads activation along edges that match the query
+        # relation type, enabling deeper cross-domain paths.
+        for _ in range(2):
+            to_activate = []
+            for nid, node in self.graph.nodes.items():
+                if node.activation < 0.005:
+                    continue
+                for tgt_id, edge in self.graph.get_outgoing(nid):
+                    if edge.relation_type == rel_type_name:
+                        tgt_node = self.graph.get_node(tgt_id)
+                        if tgt_node is not None:
+                            to_activate.append((tgt_id, node.activation * 0.5 * edge.weight * edge.confidence))
+            for nid, amount in to_activate:
+                self.graph.activate(nid, amount=amount)
 
         # ── Score tokens via activated concepts ──
         concept_scores = np.zeros(self.vocab_size, dtype=np.float32)
@@ -451,36 +492,26 @@ class RLMv2(Module):
                 else:
                     matching_targets[tgt_id] = base_score
 
-        # ── Graph-wide relation-type query (cross-domain transfer) ──
-        # When we have a specific relation type, boost ALL edges of that type.
-        # This is how "fire causes ?" can find "expansion" — fire activates heat
-        # (similar concept), and heat has causal edges to expansion.
+        # ── Activation-gated relation-type query (cross-domain transfer) ──
+        # Only boost causal edges whose source was ACTIVATED by spreading activation.
+        # This prevents flooding from unrelated causal edges while still enabling
+        # cross-domain transfer through activated intermediaries.
         if rel_type_name != "semantic":
-            for (src, tgt), edge in self.graph.edges.items():
-                if edge.relation_type == rel_type_name:
-                    # Weight by: edge strength × subject similarity to query subject
-                    src_node = self.graph.get_node(src)
-                    tgt_node = self.graph.get_node(tgt)
-                    if src_node is None or tgt_node is None:
+            for nid, node in active_nodes:
+                if node.activation < 0.01:
+                    continue
+                outgoing = self.graph.get_outgoing(nid)
+                for tgt_id, edge in outgoing:
+                    if edge.relation_type != rel_type_name:
                         continue
-
-                    # Subject similarity: how similar is this edge's source to our query subject?
-                    src_norm = np.linalg.norm(src_node.vector)
-                    subj_norm = np.linalg.norm(self._project_to_concept(subject_embed))
-                    if src_norm > 0 and subj_norm > 0:
-                        subj_sim = float(np.dot(src_node.vector, self._project_to_concept(subject_embed)[:len(src_node.vector)]) / (src_norm * subj_norm))
+                    if tgt_id == subject_cid:
+                        continue  # Don't predict subject
+                    # Score: activation × edge weight × confidence × 2.0 boost
+                    cross_score = node.activation * edge.weight * edge.confidence * 2.0
+                    if tgt_id in matching_targets:
+                        matching_targets[tgt_id] = max(matching_targets[tgt_id], cross_score)
                     else:
-                        subj_sim = 0.0
-
-                    # Only boost if source is similar to subject (or IS the subject)
-                    # Lower threshold for cross-domain transfer — even weak similarity
-                    # should activate causal targets
-                    if subj_sim > 0.05 or src == subject_cid:
-                        cross_score = edge.weight * edge.confidence * (0.5 + 0.5 * max(0, subj_sim))
-                        if tgt in matching_targets:
-                            matching_targets[tgt] = max(matching_targets[tgt], cross_score)
-                        else:
-                            matching_targets[tgt] = cross_score
+                        matching_targets[tgt_id] = cross_score
 
         # ── 2-Hop edge traversal (compositionality) ──
         # "fire causes ?" → fire→heat (any type), heat→expansion (causal) → boost expansion
@@ -497,7 +528,7 @@ class RLMv2(Module):
                     continue
                 if tgt_edge.relation_type == rel_type_name:
                     # 2-hop score: subject→mid weight × mid→target weight
-                    hop_score = mid_edge.weight * mid_edge.confidence * tgt_edge.weight * tgt_edge.confidence * 0.6
+                    hop_score = mid_edge.weight * mid_edge.confidence * tgt_edge.weight * tgt_edge.confidence * 3.0
                     if tgt_cid in matching_targets:
                         matching_targets[tgt_cid] = max(matching_targets[tgt_cid], hop_score)
                     else:
@@ -508,8 +539,8 @@ class RLMv2(Module):
         for nid, node in active_nodes:
             if nid == subject_cid:
                 continue  # Don't predict subject itself
-            # Score based on activation strength (boosted)
-            act_score = node.activation * 1.5
+            # Score based on activation strength (boosted heavily for multi-hop)
+            act_score = node.activation * 3.0
             if nid in matching_targets:
                 matching_targets[nid] = max(matching_targets[nid], act_score)
             else:
@@ -526,6 +557,15 @@ class RLMv2(Module):
                     matching_targets[tgt_id] = max(matching_targets[tgt_id], edge_score)
                 else:
                     matching_targets[tgt_id] = edge_score
+
+        # ── Merge analogy targets (vector arithmetic) ──
+        for cid, score in analogy_targets.items():
+            if cid == subject_cid:
+                continue
+            if cid in matching_targets:
+                matching_targets[cid] = max(matching_targets[cid], score)
+            else:
+                matching_targets[cid] = score
 
         # Map target concepts to token scores
         for tgt_cid, score in matching_targets.items():
