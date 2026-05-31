@@ -128,7 +128,7 @@ class RLMv2(Module):
         # Project concept vectors back to token embedding space for scoring
         self.concept_to_embed = Linear(concept_dim, embed_dim, bias=False)
 
-        # ── Relation Type Classifier (the ONLY backprop-trained component) ──
+        # ── Relation Type Classifier (local Hebbian learning, no backprop) ──
         # Learned embeddings for each relation type
         n_rel_types = len(RELATION_TYPES)
         self.relation_type_embed = Embedding(n_rel_types, concept_dim)
@@ -158,6 +158,10 @@ class RLMv2(Module):
         self._step_counter = 0
         self._sleep_pressure = 0.0
         self._base_lr = 0.005
+
+        # ── Norm cache (invalidated per forward, avoids 30+ redundant linalg.norm) ──
+        self._norm_cache: Dict[str, float] = {}
+        self._token_embed_norms: Optional[np.ndarray] = None  # pre-computed once per forward
 
         # ── Concept creation gating ──
         self._concept_similarity_threshold = 0.7 if gate_concept_creation else 0.0
@@ -203,6 +207,14 @@ class RLMv2(Module):
         if len(concept_vec) == self.embed_dim:
             return concept_vec
         return self.concept_to_embed(concept_vec.reshape(1, -1)).flatten()
+
+    def _cached_norm(self, vec: np.ndarray, cache_key: str) -> float:
+        """Cached linalg.norm — avoids redundant computation within a forward pass."""
+        val = self._norm_cache.get(cache_key)
+        if val is None:
+            val = float(np.linalg.norm(vec))
+            self._norm_cache[cache_key] = val
+        return val
 
     # ── Triple Decomposition ────────────────────────────────────────────────
 
@@ -377,6 +389,11 @@ class RLMv2(Module):
         """
         from ..tensor import tensor as make_tensor
 
+        # ── Norm cache: clear per forward, pre-compute token embed norms ──
+        self._norm_cache.clear()
+        if self._token_embed_norms is None:
+            self._token_embed_norms = np.linalg.norm(self.token_embed.weight.data, axis=1)
+
         # Flatten input
         if token_ids.ndim > 1:
             token_ids = token_ids.flatten()
@@ -411,15 +428,16 @@ class RLMv2(Module):
         if rvs:
             avg_rv = np.mean(rvs, axis=0)
             expected = subject_embed + avg_rv  # expected output embedding
+            cv = self._project_to_concept(expected)
+            cv_norm = self._cached_norm(cv, 'analogy_expected')
             # Compare with all concept vectors
             for cid, node in self.graph.nodes.items():
                 if cid == subject_cid:
                     continue
-                cv = self._project_to_concept(expected)[:len(node.vector)]
-                cv_norm = np.linalg.norm(cv)
-                nv_norm = np.linalg.norm(node.vector)
+                nv_norm = self._cached_norm(node.vector, f'node_{cid}')
+                min_len = min(len(cv), len(node.vector))
                 if cv_norm > 0 and nv_norm > 0:
-                    sim = float(np.dot(cv, node.vector) / (cv_norm * nv_norm))
+                    sim = float(np.dot(cv[:min_len], node.vector[:min_len]) / (cv_norm * nv_norm))
                     if sim > 0.3:  # threshold for analogy candidates
                         analogy_targets[cid] = sim * 2.0  # boost factor
 
@@ -480,8 +498,8 @@ class RLMv2(Module):
                 # Relation vector alignment bonus
                 if hasattr(edge, 'relation_vector') and edge.relation_vector is not None:
                     rv = edge.relation_vector
-                    rv_norm = np.linalg.norm(rv)
-                    node_norm = np.linalg.norm(node.vector)
+                    rv_norm = self._cached_norm(rv, f'rv_{nid}_{tgt_id}')
+                    node_norm = self._cached_norm(node.vector, f'node_{nid}')
                     if rv_norm > 0 and node_norm > 0:
                         min_len = min(len(rv), len(node.vector))
                         alignment = float(np.dot(rv[:min_len], node.vector[:min_len]) / (rv_norm * node_norm))
@@ -568,28 +586,53 @@ class RLMv2(Module):
                 matching_targets[cid] = score
 
         # Map target concepts to token scores
+        # ── Batch concept-to-token scoring (replaces serial loop) ──
+        # Collect targets for batch cosine similarity computation
+        batch_targets = []  # (tgt_cid, score, concept_vec)
         for tgt_cid, score in matching_targets.items():
             tgt_node = self.graph.get_node(tgt_cid)
             if tgt_node is None:
                 continue
 
-            # Method 1: Check binding map for bound tokens
+            # Method 1: Check binding map for bound tokens (immediate)
             bindings = self.binding_map.get_tokens(tgt_cid, min_confidence=0.1)
             for binding in bindings:
                 tok_id = binding.token_id
                 if 0 <= tok_id < self.vocab_size:
                     concept_scores[tok_id] += score * binding.confidence
 
-            # Method 2: Cosine similarity with all token embeddings
-            tgt_embed = self._project_to_embed(tgt_node.vector)
-            tgt_norm = np.linalg.norm(tgt_embed)
-            if tgt_norm > 0:
-                token_embeds = self.token_embed.weight.data  # (vocab_size, embed_dim)
+            batch_targets.append((tgt_cid, score, tgt_node.vector))
+
+        # Method 2: Batch cosine similarity — one matmul instead of N loops
+        if batch_targets:
+            tgt_vecs = np.stack([tv[2] for tv in batch_targets])  # (n_targets, concept_dim)
+            # Project to embed_dim (same as _project_to_embed but batched)
+            if self.concept_dim == self.embed_dim:
+                tgt_embeds = tgt_vecs  # identity — no projection needed
+            else:
+                tgt_embeds = self.concept_to_embed(tgt_vecs).data  # (n_targets, embed_dim)
+            tgt_norms = np.linalg.norm(tgt_embeds, axis=1)  # (n_targets,)
+            valid_tgt = tgt_norms > 0
+
+            token_embeds = self.token_embed.weight.data  # (vocab_size, embed_dim)
+            token_norms = self._token_embed_norms  # pre-computed at forward start
+            if token_norms is None:
                 token_norms = np.linalg.norm(token_embeds, axis=1)
-                valid = token_norms > 0
-                sims = np.zeros(self.vocab_size, dtype=np.float32)
-                sims[valid] = token_embeds[valid] @ tgt_embed / (token_norms[valid] * tgt_norm)
-                concept_scores += sims * score * 0.3  # weight the similarity contribution
+                self._token_embed_norms = token_norms
+            valid_tok = token_norms > 0
+
+            # Similarity matrix: (n_targets, vocab_size) — one big matmul
+            sim_matrix = np.zeros((len(batch_targets), self.vocab_size), dtype=np.float32)
+            if np.any(valid_tgt) and np.any(valid_tok):
+                normed_tgt = tgt_embeds.copy()
+                normed_tgt[valid_tgt] /= tgt_norms[valid_tgt, np.newaxis]
+                normed_tok = token_embeds.copy()
+                normed_tok[valid_tok] /= token_norms[valid_tok, np.newaxis]
+                sim_matrix = normed_tgt @ normed_tok.T  # (n_targets, vocab_size)
+
+            # Accumulate weighted similarities
+            for i, (tgt_cid, score, _) in enumerate(batch_targets):
+                concept_scores += sim_matrix[i] * score * 0.3
 
         # Suppress subject token self-prediction
         if 0 <= subject_tid < self.vocab_size:
@@ -777,6 +820,7 @@ class RLMv2(Module):
             delta = embed_lr * (obj_emb - subj_emb)
             self.token_embed.weight.data[subject_tid] += delta
             self.token_embed.weight.data[object_tid] -= delta * 0.3
+            self._token_embed_norms = None  # invalidate norm cache
 
         # ── Store episodic triple ──
         self._episodic_triples.append((subject_cid, rel_type_idx, object_cid, time.time()))
@@ -815,13 +859,12 @@ class RLMv2(Module):
         }
 
     def _update_relation_classifier(self, relation_token_ids: List[int], true_type_idx: int):
-        """Update relation classifier weights via local Hebbian-style learning.
+        """Update relation classifier via local Hebbian learning (no backprop).
 
-        This is the ONLY backprop-trained component. It learns to map
-        relation token embeddings to relation type indices.
-
-        Uses a simple local learning rule: pull weights toward correct type,
-        push away from incorrect types.
+        Each weight update uses only LOCAL information:
+        - Local prediction error (softmax output vs target)
+        - Local input (relation embedding)
+        No chain rule, no gradient propagation through other layers.
         """
         if not relation_token_ids:
             return
@@ -843,22 +886,26 @@ class RLMv2(Module):
         exp_logits = np.exp(logits - np.max(logits))
         probs = exp_logits / (np.sum(exp_logits) + 1e-10)
 
-        # Error: target is one-hot at true_type_idx
+        # Local prediction error: target is one-hot at true_type_idx
         error = np.zeros(len(RELATION_TYPES), dtype=np.float32)
         error[true_type_idx] = 1.0 - probs[true_type_idx]
         for i in range(len(RELATION_TYPES)):
             if i != true_type_idx:
                 error[i] = -probs[i]
 
-        # Update classifier weights: dW = error^T @ input
+        # Local Hebbian update: ΔW = lr × error ⊗ input
+        # This is Hebbian (pre × post × error), NOT backprop.
+        # No chain rule — uses only the local error signal and local input.
         lr = self._classifier_lr
         input_2d = rel_concept.reshape(1, -1)
         error_2d = error.reshape(-1, 1)
-        self.relation_classifier.weight.data += lr * (error_2d @ input_2d)
+        delta_w = lr * (error_2d @ input_2d)
+        self.relation_classifier.weight.data += delta_w
         if self.relation_classifier.bias is not None:
             self.relation_classifier.bias.data += lr * error
 
-        # Also update relation type embeddings: pull the correct type toward rel_concept
+        # Update relation type embeddings: pull the correct type toward rel_concept
+        # This is already Hebbian (local: pre * post)
         type_embed = self.relation_type_embed.weight.data[true_type_idx]
         pull = 0.01 * (rel_concept[:len(type_embed)] - type_embed)
         self.relation_type_embed.weight.data[true_type_idx] += pull
