@@ -1,6 +1,6 @@
 # RAVANA — Codebase Status Report
-**Date:** 2026-05-31 (updated — RLMv2 vector arithmetic analogy, relation-aware spreading, 95.7% cross-domain benchmark)
-**Commit:** a459354
+**Date:** 2026-05-31 (updated — full codebase audit, test fixes, doc consistency check)
+**Commit:** a459354 + uncommitted fixes (RLMv2 save/load binding_map, K3_Belief_Agent latent_regime compat)
 **Author:** Likhith
 **Purpose:** Shareable status document for LLM collaborators
 
@@ -901,9 +901,12 @@ Based on cognitive science research (spreading activation, synaptic homeostasis,
 | `tests/test_memory_integration.py` | Episodic/semantic memory traces, retrieval context |
 | `test_dynamics.py` | Honesty metric, commitment integrity, wisdom gain stability, high dissonance behavior |
 | `test_dynamics_check.py` | Quick dynamics verification |
+| `test_rlm_v2.py` | **RLMv2 triple architecture:** triple decomposition, relation type classification, forward pass (spreading activation), learn (Hebbian triple updates), relation type in edges, train memorization, relation type transfer, cross-subject causal, sleep cycle, save/load roundtrip, relation vector separation (11 tests) |
 | `research/core_k0/test_k*.py` | K-series agent robustness, learning, adversarial breaking, regime shifts (10 files) |
 
-**Full CI suite: 100/100 ravana_ml tests + 11/11 ravana-v2 tests = 111 total, all passing.**
+**Full CI suite: 100/100 ravana_ml tests + 11/11 ravana-v2 tests + 11/11 RLMv2 tests = 122 core tests, all passing.**
+
+Additional tests in `ravana-v2/research/core_k0/` (K-series agent tests) bring total collected to ~131. Two research test files have known issues: `test_k3_exp1_isolation.py` (truncated file) and `test_k3_exp3_metastability.py` (missing import). Two more (`test_k2_breakers.py`, `test_k3_exp2_coupling.py`) have fixture signature mismatches (helper functions, not proper pytest tests).
 
 Note: `tests/test_full_cross_domain_eval.py` is a standalone script (calls `test_structural_transfer` from experiments/), not a pytest test. A root `conftest.py` excludes experiment scripts from pytest collection to prevent fixture resolution errors.
 - `import ravana`, tensor creation, nn.Linear, ConceptGraph via ravana.graph
@@ -1033,9 +1036,11 @@ These target the core problem that hidden states are near-constant (86-99% cosin
 2. **Paper claims vs results mismatch** → **RESOLVED (2026-05-23).** All three dissonance metrics unified to `0.1 + 0.8 * min(1.0, raw_d / 1.5)`. RLM now has `dissonance_normalized` property for paper-comparable reporting.
 3. **Lifelong benchmark COMPLETE (2026-05-24)** — 100k/100k done (pure Hebbian baseline), then 15k/15k with replay+EWC+Bayesian. Pure Hebbian: 40.8% retention, 12% forgetting. **With three-pronged defense: 47.6% retention, 0% forgetting** — catastrophic forgetting completely eliminated. Per-epoch: previously-suffering epochs 1/3 jump from 38%/32% to 52%/52%. 384 concepts, 21k edges, 1226 sleep cycles, 42ms/step. Plots regenerated from full data.
 4. **News-to-MDP pipeline unimplemented** — `reality_grounding.py` exists but structured cognitive event pipeline is a design
-5. **~~Shared currencies incomplete~~** → **LARGELY RESOLVED (2026-05-24).** `CognitiveCurrency` (291 lines) + `CognitiveCurrencies` (250 lines) created. Integrated into RLM via property aliases. Remaining: migrate all scattered scalar accesses, unify confidence (4 concepts), unify stability (6 concepts).
+5. **~~Shared currencies incomplete~~** → **LARGELY RESOLVED (2026-05-24).** `CognitiveCurrency` (291 lines) + `CognitiveCurrencies` (250 lines) created. Integrated into RLM via property aliases. **Phase 1 renames DONE (2026-05-31):** ConceptNode backward-compat aliases deleted (21 lines), `FrameworkState.total_pressure` → `total_free_energy` (fixed latent AttributeError), framework.py `query()` key updated. Remaining: confidence/stability unification is documentation-only (field names already consistent, update rules domain-appropriate).
 6. **Graph optimization Phase 3 deferred** — scipy.sparse/HNSW deferred until 10K+ nodes (currently ~384). Step time already optimized to 70ms (6.5x speedup from sleep_cycle optimization).
-7. **Test suite 100/100 + 11/11 pass** — all ravana_ml and ravana-v2 tests green. `test_rlm_vs_llm.py` passes all 6 experiments. Pre-existing test failures (test_generation vocab_size, 3 governor grace layer) resolved 2026-05-29.
+7. **Test suite 122/122 core tests pass** — 100/100 ravana_ml + 11/11 ravana-v2 + 11/11 RLMv2. `test_rlm_vs_llm.py` passes all 6 experiments. Pre-existing test failures (test_generation vocab_size, 3 governor grace layer) resolved 2026-05-29. **FIXED 2026-05-31:** RLMv2 `test_save_load` (binding_map not persisted — predictions were all-zero after load) and `test_latent_regime` (K3_Belief_Agent missing `utility` field + `visits` key overwritten during action selection).
+8. **~~RLMv2 save/load broken~~** → **RESOLVED (2026-05-31).** `ConceptBindingMap` (token↔concept mapping) was not included in `state_dict()`/`load()`. After load, `_get_or_create_concept()` couldn't find existing concepts, created new ones with different vectors → predictions all zero. Fixed by serializing `_by_token` and `_by_concept` binding indices in state_dict and restoring via `ConceptBindingMap.bind()` on load.
+9. **~~K3_Belief_Agent test_latent_regime crash~~** → **RESOLVED (2026-05-31).** Two bugs: (a) `choose_action()` temporarily overwrites `context_weights[key]` with `adjusted_prefs` dict that lacks `"visits"` key, then `_learn_from_outcome()` crashes on `["visits"] += 1`. Fixed by preserving `visits` count from original weights. (b) `SimpleOutcome` dataclass lacked `utility` field expected by K2's `_learn_from_outcome()`. Fixed by adding `utility` field populated from `result.get('utility', delta_energy)`.
 8. **~~Replay not wired into lifelong benchmark~~** → **RESOLVED (2026-05-24).** Replay wired into lifelong entity-epoch transitions: `buffer_experience()` after each `learn()`, `snapshot_replay_buffer()` + `activate_domain_memories()` at epoch boundaries. Sleep cycles replay prior-domain experiences alongside current-domain training.
 9. **~~EWC not implemented~~** → **RESOLVED (2026-05-24).** EWC implemented: empirical Fisher information per-edge from activation patterns and prediction error, `snapshot_weights()` at domain boundaries, `ewc_penalty = lambda * fisher * (weight - old_weight)` in `hebbian_update()`.
 10. **~~Cross-domain replay needs scaling~~** → **RESOLVED (2026-05-24).** Cross-domain experiments scaled to 60+ facts per domain, 20 cross-domain probes, multi-seed evaluation via `--seeds` flag.
@@ -1069,6 +1074,38 @@ These target the core problem that hidden states are near-constant (86-99% cosin
 - ~~forward/forward_step equivalence~~ — shared `_seq_position` counter, proper routing
 - ~~Top-1 accuracy 0%~~ — **BREAKTHROUGH: 100%** after 3 architectural fixes (ef405d7)
 - ~~Cross-domain transfer 0%~~ — **First non-zero: 14.3% top-1, 71.4% top-10** via relation predictor
+
+---
+
+## Cross-Document Inconsistencies (Audit 2026-05-31)
+
+Full codebase + docs audit found 13 inconsistencies across documentation files. Listed by severity:
+
+### Critical (numbers differ by >5x)
+
+1. **~~Cross-domain transfer: papers say 14.3%, actual is 95%.~~** → **FIXED (2026-05-31).** All three papers (`SCIENCE_DIRECT_MANUSCRIPT.md`, `PAPER_DRAFT.md`, `RAVANA_REPORT.md`) updated with 95% top-1 / 100% top-10 in abstracts, results tables, discussion, and conclusion. RLMv2 (95.7% overall, 75% cross-domain causal) added to abstracts. Historical narrative sections retain 14.3% as original baseline (correct).
+
+2. **~~EXTERNAL_AUDIT.md lists "Cross-domain transfer = 0.0" as most important open problem.~~** → **FIXED (2026-05-31).** Audit doc updated with current status: all previously-identified issues resolved or marked with current state.
+
+### Moderate (misleading framing)
+
+3. **Dissonance trajectory mismatch.** Paper claims 0.800→0.200 (aspirationally scaled). Actual RLM `dissonance_ema`: 0.323→0.322. Unified formula `0.1 + 0.8 * min(1.0, raw_d / 1.5)` was applied 2026-05-23, but papers still report old numbers.
+
+4. **Lifelong benchmark: 100K vs 15K experiments compared as if equivalent.** Pure Hebbian baseline ran 100K experiences (40.8% retention, 12% forgetting). Defense experiment ran 15K experiences (47.6% retention, 0% forgetting). Different N, different edge counts (58K vs 21K), different sleep cycles. Documents present these side-side without clear caveat.
+
+5. **ARCHITECTURE_v2.md: "Not a neural network — no backprop."** The Relation Predictor MLP in RLM uses backpropagation (acknowledged as "sole exception" in STATUS.md and papers). The v2 doc doesn't mention this exception.
+
+6. **"What RAVANA IS" section claims 95% cross-domain.** This is on the original 20-probe set after multiple fix rounds. RLMv2 achieves 95.7% on a completely different 47-triple benchmark. The two numbers are from incomparable evaluation setups but presented in sequence.
+
+### Minor (inconsistency or staleness)
+
+7. **Per-step timing varies across docs:** ANALYSIS says 3.49ms (micro-benchmark of MLP only), STATUS says 70-452ms (full experience step), lifelong 15K says 42ms/step. These measure different things but aren't always distinguished.
+
+8. **Test count inconsistency:** Earlier entries say "99/99 + 11/11" or "100/100 + 11/11". Current verified count: 100 + 11 + 11 = 122 core tests.
+
+9. **PAPER_DRAFT Appendix B: "Compositional generalization: 100% (RLM) vs 33% (MLP)."** This 3x advantage is from only 3 test cases — not statistically robust enough for a paper claim.
+
+10. **Shared currencies audit: 6 unchecked items remain.** `ConceptNode.pressure` rename, `ConceptEdge.pressure` rename, `RLM.total_pressure` rename, `Module._pressure` rename, confidence unification (4 concepts), stability unification (6 concepts). Status says "LARGELY RESOLVED" but renames are still pending.
 
 ---
 

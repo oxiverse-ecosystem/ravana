@@ -991,6 +991,12 @@ class RLMv2(Module):
             "step_counter": self._step_counter,
             "train_correct": self._train_correct,
             "train_total": self._train_total,
+            "binding_map": {
+                "by_token": {tid: [(b.concept_id, b.confidence, b.source) for b in blist]
+                             for tid, blist in self.binding_map._by_token.items()},
+                "by_concept": {cid: [(b.token_id, b.confidence, b.source) for b in blist]
+                               for cid, blist in self.binding_map._by_concept.items()},
+            },
         }
 
     def save(self, path: str):
@@ -1045,3 +1051,10 @@ class RLMv2(Module):
         self._step_counter = state.get("step_counter", 0)
         self._train_correct = state.get("train_correct", 0)
         self._train_total = state.get("train_total", 0)
+
+        # Restore binding map
+        self.binding_map = ConceptBindingMap()
+        bm_data = state.get("binding_map", {})
+        for tid, bindings in bm_data.get("by_token", {}).items():
+            for cid, conf, src in bindings:
+                self.binding_map.bind(int(tid), int(cid), confidence=conf, source=src)
