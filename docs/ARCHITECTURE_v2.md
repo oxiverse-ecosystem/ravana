@@ -344,3 +344,30 @@ Phase 6: Working memory temporal bindings
 *"Cognition as pressure-driven self-organization."*
 
 This is the center of gravity. Everything else is implementation detail.
+
+---
+
+## Phase 2: NN Bridge + Composed Reasoning (2026-05-31)
+
+The concept graph provides structured knowledge, but cross-domain transfer requires bridging novel terms to known concepts.
+
+### NN Bridge
+
+Pre-trained sentence transformer (MiniLM-L6-v2, 384-dim) provides semantic embeddings. Novel terms bridge to nearest known concepts via cosine similarity. **Critical: no dimensionality projection.** Random projection 384→32 destroys semantics (67% → 42% bridge accuracy).
+
+### Composed Reasoning Pipeline
+
+1. **Independent traversals** per bridge candidate (shared visited sets block cross-candidate paths)
+2. **Depth decay** (0.7x per hop — prevents depth-2 cascade from drowning depth-1 results)
+3. **Reverse edge inheritance** (if X is_a Y, Y inherits X's outgoing edges)
+4. **Bridge-as-candidate** (for is_a queries, bridge node itself is valid answer)
+
+### Results
+
+| Metric | Value |
+|--------|-------|
+| Bridge accuracy | 67% (8/12 novel terms) |
+| Query success | 91% (20/22 queries) |
+| Object hit rate | 90% (28/31 expected objects) |
+
+Semantic clustering: intra-domain 0.413, cross-domain 0.155 (2.5x gap — MiniLM preserves domain structure).

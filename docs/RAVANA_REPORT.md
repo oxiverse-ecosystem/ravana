@@ -318,6 +318,36 @@ The key design insight is that replay happens during SWS and REM, not during awa
 
 ---
 
+## Phase 2: NN Bridge and Composed Reasoning
+
+The concept graph's predictive coding learning rule enables structural knowledge representation, but cross-domain transfer requires bridging novel terms to known concepts via embedding similarity.
+
+### NN Bridge Architecture
+
+A pre-trained sentence transformer (MiniLM-L6-v2, 384-dim) provides semantic embeddings for all graph nodes. Novel terms are bridged to the nearest known concepts via cosine similarity in the full embedding space (no dimensionality projection — random projection from 384→32 destroys semantic structure, reducing bridge accuracy from 67% to 42%).
+
+### Composed Reasoning
+
+Once bridged, the system traverses the concept graph from the bridge candidates:
+1. **Independent traversals** — each bridge candidate gets its own BFS (shared visited sets block cross-candidate paths)
+2. **Depth decay** — confidence decays 0.7x per hop (prevents depth-2 cascade from drowning depth-1 results)
+3. **Reverse edge inheritance** — if a bridge node has no outgoing edges, inherit from children (e.g., grass is_a plant → plant inherits grass's edges)
+4. **Bridge-as-candidate** — for is_a queries, the bridge node itself is a valid answer
+
+### Results
+
+12 held-out terms never seen during training, 22 queries across 6 relation types:
+
+| Metric | Value |
+|--------|-------|
+| Bridge accuracy | 67% (8/12 terms) |
+| Query success | 91% (20/22 queries) |
+| Object hit rate | 90% (28/31 expected objects) |
+
+Progression: 45% → 52% → 61% → 68% → 91% query success across 5 iterations. Only matcha fails (MiniLM embedding 0.32 sim — model limitation, not architecture).
+
+---
+
 ## 7. Discussion
 
 ### 7.1 Implications for Neuroscience

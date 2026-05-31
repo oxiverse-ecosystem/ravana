@@ -10,6 +10,8 @@ Source: LLM collaborator review of RAVANA_STATUS.md
 - Generation stabilization: fatigue + repetition penalty + exploratory drive
 - Unified packaging: pip install -e ravana/, import ravana as torch
 - CognitiveFramework API: perceive → predict → learn → sleep → infer
+- NN bridge: MiniLM embeddings preserve domain structure (2.5x intra/cross gap)
+- Composed reasoning: depth decay + reverse inheritance + bridge-as-candidate
 
 ## Previously Identified Issues — Status (2026-05-31)
 
@@ -30,3 +32,4 @@ Source: LLM collaborator review of RAVANA_STATUS.md
 - **Lifelong:** 47.6% retention, 0% catastrophic forgetting (three-pronged defense)
 - **Tests:** 122/122 core tests passing
 - **Papers:** Stale — still report 14.3% cross-domain (actual: 95%). Need updating before submission.
+- **Phase 2 NN Bridge:** 91% query success on 12 held-out novel terms (MiniLM full-dim bridge + reverse edge inheritance)
