@@ -105,28 +105,6 @@ class ConceptNode:
     def plasticity(self):
         return 1.0 - self.stability
 
-    # Backward-compatible aliases (deprecated — use free_energy variants)
-    @property
-    def contradiction_pressure(self) -> float:
-        return self.contradiction_free_energy
-    @contradiction_pressure.setter
-    def contradiction_pressure(self, val: float):
-        self.contradiction_free_energy = val
-
-    @property
-    def pressure_history(self) -> list:
-        return self.free_energy_history
-    @pressure_history.setter
-    def pressure_history(self, val: list):
-        self.free_energy_history = val
-
-    @property
-    def pressure_gradient(self) -> float:
-        return self.free_energy_gradient
-    @pressure_gradient.setter
-    def pressure_gradient(self, val: float):
-        self.free_energy_gradient = val
-
     def __repr__(self):
         hierarchy = f" L{self.level}" if self.level > 0 else ""
         children = f" [{len(self.children)}ch]" if self.children else ""

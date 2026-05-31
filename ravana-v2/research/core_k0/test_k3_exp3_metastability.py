@@ -17,8 +17,8 @@ import os
 import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
-from research.core_k0.agent_loop_k2 import K2_Agent
-from research.core_k0.agent_loop_k3_belief import K3_Belief_Agent, ActionOutcome
+from research.core_k0.agent_loop_k2 import K2_Agent, ActionOutcome
+from research.core_k0.agent_loop_k3_belief import K3_Belief_Agent
 from research.experiments_k0.latent_regime_env import LatentRegimeEnv
 import numpy as np
 from typing import Dict, List

@@ -158,6 +158,8 @@ class K3_Belief_Agent(K2_Agent):
         
         # Temporarily override context_weights for this decision
         original_weights = self.context_weights.get(context_key, {})
+        # Preserve visits count so _learn_from_outcome doesn't KeyError
+        adjusted_prefs["visits"] = original_weights.get("visits", 0)
         self.context_weights[context_key] = adjusted_prefs
         
         # === CRITICAL MOMENT OVERRIDES ===
@@ -294,6 +296,7 @@ class K3_Belief_Agent(K2_Agent):
             delta_energy: float
             survived: bool
             exploration_success: bool
+            utility: float = 0.0
             
         # Get current context from state
         trend = self.state.get_energy_trend(5) if self.state.energy_history else 0.0
@@ -310,7 +313,8 @@ class K3_Belief_Agent(K2_Agent):
             action=action,
             delta_energy=energy_after - energy_before,
             survived=result['alive'],
-            exploration_success=energy_after > energy_before if action.value == 'explore' else False
+            exploration_success=energy_after > energy_before if action.value == 'explore' else False,
+            utility=result.get('utility', energy_after - energy_before)
         )
     
     def get_status(self) -> Dict[str, Any]:

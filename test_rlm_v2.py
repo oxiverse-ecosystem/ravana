@@ -13,6 +13,7 @@ Tests cover:
 
 import sys
 import os
+import tempfile
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -274,7 +275,7 @@ def test_save_load():
     logits_before = model.forward(np.array(ids[:-1], dtype=np.int64)).data.copy()
 
     # Save
-    save_path = "/tmp/test_rlm_v2_save.pkl"
+    save_path = tempfile.mktemp(suffix=".pkl")
     model.save(save_path)
 
     # Load into new model

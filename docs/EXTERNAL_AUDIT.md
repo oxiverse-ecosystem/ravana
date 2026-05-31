@@ -1,4 +1,4 @@
-# RAVANA External Audit — 2026-05-23
+# RAVANA External Audit — 2026-05-23 (updated 2026-05-31)
 Source: LLM collaborator review of RAVANA_STATUS.md
 
 ## What's Working
@@ -11,35 +11,22 @@ Source: LLM collaborator review of RAVANA_STATUS.md
 - Unified packaging: pip install -e ravana/, import ravana as torch
 - CognitiveFramework API: perceive → predict → learn → sleep → infer
 
-## What's Still Fragile
-1. **Cross-domain transfer = 0.0** — most important open problem
-   - Need: stronger inductive biases (role-filler separation, predicate structures)
-   - Need: much more training on varied relational patterns
-   - Relation types not disentangled from specific entities
-   
-2. **Shared currencies fragmented** — 6 pressure concepts, 4 confidence, 6 stability
-   - Makes sleep consolidation, meaning, Governor incommensurable
-   - Need: canonical versions with consistent ranges + conservation laws
+## Previously Identified Issues — Status (2026-05-31)
 
-3. **Benchmark eval just fixed** — all previous numbers need re-running
-   - Need: minimal reproducible test harness (10-task few-shot suite)
-   - Run automatically, save results, catch regressions
+1. ~~**Cross-domain transfer = 0.0**~~ → **RESOLVED.** 95% top-1 / 100% top-10 on original probes (commit 08ef0ce). RLMv2: 95.7% overall, 75% cross-domain causal on 47-triple benchmark (commit a459354).
 
-4. **News-to-MDP pipeline** — limits ecological validity
-   - Need: structured events with verifiable outcomes
-   - Even toy version (mock RSS with tiny MDPs) would close the loop
+2. ~~**Shared currencies fragmented**~~ → **LARGELY RESOLVED.** CognitiveCurrency + CognitiveCurrencies modules created (2026-05-24). Remaining: 6 field renames (pressure → canonical names), confidence unification (4 concepts), stability unification (6 concepts).
 
-5. **Scaling limits** — graph_diagnostics throttled but will be needed
-   - HNSW/sparse needed past few thousand nodes
-   - RLM 14× slower than MLP (may be fundamental, but settle loop can be optimized)
+3. ~~**Benchmark eval just fixed**~~ → **RESOLVED.** Fair evaluation protocol established (eval_fair.py). 100/100 + 11/11 + 11/11 = 122 core tests all passing.
 
-6. **Paper-results mismatch** — dissonance 0.800→0.200 vs 0.323→0.322
+4. **News-to-MDP pipeline** — Still unimplemented. `reality_grounding.py` exists but no structured cognitive event pipeline.
 
-## Near-Term Roadmap (Priority Order)
-1. Get relational transfer > 0%
-   - Diagnose relation vector separation via geometry dashboard
-   - Try symbolic scaffolding (A REL B → B REL C → A REL C)
-2. Finish shared-currency refactoring
-3. Create formal, repeatable benchmark suite (run on every commit)
-4. Build toy "news" MDP (5-10 synthetic events with structured predicates)
-5. Fix paper-results mismatch
+5. **Scaling limits** — Deferred. Graph optimization (HNSW/sparse) deferred until 10K+ nodes (currently ~384). Step time optimized to 70ms (6.5x speedup).
+
+6. ~~**Paper-results mismatch**~~ → **RESOLVED (code).** Dissonance formula unified (2026-05-23). Papers still need updating with 95% cross-domain numbers.
+
+## Current Status
+- **Cross-domain:** 95% top-1, 100% top-10 (RLMv1 probes); 95.7% overall, 75% cross-domain causal (RLMv2)
+- **Lifelong:** 47.6% retention, 0% catastrophic forgetting (three-pronged defense)
+- **Tests:** 122/122 core tests passing
+- **Papers:** Stale — still report 14.3% cross-domain (actual: 95%). Need updating before submission.
