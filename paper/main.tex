@@ -205,7 +205,7 @@ A global workspace bottleneck broadcasts a small set of high-salience concepts t
 All results in this paper are internal prototype results derived from the project reports supplied with the manuscript. They should be treated as engineering evidence and hypotheses for future replication, not as independently verified cognitive-science findings.
 
 \subsection{Model Configuration}
-The reported experiments used a compact configuration: embedding dimension 32, concept dimension 32, hidden size 32, three hidden layers, five settle steps, settle damping 0.95, base learning rate 0.001, free-energy threshold 8.0, sleep interval 100, and random seed 42. A word-level tokenizer was used for most concept experiments because it reduced overhead relative to BPE in small-vocabulary relational tasks.
+The within-domain experiments used a compact configuration: embedding dimension 32, concept dimension 32, hidden size 32, three hidden layers, five settle steps, settle damping 0.95, base learning rate 0.005, free-energy threshold 8.0, sleep interval 5, and random seed 42. The cross-domain and lifelong-streaming experiments used a larger configuration: embedding dimension 64, concept dimension 64, hidden size 128, three hidden layers, and sleep interval 100, with all other parameters unchanged. The fairness experiment used the ravana-v2 cognitive core with its own configuration (see Appendix~\ref{app:reproduction}). A word-level tokenizer was used for most concept experiments because it reduced overhead relative to BPE in small-vocabulary relational tasks.
 
 \subsection{Within-Domain Association Learning}
 The within-domain task tested whether the system could learn target associations after earlier failures. Early versions achieved 0\% top-1 accuracy because relation vectors collapsed, concepts proliferated without sufficient gating, and sleep downscaling erased useful structure. Three fixes were introduced: relation-vector type seeds and anchoring, concept-creation gating, and adaptive per-edge homeostatic downscaling.
@@ -540,24 +540,31 @@ Within-domain learning & \texttt{python experiments/experiment\_comparison.py} \
 Cross-domain transfer & \texttt{python experiments/experiment\_cross\_domain.py} \\
 Lifelong streaming (15k) & \texttt{python experiments/experiment\_lifelong.py --n 15000} \\
 Lifelong streaming (100k) & \texttt{python experiments/experiment\_lifelong.py --n 100000} \\
-Fairness stress test & \texttt{python experiments/eval\_fair.py} \\
-Governance ablation & \texttt{python experiments/experiment\_adversarial.py} \\
+Fairness stress test & \texttt{python ravana-v2/research/core\_k0/long\_horizon\_stability\_test.py} \\
+Governance ablation & \texttt{python ravana-v2/research/core\_k0/long\_horizon\_stability\_test.py} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \subsection{Architecture Configuration}
-The default configuration used in all reported experiments:
+Two configurations were used. The compact configuration (within-domain experiments):
 \begin{verbatim}
 embed_dim=32, concept_dim=32, n_hidden=32, n_layers=3,
 settle_steps=5, settle_lr=0.05, settle_damping=0.95,
-base_lr=0.001, free_energy_threshold=8.0,
+base_lr=0.005, free_energy_threshold=8.0,
+sleep_interval=5, seed=42
+\end{verbatim}
+The larger configuration (cross-domain and lifelong-streaming experiments):
+\begin{verbatim}
+embed_dim=64, concept_dim=64, n_hidden=128, n_layers=3,
+settle_steps=5, settle_lr=0.05, settle_damping=0.95,
+base_lr=0.005, free_energy_threshold=8.0,
 sleep_interval=100, seed=42
 \end{verbatim}
-These parameters are set in the constructor of the \texttt{RLM} class at \texttt{ravana\_ml/nn/rlm.py}.
+These parameters are set in the constructor of the \texttt{RLM} class at \texttt{ravana\_ml/nn/rlm.py} and overridden by each experiment script.
 
 \subsection{Data Generation}
-Benchmark data are generated procedurally by the experiment scripts themselves. No external datasets are required. The data generators in \texttt{experiments/experiment\_lifelong.py} and \texttt{experiments/eval\_fair.py} accept the same \texttt{seed} parameter for full determinism.
+Benchmark data are generated procedurally by the experiment scripts themselves. No external datasets are required. The data generators in \texttt{experiments/experiment\_lifelong.py} and \texttt{ravana-v2/research/experiments\_k0/classroom\_env.py} accept the same \texttt{seed} parameter for full determinism.
 
 The lifelong streaming generator creates structured experiences with entity-attribute pairs, causal chains, temporal sequences, and controlled contradiction injection at configurable rates. Entity pools are divided into epochs to simulate the introduction of novel concepts over time. The fairness benchmark generator produces a synthetic student-interaction dataset with a configurable demographic parity gap, used to stress-test the governance layer.
 

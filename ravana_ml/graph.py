@@ -202,6 +202,24 @@ class ConceptEdge:
     def plasticity(self):
         return 1.0 - self.stability
 
+    def __setstate__(self, state):
+        """Handle deserialization of older checkpoints missing newer attributes."""
+        self.__dict__.update(state)
+        defaults = {
+            'predicate_token_id': -1,
+            'fisher_importance': 0.0,
+            'old_weight': 0.5,
+            'posterior_alpha': 1.0,
+            'posterior_beta': 1.0,
+        }
+        for attr, default in defaults.items():
+            if not hasattr(self, attr):
+                setattr(self, attr, default)
+        # relation_vector may also be missing from very old checkpoints
+        if not hasattr(self, 'relation_vector') or self.relation_vector is None:
+            self.relation_vector = ConceptEdge._init_relation_vector(
+                getattr(self, 'relation_type', 'semantic'), 16)
+
     def __repr__(self):
         inh = " [I]" if self.edge_type == "inhibitory" else ""
         rt = f" {self.relation_type}" if self.relation_type != "semantic" else ""
@@ -914,6 +932,45 @@ class ConceptGraph:
         self._diagnostics_cache_step: int = -999
         # compute_curvature/basin_depth reuse the cached vector matrix
         self._cached_norms: Optional[np.ndarray] = None
+
+    def __setstate__(self, state):
+        """Handle deserialization of older checkpoints missing newer attributes."""
+        self.__dict__.update(state)
+        # Initialize attributes added after checkpoints were created
+        defaults = {
+            '_dirty_nodes': set(),
+            '_use_faiss': False,
+            '_faiss_index': None,
+            '_cached_norms': None,
+            '_vector_matrix_normed': None,
+            '_node_id_order': [],
+            '_vectors_dirty': True,
+            '_adj_sparse': None,
+            '_adj_dirty': True,
+            '_sparse_threshold': 1000,
+            '_diagnostics_cache': None,
+            '_diagnostics_cache_step': -999,
+            '_activated_since_sleep': set(),
+            '_edges_by_relation_type': defaultdict(list),
+            '_outgoing': defaultdict(list),
+            '_incoming': defaultdict(list),
+            '_active_nodes': set(),
+            '_successful_paths': defaultdict(int),
+            '_inference_log': [],
+            '_neighbor_snapshot': {},
+            '_curvature_history': [],
+            'max_step_delta': 0.01,
+        }
+        for attr, default in defaults.items():
+            if not hasattr(self, attr):
+                setattr(self, attr, default)
+        # Re-detect FAISS availability
+        try:
+            import faiss
+            self._use_faiss = True
+            self._faiss = faiss
+        except ImportError:
+            pass
 
     # ── node management ──
 

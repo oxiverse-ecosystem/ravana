@@ -46,7 +46,7 @@ def main():
     config = dict(
         vocab_size=13, embed_dim=32, concept_dim=32, n_concepts=26,
         n_hidden=32, n_layers=1, max_seq_len=8,
-        pressure_threshold=5.0, sleep_interval=5,
+        sleep_interval=5,
     )
 
     lab = ConceptLab(config, name="adversarial_ambiguity")
@@ -229,7 +229,7 @@ def main():
     else:
         print(f"    OK Edges contained below {n_vocab * 3} threshold")
 
-    loc = lab.pressure_localization(-1)
+    loc = lab.free_energy_localization(-1)
     print(f"\n  Pressure localization: entropy={loc['normalized_entropy']:.3f}, hotspots={loc['hotspots']}")
 
     print(f"\nFinal: {rlm}")

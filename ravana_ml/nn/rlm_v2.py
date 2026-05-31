@@ -171,8 +171,8 @@ class RLMv2(Module):
         self._episodic_triples: List[Tuple[int, int, int, float]] = []
         self._max_episodic = 500
 
-        # ── Initialize structured concepts ──
-        self._init_structured_concepts()
+        # ── Initialize structured concepts (DISABLED — 1-to-1 mapping) ──
+        # self._init_structured_concepts()
 
         # ── Performance tracking ──
         self._train_correct = 0
@@ -338,30 +338,25 @@ class RLMv2(Module):
     def _get_or_create_concept(self, token_id: int, embed_vec: np.ndarray) -> int:
         """Get existing concept for a token, or create one if needed.
 
-        Uses creation gating: only creates new concepts when the nearest
-        existing concept is below the similarity threshold.
+        1-to-1 mapping: each token gets exactly one concept. No merging.
+        This prevents unrelated concepts from being collapsed together.
         """
-        # Check binding map first
-        bindings = self.binding_map.get_concepts(token_id, min_confidence=0.3)
+        # Check binding map first — reuse existing concept for this token
+        bindings = self.binding_map.get_concepts(token_id, min_confidence=0.1)
         if bindings:
             return bindings[0].concept_id
 
-        # Find nearest concept
+        # Always create a new concept for this token (no merging)
         concept_vec = self._project_to_concept(embed_vec)
-        nid, sim = self._nearest_concept(embed_vec)
-
-        # Creation gating
-        if nid < 0 or sim < self._concept_similarity_threshold:
-            if len(self.graph.nodes) < self._max_concepts:
-                node = self.graph.add_node(vector=concept_vec, label=self._decode_token(token_id))
-                nid = node.id
-            elif nid < 0:
-                # At capacity, use the nearest even if similarity is low
-                results = self.graph.find_similar(concept_vec, k=1)
-                nid = results[0][0] if results else 0
+        if len(self.graph.nodes) < self._max_concepts:
+            node = self.graph.add_node(vector=concept_vec, label=self._decode_token(token_id))
+            nid = node.id
+        else:
+            # At capacity — shouldn't happen with reasonable n_concepts
+            nid = len(self.graph.nodes)
 
         # Bind token to concept
-        self.binding_map.bind(token_id, nid, confidence=0.5)
+        self.binding_map.bind(token_id, nid, confidence=0.9)
         return nid
 
     # ── Spreading Activation Inference ──────────────────────────────────────
@@ -411,8 +406,8 @@ class RLMv2(Module):
         # Activate subject concept
         self.graph.activate(subject_cid, amount=1.0)
 
-        # Spread activation (2 steps, decay 0.5)
-        self.graph.spread_activation(steps=2, k_active=7, decay=0.5)
+        # Spread activation (3 steps, decay 0.3) — aggressive spreading for cross-domain
+        self.graph.spread_activation(steps=3, k_active=10, decay=0.3)
 
         # ── Score tokens via activated concepts ──
         concept_scores = np.zeros(self.vocab_size, dtype=np.float32)
@@ -487,16 +482,50 @@ class RLMv2(Module):
                         else:
                             matching_targets[tgt] = cross_score
 
+        # ── 2-Hop edge traversal (compositionality) ──
+        # "fire causes ?" → fire→heat (any type), heat→expansion (causal) → boost expansion
+        # This enables cross-subject transfer: fire isn't trained with expansion,
+        # but heat is, and fire→heat exists.
+        subject_outgoing = self.graph.get_outgoing(subject_cid)
+        for mid_cid, mid_edge in subject_outgoing:
+            mid_node = self.graph.get_node(mid_cid)
+            if mid_node is None:
+                continue
+            # Check mid's outgoing edges for matching relation type
+            for tgt_cid, tgt_edge in self.graph.get_outgoing(mid_cid):
+                if tgt_cid == subject_cid:
+                    continue
+                if tgt_edge.relation_type == rel_type_name:
+                    # 2-hop score: subject→mid weight × mid→target weight
+                    hop_score = mid_edge.weight * mid_edge.confidence * tgt_edge.weight * tgt_edge.confidence * 0.6
+                    if tgt_cid in matching_targets:
+                        matching_targets[tgt_cid] = max(matching_targets[tgt_cid], hop_score)
+                    else:
+                        matching_targets[tgt_cid] = hop_score
+
         # Also include directly active concepts (for same-type queries)
+        # Aggressive boosting: activated concepts get full activation as score
         for nid, node in active_nodes:
             if nid == subject_cid:
                 continue  # Don't predict subject itself
-            # Score based on activation strength
-            act_score = node.activation * 0.5
+            # Score based on activation strength (boosted)
+            act_score = node.activation * 1.5
             if nid in matching_targets:
                 matching_targets[nid] = max(matching_targets[nid], act_score)
             else:
                 matching_targets[nid] = act_score
+
+            # Also boost targets of activated nodes' outgoing edges
+            for tgt_id, edge in self.graph.get_outgoing(nid):
+                if tgt_id == subject_cid:
+                    continue
+                edge_score = node.activation * edge.weight * edge.confidence * 0.8
+                if edge.relation_type == rel_type_name:
+                    edge_score *= 2.0  # boost matching relation type
+                if tgt_id in matching_targets:
+                    matching_targets[tgt_id] = max(matching_targets[tgt_id], edge_score)
+                else:
+                    matching_targets[tgt_id] = edge_score
 
         # Map target concepts to token scores
         for tgt_cid, score in matching_targets.items():

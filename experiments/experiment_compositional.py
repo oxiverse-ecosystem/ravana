@@ -134,8 +134,8 @@ for (s, t), e in rlm.graph.edges.items():
 
 # ── Metrics ──
 print(f"\n── Metrics ──")
-loc1 = lab.pressure_localization(0)
-loc2 = lab.pressure_localization(1)
+loc1 = lab.free_energy_localization(0)
+loc2 = lab.free_energy_localization(1)
 print(f"Pressure localization: before={loc1['normalized_entropy']:.3f} "
       f"after={loc2['normalized_entropy']:.3f} "
       f"hotspots={loc2['hotspots']}")

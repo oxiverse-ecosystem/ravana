@@ -147,8 +147,17 @@ def build_domain_a_science() -> Dict[str, List[Tuple[str, str, str]]]:
         ("aluminum is ", "lightweight", "semantic"),
     ]
 
-    # Train on ALL facts; cross-domain probes are the real test.
-    return {"train": facts, "test": facts}
+    # Split into train/test: hold out ~20% of each category for evaluation
+    causal = [f for f in facts if f[2] == "causal"]
+    semantic = [f for f in facts if f[2] == "semantic"]
+    rng = np.random.RandomState(42)
+    rng.shuffle(causal)
+    rng.shuffle(semantic)
+    n_causal_test = max(1, len(causal) // 5)
+    n_semantic_test = max(1, len(semantic) // 5)
+    train = causal[n_causal_test:] + semantic[n_semantic_test:]
+    test = causal[:n_causal_test] + semantic[:n_semantic_test]
+    return {"train": train, "test": test}
 
 
 def build_domain_b_social() -> Dict[str, List[Tuple[str, str, str]]]:
@@ -222,8 +231,17 @@ def build_domain_b_social() -> Dict[str, List[Tuple[str, str, str]]]:
         ("grace is ", "inspiring", "semantic"),
     ]
 
-    # Train on ALL facts; cross-domain probes are the real test.
-    return {"train": facts, "test": facts}
+    # Split into train/test: hold out ~20% of each category for evaluation
+    causal = [f for f in facts if f[2] == "causal"]
+    semantic = [f for f in facts if f[2] == "semantic"]
+    rng = np.random.RandomState(42)
+    rng.shuffle(causal)
+    rng.shuffle(semantic)
+    n_causal_test = max(1, len(causal) // 5)
+    n_semantic_test = max(1, len(semantic) // 5)
+    train = causal[n_causal_test:] + semantic[n_semantic_test:]
+    test = causal[:n_causal_test] + semantic[:n_semantic_test]
+    return {"train": train, "test": test}
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -368,37 +386,46 @@ def evaluate_mlp(model: SimpleMLP, facts: List[Tuple[str, str, str]],
 # Cross-Domain Transfer Probes
 # ═══════════════════════════════════════════════════════════════════════════
 
-def test_structural_transfer(model: RLM, tokenizer) -> Dict[str, Any]:
+def test_structural_transfer(model: RLM, tokenizer,
+                             domain_a_test=None,
+                             domain_b_test=None) -> Dict[str, Any]:
     """Test if structural patterns from Domain A help Domain B.
 
-    Uses novel cross-domain prompts that require understanding the
-    'causes' relation pattern learned in Domain A, applied to Domain B
-    vocabulary.
+    Probes are built from held-out test facts only (never seen during
+    training).  Three categories:
+      1. Held-out Domain A recall — test facts from Domain A verbatim
+      2. Held-out Domain B recall — test facts from Domain B verbatim
+      3. Genuine cross-domain — Domain A causal verbs with Domain B
+         test-split targets (tests structural pattern transfer)
     """
-    # Novel cross-domain probes
-    cross_probes = [
-        ("kindness causes ", "trust", "B vocab + A causal pattern"),
-        ("anger produces ", "conflict", "'produces' from A, B vocab"),
-        ("sharing enables ", "friendship", "'enables' from A, B vocab"),
-        ("heat causes ", "expansion", "pure A recall"),
-        ("trust is ", "fragile", "pure B recall"),
-        ("friction produces ", "heat", "pure A recall (held out)"),
-        ("patience creates ", "understanding", "pure B recall (held out)"),
-        # Additional cross-domain probes for statistical robustness
-        ("gossip spreads ", "mistrust", "B causal recall"),
-        ("collaboration produces ", "innovation", "'produces' from A, B vocab"),
-        ("gravity pulls ", "objects", "pure A recall"),
-        ("inclusion builds ", "belonging", "B causal recall"),
-        ("compassion reduces ", "suffering", "B causal recall"),
-        ("fire produces ", "warmth", "pure A recall"),
-        ("leadership inspires ", "action", "B causal recall"),
-        ("apology restores ", "harmony", "B causal recall"),
-        ("oxygen enables ", "combustion", "pure A recall"),
-        ("rivalry spurs ", "growth", "B causal recall"),
-        ("grief deepens ", "empathy", "B causal recall"),
-        ("curiosity sparks ", "discovery", "B causal recall"),
-        ("trust enables ", "vulnerability", "'enables' from A, B vocab"),
-    ]
+    cross_probes = []
+
+    # --- Category 1 & 2: held-out recall probes ---
+    if domain_a_test is not None:
+        for input_text, target_text, rel_type in domain_a_test:
+            cross_probes.append((input_text, target_text, f"held-out A ({rel_type})"))
+    if domain_b_test is not None:
+        for input_text, target_text, rel_type in domain_b_test:
+            cross_probes.append((input_text, target_text, f"held-out B ({rel_type})"))
+
+    # --- Category 3: genuine cross-domain probes ---
+    # Use Domain A causal verbs with Domain B test targets.
+    # These test whether the model can apply A's "causes/produces/enables"
+    # pattern to B vocabulary it has never seen in that context.
+    if domain_b_test is not None:
+        a_causal_verbs = ["causes ", "produces ", "enables ", "creates ",
+                          "drives ", "shapes "]
+        b_causal_facts = [(i, t) for i, t, r in domain_b_test if r == "causal"]
+        rng = np.random.RandomState(123)
+        for verb_idx, (orig_input, orig_target) in enumerate(
+                b_causal_facts[:min(6, len(b_causal_facts))]):
+            # Replace B's verb with an A-style causal verb
+            # e.g. "kindness leads to " → "kindness causes "
+            subject = orig_input.split()[0]  # first word
+            verb = a_causal_verbs[verb_idx % len(a_causal_verbs)]
+            new_input = f"{subject} {verb}"
+            cross_probes.append((new_input, orig_target,
+                                 f"cross-domain (A verb '{verb.strip()}' + B vocab)"))
 
     results = []
     for input_text, expected, description in cross_probes:
@@ -435,10 +462,11 @@ def test_structural_transfer(model: RLM, tokenizer) -> Dict[str, Any]:
             "description": description,
         })
 
+    n = max(1, len(results))
     return {
         "probes": results,
-        "top1_accuracy": sum(1 for r in results if r["correct"]) / len(results),
-        "top10_accuracy": sum(1 for r in results if r["in_top10"]) / len(results),
+        "top1_accuracy": sum(1 for r in results if r["correct"]) / n,
+        "top10_accuracy": sum(1 for r in results if r["in_top10"]) / n,
     }
 
 
@@ -579,6 +607,17 @@ def run_cross_domain_experiment(config: CrossDomainConfig) -> Dict[str, Any]:
     print(f"  Relation types: {graph_after_a['relation_types']}")
     print(f"  Conceptual accuracy: {model.conceptual_accuracy:.3f}")
 
+    # ── Phase 1.5: Zero-shot cross-domain probes (before Domain B training) ──
+    print("\n[Phase 1.5] Zero-shot cross-domain probes (before Domain B training)...")
+    zero_shot_probes = test_structural_transfer(
+        model, tokenizer, domain_a["test"], domain_b["test"])
+    print(f"  Zero-shot probe top-1: {zero_shot_probes['top1_accuracy']:.1%}")
+    print(f"  Zero-shot probe top-10: {zero_shot_probes['top10_accuracy']:.1%}")
+    for probe in zero_shot_probes["probes"]:
+        status = "OK" if probe["correct"] else ("~" if probe["in_top10"] else "X")
+        print(f"    [{status}] '{probe['input'].strip()}' -> expected '{probe['expected']}'"
+              f"  got '{probe['predicted']}'  ({probe['description']})")
+
     # ── Phase 2: Train on Domain B with interleaved sleep replay ──
     print("\n[Phase 2] Training on Domain B (Social)...")
     print("  (Domain A memories active for interleaved replay during sleep)")
@@ -602,7 +641,8 @@ def run_cross_domain_experiment(config: CrossDomainConfig) -> Dict[str, Any]:
 
     # ── Phase 3: Cross-Domain Transfer Probes ──
     print("\n[Phase 3] Cross-domain transfer probes...")
-    transfer_probes = test_structural_transfer(model, tokenizer)
+    transfer_probes = test_structural_transfer(
+        model, tokenizer, domain_a["test"], domain_b["test"])
     print(f"  Cross-domain top-1 accuracy: {transfer_probes['top1_accuracy']:.1%}")
     print(f"  Cross-domain top-10 accuracy: {transfer_probes['top10_accuracy']:.1%}")
     for probe in transfer_probes["probes"]:
@@ -624,7 +664,8 @@ def run_cross_domain_experiment(config: CrossDomainConfig) -> Dict[str, Any]:
     print(f"  Shortcut edges: {graph_after_sleep['n_shortcut_edges']}")
 
     # Re-run transfer probes after sleep
-    post_sleep_probes = test_structural_transfer(model, tokenizer)
+    post_sleep_probes = test_structural_transfer(
+        model, tokenizer, domain_a["test"], domain_b["test"])
     print(f"  Cross-domain probes after sleep: top1={post_sleep_probes['top1_accuracy']:.1%}, top10={post_sleep_probes['top10_accuracy']:.1%}")
 
     results["rlm"] = {
@@ -639,6 +680,7 @@ def run_cross_domain_experiment(config: CrossDomainConfig) -> Dict[str, Any]:
         "graph_after_a": graph_after_a,
         "graph_after_b": graph_after_b,
         "graph_after_sleep": graph_after_sleep,
+        "zero_shot_probes": zero_shot_probes,
         "transfer_probes": transfer_probes,
         "post_sleep_probes": post_sleep_probes,
         "phase1_time": phase1_time,
@@ -735,6 +777,8 @@ def run_cross_domain_experiment(config: CrossDomainConfig) -> Dict[str, Any]:
         "zero_shot_transfer_a_to_b": zero_shot_transfer,
         "sleep_benefit_a": sleep_benefit_a,
         "sleep_benefit_b": sleep_benefit_b,
+        "zero_shot_probe_top1": rlm["zero_shot_probes"]["top1_accuracy"],
+        "zero_shot_probe_top10": rlm["zero_shot_probes"]["top10_accuracy"],
         "cross_domain_probe_top1": rlm["transfer_probes"]["top1_accuracy"],
         "cross_domain_probe_top10": rlm["transfer_probes"]["top10_accuracy"],
         "post_sleep_probe_top1": rlm["post_sleep_probes"]["top1_accuracy"],
@@ -769,8 +813,9 @@ def run_cross_domain_experiment(config: CrossDomainConfig) -> Dict[str, Any]:
     print(f"  Domain B Learning:                      {forward_transfer:+.1%}")
     print(f"  Sleep Benefit (A):                      {sleep_benefit_a:+.1%}")
     print(f"  Sleep Benefit (B):                      {sleep_benefit_b:+.1%}")
-    print(f"  Cross-Domain Probes (before sleep):     {rlm['transfer_probes']['top10_accuracy']:.1%}")
-    print(f"  Cross-Domain Probes (after sleep):      {rlm['post_sleep_probes']['top10_accuracy']:.1%}")
+    print(f"  Zero-Shot Probes (after A only):        top1={rlm['zero_shot_probes']['top1_accuracy']:.1%}  top10={rlm['zero_shot_probes']['top10_accuracy']:.1%}")
+    print(f"  Cross-Domain Probes (after both):       top1={rlm['transfer_probes']['top1_accuracy']:.1%}  top10={rlm['transfer_probes']['top10_accuracy']:.1%}")
+    print(f"  Cross-Domain Probes (after sleep):      top1={rlm['post_sleep_probes']['top1_accuracy']:.1%}  top10={rlm['post_sleep_probes']['top10_accuracy']:.1%}")
 
     if not config.skip_baselines:
         print()
@@ -805,7 +850,8 @@ def run_cross_domain_experiment(config: CrossDomainConfig) -> Dict[str, Any]:
 
     # Ablated: full model, graph path zeroed
     model._ablate_graph = True
-    ablated_probes = test_structural_transfer(model, tokenizer)
+    ablated_probes = test_structural_transfer(
+        model, tokenizer, domain_a["test"], domain_b["test"])
     model._ablate_graph = False
 
     print(f"    Without graph path:")

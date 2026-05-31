@@ -205,7 +205,7 @@ print(f"\n── Edge topology ──")
 topo = lab.edge_topology_summary(-1)
 print(f"  Total edges: {topo['n_edges']}, weight≥1.0: {topo['n_edges_weight_1']}")
 
-loc = lab.pressure_localization(-1)
+loc = lab.free_energy_localization(-1)
 print(f"  Pressure localization: entropy={loc['normalized_entropy']:.3f}, hotspots={loc['hotspots']}")
 
 drift = lab.attractor_preservation(before_idx=0, after_idx=-1)
