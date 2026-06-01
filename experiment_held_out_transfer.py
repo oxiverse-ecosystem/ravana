@@ -450,31 +450,51 @@ def inject_minilm_embeddings(model, tok, st_model):
     print(f"  Injected MiniLM embeddings for {len(words)} tokens")
 
 
+# Cache for full-dimensional word embeddings (computed once)
+_word_embeds_cache = {}
+
 def nn_bridge(model, tok, st_model, novel_word, top_k=5):
-    """Find graph nodes most similar to a novel word via MiniLM embeddings."""
-    st_dim = st_model.get_sentence_embedding_dimension()
-    dim = model.embed_dim
+    """Find graph nodes most similar to a novel word via MiniLM embeddings.
 
-    rng = np.random.RandomState(42)
-    projection = rng.randn(st_dim, dim).astype(np.float32) / np.sqrt(dim)
+    Uses full-dimensional MiniLM embeddings (not projected) for better accuracy.
+    This matches the approach in experiment_reverse_inheritance.py which achieves
+    67% bridge accuracy vs 33% with random projection.
+    """
+    global _word_embeds_cache
 
-    novel_embed = st_model.encode([novel_word])[0] @ projection
-    norm = np.linalg.norm(novel_embed)
-    if norm > 0:
-        novel_embed /= norm
+    # Build full-dimensional embeddings cache (once)
+    if not _word_embeds_cache:
+        words = list(tok.word_to_id.keys())
+        embeddings = st_model.encode(words)
+        for i, word in enumerate(words):
+            _word_embeds_cache[word] = embeddings[i]
 
+    # Encode novel word in full MiniLM space
+    novel_embed = st_model.encode([novel_word])[0]
+    novel_norm = np.linalg.norm(novel_embed)
+    if novel_norm > 0:
+        novel_embed = novel_embed / novel_norm
+
+    # Compare against all vocabulary in full-dimensional space
     similarities = []
-    for word, tid in tok.word_to_id.items():
-        node_embed = model.token_embed.weight.data[tid]
-        sim = float(np.dot(novel_embed, node_embed))
+    for word, embed in _word_embeds_cache.items():
+        sim = float(np.dot(novel_embed, embed) /
+                   (np.linalg.norm(embed) + 1e-10))
         similarities.append((word, sim))
 
     similarities.sort(key=lambda x: -x[1])
     return similarities[:top_k]
 
 
-def traverse_broad(model, tok, subject, max_depth=3):
-    """Broad traversal returning structured Candidates."""
+def traverse_broad(model, tok, subject, max_depth=3, depth_decay=0.7):
+    """Broad traversal with reverse edge inheritance and depth decay.
+
+    Key improvements over basic forward-only traversal:
+    1. Depth decay: confidence decreases with distance (0.7^depth)
+    2. Reverse edge inheritance: if X is_a subject, inherit X's outgoing edges
+       (e.g., grass is_a plant → plant inherits grass's properties)
+    3. Bridge node as candidate for is_a queries
+    """
     subj_tid = tok.word_to_id.get(subject)
     if subj_tid is None:
         return []
@@ -482,12 +502,15 @@ def traverse_broad(model, tok, subject, max_depth=3):
     if not bindings:
         return []
 
-    frontier = {bindings[0].concept_id}
-    visited = {bindings[0].concept_id}
+    subj_cid = bindings[0].concept_id
+    frontier = {subj_cid}
+    visited = {subj_cid}
     candidates = []
 
+    # Forward traversal with depth decay
     for depth in range(1, max_depth + 1):
         next_frontier = set()
+        depth_factor = depth_decay ** (depth - 1)
         for nid in frontier:
             for tgt_id, edge in model.graph.get_outgoing(nid):
                 if tgt_id in visited:
@@ -505,7 +528,7 @@ def traverse_broad(model, tok, subject, max_depth=3):
                             pred_word = decoded.strip()
                     sub_fam = get_sub_family(pred_word) or "unknown"
                     family = get_family(pred_word) or edge.relation_type
-                    conf = get_confidence(pred_word)
+                    conf = get_confidence(pred_word) * depth_factor
                     candidates.append(Candidate(
                         word=word, predicate=pred_word, family=family,
                         sub_family=sub_fam, depth=depth, confidence=conf,
@@ -513,6 +536,47 @@ def traverse_broad(model, tok, subject, max_depth=3):
                     ))
         visited |= next_frontier
         frontier = next_frontier
+
+    # Reverse edge inheritance: find nodes with edges pointing TO subject
+    # If grass is_a subject, then subject inherits grass's outgoing edges
+    reverse_parents = set()
+    for eid, edge in model.graph.edges.items():
+        if edge.target == subj_cid:
+            pred = edge.relation_type
+            if hasattr(edge, 'predicate_token_id') and edge.predicate_token_id is not None:
+                decoded = tok.decode([edge.predicate_token_id])
+                if decoded.strip():
+                    pred = decoded.strip()
+            if pred == "is_a":
+                reverse_parents.add(edge.source)
+
+    # Traverse from reverse parents (inherited properties)
+    if reverse_parents:
+        for parent_cid in reverse_parents:
+            if parent_cid in visited:
+                continue
+            for tgt_id, edge in model.graph.get_outgoing(parent_cid):
+                if tgt_id in visited:
+                    continue
+                tokens = model.binding_map.get_tokens(tgt_id, 0.0)
+                for b in tokens:
+                    word = tok.decode([b.token_id])
+                    if word == subject or word.startswith("?"):
+                        continue
+                    pred_word = edge.relation_type
+                    if hasattr(edge, 'predicate_token_id') and edge.predicate_token_id is not None:
+                        decoded = tok.decode([edge.predicate_token_id])
+                        if decoded.strip():
+                            pred_word = decoded.strip()
+                    sub_fam = get_sub_family(pred_word) or "unknown"
+                    family = get_family(pred_word) or edge.relation_type
+                    # Inherited properties get lower confidence
+                    conf = get_confidence(pred_word) * 0.6  # inheritance penalty
+                    candidates.append(Candidate(
+                        word=word, predicate=pred_word, family=family,
+                        sub_family=sub_fam, depth=1, confidence=conf,
+                        path=[(subject, f"inherited:{pred_word}", word)]
+                    ))
 
     seen = {}
     for c in candidates:
@@ -522,21 +586,31 @@ def traverse_broad(model, tok, subject, max_depth=3):
     return sorted(seen.values(), key=lambda x: (x.depth, -x.confidence))
 
 
-def composed_query(model, tok, st_model, novel_word, relation, top_k=5):
+def composed_query(model, tok, st_model, novel_word, relation, top_k=15, bridge_k=5):
     """Novel concept -> NN bridge -> graph traversal -> prediction."""
-    neighbors = nn_bridge(model, tok, st_model, novel_word, top_k=top_k)
+    neighbors = nn_bridge(model, tok, st_model, novel_word, top_k=bridge_k)
 
     all_candidates = []
+    family = get_family(relation)
     for neighbor_word, sim in neighbors:
         if sim < 0.1:
             continue
+
+        # Bridge node as candidate: for is_a queries, the bridge node itself
+        # is a valid answer (e.g., fern→plant means plant is_a candidate)
+        if family == "taxonomic" or relation == "is_a":
+            all_candidates.append(Candidate(
+                word=neighbor_word, predicate="is_a", family="taxonomic",
+                sub_family="taxonomic", depth=0, confidence=sim * 0.9,
+                path=[(novel_word, "bridge_is_a", neighbor_word)]
+            ))
+
         candidates = traverse_broad(model, tok, neighbor_word, max_depth=3)
         for c in candidates:
             c.confidence *= sim
             c.path = [(novel_word, f"via:{neighbor_word}", c.word)]
             all_candidates.append(c)
 
-    family = get_family(relation)
     if family:
         config = TraversalConfig(mode="family", family=family)
         filtered = [c for c in all_candidates if matches_config(c.predicate, config)]

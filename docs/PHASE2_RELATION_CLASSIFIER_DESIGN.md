@@ -342,6 +342,17 @@ Phase 2 composed reasoning is PROVEN on held-out transfer.
 4. Reverse edge inheritance (if grass is_a plant, plant inherits grass's edges)
 5. Bridge-as-candidate for is_a queries (bridge node itself is valid answer)
 
-**Progression:** 45% → 52% → 61% → 68% → 91% query success
+**Variation by experiment:**
+- experiment_reverse_inheritance.py (best case): 67% bridge, 91% query, 90% object
+- experiment_final_bridge.py: 67% bridge, 68% query, 68% object
+- experiment_held_out_transfer.py: 33% bridge, 41% query, 39% object
+
+**Full cross-domain experiment** (experiment_cross_domain.py): 0.0% top-1, 0.0% top-10 — NEUTRAL TRANSFER verdict. The NN bridge composed reasoning works for held-out terms with known relation patterns, but does not yet translate to full cross-domain transfer in the RLMv1 framework.
+
+**Dense KB validation** (experiment_dense_kb_validation.py): 86% average hit rate on 6 composed reasoning tests with 248 facts, 51 concepts, 330 nodes, 655 edges.
+
+**Semantic clustering**: intra-domain 0.413, cross-domain 0.155 (2.5x gap — MiniLM preserves domain structure).
+
+**Progression**: 42% bridge/45% query → 67% bridge/59% query → 67% bridge/68% query → 67% bridge/91% query (reverse inheritance).
 
 **Only failure:** matcha (MiniLM embedding 0.32 sim — model limitation, not architecture)

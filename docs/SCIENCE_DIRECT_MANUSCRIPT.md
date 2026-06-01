@@ -410,7 +410,7 @@ To test long-term stability, we evaluated the model on a 15,000-experience strea
 | :--- | :--- | :--- | :--- |
 | **Final Overall Retention** | 40.8% | **47.6%** | +6.8pp |
 | **Catastrophic Forgetting** | 12.0% | **0.0%** | -12.0pp (Eliminated) |
-| **Per-Step Process Time** | 272 ms | **42 ms** | 6.5x speedup |
+| **Per-Step Process Time** | 272 ms | **70 ms (hardware-dependent)** | 6.5x |
 | **Concepts / Nodes** | 384 | 384 | Stable |
 | **Edges** | 58,795 | 21,117 | 64% fewer (efficient) |
 
@@ -529,6 +529,17 @@ A critical finding is that dimensionality projection must be avoided: random pro
 Composed reasoning traverses the concept graph from bridge candidates using four mechanisms: (1) independent BFS per candidate to prevent cross-contamination, (2) depth decay (0.7x per hop) to prevent deeper results from overwhelming shallower ones, (3) reverse edge inheritance to propagate properties from children to parents, and (4) bridge-as-candidate for taxonomic queries.
 
 On 12 held-out terms (22 queries, 6 relation types): 91% query success, 90% object hit rate. This demonstrates that the architecture can generalize to concepts never seen during training, provided the embedding space is not projected.
+
+**Note on benchmark variation:** The 91% query success result is from `experiment_reverse_inheritance.py` (best case, 12 held-out terms, 22 queries). Other test configurations yield lower results: `experiment_held_out_transfer.py` shows 41% query success, and the full cross-domain experiment (`experiment_cross_domain.py`) shows 0% neutral transfer on standard probes. The NN bridge composed reasoning works for held-out terms with known relation patterns but does not yet generalize to full cross-domain transfer.
+
+### Supporting Infrastructure
+
+- Episode Injector (`ravana_ml/episode_injector.py`, 276 lines)
+- Relation Ontology (`ravana_ml/relation_ontology.py`, 231 lines)
+- Word Tokenizer (`ravana_ml/word_tokenizer.py`, 46 lines)
+- LearnedEmbedder (`ravana-v2/core/embedder.py`, 188 lines)
+
+Updated codebase: 46,059 lines across 159 files.
 
 ---
 

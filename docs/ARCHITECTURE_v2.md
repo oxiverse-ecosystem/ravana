@@ -1,7 +1,7 @@
 # RAVANA Hybrid Architecture v2 — Post-Critique Revision
 
-> **Date**: 2026-05-18
-****Status**: Revised with solutions to 5 critical problems
+> **Date**: 2026-06-01
+> **Status**: Revised with solutions to 5 critical problems — All 5 solutions implemented and verified
 ****Input**: External pressure-test of v1 by multiple LLMs
 
 ---
@@ -371,3 +371,47 @@ Pre-trained sentence transformer (MiniLM-L6-v2, 384-dim) provides semantic embed
 | Object hit rate | 90% (28/31 expected objects) |
 
 Semantic clustering: intra-domain 0.413, cross-domain 0.155 (2.5x gap — MiniLM preserves domain structure).
+
+**Variation by experiment:**
+- experiment_reverse_inheritance.py (best case): 67% bridge, 91% query, 90% object
+- experiment_final_bridge.py: 67% bridge, 68% query, 68% object
+- experiment_held_out_transfer.py: 33% bridge, 41% query, 39% object
+
+**Full cross-domain experiment** (experiment_cross_domain.py): 0.0% top-1, 0.0% top-10 — NEUTRAL TRANSFER verdict. The NN bridge composed reasoning works for held-out terms with known relation patterns, but does not yet translate to full cross-domain transfer in the RLMv1 framework.
+
+**Dense KB validation** (experiment_dense_kb_validation.py): 86% average hit rate on 6 composed reasoning tests with 248 facts, 51 concepts, 330 nodes, 655 edges.
+
+**Progression**: 42% bridge/45% query → 67% bridge/59% query → 67% bridge/68% query → 67% bridge/91% query (reverse inheritance).
+
+---
+
+### New Supporting Modules (2026-05-28 to 2026-05-31)
+
+**Episode Injector** (`ravana_ml/episode_injector.py`, 276 lines):
+Synthetic knowledge injection into RLMv2's graph via learn(). Supports dict-based facts, tuple-based facts, batch injection from knowledge bases, confidence-weighted training, and multi-edge support.
+
+**Relation Ontology** (`ravana_ml/relation_ontology.py`, 231 lines):
+Multi-level relation hierarchy for typed traversal. Hierarchy: Family > Sub-family > Predicate. Traversal can operate at any granularity: PREDICATE (e.g., 'causes' only), SUB-FAMILY (e.g., 'causal-strong'), FAMILY (e.g., 'all causal'), SUPER-FAMILY (e.g., 'causal + contributory').
+
+**Word Tokenizer** (`ravana_ml/word_tokenizer.py`, 46 lines):
+Word-level tokenizer for RLMv2. Splits text into words and maps each word to a unique token ID. Enables RLMv2 to create concept nodes for WORDS, not characters.
+
+**LearnedEmbedder** (`ravana-v2/core/embedder.py`, 188 lines):
+Character n-gram (3,4,5) + feature hashing + random projection (Johnson-Lindenstrauss). Produces 64-dim vectors. Optional IDF weighting via fit(corpus). Used by HumanMemoryEngine and RLM episodic memory.
+
+---
+
+### Bug Fixes Verified (all 5 from original critique)
+
+1. GRU gate Hebbian updates: Direct Hebbian updates on all three GRU gates in learn() (rlm.py:1816-1880)
+2. LayerNorm: Used on all hidden layers (rlm.py:88, hidden_norms)
+3. GRUCell: 3-gate recurrent unit replacing vanilla RNN (module.py:373)
+4. compute_curvature: Sampling-based (max_sample=500) instead of O(V²) (graph.py:2884)
+5. forward_step inverted index: Uses _concept_to_tokens for O(B*T) lookup (rlm.py:2938)
+
+---
+
+### Updated Line Counts
+- ravana_ml/: 11,993 lines across 20 files
+- ravana-v2/core/: 13,600 lines across 33 files
+- Total project: 46,059 lines across 159 files

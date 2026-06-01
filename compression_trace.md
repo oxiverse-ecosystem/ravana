@@ -2,14 +2,12 @@
 
 **Prompt:** `test prompt`
 
-**Generated Text:** `test prompt
-`
+**Generated Text:** `test promp8/	`
 
 ## Step-by-Step Cognitive Metrics
 
 | Step | Token | Entropy | Repetition Score | Exploration Drive | Temperature | ACF | Steps | Top Active Concepts (Label, Activation, Fatigue) |
 |------|-------|---------|------------------|-------------------|-------------|-----|-------|--------------------------------------------------|
-| 0 | `` | 0.382 | 0.20 | 0.12 | 0.50 | 5 | 2 | tok_15 (act=0.47, fat=0.17), tok_168 (act=0.34, fat=0.12), tok_194 (act=0.31, fat=0.10), tok_112 (act=0.28, fat=0.09), tok_189 (act=0.26, fat=0.08) |
-| 1 | `t` | 0.410 | 0.18 | 0.10 | 0.50 | 5 | 2 | tok_15 (act=0.44, fat=0.32), tok_194 (act=0.35, fat=0.21), tok_168 (act=0.33, fat=0.22), tok_112 (act=0.29, fat=0.18), tok_189 (act=0.27, fat=0.17) |
-| 2 | `
-` | 0.412 | 0.17 | 0.09 | 0.50 | 5 | 2 | tok_15 (act=0.38, fat=0.43), tok_168 (act=0.28, fat=0.29), tok_112 (act=0.27, fat=0.25), tok_189 (act=0.27, fat=0.24), tok_194 (act=0.24, fat=0.27) |
+| 0 | `8` | 0.235 | 0.20 | 0.14 | 0.50 | 5 | 2 | tok_225 (act=0.42, fat=0.15), tok_204 (act=0.37, fat=0.13), tok_97 (act=0.35, fat=0.12), tok_158 (act=0.33, fat=0.11), tok_10_b (act=0.29, fat=0.10) |
+| 1 | `/` | 0.283 | 0.18 | 0.12 | 0.50 | 5 | 2 | tok_225 (act=0.39, fat=0.27), tok_204 (act=0.37, fat=0.24), tok_97 (act=0.34, fat=0.23), tok_158 (act=0.19, fat=0.16), tok_66 (act=0.18, fat=0.10) |
+| 2 | `	` | 0.424 | 0.17 | 0.09 | 0.50 | 5 | 2 | tok_204 (act=0.35, fat=0.34), tok_97 (act=0.31, fat=0.31), tok_66 (act=0.26, fat=0.17), tok_225 (act=0.25, fat=0.33), tok_184 (act=0.18, fat=0.06) |

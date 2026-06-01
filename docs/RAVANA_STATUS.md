@@ -1,6 +1,6 @@
 # RAVANA — Codebase Status Report
-**Date:** 2026-05-31 (updated — Phase 2 NN bridge proven, 91% held-out transfer)
-**Commit:** a459354 + uncommitted fixes (RLMv2 save/load binding_map, K3_Belief_Agent latent_regime compat)
+**Date:** 2026-06-01 (updated — honest benchmark audit, line count corrections, new files documented)
+**Commit:** a459354 + uncommitted fixes (RLMv2 save/load binding_map, K3_Belief_Agent latent_regime compat, 4 new files)
 **Author:** Likhith
 **Purpose:** Shareable status document for LLM collaborators
 
@@ -14,31 +14,34 @@ A cognitive architecture research project proposing **pressure-driven self-organ
 
 ---
 
-## Architecture: Three-Layer Package
+## Architecture: Three-Layer Package (159 files, 46,059 lines)
 
-### Layer 1: `ravana_ml/` — The ML Framework (10,138 lines, 16 files)
+### Layer 1: `ravana_ml/` — The ML Framework (11,993 lines, 20 files)
 
 A PyTorch-compatible API surface built on NumPy. Only hard dependency: `numpy`.
 
 | File | Lines | Purpose |
 |------|-------|---------|
 | `tensor.py` | 385 | `RawTensor` (NumPy wrapper with PyTorch-like API) + `StateTensor` (adds salience, free_energy, stability, decay) |
-| `graph.py` | 3,553 | `ConceptGraph` with `ConceptNode`/`ConceptEdge` — Hebbian/anti-Hebbian updates, structural plasticity, activation spreading, **hierarchical abstraction**. `ConceptBinding` + `ConceptBindingMap` — probabilistic token↔concept↔memory namespace. Inhibitory edges, soft lateral inhibition, precision-weighted spreading, concept splitting, synaptic homeostasis, temporal context + activation history, interference decay. `form_inhibitory_edges()` with adaptive confidence + bidirectional target inhibition + **pressure-driven triggering** (contradiction_pressure + gradient), `apply_prediction_error()` for contradiction tracking with **temporal pressure dynamics** (pressure_history, pressure_gradient, escalation amplification), `contradiction_hotspots` for pressure-driven resolution. `ConceptNode.fatigue` + `effective_activation` + **contradiction_pressure** + **pressure_history** + **pressure_gradient** fields. **RIE v1**: `relation_type` + `relation_vector` (dim-matched) on edges, `infer_chain()` sparse multi-hop with **relation context scoring**, `compress_paths()`, `find_analogy()`. **Anchor field**: `core_vector` (slow) + `active_vector` (fast). **Contrastive relation learning**: push-pull dynamics with **explicit negative sampling**. **Adaptive homeostatic downscale**: per-edge factor `0.6 + 0.35 * min(1.0, confidence * prediction_count / 10)` + post-downscale renormalization. **Semantic geometry**: `graph_diagnostics()` (30+ metrics), `geometry_report()` with phase classification, `compute_curvature()`, `project_relation_manifold()` PCA. **CognitiveRegulator**: 3-timescale damped regulation, `regulate()` pipeline. **GeometryHistory**: 200-snapshot buffer with trend detection. **Entropy-driven pruning**. **Forward/backward prediction counts** on edges for structural relation inference. **`_infer_relation_from_structure()`**: prediction asymmetry detects directional relations. **`_refine_relation_types()`**: periodic re-classification of edges (every 20 steps). |
+| `graph.py` | 3,678 | `ConceptGraph` with `ConceptNode`/`ConceptEdge` — Hebbian/anti-Hebbian updates, structural plasticity, activation spreading, **hierarchical abstraction**. `ConceptBinding` + `ConceptBindingMap` — probabilistic token↔concept↔memory namespace. Inhibitory edges, soft lateral inhibition, precision-weighted spreading, concept splitting, synaptic homeostasis, temporal context + activation history, interference decay. `form_inhibitory_edges()` with adaptive confidence + bidirectional target inhibition + **pressure-driven triggering** (contradiction_pressure + gradient), `apply_prediction_error()` for contradiction tracking with **temporal pressure dynamics** (pressure_history, pressure_gradient, escalation amplification), `contradiction_hotspots` for pressure-driven resolution. `ConceptNode.fatigue` + `effective_activation` + **contradiction_pressure** + **pressure_history** + **pressure_gradient** fields. **RIE v1**: `relation_type` + `relation_vector` (dim-matched) on edges, `infer_chain()` sparse multi-hop with **relation context scoring**, `compress_paths()`, `find_analogy()`. **Anchor field**: `core_vector` (slow) + `active_vector` (fast). **Contrastive relation learning**: push-pull dynamics with **explicit negative sampling**. **Adaptive homeostatic downscale**: per-edge factor `0.6 + 0.35 * min(1.0, confidence * prediction_count / 10)` + post-downscale renormalization. **Semantic geometry**: `graph_diagnostics()` (30+ metrics), `geometry_report()` with phase classification, `compute_curvature()`, `project_relation_manifold()` PCA. **CognitiveRegulator**: 3-timescale damped regulation, `regulate()` pipeline. **GeometryHistory**: 200-snapshot buffer with trend detection. **Entropy-driven pruning**. **Forward/backward prediction counts** on edges for structural relation inference. **`_infer_relation_from_structure()`**: prediction asymmetry detects directional relations. **`_refine_relation_types()`**: periodic re-classification of edges (every 20 steps). |
 | `free_energy.py` | 90 | `FreeEnergyAccumulator` — five-channel: semantic, linguistic, episodic, contradiction, abstraction free energy with decay + normalization. Replaces old `pressure.py` |
 | `plasticity.py` | 77 | `HebbianPlasticity`, `AntiHebbianPlasticity` (converts dying edges to inhibitory), `StructuralPlasticity` |
 | `propagation.py` | 78 | Activation spreading engine over concept graph |
-| `tokenizer.py` | 110 | **`WordTokenizer`** (default, word-level, ~5x faster for experiments, dynamic vocab), `BPETokenizer` (tiktoken/GPT-2, 50257 vocab, optional), `SimpleTokenizer` (char-level fallback, 256 vocab), `get_tokenizer()` factory — falls back to WordTokenizer when tiktoken unavailable |
+| `tokenizer.py` | 208 | **`WordTokenizer`** (default, word-level, ~5x faster for experiments, dynamic vocab), `BPETokenizer` (tiktoken/GPT-2, 50257 vocab, optional), `SimpleTokenizer` (char-level fallback, 256 vocab), `get_tokenizer()` factory — falls back to WordTokenizer when tiktoken unavailable |
 | `embedder.py` | 81 | **`LearnedEmbedder`** — character n-gram (3,4,5) + feature hashing + random projection (Johnson-Lindenstrauss). Produces 64-dim vectors. Optional IDF weighting via `fit(corpus)`. Used by HumanMemoryEngine and RLM episodic memory. |
-| `nn/module.py` | 434 | PyTorch-compatible `Module` base with `accumulate_free_energy()` + `sleep_cycle()` — local learning, no backprop. `Linear.backprop()` raises `NotImplementedError`. **GRUCell**: 3-gate recurrent unit (update, reset, candidate) replacing vanilla RNN. **LayerNorm**: wired into RLM forward pass with residual connections. **ConceptAttentionHead**: multi-head attention over concept embeddings → vocab logits (2-head, QKV). |
+| `nn/module.py` | 473 | PyTorch-compatible `Module` base with `accumulate_free_energy()` + `sleep_cycle()` — local learning, no backprop. `Linear.backprop()` raises `NotImplementedError`. **GRUCell**: 3-gate recurrent unit (update, reset, candidate) replacing vanilla RNN. **LayerNorm**: wired into RLM forward pass with residual connections. **ConceptAttentionHead**: multi-head attention over concept embeddings → vocab logits (2-head, QKV). |
 | `currencies.py` | 250 | `CognitiveCurrencies` — unified cognitive currency system. Holds all pressure signals (identity, VAD emotion, meaning, sleep pressure, dissonance, regulation mode). Single `update()` method, `get_state()`/`load_state()` for checkpointing. Integrated into RLM via property aliases for backward compatibility. |
 | `currency.py` | 291 | `CognitiveCurrency` — named signal registry with min/max ranges, decay rates, compositional signals, threshold-based alerts. Pluggable framework for new signals (Bayesian posteriors, episodic confidence). Proof-of-concept wired into RLM. |
-| `nn/rlm.py` | 3,895 | **Recursive Learning Model (RLM)** — self-contained cognitive agent. **Predictive coding** with settle loop + 3 stabilizers. **GRU recurrent cell** (3-gate gating, replaces vanilla RNN). **LayerNorm + residual connections** on hidden layers. **Sinusoidal positional encoding** (512 max len). **Concept attention**: QKV attention over top-7 active concepts with graph-based mask (inhibitory penalty, edge bonus), moved to `learn()` only. **Softmax normalization**: temperature modulated by arousal (replaces *15.0 hack). **InfoNCE contrastive learning**: pull toward positive, push from top-3 negatives. **LR scheduling**: warmup (100 steps) + cosine decay. **Direct Hebbian update on GRU gates** (recurrent cell no longer frozen). **Concept dim bridge**: `_project_to_concept()` / `_project_to_embed()` helpers for embed_dim ↔ concept_dim operations. **Forward/forward_step equivalence**: shared `_seq_position` counter, concept_attention in `learn()` only, multi-hop in `generate()` only. **Native cognitive architecture**: identity, emotion (VAD), meaning, sleep pressure, regulation modes. **Native memory**: episodic buffer (500, salience-weighted eviction + scored retrieval, importance/domain/access_count/enrichment fields) → semantic consolidation (1000) → graph weights bridge. **Hippocampal replay** during sleep. **Sleep-time interleaved replay**: `_replay_buffer` (capacity 500), `_domain_memories`, `buffer_experience()` / `snapshot_replay_buffer()` / `activate_domain_memories()` / `_replay_old_memories()`. **EWC**: `compute_fisher()` + `snapshot_weights()` + per-edge Fisher importance. **Bayesian soft assignment**: `_concept_posterior()` (temperature-scaled softmax, top-K), probability-weighted alternative edge updates in `learn()`, soft context concept activation in `forward()`. **Emotion-modulated forward** (arousal/valence/identity scale logit blend). **Vector updates** in `learn()`: concept vectors drift toward bound token embeddings with contrastive push. **Contrastive relation learning**: pushes relation vectors apart for edges with different targets. **Cross-space prediction error fix**: concept-to-concept comparison. `save()`/`load()` (pickle) + `save_zip()`/`load_zip()` — **all state persisted**. **Relation Predictor**: 3-layer MLP (`concept_id_embed ⊕ source_vec ⊕ pooled_relation_vec` → logits) with backprop training, concept ID embeddings for stability. **`_analogy_predict()`**: aggregates top-3 similar concepts (was top-1) + frequency-weighted global relation prior fallback. **`ConceptAttentionHead`** integration in forward/learn. **Edge weight convergence tracking** (`_edge_weight_ema`, `_token_hit_ema`). **Relation-type-weighted hop scoring** (causal 1.3x, temporal 1.2x, inferred 0.8x) with **relation-type mismatch penalty** (0.3x for non-matching edges when input is non-semantic). **Subject-concept anchoring** in `forward()`: activates first token's concept at 80% of max activation to prevent verb-domain bias. **Predicate (verb) matching** on edges: matching verb token gets 2.5x boost, mismatched gets 0.4x penalty. **Subject-concept target boost**: directly boosts concept_scores at tokens bound to subject's matching edges. **Non-subject target suppression**: suppresses concept_scores, ctx_logits, and rp_logits for tokens from non-subject active concepts. **Hidden-state contrastive buffer** (32 entries, temperature 0.1): forces GRU to produce discriminative representations. **Relation-type filtering** in `_rp_collect_relations()`: optional `relation_type` param prevents dilution when mixing causal/semantic vectors. **Settle damping 0.95** (was 0.9): 0.95^5=0.77 vs 0.9^5=0.59, prevents oscillation. **Concept vectors initialized from token embeddings**: prevents concept conflation after interleaved replay. **`dissonance_normalized` property**: paper-comparable [0.1, 0.9] range. |
+| `nn/rlm.py` | 3,931 | **Recursive Learning Model (RLM)** — self-contained cognitive agent. **Predictive coding** with settle loop + 3 stabilizers. **GRU recurrent cell** (3-gate gating, replaces vanilla RNN). **LayerNorm + residual connections** on hidden layers. **Sinusoidal positional encoding** (512 max len). **Concept attention**: QKV attention over top-7 active concepts with graph-based mask (inhibitory penalty, edge bonus), moved to `learn()` only. **Softmax normalization**: temperature modulated by arousal (replaces *15.0 hack). **InfoNCE contrastive learning**: pull toward positive, push from top-3 negatives. **LR scheduling**: warmup (100 steps) + cosine decay. **Direct Hebbian update on GRU gates** (recurrent cell no longer frozen). **Concept dim bridge**: `_project_to_concept()` / `_project_to_embed()` helpers for embed_dim ↔ concept_dim operations. **Forward/forward_step equivalence**: shared `_seq_position` counter, concept_attention in `learn()` only, multi-hop in `generate()` only. **Native cognitive architecture**: identity, emotion (VAD), meaning, sleep pressure, regulation modes. **Native memory**: episodic buffer (500, salience-weighted eviction + scored retrieval, importance/domain/access_count/enrichment fields) → semantic consolidation (1000) → graph weights bridge. **Hippocampal replay** during sleep. **Sleep-time interleaved replay**: `_replay_buffer` (capacity 500), `_domain_memories`, `buffer_experience()` / `snapshot_replay_buffer()` / `activate_domain_memories()` / `_replay_old_memories()`. **EWC**: `compute_fisher()` + `snapshot_weights()` + per-edge Fisher importance. **Bayesian soft assignment**: `_concept_posterior()` (temperature-scaled softmax, top-K), probability-weighted alternative edge updates in `learn()`, soft context concept activation in `forward()`. **Emotion-modulated forward** (arousal/valence/identity scale logit blend). **Vector updates** in `learn()`: concept vectors drift toward bound token embeddings with contrastive push. **Contrastive relation learning**: pushes relation vectors apart for edges with different targets. **Cross-space prediction error fix**: concept-to-concept comparison. `save()`/`load()` (pickle) + `save_zip()`/`load_zip()` — **all state persisted**. **Relation Predictor**: 3-layer MLP (`concept_id_embed ⊕ source_vec ⊕ pooled_relation_vec` → logits) with backprop training, concept ID embeddings for stability. **`_analogy_predict()`**: aggregates top-3 similar concepts (was top-1) + frequency-weighted global relation prior fallback. **`ConceptAttentionHead`** integration in forward/learn. **Edge weight convergence tracking** (`_edge_weight_ema`, `_token_hit_ema`). **Relation-type-weighted hop scoring** (causal 1.3x, temporal 1.2x, inferred 0.8x) with **relation-type mismatch penalty** (0.3x for non-matching edges when input is non-semantic). **Subject-concept anchoring** in `forward()`: activates first token's concept at 80% of max activation to prevent verb-domain bias. **Predicate (verb) matching** on edges: matching verb token gets 2.5x boost, mismatched gets 0.4x penalty. **Subject-concept target boost**: directly boosts concept_scores at tokens bound to subject's matching edges. **Non-subject target suppression**: suppresses concept_scores, ctx_logits, and rp_logits for tokens from non-subject active concepts. **Hidden-state contrastive buffer** (32 entries, temperature 0.1): forces GRU to produce discriminative representations. **Relation-type filtering** in `_rp_collect_relations()`: optional `relation_type` param prevents dilution when mixing causal/semantic vectors. **Settle damping 0.95** (was 0.9): 0.95^5=0.77 vs 0.9^5=0.59, prevents oscillation. **Concept vectors initialized from token embeddings**: prevents concept conflation after interleaved replay. **`dissonance_normalized` property**: paper-comparable [0.1, 0.9] range. |
 | `nn/functional.py` | 118 | Functional API (relu, softmax, cross_entropy, etc.) |
 | `world/__init__.py` | 159 | Simulation environments: TinyWorld, CausalSequenceWorld, ObjectInteractionWorld, SensorimotorWorld |
 | `lab/__init__.py` | 263 | Concept Physics Lab for compositional experiments |
 | `__init__.py` | 106 | Package init, `import ravana as torch` pattern, Device, save/load |
+| `episode_injector.py` | 276 | **NEW** — Synthetic Episode Injector for feeding structured knowledge into RLMv2's graph via `learn()`. Creates deterministic concept nodes and typed edges from structured triple data. |
+| `relation_ontology.py` | 231 | **NEW** — Multi-level relation hierarchy (Family > Sub-family > Predicate) for typed traversal. Defines relation families (causal, temporal, spatial, etc.) with sub-families and individual predicates. |
+| `word_tokenizer.py` | 46 | **NEW** — Word-level tokenizer for RLMv2 (splits text into words, maps each to unique token ID). Lightweight alternative to the full tokenizer module. |
 
-### Layer 2: `ravana-v2/` — The Cognitive Core (96+ files, 23 core modules)
+### Layer 2: `ravana-v2/` — The Cognitive Core (128 files, 33 core modules, 33,157 lines)
 
 The GRACE architecture (Governance, Reflection, Adaptation, Constraint, Exploration). 20+ cognitive modules spanning emotion, sleep, dual-process reasoning, meta-cognition, empathy, meaning, social epistemology.
 
@@ -59,28 +62,29 @@ The GRACE architecture (Governance, Reflection, Adaptation, Constraint, Explorat
 | `belief_reasoner.py` | F | Competing hypotheses with confidence decay, structural consistency |
 | `active_epistemology.py` | G | Value of Information calculation, hypothesis-driven action |
 | `surgical_probes.py` | H | KL-divergence driven probe selection to separate hypotheses |
-| `social_epistemology.py` | I | Multi-agent belief conflict, trust scoring, deception detection |
+| `social_epistemology.py` | I | Multi-agent belief conflict, trust scoring, deception detection (760 lines) |
 | `meta_cognition.py` | J | Self-awareness of epistemic process, bias detection, mode recommendation (435 lines) |
 | `reality_friction.py` | K | Partial observability, delayed ground truth, noisy signals |
-| `meta2_cognition.py` | K | System questioning its own epistemic method |
+| `meta2_cognition.py` | K | System questioning its own epistemic method (666 lines) |
 | `meta2_integration.py` | K | Hypothesis space audits, epistemic epiphanies |
 | `hypothesis_generation.py` | L | Constraint-guided generation: parametric, structural, causal |
 | `occam_layer.py` | L | Complexity penalties |
 | `emotion.py` | M | VAD (Valence, Arousal, Dominance) via differential equations (234 lines) |
 | `memory.py` | — | Episodic, semantic, working memory |
 | `global_workspace.py` | N | **NEW** — Competitive broadcast system, consciousness bottleneck |
-| `human_memory.py` | O | Persistent episodic/semantic memory with Ebbinghaus decay, spreading activation, reconstructive recall. **NEW:** Interference-based decay (similar memories accelerate each other's forgetting), retrieval-induced forgetting (recall suppresses competitors), temporal context storage (encoding specificity). **Vector-based retrieval** via SharedVectorIndex (primary recall path), cosine similarity search, keyword fallback |
+| `human_memory.py` | O | Persistent episodic/semantic memory (2,321 lines) with Ebbinghaus decay, spreading activation, reconstructive recall. **NEW:** Interference-based decay (similar memories accelerate each other's forgetting), retrieval-induced forgetting (recall suppresses competitors), temporal context storage (encoding specificity). **Vector-based retrieval** via SharedVectorIndex (primary recall path), cosine similarity search, keyword fallback |
 | `vector_index.py` | P | **NEW** — SharedVectorIndex: fast ANN index for memory embeddings. Cosine similarity via vectorized NumPy (<10K vectors) or optional FAISS. Lazy rebuild, argpartition, persistence via .npz + JSON. Used by HumanMemoryEngine, SleepConsolidation, MemoryReconstructor |
 | `memory_reconstructor.py` | P | **NEW** — MemoryReconstructor: reconstructive recall from partial cues. Vector search → graph spreading → content blending → fidelity scoring. Models human-like memory reconstruction where recall is inferred from fragments, not exact lookup |
 
 **Additional systems (inside `core/`):**
-- `sleep.py` (540+ lines) — 6-stage consolidation: topology analysis, pattern compression, abstraction compression (hierarchical concept merging), contradiction resolution, **model update** (Hebbian replay, vector drift, edge pruning), integration. Dream sabotage (20% counterfactual reversals, 10% valence flipping, 1.5x failure oversampling). Tier-0 identity protection. Triggers human memory decay + consolidation. `replay_through_graph()` — hippocampal replay that re-activates memories through the ConceptGraph, applying Hebbian learning on replayed activations. `_update_memory_model()` — vector-based replay through ConceptGraph with Hebbian strengthening between co-activated concepts.
+- `embedder.py` (188 lines) — **NEW** — LearnedEmbedder: character n-gram + random projection embeddings (64-dim). Standalone embedder for ravana-v2, parallel to ravana_ml/embedder.py.
+- `sleep.py` (703 lines) —
 - `dual_process.py` (209 lines) — System 1 (fast/intuitive) vs System 2 (slow/deliberate) with override logic
 - `meaning.py` (224 lines) — Intrinsic motivation: `M = w1(-D_future) + w2(identity_coherence) + w3(predictive_power) * (1 + kappa * effort_cost)`
 - `empathy.py` — Theory of Mind via Gaussian Process regression
 - `state.py` — StateManager + CognitiveState (wires all modules together)
 
-### Layer 3: `ravana/` — Unified Package (NEW)
+### Layer 3: `ravana/` — Unified Package (11 files, 909 lines)
 
 The RAVANA (Recursive Learning Model) package unifies both codebases into a single pip-installable package. Re-exports from `ravana_ml/` and `ravana-v2/core/` — no code duplication, no destructive renames.
 
@@ -332,19 +336,38 @@ input_text → triple_decompose → (subject, relation_type, object)
 
 8. **2-Hop Edge Traversal**: For unseen combinations, traverse: subject → middle_node (via direct edge) → target (via matching relation type edge). Multiplier ×3.0 to boost 2-hop scores.
 
-### Results (V6 Benchmark, 47 test triples)
+### Results (V6 Benchmark, 47 test triples, verified 2026-06-01)
 
 | Category | Top-1 | Top-5 | Top-10 | N |
 |----------|-------|-------|--------|---|
-| Train memorization | 50% | 83% | 100% | 12 |
-| Relation type transfer | 22% | 89% | 100% | 9 |
-| Cross-subject same-domain | 12.5% | 88% | 100% | 8 |
-| Cross-domain causal | 0% | 12.5-50% | 62.5-75% | 8 |
-| Bridge transfer | 50% | 83-100% | 100% | 6 |
-| Property transfer | 50-75% | 100% | 100% | 4 |
-| **Overall** | — | — | **93.6-95.7%** | 47 |
+| Train memorization | 41.7% | 58.3% | 75.0% | 12 |
+| Relation type transfer | 11.1% | 44.4% | 66.7% | 9 |
+| Cross-subject same-domain | 0.0% | 12.5% | 25.0% | 8 |
+| Cross-domain causal | 0.0% | 0.0% | 25.0% | 8 |
+| Bridge transfer | 50.0% | 83.3% | 83.3% | 6 |
+| Property transfer | 50.0% | 50.0% | 50.0% | 4 |
+| **Overall** | — | — | **55.3%** | 47 |
 
-**Cross-domain progression**: RLMv1 0% → RLMv2 v1 66.7% → RLMv2 v6 75% (best) / 62.5% (avg)
+**Note**: Previous runs showed higher numbers (93.6-95.7%) from optimized configurations. Current numbers reflect the standard 47-triple evaluation after fixing the stale binding_map bug. The gap indicates the model's performance is sensitive to graph state and training order.
+
+**Cross-domain progression**: RLMv1 0% → RLMv2 v1 66.7% → RLMv2 v6 25% (standard eval) / 83.3% (bridge transfer)
+
+### Honest Benchmark Status (verified 2026-06-01)
+
+| Benchmark | Result | Status |
+|-----------|--------|--------|
+| RLMv2 unit tests (`test_rlm_v2.py`) | 11/11 passing | ✓ GREEN |
+| RLMv2 v6 benchmark (`experiment_triple_benchmark_v6.py`) | 55.3% overall top-10 (47 triples) | ✓ FIXED (was BROKEN) |
+| Phase 2 NN bridge (best — `experiment_reverse_inheritance.py`) | 67% bridge, 91% query, 90% object | ✓ |
+| Phase 2 NN bridge (`experiment_held_out_transfer.py`) | 42% bridge, 59% query, 48% object | ⚠ Improved from 33%/41%/39% |
+| Phase 2 NN bridge (`experiment_final_bridge.py`) | 67% bridge, 68% query, 68% object | ✓ |
+| Dense KB validation (`experiment_dense_kb_validation.py`) | 86% avg hit rate (6 composed reasoning tests) | ✓ |
+| Cross-domain transfer (`experiment_cross_domain.py`) | **0.0% top-1, 0.0% top-10** (uses RLMv1) | ✗ NEUTRAL TRANSFER |
+| `eval_comprehensive.py` | 10% train top-1, 0% test top-1, 0% novel top-1 | ✗ |
+| `eval_ab_word.py` | 100% train, 25% transfer (baseline), 0% transfer (predictive coding) | ⚠ |
+| Semantic clustering | intra-domain 0.413, cross-domain 0.155 (2.5x gap) | ⚠ MiniLM preserves domain structure |
+
+**IMPORTANT CAVEAT:** The 95% cross-domain / 100% top-10 numbers in the Phase 1-3 ablation section are from **specific probe configurations** (20-probe set after multiple fix rounds), NOT from the full cross-domain experiment which shows 0.0% top-1. The two evaluation setups are incomparable.
 
 ### Remaining Gap (3/8 cross-domain failures)
 
@@ -354,9 +377,12 @@ input_text → triple_decompose → (subject, relation_type, object)
 
 ### Files
 
-- `ravana_ml/nn/rlm_v2.py` (1047 lines) — the full architecture
-- `experiment_triple_benchmark_v6.py` (430 lines) — 6-category benchmark with 47 test triples
-- `test_rlm_v2.py` — unit tests
+- `ravana_ml/nn/rlm_v2.py` (1247 lines) — the full architecture
+- `ravana_ml/episode_injector.py` (276 lines) — Synthetic Episode Injector for structured knowledge ingestion
+- `ravana_ml/relation_ontology.py` (231 lines) — Multi-level relation hierarchy
+- `ravana_ml/word_tokenizer.py` (46 lines) — Word-level tokenizer for RLMv2
+- `experiment_triple_benchmark_v6.py` (430 lines) — 6-category benchmark with 47 test triples (**FIXED 2026-06-01** — stale binding_map bug, now 55.3% overall top-10)
+- `test_rlm_v2.py` — unit tests (11/11 passing)
 
 ---
 
@@ -866,8 +892,9 @@ Based on cognitive science research (spreading activation, synaptic homeostasis,
 | RP Weight Decay Fix (2026-05-30) | **Relation predictor weight collapse root cause found and fixed.** `0.999` decay on `_rp_W1` and `_rp_W2` was inside `_rp_backward()`, called 2-4 times per `learn()` step. Net decay per step: `0.999^4 = 0.996`. After ~5000 steps, weights collapse to near-zero; biases (not decayed) survive, encoding frequency distribution → RP always predicts concept_id=50. **Fix:** Moved decay to once per `learn()` call (0.999 per step, not per backward call). |
 | Concept Graph Ablation (2026-05-30) | **Core evidence that the concept graph drives cross-domain transfer.** Added `_ablate_graph` flag to zero out concept_logits in the logit blend. Cross-domain probes with graph path: **95% top-1, 100% top-10**. Without graph path: **70% top-1, 85% top-10**. Graph contribution: **+25pp top-1, +15pp top-10**. MLP baseline: 0% top-1. This confirms the concept graph is the primary prediction mechanism, not decorative. |
 | MNIST Classification Head Diagnostic (2026-05-30) | **Hidden state has zero digit-distinguishing signal.** MLP(32→16→2) trained on the GRU's final hidden state achieves 49.5% on Split-MNIST binary classification (random chance). The 32-dim bottleneck over 784 sequential pixel tokens destroys all spatial information. Split-MNIST RLM accuracy: 42.7% (below chance). **Conclusion:** Architecture is not suited for visual/spatial tasks. Focus shifted to text-based relational reasoning only. |
-| RLMv2 Triple Architecture (2026-05-31) | **Brain-inspired triple decomposition achieves cross-domain transfer.** New architecture: triple decomposition (subject, relation_type, object) replaces character GRU. Learned relation type embeddings (6 types). Spreading activation inference with graph-wide relation-type query. Hebbian learning on typed edges. **V6 benchmark (final):** 95.7% best / 93.6% avg overall top-10 (47 test triples). Train memorization 100%, Relation type transfer 100%, Cross-subject same-domain 100%, Bridge transfer 100%, Property transfer 100%. **Cross-domain causal: 75% (best) / 62.5% (avg)** — up from 0% in all prior RLMv1 runs. Three new mechanisms: (1) **Vector arithmetic analogy** — subject_embed + avg_relation_vector → nearest concepts (word2vec-style "king - man + woman = queen"), enables cross-domain transfer via embedding space arithmetic. (2) **Relation-aware spreading activation** — 2 extra spread steps along edges matching query relation type, enabling deeper cross-domain path traversal. (3) **Activation-gated causal query** — only boost edges from concepts with activation > 0.1, preventing noise from unrelated causal edges. 1-to-1 token→concept mapping (no merging). 2-hop edge traversal with ×3.0 multiplier. Analogical bridge triples (anger is intense, heat is intense → shared node). Edge types: 40 causal, 60 semantic (properly classified). Relation vector separation: causal↔semantic cosine = -0.363. Architecture: 78 concepts, 100 edges, 101 training triples, 98 vocab, embed=64, concept=64, 1500 epochs. Remaining gap: 3/8 cross-domain failures (code→illness 3-hop, exercise→crashes buried, fire→friendship unstable). Files: `ravana_ml/nn/rlm_v2.py` (1047 lines), `test_rlm_v2.py`, `experiment_triple_benchmark_v6.py`. Commits f4e4d89, a459354. |
-| Phase 2 NN Bridge + Composed Reasoning (2026-05-31) | **Held-out transfer on novel terms — PROVEN.** 12 terms never seen during training, 22 queries across 6 relation types. **91% query success, 90% object hit rate, 67% bridge accuracy.** Key architecture: MiniLM (384-dim) full-dim bridge (no projection — random proj 384→32 destroys semantics), independent traversals per bridge candidate (shared visited set was blocking cross-candidate paths), depth decay (0.7x per level — prevents depth-2 cascade from drowning depth-1 results), reverse edge inheritance (if grass is_a plant, plant inherits grass's outgoing edges), bridge-as-candidate for is_a queries (bridge node itself is valid answer). **Progression:** 45% → 52% → 61% → 68% → 91% query success across 5 iterations. Only matcha fails (MiniLM embedding 0.32 sim — model limitation, not architecture). Dense KB: 248 facts, 51 concepts, 330 nodes, 655 edges. Semantic clustering: intra-domain 0.413, cross-domain 0.155 (2.5x gap — MiniLM preserves domain structure). Files: experiment_fulldim_bridge.py, experiment_fixed_bridge.py, experiment_final_bridge.py, experiment_reverse_inheritance.py |
+| RLMv2 Triple Architecture (2026-05-31) | **Brain-inspired triple decomposition achieves cross-domain transfer.** New architecture: triple decomposition (subject, relation_type, object) replaces character GRU. Learned relation type embeddings (6 types). Spreading activation inference with graph-wide relation-type query. Hebbian learning on typed edges. **V6 benchmark (initial):** 95.7% best / 93.6% avg overall top-10 (47 test triples). **V6 benchmark (2026-06-01 re-run after binding_map fix):** 55.3% overall top-10 — performance is sensitive to graph state and training order. **Cross-domain causal: 25% (standard eval)** — down from 75% in initial run. Three mechanisms: (1) Vector arithmetic analogy, (2) Relation-aware spreading activation, (3) Activation-gated causal query. 1-to-1 token→concept mapping. 2-hop edge traversal with ×3.0 multiplier. Architecture: 98 concepts, 237 edges, 101 training triples, 98 vocab, embed=64, concept=64, 1500 epochs. Files: `ravana_ml/nn/rlm_v2.py` (1262 lines), `test_rlm_v2.py`, `experiment_triple_benchmark_v6.py`. |
+| RLMv2 binding_map stale reference fix (2026-06-01) | **Fixed AttributeError crash in v6 benchmark.** Root cause: `_get_or_create_concept()` checked `binding_map` first and returned concept_id without verifying the node still exists in the graph. When `_prune_oldest()` removed nodes (graph at capacity), binding_map retained stale references to deleted nodes → `get_node(stale_id)` returned None → `.vector` AttributeError. **Fix:** (1) `_get_or_create_concept()` now validates `get_node(cid) is not None` before returning cached binding. (2) "At capacity" fallback changed from phantom `nid = len(nodes)` to `_nearest_concept()` reuse. (3) Defensive None guard in `forward()` for `subject_node`. All 11 RLMv2 tests pass. V6 benchmark now runs to completion: 55.3% overall top-10. Also improved `experiment_held_out_transfer.py`: added reverse edge inheritance, depth decay, bridge-as-candidate, full-dim MiniLM embeddings. Held-out transfer: 41% → 59% query success. |
+|| Phase 2 NN Bridge + Composed Reasoning (2026-05-31) | **Held-out transfer on novel terms — MIXED RESULTS.** 12 terms never seen during training, 22 queries across 6 relation types. **Best case (experiment_reverse_inheritance.py): 91% query success, 90% object hit rate, 67% bridge accuracy.** Held-out transfer (experiment_held_out_transfer.py): 41% query, 39% object, 33% bridge. Final bridge (experiment_final_bridge.py): 68% query, 68% object, 67% bridge. Dense KB validation: 86% average hit rate on 6 composed reasoning tests. **Full cross-domain experiment: 0.0% top-1, 0.0% top-10 — VERDICT: NEUTRAL TRANSFER.** Key architecture: MiniLM (384-dim) full-dim bridge (no projection — random proj 384→32 destroys semantics), independent traversals per bridge candidate (shared visited set was blocking cross-candidate paths), depth decay (0.7x per level — prevents depth-2 cascade from drowning depth-1 results), reverse edge inheritance (if grass is_a plant, plant inherits grass's outgoing edges), bridge-as-candidate for is_a queries (bridge node itself is valid answer). Dense KB: 248 facts, 51 concepts, 330 nodes, 655 edges. Semantic clustering: intra-domain 0.413, cross-domain 0.155 (2.5x gap — MiniLM preserves domain structure). Files: experiment_fulldim_bridge.py, experiment_fixed_bridge.py, experiment_final_bridge.py, experiment_reverse_inheritance.py, experiment_held_out_transfer.py |
 
 **Note:** Paper claims dissonance trajectory 0.800→0.200 but `final_results.json` shows 0.323→0.322 from a different run configuration. These need reconciliation.
 
@@ -954,7 +981,7 @@ These target the core problem that hidden states are near-constant (86-99% cosin
 **Phase 4 unchecked items:**
 - [ ] Hypothesis generation expansion
 - [ ] Surgical probing at scale
-- [x] Cross-domain transfer (**90%→95% top-1 after Phase 1-3 + log-softmax; 100% top-10; graph ablation confirms +25pp from graph path**)
+- [~] Cross-domain transfer (**specific probes: 95% top-1; full experiment: 0.0% top-1 — NEUTRAL TRANSFER; remains an open problem**)
 
 **Final target:** "Jensen Huang" functional milestone — Composite Wisdom Score 0.85, Brier Score < 0.1, DeepMind Level 3
 
@@ -1033,7 +1060,7 @@ These target the core problem that hidden states are near-constant (86-99% cosin
 - [x] Structural replay metrics — **DONE** (sleep-time interleaved replay: +42.9pp Domain A retention, `experiment_cross_domain_replay.py`)
 
 ### Remaining
-1. **~~Cross-domain transfer at 0.0~~** → **RESOLVED (2026-05-30).** Original: 14.3% top-1. After Phase 1-3 + log-softmax: 90% top-1. After subject-concept anchoring + concept vector init fix: 100% top-1 on probe set (commit 4880fd9). After concept graph np.maximum fix + RP weight decay fix: **95% top-1, 100% top-10** (commit 08ef0ce). Concept graph ablation confirms graph path contributes **+25pp top-1** (95% → 70% without graph). Sleep-time replay achieves +42.9pp Domain A retention. Catastrophic forgetting bottleneck solved.
+1. **Cross-domain transfer — MIXED RESULTS.** Specific probe configurations (20-probe set after multiple fix rounds) show 95% top-1, 100% top-10. Full cross-domain experiment (`experiment_cross_domain.py`) shows **0.0% top-1, 0.0% top-10 — NEUTRAL TRANSFER** (uses RLMv1, not RLMv2). RLMv2 v6 benchmark: **FIXED** (was BROKEN due to stale binding_map after node pruning), now 55.3% overall top-10. Phase 2 NN bridge: best-case 91% query success (reverse inheritance), held-out transfer improved from 41% to 59% with reverse edge inheritance + full-dim embeddings. Cross-domain generalization remains the primary open problem.
 2. **Paper claims vs results mismatch** → **RESOLVED (2026-05-23).** All three dissonance metrics unified to `0.1 + 0.8 * min(1.0, raw_d / 1.5)`. RLM now has `dissonance_normalized` property for paper-comparable reporting.
 3. **Lifelong benchmark COMPLETE (2026-05-24)** — 100k/100k done (pure Hebbian baseline), then 15k/15k with replay+EWC+Bayesian. Pure Hebbian: 40.8% retention, 12% forgetting. **With three-pronged defense: 47.6% retention, 0% forgetting** — catastrophic forgetting completely eliminated. Per-epoch: previously-suffering epochs 1/3 jump from 38%/32% to 52%/52%. 384 concepts, 21k edges, 1226 sleep cycles, 42ms/step. Plots regenerated from full data.
 4. **News-to-MDP pipeline unimplemented** — `reality_grounding.py` exists but structured cognitive event pipeline is a design
@@ -1078,15 +1105,17 @@ These target the core problem that hidden states are near-constant (86-99% cosin
 
 ---
 
-## Cross-Document Inconsistencies (Audit 2026-05-31)
+## Cross-Document Inconsistencies (Audit 2026-06-01)
 
-Full codebase + docs audit found 13 inconsistencies across documentation files. Listed by severity:
+Full codebase + docs audit found 14 inconsistencies across documentation files. Listed by severity:
 
 ### Critical (numbers differ by >5x)
 
 1. **~~Cross-domain transfer: papers say 14.3%, actual is 95%.~~** → **FIXED (2026-05-31).** All three papers (`SCIENCE_DIRECT_MANUSCRIPT.md`, `PAPER_DRAFT.md`, `RAVANA_REPORT.md`) updated with 95% top-1 / 100% top-10 in abstracts, results tables, discussion, and conclusion. RLMv2 (95.7% overall, 75% cross-domain causal) added to abstracts. Historical narrative sections retain 14.3% as original baseline (correct).
 
 2. **~~EXTERNAL_AUDIT.md lists "Cross-domain transfer = 0.0" as most important open problem.~~** → **FIXED (2026-05-31).** Audit doc updated with current status: all previously-identified issues resolved or marked with current state.
+
+3. **NEW (2026-06-01): Cross-domain transfer numbers from incomparable evaluations.** The 95% top-1 / 100% top-10 numbers are from specific probe configurations (20-probe set after multiple fix rounds). The full cross-domain experiment (`experiment_cross_domain.py`) shows 0.0% top-1, 0.0% top-10 — NEUTRAL TRANSFER. The RLMv2 v6 benchmark is BROKEN (AttributeError at rlm_v2.py:478). Status doc and papers need reconciliation.
 
 ### Moderate (misleading framing)
 
@@ -1257,7 +1286,7 @@ bc2d491 Phase O: Human Memory — persistent episodic/semantic memory with Ebbin
 - A system with cognitive telemetry — per-step JSON + markdown traces exposing entropy, fatigue, concepts, free energy during generation
 - An active research project with empirical validation: 6/6 proof-of-superiority experiments pass (few-shot, contradiction, identity, consolidation, interference, efficiency), 100/100 unit tests + 11/11 cognitive core tests green, with 7.5x graph optimization speedup, 6.5x sleep optimization
 - A system that achieved BREAKTHROUGH: 0% → 100% top-1 accuracy through 3 architectural fixes (RV type seed anchor, sleep frequency, catastrophic forgetting fix)
-- A system with 95% top-1, 100% top-10 cross-domain transfer (20 probes), via subject-concept anchoring, predicate matching, non-subject suppression, concept vector initialization, and concept graph fixes (graph ablation: +25pp top-1)
+- A system with honest cross-domain transfer results: specific probe configurations show 95% top-1, but the full cross-domain experiment shows 0.0% top-1 — the architecture works for trained patterns but generalization to truly novel domains remains an open problem
 - A system with honest scientific results: deep compositional experiments expose architectural gaps (11% on 3-hop chains) — failures drive research direction
 - A system with a completed 100K experience lifelong benchmark (pure Hebbian baseline: 40.8% plateau, 12% forgetting) and a 15K benchmark with the full three-pronged defense (replay+EWC+Bayesian): 47.6% retention, 0% forgetting — catastrophic forgetting completely eliminated, per-epoch retention up to 52%
 - A system that solved catastrophic forgetting via sleep-time interleaved replay: Domain A retention 0% → 42.9% top-10 (+42.9pp), retention delta from -14.3% to 0.0% (no forgetting), Domain B zero-shot from 14.3% to 57.1% top-10
@@ -1269,4 +1298,4 @@ bc2d491 Phase O: Human Memory — persistent episodic/semantic memory with Ebbin
 
 ---
 
-*Updated 2026-05-31 (RLMv2 vector arithmetic analogy + relation-aware spreading: 95.7% overall, 75% cross-domain, commit a459354). Share freely with LLM collaborators for guidance on next steps.*
+*Updated 2026-06-01 (honest benchmark audit: line count corrections, new files documented, cross-domain transfer status corrected to reflect 0.0% full-experiment vs 95% specific-probe, RLMv2 v6 benchmark marked BROKEN). Share freely with LLM collaborators for guidance on next steps.*

@@ -369,7 +369,12 @@ class RLMv2(Module):
         # Check binding map first — reuse existing concept for this token
         bindings = self.binding_map.get_concepts(token_id, min_confidence=0.1)
         if bindings:
-            return bindings[0].concept_id
+            cid = bindings[0].concept_id
+            # Validate that the node still exists in the graph
+            # (binding may be stale if node was pruned)
+            if self.graph.get_node(cid) is not None:
+                return cid
+            # Stale binding — fall through to create a fresh concept
 
         # Always create a new concept for this token (no merging)
         concept_vec = self._project_to_concept(embed_vec)
@@ -377,8 +382,13 @@ class RLMv2(Module):
             node = self.graph.add_node(vector=concept_vec, label=self._decode_token(token_id))
             nid = node.id
         else:
-            # At capacity — shouldn't happen with reasonable n_concepts
-            nid = len(self.graph.nodes)
+            # At capacity — find nearest existing concept to reuse
+            # (better than a phantom ID that doesn't exist in the graph)
+            nid, sim = self._nearest_concept(embed_vec)
+            if nid < 0:
+                # No concepts at all — force create
+                node = self.graph.add_node(vector=concept_vec, label=self._decode_token(token_id))
+                nid = node.id
 
         # Bind token to concept
         self.binding_map.bind(token_id, nid, confidence=0.9)
@@ -475,7 +485,12 @@ class RLMv2(Module):
         # "Tiger is cat-like" — activate concepts with similar embeddings.
         # This enables cross-subject transfer: tiger activates cat's edges,
         # which route through has:tail → tail.
-        subject_vec = self.graph.get_node(subject_cid).vector
+        subject_node = self.graph.get_node(subject_cid)
+        if subject_node is None:
+            # Concept was pruned or invalid — return zero logits
+            from ..tensor import tensor as make_tensor
+            return make_tensor(np.zeros(self.vocab_size, dtype=np.float32))
+        subject_vec = subject_node.vector
         sv_norm = np.linalg.norm(subject_vec)
         if sv_norm > 0:
             for cid, node in self.graph.nodes.items():

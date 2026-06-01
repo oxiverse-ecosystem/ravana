@@ -35,7 +35,7 @@ This paper reports on RAVANA's journey from 0% to 95% cross-domain transfer, doc
 
 ### 2.1 The Recursive Learning Model (RLM)
 
-RAVANA's core learning component is the Recursive Learning Model (RLM), a self-contained cognitive agent implemented in approximately 2,900 lines of Python with NumPy as its sole hard dependency. The RLM integrates a concept graph, recurrent processing, and embedded cognitive state into a unified learning system. [Figure 1: RAVANA architecture overview -- concept graph, RLM forward pass, sleep consolidation pipeline.]
+RAVANA's core learning component is the Recursive Learning Model (RLM), a self-contained cognitive agent implemented in approximately 3,931 lines of Python with NumPy as its sole hard dependency. The RLM integrates a concept graph, recurrent processing, and embedded cognitive state into a unified learning system. [Figure 1: RAVANA architecture overview -- concept graph, RLM forward pass, sleep consolidation pipeline.]
 
 The forward pass processes token sequences through a GRU recurrent cell (replacing an earlier vanilla RNN), three hidden layers with LayerNorm and residual connections, and sinusoidal positional encoding. Critically, the forward pass does not produce predictions via a conventional output projection. Instead, it activates a concept graph through spreading activation, and the concept graph's topology determines the output distribution.
 
@@ -189,6 +189,8 @@ The combined architecture achieved the first non-zero cross-domain transfer:
 | Forward transfer to Domain B | 57.1% |
 | Zero-shot transfer | 57.1% |
 
+**Note:** These results are from specific probe configurations optimized for the test. The full cross-domain experiment (experiment_cross_domain.py) shows neutral transfer (0% on standard probes), indicating the probe-specific results do not yet generalize.
+
 The correct cross-domain probe was "anger produces" -> "conflict" -- a combination never seen during training, where the causal relation pattern from Domain A (physics) was successfully applied to Domain B (emotions). This is structural generalization, not memorization.
 
 [Figure 3: Cross-domain transfer probe results. Green = correct top-1, yellow = in top-10, red = missed.]
@@ -336,7 +338,7 @@ Once bridged, the system traverses the concept graph from the bridge candidates:
 
 ### Results
 
-12 held-out terms never seen during training, 22 queries across 6 relation types:
+12 held-out terms never seen during training, 22 queries across 6 relation types (from experiment_reverse_inheritance.py):
 
 | Metric | Value |
 |--------|-------|
@@ -345,6 +347,23 @@ Once bridged, the system traverses the concept graph from the bridge candidates:
 | Object hit rate | 90% (28/31 expected objects) |
 
 Progression: 45% → 52% → 61% → 68% → 91% query success across 5 iterations. Only matcha fails (MiniLM embedding 0.32 sim — model limitation, not architecture).
+
+**Cross-experiment variation:** These numbers are the best case from experiment_reverse_inheritance.py (67% bridge, 91% query, 90% object). experiment_held_out_transfer.py shows lower results: 33% bridge, 41% query, 39% object. The full cross-domain experiment (experiment_cross_domain.py) shows 0% neutral transfer, indicating these probe-specific results do not yet generalize.
+
+---
+
+### Supporting Infrastructure
+
+New modules added to the framework:
+- Episode Injector (ravana_ml/episode_injector.py, 276 lines): Structured knowledge injection
+- Relation Ontology (ravana_ml/relation_ontology.py, 231 lines): Multi-level relation hierarchy
+- Word Tokenizer (ravana_ml/word_tokenizer.py, 46 lines): Word-level tokenization for RLMv2
+- LearnedEmbedder (ravana-v2/core/embedder.py, 188 lines): Character n-gram + random projection
+
+Updated codebase metrics:
+- ravana_ml/: 11,993 lines across 20 files
+- ravana-v2/core/: 13,600 lines across 33 files
+- Total: 46,059 lines across 159 files
 
 ---
 
@@ -478,5 +497,5 @@ Zenke, F., Poole, B., and Ganguli, S. (2017). Continual learning through synapti
 | Concept graph nodes (100k) | 0 | 384 | Self-organized |
 | Concept graph edges (100k) | 0 | 64,237 | Self-organized |
 | Compositional generalization | -- | 100% (RLM) vs 33% (MLP) | 3x advantage |
-| Step time | 452ms | 70ms | 6.5x speedup |
+| Step time | 452ms | 70ms (hardware-dependent) | 6.5x speedup |
 | Sleep cycle time | 656ms | 255ms | 2.6x speedup |

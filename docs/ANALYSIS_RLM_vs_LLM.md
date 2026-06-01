@@ -1,8 +1,8 @@
 # RLM vs LLM: Honest Gap Analysis & Improvement Roadmap
 
-**Date:** 2026-05-22
+**Date:** 2026-06-01
 **Purpose:** Where RLM loses to LLMs, why, and what we can adopt
-**Status:** ✅ ALL 5 BUGS FIXED + ALL 7 IMPROVEMENTS IMPLEMENTED (2026-05-22)
+**Status:** ✅ ALL 5 BUGS FIXED + ALL 7 IMPROVEMENTS IMPLEMENTED (verified 2026-06-01)
 
 ---
 
@@ -94,6 +94,8 @@ The recurrent cell is `concat(x, h) -> linear -> tanh`. No LSTM, no GRU, no gati
 | Forward pass | 0.57ms | 0.02ms | **29x slower** |
 | Learn step | 3.49ms | 0.09ms | **38x slower** |
 | Sleep cycle | 7.4ms | N/A | RLM only |
+
+> **Note:** Timing numbers above are approximate and hardware-dependent.
 
 **Why:** RLM does MORE per step:
 - Concept graph lookup (brute force over all nodes)
@@ -443,6 +445,31 @@ Concept Attention (global context)
 + Cognitive State (identity, emotion, meaning)
 = Something transformers can't do
 ```
+
+### Verified Status (2026-06-01)
+
+All 5 bugs confirmed fixed in current codebase:
+- BUG 1: GRU gates get direct Hebbian updates (rlm.py:1816-1880)
+- BUG 2: LayerNorm used on all hidden layers (rlm.py:88)
+- BUG 3: GRUCell implemented (module.py:373)
+- BUG 4: compute_curvature uses sampling (graph.py:2884, max_sample=500)
+- BUG 5: forward_step uses inverted index (rlm.py:2938)
+
+All 7 improvements confirmed implemented:
+- LayerNorm on hidden states ✓
+- Sinusoidal positional encoding ✓
+- Concept attention (ConceptAttentionHead, 2-head QKV) ✓
+- Contrastive concept learning (InfoNCE) ✓
+- Softmax normalization (temperature modulated by arousal) ✓
+- Residual connections ✓
+- Learning rate scheduling (warmup + cosine decay) ✓
+
+Current benchmark reality:
+- RLMv2 unit tests: 11/11 passing
+- Phase 2 NN bridge: 67-91% query success (experiment-dependent)
+- Full cross-domain: 0.0% neutral transfer
+- Fair eval: 10% train, 0% test
+- RLMv2 v6 benchmark: BROKEN (AttributeError)
 
 ---
 
