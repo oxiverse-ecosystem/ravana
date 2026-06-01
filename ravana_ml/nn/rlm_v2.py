@@ -950,8 +950,6 @@ class RLMv2(Module):
                     e._rv_norm_cache = None
 
             # ── Concept vector updates ──
-            # Increased from 0.005 to 0.02 — concept vectors must converge fast
-            # enough that concept-to-token scoring produces correct answers
             pull_lr = 0.02
 
             # Subject concept → subject token embedding
