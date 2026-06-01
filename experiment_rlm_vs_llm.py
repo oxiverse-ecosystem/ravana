@@ -478,6 +478,8 @@ def run_consolidation_experiment(tokenizer) -> Dict[str, Any]:
         structural_changes.append(f"{edge_delta:+d} edges")
     if abs(weight_delta) > 0.01:
         structural_changes.append(f"weight shift {weight_delta:+.4f}")
+    if getattr(rlm, "_last_sleep_structural_change", False):
+        structural_changes.append("sleep structural perturbation")
 
     print(f"\nPost-sleep:")
     print(f"  Nodes: {post_nodes}, Edges: {post_edges}, Inhibitory: {post_inhibitory}")

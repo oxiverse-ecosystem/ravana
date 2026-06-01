@@ -104,6 +104,11 @@ class Module:
                     # Backwards compat: bare numpy array
                     param.data = entry.copy()
 
+        # Refresh cached raw views after parameter replacement.
+        for mod in self.modules():
+            if hasattr(mod, "_rebuild_raw_cache"):
+                mod._rebuild_raw_cache()
+
     def __repr__(self):
         params = sum(p.data.size for _, p in self.named_parameters())
         return f"{self.__class__.__name__}({params} params, free_energy={self._free_energy:.2f})"

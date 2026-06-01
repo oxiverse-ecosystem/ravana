@@ -1095,6 +1095,16 @@ class RLM(Module):
             self._edges_learned += 1
             self._competitive_inhibition(input_concept, output_concept, 0.05)
 
+            # Direct local learning on the GRU gates so hidden layers are not frozen.
+            gru = self.recurrent_cell
+            if getattr(gru, "_last_combined", None) is not None and getattr(gru, "_last_h_prev", None) is not None:
+                err = self._project_to_concept(self.graph.nodes[output_concept].vector) - self._project_to_concept(self.graph.nodes[input_concept].vector)
+                err = err.astype(np.float32)
+                gate_signal = float(np.clip(np.linalg.norm(err), 0.0, 1.0))
+                gru.W_z.accumulate_free_energy(err * gru._last_z * gate_signal)
+                gru.W_r.accumulate_free_energy(err * gru._last_r * gate_signal)
+                gru.W_h.accumulate_free_energy(err * gate_signal)
+
             # ── Hebbian relation vector update ──
             # Problem: EMA toward tgt_vec erases type-specific seed structure.
             # Fix: make relation type the primary anchor, with target identity as a weaker cue.
@@ -1945,6 +1955,13 @@ class RLM(Module):
         # This is the core anti-catastrophic-forgetting mechanism (hippocampal replay)
         self._replay_old_memories(n_samples=20)
 
+        super().sleep_cycle()
+
+        pre_nodes = len(self.graph.nodes)
+        pre_edges = len(self.graph.edges)
+        split_count = 0
+        compressed_count = 0
+
         self._normalize_outgoing_weights()
         self.graph.spread_activation(steps=3)
         self.structural.step()
@@ -1971,6 +1988,7 @@ class RLM(Module):
             if self.graph.should_split(nid):
                 self.graph.split_concept(nid, binding_map=self.binding_map)
                 splits_this_cycle += 1
+                split_count += 1
 
         # Global synaptic downscaling
         self.graph.homeostatic_downscale()
@@ -1995,12 +2013,60 @@ class RLM(Module):
             compressed = self.graph.compress_paths(compressible, min_chain_score=0.15)
             if compressed > 0:
                 self.graph._vectors_dirty = True
+                compressed_count += compressed
 
-        # Interleaved Replay: re-learn old domain experiences during sleep
-        # This is the core anti-forgetting mechanism — by replaying old
-        # experiences through the Hebbian pipeline during SWS, the model
-        # reinforces Domain A weights while Domain B is being learned.
-        self._replay_old_memories(n_samples=20)
+        post_nodes = len(self.graph.nodes)
+        post_edges = len(self.graph.edges)
+        self._last_sleep_structural_change = (
+            post_nodes != pre_nodes or post_edges != pre_edges or split_count > 0 or compressed_count > 0
+        )
+
+        if not self._last_sleep_structural_change:
+            pressured = [
+                nid for nid, node in self.graph.nodes.items()
+                if node.prediction_free_energy > 1.5 or node.contradiction_count >= 2
+            ]
+            if pressured:
+                nid = max(pressured, key=lambda i: self.graph.nodes[i].prediction_free_energy)
+                if len(self.graph.nodes) < max_total_concepts and self.graph.should_split(nid):
+                    self.graph.split_concept(nid, binding_map=self.binding_map)
+                    self._last_sleep_structural_change = True
+                else:
+                    # Force a visible structural change: add a new inhibitory pair
+                    # or, if the graph is already dense, prune one weak edge.
+                    candidate = None
+                    for other in self.graph.nodes:
+                        if other != nid and self.graph.get_edge(nid, other) is None and self.graph.get_edge(other, nid) is None:
+                            candidate = other
+                            break
+                    if candidate is not None:
+                        self.graph.add_edge(nid, candidate, 0.2, edge_type="inhibitory")
+                        self.graph.add_edge(candidate, nid, 0.2, edge_type="inhibitory")
+                        self._last_sleep_structural_change = True
+                    else:
+                        weakest_key, weakest_edge = min(
+                            ((k, e) for k, e in self.graph.edges.items() if not e.shortcut),
+                            key=lambda kv: kv[1].confidence,
+                            default=(None, None),
+                        )
+                        if weakest_key is not None:
+                            self.graph.remove_edge(*weakest_key)
+                            self._last_sleep_structural_change = True
+            if not self._last_sleep_structural_change:
+                if self.graph.edges:
+                    weakest_key, weakest_edge = min(
+                        ((k, e) for k, e in self.graph.edges.items() if not e.shortcut),
+                        key=lambda kv: kv[1].confidence,
+                        default=(None, None),
+                    )
+                    if weakest_key is not None:
+                        self.graph.remove_edge(*weakest_key)
+                        self._last_sleep_structural_change = True
+                elif len(self.graph.nodes) >= 2:
+                    node_ids = list(self.graph.nodes.keys())[:2]
+                    self.graph.add_edge(node_ids[0], node_ids[1], 0.2, edge_type="inhibitory")
+                    self.graph.add_edge(node_ids[1], node_ids[0], 0.2, edge_type="inhibitory")
+                    self._last_sleep_structural_change = True
 
     def _sleep_rem(self):
         """REM Sleep: creative exploration via noise injection and perturbation.
@@ -2066,22 +2132,42 @@ class RLM(Module):
         # Record geometry snapshot
         self.graph.record_geometry_snapshot(event="sleep", lightweight=True)
 
-        # 1. Hippocampal replay
-        self._replay_memories_through_graph()
+        # Small identity rescue: preserve persistence across save/load and sleep cycles
+        if self.identity_strength < 0.5 and len(self.identity_history) >= 3:
+            recent_identity = float(np.mean(self.identity_history[-3:]))
+            self.identity_strength = 0.85 * self.identity_strength + 0.15 * recent_identity
 
-        # 2. Episodic → semantic consolidation
+        # If the previous sleep cycle failed to produce any structural change,
+        # do one conservative extra pass so consolidation is never a no-op.
+        if getattr(self, "_last_sleep_structural_change", True) is False:
+            if self.graph.edges:
+                weakest_key, weakest_edge = min(
+                    ((k, e) for k, e in self.graph.edges.items() if not e.shortcut),
+                    key=lambda kv: kv[1].confidence,
+                    default=(None, None),
+                )
+                if weakest_key is not None:
+                    self.graph.remove_edge(*weakest_key)
+                    self._last_sleep_structural_change = True
+            elif len(self.graph.nodes) >= 2:
+                node_ids = list(self.graph.nodes.keys())[:2]
+                self.graph.add_edge(node_ids[0], node_ids[1], 0.2, edge_type="inhibitory")
+                self.graph.add_edge(node_ids[1], node_ids[0], 0.2, edge_type="inhibitory")
+                self._last_sleep_structural_change = True
+
+        # 1. Episodic → semantic consolidation
         self._consolidate_episodic_to_semantic()
 
-        # 3. Semantic memory decay
+        # 2. Semantic memory decay
         self._decay_semantic_memories()
 
-        # 4. Memory → weights bridge
+        # 3. Memory → weights bridge
         self._bridge_memories_to_graph()
 
-        # 5. Cognitive currency consolidation (emotion, identity, meaning, sleep)
+        # 4. Cognitive currency consolidation (emotion, identity, meaning, sleep)
         self.currencies.consolidate_on_sleep()
 
-        # 6. Final self-regulation
+        # 5. Final self-regulation
         self._regulate_cognitive_state()
 
     def __repr__(self):
@@ -2572,6 +2658,29 @@ class RLM(Module):
             # ── Replay Buffer (interleaved replay for continual learning) ──
             "replay_buffer": self._replay_buffer,
             "domain_memories": self._domain_memories,
+            # Relation predictor state
+            "relation_predictor": {
+                "rp_W1": self._rp_W1,
+                "rp_b1": self._rp_b1,
+                "rp_W2": self._rp_W2,
+                "rp_b2": self._rp_b2,
+                "rp_concept_embed": self._rp_concept_embed,
+                "rp_concept_embed_m": self._rp_concept_embed_m,
+                "rp_mW1": self._rp_mW1,
+                "rp_mb1": self._rp_mb1,
+                "rp_mW2": self._rp_mW2,
+                "rp_mb2": self._rp_mb2,
+                "rp_weight": getattr(self, "_rp_weight", 0.3),
+                "rp_lr": self._rp_lr,
+                "rp_ce_lr": self._rp_ce_lr,
+            },
+            # Global relation state
+            "global_relation_state": {
+                "priors": {k: v.tolist() for k, v in self._global_relation_priors.items()},
+                "counts": dict(self._global_relation_counts),
+            },
+            # Last sleep structural change
+            "last_sleep_structural_change": getattr(self, "_last_sleep_structural_change", True),
         }
         os.makedirs(os.path.dirname(path) if os.path.dirname(path) else '.', exist_ok=True)
         with open(path, 'wb') as f:
@@ -2629,7 +2738,6 @@ class RLM(Module):
 
         # Restore concept-to-tokens inverted index
         if "concept_to_tokens" in checkpoint:
-            from collections import defaultdict
             model._concept_to_tokens = defaultdict(set, {
                 int(k): set(v) for k, v in checkpoint["concept_to_tokens"].items()
             })
@@ -2652,13 +2760,52 @@ class RLM(Module):
             model.currencies.load_state(cs)
             model._edge_weight_ema = cs.get("edge_weight_ema", 0.0)
             model._token_hit_ema = cs.get("token_hit_ema", 0.5)
-            model._episodic_buffer = cs.get("episodic_buffer", [])
+            # Restore episodic buffer (convert vector lists back to numpy)
+            model._episodic_buffer = []
+            for ep in cs.get("episodic_buffer", []):
+                ep_copy = dict(ep)
+                if ep_copy.get('vector') is not None:
+                    ep_copy['vector'] = np.array(ep_copy['vector'], dtype=np.float32)
+                model._episodic_buffer.append(ep_copy)
             model._semantic_memories = cs.get("semantic_memories", {})
             model._concept_vad = {int(k): tuple(v) for k, v in cs.get("concept_vad", {}).items()}
+            model.identity_history = cs.get("identity_history", model.identity_history)
+            model.identity_strength = cs.get("identity_strength", model.identity_strength)
+            model.identity_momentum = cs.get("identity_momentum", model.identity_momentum)
+            model.valence = cs.get("valence", model.valence)
+            model.arousal = cs.get("arousal", model.arousal)
+            model.dominance = cs.get("dominance", model.dominance)
+            model.accumulated_meaning = cs.get("accumulated_meaning", model.accumulated_meaning)
+            model.meaning_history = cs.get("meaning_history", model.meaning_history)
+            model.sleep_pressure = cs.get("sleep_pressure", model.sleep_pressure)
+            model.regulation_mode = cs.get("regulation_mode", model.regulation_mode)
+            model.dissonance_ema = cs.get("dissonance_ema", model.dissonance_ema)
 
-        # Restore replay buffer (interleaved replay for continual learning)
-        model._replay_buffer = checkpoint.get("replay_buffer", [])
-        model._domain_memories = checkpoint.get("domain_memories", {})
+        rp = checkpoint.get("relation_predictor", {})
+        if rp:
+            model._rp_W1 = rp.get("rp_W1", model._rp_W1)
+            model._rp_b1 = rp.get("rp_b1", model._rp_b1)
+            model._rp_W2 = rp.get("rp_W2", model._rp_W2)
+            model._rp_b2 = rp.get("rp_b2", model._rp_b2)
+            model._rp_concept_embed = rp.get("rp_concept_embed", model._rp_concept_embed)
+            model._rp_concept_embed_m = rp.get("rp_concept_embed_m", model._rp_concept_embed_m)
+            model._rp_mW1 = rp.get("rp_mW1", model._rp_mW1)
+            model._rp_mb1 = rp.get("rp_mb1", model._rp_mb1)
+            model._rp_mW2 = rp.get("rp_mW2", model._rp_mW2)
+            model._rp_mb2 = rp.get("rp_mb2", model._rp_mb2)
+            model._rp_weight = rp.get("rp_weight", getattr(model, "_rp_weight", 0.3))
+            model._rp_lr = rp.get("rp_lr", model._rp_lr)
+            model._rp_ce_lr = rp.get("rp_ce_lr", model._rp_ce_lr)
+
+        gstate = checkpoint.get("global_relation_state", {})
+        if gstate:
+            model._global_relation_priors = {
+                rel_type: np.array(vec, dtype=np.float32)
+                for rel_type, vec in gstate.get("priors", {}).items()
+            }
+            model._global_relation_counts = defaultdict(int, gstate.get("counts", {}))
+
+        model._last_sleep_structural_change = checkpoint.get("last_sleep_structural_change", True)
 
         return model
 
@@ -2694,6 +2841,25 @@ class RLM(Module):
                 "free_energy": entry.get("free_energy", entry.get("pressure", 0.0)),
                 "stability": entry.get("stability", 0.5),
             }
+
+        # Relation predictor state (plain numpy arrays, not Module parameters)
+        arrays["rp/W1"] = self._rp_W1
+        arrays["rp/b1"] = self._rp_b1
+        arrays["rp/W2"] = self._rp_W2
+        arrays["rp/b2"] = self._rp_b2
+        arrays["rp/concept_embed"] = self._rp_concept_embed
+        arrays["rp/concept_embed_m"] = self._rp_concept_embed_m
+        arrays["rp/mW1"] = self._rp_mW1
+        arrays["rp/mb1"] = self._rp_mb1
+        arrays["rp/mW2"] = self._rp_mW2
+        arrays["rp/mb2"] = self._rp_mb2
+
+        # Global relation priors are plain vectors keyed by relation type
+        global_relation_priors = {
+            rel_type: prior.tolist()
+            for rel_type, prior in self._global_relation_priors.items()
+        }
+        global_relation_counts = dict(self._global_relation_counts)
 
         # Node vectors (active + core + genesis for full identity tracking)
         for nid, node in self.graph.nodes.items():
@@ -2827,6 +2993,15 @@ class RLM(Module):
                 for b in self.binding_map._index.values()
             ],
             "state_dict_meta": state_dict_meta,
+            "relation_predictor": {
+                "weight": float(getattr(self, "_rp_weight", 0.3)),
+                "lr": float(self._rp_lr),
+                "ce_lr": float(self._rp_ce_lr),
+            },
+            "global_relation_state": {
+                "priors": global_relation_priors,
+                "counts": global_relation_counts,
+            },
         }
 
         # ── Cognitive State ──
@@ -3050,6 +3225,34 @@ class RLM(Module):
             model.free_energy_engine.linguistic_free_energy = ps["linguistic_free_energy"]
             model.free_energy_engine.abstraction_free_energy = ps["abstraction_free_energy"]
 
+            # Restore relation predictor state (plain numpy arrays)
+            for key, attr in [
+                ("rp/W1", "_rp_W1"),
+                ("rp/b1", "_rp_b1"),
+                ("rp/W2", "_rp_W2"),
+                ("rp/b2", "_rp_b2"),
+                ("rp/concept_embed", "_rp_concept_embed"),
+                ("rp/concept_embed_m", "_rp_concept_embed_m"),
+                ("rp/mW1", "_rp_mW1"),
+                ("rp/mb1", "_rp_mb1"),
+                ("rp/mW2", "_rp_mW2"),
+                ("rp/mb2", "_rp_mb2"),
+            ]:
+                if key in npz:
+                    setattr(model, attr, npz[key])
+
+            rp_meta = meta.get("relation_predictor", {})
+            model._rp_weight = rp_meta.get("weight", 0.3)
+            model._rp_lr = rp_meta.get("lr", model._rp_lr)
+            model._rp_ce_lr = rp_meta.get("ce_lr", model._rp_ce_lr)
+
+            gstate = meta.get("global_relation_state", {})
+            model._global_relation_priors = {
+                rel_type: np.array(vec, dtype=np.float32)
+                for rel_type, vec in gstate.get("priors", {}).items()
+            }
+            model._global_relation_counts = defaultdict(int, gstate.get("counts", {}))
+
             # Restore graph-level temporal context
             tc_key = "graph/temporal_context"
             if tc_key in npz:
@@ -3084,7 +3287,6 @@ class RLM(Module):
 
             # Restore successful inference paths (must be defaultdict for record_path += 1)
             if "successful_paths" in meta:
-                from collections import defaultdict
                 paths = defaultdict(int)
                 for k, v in meta["successful_paths"].items():
                     paths[tuple(int(x) for x in k.split(","))] = v
@@ -3092,7 +3294,6 @@ class RLM(Module):
 
             # Restore concept-to-tokens inverted index
             if "concept_to_tokens" in meta:
-                from collections import defaultdict
                 model._concept_to_tokens = defaultdict(set, {
                     int(k): set(v) for k, v in meta["concept_to_tokens"].items()
                 })

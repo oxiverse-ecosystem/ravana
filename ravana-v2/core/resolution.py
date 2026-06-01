@@ -124,11 +124,11 @@ class ResolutionEngine:
         
         if correctness:
             base_credit *= 1.5  # Bonus for success
-            # FIX (wisdom_interview): Lowered from 0.12 to 0.08. Governor produces ~0.10 deltas
-            # in normal operation. With old 0.12 guard, those deltas earned 0 credit — blocking
-            # wisdom entirely. With 0.08, interview-quality deltas (0.08-0.10) accumulate credit.
-            if abs(delta) < 0.08:
-                base_credit = 0.0
+            # Preserve the intent of the old guard — tiny changes should count less,
+            # but they should not be erased entirely. Use a smooth ramp from 0 to 1
+            # over the first 0.08 of dissonance reduction.
+            signal_scale = min(1.0, max(0.0, abs(delta) / 0.08))
+            base_credit *= signal_scale
             if delta < 0 and correctness:
                 base_credit *= 0.5
         else:
@@ -136,9 +136,8 @@ class ResolutionEngine:
         
         difficulty_multiplier = 1.0 + (difficulty - 0.5) * 0.5  # Less generous scaling
         
-        # FIX (wisdom_interview): Lowered from 0.12 to 0.08. Match the new delta guard.
         streak_bonus = 0.0
-        if abs(delta) >= 0.08 and correctness:
+        if abs(delta) > 0.0 and correctness:
             streak_bonus = min(0.02, self.streak_counter * 0.005)  # 0.005 per streak, max 0.02
         
         partial_credit = base_credit * difficulty_multiplier + streak_bonus
