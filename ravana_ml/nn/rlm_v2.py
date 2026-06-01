@@ -71,6 +71,12 @@ _KEYWORD_MAP = {
         "decreases", "decrease", "reduces", "reduce",
         "enhances", "enhance", "diminishes", "diminish",
         "prevents", "prevent", "inhibits", "inhibit",
+        "strengthens", "strengthen", "weakens", "weaken",
+        "restores", "restore", "provides", "provide",
+        "protects", "protect", "corrupts", "corrupt",
+        "damages", "damage", "harms", "harm", "heals", "heal",
+        "cures", "cure", "fights", "fight", "blocks", "block",
+        "accelerates", "accelerate", "slows", "slow",
         # Compound predicates (single tokens after wordpiece)
         "contributes_to", "associated_with", "linked_to",
         "may_cause", "can_cause", "leads_to", "results_in",
@@ -650,11 +656,12 @@ class RLMv2(Module):
                 continue
 
             # Method 1: Check binding map for bound tokens (immediate)
+            # Boosted from 1.0 to 2.0 — binding map is exact match, should dominate
             bindings = self.binding_map.get_tokens(tgt_cid, min_confidence=0.1)
             for binding in bindings:
                 tok_id = binding.token_id
                 if 0 <= tok_id < self.vocab_size:
-                    concept_scores[tok_id] += score * binding.confidence
+                    concept_scores[tok_id] += score * binding.confidence * 2.0
 
             batch_targets.append((tgt_cid, score, tgt_node.vector))
 
@@ -883,7 +890,9 @@ class RLMv2(Module):
                     e._rv_norm_cache = None
 
             # ── Concept vector updates ──
-            pull_lr = 0.005
+            # Increased from 0.005 to 0.02 — concept vectors must converge fast
+            # enough that concept-to-token scoring produces correct answers
+            pull_lr = 0.02
 
             # Subject concept → subject token embedding
             subject_concept_vec = self._project_to_concept(subject_embed)
@@ -916,33 +925,38 @@ class RLMv2(Module):
         # ── Update relation classifier weights (local Hebbian) ──
         self._update_relation_classifier(relation_ids, rel_type_idx)
 
-        # ── Train token embeddings (co-occurrence similarity) ──
-        # Pull subject and object token embeddings together — this creates
-        # word2vec-style semantic similarity. "heat" and "expansion" become
-        # similar because they appear in the same triple.
-        # This is what makes cross-subject transfer work: "fire" and "heat"
-        # both co-occur with similar objects, so their embeddings converge.
-        if is_correct:
-            embed_lr = 0.002
-            subj_emb = self.token_embed.weight.data[subject_tid]
-            obj_emb = self.token_embed.weight.data[object_tid]
-            # Pull together (asymmetric: subject moves more)
-            delta = embed_lr * (obj_emb - subj_emb)
-            self.token_embed.weight.data[subject_tid] += delta
-            self.token_embed.weight.data[object_tid] -= delta * 0.3
-            self._token_embed_norms = None  # invalidate norm cache
+        # ── Train token embeddings (DISABLED — corrupts semantic structure) ──
+        # Pulling token embeddings together during training destroys the
+        # carefully structured embedding space. "heat" gets pulled toward
+        # "expansion", "cold", "melts" simultaneously — ending up in a
+        # meaningless average position. Concept vectors + projection layers
+        # handle the learning instead.
+        # if is_correct:
+        #     embed_lr = 0.002
+        #     subj_emb = self.token_embed.weight.data[subject_tid]
+        #     obj_emb = self.token_embed.weight.data[object_tid]
+        #     delta = embed_lr * (obj_emb - subj_emb)
+        #     self.token_embed.weight.data[subject_tid] += delta
+        #     self.token_embed.weight.data[object_tid] -= delta * 0.3
+        #     self._token_embed_norms = None
 
-        # ── Predictive Coding: update ALL edges (not just S→O) ──
-        # Brain-inspired: every edge in the graph gets a prediction error signal.
-        # Edge predicts: src_activation * edge_weight → should match target activation
-        # Prediction error drives local Hebbian weight update.
-        # This is the fundamental difference from lookup-table learning:
-        # EVERY edge learns from EVERY example, not just the one edge being trained.
+        # ── Predictive Coding: update RELEVANT edges only ──
+        # Only edges touching subject, relation, or object nodes learn from this triple.
+        # Updating ALL edges causes catastrophic interference — training "heat causes
+        # expansion" would also modify edges for kindness, trust, rain, etc.
         if self.predictive_coding_enabled:
-            pc_lr = self._base_lr * 0.3
+            pc_lr = self._base_lr * 0.15
             obj_embed_norm = np.linalg.norm(object_embed)
             obj_signal = object_embed / obj_embed_norm if obj_embed_norm > 0 else None
+            # Collect relevant node IDs for this triple
+            relevant_cids = {subject_cid, object_cid}
+            if relation_ids:
+                relevant_cids.add(relation_cid)
+                relevant_cids.add(rel_obj_cid)
             for (src_id, tgt_id), edge in list(self.graph.edges.items()):
+                # Only update edges that touch relevant nodes
+                if src_id not in relevant_cids and tgt_id not in relevant_cids:
+                    continue
                 src_node = self.graph.nodes.get(src_id)
                 tgt_node = self.graph.nodes.get(tgt_id)
                 if src_node is None or tgt_node is None:
@@ -1105,18 +1119,23 @@ class RLMv2(Module):
 
         # ── Homeostatic downscaling ──
         # Normalize edge weights to prevent runaway strengthening
-        self._normalize_outgoing_weights(budget=3.0)
+        # Budget increased from 3.0 to 5.0 — less aggressive, preserves learned edges
+        self._normalize_outgoing_weights(budget=5.0)
 
         # ── Prune weak edges ──
-        self._prune_weak_edges(threshold=0.05)
+        # Only prune edges that have been seen many times AND are still weak.
+        # Higher threshold for prediction_count prevents killing new cross-domain bridges.
+        self._prune_weak_edges(threshold=0.03)
 
         # ── Drift defense ──
-        # Pull concept vectors back toward their core vectors if they've drifted too far
+        # Pull concept vectors back toward their core vectors if they've drifted too far.
+        # Threshold increased from 0.4 to 0.7 — allow more movement before correction.
+        # Pull strength reduced from 0.1 to 0.05 — gentler correction.
         for nid, node in self.graph.nodes.items():
             drift = node.drift_magnitude
-            if drift > 0.4:
-                # Pull back toward core vector
-                pull = 0.1 * (node.core_vector - node.vector)
+            if drift > 0.7:
+                # Pull back toward core vector (gentler)
+                pull = 0.05 * (node.core_vector - node.vector)
                 node.vector += pull
                 norm = np.linalg.norm(node.vector)
                 if norm > 0:
@@ -1145,14 +1164,16 @@ class RLMv2(Module):
                 for _, edge in edges:
                     edge.weight *= scale
 
-    def _prune_weak_edges(self, threshold: float = 0.05):
+    def _prune_weak_edges(self, threshold: float = 0.03):
         """Remove edges with weight below threshold.
 
         Keeps the graph clean and prevents accumulation of noise edges.
+        Only prunes edges that have been seen enough times (prediction_count > 15)
+        to give them a fair chance to learn.
         """
         edges_to_remove = []
         for (src, tgt), edge in self.graph.edges.items():
-            if edge.weight < threshold and edge.prediction_count > 5:
+            if edge.weight < threshold and edge.prediction_count > 15:
                 edges_to_remove.append((src, tgt))
 
         for src, tgt in edges_to_remove:
