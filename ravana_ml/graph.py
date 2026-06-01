@@ -1149,7 +1149,7 @@ class ConceptGraph:
     def activate(self, nid: int, amount: float = 1.0, context_vector: Optional[np.ndarray] = None):
         node = self.nodes.get(nid)
         if node:
-            node.activation = min(1.0, node.activation + amount)
+            node.activation = min(3.0, node.activation + amount)
             node.record_activation(context_vector)
             self._active_nodes.add(nid)
             self._activated_since_sleep.add(nid)  # track for incremental consolidation
@@ -1262,7 +1262,7 @@ class ConceptGraph:
 
             for nid, act in new_activations.items():
                 if nid in self.nodes:
-                    self.nodes[nid].activation = max(0.0, min(1.0, self.nodes[nid].activation + act))
+                    self.nodes[nid].activation = max(0.0, min(3.0, self.nodes[nid].activation + act))
                     if self.nodes[nid].activation > 0.01:
                         self._active_nodes.add(nid)
 

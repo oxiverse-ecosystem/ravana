@@ -163,6 +163,65 @@ def build_dataset():
         ("code is stressful", "stressful"),
         ("stress is harmful", "harmful"),
         ("harmful causes illness", "illness"),
+
+        # ═══════════════════════════════════════════════════════════════
+        # CROSS-DOMAIN CAUSAL BOOTSTRAPPING
+        # Force the model to learn domain-agnostic causality by adding
+        # diverse causal examples across all domain pairs. The goal:
+        # make the causal relation vector capture "what causality means"
+        # independent of which domain the cause/effect come from.
+        # ═══════════════════════════════════════════════════════════════
+
+        # Physics → Social (heat/anger crossover)
+        ("heat causes conflict", "conflict"),      # heat→social
+        ("expansion causes trust", "trust"),        # physics→social
+
+        # Social → Physics
+        ("anger creates heat", "heat"),             # social→physics
+        ("fear produces cold", "cold"),             # social→physics
+
+        # Nature → Social
+        ("rain produces sadness", "sadness"),       # nature→social
+        ("storm creates conflict", "conflict"),     # nature→social
+        ("sun produces happiness", "happiness"),    # nature→social
+
+        # Social → Nature
+        ("love produces rain", "rain"),             # social→nature
+        ("kindness creates waves", "waves"),        # social→nature
+
+        # Biology → Tech
+        ("exercise creates software", "software"),  # biology→tech
+        ("viruses cause crashes", "crashes"),       # biology→tech
+
+        # Tech → Biology
+        ("code causes fatigue", "fatigue"),         # tech→biology
+        ("bugs produce illness", "illness"),        # tech→biology
+
+        # Physics → Nature
+        ("heat causes rain", "rain"),               # physics→nature
+        ("cold produces snow", "snow"),             # physics→nature
+
+        # Nature → Physics
+        ("rain produces heat", "heat"),             # nature→physics
+        ("sun creates expansion", "expansion"),     # nature→physics
+
+        # Cross-domain with diverse causal verbs
+        ("heat leads to conflict", "conflict"),
+        ("anger triggers expansion", "expansion"),
+        ("rain generates sadness", "sadness"),
+        ("fire generates trust", "trust"),
+
+        # Property-mediated causal (abstract → concrete)
+        ("intense causes damage", "damage"),
+        ("powerful creates change", "change"),
+        ("essential produces survival", "survival"),
+        ("destructive causes failure", "failure"),
+
+        # More abstract causal patterns
+        ("stress produces heat", "heat"),
+        ("energy causes growth", "growth"),
+        ("damage produces isolation", "isolation"),
+        ("strength causes bonds", "bonds"),
     ]
 
     tests = {
@@ -235,7 +294,8 @@ def build_dataset():
     return train, tests
 
 
-def run_benchmark(n_epochs=1500, embed_dim=64, concept_dim=64):
+def run_benchmark(n_epochs=1500, embed_dim=64, concept_dim=64, seed=42):
+    np.random.seed(seed)
     print("=" * 70)
     print("RLMv2 — Cross-Domain Analogical Benchmark v6")
     print("=" * 70)
@@ -290,7 +350,7 @@ def run_benchmark(n_epochs=1500, embed_dim=64, concept_dim=64):
             print(f"  Epoch {epoch+1}: loss={total_loss/len(train_triples):.4f}, acc={acc:.1%}, "
                   f"{len(model.graph.nodes)} concepts, {len(model.graph.edges)} edges")
 
-            # Hard triple boost
+            # Hard triple boost (uses learn_fast for speed)
             hard = []
             for text, target_word in train_triples:
                 ids = tok.encode(text)
@@ -426,5 +486,6 @@ if __name__ == "__main__":
     p.add_argument("--epochs", type=int, default=1500)
     p.add_argument("--embed-dim", type=int, default=64)
     p.add_argument("--concept-dim", type=int, default=64)
+    p.add_argument("--seed", type=int, default=42)
     a = p.parse_args()
-    run_benchmark(n_epochs=a.epochs, embed_dim=a.embed_dim, concept_dim=a.concept_dim)
+    run_benchmark(n_epochs=a.epochs, embed_dim=a.embed_dim, concept_dim=a.concept_dim, seed=a.seed)
