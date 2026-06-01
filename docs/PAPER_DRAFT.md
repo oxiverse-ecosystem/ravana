@@ -53,9 +53,9 @@ This paper reports six empirical results:
 
 ### 2.1 The Recursive Learning Model (RLM)
 
-The RLM is a self-contained cognitive agent implemented in ~2,900 lines of NumPy (no PyTorch, no GPU). Its core components:
+The RLM is a self-contained cognitive agent implemented in approximately 3,931 lines of NumPy (no PyTorch, no GPU). Its core components:
 
-**ConceptGraph** (~3,400 lines): A heterogeneous graph of `ConceptNode`s and `ConceptEdge`s. Nodes carry vectors in concept-dim space; edges carry typed relation vectors (16-dim learned embeddings), weights, confidence, and prediction counts. The graph supports:
+**ConceptGraph** (3,678 lines): A heterogeneous graph of `ConceptNode`s and `ConceptEdge`s. Nodes carry vectors in concept-dim space; edges carry typed relation vectors (16-dim learned embeddings), weights, confidence, and prediction counts. The graph supports:
 - Hebbian and anti-Hebbian edge updates
 - Precision-weighted spreading activation
 - Concept splitting under contradiction pressure
@@ -241,7 +241,7 @@ We validated the architecture's stability in a 15,000-experience lifelong stream
 |--------|---------------------|-------------------------------|-------|
 | Final retention | 40.8% | **47.6%** | **+6.8pp** |
 | Catastrophic forgetting | 12.0% | **0.0%** | **-12pp** |
-| Per-experience time | 272ms | **42ms** | **6.5x** |
+| Per-experience time | 272ms | **70ms (hardware-dependent)** | **6.5x** |
 | Sleep cycles | 3,241 (100K) | 1,226 (15K) | — |
 | Concepts | 384 | 384 | stable |
 | Edges | 58,795 | 21,117 | proportional |
@@ -326,6 +326,17 @@ Recent work extends RAVANA's transfer capabilities to truly novel terms via a pr
 Composed reasoning traverses the concept graph from bridge candidates with four key mechanics: (1) independent traversals per candidate (shared visited sets block cross-candidate paths), (2) depth decay at 0.7x per hop (prevents depth-2 cascade from drowning depth-1 results), (3) reverse edge inheritance (if X is_a Y, Y inherits X's outgoing edges), and (4) bridge-as-candidate for is_a queries.
 
 On 12 held-out terms never seen during training (22 queries, 6 relation types): 67% bridge accuracy, 91% query success, 90% object hit rate. Only matcha fails (MiniLM embedding 0.32 sim — model limitation). Semantic clustering analysis shows MiniLM preserves domain structure: intra-domain similarity 0.413 vs cross-domain 0.155 (2.5x gap).
+
+**Note on benchmark variation:** The 91% query success result is from `experiment_reverse_inheritance.py` (best case, 12 held-out terms, 22 queries). Other test configurations yield lower results: `experiment_held_out_transfer.py` shows 41% query success, and the full cross-domain experiment (`experiment_cross_domain.py`) shows 0% neutral transfer on standard probes. The NN bridge composed reasoning works for held-out terms with known relation patterns but does not yet generalize to full cross-domain transfer.
+
+### Supporting Infrastructure
+
+- Episode Injector (`ravana_ml/episode_injector.py`, 276 lines)
+- Relation Ontology (`ravana_ml/relation_ontology.py`, 231 lines)
+- Word Tokenizer (`ravana_ml/word_tokenizer.py`, 46 lines)
+- LearnedEmbedder (`ravana-v2/core/embedder.py`, 188 lines)
+
+Updated codebase: 46,059 lines across 159 files.
 
 ---
 

@@ -3,8 +3,8 @@
 > **A self-stabilizing, self-expanding epistemic system.**
 > CPU-native cognitive ML framework — no GPU required.
 >
-> **Date**: 2026-05-18
-> **Status**: Active Development (v2 GRACE + Cognitive Modules)
+> **Date**: 2026-06-01
+> **Status**: Active Development (v2 GRACE + Cognitive Modules + RLMv2 + Phase 2 NN Bridge)
 > **Author**: Likhith + Zo Agent
 
 ---
@@ -400,15 +400,14 @@ No backprop. No gradient descent. The Governor is the optimizer.
 ## Quick Start
 
 ```bash
-# Phase A: Stable physics + governor regulation
-python experiments/runs/run_training.py
+# Run unit tests (recommended first step)
+python -m pytest ravana-v2/core/ -v
 
-# Phase B: Adaptive intelligence (learning from clamps)
-python experiments/phases/run_phase_b.py
-
-# Run all experiments + generate intelligence dashboard
+# Run cognitive architecture experiments
 python experiments/runner.py
-python experiments/visualize.py
+
+# Run RLMv2 unit tests
+python -m pytest tests/ -v
 ```
 
 ---
@@ -432,6 +431,63 @@ python experiments/visualize.py
 - Where dual-process (System 1 / System 2) enables both fast intuition and slow deliberation
 - Where dreams prevent dogmatism through structured sabotage
 - Where meaning emerges from costly coherence gain
+
+---
+
+## RLMv2 — Triple Decomposition Architecture
+
+A clean-room rewrite replacing character-level GRU with brain-inspired triple decomposition. Input text is decomposed into (subject, relation_type, object) triples, which activate concepts via spreading activation over the concept graph. 1,247 lines. 11/11 unit tests passing.
+
+**Key innovation**: Instead of character-level sequence modeling, RLMv2 parses knowledge into structured triples and performs graph-based reasoning — closer to how biological neural circuits encode relational knowledge.
+
+---
+
+## Phase 2: NN Bridge + Composed Reasoning
+
+Pre-trained sentence transformer (MiniLM-L6-v2, 384-dim) provides semantic embeddings for novel term bridging. Unknown terms are mapped to nearest known concepts via cosine similarity (no dimensionality projection needed).
+
+**Composed Reasoning Pipeline:**
+- Independent traversals per candidate concept
+- Depth decay factor (0.7x per hop)
+- Reverse edge inheritance (if A→B, infer B can relate back to A)
+- Bridge-as-candidate (bridged concepts compete with direct matches)
+
+**Best Results** (experiment_reverse_inheritance.py):
+
+| Metric | Value |
+|--------|-------|
+| Bridge accuracy | 67% (8/12 terms) |
+| Query success | 91% (20/22) |
+| Object hit rate | 90% (28/31) |
+
+Only failure: matcha (MiniLM embedding similarity 0.32 — below threshold).
+
+**Progression over iterations:**
+```
+42% bridge / 45% query → 67% bridge / 59% query → 67% bridge / 68% query → 67% bridge / 91% query
+```
+
+---
+
+## New Modules
+
+| Module | Lines | Purpose |
+|--------|-------|---------|
+| `episode_injector.py` | 276 | Synthetic Episode Injector for structured knowledge injection |
+| `relation_ontology.py` | 231 | Multi-level relation hierarchy (Family > Sub-family > Predicate) |
+| `word_tokenizer.py` | 46 | Word-level tokenizer for RLMv2 |
+| `ravana-v2/core/embedder.py` | 188 | LearnedEmbedder (character n-gram + random projection) |
+
+---
+
+## Updated Line Counts (2026-06-01)
+
+| Component | Lines | Files |
+|-----------|-------|-------|
+| `ravana_ml/` | 11,993 | 20 |
+| `ravana-v2/core/` | 13,600 | 33 |
+| `ravana/` package | 909 | 11 |
+| **Total** | **46,059** | **159** |
 
 ---
 
