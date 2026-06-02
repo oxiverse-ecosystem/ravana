@@ -16,7 +16,7 @@ import os
 import tempfile
 import numpy as np
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ravana_ml.nn.rlm_v2 import RLMv2, RELATION_TYPES
 from ravana_ml.tokenizer import WordTokenizer
