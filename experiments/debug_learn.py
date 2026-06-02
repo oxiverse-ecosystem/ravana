@@ -1,6 +1,6 @@
 """Debug: trace learn() calls to see why only 1 edge is created"""
 import sys, os, numpy as np
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ravana_ml.nn.rlm_v2 import RLMv2
 from ravana_ml.tokenizer import WordTokenizer
 
