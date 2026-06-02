@@ -602,10 +602,23 @@ def run_lifelong_benchmark(config: Optional[BenchmarkConfig] = None) -> Dict[str
     print("Streaming experiences...")
     loop_start = time.time()
 
+    active_epoch = stream._get_epoch(start_step) if start_step < len(experiences) else 0
+    replay_seed_samples = 20
+
     for step, exp in enumerate(experiences):
         # Skip already-processed steps when resuming
         if step < start_step:
             continue
+
+        epoch = stream._get_epoch(step)
+        if step == start_step:
+            active_epoch = epoch
+        elif epoch != active_epoch:
+            completed_epoch = active_epoch
+            rlm.snapshot_replay_buffer(f"window_epoch_{completed_epoch}")
+            for past_epoch in range(completed_epoch):
+                rlm.activate_domain_memories(f"epoch_{past_epoch}", n_samples=replay_seed_samples)
+            active_epoch = epoch
 
         text = exp['text']
         ids = tok.encode(text)
@@ -616,6 +629,7 @@ def run_lifelong_benchmark(config: Optional[BenchmarkConfig] = None) -> Dict[str
             ctx = np.array([ids[:-1]], dtype=np.int64)
             tgt = np.array([[ids[-1]]], dtype=np.int64)
             rlm.learn(ctx, tgt)
+            rlm.buffer_experience(ctx, tgt, domain=f"epoch_{epoch}")
         rlm_total_time += time.time() - t0
 
         # Periodic sleep
@@ -627,12 +641,11 @@ def run_lifelong_benchmark(config: Optional[BenchmarkConfig] = None) -> Dict[str
             rlm.sleep_cycle()
 
         # MLP learn
-        if mlp is not None:
+        if mlp is not None and len(ids) >= 2:
             t0 = time.time()
-            if len(ids) >= 2:
-                ctx = np.array([ids[:-1]], dtype=np.int64)
-                tgt = np.array([[ids[-1]]], dtype=np.int64)
-                mlp.train_step(ctx, tgt[0])
+            ctx = np.array([ids[:-1]], dtype=np.int64)
+            tgt = np.array([[ids[-1]]], dtype=np.int64)
+            mlp.train_step(ctx, tgt[0])
             mlp_total_time += time.time() - t0
 
         # Baselines
@@ -688,6 +701,11 @@ def run_lifelong_benchmark(config: Optional[BenchmarkConfig] = None) -> Dict[str
                   f"Forget: {snap.catastrophic_forgetting:+.1%} | "
                   f"C: {snap.n_concepts} E: {snap.n_edges} S: {snap.n_abstract} | "
                   f"{snap.cumulative_time_s:.1f}s (ETA {eta_s:.0f}s)")
+
+    # Archive the final epoch's replay window for later reuse.
+    if len(experiences) > 0:
+        final_epoch = stream._get_epoch(len(experiences) - 1)
+        rlm.snapshot_replay_buffer(f"window_epoch_{final_epoch}")
 
     # ── Final evaluation ──
     print("\n" + "-" * 70)

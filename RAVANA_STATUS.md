@@ -869,14 +869,14 @@ Based on cognitive science research (spreading activation, synaptic homeostasis,
 - [x] Structural replay metrics — **DONE** (sleep-time interleaved replay: +42.9pp Domain A retention, `experiment_cross_domain_replay.py`)
 
 ### Remaining
-1. **~~Cross-domain transfer at 0.0~~** → **LARGELY RESOLVED (2026-05-24).** Relation predictor achieves 14.3% top-1. **Sleep-time replay achieves +42.9pp Domain A retention.** Catastrophic forgetting bottleneck solved. Next: wire replay into lifelong benchmark, run at scale, target 25%+ top-1 cross-domain.
+1. **~~Cross-domain transfer at 0.0~~** → **LARGELY RESOLVED (2026-05-24).** Relation predictor achieves 14.3% top-1. **Sleep-time replay achieves +42.9pp Domain A retention.** Catastrophic forgetting bottleneck solved. Next: scale verification.
 2. **Paper claims vs results mismatch** → **RESOLVED (2026-05-23).** All three dissonance metrics unified to `0.1 + 0.8 * min(1.0, raw_d / 1.5)`. RLM now has `dissonance_normalized` property for paper-comparable reporting.
-3. **Lifelong benchmark COMPLETE (2026-05-24)** — 100k/100k done. 19 snapshots, step 5k-95k. Retention 53.6% → 40.8% plateau (85k stable steps). 384 concepts, 64k edges, 3241 sleep cycles, 105ms/exp. Plots regenerated from full data. Remaining: wire replay into lifelong entity-epoch transitions to break the 40% plateau.
+3. **Lifelong benchmark COMPLETE (2026-05-24)** — 100k/100k done. 19 snapshots, step 5k-95k. Retention 53.6% → 40.8% plateau (85k stable steps). 384 concepts, 64k edges, 3241 sleep cycles, 105ms/exp. Plots regenerated from full data. Replay is now wired into the lifelong entity-epoch loop; next focus is breaking the 40% plateau.
 4. **News-to-MDP pipeline unimplemented** — `reality_grounding.py` exists but structured cognitive event pipeline is a design
 5. **~~Shared currencies incomplete~~** → **LARGELY RESOLVED (2026-05-24).** `CognitiveCurrency` (291 lines) + `CognitiveCurrencies` (250 lines) created. Integrated into RLM via property aliases. Remaining: migrate all scattered scalar accesses, unify confidence (4 concepts), unify stability (6 concepts).
 6. **Graph optimization Phase 3 deferred** — scipy.sparse/HNSW deferred until 10K+ nodes (currently ~384). Step time already optimized to 70ms (6.5x speedup from sleep_cycle optimization).
 7. **Test suite 6/6 pass** — `test_rlm_vs_llm.py` now passes all 6 experiments. Only `test_ravana.py` fails on Windows (Unicode encoding — pre-existing).
-8. **Replay not wired into lifelong benchmark** — The replay mechanism works in cross-domain but the lifelong streaming loop never calls `buffer_experience()` or `snapshot_replay_buffer()`. Highest-leverage next step — could break the 40% retention plateau.
+8. **~~Replay not wired into lifelong benchmark~~** → **RESOLVED (2026-06-02).** The lifelong streaming loop now stores epoch-labelled replay experiences, snapshots each completed epoch window, and reactivates earlier domain memories at epoch boundaries.
 9. **EWC not implemented** — Elastic Weight Consolidation would protect important concept vectors from Hebbian drift. Replay alone won't solve lifelong forgetting; needs replay (remind) + EWC (protect).
 10. **Cross-domain replay needs scaling** — Current +42.9pp result is on 7 test facts, 3 repeats. Needs verification with more facts, more repeats, and fair evaluation (`eval_fair.py`).
 
