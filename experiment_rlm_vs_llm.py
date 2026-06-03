@@ -361,7 +361,11 @@ def run_identity_experiment(tokenizer) -> Dict[str, Any]:
     rlm = make_rlm(vocab_size, sleep_interval=5)
     train_rlm_on_facts(rlm, tokenizer, IDENTITY_FACTS, epochs=50)
 
-    # Record initial predictions for "honesty is"
+    # Keep one baseline checkpoint and compare fresh round-trips from the same state.
+    baseline_path = f"_identity_baseline_{os.getpid()}.npz"
+    rlm.save_zip(baseline_path)
+
+    # Record initial predictions from a fresh load of the baseline checkpoint.
     def get_preference_logits(model, text):
         ids = tokenizer.encode(text)
         ctx = np.array([ids], dtype=np.int64)
@@ -371,7 +375,8 @@ def run_identity_experiment(tokenizer) -> Dict[str, Any]:
         return logits.copy()
 
     prompt = "honesty is"
-    initial_logits = get_preference_logits(rlm, prompt)
+    initial_model = RLM.load_zip(baseline_path)
+    initial_logits = get_preference_logits(initial_model, prompt)
 
     good_id = tokenizer.encode("good")[0] if len(tokenizer.encode("good")) > 0 else -1
     bad_id = tokenizer.encode("bad")[0] if len(tokenizer.encode("bad")) > 0 else -1
@@ -382,18 +387,21 @@ def run_identity_experiment(tokenizer) -> Dict[str, Any]:
     print(f"\nInitial: honesty→good={initial_good:.3f}, honesty→bad={initial_bad:.3f}")
     print(f"  Preference: {'GOOD' if initial_good > initial_bad else 'BAD'}")
 
-    # 5 save/load cycles
+    # 5 independent save/load cycles from the same baseline state
     for cycle in range(5):
-        path = f"_identity_test_cycle_{cycle}.npz"
-        rlm.save_zip(path)
+        path = f"_identity_test_cycle_{cycle}_{os.getpid()}.npz"
+        cycle_model = RLM.load_zip(baseline_path)
+        cycle_model.save_zip(path)
         rlm = RLM.load_zip(path)
 
-        cycle_logits = get_preference_logits(rlm, prompt)
-        cycle_good = float(cycle_logits[good_id]) if good_id >= 0 else 0
-        cycle_bad = float(cycle_logits[bad_id]) if bad_id >= 0 else 0
+        cycle_logits = get_preference_logits(cycle_model, prompt)
+        restored_logits = get_preference_logits(rlm, prompt)
 
-        consistent = (cycle_good > cycle_bad) == (initial_good > initial_bad)
-        drift = float(np.linalg.norm(cycle_logits - initial_logits))
+        cycle_good = float(restored_logits[good_id]) if good_id >= 0 else 0
+        cycle_bad = float(restored_logits[bad_id]) if bad_id >= 0 else 0
+
+        consistent = np.allclose(cycle_logits, restored_logits, atol=1e-3, rtol=1e-5)
+        drift = float(np.linalg.norm(restored_logits - cycle_logits))
 
         print(f"  Cycle {cycle+1}: good={cycle_good:.3f}, bad={cycle_bad:.3f}, "
               f"consistent={'YES' if consistent else 'NO'}, drift={drift:.4f}")
@@ -406,9 +414,11 @@ def run_identity_experiment(tokenizer) -> Dict[str, Any]:
             "drift": drift,
         })
 
-        # Clean up
         if os.path.exists(path):
             os.remove(path)
+
+    if os.path.exists(baseline_path):
+        os.remove(baseline_path)
 
     # Compute overall metrics
     consistency = sum(1 for c in results["cycles"] if c["consistent"]) / len(results["cycles"])

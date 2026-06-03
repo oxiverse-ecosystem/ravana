@@ -1095,15 +1095,36 @@ class RLM(Module):
             self._edges_learned += 1
             self._competitive_inhibition(input_concept, output_concept, 0.05)
 
-            # Direct local learning on the GRU gates so hidden layers are not frozen.
-            gru = self.recurrent_cell
-            if getattr(gru, "_last_combined", None) is not None and getattr(gru, "_last_h_prev", None) is not None:
-                err = self._project_to_concept(self.graph.nodes[output_concept].vector) - self._project_to_concept(self.graph.nodes[input_concept].vector)
-                err = err.astype(np.float32)
-                gate_signal = float(np.clip(np.linalg.norm(err), 0.0, 1.0))
-                gru.W_z.accumulate_free_energy(err * gru._last_z * gate_signal)
-                gru.W_r.accumulate_free_energy(err * gru._last_r * gate_signal)
-                gru.W_h.accumulate_free_energy(err * gate_signal)
+            # Competing-target contradiction detection: if the same source already
+            # strongly predicts other targets, treat this as a contradiction rather
+            # than a clean association. This gives sleep a signal to form mutual
+            # inhibition between the competing interpretations.
+            competing_targets = []
+            for tgt, other_edge in self.graph._outgoing.get(input_concept, []):
+                if tgt == output_concept:
+                    continue
+                if other_edge.edge_type != "excitatory":
+                    continue
+                if other_edge.weight >= 0.12 or other_edge.confidence >= 0.18:
+                    competing_targets.append(tgt)
+
+            if competing_targets:
+                inode = self.graph.get_node(input_concept)
+                if inode is not None:
+                    inode.contradiction_count += 1 + len(competing_targets) // 2
+                    inode.prediction_free_energy += 0.5 + 0.2 * len(competing_targets)
+                    if inode.prediction_free_energy > 1.5 or inode.contradiction_count >= 2:
+                        self.graph.contradiction_hotspots.add(input_concept)
+
+                for tgt in competing_targets:
+                    tnode = self.graph.get_node(tgt)
+                    if tnode is not None:
+                        tnode.contradiction_count += 1
+                        tnode.prediction_free_energy += 0.25
+                    if tgt != output_concept and self.graph.get_edge(output_concept, tgt) is None:
+                        self.graph.add_edge(output_concept, tgt, 0.18, edge_type="inhibitory", relation_type="inferred")
+                    if tgt != output_concept and self.graph.get_edge(tgt, output_concept) is None:
+                        self.graph.add_edge(tgt, output_concept, 0.18, edge_type="inhibitory", relation_type="inferred")
 
             # ── Hebbian relation vector update ──
             # Problem: EMA toward tgt_vec erases type-specific seed structure.
@@ -2931,6 +2952,7 @@ class RLM(Module):
             "next_id": self.graph.next_id,
             "total_free_energy": float(self.graph.total_free_energy),
             "contradiction_hotspots": sorted(int(x) for x in self.graph.contradiction_hotspots),
+            "active_nodes": sorted(int(x) for x in self.graph._active_nodes),
             "nodes": nodes_json,
             "edges": edges_json,
             "temporal_context_drift_rate": float(self.graph.temporal_context_drift_rate),
@@ -3112,6 +3134,7 @@ class RLM(Module):
             model.graph.next_id = graph_data["next_id"]
             model.graph.total_free_energy = graph_data["total_free_energy"]
             model.graph.contradiction_hotspots = set(graph_data["contradiction_hotspots"])
+            model.graph._active_nodes = set(graph_data.get("active_nodes", []))
 
             # Restore nodes (with full identity vectors + temporal fields)
             for nid_str, nd in graph_data["nodes"].items():
@@ -3175,6 +3198,9 @@ class RLM(Module):
                 if rel_key in npz:
                     edge.relation_vector = npz[rel_key]
                 model.graph.edges[(ed["source"], ed["target"])] = edge
+                model.graph._outgoing[ed["source"]].append((ed["target"], edge))
+                model.graph._incoming[ed["target"]].append((ed["source"], edge))
+            model.graph._vectors_dirty = True
 
             # Rebuild engines with restored graph
             model.propagation = PropagationEngine(model.graph)
