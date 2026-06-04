@@ -45,3 +45,17 @@ data/
 paper/*.pdf
 paper/*.aux
 paper/*.out
+
+# Pytest cache
+.pytest_cache/
+
+# Agent / LLM files and folders
+.agents/
+.hermes/
+.openclaude/
+.antigravitycli/
+skills-lock.json
+AGENTS.md
+
+# Scratch files and folders
+scratch/
