@@ -1,463 +1,478 @@
 """
-Compositional Hybrid Benchmark
-================================
+Compositional Hybrid Benchmark using Trained Checkpoint
+======================================================
 Tests whether traversal and embeddings can COOPERATE on tasks
-neither can solve alone.
+neither can solve alone, utilizing the trained Phase 4 encoder.
 
-The key test:
-
-    warmth ≈ kindness (embedding similarity)
-    kindness causes trust
-    trust causes cooperation
-
-    Query: warmth causes ?
-    Expected: cooperation
-
-    Reasoning chain:
-      warmth → kindness (embedding proximity)
-      kindness → trust (traversal, depth 1)
-      trust → cooperation (traversal, depth 2)
-
-    Neither subsystem alone can solve this:
-      - NN: warmth has no "causes" edge, returns nearest neighbor's object
-      - Traversal: warmth has no concept node, returns nothing
-      - Composition: NN seeds the traversal start, traversal follows chains
+The key test cases and boundary-case pairs:
+1. warmth ≈ kindness (high similarity ~0.85 in 64d)
+   kindness → trust → cooperation (expected: cooperation)
+   
+2. light ≈ hope (high-moderate similarity ~0.70 in 64d)
+   hope → courage → victory (expected: victory)
+   
+3. combustion ≈ resentment (moderate-low similarity ~0.45 in 64d)
+   resentment → hostility → conflict (expected: conflict)
+   
+4. gravity ≈ loyalty (low/borderline similarity ~0.20 in 64d)
+   loyalty → support → stability (expected: stability)
 """
+
+import os
 import sys
-import io
+import json
+import random
+import pickle
 import numpy as np
 
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
+sys.path.insert(0, PROJECT_ROOT)
 
 from ravana_ml.nn.rlm_v2 import RLMv2
-from ravana_ml.word_tokenizer import WordTokenizer
+from ravana_ml.tokenizer import WordTokenizer
 
+# ──────────────────────────────────────────────────────────────────────────
+# Configuration & Constants
+# ──────────────────────────────────────────────────────────────────────────
 
-def inject_embeddings(model, tok):
-    """Semantic embeddings with clear clusters."""
-    sem = {
-        # Emotion cluster (warmth, kindness, honesty are close)
-        "kindness": [0.9, 0.8, 0.2],
-        "warmth":   [0.85, 0.75, 0.22],  # close to kindness
-        "honesty":  [0.88, 0.78, 0.18],
-        "cruelty":  [-0.9, -0.8, 0.2],   # far from kindness
-        "coldness": [-0.85, -0.75, 0.22],
-        # Middle concepts
-        "trust":        [0.5, 0.6, 0.5],
-        "cooperation":  [0.4, 0.7, 0.6],
-        "respect":      [0.55, 0.55, 0.45],
-        "distrust":     [-0.5, -0.6, 0.5],
-        "conflict":     [-0.4, -0.7, 0.6],
-        "isolation":    [-0.55, -0.55, 0.45],
-        # Concrete cluster
-        "cat":   [0.95, 0.3, 0.8],
-        "dog":   [0.9, 0.4, 0.7],
-        "tiger": [0.92, 0.32, 0.82],
-        "tail":  [0.1, 0.8, 0.3],
-        "fur":   [0.15, 0.75, 0.35],
-        # Causal chain starters
-        "heat":    [0.8, 0.9, 0.1],
-        "warmth2": [0.78, 0.88, 0.12],  # alias for testing
-        "anger":   [-0.8, 0.9, 0.1],
-        "virus":   [-0.3, 0.8, 0.2],
-        "illness": [-0.3, 0.5, 0.3],
-        "absence": [-0.3, 0.3, 0.4],
-        "bug":     [-0.35, 0.75, 0.15],
-        "crash":   [-0.35, 0.5, 0.25],
-        "outage":  [-0.35, 0.3, 0.35],
+FACTS = [
+    # Chain 1: warmth -> kindness -> trust -> cooperation
+    ("kindness", "causes", "trust"),
+    ("trust", "causes", "cooperation"),
+    
+    # Chain 2: light -> hope -> courage -> victory
+    ("hope", "causes", "courage"),
+    ("courage", "causes", "victory"),
+    
+    # Chain 3: combustion -> resentment -> hostility -> conflict
+    ("resentment", "causes", "hostility"),
+    ("hostility", "causes", "conflict"),
+    
+    # Chain 4: gravity -> loyalty -> support -> stability
+    ("loyalty", "causes", "support"),
+    ("support", "causes", "stability"),
+    
+    # Distractor/noise edges to test error propagation
+    ("trust", "causes", "vulnerability"),
+    ("courage", "causes", "danger"),
+    ("hostility", "causes", "isolation"),
+    ("support", "causes", "obligation"),
+    
+    # Additional noise facts
+    ("cat", "has", "tail"),
+    ("dog", "has", "tail"),
+    ("cat", "has", "fur"),
+    ("dog", "has", "fur"),
+    ("virus", "causes", "illness"),
+    ("illness", "causes", "absence"),
+    ("bug", "causes", "crash"),
+    ("crash", "causes", "outage"),
+]
+
+TEST_CASES = [
+    {
+        "query": "warmth causes",
+        "expected": "cooperation",
+        "analog_pair": ("warmth", "kindness"),
+        "chain": "warmth ≈ kindness -> trust -> cooperation",
+        "category": "High Sim (Analogy)"
+    },
+    {
+        "query": "light causes",
+        "expected": "victory",
+        "analog_pair": ("light", "hope"),
+        "chain": "light ≈ hope -> courage -> victory",
+        "category": "High-Mod Sim Boundary"
+    },
+    {
+        "query": "combustion causes",
+        "expected": "conflict",
+        "analog_pair": ("combustion", "resentment"),
+        "chain": "combustion ≈ resentment -> hostility -> conflict",
+        "category": "Mod-Low Sim Boundary"
+    },
+    {
+        "query": "gravity causes",
+        "expected": "stability",
+        "analog_pair": ("gravity", "loyalty"),
+        "chain": "gravity ≈ loyalty -> support -> stability",
+        "category": "Low Sim Boundary"
+    },
+    # Negative control
+    {
+        "query": "bug causes",
+        "expected": "outage",
+        "analog_pair": None,
+        "chain": "bug -> crash -> outage",
+        "category": "Direct Traversal"
     }
+]
+
+# ──────────────────────────────────────────────────────────────────────────
+# Helpers
+# ──────────────────────────────────────────────────────────────────────────
+
+def cosine(a: np.ndarray, b: np.ndarray) -> float:
+    na = float(np.linalg.norm(a))
+    nb = float(np.linalg.norm(b))
+    if na == 0 or nb == 0:
+        return 0.0
+    return float(np.dot(a, b) / (na * nb))
+
+
+def proto(model: RLMv2, tok: WordTokenizer, word: str) -> np.ndarray:
+    tid = tok.word_to_id.get(word)
+    if tid is None:
+        raise KeyError(word)
+    emb = model.token_embed.weight.data[tid]
+    lat, *_ = model._encoder_forward_full(emb)
+    return lat
+
+
+def make_similar_vectors(dim: int, cos_theta: float) -> tuple[np.ndarray, np.ndarray]:
+    """Generate two unit vectors in dim-space with exactly cos_theta similarity."""
+    a = np.random.randn(dim).astype(np.float32)
+    a /= np.linalg.norm(a)
+    
+    b_orth = np.random.randn(dim).astype(np.float32)
+    b_orth -= np.dot(b_orth, a) * a
+    b_orth /= np.linalg.norm(b_orth)
+    
+    b = cos_theta * a + np.sqrt(1.0 - cos_theta**2) * b_orth
+    return a, b
+
+
+def expand_vocabulary_and_embeddings(model: RLMv2, tok: WordTokenizer, words: list[str]):
+    """Dynamically expand tokenizer vocabulary and model's token embeddings."""
+    for w in words:
+        tok.encode(w)
+        
+    vocab_size = tok.vocab_size
     dim = model.embed_dim
-    for word, v3 in sem.items():
-        tid = tok.word_to_id.get(word)
-        if tid is None:
-            continue
-        full = np.zeros(dim, dtype=np.float32)
-        for i in range(dim):
-            full[i] = v3[i % 3] + np.random.randn() * 0.005
-        full /= np.linalg.norm(full)
-        model.token_embed.weight.data[tid] = full
+    old_weight = model.token_embed.weight.data
+    old_size = old_weight.shape[0]
+    
+    if vocab_size > old_size:
+        # Expand embedding weights
+        new_weight = np.random.randn(vocab_size, dim).astype(np.float32) * np.sqrt(2.0 / dim)
+        new_weight[:old_size] = old_weight
+        
+        # Initialize new words with LearnedEmbedder
+        from ravana_ml.embedder import LearnedEmbedder
+        embedder = LearnedEmbedder(dim=dim)
+        all_words = list(tok.word_to_id.keys())
+        try:
+            embedder.fit(all_words)
+        except Exception:
+            pass
+            
+        for w in words:
+            tid = tok.word_to_id[w]
+            if tid >= old_size:
+                new_weight[tid] = embedder.encode(w)
+                
+        from ravana_ml.tensor import StateTensor, Parameter
+        model.token_embed.weight = Parameter(StateTensor(new_weight))
+        model.token_embed.num_embeddings = vocab_size
+        model.token_embed._rebuild_raw_cache()
+        model.vocab_size = vocab_size
+        model._token_embed_norms = None
 
 
-def nn_predict(model, tok, query, facts, top_n=5):
-    """Nearest-neighbor baseline: find nearest subject with same relation, return object."""
+def inject_precise_embeddings(model: RLMv2, tok: WordTokenizer):
+    """Inject controlled semantic similarities into the 64-dim embedding space."""
+    dim = model.embed_dim
+    targets = {
+        ("warmth", "kindness"): 0.85,
+        ("light", "hope"): 0.70,
+        ("combustion", "resentment"): 0.45,
+        ("gravity", "loyalty"): 0.20,
+    }
+    
+    for (w1, w2), cos_theta in targets.items():
+        tid1 = tok.word_to_id[w1]
+        tid2 = tok.word_to_id[w2]
+        v1, v2 = make_similar_vectors(dim, cos_theta)
+        model.token_embed.weight.data[tid1] = v1
+        model.token_embed.weight.data[tid2] = v2
+        
+    model._token_embed_norms = None
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Vector-Space Seeding and Multi-Hop Traversal Logic
+# ──────────────────────────────────────────────────────────────────────────
+
+def hybrid_compositional_predict(
+    model: RLMv2,
+    tok: WordTokenizer,
+    query: str,
+    k_neighbors: int = 3,
+    similarity_threshold: float = 0.1,
+    max_depth: int = 3
+) -> list[dict]:
+    """The hybrid: seeds graph traversal using 32d latent similarities, then walks Hebbian edges."""
     parts = query.split()
     if len(parts) < 2:
         return []
     subj_word, rel_word = parts[0], parts[1]
+
+    # Map relation word to relation type
+    causal_verbs = {"causes", "cause", "leads", "produces", "creates"}
+    possessive_verbs = {"has", "have", "contains", "includes"}
+    rel_type = None
+    if rel_word in causal_verbs:
+        rel_type = "causal"
+    elif rel_word in possessive_verbs:
+        rel_type = "possessive"
+
+    # Step 1: Project subject into 32d latent space
     subj_tid = tok.word_to_id.get(subj_word)
     if subj_tid is None:
         return []
-    embeds = model.token_embed.weight.data
-    subj_vec = embeds[subj_tid]
-
-    # Find all (subject, object) pairs with matching relation
-    pairs = [(s, o) for s, r, o in facts if r == rel_word]
-    scored = []
-    for s, o in pairs:
-        s_tid = tok.word_to_id.get(s)
-        if s_tid is None:
+    
+    # Check if subject itself has a concept node in the graph
+    direct_cid = None
+    direct_bindings = model.binding_map.get_concepts(subj_tid, min_confidence=0.1)
+    if direct_bindings:
+        direct_cid = direct_bindings[0].concept_id
+        
+    lat_query = proto(model, tok, subj_word)
+    
+    # Step 2: Vector-space seeding (via cosine similarity in 32d latent space)
+    seeds = []  # entries: (concept_id, sim, word)
+    if direct_cid is not None:
+        seeds.append((direct_cid, 1.0, subj_word))
+        
+    scored_neighbors = []
+    for word, tid in tok.word_to_id.items():
+        if word == subj_word:
             continue
-        sim = float(np.dot(subj_vec, embeds[s_tid]))
-        scored.append((sim, s, o))
-    scored.sort(reverse=True)
-
-    # Return objects from top-N nearest subjects
-    seen = set()
+        bindings = model.binding_map.get_concepts(tid, min_confidence=0.1)
+        if not bindings:
+            continue
+        cid = bindings[0].concept_id
+        lat_word = proto(model, tok, word)
+        sim = cosine(lat_query, lat_word)
+        if sim > similarity_threshold:
+            scored_neighbors.append((cid, sim, word))
+            
+    scored_neighbors.sort(key=lambda x: x[1], reverse=True)
+    seeds.extend(scored_neighbors[:k_neighbors])
+    
+    # Remove duplicate concept IDs in seeds, keeping the highest similarity
+    seen_cids = set()
+    unique_seeds = []
+    for cid, sim, word in seeds:
+        if cid not in seen_cids:
+            seen_cids.add(cid)
+            unique_seeds.append((cid, sim, word))
+            
+    # Step 3: Multi-hop propagation
+    activations = {}
+    path_sources = {}  # maps node_id -> path list of (prev_node_id, edge_weight, rel_type)
+    
+    for cid, sim, word in unique_seeds:
+        activations[cid] = sim
+        path_sources[cid] = [("seed", sim, word)]
+        
+    # BFS propagation up to max_depth
+    frontier = [cid for cid, _, _ in unique_seeds]
+    
+    for depth in range(1, max_depth + 1):
+        next_frontier = []
+        for nid in frontier:
+            current_act = activations[nid]
+            for tgt_id, edge in model.graph.get_outgoing(nid):
+                # Filter by relation type
+                if rel_type and edge.relation_type != rel_type:
+                    continue
+                # Propagate activation: src_activation * edge_weight
+                prop_act = current_act * edge.weight
+                
+                if tgt_id not in activations or prop_act > activations[tgt_id]:
+                    activations[tgt_id] = prop_act
+                    path_sources[tgt_id] = path_sources[nid] + [(nid, edge.weight, edge.relation_type)]
+                    next_frontier.append(tgt_id)
+        frontier = next_frontier
+        
+    # Step 4: Decode activations back to words
     results = []
-    for sim, s, o in scored[:top_n * 3]:  # over-fetch to deduplicate
-        if o not in seen:
-            seen.add(o)
-            results.append((o, sim, s))
-        if len(results) >= top_n:
-            break
+    seed_words = {word for _, _, word in unique_seeds}
+    for cid, act in activations.items():
+        tokens = model.binding_map.get_tokens(cid, 0.0)
+        for b in tokens:
+            word = tok.decode([b.token_id])
+            if word not in seed_words and not word.startswith("?"):
+                path_desc = []
+                for step in path_sources[cid]:
+                    if step[0] == "seed":
+                        path_desc.append(f"{step[2]} (seed, sim={step[1]:.2f})")
+                    else:
+                        prev_word = tok.decode([model.binding_map.get_tokens(step[0], 0.0)[0].token_id])
+                        path_desc.append(f"-[{step[2]} w={step[1]:.2f}]-> {word}")
+                results.append({
+                    "word": word,
+                    "score": act,
+                    "concept_id": cid,
+                    "path": " ".join(path_desc)
+                })
+                
+    results.sort(key=lambda x: x["score"], reverse=True)
     return results
 
 
-def traversal_predict(model, tok, query, max_depth=2):
-    """Pure traversal from a concept node."""
-    parts = query.split()
-    if len(parts) < 2:
-        return []
-    subj_word, rel_word = parts[0], parts[1]
-
-    subj_tid = tok.word_to_id.get(subj_word)
-    if subj_tid is None:
-        return []
-
-    bindings = model.binding_map.get_concepts(subj_tid, min_confidence=0.1)
-    if not bindings:
-        return []
-    subject_cid = bindings[0].concept_id
-
-    # Determine relation type
-    causal = {"causes", "cause", "leads", "produces", "creates"}
-    possessive = {"has", "have", "contains", "includes"}
-    rel_type = None
-    if rel_word in causal:
-        rel_type = "causal"
-    elif rel_word in possessive:
-        rel_type = "possessive"
-
-    frontier = {subject_cid}
-    visited = {subject_cid}
-    candidates = []
-
-    for depth in range(1, max_depth + 1):
-        next_frontier = set()
-        for nid in frontier:
-            for tgt_id, edge in model.graph.get_outgoing(nid):
-                if tgt_id in visited:
-                    continue
-                if rel_type and edge.relation_type != rel_type:
-                    continue
-                next_frontier.add(tgt_id)
-                tokens = model.binding_map.get_tokens(tgt_id, 0.0)
-                for b in tokens:
-                    word = tok.decode([b.token_id])
-                    if word not in (subj_word, rel_word) and not word.startswith("?"):
-                        candidates.append((word, depth))
-        visited |= next_frontier
-        frontier = next_frontier
-
-    seen = {}
-    for word, depth in candidates:
-        if word not in seen or depth > seen[word]:
-            seen[word] = depth
-    results = sorted(seen.items(), key=lambda x: (-x[1], x[0]))
-    return results[:10]
-
-
-def compositional_predict(model, tok, query, facts, max_depth=2, k_neighbors=3):
-    """The hybrid: try direct traversal first, then NN-seeded traversal, then NN fallback.
-
-    Priority order:
-    1. Direct traversal from query subject (if concept node exists)
-    2. NN-seeded traversal (embed neighbors, then traverse from them)
-    3. Pure NN fallback (no concept nodes, just embedding proximity)
-    """
-    parts = query.split()
-    if len(parts) < 2:
-        return []
-    subj_word, rel_word = parts[0], parts[1]
-
-    causal = {"causes", "cause", "leads", "produces", "creates"}
-    possessive = {"has", "have", "contains", "includes"}
-    rel_type = None
-    if rel_word in causal:
-        rel_type = "causal"
-    elif rel_word in possessive:
-        rel_type = "possessive"
-
-    def traverse_from(cid, exclude_words):
-        """Traverse from a concept node, return (word, depth) pairs."""
-        frontier = {cid}
-        visited = {cid}
-        results = []
-        for depth in range(1, max_depth + 1):
-            next_frontier = set()
-            for nid in frontier:
-                for tgt_id, edge in model.graph.get_outgoing(nid):
-                    if tgt_id in visited:
-                        continue
-                    if rel_type and edge.relation_type != rel_type:
-                        continue
-                    next_frontier.add(tgt_id)
-                    tokens = model.binding_map.get_tokens(tgt_id, 0.0)
-                    for b in tokens:
-                        word = tok.decode([b.token_id])
-                        if word not in exclude_words and not word.startswith("?"):
-                            results.append((word, depth))
-            visited |= next_frontier
-            frontier = next_frontier
-        # Deduplicate, prefer shallower
-        seen = {}
-        for word, depth in results:
-            if word not in seen or depth < seen[word]:
-                seen[word] = depth
-        return sorted(seen.items(), key=lambda x: (x[1], x[0]))[:10]
-
-    # Step 1: Try direct traversal from query subject
-    subj_tid = tok.word_to_id.get(subj_word)
-    if subj_tid is not None:
-        bindings = model.binding_map.get_concepts(subj_tid, min_confidence=0.1)
-        if bindings:
-            direct = traverse_from(bindings[0].concept_id, {subj_word, rel_word})
-            if direct:
-                return [(w, d, 1.0, subj_word) for w, d in direct]
-
-    # Step 2: NN-seeded traversal
-    nn_results = nn_predict(model, tok, query, facts, top_n=k_neighbors)
-    all_candidates = []
-    for neighbor_word, sim, orig_subject in nn_results:
-        neighbor_tid = tok.word_to_id.get(neighbor_word)
-        if neighbor_tid is None:
-            continue
-        bindings = model.binding_map.get_concepts(neighbor_tid, min_confidence=0.1)
-        if not bindings:
-            continue
-        traversed = traverse_from(bindings[0].concept_id, {subj_word, rel_word, neighbor_word})
-        for word, depth in traversed:
-            all_candidates.append((word, depth, sim, neighbor_word))
-
-    if all_candidates:
-        all_candidates.sort(key=lambda x: (-x[2], x[1]))
-        seen = set()
-        results = []
-        for word, depth, sim, via in all_candidates:
-            if word not in seen:
-                seen.add(word)
-                results.append((word, depth, sim, via))
-        return results[:10]
-
-    # Step 3: Pure NN fallback (no concept nodes at all)
-    nn_words = [w for w, _, _ in nn_results]
-    return [(w, 0, 0.0, "nn_fallback") for w in nn_words[:5]]
-
-
-def build_facts():
-    """Facts for compositional reasoning tests."""
-    return [
-        # Chain 1: kindness → trust → cooperation (the target)
-        ("kindness", "causes", "trust"),
-        ("trust", "causes", "cooperation"),
-        # Chain 2: cruelty → distrust → isolation (mirror)
-        ("cruelty", "causes", "distrust"),
-        ("distrust", "causes", "isolation"),
-        # Chain 3: anger → conflict
-        ("anger", "causes", "conflict"),
-        # Chain 4: honesty → respect
-        ("honesty", "causes", "respect"),
-        # Concrete facts (for NN baseline)
-        ("cat", "has", "tail"),
-        ("dog", "has", "tail"),
-        ("cat", "has", "fur"),
-        ("dog", "has", "fur"),
-        # Simple causal
-        ("virus", "causes", "illness"),
-        ("illness", "causes", "absence"),
-        ("bug", "causes", "crash"),
-        ("crash", "causes", "outage"),
-    ]
-
+# ──────────────────────────────────────────────────────────────────────────
+# Main Execution Pipeline
+# ──────────────────────────────────────────────────────────────────────────
 
 def main():
     print("=" * 70)
-    print("COMPOSITIONAL HYBRID BENCHMARK")
+    print("COMPOSITIONAL HYBRID BENCHMARK WITH TRAINED CHECKPOINT")
     print("=" * 70)
-    print()
-    print("Tests whether NN + Traversal can COOPERATE on tasks")
-    print("neither can solve alone.")
-    print()
+    
+    checkpoint_path = os.path.join(SCRIPT_DIR, "experiment_results", "encoder_32d_fixed.pkl")
+    if not os.path.exists(checkpoint_path):
+        print(f"ERROR: Checkpoint not found at {checkpoint_path}")
+        print("Please run experiments/phase4_option3_fixed.py first.")
+        sys.exit(1)
+        
+    print(f"Loading pre-trained encoder checkpoint from {checkpoint_path}...")
+    with open(checkpoint_path, 'rb') as f:
+        state = pickle.load(f)
+        
+    # Instantiate model matching checkpoint parameters
+    model = RLMv2(
+        vocab_size=state["vocab_size"],
+        embed_dim=state["embed_dim"],
+        concept_dim=state["concept_dim"],
+        n_concepts=state["n_concepts"],
+        latent_dim=32,
+        hidden_dim=48,
+        gate_concept_creation=False
+    )
+    model.load(checkpoint_path)
+    tok = model._tokenizer
+    
+    # 1. Expand vocabulary for all concepts/words in our composition facts
+    all_benchmark_words = []
+    for s, r, o in FACTS:
+        all_benchmark_words.extend([s, r, o])
+    for tc in TEST_CASES:
+        all_benchmark_words.append(tc["query"].split()[0])
+        if tc["analog_pair"]:
+            all_benchmark_words.extend(tc["analog_pair"])
+            
+    # Deduplicate and expand
+    all_benchmark_words = list(set(all_benchmark_words))
+    expand_vocabulary_and_embeddings(model, tok, all_benchmark_words)
+    
+    # 2. Inject controlled semantic similarities (embeddings are frozen after injection)
+    inject_precise_embeddings(model, tok)
+    
+    # Print out mapping check
+    print("\nVerified latent space similarities (mapped by encoder to 32d):")
+    for tc in TEST_CASES:
+        pair = tc["analog_pair"]
+        if pair:
+            w1, w2 = pair
+            sim_32d = cosine(proto(model, tok, w1), proto(model, tok, w2))
+            print(f"  Analog: {w1:10s} <-> {w2:10s} | 32d Cos Sim = {sim_32d:.4f}")
 
-    facts = build_facts()
-
-    # Build tokenizer
-    tok = WordTokenizer()
-    for s, r, o in facts:
-        tok.encode(f"{s} {r} {o}")
-
-    # Extra vocab for queries
-    for w in ["warmth", "coldness", "tiger", "eagle"]:
-        tok.encode(w)
-
-    model = RLMv2(vocab_size=tok.vocab_size, embed_dim=32, concept_dim=32,
-                  n_concepts=500, sleep_interval=200, gate_concept_creation=False)
-    model._tokenizer = tok
-    inject_embeddings(model, tok)
-
-    print("Training...")
+    # 3. Train Hebbian edges in graph
+    print("\nTraining graph edges on facts (embeddings are frozen)...")
     for epoch in range(5):
-        for s, r, o in facts:
+        for s, r, o in FACTS:
             ids = tok.encode(f"{s} {r} {o}")
-            if len(ids) < 2:
+            if len(ids) < 3:
                 continue
             ctx = np.array([ids[:-1]], dtype=np.int64)
             tgt = np.array([[ids[-1]]], dtype=np.int64)
             model.learn(ctx, tgt)
-
-    print(f"Graph: {len(model.graph.nodes)} nodes, {len(model.graph.edges)} edges")
-
-    # ================================================================
-    # TEST 1: Pure compositional (the key test)
-    # ================================================================
+            
+    print(f"Graph constructed: {len(model.graph.nodes)} nodes, {len(model.graph.edges)} edges.")
+    
+    # 4. Evaluate Test Cases
     print("\n" + "=" * 70)
-    print("TEST 1: COMPOSITIONAL REASONING")
-    print("warmth ≈ kindness → trust → cooperation")
-    print("Neither NN nor Traversal alone should solve this.")
+    print("HYBRID COMPOSITIONAL INFERENCE BENCHMARK RUN")
     print("=" * 70)
-
-    test_cases = [
-        ("warmth causes", "cooperation",
-         "warmth→kindness(embed)→trust(trav)→cooperation(trav)"),
-        ("coldness causes", "isolation",
-         "coldness→cruelty(embed)→distrust(trav)→isolation(trav)"),
-    ]
-
-    for query, expected, chain_desc in test_cases:
-        print(f"\n  Query: {query}")
-        print(f"  Expected: {expected}")
-        print(f"  Chain: {chain_desc}")
-
-        nn = nn_predict(model, tok, query, facts)
-        tr = traversal_predict(model, tok, query)
-        comp = compositional_predict(model, tok, query, facts, k_neighbors=3)
-
-        nn_words = [w for w, _, _ in nn]
-        tr_words = [w for w, _ in tr]
-        comp_words = [w for w, _, _, _ in comp]
-
-        nn_hit = expected in nn_words
-        tr_hit = expected in tr_words
-        comp_hit = expected in comp_words
-
-        print(f"\n  NN:          [{'Y' if nn_hit else 'N'}] {nn_words[:5]}")
-        if nn:
-            for w, sim, via in nn[:3]:
-                print(f"                 {w} (via {via}, sim={sim:.3f})")
-        print(f"  Traversal:   [{'Y' if tr_hit else 'N'}] {tr_words[:5]}")
-        print(f"  Composed:    [{'Y' if comp_hit else 'N'}] {comp_words[:5]}")
-        if comp:
-            for w, depth, sim, via in comp[:5]:
-                print(f"                 {w} (depth={depth}, via {via}, sim={sim:.3f})")
-
-    # ================================================================
-    # TEST 2: Where NN already works (shouldn't regress)
-    # ================================================================
+    
+    results_summary = []
+    
+    for tc in TEST_CASES:
+        query = tc["query"]
+        expected = tc["expected"]
+        category = tc["category"]
+        pair = tc["analog_pair"]
+        
+        print(f"\n[Category: {category}] Query: '{query}'")
+        
+        # Compute latent similarity to show in table
+        seeding_sim = 1.0
+        if pair:
+            seeding_sim = cosine(proto(model, tok, pair[0]), proto(model, tok, pair[1]))
+            print(f"  Vector Seeding: {pair[0]} ≈ {pair[1]} (32d Sim: {seeding_sim:.4f})")
+            
+        preds = hybrid_compositional_predict(model, tok, query, k_neighbors=3, similarity_threshold=0.1)
+        
+        # Rank of expected target
+        rank = None
+        target_score = 0.0
+        for idx, pred in enumerate(preds):
+            if pred["word"] == expected:
+                rank = idx + 1
+                target_score = pred["score"]
+                break
+                
+        # Signal to Noise Ratio (SNR)
+        other_scores = [p["score"] for p in preds if p["word"] != expected]
+        sum_others = sum(other_scores)
+        snr = target_score / sum_others if sum_others > 0 else (99.0 if target_score > 0 else 0.0)
+        
+        # Path Coherence: Target Score / Seeding Sim (measures decay down the chain)
+        coherence = target_score / seeding_sim if seeding_sim > 0 else 0.0
+        
+        # Print top predictions
+        print("  Top Predictions:")
+        if not preds:
+            print("    (None)")
+        for idx, pred in enumerate(preds[:3]):
+            marker = "  * " if pred["word"] == expected else "    "
+            print(f"{marker}Rank {idx+1}: {pred['word']:15s} | Score: {pred['score']:.4f} | Path: {pred['path']}")
+            
+        results_summary.append({
+            "category": category,
+            "query": query,
+            "expected": expected,
+            "seeding_sim": seeding_sim,
+            "rank": rank if rank is not None else "N/A",
+            "score": target_score,
+            "coherence": coherence,
+            "snr": snr
+        })
+        
+    # 5. Output Summary Table
     print("\n" + "=" * 70)
-    print("TEST 2: NN-ONLY TASKS (shouldn't regress)")
+    print("CAPABILITY & METRICS MATRIX")
     print("=" * 70)
-
-    nn_only = [
-        ("tiger has", "tail"),
-        ("kindness causes", "trust"),  # direct edge, NN should find it
-        ("cruelty causes", "distrust"),
-    ]
-
-    for query, expected in nn_only:
-        nn = nn_predict(model, tok, query, facts)
-        tr = traversal_predict(model, tok, query)
-        comp = compositional_predict(model, tok, query, facts)
-
-        nn_words = [w for w, _, _ in nn]
-        tr_words = [w for w, _ in tr]
-        comp_words = [w for w, _, _, _ in comp]
-
-        print(f"\n  {query:25s} -> {expected}")
-        print(f"    NN:        [{'Y' if expected in nn_words else 'N'}] {nn_words[:3]}")
-        print(f"    Traverse:  [{'Y' if expected in tr_words else 'N'}] {tr_words[:3]}")
-        print(f"    Composed:  [{'Y' if expected in comp_words else 'N'}] {comp_words[:3]}")
-
-    # ================================================================
-    # TEST 3: Where traversal already works (shouldn't regress)
-    # ================================================================
-    print("\n" + "=" * 70)
-    print("TEST 3: TRAVERSAL-ONLY TASKS (shouldn't regress)")
-    print("=" * 70)
-
-    tr_only = [
-        ("virus causes", "absence"),
-        ("bug causes", "outage"),
-    ]
-
-    for query, expected in tr_only:
-        nn = nn_predict(model, tok, query, facts)
-        tr = traversal_predict(model, tok, query)
-        comp = compositional_predict(model, tok, query, facts)
-
-        nn_words = [w for w, _, _ in nn]
-        tr_words = [w for w, _ in tr]
-        comp_words = [w for w, _, _, _ in comp]
-
-        print(f"\n  {query:25s} -> {expected}")
-        print(f"    NN:        [{'Y' if expected in nn_words else 'N'}] {nn_words[:3]}")
-        print(f"    Traverse:  [{'Y' if expected in tr_words else 'N'}] {tr_words[:3]}")
-        print(f"    Composed:  [{'Y' if expected in comp_words else 'N'}] {comp_words[:3]}")
-
-    # ================================================================
-    # SUMMARY
-    # ================================================================
-    print("\n" + "=" * 70)
-    print("CAPABILITY MATRIX")
-    print("=" * 70)
+    print(f"{'Category':<22s} | {'Query':<15s} | {'Target':<12s} | {'32d Sim':<7s} | {'Rank':<4s} | {'Score':<6s} | {'Coherence':<9s} | {'SNR':<5s}")
+    print("-" * 96)
+    for r in results_summary:
+        rank_str = str(r["rank"])
+        sim_str = f"{r['seeding_sim']:.2f}" if r["seeding_sim"] < 1.0 else "1.00"
+        snr_str = f"{r['snr']:.2f}" if r["snr"] < 99.0 else "Inf"
+        print(f"{r['category']:<22s} | {r['query']:<15s} | {r['expected']:<12s} | {sim_str:<7s} | {rank_str:<4s} | {r['score']:.4f} | {r['coherence']:.4f}    | {snr_str:<5s}")
+        
     print()
-    print(f"{'Task':<30s} {'NN':<8s} {'Trav':<8s} {'Composed':<10s}")
-    print("-" * 56)
-
-    all_tests = [
-        # (query, expected, category)
-        ("warmth causes", "cooperation", "Compositional"),
-        ("coldness causes", "isolation", "Compositional"),
-        ("tiger has", "tail", "NN-only"),
-        ("kindness causes", "trust", "NN-only"),
-        ("cruelty causes", "distrust", "NN-only"),
-        ("virus causes", "absence", "Traversal-only"),
-        ("bug causes", "outage", "Traversal-only"),
-    ]
-
-    cat_results = {}
-    for query, expected, cat in all_tests:
-        nn = nn_predict(model, tok, query, facts)
-        tr = traversal_predict(model, tok, query)
-        comp = compositional_predict(model, tok, query, facts)
-
-        nn_hit = expected in [w for w, _, _ in nn]
-        tr_hit = expected in [w for w, _ in tr]
-        comp_hit = expected in [w for w, _, _, _ in comp]
-
-        if cat not in cat_results:
-            cat_results[cat] = {"nn": 0, "tr": 0, "comp": 0, "total": 0}
-        cat_results[cat]["nn"] += int(nn_hit)
-        cat_results[cat]["tr"] += int(tr_hit)
-        cat_results[cat]["comp"] += int(comp_hit)
-        cat_results[cat]["total"] += 1
-
-    for cat, r in cat_results.items():
-        print(f"{cat:<30s} {r['nn']}/{r['total']:<6d} {r['tr']}/{r['total']:<6d} {r['comp']}/{r['total']:<6d}")
-
-    print()
-    print("If Composed > max(NN, Trav) on Compositional tasks,")
-    print("the hybrid is genuinely composing capabilities.")
-    print("If Composed == max(NN, Trav), it's just switching.")
+    print("Interpretation:")
+    print("1. If Coherence is close to edge weight decay (e.g. w1 * w2 ≈ 0.3 * 0.3 ≈ 0.09 times Sim), the path is highly coherent.")
+    print("2. High SNR indicates the graph traversal successfully filters out noise and prevents error propagation.")
+    print("3. Compare the boundary cases: Do the lower 32d similarities propagate errors (low SNR) or smooth out (high rank & high SNR)?")
+    print("=" * 70)
 
 
 if __name__ == "__main__":

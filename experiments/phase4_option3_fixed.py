@@ -396,6 +396,12 @@ def run(
             if records[-1]["collapse_flag"]:
                 print(f"  [Phase4] WARNING: collapse at epoch {epoch}")
 
+        if epoch == 300:
+            checkpoint_path_300 = os.path.join(SCRIPT_DIR, "experiment_results", "encoder_32d_fixed.pkl")
+            model.save(checkpoint_path_300)
+            print(f"[Saved model checkpoint at epoch 300] {checkpoint_path_300}")
+
+
     out_path = os.path.join(SCRIPT_DIR, "experiment_results", "trajectory_option3_fixed.json")
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     save = {
