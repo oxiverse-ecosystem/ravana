@@ -46,6 +46,28 @@ def test_build_news_mdp():
     assert "rationale" in scenarios[0]
 
 
+def test_ingest_news_pipeline():
+    rg = RealityGrounding(rss_feeds=[], max_items_per_source=2)
+    cycle = rg.ingest_news(
+        query="AI safety",
+        ravana_state={"dissonance": 0.62, "identity": 0.44},
+        topics=["AI safety", "AI ethics"],
+        max_items=2,
+        max_scenarios=2,
+    )
+
+    assert "summary" in cycle
+    assert "scenarios" in cycle
+    assert "alignment" in cycle
+    assert isinstance(cycle["max_pressure"], float)
+    if cycle["scenarios"]:
+        scenario = cycle["scenarios"][0]
+        assert scenario.pressure >= 0.0
+        assert isinstance(scenario.entities, list)
+        assert isinstance(scenario.source_url, str)
+
+
 if __name__ == "__main__":
     test_build_news_mdp()
+    test_ingest_news_pipeline()
     print("reality grounding smoke test passed")
