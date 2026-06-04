@@ -25,6 +25,9 @@ try:
 except ImportError:
     nx = None
 
+from core.vector_index import SharedVectorIndex
+from core.embedder import LearnedEmbedder
+
 
 # ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -188,8 +191,11 @@ class HumanMemoryEngine:
         self.working_memory: List[dict] = []
         self._history: List[HumanMemoryRecord] = []
         self._graph: Any = None
+        self.vector_index = SharedVectorIndex(dim=64, use_faiss=False)
+        self._embedder = LearnedEmbedder(dim=64)
         self._init_db()
         self._load_graph()
+        self._rebuild_vector_index()
 
     # ─── SQLite Layer ────────────────────────────────────────────────────
 
@@ -246,6 +252,59 @@ class HumanMemoryEngine:
             conn.execute("ALTER TABLE memories ADD COLUMN temporal_context BLOB")
         except sqlite3.OperationalError:
             pass  # column already exists
+        # Migration: add embedding column if missing (for vector-based retrieval)
+        try:
+            conn.execute("ALTER TABLE memories ADD COLUMN embedding BLOB")
+        except sqlite3.OperationalError:
+            pass  # column already exists
+        conn.commit()
+        conn.close()
+
+    def _encode_to_vector(self, content: str, tags: str = "",
+                          importance: float = 0.5, emotional: float = 0.5) -> np.ndarray:
+        """Encode a memory into a 64-dim embedding vector.
+
+        Uses character n-gram + random projection encoding that captures
+        subword structure and morphological patterns. If the embedder has
+        been fitted with corpus statistics, IDF weighting is applied.
+        """
+        return self._embedder.encode(content, tags=tags,
+                                     importance=importance, emotional=emotional)
+
+    def _rebuild_vector_index(self) -> None:
+        """Load all embedding vectors from DB into SharedVectorIndex.
+
+        Also fits the embedder's IDF weights from existing memory content
+        and re-encodes all memories with the learned embeddings.
+        """
+        conn = self._get_conn()
+        try:
+            rows = conn.execute(
+                "SELECT id, content, tags, importance, emotional FROM memories "
+                "WHERE suppressed = 0"
+            ).fetchall()
+        except sqlite3.OperationalError:
+            conn.close()
+            return
+        # Fit embedder IDF from corpus
+        corpus = [str(r[1] or "") + " " + str(r[2] or "") for r in rows]
+        if corpus:
+            self._embedder.fit(corpus)
+        # Re-encode all memories with learned embeddings and update index + DB
+        for mid, content, tags, importance, emotional in rows:
+            try:
+                vec = self._encode_to_vector(
+                    str(content or ""), str(tags or ""),
+                    float(importance or 0.5), float(emotional or 0.5)
+                )
+                self.vector_index.add(int(mid), vec)
+                # Persist updated embedding to DB
+                conn.execute(
+                    "UPDATE memories SET embedding = ? WHERE id = ?",
+                    (vec.tobytes(), int(mid))
+                )
+            except (ValueError, Exception):
+                pass
         conn.commit()
         conn.close()
 
@@ -257,19 +316,22 @@ class HumanMemoryEngine:
         conn = self._get_conn()
         now = time.time()
         ctx_blob = temporal_context.tobytes() if temporal_context is not None else None
+        # Compute embedding vector for semantic retrieval
+        embedding_vec = self._encode_to_vector(content, tags or "", importance, emotional)
+        emb_blob = embedding_vec.tobytes()
         try:
             cursor = conn.execute(
                 """INSERT INTO memories (content, memory_type, semantic_type, context, tags,
                                          importance, emotional, access_count, last_accessed,
                                          created_at, decay_score, coherence, stability,
                                          retrieval_distortion, associative_divergence,
-                                         predictive_utility, temporal_context)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, 0.0, 1.0, 0.5, 0.0, 0.0, 0.5, ?)""",
+                                         predictive_utility, temporal_context, embedding)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, 0.0, 1.0, 0.5, 0.0, 0.0, 0.5, ?, ?)""",
                 (content, memory_type, semantic_type, context, tags,
-                 importance, emotional, now, now, ctx_blob)
+                 importance, emotional, now, now, ctx_blob, emb_blob)
             )
         except sqlite3.OperationalError:
-            # Fallback if temporal_context column doesn't exist yet
+            # Fallback if temporal_context/embedding columns don't exist yet
             cursor = conn.execute(
                 """INSERT INTO memories (content, memory_type, semantic_type, context, tags,
                                          importance, emotional, access_count, last_accessed,
@@ -283,32 +345,81 @@ class HumanMemoryEngine:
         mid = cursor.lastrowid
         conn.commit()
         conn.close()
+        # Add to vector index
+        self.vector_index.add(int(mid), embedding_vec)
         return int(mid)
 
     def _recall(self, keyword: str = "", memory_type: str = None,
-                limit: int = 20) -> List[dict]:
+                limit: int = 20,
+                query_vector: Optional[np.ndarray] = None) -> List[dict]:
+        """Recall memories by vector similarity (primary) or keyword (fallback).
+
+        Args:
+            keyword: Text query for keyword-based fallback search.
+            memory_type: Optional filter by memory type.
+            limit: Max results.
+            query_vector: If provided, use cosine similarity for retrieval.
+        """
         conn = self._get_conn()
-        params: list = []
-        conditions = ["suppressed = 0"]
-        if keyword:
+        recalled_ids: List[int] = []
+
+        if query_vector is not None:
+            # Vector-based retrieval (primary path)
+            hits = self.vector_index.search(query_vector, k=limit * 2, min_score=0.05)
+            if memory_type:
+                # Filter by memory_type in SQL
+                hit_ids = [mid for mid, _ in hits]
+                if hit_ids:
+                    placeholders = ",".join("?" * len(hit_ids))
+                    rows = conn.execute(
+                        f"""SELECT id, content, memory_type, semantic_type, context, tags,
+                                   importance, emotional, access_count, decay_score, consolidated
+                            FROM memories WHERE id IN ({placeholders})
+                            AND suppressed = 0 AND memory_type = ?""",
+                        hit_ids + [memory_type]
+                    ).fetchall()
+                    id_set = {r[0] for r in rows}
+                    recalled_ids = [mid for mid, _ in hits if mid in id_set][:limit]
+                else:
+                    rows = []
+            else:
+                recalled_ids = [mid for mid, _ in hits][:limit]
+                if recalled_ids:
+                    placeholders = ",".join("?" * len(recalled_ids))
+                    rows = conn.execute(
+                        f"""SELECT id, content, memory_type, semantic_type, context, tags,
+                                   importance, emotional, access_count, decay_score, consolidated
+                            FROM memories WHERE id IN ({placeholders}) AND suppressed = 0""",
+                        recalled_ids
+                    ).fetchall()
+                else:
+                    rows = []
+        elif keyword:
+            # Fallback: keyword search (backward compatible)
+            params: list = []
+            conditions = ["suppressed = 0"]
             conditions.append("(content LIKE ? OR tags LIKE ? OR context LIKE ?)")
             params.extend([f"%{keyword}%", f"%{keyword}%", f"%{keyword}%"])
-        if memory_type:
-            conditions.append("memory_type = ?")
-            params.append(memory_type)
-        where = " AND ".join(conditions)
-        params.append(limit)
-        rows = conn.execute(
-            f"""SELECT id, content, memory_type, semantic_type, context, tags,
-                       importance, emotional, access_count, decay_score, consolidated
-                FROM memories WHERE {where}
-                ORDER BY (importance * 0.30 + emotional * 0.50
-                         + access_count * 0.002
-                         + (1.0 - MIN(decay_score, 10.0) / 10.0) * 0.20) DESC
-                LIMIT ?""",
-            params
-        ).fetchall()
-        recalled_ids = [r[0] for r in rows]
+            if memory_type:
+                conditions.append("memory_type = ?")
+                params.append(memory_type)
+            where = " AND ".join(conditions)
+            params.append(limit)
+            rows = conn.execute(
+                f"""SELECT id, content, memory_type, semantic_type, context, tags,
+                           importance, emotional, access_count, decay_score, consolidated
+                    FROM memories WHERE {where}
+                    ORDER BY (importance * 0.30 + emotional * 0.50
+                             + access_count * 0.002
+                             + (1.0 - MIN(decay_score, 10.0) / 10.0) * 0.20) DESC
+                    LIMIT ?""",
+                params
+            ).fetchall()
+            recalled_ids = [r[0] for r in rows]
+        else:
+            rows = []
+            recalled_ids = []
+
         if recalled_ids:
             placeholders = ",".join("?" * len(recalled_ids))
             cfg = self.config
@@ -776,22 +887,22 @@ class HumanMemoryEngine:
             emotional=emotional,
         )
 
-        # Add graph node and auto-link
+        # Add graph node and auto-link via vector similarity (O(log N) via ANN)
         self._add_node(mid, content=content, memory_type=memory_type,
                        tags=tags, decay_score=0.0)
-        if tags:
-            existing = self._get_active(limit=100)
-            tag_set = set(t.strip() for t in tags.split(",") if t.strip())
-            for m in existing:
-                if m["id"] == mid:
+        mem_vec = self.vector_index.get_vector(mid)
+        if mem_vec is not None:
+            neighbors = self.vector_index.search(mem_vec, k=10, min_score=0.15)
+            for neighbor_id, score in neighbors:
+                if neighbor_id == mid:
                     continue
-                m_tags = set(t.strip() for t in (m.get("tags") or "").split(",") if t.strip())
-                if tag_set & m_tags:
-                    if not self._graph.has_node(self._node_id(m["id"])):
-                        self._add_node(m["id"], content=m.get("content", ""),
-                                       memory_type=m.get("memory_type", "experience"),
-                                       tags=m.get("tags", ""), decay_score=m.get("decay_score", 0.0))
-                    self._link_memories(mid, m["id"], weight=self.config.auto_link_weight)
+                if not self._graph.has_node(self._node_id(neighbor_id)):
+                    nm = self._get(neighbor_id)
+                    if nm:
+                        self._add_node(neighbor_id, content=nm.get("content", ""),
+                                       memory_type=nm.get("memory_type", "experience"),
+                                       tags=nm.get("tags", ""), decay_score=nm.get("decay_score", 0.0))
+                self._link_memories(mid, neighbor_id, weight=self.config.auto_link_weight * score)
 
         self._save_graph()
         self._push_working(mid)
@@ -818,6 +929,11 @@ class HumanMemoryEngine:
         self._history.append(record)
         if len(self._history) > self.config.max_history:
             self._history = self._history[-self.config.max_history:]
+
+        # Natural decay: runs every cycle. Sleep consolidation counteracts this.
+        # Without sleep, decay accumulates — memories fade, coherence drops.
+        # This is how real brains work: forgetting is the default, not a bug.
+        self._apply_decay()
 
         return record
 
@@ -952,26 +1068,42 @@ class HumanMemoryEngine:
 
     def semantic_search(self, keyword: str, limit: int = 10,
                         memory_type: str = None) -> List[dict]:
-        """Fuzzy search using stemmed token overlap + synonym expansion."""
-        synonyms = self._get_synonyms()
-        query_terms = set(self._stem(t) for t in keyword.replace("_", " ").split())
-        for term in list(query_terms):
-            if term in synonyms:
-                query_terms.update(self._stem(s) for s in synonyms[term])
+        """Semantic search using cosine similarity over vector index.
 
-        all_mems = self._get_active(limit=200)
+        Primary: encode keyword to vector, cosine search over SharedVectorIndex.
+        Fallback: stemmed token overlap + synonym expansion.
+        """
+        # Encode keyword to vector
+        query_vec = self._encode_to_vector(keyword, "", 0.5, 0.5)
+        # Vector-based retrieval
+        hits = self.vector_index.search(query_vec, k=limit * 2, min_score=0.05)
+
         scored: List[dict] = []
-        for m in all_mems:
-            if memory_type and m.get("memory_type") != memory_type:
+        for mid, vec_score in hits:
+            mem = self._get(mid)
+            if not mem:
                 continue
+            if memory_type and mem.get("memory_type") != memory_type:
+                continue
+            # Blend vector score with stem overlap for robustness
             content_tokens = set(self._stem(t) for t in
-                                 ((m.get("content", "") or "") + " " + (m.get("tags", "") or "")).split())
+                                 ((mem.get("content", "") or "") + " " + (mem.get("tags", "") or "")).split())
+            synonyms = self._get_synonyms()
+            query_terms = set(self._stem(t) for t in keyword.replace("_", " ").split())
+            for term in list(query_terms):
+                if term in synonyms:
+                    query_terms.update(self._stem(s) for s in synonyms[term])
             overlap = query_terms & content_tokens
-            if overlap:
-                score = len(overlap) / max(len(query_terms), 1)
-                m["match_score"] = round(score, 3)
-                m["matched_terms"] = list(overlap)
-                scored.append(m)
+            stem_score = len(overlap) / max(len(query_terms), 1) if query_terms else 0.0
+
+            # Hybrid: 0.6 cosine + 0.4 stem overlap
+            score = vec_score * 0.6 + stem_score * 0.4
+            mem["match_score"] = round(score, 3)
+            mem["vector_score"] = round(vec_score, 3)
+            mem["stem_score"] = round(stem_score, 3)
+            mem["matched_terms"] = list(overlap)
+            scored.append(mem)
+
         scored.sort(key=lambda x: -x["match_score"])
         return scored[:limit]
 
@@ -1391,20 +1523,28 @@ class HumanMemoryEngine:
             importance = float(mem.get("importance", 0.5))
             utility = float(mem.get("predictive_utility", 0.5))
 
-            # Find matching concept nodes by label/tag overlap
+            # Find matching concept nodes by vector similarity (O(log N) via ANN)
             matched_concepts = []
-            for nid, node in concept_graph.nodes.items():
-                node_label = str(node.label or "").lower()
-                # Check if memory content/tags contain the node label
-                if node_label and len(node_label) > 2:
-                    if node_label in content or node_label in tags:
-                        matched_concepts.append(nid)
-                    # Also check tag tokens
-                    for tag in tags.split(","):
-                        tag = tag.strip()
-                        if tag and tag in node_label:
+            mem_vec = self.vector_index.get_vector(mid)
+            if mem_vec is not None:
+                try:
+                    similar = concept_graph.find_similar(mem_vec, k=5)
+                    matched_concepts = [nid for nid, sim in similar if sim > 0.2]
+                except (AttributeError, Exception):
+                    pass  # fall through to string matching
+
+            # Fallback: string label matching if vector search found nothing
+            if not matched_concepts:
+                for nid, node in concept_graph.nodes.items():
+                    node_label = str(node.label or "").lower()
+                    if node_label and len(node_label) > 2:
+                        if node_label in content or node_label in tags:
                             matched_concepts.append(nid)
-                            break
+                        for tag in tags.split(","):
+                            tag = tag.strip()
+                            if tag and tag in node_label:
+                                matched_concepts.append(nid)
+                                break
 
             if not matched_concepts:
                 # No matching concepts — create a new concept for this memory

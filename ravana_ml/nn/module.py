@@ -103,6 +103,11 @@ class Module:
                 else:
                     # Backwards compat: bare numpy array
                     param.data = entry.copy()
+        # Rebuild raw numpy caches in submodules (Linear, Embedding, LayerNorm)
+        # after weight replacement — _w_raw/_b_raw are stale views into old arrays
+        for mod in self.modules():
+            if hasattr(mod, '_rebuild_raw_cache'):
+                mod._rebuild_raw_cache()
 
         # Refresh cached raw views after parameter replacement.
         for mod in self.modules():
@@ -153,6 +158,10 @@ class Linear(Module):
             self.bias = None
             self._bias_free_energy = None
         self._trace_x = None
+        # EWC buffers
+        self._fisher_diagonal = StateTensor(np.zeros((out_features, in_features), dtype=np.float32))
+        self._old_weight_snapshot = None
+        self._fisher_count = 0
         # Cached raw numpy views (stay in sync with in-place weight updates)
         self._w_raw = self.weight.data.view()
         self._b_raw = self.bias.data.view() if self.bias is not None else None
@@ -202,6 +211,9 @@ class Linear(Module):
         salience = getattr(error, '_salience', 0.3) if isinstance(error, StateTensor) else 0.3
         hebbian = (x_data.T @ error_data) * salience * 0.01
         self._weight_free_energy.data += hebbian.T
+        # EWC: accumulate Fisher diagonal (squared gradient proxy)
+        self._fisher_diagonal.data += hebbian.T ** 2
+        self._fisher_count += 1
         if self.bias is not None:
             self._bias_free_energy.data += error_data.mean(axis=0) * salience * 0.01
         super().accumulate_free_energy(error)
@@ -209,7 +221,12 @@ class Linear(Module):
 
     def sleep_cycle(self):
         plasticity = 1.0 - float(np.mean(self.weight.stability))
-        self.weight.data += self._weight_free_energy.data * plasticity * 0.1
+        delta_w = self._weight_free_energy.data * plasticity * 0.1
+        # EWC penalty: resist weight changes for high-Fisher parameters
+        if self._old_weight_snapshot is not None:
+            ewc_penalty = 0.4 * self._fisher_diagonal.data * (self.weight.data - self._old_weight_snapshot)
+            delta_w -= ewc_penalty
+        self.weight.data += delta_w
         self._weight_free_energy = StateTensor(np.zeros_like(self._weight_free_energy.data))
         self.weight.stability = min(1.0, self.weight.stability + 0.005)
         if self.bias is not None:
@@ -238,6 +255,14 @@ class Embedding(Module):
         self._weight_free_energy = StateTensor(np.zeros((num_embeddings, embedding_dim), dtype=np.float32))
         self._trace_indices = None
         self._w_raw = self.weight.data.view()
+        # EWC buffers
+        self._fisher_diagonal = StateTensor(np.zeros((num_embeddings, embedding_dim), dtype=np.float32))
+        self._old_weight_snapshot = None
+        self._fisher_count = 0
+
+    def _rebuild_raw_cache(self):
+        """Rebuild cached numpy view after weight replacement."""
+        self._w_raw = self.weight.data.view()
 
     def _rebuild_raw_cache(self):
         self._w_raw = self.weight.data.view()
@@ -265,12 +290,20 @@ class Embedding(Module):
         error_data = error.data if isinstance(error, RawTensor) else np.array(error)
         salience = getattr(error, '_salience', 0.3) if isinstance(error, StateTensor) else 0.3
         for i, idx in enumerate(self._trace_indices.flatten()):
-            self._weight_free_energy.data[idx] += error_data[i] * salience * 0.01
+            fe = error_data[i] * salience * 0.01
+            self._weight_free_energy.data[idx] += fe
+            self._fisher_diagonal.data[idx] += fe ** 2
+        self._fisher_count += 1
         super().accumulate_free_energy(error)
 
     def sleep_cycle(self):
         plasticity = 1.0 - float(np.mean(self.weight.stability))
-        self.weight.data += self._weight_free_energy.data * plasticity * 0.1
+        delta_w = self._weight_free_energy.data * plasticity * 0.1
+        # EWC penalty
+        if self._old_weight_snapshot is not None:
+            ewc_penalty = 0.4 * self._fisher_diagonal.data * (self.weight.data - self._old_weight_snapshot)
+            delta_w -= ewc_penalty
+        self.weight.data += delta_w
         self._weight_free_energy = StateTensor(np.zeros_like(self._weight_free_energy.data))
         self.weight.stability = min(1.0, self.weight.stability + 0.005)
         if self.padding_idx is not None:
@@ -301,6 +334,7 @@ class LayerNorm(Module):
             self._b_ln_raw = None
 
     def _rebuild_raw_cache(self):
+        """Rebuild cached numpy views after weight replacement."""
         if self.elementwise_affine:
             self._w_ln_raw = self.weight.data.view()
             self._b_ln_raw = self.bias.data.view()

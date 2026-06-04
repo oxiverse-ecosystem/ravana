@@ -89,8 +89,8 @@ class FrameworkState:
     vad: Optional[VADState] = None
     emotional_label: str = "neutral/relaxed"
 
-    # Pressure
-    total_pressure: float = 0.0
+    # Free energy
+    total_free_energy: float = 0.0
 
     # Processing
     mode: str = "normal"
@@ -112,7 +112,7 @@ class FrameworkState:
             "cycle": self.cycle,
             "episode": self.episode,
             "emotional_label": self.emotional_label,
-            "total_pressure": self.total_pressure,
+            "total_free_energy": self.total_free_energy,
             "mode": self.mode,
             "processing_route": self.processing_route,
             "sleep_cycles": self.sleep_cycles,
@@ -613,7 +613,7 @@ class CognitiveFramework:
             "graph": {
                 "node_count": len(self.graph.nodes),
                 "edge_count": len(self.graph.edges),
-                "total_pressure": self.graph.total_pressure,
+                "total_free_energy": self.graph.total_free_energy,
                 "contradiction_hotspots": len(self.graph.contradiction_hotspots),
             },
             "abstraction": self.graph.get_abstraction_stats(),
@@ -651,7 +651,7 @@ class CognitiveFramework:
             episode=cs.episode,
             vad=vad_state,
             emotional_label=label,
-            total_pressure=self.graph.total_pressure,
+            total_free_energy=self.graph.total_free_energy,
             mode=cs.last_update_reason,
             processing_route=cs.processing_route,
             sleep_cycles=cs.sleep_cycles_completed,

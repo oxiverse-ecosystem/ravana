@@ -21,6 +21,7 @@ class SleepStage(Enum):
     PATTERN_COMPRESSION = "pattern_compression"
     ABSTRACTION_COMPRESSION = "abstraction_compression"
     CONTRADICTION_RESOLUTION = "contradiction_resolution"
+    MODEL_UPDATE = "model_update"
     INTEGRATION = "integration"
 
 
@@ -113,7 +114,8 @@ class SleepConsolidation:
         return self._accumulated_pressure > self.config.pressure_threshold
     
     def replay_through_graph(self, graph, memories: List[Dict[str, Any]],
-                              n_replays: int = 10, lr: float = 0.02) -> Dict[str, int]:
+                              n_replays: int = 10, lr: float = 0.02,
+                              vector_index: Optional[Any] = None) -> Dict[str, int]:
         """Hippocampal replay: re-activate memories through the ConceptGraph.
 
         During sleep, the brain literally re-activates neural pathways from
@@ -121,11 +123,15 @@ class SleepConsolidation:
         This method samples episodic memories and runs their concepts through
         the graph, applying Hebbian learning on the replayed activations.
 
+        Uses vector-based concept matching when vector_index is provided,
+        falling back to keyword matching.
+
         Args:
             graph: ConceptGraph to replay through
             memories: List of memory dicts (from HumanMemoryEngine)
             n_replays: Number of memories to replay
             lr: Learning rate for Hebbian updates during replay
+            vector_index: Optional SharedVectorIndex for vector-based matching
 
         Returns:
             Dict with replay statistics
@@ -146,27 +152,34 @@ class SleepConsolidation:
         for mem in sample:
             content = str(mem.get("content") or "")
             tags = str(mem.get("tags") or "")
+            mid = mem.get("id")
 
-            # Find concept nodes matching memory keywords
-            keywords = set()
-            for tag in tags.split(","):
-                tag = tag.strip().lower()
-                if tag:
-                    keywords.add(tag)
-            # Also extract words from content
-            for word in content.lower().split()[:10]:
-                if len(word) > 3:
-                    keywords.add(word)
-
-            if not keywords:
-                continue
-
-            # Match keywords to concept labels
+            # Vector-based concept matching (primary)
             matched_nids = []
-            for nid, node in graph.nodes.items():
-                label = (node.label or "").lower()
-                if any(kw in label or label in kw for kw in keywords):
-                    matched_nids.append(nid)
+            if vector_index is not None and mid is not None:
+                mem_vec = vector_index.get_vector(mid)
+                if mem_vec is not None:
+                    try:
+                        similar = graph.find_similar(mem_vec, k=5)
+                        matched_nids = [nid for nid, sim in similar if sim > 0.2]
+                    except (AttributeError, Exception):
+                        pass
+
+            # Fallback: keyword matching
+            if not matched_nids:
+                keywords = set()
+                for tag in tags.split(","):
+                    tag = tag.strip().lower()
+                    if tag:
+                        keywords.add(tag)
+                for word in content.lower().split()[:10]:
+                    if len(word) > 3:
+                        keywords.add(word)
+                if keywords:
+                    for nid, node in graph.nodes.items():
+                        label = (node.label or "").lower()
+                        if any(kw in label or label in kw for kw in keywords):
+                            matched_nids.append(nid)
 
             if not matched_nids:
                 continue
@@ -257,7 +270,18 @@ class SleepConsolidation:
             state_snapshot, beliefs, pressure_zones
         )
         total_perturbations += resolution_result["perturbations"]
-        
+
+        # Stage 3.5: Model Update — actually update the memory model
+        model_update_result = {"edges_strengthened": 0, "edges_pruned": 0,
+                               "vectors_updated": 0, "memories_replayed": 0}
+        if graph is not None and episodic_memories:
+            self._current_stage = SleepStage.MODEL_UPDATE
+            memory_engine = state_snapshot.get("memory_engine")
+            model_update_result = self._update_memory_model(
+                graph, memory_engine, episodic_memories
+            )
+            total_perturbations += model_update_result["edges_strengthened"]
+
         # Stage 4: Integration
         self._current_stage = SleepStage.INTEGRATION
         post_coherence = coherence_fn(state_snapshot) if coherence_fn else pre_coherence
@@ -289,6 +313,7 @@ class SleepConsolidation:
                 "abstraction": abstraction_result,
                 "sabotage": sabotage_result,
                 "resolution": resolution_result,
+                "model_update": model_update_result,
             }
         )
         
@@ -297,6 +322,121 @@ class SleepConsolidation:
         
         return record
     
+    def _update_memory_model(
+        self,
+        graph: Any,
+        memory_engine: Optional[Any],
+        episodic_memories: List[Any],
+    ) -> Dict[str, int]:
+        """Stage 3.5: Actually update the memory model during sleep.
+
+        Not just data reorganization — the model itself learns:
+        1. Replay high-importance memories through ConceptGraph (Hebbian)
+        2. Update embedding vectors for consolidated memories (drift toward concept centroid)
+        3. Strengthen edges between frequently co-activated concepts
+        4. Prune low-confidence unreinforced edges
+        5. Homeostatic weight normalization
+        """
+        edges_strengthened = 0
+        edges_pruned = 0
+        vectors_updated = 0
+        memories_replayed = 0
+
+        # 1. Vector-based hippocampal replay
+        # Prefer memory engine's consolidated memories, fallback to episodic
+        if memory_engine is not None and hasattr(memory_engine, '_get_active'):
+            memories = memory_engine._get_active(limit=50)
+        else:
+            memories = episodic_memories or []
+
+        if not memories:
+            return {"edges_strengthened": 0, "edges_pruned": 0,
+                    "vectors_updated": 0, "memories_replayed": 0}
+
+        # Sort by importance * predictive_utility
+        memories.sort(
+            key=lambda m: float(m.get("importance", 0.5)) * float(m.get("predictive_utility", 0.5)),
+            reverse=True
+        )
+
+        for mem in memories[:20]:
+            # Find matching concepts via vector similarity
+            mem_vec = None
+            if memory_engine and hasattr(memory_engine, 'vector_index'):
+                mid = mem.get("id")
+                if mid is not None:
+                    mem_vec = memory_engine.vector_index.get_vector(mid)
+
+            if mem_vec is not None:
+                # Vector-based concept activation
+                try:
+                    matched = graph.find_similar(mem_vec, k=5)
+                    matched_nids = [nid for nid, sim in matched if sim > 0.2]
+                except (AttributeError, Exception):
+                    matched_nids = []
+            else:
+                # Fallback: keyword matching
+                content = str(mem.get("content", "")).lower()
+                tags = str(mem.get("tags", "")).lower()
+                keywords = set(w for w in content.split() if len(w) > 3)
+                keywords.update(t.strip() for t in tags.split(",") if t.strip())
+                matched_nids = [
+                    nid for nid, node in graph.nodes.items()
+                    if any(kw in (node.label or "").lower() for kw in keywords)
+                ]
+
+            if not matched_nids:
+                continue
+
+            memories_replayed += 1
+
+            # Activate matched concepts and spread
+            for nid in matched_nids:
+                graph.activate(nid, amount=0.5 * float(mem.get("importance", 0.5)))
+            graph.spread_activation(steps=1, k_active=5, decay=0.3)
+
+            # Hebbian strengthening between co-activated concepts
+            active = [(n.id, n.activation) for n in graph.nodes.values() if n.activation > 0.1]
+            for i, (a_id, a_act) in enumerate(active):
+                for b_id, b_act in active[i + 1:]:
+                    coact = a_act * b_act
+                    if coact > 0.05:
+                        graph.hebbian_update(a_id, b_id, coact, lr=0.02)
+                        edges_strengthened += 1
+
+            # Update memory embedding to reflect consolidated graph state
+            if mem_vec is not None and len(matched_nids) >= 2:
+                concept_vecs = []
+                for nid in matched_nids:
+                    node = graph.get_node(nid)
+                    if node and hasattr(node, 'vector') and node.vector is not None:
+                        concept_vecs.append(node.vector)
+                if concept_vecs:
+                    centroid = np.mean(concept_vecs, axis=0)
+                    centroid /= (np.linalg.norm(centroid) + 1e-15)
+                    blend = 0.1  # slow drift
+                    new_vec = mem_vec * (1 - blend) + centroid * blend
+                    new_vec /= (np.linalg.norm(new_vec) + 1e-15)
+                    if memory_engine and hasattr(memory_engine, 'vector_index'):
+                        memory_engine.vector_index.update(mem["id"], new_vec)
+                    vectors_updated += 1
+
+            graph.reset_activation()
+
+        # 2. Prune low-confidence unreinforced edges
+        for (src, tgt), edge in list(graph.edges.items()):
+            if hasattr(edge, 'confidence') and hasattr(edge, 'prediction_count'):
+                if edge.confidence < 0.05 and edge.prediction_count == 0:
+                    graph.remove_edge(src, tgt)
+                    edges_pruned += 1
+
+        return {
+            "edges_strengthened": edges_strengthened,
+            "edges_pruned": edges_pruned,
+            "vectors_updated": vectors_updated,
+            "memories_replayed": memories_replayed,
+        }
+
     def _analyze_topology(
         self,
         state: Dict[str, Any],

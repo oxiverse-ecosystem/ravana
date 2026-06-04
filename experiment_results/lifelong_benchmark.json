@@ -1,9 +1,9 @@
 {
   "experiment": "lifelong_learning_100k",
   "config": {
-    "n_experiences": 100000,
+    "n_experiences": 15000,
     "n_probes_per_epoch": 50,
-    "retention_check_interval": 5000,
+    "retention_check_interval": 3000,
     "graph_snapshot_interval": 10000,
     "transfer_test_interval": 20000,
     "checkpoint_interval": 1000,
@@ -20,16 +20,16 @@
     "noise_rate": 0.05
   },
   "final_retention": {
-    "overall": 0.38,
-    "early_recall": 0.42,
-    "late_recall": 0.4,
+    "overall": 0.476,
+    "early_recall": 0.46,
+    "late_recall": 0.44,
     "catastrophic_forgetting": 0.0,
     "by_epoch": {
-      "0": 0.42,
-      "1": 0.38,
-      "2": 0.42,
-      "3": 0.28,
-      "4": 0.4
+      "0": 0.46,
+      "1": 0.52,
+      "2": 0.44,
+      "3": 0.52,
+      "4": 0.44
     }
   },
   "baselines": {
@@ -39,242 +39,66 @@
   },
   "graph_final": {
     "concepts": 384,
-    "edges": 59826,
-    "inhibitory": 39699,
-    "abstract": 117,
-    "density": 0.4067803524804178
+    "edges": 21117,
+    "inhibitory": 19691,
+    "abstract": 119,
+    "density": 0.14358273498694518
   },
   "cognitive_final": {
     "identity": 0.11,
-    "accuracy": 0.050000000000000086,
-    "sleep_cycles": 3241,
-    "free_energy": 470.1402973719895
+    "accuracy": 0.3555203414945606,
+    "sleep_cycles": 1226,
+    "free_energy": 649.855535335002
   },
   "compute": {
-    "rlm_total_s": 10474.805077552795,
-    "per_experience_ms": 104.74805077552796,
+    "rlm_total_s": 635.8475849628448,
+    "per_experience_ms": 42.389838997522986,
     "mlp_total_s": 0
   },
   "snapshots": [
     {
-      "step": 4999,
-      "retention_overall": 0.536,
-      "early_recall": 0.56,
+      "step": 2999,
+      "retention_overall": 0.48,
+      "early_recall": 0.5,
       "catastrophic_forgetting": 0.0,
       "n_concepts": 384,
-      "n_edges": 45354,
-      "n_abstract": 117,
-      "sleep_cycles": 162,
-      "cumulative_time_s": 794.4522745609283
+      "n_edges": 18907,
+      "n_abstract": 119,
+      "sleep_cycles": 241,
+      "cumulative_time_s": 170.29899764060974
     },
     {
-      "step": 9999,
-      "retention_overall": 0.408,
+      "step": 5999,
+      "retention_overall": 0.412,
       "early_recall": 0.44,
-      "catastrophic_forgetting": 0.12000000000000005,
+      "catastrophic_forgetting": 0.06,
       "n_concepts": 384,
-      "n_edges": 53119,
-      "n_abstract": 117,
-      "sleep_cycles": 328,
-      "cumulative_time_s": 2332.4626915454865
+      "n_edges": 18943,
+      "n_abstract": 119,
+      "sleep_cycles": 488,
+      "cumulative_time_s": 437.0941390991211
+    },
+    {
+      "step": 11999,
+      "retention_overall": 0.476,
+      "early_recall": 0.46,
+      "catastrophic_forgetting": 0.0,
+      "n_concepts": 384,
+      "n_edges": 20625,
+      "n_abstract": 119,
+      "sleep_cycles": 986,
+      "cumulative_time_s": 344.68742084503174
     },
     {
       "step": 14999,
-      "retention_overall": 0.408,
-      "early_recall": 0.44,
-      "catastrophic_forgetting": 0.12000000000000005,
-      "n_concepts": 384,
-      "n_edges": 55764,
-      "n_abstract": 117,
-      "sleep_cycles": 503,
-      "cumulative_time_s": 4008.390691757202
-    },
-    {
-      "step": 19999,
-      "retention_overall": 0.408,
-      "early_recall": 0.44,
-      "catastrophic_forgetting": 0.12000000000000005,
-      "n_concepts": 384,
-      "n_edges": 55750,
-      "n_abstract": 117,
-      "sleep_cycles": 668,
-      "cumulative_time_s": 5131.622614622116
-    },
-    {
-      "step": 24999,
-      "retention_overall": 0.412,
-      "early_recall": 0.44,
-      "catastrophic_forgetting": 0.12000000000000005,
-      "n_concepts": 384,
-      "n_edges": 56547,
-      "n_abstract": 117,
-      "sleep_cycles": 834,
-      "cumulative_time_s": 6040.917001247406
-    },
-    {
-      "step": 29999,
-      "retention_overall": 0.412,
-      "early_recall": 0.44,
-      "catastrophic_forgetting": 0.12000000000000005,
-      "n_concepts": 384,
-      "n_edges": 56916,
-      "n_abstract": 117,
-      "sleep_cycles": 998,
-      "cumulative_time_s": 6922.186257839203
-    },
-    {
-      "step": 34999,
-      "retention_overall": 0.412,
-      "early_recall": 0.44,
-      "catastrophic_forgetting": 0.12000000000000005,
-      "n_concepts": 384,
-      "n_edges": 57246,
-      "n_abstract": 117,
-      "sleep_cycles": 1153,
-      "cumulative_time_s": 7807.430391073227
-    },
-    {
-      "step": 39999,
-      "retention_overall": 0.412,
-      "early_recall": 0.44,
-      "catastrophic_forgetting": 0.12000000000000005,
-      "n_concepts": 384,
-      "n_edges": 57763,
-      "n_abstract": 117,
-      "sleep_cycles": 1316,
-      "cumulative_time_s": 8720.463820934296
-    },
-    {
-      "step": 44999,
-      "retention_overall": 0.412,
-      "early_recall": 0.44,
-      "catastrophic_forgetting": 0.12000000000000005,
-      "n_concepts": 384,
-      "n_edges": 58011,
-      "n_abstract": 117,
-      "sleep_cycles": 1473,
-      "cumulative_time_s": 9666.790884017944
-    },
-    {
-      "step": 49999,
-      "retention_overall": 0.412,
-      "early_recall": 0.44,
-      "catastrophic_forgetting": 0.12000000000000005,
-      "n_concepts": 384,
-      "n_edges": 58197,
-      "n_abstract": 117,
-      "sleep_cycles": 1627,
-      "cumulative_time_s": 10604.617350578308
-    },
-    {
-      "step": 54999,
-      "retention_overall": 0.412,
-      "early_recall": 0.44,
-      "catastrophic_forgetting": 0.12000000000000005,
-      "n_concepts": 384,
-      "n_edges": 58278,
-      "n_abstract": 117,
-      "sleep_cycles": 1787,
-      "cumulative_time_s": 11541.23382806778
-    },
-    {
-      "step": 59999,
-      "retention_overall": 0.412,
-      "early_recall": 0.44,
-      "catastrophic_forgetting": 0.12000000000000005,
-      "n_concepts": 384,
-      "n_edges": 58514,
-      "n_abstract": 117,
-      "sleep_cycles": 1947,
-      "cumulative_time_s": 12488.985843420029
-    },
-    {
-      "step": 64999,
-      "retention_overall": 0.412,
-      "early_recall": 0.44,
-      "catastrophic_forgetting": 0.12000000000000005,
-      "n_concepts": 384,
-      "n_edges": 58675,
-      "n_abstract": 117,
-      "sleep_cycles": 2107,
-      "cumulative_time_s": 13458.117948055267
-    },
-    {
-      "step": 69999,
-      "retention_overall": 0.38,
-      "early_recall": 0.42,
+      "retention_overall": 0.476,
+      "early_recall": 0.46,
       "catastrophic_forgetting": 0.0,
       "n_concepts": 384,
-      "n_edges": 59190,
-      "n_abstract": 117,
-      "sleep_cycles": 2265,
-      "cumulative_time_s": 274.69948720932007
-    },
-    {
-      "step": 74999,
-      "retention_overall": 0.38,
-      "early_recall": 0.42,
-      "catastrophic_forgetting": 0.0,
-      "n_concepts": 384,
-      "n_edges": 59233,
-      "n_abstract": 117,
-      "sleep_cycles": 2435,
-      "cumulative_time_s": 1626.0832843780518
-    },
-    {
-      "step": 79999,
-      "retention_overall": 0.38,
-      "early_recall": 0.42,
-      "catastrophic_forgetting": 0.0,
-      "n_concepts": 384,
-      "n_edges": 59429,
-      "n_abstract": 117,
-      "sleep_cycles": 2601,
-      "cumulative_time_s": 3766.0071110725403
-    },
-    {
-      "step": 84999,
-      "retention_overall": 0.38,
-      "early_recall": 0.42,
-      "catastrophic_forgetting": 0.0,
-      "n_concepts": 384,
-      "n_edges": 59537,
-      "n_abstract": 117,
-      "sleep_cycles": 2767,
-      "cumulative_time_s": 5570.109223127365
-    },
-    {
-      "step": 89999,
-      "retention_overall": 0.38,
-      "early_recall": 0.42,
-      "catastrophic_forgetting": 0.0,
-      "n_concepts": 384,
-      "n_edges": 59709,
-      "n_abstract": 117,
-      "sleep_cycles": 2925,
-      "cumulative_time_s": 7168.073659896851
-    },
-    {
-      "step": 94999,
-      "retention_overall": 0.38,
-      "early_recall": 0.42,
-      "catastrophic_forgetting": 0.0,
-      "n_concepts": 384,
-      "n_edges": 59834,
-      "n_abstract": 117,
-      "sleep_cycles": 3083,
-      "cumulative_time_s": 8791.585623264313
-    },
-    {
-      "step": 99999,
-      "retention_overall": 0.38,
-      "early_recall": 0.42,
-      "catastrophic_forgetting": 0.0,
-      "n_concepts": 384,
-      "n_edges": 59826,
-      "n_abstract": 117,
-      "sleep_cycles": 3241,
-      "cumulative_time_s": 10474.805077552795
+      "n_edges": 21117,
+      "n_abstract": 119,
+      "sleep_cycles": 1226,
+      "cumulative_time_s": 635.8475849628448
     }
   ]
 }

@@ -4,6 +4,12 @@ from typing import Any, Optional, List, Tuple, Dict, Set
 from .tensor import StateTensor, RawTensor, tensor
 from collections import defaultdict
 
+try:
+    from scipy.sparse import csr_matrix
+    _HAS_SCIPY_SPARSE = True
+except ImportError:
+    _HAS_SCIPY_SPARSE = False
+
 
 class ConceptNode:
     def __init__(self, node_id: int, vector: np.ndarray, label: str = ""):
@@ -79,7 +85,7 @@ class ConceptNode:
 
         Returns 1.0 if just activated, approaches 0.0 over time.
         """
-        if self.last_activated <= 0:
+        if self.last_activated is None or self.last_activated <= 0:
             return 0.0
         elapsed = time.time() - self.last_activated
         return float(np.exp(-decay_rate * elapsed / 3600.0))  # decay per hour
@@ -98,28 +104,6 @@ class ConceptNode:
     @property
     def plasticity(self):
         return 1.0 - self.stability
-
-    # Backward-compatible aliases (deprecated — use free_energy variants)
-    @property
-    def contradiction_pressure(self) -> float:
-        return self.contradiction_free_energy
-    @contradiction_pressure.setter
-    def contradiction_pressure(self, val: float):
-        self.contradiction_free_energy = val
-
-    @property
-    def pressure_history(self) -> list:
-        return self.free_energy_history
-    @pressure_history.setter
-    def pressure_history(self, val: list):
-        self.free_energy_history = val
-
-    @property
-    def pressure_gradient(self) -> float:
-        return self.free_energy_gradient
-    @pressure_gradient.setter
-    def pressure_gradient(self, val: float):
-        self.free_energy_gradient = val
 
     def __repr__(self):
         hierarchy = f" L{self.level}" if self.level > 0 else ""
@@ -146,9 +130,23 @@ class ConceptEdge:
         self.shortcut = shortcut  # context→target edges are exempt from competition
         self.edge_type = edge_type  # "excitatory" or "inhibitory"
         self.relation_type = relation_type  # "semantic", "causal", "temporal", "analogical", "contextual", "inferred"
+        # Predicate token: the verb token ID that created/primarily trains this edge.
+        # Enables verb-level discrimination within the same relation type.
+        # E.g., heat→expansion has predicate "causes", heat→ice has predicate "melts".
+        # -1 means unset (edges created by non-token mechanisms).
+        self.predicate_token_id: int = -1
         # Relation embedding: learned vector encoding the relational pattern
         # Initialized from relation_type seed, updated by Hebbian learning
         self.relation_vector = self._init_relation_vector(relation_type, relation_dim)
+        # EWC (Elastic Weight Consolidation) fields
+        self.fisher_importance: float = 0.0  # per-edge importance for old tasks
+        self.old_weight: float = 0.5         # weight snapshot at domain boundary
+        # Bayesian posterior: Beta(alpha, beta) over edge weight
+        # alpha = 1 + successes, beta = 1 + failures — starts as uniform Beta(1,1)
+        self.posterior_alpha: float = 1.0 + weight * 10.0  # prior from initial weight
+        self.posterior_beta: float = 1.0 + (1.0 - weight) * 10.0
+        # Cached norm for relation_vector (invalidated when RV changes)
+        self._rv_norm_cache: Optional[float] = None
 
     @staticmethod
     def _init_relation_vector(relation_type: str, dim: int) -> np.ndarray:
@@ -189,8 +187,37 @@ class ConceptEdge:
         return self.weight
 
     @property
+    def posterior_mean(self) -> float:
+        """Bayesian posterior mean E[w] = alpha / (alpha + beta)."""
+        return self.posterior_alpha / (self.posterior_alpha + self.posterior_beta + 1e-10)
+
+    @property
+    def posterior_uncertainty(self) -> float:
+        """Posterior variance — high = uncertain about this edge's strength."""
+        a, b = self.posterior_alpha, self.posterior_beta
+        return (a * b) / ((a + b) ** 2 * (a + b + 1) + 1e-10)
+
+    @property
     def plasticity(self):
         return 1.0 - self.stability
+
+    def __setstate__(self, state):
+        """Handle deserialization of older checkpoints missing newer attributes."""
+        self.__dict__.update(state)
+        defaults = {
+            'predicate_token_id': -1,
+            'fisher_importance': 0.0,
+            'old_weight': 0.5,
+            'posterior_alpha': 1.0,
+            'posterior_beta': 1.0,
+        }
+        for attr, default in defaults.items():
+            if not hasattr(self, attr):
+                setattr(self, attr, default)
+        # relation_vector may also be missing from very old checkpoints
+        if not hasattr(self, 'relation_vector') or self.relation_vector is None:
+            self.relation_vector = ConceptEdge._init_relation_vector(
+                getattr(self, 'relation_type', 'semantic'), 16)
 
     def __repr__(self):
         inh = " [I]" if self.edge_type == "inhibitory" else ""
@@ -827,11 +854,31 @@ class GeometryHistory:
 
 
 class ConceptGraph:
-    def __init__(self, dim: int = 64, max_nodes: int = 10000):
+    def __init__(self, dim: int = 64, max_nodes: int = 10000,
+                 anchor_relation_vectors: bool = True,
+                 adaptive_downscale: bool = True):
         self.dim = dim
         self.max_nodes = max_nodes
+        self._anchor_relation_vectors = anchor_relation_vectors
+        self._adaptive_downscale = adaptive_downscale
         self.nodes: Dict[int, ConceptNode] = {}
         self.edges: Dict[Tuple[int, int], ConceptEdge] = {}
+
+        # Scalability: optional FAISS index for O(log N) similarity search
+        self._faiss_index = None
+        self._use_faiss = False
+        try:
+            import faiss
+            self._use_faiss = True
+            self._faiss = faiss
+        except ImportError:
+            pass
+
+        # Scalability: incremental consolidation tracking
+        self._activated_since_sleep: Set[int] = set()
+
+        # Scalability: pre-bucketed edges by relation type for contrastive sampling
+        self._edges_by_relation_type: Dict[str, List[Tuple[Tuple[int,int], ConceptEdge]]] = defaultdict(list)
         self.next_id = 0
         self.total_free_energy = 0.0
         self.contradiction_hotspots: Set[int] = set()
@@ -848,10 +895,15 @@ class ConceptGraph:
         self._incoming: Dict[int, List[Tuple[int, ConceptEdge]]] = defaultdict(list)
         # Active node tracking: avoids O(N) scan in propagation
         self._active_nodes: Set[int] = set()
-        # Vectorized similarity matrix (lazy-built, dirty-flagged)
+        # Vectorized similarity matrix (lazy-built, incremental updates)
         self._vector_matrix_normed: Optional[np.ndarray] = None
         self._node_id_order: List[int] = []
         self._vectors_dirty: bool = True
+        self._dirty_nodes: Set[int] = set()  # nodes needing matrix row update
+        # Sparse adjacency matrix for bulk spread_activation (Phase 3a)
+        self._adj_sparse = None  # scipy.sparse CSR, lazy-built
+        self._adj_dirty: bool = True
+        self._sparse_threshold = 1000  # use sparse path when nodes > this
 
         # ── Relational inference tracking ──
         # Successful inference paths: (source, target) -> usage_count
@@ -879,6 +931,45 @@ class ConceptGraph:
         self._diagnostics_cache_step: int = -999
         # compute_curvature/basin_depth reuse the cached vector matrix
         self._cached_norms: Optional[np.ndarray] = None
+
+    def __setstate__(self, state):
+        """Handle deserialization of older checkpoints missing newer attributes."""
+        self.__dict__.update(state)
+        # Initialize attributes added after checkpoints were created
+        defaults = {
+            '_dirty_nodes': set(),
+            '_use_faiss': False,
+            '_faiss_index': None,
+            '_cached_norms': None,
+            '_vector_matrix_normed': None,
+            '_node_id_order': [],
+            '_vectors_dirty': True,
+            '_adj_sparse': None,
+            '_adj_dirty': True,
+            '_sparse_threshold': 1000,
+            '_diagnostics_cache': None,
+            '_diagnostics_cache_step': -999,
+            '_activated_since_sleep': set(),
+            '_edges_by_relation_type': defaultdict(list),
+            '_outgoing': defaultdict(list),
+            '_incoming': defaultdict(list),
+            '_active_nodes': set(),
+            '_successful_paths': defaultdict(int),
+            '_inference_log': [],
+            '_neighbor_snapshot': {},
+            '_curvature_history': [],
+            'max_step_delta': 0.01,
+        }
+        for attr, default in defaults.items():
+            if not hasattr(self, attr):
+                setattr(self, attr, default)
+        # Re-detect FAISS availability
+        try:
+            import faiss
+            self._use_faiss = True
+            self._faiss = faiss
+        except ImportError:
+            pass
 
     # ── node management ──
 
@@ -934,20 +1025,61 @@ class ConceptGraph:
         return self._incoming.get(nid, [])
 
     def _rebuild_vector_matrix(self):
-        """Rebuild the normalized vector matrix for fast cosine similarity."""
+        """Rebuild the normalized vector matrix for fast cosine similarity.
+
+        Incremental: only updates rows for dirty nodes when possible.
+        Full rebuild only when matrix doesn't exist, node set changed,
+        or dirty set exceeds 50% of nodes.
+        """
+        ids = sorted(self.nodes.keys())
+        need_full = (
+            not self.nodes
+            or self._vector_matrix_normed is None
+            or set(ids) != set(self._node_id_order)
+            or len(self._dirty_nodes) > len(ids) * 0.5
+        )
         if not self.nodes:
             self._vector_matrix_normed = None
             self._node_id_order = []
             self._vectors_dirty = False
+            self._dirty_nodes.clear()
             self._cached_norms = None
+            self._faiss_index = None
             return
-        ids = sorted(self.nodes.keys())
-        self._node_id_order = ids
-        vecs = np.stack([self.nodes[i].vector for i in ids]).astype(np.float32)
-        norms = np.linalg.norm(vecs, axis=1, keepdims=True)
-        self._vector_matrix_normed = vecs / (norms + 1e-15)
-        self._cached_norms = norms.squeeze(1)  # (N,) for reuse in drift_magnitude etc.
+        if need_full:
+            self._node_id_order = ids
+            vecs = np.stack([self.nodes[i].vector for i in ids]).astype(np.float32)
+            norms = np.linalg.norm(vecs, axis=1, keepdims=True)
+            self._vector_matrix_normed = vecs / (norms + 1e-15)
+            self._cached_norms = norms.squeeze(1)
+        else:
+            # Incremental: update only dirty rows
+            id_to_row = {nid: row for row, nid in enumerate(self._node_id_order)}
+            for nid in self._dirty_nodes:
+                row = id_to_row.get(nid)
+                if row is not None and nid in self.nodes:
+                    vec = self.nodes[nid].vector.astype(np.float32)
+                    norm = np.linalg.norm(vec)
+                    self._vector_matrix_normed[row] = vec / (norm + 1e-15)
+                    if self._cached_norms is not None:
+                        self._cached_norms[row] = norm
         self._vectors_dirty = False
+        self._dirty_nodes.clear()
+
+        # Build FAISS index for similarity search
+        if self._use_faiss and len(ids) >= 64:
+            vecs_normed = self._vector_matrix_normed.copy()
+            if len(ids) >= 1000:
+                # HNSW for O(log N) approximate NN at scale
+                index = self._faiss.IndexHNSWFlat(self.dim, 32)
+                index.hnsw.efSearch = 64
+            else:
+                # Exact search for small graphs
+                index = self._faiss.IndexFlatIP(self.dim)
+            index.add(vecs_normed)
+            self._faiss_index = index
+        else:
+            self._faiss_index = None
 
     def get_activation_vector(self) -> Tuple[List[int], np.ndarray]:
         """Get ordered activation vector aligned with node_id_order."""
@@ -955,6 +1087,39 @@ class ConceptGraph:
         for i, nid in enumerate(self._node_id_order):
             acts[i] = self.nodes[nid].activation
         return self._node_id_order, acts
+
+    def _rebuild_sparse_adj(self):
+        """Build scipy.sparse CSR adjacency matrix for bulk spread_activation.
+
+        Only used when graph exceeds _sparse_threshold nodes.
+        Edge weights include posterior_mean, confidence, and relation boost.
+        """
+        if len(self.edges) == 0:
+            self._adj_sparse = None
+            self._adj_dirty = False
+            return
+        try:
+            from scipy.sparse import csr_matrix
+        except ImportError:
+            self._adj_sparse = None
+            self._adj_dirty = False
+            return
+        n = max(self.nodes.keys()) + 1 if self.nodes else 0
+        if n == 0:
+            self._adj_sparse = None
+            self._adj_dirty = False
+            return
+        rows, cols, data = [], [], []
+        for (src, tgt), edge in self.edges.items():
+            eff_w = edge.posterior_mean if hasattr(edge, 'posterior_mean') else edge.weight
+            w = eff_w * edge.confidence
+            if edge.edge_type == "inhibitory":
+                w = -w
+            rows.append(src)
+            cols.append(tgt)
+            data.append(w)
+        self._adj_sparse = csr_matrix((data, (rows, cols)), shape=(n, n), dtype=np.float32)
+        self._adj_dirty = False
 
     # ── edge management ──
 
@@ -975,10 +1140,17 @@ class ConceptGraph:
         edge = ConceptEdge(source, target, weight, shortcut=shortcut,
                           edge_type=edge_type, relation_type=relation_type,
                           relation_dim=self._relation_dim)
+        # Ablation: randomize relation vector if type-anchoring is disabled
+        if not self._anchor_relation_vectors:
+            edge.relation_vector = np.random.randn(self._relation_dim).astype(np.float32)
+            edge.relation_vector /= (np.linalg.norm(edge.relation_vector) + 1e-15)
         self.edges[key] = edge
         # Maintain adjacency indices
         self._outgoing[source].append((target, edge))
         self._incoming[target].append((source, edge))
+        # Maintain relation-type bucket index for scalable contrastive sampling
+        self._edges_by_relation_type[relation_type].append((key, edge))
+        self._adj_dirty = True
         return edge
 
     def get_edge(self, source: int, target: int) -> Optional[ConceptEdge]:
@@ -989,15 +1161,17 @@ class ConceptGraph:
         if edge is not None:
             self._outgoing[source] = [(t, e) for t, e in self._outgoing.get(source, []) if t != target]
             self._incoming[target] = [(s, e) for s, e in self._incoming.get(target, []) if s != source]
+            self._adj_dirty = True
 
     # ── activation ──
 
     def activate(self, nid: int, amount: float = 1.0, context_vector: Optional[np.ndarray] = None):
         node = self.nodes.get(nid)
         if node:
-            node.activation = min(1.0, node.activation + amount)
+            node.activation = min(3.0, node.activation + amount)
             node.record_activation(context_vector)
             self._active_nodes.add(nid)
+            self._activated_since_sleep.add(nid)  # track for incremental consolidation
 
     def update_temporal_context(self):
         """Drift temporal context toward the centroid of currently active concepts.
@@ -1039,34 +1213,75 @@ class ConceptGraph:
         for _ in range(steps):
             new_activations: Dict[int, float] = {}
 
-            # Use active node set instead of scanning all nodes
-            for nid in list(self._active_nodes):
-                node = self.nodes.get(nid)
-                if node is None or node.activation <= 0.01:
-                    continue
-                # O(degree) neighbor lookup via adjacency list
-                for target_id, edge in self._outgoing.get(nid, []):
-                    # Precision weighting: edge.confidence modulates signal strength
-                    # Relation vector gate: RV alignment with source concept boosts flow
+            # Sparse bulk path for large graphs (Phase 3a)
+            # Handles base propagation; relation boost still per-edge
+            if (self._adj_sparse is not None
+                    and len(self.nodes) > self._sparse_threshold
+                    and not self._adj_dirty):
+                # Build activation vector for all nodes
+                n = self._adj_sparse.shape[0]
+                act_vec = np.zeros(n, dtype=np.float32)
+                for nid in self._active_nodes:
+                    node = self.nodes.get(nid)
+                    if node is not None and node.activation > 0.01:
+                        act_vec[nid] = node.activation
+                # Bulk propagation: sparse.T @ act_vec gives incoming activation
+                bulk_prop = self._adj_sparse.T @ act_vec  # (n,)
+                # Apply fan effect vectorized
+                in_degrees = np.array(self._adj_sparse.sum(axis=0)).flatten()
+                fan_factors = 1.0 / (np.sqrt(in_degrees) + 1.0)
+                bulk_prop *= fan_factors * decay
+                # Accumulate
+                for nid in self._active_nodes:
+                    if bulk_prop[nid] != 0:
+                        new_activations[nid] = new_activations.get(nid, 0.0) + float(bulk_prop[nid])
+
+            # Fine-grained path: handles relation vector gate + precision weighting
+            # (only when sparse path is not active — avoids double-counting)
+            else:
+                for nid in list(self._active_nodes):
+                    node = self.nodes.get(nid)
+                    if node is None or node.activation <= 0.01:
+                        continue
+                    # Pre-compute source norm ONCE per node (not per edge)
                     src_vec = node.vector
-                    src_norm = np.linalg.norm(src_vec)
-                    rv_norm = np.linalg.norm(edge.relation_vector)
-                    if src_norm > 0 and rv_norm > 0:
-                        rel_boost = 1.0 + 0.3 * float(np.dot(edge.relation_vector[:len(src_vec)], src_vec / src_norm))
-                    else:
-                        rel_boost = 1.0
-                    act = node.activation * edge.weight * edge.confidence * decay * rel_boost
-                    if edge.edge_type == "inhibitory":
-                        act = -act
-                    # Fan effect: normalize by in-degree
-                    in_deg = len(self._incoming.get(target_id, []))
-                    fan_factor = 1.0 / (in_deg ** 0.5 + 1.0)
-                    act *= fan_factor
-                    new_activations[target_id] = new_activations.get(target_id, 0.0) + act
+                    src_norm = float(np.linalg.norm(src_vec))
+                    src_normed = src_vec / src_norm if src_norm > 0 else None
+                    # O(degree) neighbor lookup via adjacency list
+                    for target_id, edge in self._outgoing.get(nid, []):
+                        # Precision weighting: edge.confidence modulates signal strength
+                        # Relation vector gate: RV alignment with source concept boosts flow
+                        # Cache rv norm on edge (invalidated in learn() when RV changes)
+                        rv = edge.relation_vector
+                        rv_norm_cached = edge._rv_norm_cache
+                        if rv_norm_cached is None:
+                            rv_norm_cached = float(np.linalg.norm(rv))
+                            edge._rv_norm_cache = rv_norm_cached
+                        if src_normed is not None and rv_norm_cached > 0:
+                            rel_boost = 1.0 + 0.3 * float(np.dot(rv[:len(src_vec)], src_normed))
+                        else:
+                            rel_boost = 1.0
+                        # Use Bayesian posterior mean for activation spreading
+                        # Falls back to raw weight if posterior not initialized
+                        eff_weight = edge.posterior_mean if hasattr(edge, 'posterior_mean') else edge.weight
+                        # Uncertainty penalty: high-uncertainty edges transmit less signal
+                        if hasattr(edge, 'posterior_uncertainty'):
+                            uncertainty = edge.posterior_uncertainty
+                            precision_gate = 1.0 / (1.0 + uncertainty * 50.0)  # [0.3, 1.0] range
+                        else:
+                            precision_gate = 1.0
+                        act = node.activation * eff_weight * edge.confidence * decay * rel_boost * precision_gate
+                        if edge.edge_type == "inhibitory":
+                            act = -act
+                        # Fan effect: normalize by in-degree (cached per-step)
+                        in_deg = len(self._incoming.get(target_id, []))
+                        fan_factor = 1.0 / (in_deg ** 0.5 + 1.0)
+                        act *= fan_factor
+                        new_activations[target_id] = new_activations.get(target_id, 0.0) + act
 
             for nid, act in new_activations.items():
                 if nid in self.nodes:
-                    self.nodes[nid].activation = max(0.0, min(1.0, self.nodes[nid].activation + act))
+                    self.nodes[nid].activation = max(0.0, min(3.0, self.nodes[nid].activation + act))
                     if self.nodes[nid].activation > 0.01:
                         self._active_nodes.add(nid)
 
@@ -1147,9 +1362,22 @@ class ConceptGraph:
             self._rebuild_vector_matrix()
         if self._vector_matrix_normed is None or len(self._node_id_order) == 0:
             return []
+        k = min(k, len(self._node_id_order))
+
+        # FAISS path: O(log N) approximate NN
+        if self._use_faiss and self._faiss_index is not None and len(self._node_id_order) >= 64:
+            vec = vector.reshape(1, -1).astype(np.float32)
+            vec /= (np.linalg.norm(vec) + 1e-15)
+            sims, idxs = self._faiss_index.search(vec, k)
+            results = []
+            for sim, idx in zip(sims[0], idxs[0]):
+                if idx >= 0:
+                    results.append((self._node_id_order[idx], float(sim)))
+            return results
+
+        # Brute-force path: O(N·D) matrix multiply
         vec_norm = vector / (np.linalg.norm(vector) + 1e-15)
         sims = self._vector_matrix_normed @ vec_norm.astype(np.float32)  # (N,)
-        k = min(k, len(self._node_id_order))
         top_k_idx = np.argpartition(sims, -k)[-k:]
         top_k_idx = top_k_idx[np.argsort(sims[top_k_idx])[::-1]]
         return [(self._node_id_order[i], float(sims[i])) for i in top_k_idx]
@@ -1225,6 +1453,7 @@ class ConceptGraph:
         if core_norm > 0:
             node.core_vector /= core_norm
         self._vectors_dirty = True
+        self._dirty_nodes.add(nid)
 
     def get_or_create_edge(self, source: int, target: int, weight: float = 0.3,
                            shortcut: bool = False, edge_type: str = "excitatory",
@@ -1260,16 +1489,26 @@ class ConceptGraph:
         # Surprise = how wrong we were * how confident we were about it
         surprise = abs(pred_error) * edge.confidence
         effective_lr = lr * (1.0 + surprise * 5.0)
+        delta = effective_lr * source.activation * target.activation * pred_error * source.salience * target.plasticity
+        # EWC penalty: protect important weights from drifting away from old-task optimum
+        ewc_penalty = 0.1 * edge.fisher_importance * (edge.weight - edge.old_weight)
+        delta -= ewc_penalty
         if edge.edge_type == "inhibitory":
-            delta = effective_lr * source.activation * target.activation * pred_error * source.salience * target.plasticity
             edge.weight = min(1.0, edge.weight + delta)
-            edge.confidence = min(1.0, edge.confidence + abs(delta) * 0.1)
         else:
-            delta = effective_lr * source.activation * target.activation * pred_error * source.salience * target.plasticity
             edge.weight = max(0.0, min(1.0, edge.weight + delta))
-            edge.confidence = min(1.0, edge.confidence + abs(delta) * 0.1)
+        edge.confidence = min(1.0, edge.confidence + abs(delta) * 0.1)
         edge.prediction_count += 1
         edge.stability = min(1.0, edge.stability + 0.001)
+
+        # Bayesian posterior update: Beta(alpha, beta) via prediction outcomes
+        # Correct prediction (low error) → increase alpha (evidence for edge)
+        # Incorrect prediction (high error) → increase beta (evidence against)
+        evidence = coactivation * source.salience
+        if pred_error < 0.5:
+            edge.posterior_alpha += evidence  # successful prediction
+        else:
+            edge.posterior_beta += evidence   # failed prediction
 
         # Relation vector learning: push-pull dynamics (rate-limited — expensive)
         # Only update relation vectors every 5th call per edge to reduce overhead
@@ -1288,10 +1527,18 @@ class ConceptGraph:
             edge.relation_vector += effective_lr * 0.1 * (hebbian_signal - edge.relation_vector)
 
             # Contrastive push: explicit negative sampling from different relation types
-            # Sample edges and push away from those with different relation_type
+            # Use pre-bucketed index for O(bucket_size) instead of O(E) linear scan
             sample_edges = list(self.edges.values())[:200]
-            negatives = [e for e in sample_edges
-                         if e.relation_type != edge.relation_type and e is not edge]
+            if self._edges_by_relation_type:
+                negatives = []
+                for rtype, bucket in self._edges_by_relation_type.items():
+                    if rtype != edge.relation_type:
+                        for item in bucket[:20]:
+                            e = item[1] if isinstance(item, tuple) and hasattr(item[1], 'relation_vector') else item
+                            negatives.append(e)
+            else:
+                negatives = [e for e in sample_edges
+                             if e.relation_type != edge.relation_type and e is not edge]
             # Sample up to 3 negatives for explicit push
             if negatives:
                 np.random.shuffle(negatives)
@@ -1302,8 +1549,13 @@ class ConceptGraph:
                     edge.relation_vector -= repel_strength * neg_rv
 
                 # Also pull toward centroid of same type (cluster cohesion)
-                same_type = [e.relation_vector for e in sample_edges
-                             if e.relation_type == edge.relation_type and e is not edge]
+                if self._edges_by_relation_type:
+                    bucket = self._edges_by_relation_type.get(edge.relation_type, [])
+                    same_type = [e.relation_vector for _, e in bucket
+                                 if e is not edge]
+                else:
+                    same_type = [e.relation_vector for e in sample_edges
+                                 if e.relation_type == edge.relation_type and e is not edge]
                 if same_type:
                     same_centroid = np.mean(same_type, axis=0)
                     same_centroid = same_centroid / (np.sqrt(np.sum(same_centroid * same_centroid)) + 1e-15)
@@ -1350,7 +1602,7 @@ class ConceptGraph:
             if node is None:
                 continue
             # Trigger on: cumulative count OR high pressure OR escalating gradient
-            pressure_trigger = (node.contradiction_pressure > 2.0 and node.pressure_gradient > 0.0)
+            pressure_trigger = (node.contradiction_free_energy > 2.0 and node.free_energy_gradient > 0.0)
             if node.contradiction_count < contradiction_threshold and not pressure_trigger:
                 continue
 
@@ -1401,8 +1653,8 @@ class ConceptGraph:
 
     def prune_edges(self, threshold: float = 0.05):
         to_remove = [k for k, e in self.edges.items() if e.confidence < threshold]
-        for k in to_remove:
-            del self.edges[k]
+        for (s, t) in to_remove:
+            self.remove_edge(s, t)
         return len(to_remove)
 
     def form_edges(self, coactivation_threshold: float = 0.5):
@@ -1551,8 +1803,8 @@ class ConceptGraph:
                         return True
 
         # Signal 4: Escalating contradiction pressure
-        if hasattr(node, 'contradiction_pressure') and hasattr(node, 'pressure_gradient'):
-            if node.contradiction_pressure > 3.0 and node.pressure_gradient > 0.0:
+        if hasattr(node, 'contradiction_free_energy') and hasattr(node, 'free_energy_gradient'):
+            if node.contradiction_free_energy > 3.0 and node.free_energy_gradient > 0.0:
                 return True
 
         return False
@@ -1680,16 +1932,13 @@ class ConceptGraph:
         # Compute structural importance (reuse cache from regulate() if fresh)
         si = {}
         if structural_protection > 0 and len(self.edges) > 0:
-            if hasattr(self, '_structural_importance_cache') and \
-               hasattr(self, '_si_cache_step') and \
-               self._si_cache_step >= len(self.edges) - 100:
+            if self._si_cache_is_fresh():
                 si = self._structural_importance_cache
             else:
                 si = self.compute_edge_structural_importance()
-                self._structural_importance_cache = si
-                self._si_cache_step = len(self.edges)
+                self._update_si_cache(si)
 
-        # First pass: adaptive downscale with protection
+        # First pass: downscale with protection
         for key, edge in self.edges.items():
             # Fully protected edges: skip downscale
             if edge.stability >= protection_threshold:
@@ -1697,11 +1946,15 @@ class ConceptGraph:
             if si.get(key, 0.0) >= structural_protection:
                 continue
 
-            # Adaptive factor: confident, frequently-used edges resist downscale
-            # Floor raised from 0.6 to 0.85 — prevents catastrophic forgetting
-            usage = min(1.0, edge.confidence * edge.prediction_count / 10.0)
-            adaptive_factor = 0.85 + 0.14 * usage  # range: 0.85-0.99
-            edge.weight *= adaptive_factor
+            if self._adaptive_downscale:
+                # Adaptive factor: confident, frequently-used edges resist downscale
+                # Floor raised from 0.6 to 0.85 — prevents catastrophic forgetting
+                usage = min(1.0, edge.confidence * edge.prediction_count / 10.0)
+                factor = 0.85 + 0.14 * usage  # range: 0.85-0.99
+            else:
+                # Uniform downscale: all edges equally weakened (ablation mode)
+                factor = downscale_factor  # 0.8
+            edge.weight *= factor
 
         # Post-downscale renormalization: prevent concept orphaning
         # If a node's mean outgoing weight drops below 0.1, restore top-3 edges
@@ -1725,6 +1978,26 @@ class ConceptGraph:
 
         total_after = sum(e.weight for e in self.edges.values())
         return total_before, total_after
+
+    # ── structural importance cache (shared across homeostasis + regulate) ──
+
+    def _si_cache_is_fresh(self) -> bool:
+        """Check if the structural importance cache is still fresh.
+
+        Fresh = edge count hasn't changed significantly since last computation.
+        Both homeostatic_downscale() and regulate() share this cache to avoid
+        redundant O(sample_size × E) BFS computation in the same sleep cycle.
+        """
+        if not hasattr(self, '_structural_importance_cache') or \
+           not hasattr(self, '_si_cache_n_edges'):
+            return False
+        # Fresh if edge count hasn't drifted more than 5% since last computation
+        return abs(len(self.edges) - self._si_cache_n_edges) <= max(5, len(self.edges) * 0.05)
+
+    def _update_si_cache(self, si: Dict[Tuple[int, int], float]):
+        """Update the structural importance cache with current edge count snapshot."""
+        self._structural_importance_cache = si
+        self._si_cache_n_edges = len(self.edges)
 
     # ── sleep support ──
 
@@ -1815,17 +2088,30 @@ class ConceptGraph:
 
     # ── vector consolidation ──
 
-    def consolidate_vectors(self, rate: float = 0.1):
+    def consolidate_vectors(self, rate: float = 0.1, incremental: bool = True):
         """Sleep consolidation: merge active_vector toward core_vector.
 
         This is the SWS analogue — during sleep, fast-changing active
         representations consolidate into the stable identity anchor.
         rate: how much active_vector moves toward core_vector (0.0-1.0)
+        incremental: if True, only consolidate nodes activated since last sleep
+                     (O(active_N) instead of O(N))
         """
         if not self.nodes:
             return
-        # Vectorized: batch all nodes at once instead of per-node loops
-        ids = sorted(self.nodes.keys())
+
+        # Incremental mode: only consolidate recently activated nodes
+        if incremental and self._activated_since_sleep:
+            ids = sorted(self._activated_since_sleep)
+            self._activated_since_sleep.clear()
+        else:
+            ids = sorted(self.nodes.keys())
+            self._activated_since_sleep.clear()
+
+        if not ids:
+            return
+
+        # Vectorized: batch selected nodes
         active_vecs = np.stack([self.nodes[nid].vector for nid in ids]).astype(np.float32)
         core_vecs = np.stack([self.nodes[nid].core_vector for nid in ids]).astype(np.float32)
         # Move active toward core (consolidation)
@@ -3217,11 +3503,10 @@ class ConceptGraph:
         # Topology-aware: protect structurally important edges (bridges, hubs, used paths)
         if metrics.get("graph_entropy", 0) > 0.8 and len(self.edges) > 10:
             prune_threshold = 0.15  # prune edges below this weight
-            # Compute structural importance (cached periodically)
-            if not hasattr(self, '_structural_importance_cache') or \
-               getattr(self, '_si_cache_step', 0) < self._regulator._step - 10:
-                self._structural_importance_cache = self.compute_edge_structural_importance()
-                self._si_cache_step = self._regulator._step
+            # Compute structural importance (cached, shared with homeostatic_downscale)
+            if not self._si_cache_is_fresh():
+                si = self.compute_edge_structural_importance()
+                self._update_si_cache(si)
             si = self._structural_importance_cache
 
             # Only prune edges with low structural importance

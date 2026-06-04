@@ -32,7 +32,7 @@ def test_soft_boundary_function():
     test_points = [
         (0.50, 1.0, "safe zone - no pressure"),
         (0.75, 1.0, "threshold - pressure starts"),
-        (0.80, 0.4375, "moderate pressure"),
+        (0.80, 0.5625, "moderate pressure"),
         (0.90, 0.0625, "high pressure"),
         (0.94, 0.0025, "near wall - extreme pressure"),
     ]
@@ -47,7 +47,7 @@ def test_soft_boundary_function():
         if not passed:
             all_passed = False
     
-    return all_passed
+    assert all_passed, "Boundary pressure does not match expected values"
 
 def test_predictive_dampening():
     """Test 2: System eases off before impact"""
@@ -90,8 +90,8 @@ def test_predictive_dampening():
     passed = dampened and reduction > 0.02
     status = "✅" if passed else "❌"
     print(f"  [{status}] System eases off before impact")
-    
-    return passed
+
+    assert passed, "System did not ease off before impact"
 
 def test_mode_resolution_fix():
     """Test 3: Resolution weakens near boundaries"""
@@ -123,8 +123,8 @@ def test_mode_resolution_fix():
     passed = amplification_high < amplification_low
     status = "✅" if passed else "❌"
     print(f"  [{status}] Resolution weakens near boundaries")
-    
-    return passed
+
+    assert passed, "Resolution did not weaken near boundaries"
 
 def test_identity_coupled_control():
     """Test 4: Identity affects control strength"""
@@ -157,8 +157,8 @@ def test_identity_coupled_control():
     passed = high_dd >= low_dd * 0.8  # At least 80%
     status = "✅" if passed else "❌"
     print(f"  [{status}] Identity controls exploration bandwidth")
-    
-    return passed
+
+    assert passed, "Identity did not control exploration bandwidth"
 
 def test_anti_overshoot():
     """Test 5: Center-seeking behavior"""
@@ -189,8 +189,8 @@ def test_anti_overshoot():
     passed = high_pulls_down and low_pulls_up
     status = "✅" if passed else "❌"
     print(f"  [{status}] System seeks center ({config.target_dissonance:.2f})")
-    
-    return passed
+
+    assert passed, "System did not seek center"
 
 def test_grace_metrics():
     """Test 6: New health metrics track properly"""
@@ -223,8 +223,8 @@ def test_grace_metrics():
     )
     status = "✅" if passed else "❌"
     print(f"  [{status}] Metrics tracking active")
-    
-    return passed
+
+    assert passed, "Metrics tracking not active"
 
 def run_all_tests():
     """Run full Grace Layer test suite"""

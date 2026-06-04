@@ -1,12 +1,12 @@
 {
   "config": {
-    "n_train_repeats": 50,
+    "n_train_repeats": 3,
     "n_test_probes": 50,
     "seed": 42,
-    "skip_baselines": true,
-    "embed_dim": 32,
-    "concept_dim": 32,
-    "n_hidden": 32,
+    "skip_baselines": false,
+    "embed_dim": 64,
+    "concept_dim": 64,
+    "n_hidden": 128,
     "n_layers": 3,
     "sleep_interval": 100
   },
@@ -14,339 +14,1541 @@
     "baseline_a": {
       "top1_accuracy": 0.0,
       "top10_accuracy": 0.0,
-      "n_tested": 7
+      "n_tested": 12
     },
     "baseline_b": {
       "top1_accuracy": 0.0,
       "top10_accuracy": 0.0,
-      "n_tested": 7
+      "n_tested": 12
     },
     "post_train_a_on_a": {
-      "top1_accuracy": 0.14285714285714285,
-      "top10_accuracy": 0.5714285714285714,
-      "n_tested": 7
+      "top1_accuracy": 0.0,
+      "top10_accuracy": 0.0,
+      "n_tested": 12
     },
     "post_train_a_on_b": {
       "top1_accuracy": 0.0,
-      "top10_accuracy": 0.42857142857142855,
-      "n_tested": 7
+      "top10_accuracy": 0.0,
+      "n_tested": 12
     },
     "post_train_b_on_a": {
       "top1_accuracy": 0.0,
-      "top10_accuracy": 0.2857142857142857,
-      "n_tested": 7
+      "top10_accuracy": 0.0,
+      "n_tested": 12
     },
     "post_train_b_on_b": {
       "top1_accuracy": 0.0,
-      "top10_accuracy": 0.42857142857142855,
-      "n_tested": 7
+      "top10_accuracy": 0.08333333333333333,
+      "n_tested": 12
     },
     "post_sleep_a": {
-      "top1_accuracy": 0.2857142857142857,
-      "top10_accuracy": 0.2857142857142857,
-      "n_tested": 7
+      "top1_accuracy": 0.0,
+      "top10_accuracy": 0.0,
+      "n_tested": 12
     },
     "post_sleep_b": {
       "top1_accuracy": 0.0,
-      "top10_accuracy": 0.42857142857142855,
-      "n_tested": 7
+      "top10_accuracy": 0.08333333333333333,
+      "n_tested": 12
     },
     "graph_after_a": {
-      "n_nodes": 384,
-      "n_edges": 6891,
-      "n_shortcut_edges": 369,
-      "n_inferred_edges": 17,
+      "n_nodes": 248,
+      "n_edges": 146,
+      "n_shortcut_edges": 2,
+      "n_inferred_edges": 0,
       "relation_types": {
-        "causal": 238,
-        "semantic": 6636,
-        "inferred": 17
+        "causal": 43,
+        "semantic": 98,
+        "temporal": 5
       },
-      "mean_edge_weight": 0.10525919001185512,
-      "max_edge_weight": 1.0099617896612243,
-      "sleep_cycles": 36,
-      "conceptual_accuracy": 0.06849933309216096
+      "mean_edge_weight": 0.2861105421249752,
+      "max_edge_weight": 0.48609099999999994,
+      "sleep_cycles": 1,
+      "conceptual_accuracy": 0.43003126134947317
     },
     "graph_after_b": {
-      "n_nodes": 384,
-      "n_edges": 30834,
-      "n_shortcut_edges": 690,
-      "n_inferred_edges": 24,
+      "n_nodes": 272,
+      "n_edges": 3433,
+      "n_shortcut_edges": 22,
+      "n_inferred_edges": 19,
       "relation_types": {
-        "causal": 432,
-        "semantic": 30378,
-        "inferred": 24
+        "causal": 65,
+        "semantic": 3349,
+        "inferred": 19
       },
-      "mean_edge_weight": 0.12457799830588823,
-      "max_edge_weight": 1.1579960097689155,
-      "sleep_cycles": 81,
-      "conceptual_accuracy": 0.25866503288054427
+      "mean_edge_weight": 0.2036289580261396,
+      "max_edge_weight": 0.6851449700360883,
+      "sleep_cycles": 7,
+      "conceptual_accuracy": 0.16704676598251136
     },
     "graph_after_sleep": {
-      "n_nodes": 384,
-      "n_edges": 30719,
-      "n_shortcut_edges": 690,
-      "n_inferred_edges": 24,
+      "n_nodes": 284,
+      "n_edges": 5154,
+      "n_shortcut_edges": 23,
+      "n_inferred_edges": 20,
       "relation_types": {
-        "causal": 430,
-        "semantic": 30265,
-        "inferred": 24
+        "causal": 65,
+        "semantic": 5069,
+        "inferred": 20
       },
-      "mean_edge_weight": 0.12348791872841816,
-      "max_edge_weight": 1.1656073289507562,
-      "sleep_cycles": 82,
-      "conceptual_accuracy": 0.07828572709254197
+      "mean_edge_weight": 0.21968467252724966,
+      "max_edge_weight": 0.7508606225677836,
+      "sleep_cycles": 10,
+      "conceptual_accuracy": 0.132492481321097
+    },
+    "zero_shot_probes": {
+      "probes": [
+        {
+          "input": "gravity shapes ",
+          "expected": "orbits",
+          "predicted": "sparks",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "sparks",
+            "objects",
+            "restores",
+            "rivalry",
+            "refractory"
+          ],
+          "description": "held-out A (causal)"
+        },
+        {
+          "input": "cold freezes ",
+          "expected": "water",
+          "predicted": "diamonds",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "diamonds",
+            "wisdom",
+            "noble",
+            "anger",
+            "sparks"
+          ],
+          "description": "held-out A (causal)"
+        },
+        {
+          "input": "heat melts ",
+          "expected": "ice",
+          "predicted": "expansion",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "expansion",
+            "lightweight",
+            "objects",
+            "neon",
+            "shivering"
+          ],
+          "description": "held-out A (causal)"
+        },
+        {
+          "input": "nuclear force binds ",
+          "expected": "protons",
+          "predicted": "virtuous",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "virtuous",
+            "anger",
+            "respect",
+            "vulnerability",
+            "refractory"
+          ],
+          "description": "held-out A (causal)"
+        },
+        {
+          "input": "rain causes ",
+          "expected": "growth",
+          "predicted": "sparks",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "sparks",
+            "shivering",
+            "vulnerability",
+            "tarnish",
+            "energy"
+          ],
+          "description": "held-out A (causal)"
+        },
+        {
+          "input": "oxygen enables ",
+          "expected": "combustion",
+          "predicted": "elastic",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "elastic",
+            "decompression",
+            "refractory",
+            "produces",
+            "mentorship"
+          ],
+          "description": "held-out A (causal)"
+        },
+        {
+          "input": "friction generates ",
+          "expected": "static",
+          "predicted": "heat",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "heat",
+            "liquid",
+            "sadness",
+            "builds",
+            "gossip"
+          ],
+          "description": "held-out A (causal)"
+        },
+        {
+          "input": "tides shift ",
+          "expected": "sediment",
+          "predicted": "objects",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "objects",
+            "discovery",
+            "crystalline",
+            "rivalry",
+            "listening"
+          ],
+          "description": "held-out A (causal)"
+        },
+        {
+          "input": "granite is ",
+          "expected": "dense",
+          "predicted": "sparks",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "sparks",
+            "decompression",
+            "damages",
+            "defuses",
+            "sedimentation"
+          ],
+          "description": "held-out A (semantic)"
+        },
+        {
+          "input": "lead is ",
+          "expected": "heavy",
+          "predicted": "sparks",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "sparks",
+            "copper",
+            "skills",
+            "nitrogen",
+            "lightweight"
+          ],
+          "description": "held-out A (semantic)"
+        },
+        {
+          "input": "water is ",
+          "expected": "liquid",
+          "predicted": "weakens",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "weakens",
+            "force",
+            "vulnerability",
+            "defuses",
+            "bullying"
+          ],
+          "description": "held-out A (semantic)"
+        },
+        {
+          "input": "fire is ",
+          "expected": "hot",
+          "predicted": "empathy",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "empathy",
+            "energy",
+            "reduces",
+            "expansion",
+            "cooling"
+          ],
+          "description": "held-out A (semantic)"
+        },
+        {
+          "input": "teamwork creates ",
+          "expected": "success",
+          "predicted": "copper",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "copper",
+            "distance",
+            "pushes",
+            "heals",
+            "ambition"
+          ],
+          "description": "held-out B (causal)"
+        },
+        {
+          "input": "forgiveness heals ",
+          "expected": "wounds",
+          "predicted": "metals",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "metals",
+            "honesty",
+            "hope",
+            "produces",
+            "spreads"
+          ],
+          "description": "held-out B (causal)"
+        },
+        {
+          "input": "criticism causes ",
+          "expected": "defensiveness",
+          "predicted": "refractory",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "refractory",
+            "shivering",
+            "protons",
+            "sparks",
+            "diamond"
+          ],
+          "description": "held-out B (causal)"
+        },
+        {
+          "input": "betrayal destroys ",
+          "expected": "loyalty",
+          "predicted": "gossip",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "gossip",
+            "force",
+            "fires",
+            "vision",
+            "ice"
+          ],
+          "description": "held-out B (causal)"
+        },
+        {
+          "input": "patience creates ",
+          "expected": "understanding",
+          "predicted": "rivalry",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "rivalry",
+            "drought",
+            "sadness",
+            "grief",
+            "refractory"
+          ],
+          "description": "held-out B (causal)"
+        },
+        {
+          "input": "teaching builds ",
+          "expected": "knowledge",
+          "predicted": "apology",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "apology",
+            "lightweight",
+            "essential",
+            "shapes",
+            "vulnerability"
+          ],
+          "description": "held-out B (causal)"
+        },
+        {
+          "input": "rivalry spurs ",
+          "expected": "growth",
+          "predicted": "friction",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "friction",
+            "helpful",
+            "vulnerability",
+            "restores",
+            "force"
+          ],
+          "description": "held-out B (causal)"
+        },
+        {
+          "input": "gratitude strengthens ",
+          "expected": "relationships",
+          "predicted": "produces",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "produces",
+            "rare",
+            "combustion",
+            "honesty",
+            "mentorship"
+          ],
+          "description": "held-out B (causal)"
+        },
+        {
+          "input": "honesty is ",
+          "expected": "essential",
+          "predicted": "natural",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "natural",
+            "hope",
+            "wisdom",
+            "virtuous",
+            "expansion"
+          ],
+          "description": "held-out B (semantic)"
+        },
+        {
+          "input": "loyalty is ",
+          "expected": "noble",
+          "predicted": "sparks",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "sparks",
+            "liquid",
+            "objects",
+            "protons",
+            "shivering"
+          ],
+          "description": "held-out B (semantic)"
+        },
+        {
+          "input": "friendship is ",
+          "expected": "valuable",
+          "predicted": "sparks",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "sparks",
+            "sedimentation",
+            "shivering",
+            "granite",
+            "dangerous"
+          ],
+          "description": "held-out B (semantic)"
+        },
+        {
+          "input": "trust is ",
+          "expected": "fragile",
+          "predicted": "conductive",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "conductive",
+            "defensiveness",
+            "defuses",
+            "destruction",
+            "decompression"
+          ],
+          "description": "held-out B (semantic)"
+        },
+        {
+          "input": "teamwork causes ",
+          "expected": "success",
+          "predicted": "shivering",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "shivering",
+            "copper",
+            "distance",
+            "damages",
+            "friction"
+          ],
+          "description": "cross-domain (A verb 'causes' + B vocab)"
+        },
+        {
+          "input": "forgiveness produces ",
+          "expected": "wounds",
+          "predicted": "metals",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "metals",
+            "honesty",
+            "produces",
+            "spreads",
+            "damages"
+          ],
+          "description": "cross-domain (A verb 'produces' + B vocab)"
+        },
+        {
+          "input": "criticism enables ",
+          "expected": "defensiveness",
+          "predicted": "refractory",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "refractory",
+            "protons",
+            "sedimentation",
+            "quartz",
+            "magnetism"
+          ],
+          "description": "cross-domain (A verb 'enables' + B vocab)"
+        },
+        {
+          "input": "betrayal creates ",
+          "expected": "loyalty",
+          "predicted": "gossip",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "gossip",
+            "fires",
+            "force",
+            "vision",
+            "ice"
+          ],
+          "description": "cross-domain (A verb 'creates' + B vocab)"
+        },
+        {
+          "input": "patience drives ",
+          "expected": "understanding",
+          "predicted": "refractory",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "refractory",
+            "drought",
+            "grief",
+            "rivalry",
+            "sadness"
+          ],
+          "description": "cross-domain (A verb 'drives' + B vocab)"
+        },
+        {
+          "input": "teaching shapes ",
+          "expected": "knowledge",
+          "predicted": "apology",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "apology",
+            "helium",
+            "shapes",
+            "exploration",
+            "shivering"
+          ],
+          "description": "cross-domain (A verb 'shapes' + B vocab)"
+        }
+      ],
+      "top1_accuracy": 0.0,
+      "top10_accuracy": 0.0
     },
     "transfer_probes": {
       "probes": [
         {
-          "input": "kindness causes ",
-          "expected": "trust",
-          "expected_char": "t",
-          "predicted": "c",
+          "input": "gravity shapes ",
+          "expected": "orbits",
+          "predicted": "objects",
           "correct": false,
           "in_top10": true,
           "top5": [
-            "c",
-            "r",
-            "u",
-            "t",
-            "k"
+            "objects",
+            "sparks",
+            "crystalline",
+            "vulnerability",
+            "lightweight"
           ],
-          "description": "B vocab + A causal pattern"
+          "description": "held-out A (causal)"
         },
         {
-          "input": "anger produces ",
-          "expected": "conflict",
-          "expected_char": "c",
-          "predicted": "c",
-          "correct": true,
-          "in_top10": true,
-          "top5": [
-            "c",
-            "#2",
-            "#201",
-            "r",
-            "#127"
-          ],
-          "description": "'produces' from A, B vocab"
-        },
-        {
-          "input": "sharing enables ",
-          "expected": "friendship",
-          "expected_char": "f",
-          "predicted": "c",
+          "input": "cold freezes ",
+          "expected": "water",
+          "predicted": "diamonds",
           "correct": false,
           "in_top10": false,
           "top5": [
-            "c",
-            "r",
-            "u",
-            "#156",
-            "k"
+            "diamonds",
+            "pungent",
+            "light",
+            "powerful",
+            "refractory"
           ],
-          "description": "'enables' from A, B vocab"
+          "description": "held-out A (causal)"
         },
         {
-          "input": "heat causes ",
-          "expected": "expansion",
-          "expected_char": "e",
-          "predicted": "c",
+          "input": "heat melts ",
+          "expected": "ice",
+          "predicted": "lightweight",
           "correct": false,
           "in_top10": false,
           "top5": [
-            "c",
-            "r",
-            "k",
-            "u",
-            "h"
+            "lightweight",
+            "expansion",
+            "objects",
+            "neon",
+            "fires"
           ],
-          "description": "pure A recall"
+          "description": "held-out A (causal)"
         },
         {
-          "input": "trust is ",
-          "expected": "fragile",
-          "expected_char": "f",
-          "predicted": "c",
-          "correct": false,
-          "in_top10": true,
-          "top5": [
-            "c",
-            "k",
-            "t",
-            "o",
-            "r"
-          ],
-          "description": "pure B recall"
-        },
-        {
-          "input": "friction produces ",
-          "expected": "heat",
-          "expected_char": "h",
-          "predicted": "c",
+          "input": "nuclear force binds ",
+          "expected": "protons",
+          "predicted": "vulnerability",
           "correct": false,
           "in_top10": false,
           "top5": [
-            "c",
-            "r",
-            "u",
-            "+",
-            "#2"
+            "vulnerability",
+            "refractory",
+            "respect",
+            "dangerous",
+            "trust"
           ],
-          "description": "pure A recall (held out)"
+          "description": "held-out A (causal)"
+        },
+        {
+          "input": "rain causes ",
+          "expected": "growth",
+          "predicted": "sparks",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "sparks",
+            "shivering",
+            "vulnerability",
+            "enables",
+            "energy"
+          ],
+          "description": "held-out A (causal)"
+        },
+        {
+          "input": "oxygen enables ",
+          "expected": "combustion",
+          "predicted": "decompression",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "decompression",
+            "fires",
+            "destruction",
+            "withdrawal",
+            "magnetism"
+          ],
+          "description": "held-out A (causal)"
+        },
+        {
+          "input": "friction generates ",
+          "expected": "static",
+          "predicted": "heat",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "heat",
+            "sadness",
+            "crystalline",
+            "enables",
+            "destruction"
+          ],
+          "description": "held-out A (causal)"
+        },
+        {
+          "input": "tides shift ",
+          "expected": "sediment",
+          "predicted": "crystalline",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "crystalline",
+            "listening",
+            "pungent",
+            "objects",
+            "fires"
+          ],
+          "description": "held-out A (causal)"
+        },
+        {
+          "input": "granite is ",
+          "expected": "dense",
+          "predicted": "surfaces",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "surfaces",
+            "damages",
+            "discovery",
+            "destruction",
+            "hard"
+          ],
+          "description": "held-out A (semantic)"
+        },
+        {
+          "input": "lead is ",
+          "expected": "heavy",
+          "predicted": "sparks",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "sparks",
+            "copper",
+            "lightweight",
+            "compassion",
+            "nitrogen"
+          ],
+          "description": "held-out A (semantic)"
+        },
+        {
+          "input": "water is ",
+          "expected": "liquid",
+          "predicted": "bullying",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "bullying",
+            "fires",
+            "force",
+            "strong",
+            "photosynthesis"
+          ],
+          "description": "held-out A (semantic)"
+        },
+        {
+          "input": "fire is ",
+          "expected": "hot",
+          "predicted": "trust",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "trust",
+            "trauma",
+            "reduces",
+            "fires",
+            "sadness"
+          ],
+          "description": "held-out A (semantic)"
+        },
+        {
+          "input": "teamwork creates ",
+          "expected": "success",
+          "predicted": "connection",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "connection",
+            "copper",
+            "pungent",
+            "pushes",
+            "friction"
+          ],
+          "description": "held-out B (causal)"
+        },
+        {
+          "input": "forgiveness heals ",
+          "expected": "wounds",
+          "predicted": "spreads",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "spreads",
+            "compasses",
+            "hope",
+            "produces",
+            "metals"
+          ],
+          "description": "held-out B (causal)"
+        },
+        {
+          "input": "criticism causes ",
+          "expected": "defensiveness",
+          "predicted": "elastic",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "elastic",
+            "magnetism",
+            "refractory",
+            "shivering",
+            "sharing"
+          ],
+          "description": "held-out B (causal)"
+        },
+        {
+          "input": "betrayal destroys ",
+          "expected": "loyalty",
+          "predicted": "force",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "force",
+            "fires",
+            "trust",
+            "layers",
+            "carbon"
+          ],
+          "description": "held-out B (causal)"
         },
         {
           "input": "patience creates ",
           "expected": "understanding",
-          "expected_char": "u",
-          "predicted": "c",
+          "predicted": "mercury",
           "correct": false,
           "in_top10": true,
           "top5": [
-            "c",
-            "r",
-            "u",
-            "k",
-            "v"
+            "mercury",
+            "bonds",
+            "tension",
+            "noble",
+            "sadness"
           ],
-          "description": "pure B recall (held out)"
+          "description": "held-out B (causal)"
+        },
+        {
+          "input": "teaching builds ",
+          "expected": "knowledge",
+          "predicted": "apology",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "apology",
+            "lightweight",
+            "mentorship",
+            "connection",
+            "exploration"
+          ],
+          "description": "held-out B (causal)"
+        },
+        {
+          "input": "rivalry spurs ",
+          "expected": "growth",
+          "predicted": "vulnerability",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "vulnerability",
+            "confidence",
+            "valuable",
+            "crystalline",
+            "generates"
+          ],
+          "description": "held-out B (causal)"
+        },
+        {
+          "input": "gratitude strengthens ",
+          "expected": "relationships",
+          "predicted": "combustion",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "combustion",
+            "crystalline",
+            "pungent",
+            "produces",
+            "destruction"
+          ],
+          "description": "held-out B (causal)"
+        },
+        {
+          "input": "honesty is ",
+          "expected": "essential",
+          "predicted": "respect",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "respect",
+            "hope",
+            "bonds",
+            "expansion",
+            "natural"
+          ],
+          "description": "held-out B (semantic)"
+        },
+        {
+          "input": "loyalty is ",
+          "expected": "noble",
+          "predicted": "liquid",
+          "correct": false,
+          "in_top10": true,
+          "top5": [
+            "liquid",
+            "noble",
+            "sparks",
+            "shivering",
+            "sadness"
+          ],
+          "description": "held-out B (semantic)"
+        },
+        {
+          "input": "friendship is ",
+          "expected": "valuable",
+          "predicted": "sparks",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "sparks",
+            "wisdom",
+            "action",
+            "dangerous",
+            "liquid"
+          ],
+          "description": "held-out B (semantic)"
+        },
+        {
+          "input": "trust is ",
+          "expected": "fragile",
+          "predicted": "destruction",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "destruction",
+            "conductive",
+            "warmth",
+            "decompression",
+            "defensiveness"
+          ],
+          "description": "held-out B (semantic)"
+        },
+        {
+          "input": "teamwork causes ",
+          "expected": "success",
+          "predicted": "copper",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "copper",
+            "friction",
+            "restores",
+            "criticism",
+            "bonds"
+          ],
+          "description": "cross-domain (A verb 'causes' + B vocab)"
+        },
+        {
+          "input": "forgiveness produces ",
+          "expected": "wounds",
+          "predicted": "metals",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "metals",
+            "compasses",
+            "spreads",
+            "produces",
+            "hope"
+          ],
+          "description": "cross-domain (A verb 'produces' + B vocab)"
+        },
+        {
+          "input": "criticism enables ",
+          "expected": "defensiveness",
+          "predicted": "elastic",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "elastic",
+            "magnetism",
+            "diamonds",
+            "refractory",
+            "vision"
+          ],
+          "description": "cross-domain (A verb 'enables' + B vocab)"
+        },
+        {
+          "input": "betrayal creates ",
+          "expected": "loyalty",
+          "predicted": "fires",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "fires",
+            "force",
+            "gossip",
+            "copper",
+            "distance"
+          ],
+          "description": "cross-domain (A verb 'creates' + B vocab)"
+        },
+        {
+          "input": "patience drives ",
+          "expected": "understanding",
+          "predicted": "virtuous",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "virtuous",
+            "mercury",
+            "bonds",
+            "refractory",
+            "harmony"
+          ],
+          "description": "cross-domain (A verb 'drives' + B vocab)"
+        },
+        {
+          "input": "teaching shapes ",
+          "expected": "knowledge",
+          "predicted": "shivering",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "shivering",
+            "mentorship",
+            "exploration",
+            "lightweight",
+            "connection"
+          ],
+          "description": "cross-domain (A verb 'shapes' + B vocab)"
         }
       ],
-      "top1_accuracy": 0.14285714285714285,
-      "top10_accuracy": 0.5714285714285714
+      "top1_accuracy": 0.0,
+      "top10_accuracy": 0.03333333333333333
     },
     "post_sleep_probes": {
       "probes": [
         {
-          "input": "kindness causes ",
-          "expected": "trust",
-          "expected_char": "t",
-          "predicted": "o",
+          "input": "gravity shapes ",
+          "expected": "orbits",
+          "predicted": "objects",
           "correct": false,
           "in_top10": false,
           "top5": [
-            "o",
-            "#147",
-            "#236",
-            "#186",
-            "c"
+            "objects",
+            "sparks",
+            "crystalline",
+            "lightweight",
+            "fires"
           ],
-          "description": "B vocab + A causal pattern"
+          "description": "held-out A (causal)"
         },
         {
-          "input": "anger produces ",
-          "expected": "conflict",
-          "expected_char": "c",
-          "predicted": "o",
-          "correct": false,
-          "in_top10": true,
-          "top5": [
-            "o",
-            "#147",
-            "c",
-            "#236",
-            "#249"
-          ],
-          "description": "'produces' from A, B vocab"
-        },
-        {
-          "input": "sharing enables ",
-          "expected": "friendship",
-          "expected_char": "f",
-          "predicted": "o",
+          "input": "cold freezes ",
+          "expected": "water",
+          "predicted": "diamonds",
           "correct": false,
           "in_top10": false,
           "top5": [
-            "o",
-            "#147",
-            "#249",
-            "#236",
-            "c"
+            "diamonds",
+            "light",
+            "pungent",
+            "powerful",
+            "refractory"
           ],
-          "description": "'enables' from A, B vocab"
+          "description": "held-out A (causal)"
         },
         {
-          "input": "heat causes ",
-          "expected": "expansion",
-          "expected_char": "e",
-          "predicted": "o",
+          "input": "heat melts ",
+          "expected": "ice",
+          "predicted": "lightweight",
           "correct": false,
           "in_top10": false,
           "top5": [
-            "o",
-            "c",
-            "#147",
-            "d",
-            "k"
+            "lightweight",
+            "expansion",
+            "objects",
+            "neon",
+            "exploration"
           ],
-          "description": "pure A recall"
+          "description": "held-out A (causal)"
         },
         {
-          "input": "trust is ",
-          "expected": "fragile",
-          "expected_char": "f",
-          "predicted": "d",
+          "input": "nuclear force binds ",
+          "expected": "protons",
+          "predicted": "vulnerability",
           "correct": false,
           "in_top10": false,
           "top5": [
-            "d",
-            "c",
-            "#147",
-            "r",
-            "b"
+            "vulnerability",
+            "dangerous",
+            "trust",
+            "refractory",
+            "harmful"
           ],
-          "description": "pure B recall"
+          "description": "held-out A (causal)"
         },
         {
-          "input": "friction produces ",
-          "expected": "heat",
-          "expected_char": "h",
-          "predicted": "w",
+          "input": "rain causes ",
+          "expected": "growth",
+          "predicted": "shivering",
           "correct": false,
           "in_top10": false,
           "top5": [
-            "w",
-            "o",
-            "r",
-            "#186",
-            "9"
+            "shivering",
+            "skills",
+            "sparks",
+            "vulnerability",
+            "bonds"
           ],
-          "description": "pure A recall (held out)"
+          "description": "held-out A (causal)"
+        },
+        {
+          "input": "oxygen enables ",
+          "expected": "combustion",
+          "predicted": "decompression",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "decompression",
+            "withdrawal",
+            "magnetism",
+            "admirable",
+            "sulfur"
+          ],
+          "description": "held-out A (causal)"
+        },
+        {
+          "input": "friction generates ",
+          "expected": "static",
+          "predicted": "sadness",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "sadness",
+            "heat",
+            "enables",
+            "suffering",
+            "crystalline"
+          ],
+          "description": "held-out A (causal)"
+        },
+        {
+          "input": "tides shift ",
+          "expected": "sediment",
+          "predicted": "objects",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "objects",
+            "listening",
+            "pungent",
+            "crystalline",
+            "fires"
+          ],
+          "description": "held-out A (causal)"
+        },
+        {
+          "input": "granite is ",
+          "expected": "dense",
+          "predicted": "surfaces",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "surfaces",
+            "objects",
+            "discovery",
+            "damages",
+            "destruction"
+          ],
+          "description": "held-out A (semantic)"
+        },
+        {
+          "input": "lead is ",
+          "expected": "heavy",
+          "predicted": "sparks",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "sparks",
+            "copper",
+            "pressure",
+            "lightweight",
+            "nitrogen"
+          ],
+          "description": "held-out A (semantic)"
+        },
+        {
+          "input": "water is ",
+          "expected": "liquid",
+          "predicted": "bullying",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "bullying",
+            "pressure",
+            "relationships",
+            "force",
+            "cooling"
+          ],
+          "description": "held-out A (semantic)"
+        },
+        {
+          "input": "fire is ",
+          "expected": "hot",
+          "predicted": "trust",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "trust",
+            "trauma",
+            "sadness",
+            "crystalline",
+            "reduces"
+          ],
+          "description": "held-out A (semantic)"
+        },
+        {
+          "input": "teamwork creates ",
+          "expected": "success",
+          "predicted": "connection",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "connection",
+            "copper",
+            "pungent",
+            "pushes",
+            "trust"
+          ],
+          "description": "held-out B (causal)"
+        },
+        {
+          "input": "forgiveness heals ",
+          "expected": "wounds",
+          "predicted": "hope",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "hope",
+            "spreads",
+            "compasses",
+            "produces",
+            "metals"
+          ],
+          "description": "held-out B (causal)"
+        },
+        {
+          "input": "criticism causes ",
+          "expected": "defensiveness",
+          "predicted": "elastic",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "elastic",
+            "magnetism",
+            "shivering",
+            "sharing",
+            "refractory"
+          ],
+          "description": "held-out B (causal)"
+        },
+        {
+          "input": "betrayal destroys ",
+          "expected": "loyalty",
+          "predicted": "trust",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "trust",
+            "force",
+            "fires",
+            "layers",
+            "carbon"
+          ],
+          "description": "held-out B (causal)"
         },
         {
           "input": "patience creates ",
           "expected": "understanding",
-          "expected_char": "u",
-          "predicted": "#186",
+          "predicted": "bonds",
           "correct": false,
           "in_top10": false,
           "top5": [
-            "#186",
-            "o",
-            "#147",
-            "w",
-            "r"
+            "bonds",
+            "sadness",
+            "cooling",
+            "damages",
+            "hope"
           ],
-          "description": "pure B recall (held out)"
+          "description": "held-out B (causal)"
+        },
+        {
+          "input": "teaching builds ",
+          "expected": "knowledge",
+          "predicted": "apology",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "apology",
+            "connection",
+            "lightweight",
+            "exploration",
+            "respect"
+          ],
+          "description": "held-out B (causal)"
+        },
+        {
+          "input": "rivalry spurs ",
+          "expected": "growth",
+          "predicted": "generates",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "generates",
+            "confidence",
+            "valuable",
+            "vulnerability",
+            "restores"
+          ],
+          "description": "held-out B (causal)"
+        },
+        {
+          "input": "gratitude strengthens ",
+          "expected": "relationships",
+          "predicted": "pungent",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "pungent",
+            "tension",
+            "connection",
+            "withdrawal",
+            "combustion"
+          ],
+          "description": "held-out B (causal)"
+        },
+        {
+          "input": "honesty is ",
+          "expected": "essential",
+          "predicted": "respect",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "respect",
+            "bonds",
+            "expansion",
+            "hope",
+            "honesty"
+          ],
+          "description": "held-out B (semantic)"
+        },
+        {
+          "input": "loyalty is ",
+          "expected": "noble",
+          "predicted": "liquid",
+          "correct": false,
+          "in_top10": true,
+          "top5": [
+            "liquid",
+            "noble",
+            "sadness",
+            "shivering",
+            "trust"
+          ],
+          "description": "held-out B (semantic)"
+        },
+        {
+          "input": "friendship is ",
+          "expected": "valuable",
+          "predicted": "action",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "action",
+            "sparks",
+            "sadness",
+            "dangerous",
+            "liquid"
+          ],
+          "description": "held-out B (semantic)"
+        },
+        {
+          "input": "trust is ",
+          "expected": "fragile",
+          "predicted": "conductive",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "conductive",
+            "warmth",
+            "destruction",
+            "decompression",
+            "vulnerability"
+          ],
+          "description": "held-out B (semantic)"
+        },
+        {
+          "input": "teamwork causes ",
+          "expected": "success",
+          "predicted": "copper",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "copper",
+            "friction",
+            "bonds",
+            "criticism",
+            "damages"
+          ],
+          "description": "cross-domain (A verb 'causes' + B vocab)"
+        },
+        {
+          "input": "forgiveness produces ",
+          "expected": "wounds",
+          "predicted": "spreads",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "spreads",
+            "metals",
+            "compasses",
+            "hope",
+            "damages"
+          ],
+          "description": "cross-domain (A verb 'produces' + B vocab)"
+        },
+        {
+          "input": "criticism enables ",
+          "expected": "defensiveness",
+          "predicted": "magnetism",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "magnetism",
+            "elastic",
+            "vision",
+            "shivering",
+            "liquid"
+          ],
+          "description": "cross-domain (A verb 'enables' + B vocab)"
+        },
+        {
+          "input": "betrayal creates ",
+          "expected": "loyalty",
+          "predicted": "fires",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "fires",
+            "force",
+            "gossip",
+            "trust",
+            "copper"
+          ],
+          "description": "cross-domain (A verb 'creates' + B vocab)"
+        },
+        {
+          "input": "patience drives ",
+          "expected": "understanding",
+          "predicted": "virtuous",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "virtuous",
+            "bonds",
+            "mercury",
+            "harmony",
+            "damages"
+          ],
+          "description": "cross-domain (A verb 'drives' + B vocab)"
+        },
+        {
+          "input": "teaching shapes ",
+          "expected": "knowledge",
+          "predicted": "connection",
+          "correct": false,
+          "in_top10": false,
+          "top5": [
+            "connection",
+            "shivering",
+            "exploration",
+            "apology",
+            "lightweight"
+          ],
+          "description": "cross-domain (A verb 'shapes' + B vocab)"
         }
       ],
       "top1_accuracy": 0.0,
-      "top10_accuracy": 0.14285714285714285
+      "top10_accuracy": 0.03333333333333333
     },
-    "phase1_time": 42.42750287055969,
-    "phase2_time": 114.54916381835938,
-    "sleep_cycles": 82,
-    "total_edges_learned": 5580
+    "phase1_time": 1.3836948871612549,
+    "phase2_time": 5.553793668746948,
+    "sleep_cycles": 10,
+    "total_edges_learned": 688
   },
-  "mlp_baseline": {},
+  "mlp_baseline": {
+    "baseline_a": {
+      "top1_accuracy": 0.0,
+      "top10_accuracy": 0.08333333333333333,
+      "n_tested": 12
+    },
+    "baseline_b": {
+      "top1_accuracy": 0.0,
+      "top10_accuracy": 0.0,
+      "n_tested": 12
+    },
+    "post_train_a_on_a": {
+      "top1_accuracy": 0.0,
+      "top10_accuracy": 0.08333333333333333,
+      "n_tested": 12
+    },
+    "post_train_a_on_b": {
+      "top1_accuracy": 0.0,
+      "top10_accuracy": 0.0,
+      "n_tested": 12
+    },
+    "post_train_b_on_a": {
+      "top1_accuracy": 0.0,
+      "top10_accuracy": 0.0,
+      "n_tested": 12
+    },
+    "post_train_b_on_b": {
+      "top1_accuracy": 0.0,
+      "top10_accuracy": 0.0,
+      "n_tested": 12
+    },
+    "phase1_time": 0.02456355094909668,
+    "phase2_time": 0.022789955139160156
+  },
   "transfer_metrics": {
-    "retention_delta_domain_a": -0.2857142857142857,
-    "forward_transfer_to_b": 0.42857142857142855,
-    "zero_shot_transfer_a_to_b": 0.42857142857142855,
+    "retention_delta_domain_a": 0.0,
+    "forward_transfer_to_b": 0.08333333333333333,
+    "zero_shot_transfer_a_to_b": 0.0,
     "sleep_benefit_a": 0.0,
     "sleep_benefit_b": 0.0,
-    "cross_domain_probe_top1": 0.14285714285714285,
-    "cross_domain_probe_top10": 0.5714285714285714,
+    "zero_shot_probe_top1": 0.0,
+    "zero_shot_probe_top10": 0.0,
+    "cross_domain_probe_top1": 0.0,
+    "cross_domain_probe_top10": 0.03333333333333333,
     "post_sleep_probe_top1": 0.0,
-    "post_sleep_probe_top10": 0.14285714285714285
+    "post_sleep_probe_top10": 0.03333333333333333,
+    "mlp_retention_delta": -0.08333333333333333,
+    "mlp_forward_transfer": 0.0,
+    "mlp_zero_shot_transfer": 0.0,
+    "rlm_vs_mlp_retention": 0.08333333333333333,
+    "rlm_vs_mlp_forward": 0.08333333333333333
+  },
+  "temperature_sweep": {
+    "1.0": {
+      "top1_accuracy": 0.0,
+      "top10_accuracy": 0.08333333333333333,
+      "n_tested": 12
+    },
+    "0.5": {
+      "top1_accuracy": 0.0,
+      "top10_accuracy": 0.08333333333333333,
+      "n_tested": 12
+    },
+    "0.2": {
+      "top1_accuracy": 0.0,
+      "top10_accuracy": 0.08333333333333333,
+      "n_tested": 12
+    },
+    "0.1": {
+      "top1_accuracy": 0.0,
+      "top10_accuracy": 0.08333333333333333,
+      "n_tested": 12
+    }
+  },
+  "ablation": {
+    "without_graph_top1": 0.0,
+    "without_graph_top10": 0.03333333333333333,
+    "with_graph_top1": 0.0,
+    "with_graph_top10": 0.03333333333333333,
+    "graph_delta_top1": 0.0,
+    "graph_delta_top10": 0.0
   }
 }
