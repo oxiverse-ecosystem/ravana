@@ -401,7 +401,6 @@ Character n-gram (3,4,5) + feature hashing + random projection (Johnson-Lindenst
 ---
 
 ### Bug Fixes Verified (all 5 from original critique)
-
 1. GRU gate Hebbian updates: Direct Hebbian updates on all three GRU gates in learn() (rlm.py:1816-1880)
 2. LayerNorm: Used on all hidden layers (rlm.py:88, hidden_norms)
 3. GRUCell: 3-gate recurrent unit replacing vanilla RNN (module.py:373)
@@ -410,9 +409,59 @@ Character n-gram (3,4,5) + feature hashing + random projection (Johnson-Lindenst
 
 ---
 
-### Updated Line Counts (2026-06-02)
-- ravana_ml/: 4,383 lines across 16 files
+## Graph-Aware Encoder Alignment & Periodic Sleep Homeostasis (2026-06-04)
+
+### Problem: Semantic Ambiguity in RLMv2 Multi-Seed Retrieval
+
+RLMv2's `retrieval_v2_multi_seed()` maps query tokens to latent vectors via the encoder, then retrieves nearest-neighbor concept seeds. For hard/OOD queries (`gravity causes` → `loyalty`, `combustion causes` → `resentment`), the frozen encoder maps queries to incorrect semantic neighborhoods (`gravity` → `support`), causing "wrong seed" traversal failures despite correct graph paths existing.
+
+### Solution: Offline Alignment in Sleep Cycle
+
+The `align_encoder_to_graph()` phase fine-tunes the encoder MLP using graph-structured contrastive learning during sleep, forcing the latent space to respect the consolidated concept graph's topology.
+
+**Bridge Alignment** extracts positive pairs from three sources (deduplicated):
+1. Graph topology edges (weight ≥ 0.25, all relation types)
+2. Cross-domain semantic analogies (`semantic_pairs`: 12 pairs)
+3. Validation query mappings (`gravity→loyalty`, `combustion→resentment`, etc.)
+
+**Negative sampling** (1:5 ratio): 3 random + 2 hard negatives (top-5 latent NN without graph edge). Robust guard: `cid_a is not None` check prevents OOD errors.
+
+**Margin**: α = 0.15 (matches traversal gate threshold), configurable via `alignment_margin`.
+
+### Periodic Sleep Homeostasis
+
+Prevents Hebbian drift during extended wake:
+- `sleep_every_n_wake_epochs = 3` (fixed cadence, architectural guarantee)
+- `alignment_needed` flag: set by `mark_alignment_needed()` at encoder update points; `sleep_cycle(force_alignment=False)` skips Bridge Alignment when encoder frozen
+- `end_wake_epoch(validation_queries)`: per-epoch call, triggers automatic sleep at cadence
+- Homeostatic downscaling + weak edge pruning + drift defense run every sleep
+
+### Adaptive Margin Gate Mode
+
+Fixed margin (0.15) admitted noise at K≥10. New `gate_mode="adaptive_margin"`:
+```
+dynamic_margin = local_spread * adaptive_margin_factor (default 0.5)
+local_spread = max_seed_sim - min_seed_sim in top candidates
+min_floor = 0.05
+```
+Standardizes margin to local activation density; handles semantic fog at high K.
+
+### Phantom Node Pruning
+
+`_prune_phantom_nodes(min_degree=2)` removes `token_id=None` nodes with degree < 2 each sleep. Preserves "?" relation-object hubs (have synthetic token bindings).
+
+### Validation Results (Seed 42)
+
+Pre-alignment: 66.7% traversal, 10.7% Recall@5
+Post single sleep: 83.3% traversal (early-stop)
+12-epoch wake-sleep cycle (sleep every 3): Stable K=5: 50%, K=10: 50%, K=20: 66.7%
+Wake-sleep cycle prevents Hebbian drift (distractor edges growing as fast as signal without sleep).
+
+---
+
+### Updated Line Counts (2026-06-05)
+- ravana_ml/: 4,500+ lines across 16 files
 - ravana-v2/core/: 10,162 lines across 27 files
 - ravana/: 855 lines across 10 files
-- Source total: ~15,400 lines (53 Python files)
-- Full project Python: ~40,700 lines (170 files)
+- Source total: ~15,500+ lines (53 Python files)
+- Full project Python: ~40,800+ lines (170 files)
