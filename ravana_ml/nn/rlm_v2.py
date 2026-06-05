@@ -32,7 +32,7 @@ Inspired by:
 import numpy as np
 import time
 import pickle
-from typing import Optional, List, Tuple, Dict, Set
+from typing import Optional, List, Tuple, Dict, Set, Any
 from collections import defaultdict
 
 from .module import Module, Linear, Embedding
