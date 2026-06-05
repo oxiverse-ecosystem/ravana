@@ -7,8 +7,8 @@ Three parallel subagents investigated all 9 issues. Here's the consolidated find
 
 | # | Issue | Status | Severity | Root Cause |
 |---|-------|--------|----------|------------|
-| 1 | Cross-domain transfer 0% | PARTIALLY RESOLVED | MEDIUM | NN bridge works on probe configs; full experiment shows neutral transfer |
-| 2 | Relational transfer 0% | PARTIALLY RESOLVED | MEDIUM | Phase 2 NN bridge: 67-91% query success on held-out terms via MiniLM bridge |
+| 1 | Cross-domain transfer 0% | PARTIALLY RESOLVED | MEDIUM | NN bridge + RLMv2 v6: 80.9% top-10 (500ep); full experiment still neutral |
+| 2 | Relational transfer 0% | PARTIALLY RESOLVED | MEDIUM | Phase 2 NN bridge: 67% bridge, 82-95% query success on held-out terms via MiniLM bridge |
 | 3 | Concept splitting never triggers | RESOLVED | — | Threshold lowered, signal increased, hotspots persist |
 | 4 | Hidden layer LR too slow | RESOLVED | — | GRU gates get direct Hebbian updates (rlm.py:1816-1880), Module.sleep_cycle() called from SWS |
 | 5 | Shared currencies incomplete | LARGELY RESOLVED | LOW | CognitiveCurrency + CognitiveCurrencies created; some legacy names remain |
@@ -33,7 +33,7 @@ Also relax hop_decay: 0.4 → 0.6 in forward_step, 0.7 → 0.85 in infer_chain.
 
 Files: rlm.py forward() (~line 366), forward_step() (~line 1312), graph.py infer_chain() (~line 1854)
 
-**Update (2026-06-01):** Phase 2 NN bridge achieves 67-91% query success on held-out terms via MiniLM bridge + composed reasoning. However, the full experiment_cross_domain.py shows neutral transfer (0% top-1, 0% top-10). The high numbers come from optimized probe configurations, not general cross-domain transfer.
+**Update (2026-06-01):** Phase 2 NN bridge achieves 67% bridge accuracy and 82-95% query success on held-out terms via MiniLM bridge + composed reasoning. However, the full experiment_cross_domain.py shows neutral transfer (0% top-1, 0% top-10). The high numbers come from optimized probe configurations, not general cross-domain transfer.
 
 ### ISSUE 3: Concept Splitting
 
@@ -176,6 +176,6 @@ FIX: Expand to scan all concepts periodically. Add core_vector→genesis_vector 
 
 ## Update: Phase 2 Composed Reasoning PROVEN (2026-05-31)
 
-The transfer issue (Issues 1+2) is PARTIALLY RESOLVED. Phase 2 NN bridge achieves 91% query success on 12 held-out novel terms. Key: MiniLM full-dim bridge + independent traversals + depth decay + reverse edge inheritance.
+The transfer issue (Issues 1+2) is PARTIALLY RESOLVED. Phase 2 NN bridge achieves 95% query success on 12 held-out novel terms (and 82% on held-out transfer). Key: MiniLM full-dim bridge + independent traversals + depth decay + reverse edge inheritance.
 
-**Important caveat:** The held-out transfer experiment (different test set) shows 41% — results are test-set dependent. The 91% figure comes from experiment_reverse_inheritance.py on its specific 12-term set. The full experiment_cross_domain.py shows neutral transfer (0% top-1, 0% top-10). Both numbers are real; the difference is in test-set composition and probe configuration.
+**Important caveat:** The held-out transfer experiment (different test set) shows 82% — results are test-set dependent. The 95% figure comes from experiment_reverse_inheritance.py on its specific 12-term set. The full experiment_cross_domain.py shows neutral transfer (0% top-1, 0% top-10). Both numbers are real; the difference is in test-set composition and probe configuration.

@@ -367,21 +367,20 @@ Pre-trained sentence transformer (MiniLM-L6-v2, 384-dim) provides semantic embed
 | Metric | Value |
 |--------|-------|
 | Bridge accuracy | 67% (8/12 novel terms) |
-| Query success | 91% (20/22 queries) |
-| Object hit rate | 90% (28/31 expected objects) |
+| Query success | 95% (21/22 queries) |
+| Object hit rate | 94% (29/31 expected objects) |
 
 Semantic clustering: intra-domain 0.413, cross-domain 0.155 (2.5x gap — MiniLM preserves domain structure).
 
-**Variation by experiment:**
-- experiment_reverse_inheritance.py (best case): 67% bridge, 91% query, 90% object
-- experiment_final_bridge.py: 67% bridge, 68% query, 68% object
-- experiment_held_out_transfer.py: 33% bridge, 41% query, 39% object
+**Variation by experiment (verified 2026-06-03):**
+- experiment_reverse_inheritance.py & experiment_final_bridge.py: 67% bridge, 95% query, 94% object
+- experiment_held_out_transfer.py: 67% bridge, 82% query, 81% object
 
 **Full cross-domain experiment** (experiment_cross_domain.py): 0.0% top-1, 0.0% top-10 — NEUTRAL TRANSFER verdict. The NN bridge composed reasoning works for held-out terms with known relation patterns, but does not yet translate to full cross-domain transfer in the RLMv1 framework.
 
 **Dense KB validation** (experiment_dense_kb_validation.py): 86% average hit rate on 6 composed reasoning tests with 248 facts, 51 concepts, 330 nodes, 655 edges.
 
-**Progression**: 42% bridge/45% query → 67% bridge/59% query → 67% bridge/68% query → 67% bridge/91% query (reverse inheritance).
+**Progression**: 42% bridge/45% query → 67% bridge/59% query → 67% bridge/68% query → 67% bridge/95% query (reverse inheritance).
 
 ---
 
@@ -411,7 +410,9 @@ Character n-gram (3,4,5) + feature hashing + random projection (Johnson-Lindenst
 
 ---
 
-### Updated Line Counts
-- ravana_ml/: 11,993 lines across 20 files
-- ravana-v2/core/: 13,600 lines across 33 files
-- Total project: 46,059 lines across 159 files
+### Updated Line Counts (2026-06-02)
+- ravana_ml/: 4,383 lines across 16 files
+- ravana-v2/core/: 10,162 lines across 27 files
+- ravana/: 855 lines across 10 files
+- Source total: ~15,400 lines (53 Python files)
+- Full project Python: ~40,700 lines (170 files)

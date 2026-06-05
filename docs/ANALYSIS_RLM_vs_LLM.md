@@ -465,11 +465,12 @@ All 7 improvements confirmed implemented:
 - Learning rate scheduling (warmup + cosine decay) ✓
 
 Current benchmark reality:
-- RLMv2 unit tests: 11/11 passing
-- Phase 2 NN bridge: 67-91% query success (experiment-dependent)
+- Core unit tests: 44/45 passing (1 subprocess non-code error)
+- RLMv2 v6 benchmark (500ep): 80.9% overall top-10
+- Relation vector separation: 0.551
+- Phase 2 NN bridge: 67% bridge, 82-95% query success (experiment-dependent)
 - Full cross-domain: 0.0% neutral transfer
 - Fair eval: 10% train, 0% test
-- RLMv2 v6 benchmark: BROKEN (AttributeError)
 
 ---
 
@@ -528,7 +529,7 @@ From the research, here's the state of the art in non-backprop learning:
 
 ## Update: Phase 2 NN Bridge Results (2026-05-31)
 
-The gap analysis identified 5 critical bugs (all fixed). Phase 2 now achieves 91% query success on held-out transfer via:
+The gap analysis identified 5 critical bugs (all fixed). Phase 2 now achieves 95% query success on reverse inheritance (and 82% on held-out transfer) via:
 - Pre-trained MiniLM bridge (no dimensionality projection)
 - Independent traversals per candidate
 - Depth decay (0.7x per hop)

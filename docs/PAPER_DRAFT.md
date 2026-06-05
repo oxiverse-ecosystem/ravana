@@ -7,7 +7,7 @@
 
 ## Abstract
 
-Continual learning systems face a fundamental tension: plasticity for acquiring new knowledge versus stability for retaining old. Gradient-based approaches address this through regularization (EWC, PackNet) or replay buffers, but these require explicit intervention against the optimization dynamics. We present RAVANA, a cognitive architecture that learns through Hebbian plasticity, predictive coding, and sleep-driven consolidation — replacing gradient descent with pressure-driven self-organization. Starting from 0% conceptual accuracy, RAVANA achieved 100% top-1 recall through three architectural fixes to relation vector grounding. Most notably, we report 95% top-1 cross-domain transfer (100% top-10) on probes requiring structural analogy across semantically distinct domains (numbers to emotions), achieved through subject-concept anchoring, predicate matching, concept graph path traversal, and concept vector initialization. RLMv2 (triple decomposition architecture) further achieves 95.7% overall and 75% cross-domain causal on a 47-triple benchmark via vector arithmetic analogy and relation-aware spreading activation. The primary bottleneck — catastrophic forgetting during new domain acquisition — was solved through sleep-time interleaved replay: domain-tagged experiences buffered during training and replayed during SWS+REM sleep cycles, eliminating the retention delta entirely. When replay, EWC, and Bayesian posteriors are wired into a 15K-experience lifelong benchmark with 5 entity epochs, catastrophic forgetting drops from 12% to 0% and retention rises from 40.8% to 47.6% — with per-epoch retention reaching 52% in previously-suffering epochs. We present the full architectural journey, from zero to generalization, demonstrating that biologically-inspired mechanisms — Hebbian learning, sleep consolidation, inhibitory competition, and hippocampal replay — can support genuine cross-domain generalization.
+Continual learning systems face a fundamental tension: plasticity for acquiring new knowledge versus stability for retaining old. Gradient-based approaches address this through regularization (EWC, PackNet) or replay buffers, but these require explicit intervention against the optimization dynamics. We present RAVANA, a cognitive architecture that learns through Hebbian plasticity, predictive coding, and sleep-driven consolidation — replacing gradient descent with pressure-driven self-organization. Starting from 0% conceptual accuracy, RAVANA achieved 100% top-1 recall through three architectural fixes to relation vector grounding. Most notably, we report 95% top-1 cross-domain transfer (100% top-10) on probes requiring structural analogy across semantically distinct domains (numbers to emotions), achieved through subject-concept anchoring, predicate matching, concept graph path traversal, and concept vector initialization. RLMv2 (triple decomposition architecture) achieves 80.9% overall top-10 and 75% top-10 cross-domain causal on a 47-triple benchmark (500 epochs) via vector arithmetic analogy and relation-aware spreading activation. The primary bottleneck — catastrophic forgetting during new domain acquisition — was solved through sleep-time interleaved replay: domain-tagged experiences buffered during training and replayed during SWS+REM sleep cycles, eliminating the retention delta entirely. When replay, EWC, and Bayesian posteriors are wired into a 15K-experience lifelong benchmark with 5 entity epochs, catastrophic forgetting drops from 12% to 0% and retention rises from 40.8% to 47.6% — with per-epoch retention reaching 52% in previously-suffering epochs. We present the full architectural journey, from zero to generalization, demonstrating that biologically-inspired mechanisms — Hebbian learning, sleep consolidation, inhibitory competition, and hippocampal replay — can support genuine cross-domain generalization.
 
 ---
 
@@ -37,7 +37,7 @@ This paper reports six empirical results:
 
 1. **0% → 100% top-1 accuracy**: Through identification and repair of five architectural pathologies (relation vector collapse, starved contrastive dynamics, type-blind multi-hop traversal, default semantic shortcuts, and syntax-only relation classification).
 
-2. **0% → 95% cross-domain transfer**: Cross-domain structural analogy in a Hebbian cognitive architecture, achieved via subject-concept anchoring, predicate matching, concept graph path traversal, and concept vector initialization. RLMv2 further achieves 95.7% overall and 75% cross-domain causal on a 47-triple benchmark.
+2. **0% → 95% cross-domain transfer**: Cross-domain structural analogy in a Hebbian cognitive architecture, achieved via subject-concept anchoring, predicate matching, concept graph path traversal, and concept vector initialization. RLMv2 achieves 80.9% overall top-10 and 75% cross-domain causal on a 47-triple benchmark.
 
 3. **Sleep-time interleaved replay**: Domain-tagged experiences buffered during training and replayed during SWS+REM sleep cycles, eliminating catastrophic forgetting (+42.9pp Domain A retention) and now wired into the lifelong streaming benchmark.
 
@@ -191,7 +191,7 @@ Where `concept_id_embed` is a learned embedding per concept ID, providing stable
 
 The MLP baseline shows positive forward transfer (Domain A knowledge helps Domain B learning speed) but zero cross-domain *probing* — it cannot answer "kindness causes ___" because it has no structural analogy mechanism.
 
-The RLM's 95% top-1 and 100% top-10 cross-domain transfer represent a breakthrough in Hebbian cognitive architectures. The system successfully resolves novel probes like "kindness causes → trust" by applying causal schemas learned in the physics domain to emotion concepts, through subject-concept anchoring, predicate matching, concept graph path traversal, and concept vector initialization. RLMv2 (triple decomposition architecture) further achieves 95.7% overall and 75% cross-domain causal on a 47-triple benchmark via vector arithmetic analogy and relation-aware spreading activation.
+The RLM's 95% top-1 and 100% top-10 cross-domain transfer represent a breakthrough in Hebbian cognitive architectures. The system successfully resolves novel probes like "kindness causes → trust" by applying causal schemas learned in the physics domain to emotion concepts, through subject-concept anchoring, predicate matching, concept graph path traversal, and concept vector initialization. RLMv2 (triple decomposition architecture) achieves 80.9% overall top-10 and 75% top-10 cross-domain causal on a 47-triple benchmark (500 epochs) via vector arithmetic analogy and relation-aware spreading activation.
 
 ### 4.5 What's Working and What's Not
 
@@ -282,7 +282,7 @@ The sleep-time replay results (Section 5) confirm that the catastrophic forgetti
 
 ### 6.2 Why the Original Ceiling Is Broken
 
-The original 14.3% ceiling was caused by catastrophic forgetting destroying Domain A knowledge before the relation predictor could use it. Sleep-time replay, combined with subject-concept anchoring, predicate matching, concept graph path traversal, and concept vector initialization, broke through this ceiling to 95% top-1. RLMv2 further achieves 95.7% overall on a 47-triple benchmark. The current ceiling is now determined by:
+The original 14.3% ceiling was caused by catastrophic forgetting destroying Domain A knowledge before the relation predictor could use it. Sleep-time replay, combined with subject-concept anchoring, predicate matching, concept graph path traversal, and concept vector initialization, broke through this ceiling to 95% top-1. RLMv2 achieves 80.9% overall top-10 on a 47-triple benchmark. The current ceiling is now determined by:
 
 1. **Small training set**: 7 facts per domain is minimal. The relation predictor has limited structural patterns to learn from. Cross-domain experiments now use 60+ facts per domain with 20 cross-domain probes.
 
@@ -317,7 +317,7 @@ The relation predictor has no clean neural analogue — it may correspond to pre
 2. **Speed**: RLM is 14x slower per step than an equivalent MLP (Python overhead, sequential graph operations).
 3. **Relation predictor uses backprop**: The MLP component is the sole exception to the no-gradient rule. Removing this dependency is a research priority.
 4. **No natural language evaluation**: All experiments use synthetic structured data.
-5. **Transfer ceiling**: 95% top-1 cross-domain and 47.6% lifelong retention demonstrate strong structural generalization. The three-pronged defense (replay + EWC + Bayesian) eliminated catastrophic forgetting (12% → 0%) and pushed retention up 6.8pp, with epoch-level retention reaching 52%. RLMv2 achieves 95.7% overall on a 47-triple benchmark.
+5. **Transfer ceiling**: 95% top-1 cross-domain and 47.6% lifelong retention demonstrate strong structural generalization. The three-pronged defense (replay + EWC + Bayesian) eliminated catastrophic forgetting (12% → 0%) and pushed retention up 6.8pp, with epoch-level retention reaching 52%. RLMv2 achieves 78.7% overall top-10 on a 47-triple benchmark.
 
 ### 6.5 Phase 2: NN Bridge and Composed Reasoning
 
@@ -325,9 +325,9 @@ Recent work extends RAVANA's transfer capabilities to truly novel terms via a pr
 
 Composed reasoning traverses the concept graph from bridge candidates with four key mechanics: (1) independent traversals per candidate (shared visited sets block cross-candidate paths), (2) depth decay at 0.7x per hop (prevents depth-2 cascade from drowning depth-1 results), (3) reverse edge inheritance (if X is_a Y, Y inherits X's outgoing edges), and (4) bridge-as-candidate for is_a queries.
 
-On 12 held-out terms never seen during training (22 queries, 6 relation types): 67% bridge accuracy, 91% query success, 90% object hit rate. Only matcha fails (MiniLM embedding 0.32 sim — model limitation). Semantic clustering analysis shows MiniLM preserves domain structure: intra-domain similarity 0.413 vs cross-domain 0.155 (2.5x gap).
+On 12 held-out terms never seen during training (22 queries, 6 relation types): 67% bridge accuracy, 95% query success, 94% object hit rate. Only matcha fails (MiniLM embedding 0.32 sim — model limitation). Semantic clustering analysis shows MiniLM preserves domain structure: intra-domain similarity 0.413 vs cross-domain 0.155 (2.5x gap).
 
-**Note on benchmark variation:** The 91% query success result is from `experiment_reverse_inheritance.py` (best case, 12 held-out terms, 22 queries). Other test configurations yield lower results: `experiment_held_out_transfer.py` shows 41% query success, and the full cross-domain experiment (`experiment_cross_domain.py`) shows 0% neutral transfer on standard probes. The NN bridge composed reasoning works for held-out terms with known relation patterns but does not yet generalize to full cross-domain transfer.
+**Note on benchmark variation:** The 95% query success result is from `experiment_reverse_inheritance.py` and `experiment_final_bridge.py` (best case, 12 held-out terms, 22 queries). Other test configurations yield lower results: `experiment_held_out_transfer.py` shows 82% query success, and the full cross-domain experiment (`experiment_cross_domain.py`) shows 0% neutral transfer on standard probes. The NN bridge composed reasoning works for held-out terms with known relation patterns but does not yet generalize to full cross-domain transfer.
 
 ### Supporting Infrastructure
 
@@ -336,7 +336,7 @@ On 12 held-out terms never seen during training (22 queries, 6 relation types): 
 - Word Tokenizer (`ravana_ml/word_tokenizer.py`, 46 lines)
 - LearnedEmbedder (`ravana-v2/core/embedder.py`, 188 lines)
 
-Updated codebase: 46,059 lines across 159 files.
+Updated codebase: ~40,700 lines across 170 Python files (source: ~15,400).
 
 ---
 
@@ -365,7 +365,7 @@ Three scaling priorities:
 
 ## 8. Conclusion
 
-We presented RAVANA, a pressure-driven cognitive architecture that learns through Hebbian plasticity and sleep consolidation rather than gradient descent. Starting from 0% conceptual accuracy, we achieved 100% top-1 recall through systematic identification and repair of five architectural pathologies. Most significantly, we report 95% top-1 / 100% top-10 cross-domain transfer on structural analogy probes across semantically distinct domains, achieved through subject-concept anchoring, predicate matching, concept graph path traversal, and concept vector initialization. RLMv2 (triple decomposition architecture) further achieves 95.7% overall and 75% cross-domain causal on a 47-triple benchmark.
+We presented RAVANA, a pressure-driven cognitive architecture that learns through Hebbian plasticity and sleep consolidation rather than gradient descent. Starting from 0% conceptual accuracy, we achieved 100% top-1 recall through systematic identification and repair of five architectural pathologies. Most significantly, we report 95% top-1 / 100% top-10 cross-domain transfer on structural analogy probes across semantically distinct domains, achieved through subject-concept anchoring, predicate matching, concept graph path traversal, and concept vector initialization. RLMv2 (triple decomposition architecture) achieves 80.9% overall top-10 and 75% cross-domain causal on a 47-triple benchmark.
 
 The key innovation is a relation predictor that combines concept identity embeddings with learned relation vector chains, enabling the system to recognize that "heat causes expansion" and "anger causes conflict" share the same abstract relation — without gradient-based fine-tuning.
 

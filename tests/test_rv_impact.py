@@ -363,21 +363,29 @@ def test_relation_vector_isolation():
 
 def test_find_analogy_paths_usage():
     """Check if find_analogy_paths is ever called from forward/learn."""
-    import subprocess
-    result = subprocess.run(
-        ["grep", "-rn", "find_analogy_paths", 
-         "ravana_ml/"],
-        capture_output=True, text=True,
-        cwd=os.path.dirname(os.path.abspath(__file__))
-    )
+    import glob
+    ravana_ml_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ravana_ml")
+    found_lines = []
+    for root, dirs, files in os.walk(ravana_ml_dir):
+        for file in files:
+            if file.endswith(".py"):
+                file_path = os.path.join(root, file)
+                try:
+                    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                        for line_no, line in enumerate(f, 1):
+                            if "find_analogy_paths" in line:
+                                rel_path = os.path.relpath(file_path, os.path.dirname(ravana_ml_dir))
+                                found_lines.append(f"{rel_path}:{line_no}:{line.strip()}")
+                except Exception:
+                    pass
     print()
     print("=" * 70)
     print("FIND_ANALOGY_PATHS USAGE CHECK")
     print("=" * 70)
     print()
-    if result.stdout:
+    if found_lines:
         print("References to find_analogy_paths:")
-        for line in result.stdout.strip().split("\n"):
+        for line in found_lines:
             print(f"  {line}")
     else:
         print("  No references found (method exists but is never called)")

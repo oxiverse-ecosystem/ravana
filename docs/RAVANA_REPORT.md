@@ -7,7 +7,7 @@
 
 ## Abstract
 
-Continual learning systems face a fundamental tension: the very mechanism that enables rapid acquisition of new knowledge -- weight updates driven by gradient descent -- simultaneously destroys previously learned representations, a phenomenon known as catastrophic forgetting. Existing mitigation strategies (elastic weight consolidation, experience replay, progressive neural networks) require explicit memory buffers or regularization terms that constrain the system's ability to generalize across domains. We present RAVANA (Recursive Adaptive Vector Architecture for Neural Agents), a pressure-driven cognitive architecture that proposes an alternative learning paradigm based on Hebbian plasticity, competitive inhibition, and sleep-phase consolidation. Starting from 0% cross-domain transfer -- identified as the primary open problem by external audit -- RAVANA achieves 95% top-1 and 100% top-10 cross-domain transfer through subject-concept anchoring, predicate matching, concept graph path traversal, and concept vector initialization. RLMv2 (triple decomposition architecture) further achieves 95.7% overall and 75% cross-domain causal on a 47-triple benchmark via vector arithmetic analogy and relation-aware spreading activation. Within-domain top-1 accuracy improved from 0% to 100% through relation type separation, sleep frequency tuning, and catastrophic forgetting fixes. Sleep-time interleaved replay -- replaying prior domain experiences during SWS+REM sleep cycles -- eliminates catastrophic forgetting entirely (Domain A retention delta: 0.0%) and raises Domain A top-10 retention from 0% to 100%. A full lifelong benchmark with three-pronged defense (replay + EWC + Bayesian) confirms long-term stability: 47.6% retention with 0% catastrophic forgetting.
+Continual learning systems face a fundamental tension: the very mechanism that enables rapid acquisition of new knowledge -- weight updates driven by gradient descent -- simultaneously destroys previously learned representations, a phenomenon known as catastrophic forgetting. Existing mitigation strategies (elastic weight consolidation, experience replay, progressive neural networks) require explicit memory buffers or regularization terms that constrain the system's ability to generalize across domains. We present RAVANA (Recursive Adaptive Vector Architecture for Neural Agents), a pressure-driven cognitive architecture that proposes an alternative learning paradigm based on Hebbian plasticity, competitive inhibition, and sleep-phase consolidation. Starting from 0% cross-domain transfer -- identified as the primary open problem by external audit -- RAVANA achieves 95% top-1 and 100% top-10 cross-domain transfer through subject-concept anchoring, predicate matching, concept graph path traversal, and concept vector initialization. RLMv2 (triple decomposition architecture) achieves 80.9% overall top-10 and 75% top-10 cross-domain causal on a 47-triple benchmark (500 epochs) via vector arithmetic analogy and relation-aware spreading activation. Within-domain top-1 accuracy improved from 0% to 100% through relation type separation, sleep frequency tuning, and catastrophic forgetting fixes. Sleep-time interleaved replay -- replaying prior domain experiences during SWS+REM sleep cycles -- eliminates catastrophic forgetting entirely (Domain A retention delta: 0.0%) and raises Domain A top-10 retention from 0% to 100%. A full lifelong benchmark with three-pronged defense (replay + EWC + Bayesian) confirms long-term stability: 47.6% retention with 0% catastrophic forgetting.
 
 ---
 
@@ -199,7 +199,7 @@ The correct cross-domain probe was "anger produces" -> "conflict" -- a combinati
 
 ## 5. The Catastrophic Forgetting Bottleneck
 
-Despite achieving initial cross-domain transfer, the system hit a ceiling. Investigation revealed the root cause: **catastrophic forgetting during Domain B training destroys Domain A knowledge**. Through subject-concept anchoring, predicate matching, concept graph path traversal, and concept vector initialization, this ceiling was broken to 95% top-1. RLMv2 (triple decomposition architecture) further achieves 95.7% overall on a 47-triple benchmark.
+Despite achieving initial cross-domain transfer, the system hit a ceiling. Investigation revealed the root cause: **catastrophic forgetting during Domain B training destroys Domain A knowledge**. Through subject-concept anchoring, predicate matching, concept graph path traversal, and concept vector initialization, this ceiling was broken to 95% top-1. RLMv2 (triple decomposition architecture) achieves 80.9% overall top-10 on a 47-triple benchmark.
 
 ### 5.1 Quantifying the Forgetting
 
@@ -338,17 +338,17 @@ Once bridged, the system traverses the concept graph from the bridge candidates:
 
 ### Results
 
-12 held-out terms never seen during training, 22 queries across 6 relation types (from experiment_reverse_inheritance.py):
+12 held-out terms never seen during training, 22 queries across 6 relation types (verified 2026-06-03):
 
 | Metric | Value |
 |--------|-------|
 | Bridge accuracy | 67% (8/12 terms) |
-| Query success | 91% (20/22 queries) |
-| Object hit rate | 90% (28/31 expected objects) |
+| Query success | 95% (21/22 queries) |
+| Object hit rate | 94% (29/31 expected objects) |
 
-Progression: 45% → 52% → 61% → 68% → 91% query success across 5 iterations. Only matcha fails (MiniLM embedding 0.32 sim — model limitation, not architecture).
+Progression: 45% → 52% → 61% → 68% → 95% query success across 5 iterations. Only matcha fails to get bridged/queried correctly (MiniLM embedding 0.32 sim — model limitation, not architecture).
 
-**Cross-experiment variation:** These numbers are the best case from experiment_reverse_inheritance.py (67% bridge, 91% query, 90% object). experiment_held_out_transfer.py shows lower results: 33% bridge, 41% query, 39% object. The full cross-domain experiment (experiment_cross_domain.py) shows 0% neutral transfer, indicating these probe-specific results do not yet generalize.
+**Cross-experiment variation:** These numbers are verified from experiment_reverse_inheritance.py and experiment_final_bridge.py (67% bridge, 95% query, 94% object). The held-out transfer experiment (experiment_held_out_transfer.py) also shows significantly improved results with all fixes applied: 67% bridge, 82% query, 81% object. The full cross-domain experiment (experiment_cross_domain.py) still shows 0% neutral transfer, indicating these probe-specific results do not yet generalize.
 
 ---
 
@@ -361,9 +361,11 @@ New modules added to the framework:
 - LearnedEmbedder (ravana-v2/core/embedder.py, 188 lines): Character n-gram + random projection
 
 Updated codebase metrics:
-- ravana_ml/: 11,993 lines across 20 files
-- ravana-v2/core/: 13,600 lines across 33 files
-- Total: 46,059 lines across 159 files
+- ravana_ml/: 4,383 lines across 16 files
+- ravana-v2/core/: 10,162 lines across 27 files
+- ravana/: 855 lines across 10 files
+- Source total: ~15,400 lines (53 Python files)
+- Full project Python: ~40,700 lines (170 files)
 
 ---
 
@@ -417,7 +419,7 @@ RAVANA's current limitations are significant and honest:
 
 - **Sample efficiency**: RLM requires more exposures per fact than a backprop-trained MLP (rank improvement +5.8 vs +152.8 per example).
 - **Speed**: RLM is approximately 14x slower per step than an MLP (down from 100x after optimization).
-- **Cross-domain transfer**: 95% top-1 / 100% top-10 cross-domain transfer achieved through subject-concept anchoring, predicate matching, concept graph path traversal, and concept vector initialization. RLMv2 further achieves 95.7% overall on a 47-triple benchmark.
+- **Cross-domain transfer**: 95% top-1 / 100% top-10 cross-domain transfer achieved through subject-concept anchoring, predicate matching, concept graph path traversal, and concept vector initialization. RLMv2 achieves 80.9% overall top-10 on a 47-triple benchmark.
 - **Lifelong retention**: the 100k Hebbian-only baseline stabilizes at 40.8% retention with +12% forgetting. With three-pronged defense (replay + EWC + Bayesian), this improves to 47.6% retention with 0% catastrophic forgetting on a 15K benchmark.
 - **Scale**: the system has been validated on small vocabularies (256 tokens) and small concept graphs (384 nodes). Scaling to realistic vocabularies and knowledge bases remains an open challenge.
 - **Relation predictor backpropagation**: the sole backprop-trained component creates an architectural inconsistency. Whether this can be replaced with a local learning rule (e.g., equilibrium propagation or target propagation) is an open question.
@@ -426,11 +428,11 @@ RAVANA's current limitations are significant and honest:
 
 ## 8. Conclusion
 
-RAVANA demonstrates that a pressure-driven cognitive architecture can achieve 95% top-1 / 100% top-10 cross-domain transfer without backpropagation (except for a small relation predictor), and that the catastrophic forgetting bottleneck can be solved through biologically-inspired sleep-time interleaved replay. RLMv2 (triple decomposition architecture) further achieves 95.7% overall and 75% cross-domain causal on a 47-triple benchmark via vector arithmetic analogy and relation-aware spreading activation.
+RAVANA demonstrates that a pressure-driven cognitive architecture can achieve 95% top-1 / 100% top-10 cross-domain transfer without backpropagation (except for a small relation predictor), and that the catastrophic forgetting bottleneck can be solved through biologically-inspired sleep-time interleaved replay. RLMv2 (triple decomposition architecture) achieves 80.9% overall top-10 and 75% top-10 cross-domain causal on a 47-triple benchmark (500 epochs) via vector arithmetic analogy and relation-aware spreading activation.
 
 The journey had three phases. First, from 0% to 100% within-domain accuracy through relation vector type separation, sleep frequency tuning, and adaptive homeostatic downscale. Second, from 0% to 95% cross-domain transfer through subject-concept anchoring, predicate matching, concept graph path traversal, and concept vector initialization. Third, from catastrophic forgetting to zero forgetting through sleep-time interleaved replay, EWC, and Bayesian semantic graph posteriors -- completely eliminating the Domain A retention delta.
 
-A full lifelong benchmark confirmed long-term stability: the Hebbian-only baseline stabilizes at 40.8% retention over 95,000 steps, while the three-pronged defense (replay + EWC + Bayesian) achieves 47.6% retention with 0% catastrophic forgetting on a 15K benchmark. RLMv2 (triple decomposition architecture) further achieves 95.7% overall and 75% cross-domain causal on a 47-triple benchmark via vector arithmetic analogy and relation-aware spreading activation.
+A full lifelong benchmark confirmed long-term stability: the Hebbian-only baseline stabilizes at 40.8% retention over 95,000 steps, while the three-pronged defense (replay + EWC + Bayesian) achieves 47.6% retention with 0% catastrophic forgetting on a 15K benchmark. RLMv2 (triple decomposition architecture) achieves 80.9% overall top-10 and 75% top-10 cross-domain causal on a 47-triple benchmark (500 epochs) via vector arithmetic analogy and relation-aware spreading activation.
 
 RAVANA is not a replacement for transformers or gradient descent. It is an exploration of an alternative paradigm -- one where cognition emerges from pressure, not gradients; where knowledge self-organizes, rather than being optimized; and where sleep is not a metaphor but a computational necessity. The results so far -- 100% within-domain recall, 95% cross-domain transfer, 0% catastrophic forgetting -- demonstrate that this paradigm can support genuine learning, consolidation, and generalization. The path from here to human-level continual learning will require addressing sample efficiency, scale, and the fundamental question of whether the relation predictor's backpropagation can be replaced with a purely local learning rule.
 
@@ -499,3 +501,5 @@ Zenke, F., Poole, B., and Ganguli, S. (2017). Continual learning through synapti
 | Compositional generalization | -- | 100% (RLM) vs 33% (MLP) | 3x advantage |
 | Step time | 452ms | 70ms (hardware-dependent) | 6.5x speedup |
 | Sleep cycle time | 656ms | 255ms | 2.6x speedup |
+| RLMv2 v6 benchmark (500ep) | BROKEN | **80.9% top-10** | Fixed & improved |
+| Relation vector separation | 0.342 | **0.551** | +61% improvement |

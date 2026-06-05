@@ -12,9 +12,15 @@ Logic:
   → plant needs sunlight, water, soil
 """
 import sys
+import os
 import io
 import time
 import numpy as np
+
+# Ensure project root is in sys.path
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 

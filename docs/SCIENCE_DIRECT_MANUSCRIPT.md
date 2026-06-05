@@ -11,7 +11,7 @@ Continual learning systems face a fundamental stability-plasticity dilemma: the 
 
 We report three major empirical results from this architecture: 
 1. **0% to 100% Top-1 Recall**: Achieved within-domain through the resolution of five distinct representational pathologies (relation vector collapse, starved contrastive dynamics, type-blind multi-hop traversal, default semantic shortcuts, and syntax-only classification).
-2. **Cross-Domain Analogy**: The first non-zero cross-domain structural transfer in a purely Hebbian cognitive network, achieving **95% top-1 and 100% top-10 accuracy** on analogical probes across semantically distinct vocabularies (e.g., transferring causal structures from physical sciences to social emotions) using subject-concept anchoring, predicate matching, concept graph path traversal, and concept vector initialization. RLMv2 (triple decomposition architecture) further achieves **95.7% overall** and **75% cross-domain causal** on a 47-triple benchmark via vector arithmetic analogy and relation-aware spreading activation.
+2. **Cross-Domain Analogy**: The first non-zero cross-domain structural transfer in a purely Hebbian cognitive network, achieving **95% top-1 and 100% top-10 accuracy** on analogical probes across semantically distinct vocabularies (e.g., transferring causal structures from physical sciences to social emotions) using subject-concept anchoring, predicate matching, concept graph path traversal, and concept vector initialization. RLMv2 (triple decomposition architecture) achieves **80.9% overall top-10** and **75% top-10 cross-domain causal** on a 47-triple benchmark (500 epochs) via vector arithmetic analogy and relation-aware spreading activation.
 3. **Catastrophic Forgetting Elimination**: Under a lifelong streaming benchmark of 15,000 to 100,000 experiences with 5 sequential entity epochs, the introduction of a three-pronged defense—slow-wave and REM sleep-time interleaved replay, Elastic Weight Consolidation adapted for Hebbian synapses, and a Bayesian semantic graph carrying Beta posteriors—reduced catastrophic forgetting from **12.0% to 0.0%**, keeping long-term retention stable at **47.6%** (peaking at **52%** in previously damaged epochs) with 384 self-organized concepts and over 21,000 edges.
 4. **Non-Zero-Sum Fairness**: In a large-scale classroom interaction pilot ($N = 10,000$), RAVANA v2's governor reduced the demographic parity gap by **60.1%** (from 19.58% to 7.81%) while simultaneously increasing absolute success rates for both advantaged and disadvantaged groups, demonstrating that equity and alignment can emerge from internal consistency dynamics rather than externally imposed constraints.
 
@@ -528,9 +528,9 @@ A critical finding is that dimensionality projection must be avoided: random pro
 
 Composed reasoning traverses the concept graph from bridge candidates using four mechanisms: (1) independent BFS per candidate to prevent cross-contamination, (2) depth decay (0.7x per hop) to prevent deeper results from overwhelming shallower ones, (3) reverse edge inheritance to propagate properties from children to parents, and (4) bridge-as-candidate for taxonomic queries.
 
-On 12 held-out terms (22 queries, 6 relation types): 91% query success, 90% object hit rate. This demonstrates that the architecture can generalize to concepts never seen during training, provided the embedding space is not projected.
+On 12 held-out terms (22 queries, 6 relation types): 95% query success, 94% object hit rate. This demonstrates that the architecture can generalize to concepts never seen during training, provided the embedding space is not projected.
 
-**Note on benchmark variation:** The 91% query success result is from `experiment_reverse_inheritance.py` (best case, 12 held-out terms, 22 queries). Other test configurations yield lower results: `experiment_held_out_transfer.py` shows 41% query success, and the full cross-domain experiment (`experiment_cross_domain.py`) shows 0% neutral transfer on standard probes. The NN bridge composed reasoning works for held-out terms with known relation patterns but does not yet generalize to full cross-domain transfer.
+**Note on benchmark variation:** The 95% query success result is from `experiment_reverse_inheritance.py` (best case, 12 held-out terms, 22 queries). Other test configurations yield: `experiment_held_out_transfer.py` shows 82% query success, and the full cross-domain experiment (`experiment_cross_domain.py`) shows 0% neutral transfer on standard probes. The NN bridge composed reasoning works for held-out terms with known relation patterns but does not yet generalize to full cross-domain transfer.
 
 ### Supporting Infrastructure
 
@@ -539,13 +539,13 @@ On 12 held-out terms (22 queries, 6 relation types): 91% query success, 90% obje
 - Word Tokenizer (`ravana_ml/word_tokenizer.py`, 46 lines)
 - LearnedEmbedder (`ravana-v2/core/embedder.py`, 188 lines)
 
-Updated codebase: 46,059 lines across 159 files.
+Updated codebase: ~40,700 lines across 170 Python files (source: ~15,400).
 
 ---
 
 ## 8. Conclusion
 
-This paper presented RAVANA, a non-gradient cognitive architecture where learning and stability emerge from pressure-driven self-organization. Starting from 0% within-domain recall, we resolved five key pathologies to achieve 100% accuracy. We demonstrated cross-domain transfer of 95% top-1 / 100% top-10 accuracy on structural analogy probes without global loss functions, achieved through subject-concept anchoring, predicate matching, concept graph path traversal, and concept vector initialization. RLMv2 (triple decomposition architecture) further achieves 95.7% overall and 75% cross-domain causal on a 47-triple benchmark. Catastrophic forgetting was eliminated in a lifelong streaming benchmark using sleep-time interleaved replay, Hebbian EWC, and Bayesian semantic graph posteriors. Finally, RAVANA v2's governor achieved a 60.1% reduction in demographic parity gap while increasing success rates across all groups in a student interaction pilot.
+This paper presented RAVANA, a non-gradient cognitive architecture where learning and stability emerge from pressure-driven self-organization. Starting from 0% within-domain recall, we resolved five key pathologies to achieve 100% accuracy. We demonstrated cross-domain transfer of 95% top-1 / 100% top-10 accuracy on structural analogy probes without global loss functions, achieved through subject-concept anchoring, predicate matching, concept graph path traversal, and concept vector initialization. RLMv2 (triple decomposition architecture) achieves 80.9% overall top-10 and 75% top-10 cross-domain causal on a 47-triple benchmark. Catastrophic forgetting was eliminated in a lifelong streaming benchmark using sleep-time interleaved replay, Hebbian EWC, and Bayesian semantic graph posteriors. Finally, RAVANA v2's governor achieved a 60.1% reduction in demographic parity gap while increasing success rates across all groups in a student interaction pilot.
 
 Our results suggest that biologically inspired mechanisms—including Hebbian learning, sleep consolidation, and homeostatic regulation—can support learning, consolidation, and generalization. RAVANA offers an alternative paradigm for continual learning, combining structural transparency with low-power, CPU-native execution.
 
