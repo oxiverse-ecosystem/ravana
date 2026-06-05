@@ -422,11 +422,15 @@ This standardizes the gate to local activation density, suppressing semantic fog
 
 | Metric | Pre-Alignment | Post Single Sleep | 12-Epoch Wake-Sleep Cycle (sleep every 3) |
 |--------|---------------|-------------------|-------------------------------------------|
-| Traversal Success Rate | 66.7% | 83.3% (early-stop) | K=5: 50%, K=10: 50%, K=20: 66.7% |
-| Graph-Neighbor Recall@5 | 10.7% | 5.4% | Stabilizes ~5-10% |
-| Hard/OOD Seed Ranks | gravity→loyalty Rank 9 | Rank 3-5 | Consistently top-5 |
+| Traversal Success Rate | 16.7% | 33.3% | Epoch 1: 50% → Epoch 12: 16.7% (fluctuates, returns to baseline) |
+| Graph-Neighbor Recall@5 | 7.1% | 7.1% | 5.4%–8.9% (varies per epoch) |
+| K=5 Traversal (margin_multi) | — | 33.3% | 16.7% |
+| K=10 Traversal (margin_multi) | — | 33.3% | 16.7% |
+| K=20 Traversal (margin_multi) | — | 33.3% | **66.7%** |
+| K=20 Traversal (adaptive_margin) | — | 33.3% | **66.7%** |
+| Hard/OOD Seed Ranks | gravity→loyalty Rank 21 | gravity→loyalty Rank 4 | Varies (not consistently top-5) |
 
-**Key finding**: Wake-sleep cycle maintains **stable performance over 12 epochs** — no degradation. Without sleep, 10 wake epochs cause Hebbian drift (distractor edges `hostility→isolation` 0.34→0.45, `support→obligation` 0.34→0.45 growing as fast as signal).
+**Key finding**: Single sleep cycle improves traversal from 16.7% → 33.3% (+16.7pp). However, the 12-epoch wake-sleep cycle **does not maintain stable performance** — traversal fluctuates and degrades back to 16.7% at epoch 12. Both adaptive_margin and margin_multi gates achieve **66.7% at K=20**, suggesting high-K retrieval benefits from alignment even when top-5/10 traversal fluctuates. Hebbian drift is partially but not fully mitigated by the current sleep cadence (every 3 epochs). The adaptive_margin gate performs equivalently to margin_multi at K=20 in this configuration.
 
 ---
 

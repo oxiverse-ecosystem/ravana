@@ -479,15 +479,17 @@ Replaces `margin_multi` for high-K scenarios; standardizes the margin to local a
 
 ### Validation Results (Seed 42, `encoder_32d_fixed.pkl`)
 
-| Metric | Pre-Alignment | Post Single Sleep | After 12-Epoch Cycle (sleep every 3) |
-|--------|---------------|-------------------|--------------------------------------|
-| Traversal Success Rate | 66.7% | 66.7% → **83.3%*** | K=5: 50%, K=10: 50%, K=20: 66.7% |
-| Graph-Neighbor Recall@5 | 10.7% | 10.7% → 5.4% | Stabilizes ~5-10% |
-| Hard/OOD Seed Ranks | gravity→loyalty Rank 9 | → Rank 3-5 | Consistently top-5 |
+| Metric | Pre-Alignment | Post Single Sleep | Wake-Sleep Cycle (12 epochs, sleep every 3) |
+|--------|---------------|-------------------|---------------------------------------------|
+| Traversal Success Rate | 16.7% | 33.3% | Epoch 1: 50% → Epoch 12: 16.7% (fluctuates) |
+| Graph-Neighbor Recall@5 | 7.1% | 7.1% | 5.4%–8.9% (varies per epoch) |
+| K-Sweep (margin_multi) | — | K=5: 33.3%, K=10: 33.3%, K=20: 33.3% | K=5: 16.7%, K=10: 16.7%, K=20: **66.7%** |
+| K-Sweep (adaptive_margin) | — | K=5: 33.3%, K=10: 33.3%, K=20: 33.3% | K=5: 16.7%, K=10: 16.7%, K=20: **66.7%** |
+| Hard/OOD Seed Ranks | gravity→loyalty Rank 21 | gravity→loyalty Rank 4 | Varies (not consistently top-5) |
 
-*Alignment early-stops when no improvement detected — second run shows pre-accuracy already at 83.3% from checkpoint.
+*Alignment early-stops when no improvement detected — second run shows pre-accuracy already at 83.3% from checkpoint.*
 
-**Wake-sleep cycle maintains stable performance over 12 epochs** — no degradation, demonstrating periodic homeostasis prevents Hebbian drift (distractor edges like `hostility→isolation` 0.34→0.45 were growing as fast as signal without sleep).
+**Key finding**: Single sleep cycle improves traversal from 16.7% → 33.3% (+16.7pp). However, the 12-epoch wake-sleep cycle **does not maintain stable performance** — traversal fluctuates (50% → 16.7% → 8.9% → 16.7%) and returns to 16.7% at epoch 12. The adaptive_margin and margin_multi gates both achieve **66.7% at K=20** after the cycle, suggesting high-K retrieval benefits from the alignment even when top-K traversal fluctuates. Hebbian drift is partially mitigated but not fully prevented by the current sleep cadence (every 3 epochs).
 
 ### Files Modified
 

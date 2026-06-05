@@ -452,10 +452,11 @@ Standardizes margin to local activation density; handles semantic fog at high K.
 
 ### Validation Results (Seed 42)
 
-Pre-alignment: 66.7% traversal, 10.7% Recall@5
-Post single sleep: 83.3% traversal (early-stop)
-12-epoch wake-sleep cycle (sleep every 3): Stable K=5: 50%, K=10: 50%, K=20: 66.7%
-Wake-sleep cycle prevents Hebbian drift (distractor edges growing as fast as signal without sleep).
+Pre-alignment: 16.7% traversal, 7.1% Recall@5
+Post single sleep: 33.3% traversal
+12-epoch wake-sleep cycle (sleep every 3): Fluctuates — Epoch 1: 50%, Epoch 3: 16.7%, Epoch 6: 16.7%, Epoch 9: 16.7%, Epoch 12: 16.7%
+K-sweep after cycle: K=5: 16.7%, K=10: 16.7%, K=20: **66.7%** (both gate modes)
+Wake-sleep cycle does **not** maintain stable traversal — fluctuates and degrades to baseline. High-K (K=20) benefits from alignment (66.7%). Hebbian drift partially but not fully mitigated by sleep cadence of 3 epochs.
 
 ---
 
