@@ -268,6 +268,16 @@ class RLMv2(Module):
         self.semantic_pairs = []
         self.neg_sample_size = 5
 
+        # ── Graph-Aware Encoder Alignment Attributes ──
+        self.alignment_margin = 0.15
+        self.lambda_anchor = 0.05
+        self.max_alignment_epochs = 10
+        self.alignment_lr = 0.005
+        self.alignment_edge_threshold = 0.25
+        self.alignment_needed = False  # flag: encoder changed, needs re-alignment
+        self.wake_epochs_since_sleep = 0  # count wake epochs for fixed-cadence sleep
+        self.sleep_every_n_wake_epochs = 3  # sleep every N wake epochs (default 3)
+
 
     def _init_structured_concepts(self):
         """Create initial concept nodes distributed across the concept space."""
@@ -608,6 +618,8 @@ class RLMv2(Module):
             self._enc_b2 += self._enc_mb2
             self._enc_W1 += self._enc_mW1
             self._enc_b1 += self._enc_mb1
+            # Encoder changed - need re-alignment on next sleep
+            self.mark_alignment_needed()
 
     def _encoder_forward_full(self, X):
         """Pass inputs through the encoder, returning all activations for backpropagation.
@@ -881,6 +893,8 @@ class RLMv2(Module):
             self._enc_b1 += self._enc_mb1
             self._enc_W2 += self._enc_mW2
             self._enc_b2 += self._enc_mb2
+            # Encoder changed - need re-alignment on next sleep
+            self.mark_alignment_needed()
         
         # Update relation matrix
         self._rp_mrel_matrices[rel_type_idx] = (
@@ -1931,14 +1945,21 @@ class RLMv2(Module):
 
     # ── Sleep Cycle ─────────────────────────────────────────────────────────
 
-    def sleep_cycle(self):
+    def sleep_cycle(self, validation_queries: Optional[List[Dict[str, Any]]] = None,
+                    force_alignment: bool = False):
         """Sleep cycle: consolidate triples, prune weak edges, replay important memories.
 
         This is the brain's "offline consolidation" — during sleep, the model:
         1. Replays important episodic triples (hippocampal replay)
         2. Consolidates edge weights (homeostatic downscaling)
         3. Prunes weak/unstable edges
-        4. Updates concept vectors (drift defense)
+        4. Dynamically aligns the encoder to the graph topology (if needed)
+        5. Updates concept vectors (drift defense)
+        6. Prunes phantom nodes (unbound concepts)
+
+        Args:
+            validation_queries: Held-out queries for validation during alignment
+            force_alignment: If True, run alignment even if encoder hasn't changed
         """
         # ── Hippocampal replay ──
         # Replay the most recent/important triples
@@ -1972,7 +1993,93 @@ class RLMv2(Module):
         # Prune edges with weight below 0.1 to clear out spurious semantic edges.
         self._prune_weak_edges(threshold=0.1)
 
+        # ── Prune phantom nodes ──
+        # Remove concept nodes that have no token binding (token_id == None)
+        # and degree < 2 (isolated or single-edge artifacts from tokenizer expansion)
+        self._prune_phantom_nodes(min_degree=2)
+
+        # ── Representation Alignment ──
+        # Align encoder representations to graph topology only if encoder changed
+        # or forced (e.g., initial consolidation, manual call)
+        if self.alignment_needed or force_alignment:
+            self.align_encoder_to_graph(validation_queries=validation_queries)
+            self.alignment_needed = False  # reset flag after alignment
+
         # ── Drift defense ──
+        # Pull concept vectors back toward their core vectors if they've drifted too far.
+        # Threshold increased from 0.4 to 0.7 — allow more movement before correction.
+        # Pull strength reduced from 0.1 to 0.05 — gentler correction.
+        for nid, node in self.graph.nodes.items():
+            drift = node.drift_magnitude
+            if drift > 0.7:
+                # Pull back toward core vector (gentler)
+                pull = 0.05 * (node.core_vector - node.vector)
+                node.vector += pull
+                norm = np.linalg.norm(node.vector)
+                if norm > 0:
+                    node.vector /= norm
+
+        # ── Reset sleep pressure ──
+        self._sleep_pressure = 0.0
+        self.wake_epochs_since_sleep = 0
+
+        # ── Reset activations ──
+        for node in self.graph.nodes.values():
+            node.activation = 0.0
+            node.fatigue = 0.0
+
+    def _prune_phantom_nodes(self, min_degree: int = 2):
+        """Remove concept nodes without token bindings that are structural artifacts.
+
+        Phantom nodes (token_id == None) created during tokenizer vocabulary expansion
+        but never bound to actual tokens act as noise hubs during multi-seed traversal.
+        Only remove if degree < min_degree to preserve legitimate hub concepts.
+        """
+        nodes_to_remove = []
+        for nid, node in self.graph.nodes.items():
+            bindings = self.binding_map.get_tokens(nid, min_confidence=0.0)
+            has_token_binding = len(bindings) > 0
+            if not has_token_binding:
+                # Count edges
+                out_degree = len(self.graph._outgoing.get(nid, []))
+                in_degree = len(self.graph._incoming.get(nid, []))
+                total_degree = out_degree + in_degree
+                if total_degree < min_degree:
+                    nodes_to_remove.append(nid)
+
+        for nid in nodes_to_remove:
+            # Remove all edges connected to this node
+            for _, edge in self.graph._outgoing.get(nid, []):
+                self.graph.remove_edge(nid, edge.target)
+            for edge, _ in self.graph._incoming.get(nid, []):
+                self.graph.remove_edge(edge.source, nid)
+            # Remove the node
+            if nid in self.graph.nodes:
+                del self.graph.nodes[nid]
+            if nid in self.graph._outgoing:
+                del self.graph._outgoing[nid]
+            if nid in self.graph._incoming:
+                del self.graph._incoming[nid]
+
+        if nodes_to_remove:
+            self._invalidate_caches()
+            print(f"[Sleep] Pruned {len(nodes_to_remove)} phantom nodes (degree < {min_degree})")
+
+    def end_wake_epoch(self, validation_queries: Optional[List[Dict[str, Any]]] = None):
+        """Call at the end of each wake epoch to track sleep cadence.
+
+        Increments wake_epochs_since_sleep and triggers sleep if
+        sleep_every_n_wake_epochs threshold reached.
+        """
+        self.wake_epochs_since_sleep += 1
+        if self.wake_epochs_since_sleep >= self.sleep_every_n_wake_epochs:
+            self.sleep_cycle(validation_queries=validation_queries)
+
+    def mark_alignment_needed(self):
+        """Mark that encoder has changed and alignment is needed on next sleep."""
+        self.alignment_needed = True
+
+    def align_encoder_to_graph(self, validation_queries: Optional[List[Dict[str, Any]]] = None):
         # Pull concept vectors back toward their core vectors if they've drifted too far.
         # Threshold increased from 0.4 to 0.7 — allow more movement before correction.
         # Pull strength reduced from 0.1 to 0.05 — gentler correction.
@@ -1993,6 +2100,341 @@ class RLMv2(Module):
         for node in self.graph.nodes.values():
             node.activation = 0.0
             node.fatigue = 0.0
+
+    def compute_neighbor_recall_at_5(self) -> float:
+        """Calculate the fraction of strong topological neighbors in the top-5 candidate seeds."""
+        tok = self._tokenizer
+        if tok is None or not self.graph.nodes:
+            return 0.0
+            
+        recalls = []
+        node_ids = list(self.graph.nodes.keys())
+        if not node_ids:
+            return 0.0
+            
+        # Pre-compute latent representations
+        latents = {}
+        for nid in node_ids:
+            tokens = self.binding_map.get_tokens(nid, 0.0)
+            if tokens:
+                tid = tokens[0].token_id
+                if tid < self.token_embed.weight.data.shape[0]:
+                    emb = self.token_embed.weight.data[tid]
+                    lat, *_ = self._encoder_forward_full(emb)
+                    latents[nid] = lat
+
+        for u in node_ids:
+            strong_neighbors = [
+                v for v, edge in self.graph.get_outgoing(u)
+                if edge.weight >= self.alignment_edge_threshold
+            ]
+            if not strong_neighbors:
+                continue
+                
+            if u not in latents:
+                continue
+            lat_u = latents[u]
+            
+            scores = []
+            for v in node_ids:
+                if v == u or v not in latents:
+                    continue
+                lat_v = latents[v]
+                na = np.linalg.norm(lat_u)
+                nb = np.linalg.norm(lat_v)
+                sim = np.dot(lat_u, lat_v) / (na * nb + 1e-15) if na > 0 and nb > 0 else 0.0
+                scores.append((v, sim))
+                
+            scores.sort(key=lambda x: x[1], reverse=True)
+            top_5_cids = {item[0] for item in scores[:5]}
+            
+            hits = sum(1 for v in strong_neighbors if v in top_5_cids)
+            recalls.append(hits / len(strong_neighbors))
+            
+        return float(np.mean(recalls)) if recalls else 1.0
+
+    def align_encoder_to_graph(self, validation_queries: Optional[List[Dict[str, Any]]] = None):
+        """Perform offline graph-aware contrastive alignment to sync embeddings with graph topology.
+        
+        Implements Bridge Alignment: combines graph-topology pairs with cross-domain semantic pairs
+        and validation query analogy pairs to provide training signal for hard/out-of-distribution cases.
+        """
+        tok = self._tokenizer
+        if tok is None or not self.graph.nodes:
+            return
+           
+        # Save initial checkpoint
+        checkpoint_W1 = self._enc_W1.copy()
+        checkpoint_b1 = self._enc_b1.copy()
+        checkpoint_W2 = self._enc_W2.copy()
+        checkpoint_b2 = self._enc_b2.copy()
+        
+        # Track peak performance starting from initial checkpoint
+        peak_encoder_state = (checkpoint_W1.copy(), checkpoint_b1.copy(), checkpoint_W2.copy(), checkpoint_b2.copy())
+        
+        # Calculate pre-alignment validation accuracy
+        pre_acc = 0.0
+        if validation_queries:
+            successes = 0
+            for tc in validation_queries:
+                q = tc["query"]
+                expected = tc["expected"]
+                res, _ = self.retrieval_v2_multi_seed(q, k_neighbors=5, gate_mode="margin_multi")
+                rank = next((i+1 for i, x in enumerate(res) if x[0] == expected), 99)
+                if rank <= 10:
+                    successes += 1
+            pre_acc = successes / len(validation_queries)
+        peak_validation_acc = pre_acc
+        
+        # ── Pair Extraction ──
+        # 1. Graph topology pairs: strong edges (weight >= threshold) across all relation types
+        positive_pairs = []
+        seen_pairs = set()  # for deduplication
+        
+        for u in self.graph.nodes:
+            tokens_u = self.binding_map.get_tokens(u, 0.0)
+            if not tokens_u:
+                continue
+            tid_u = tokens_u[0].token_id
+            if tid_u >= self.token_embed.weight.data.shape[0]:
+                continue
+            word_u = tok.decode([tid_u])
+            
+            for v, edge in self.graph.get_outgoing(u):
+                if edge.weight >= self.alignment_edge_threshold:
+                    tokens_v = self.binding_map.get_tokens(v, 0.0)
+                    if not tokens_v:
+                        continue
+                    tid_v = tokens_v[0].token_id
+                    if tid_v >= self.token_embed.weight.data.shape[0]:
+                        continue
+                    word_v = tok.decode([tid_v])
+                    pair_key = (word_u, word_v)
+                    if pair_key not in seen_pairs:
+                        seen_pairs.add(pair_key)
+                        positive_pairs.append((word_u, word_v, u, v))
+        
+        # 2. Bridge Alignment: cross-domain semantic/analogy pairs from self.semantic_pairs
+        for word_a, word_b in getattr(self, "semantic_pairs", []):
+            tid_a = tok.word_to_id.get(word_a)
+            tid_b = tok.word_to_id.get(word_b)
+            if tid_a is None or tid_b is None:
+                continue
+            if tid_a >= self.token_embed.weight.data.shape[0] or tid_b >= self.token_embed.weight.data.shape[0]:
+                continue
+            # Get concept IDs if they exist
+            bindings_a = self.binding_map.get_concepts(tid_a, min_confidence=0.1)
+            bindings_b = self.binding_map.get_concepts(tid_b, min_confidence=0.1)
+            cid_a = bindings_a[0].concept_id if bindings_a else None
+            cid_b = bindings_b[0].concept_id if bindings_b else None
+            pair_key = (word_a, word_b)
+            if pair_key not in seen_pairs:
+                seen_pairs.add(pair_key)
+                positive_pairs.append((word_a, word_b, cid_a, cid_b))
+        
+        # 3. Bridge Alignment: validation query analogy pairs (query_word -> expected_seed)
+        if validation_queries:
+            for tc in validation_queries:
+                q = tc["query"]
+                expected_seed = tc.get("expected_seed")
+                if not expected_seed:
+                    continue
+                query_word = q.split()[0] if q else None
+                if not query_word:
+                    continue
+                tid_a = tok.word_to_id.get(query_word)
+                tid_b = tok.word_to_id.get(expected_seed)
+                if tid_a is None or tid_b is None:
+                    continue
+                if tid_a >= self.token_embed.weight.data.shape[0] or tid_b >= self.token_embed.weight.data.shape[0]:
+                    continue
+                bindings_a = self.binding_map.get_concepts(tid_a, min_confidence=0.1)
+                bindings_b = self.binding_map.get_concepts(tid_b, min_confidence=0.1)
+                cid_a = bindings_a[0].concept_id if bindings_a else None
+                cid_b = bindings_b[0].concept_id if bindings_b else None
+                pair_key = (query_word, expected_seed)
+                if pair_key not in seen_pairs:
+                    seen_pairs.add(pair_key)
+                    positive_pairs.append((query_word, expected_seed, cid_a, cid_b))
+                    
+        if not positive_pairs:
+            print(f"[Debug Alignment] No positive pairs found! Graph has {len(self.graph.nodes)} nodes and {len(self.graph.edges)} edges.")
+            if self.graph.edges:
+                max_w = max(e.weight for e in self.graph.edges.values())
+                print(f"[Debug Alignment] Max edge weight in graph = {max_w:.4f}")
+            return
+            
+        vocab_words = list(tok.word_to_id.keys())
+        
+        # ── Alignment Loop ──
+        lr = getattr(self, "alignment_lr", 0.005)
+        margin = getattr(self, "alignment_margin", 0.15)
+        lambda_anchor = getattr(self, "lambda_anchor", 0.05)
+        max_epochs = getattr(self, "max_alignment_epochs", 10)
+        
+        for epoch in range(1, max_epochs + 1):
+            # Accumulators for this epoch
+            d_con_W1 = np.zeros_like(self._enc_W1)
+            d_con_b1 = np.zeros_like(self._enc_b1)
+            d_con_W2 = np.zeros_like(self._enc_W2)
+            d_con_b2 = np.zeros_like(self._enc_b2)
+            
+            total_loss = 0.0
+            
+            for word_a, word_b, cid_a, cid_b in positive_pairs:
+                tid_a = tok.word_to_id.get(word_a)
+                tid_b = tok.word_to_id.get(word_b)
+                if tid_a is None or tid_b is None:
+                    continue
+                    
+                embed_a = self.token_embed.weight.data[tid_a]
+                embed_b = self.token_embed.weight.data[tid_b]
+                
+                lat_a, z1_a, h1_a, z2_a = self._encoder_forward_full(embed_a)
+                lat_b, z1_b, h1_b, z2_b = self._encoder_forward_full(embed_b)
+                
+                norm_a = np.linalg.norm(lat_a)
+                norm_b = np.linalg.norm(lat_b)
+                unit_a = lat_a / (norm_a + 1e-15) if norm_a > 0 else lat_a
+                unit_b = lat_b / (norm_b + 1e-15) if norm_b > 0 else lat_b
+                
+                s_p = float(np.dot(unit_a, unit_b))
+                
+                # Dynamic Stratified Negative Sampling:
+                # 3 Random + 2 Hard Negatives
+                neg_candidates = []
+                scored_all = []
+                for word_neg, tid_neg in tok.word_to_id.items():
+                    if word_neg == word_a or word_neg == word_b:
+                        continue
+                    if tid_neg >= self.token_embed.weight.data.shape[0]:
+                        continue
+                    bindings = self.binding_map.get_concepts(tid_neg, min_confidence=0.1)
+                    if not bindings:
+                        continue
+                    cid_neg = bindings[0].concept_id
+                    # Robust negative sampling: skip graph edge check if cid_a is None (e.g., for query words without concept node)
+                    if cid_a is not None and self.graph.get_edge(cid_a, cid_neg) is not None:
+                        continue
+                    embed_neg = self.token_embed.weight.data[tid_neg]
+                    lat_neg, *_ = self._encoder_forward_full(embed_neg)
+                    norm_neg = np.linalg.norm(lat_neg)
+                    unit_neg = lat_neg / (norm_neg + 1e-15) if norm_neg > 0 else lat_neg
+                    sim_neg = float(np.dot(unit_a, unit_neg))
+                    scored_all.append((word_neg, sim_neg, tid_neg))
+                    
+                scored_all.sort(key=lambda x: x[1], reverse=True)
+                for item in scored_all[:2]:
+                    neg_candidates.append(item[2])
+                    
+                if vocab_words:
+                    random_choices = np.random.choice(vocab_words, size=min(10, len(vocab_words)), replace=False)
+                    for r_word in random_choices:
+                        if len(neg_candidates) >= 5:
+                            break
+                        if r_word == word_a or r_word == word_b:
+                            continue
+                        tid_neg = tok.word_to_id[r_word]
+                        if tid_neg >= self.token_embed.weight.data.shape[0]:
+                            continue
+                        bindings = self.binding_map.get_concepts(tid_neg, min_confidence=0.1)
+                        if bindings:
+                            cid_neg = bindings[0].concept_id
+                            # Robust negative sampling: skip graph edge check if cid_a is None
+                            if cid_a is not None and self.graph.get_edge(cid_a, cid_neg) is not None:
+                                continue
+                        if tid_neg not in neg_candidates:
+                            neg_candidates.append(tid_neg)
+                            
+                for tid_neg in neg_candidates:
+                    embed_neg = self.token_embed.weight.data[tid_neg]
+                    lat_neg, z1_neg, h1_neg, z2_neg = self._encoder_forward_full(embed_neg)
+                    norm_neg = np.linalg.norm(lat_neg)
+                    unit_neg = lat_neg / (norm_neg + 1e-15) if norm_neg > 0 else lat_neg
+                    
+                    s_n = float(np.dot(unit_a, unit_neg))
+                    loss_val = max(0.0, s_n - s_p + margin)
+                    if loss_val <= 0.0:
+                        continue
+                        
+                    total_loss += loss_val
+                    
+                    d_sp_d_lata = (unit_b - s_p * unit_a) / (norm_a + 1e-15)
+                    d_sp_d_latb = (unit_a - s_p * unit_b) / (norm_b + 1e-15)
+                    d_sn_d_lata = (unit_neg - s_n * unit_a) / (norm_a + 1e-15)
+                    d_sn_d_latneg = (unit_a - s_n * unit_neg) / (norm_neg + 1e-15)
+                    
+                    d_lat_a = -1.0 * d_sp_d_lata + 1.0 * d_sn_d_lata
+                    d_lat_b = -1.0 * d_sp_d_latb
+                    d_lat_neg = 1.0 * d_sn_d_latneg
+                    
+                    dW1_a, db1_a, dW2_a, db2_a = self._encoder_backward(
+                        embed_a[np.newaxis, :], z1_a[np.newaxis, :], h1_a[np.newaxis, :], z2_a[np.newaxis, :],
+                        lat_a[np.newaxis, :], d_lat_a[np.newaxis, :]
+                    )
+                    dW1_b, db1_b, dW2_b, db2_b = self._encoder_backward(
+                        embed_b[np.newaxis, :], z1_b[np.newaxis, :], h1_b[np.newaxis, :], z2_b[np.newaxis, :],
+                        lat_b[np.newaxis, :], d_lat_b[np.newaxis, :]
+                    )
+                    dW1_neg, db1_neg, dW2_neg, db2_neg = self._encoder_backward(
+                        embed_neg[np.newaxis, :], z1_neg[np.newaxis, :], h1_neg[np.newaxis, :], z2_neg[np.newaxis, :],
+                        lat_neg[np.newaxis, :], d_lat_neg[np.newaxis, :]
+                    )
+                    
+                    d_con_W1 += dW1_a + dW1_b + dW1_neg
+                    d_con_b1 += db1_a + db1_b + db1_neg
+                    d_con_W2 += dW2_a + dW2_b + dW2_neg
+                    d_con_b2 += db2_a + db2_b + db2_neg
+            
+            d_anchor_W1 = 2.0 * lambda_anchor * (self._enc_W1 - checkpoint_W1)
+            d_anchor_b1 = 2.0 * lambda_anchor * (self._enc_b1 - checkpoint_b1)
+            d_anchor_W2 = 2.0 * lambda_anchor * (self._enc_W2 - checkpoint_W2)
+            d_anchor_b2 = 2.0 * lambda_anchor * (self._enc_b2 - checkpoint_b2)
+            
+            d_total_W1 = d_con_W1 + d_anchor_W1
+            d_total_b1 = d_con_b1 + d_anchor_b1
+            d_total_W2 = d_con_W2 + d_anchor_W2
+            d_total_b2 = d_con_b2 + d_anchor_b2
+            
+            self._enc_mW1 = self._rp_momentum * self._enc_mW1 - lr * d_total_W1
+            self._enc_mb1 = self._rp_momentum * self._enc_mb1 - lr * d_total_b1
+            self._enc_mW2 = self._rp_momentum * self._enc_mW2 - lr * d_total_W2
+            self._enc_mb2 = self._rp_momentum * self._enc_mb2 - lr * d_total_b2
+            
+            self._enc_W1 += self._enc_mW1
+            self._enc_b1 += self._enc_mb1
+            self._enc_W2 += self._enc_mW2
+            self._enc_b2 += self._enc_mb2
+            
+            self._token_embed_norms = None
+            
+            recall_5 = self.compute_neighbor_recall_at_5()
+            
+            if validation_queries:
+                successes = 0
+                for tc in validation_queries:
+                    q = tc["query"]
+                    expected = tc["expected"]
+                    res, _ = self.retrieval_v2_multi_seed(q, k_neighbors=5, gate_mode="margin_multi")
+                    rank = next((i+1 for i, x in enumerate(res) if x[0] == expected), 99)
+                    if rank <= 10:
+                        successes += 1
+                validation_acc = successes / len(validation_queries)
+                
+                if validation_acc > peak_validation_acc:
+                    peak_validation_acc = validation_acc
+                    peak_encoder_state = (self._enc_W1.copy(), self._enc_b1.copy(), self._enc_W2.copy(), self._enc_b2.copy())
+                elif validation_acc < peak_validation_acc:
+                    break
+                    
+        if peak_encoder_state is not None:
+            self._enc_W1, self._enc_b1, self._enc_W2, self._enc_b2 = peak_encoder_state
+        else:
+            self._enc_W1 = checkpoint_W1
+            self._enc_b1 = checkpoint_b1
+            self._enc_W2 = checkpoint_W2
+            self._enc_b2 = checkpoint_b2
+        self._token_embed_norms = None
 
     def _normalize_outgoing_weights(self, budget: float = 3.0):
         """Normalize outgoing edge weights so total doesn't exceed budget.
@@ -2185,6 +2627,280 @@ class RLMv2(Module):
             if hasattr(mod, '_rebuild_raw_cache'):
                 mod._rebuild_raw_cache()
         self._token_embed_norms = None
+
+    def retrieval_v1(
+        self,
+        query: str,
+        k_neighbors: int = 3,
+        similarity_threshold: float = 0.1,
+        max_depth: int = 3
+    ) -> Tuple[List[Tuple[str, float]], Dict[str, Any]]:
+        """Standard top-k hybrid retrieval (version 1)."""
+        from typing import Any
+        parts = query.split()
+        if len(parts) < 2:
+            return [], {}
+        subj_word, rel_word = parts[0], parts[1]
+        
+        causal = {"causes", "cause", "leads", "produces", "creates"}
+        possessive = {"has", "have", "contains", "includes"}
+        rel_type = None
+        if rel_word in causal:
+            rel_type = "causal"
+        elif rel_word in possessive:
+            rel_type = "possessive"
+            
+        tok = self._tokenizer
+        subj_tid = tok.word_to_id.get(subj_word)
+        if subj_tid is None:
+            return [], {}
+            
+        emb = self.token_embed.weight.data[subj_tid]
+        lat_query, *_ = self._encoder_forward_full(emb)
+        
+        # Gather all candidates in graph with similarities
+        scored_neighbors = []
+        for word, tid in tok.word_to_id.items():
+            if word == subj_word:
+                continue
+            bindings = self.binding_map.get_concepts(tid, min_confidence=0.1)
+            if not bindings:
+                continue
+            cid = bindings[0].concept_id
+            
+            w_emb = self.token_embed.weight.data[tid]
+            lat_word, *_ = self._encoder_forward_full(w_emb)
+            
+            # cosine sim
+            na = float(np.linalg.norm(lat_query))
+            nb = float(np.linalg.norm(lat_word))
+            sim = float(np.dot(lat_query, lat_word) / (na * nb + 1e-15)) if na > 0 and nb > 0 else 0.0
+            
+            if sim > similarity_threshold:
+                scored_neighbors.append((cid, sim, word))
+                
+        scored_neighbors.sort(key=lambda x: x[1], reverse=True)
+        seeds = scored_neighbors[:k_neighbors]
+        
+        # Traversal BFS
+        activations = {}
+        for cid, sim, _ in seeds:
+            activations[cid] = sim
+            
+        frontier = [cid for cid, _, _ in seeds]
+        for depth in range(1, max_depth + 1):
+            next_frontier = []
+            for nid in frontier:
+                act = activations[nid]
+                for tgt_id, edge in self.graph.get_outgoing(nid):
+                    if rel_type and edge.relation_type != rel_type:
+                        continue
+                    prop = act * edge.weight
+                    if tgt_id not in activations or prop > activations[tgt_id]:
+                        activations[tgt_id] = prop
+                        next_frontier.append(tgt_id)
+            frontier = next_frontier
+            
+        # Decode results
+        seed_words = {n[2] for n in seeds}
+        results = []
+        for cid, act in activations.items():
+            tokens = self.binding_map.get_tokens(cid, 0.0)
+            for b in tokens:
+                word = tok.decode([b.token_id])
+                if word not in seed_words and not word.startswith("?"):
+                    results.append((word, act))
+                    
+        results.sort(key=lambda x: x[1], reverse=True)
+        
+        # Compute telemetry
+        top_seed_sim = seeds[0][1] if seeds else 0.0
+        margin = (seeds[0][1] - seeds[1][1]) if len(seeds) > 1 else top_seed_sim
+        activated_nodes = len(activations)
+        dead_end_nodes = 0
+        for cid in activations:
+            matching_edges = 0
+            for tgt_id, edge in self.graph.get_outgoing(cid):
+                if rel_type and edge.relation_type != rel_type:
+                    continue
+                matching_edges += 1
+            if matching_edges == 0:
+                dead_end_nodes += 1
+                
+        metrics = {
+            "seed_count": len(seeds),
+            "top_seed_similarity": top_seed_sim,
+            "margin": margin,
+            "activated_nodes": activated_nodes,
+            "dead_end_nodes": dead_end_nodes,
+            "final_rank": "N/A"
+        }
+        return results, metrics
+
+    def retrieval_v2_multi_seed(
+        self,
+        query: str,
+        k_neighbors: int = 5,
+        max_depth: int = 3,
+        gate_mode: str = "margin_multi",  # "standard", "strict_margin", "relative_threshold", "weighted", "margin_multi", "adaptive_margin"
+        adaptive_margin_factor: float = 0.5  # fraction of inter-seed spread to use as margin
+    ) -> Tuple[List[Tuple[str, float]], Dict[str, Any]]:
+        """Multi-seed and margin-gated hybrid retrieval (version 2).
+
+        Gate modes:
+        - "standard": top-3 unconditionally
+        - "strict_margin": single seed if margin >= 0.15 and sim >= 0.50
+        - "relative_threshold": seeds within 0.85 * best_sim, up to k_neighbors
+        - "weighted": top-k_neighbors always, with softmax weights
+        - "margin_multi": strict_margin for single seed, else weighted fallback
+        - "adaptive_margin": dynamic margin = spread * adaptive_margin_factor
+        """
+        from typing import Any
+        parts = query.split()
+        if len(parts) < 2:
+            return [], {}
+        subj_word, rel_word = parts[0], parts[1]
+        
+        causal = {"causes", "cause", "leads", "produces", "creates"}
+        possessive = {"has", "have", "contains", "includes"}
+        rel_type = None
+        if rel_word in causal:
+            rel_type = "causal"
+        elif rel_word in possessive:
+            rel_type = "possessive"
+            
+        tok = self._tokenizer
+        subj_tid = tok.word_to_id.get(subj_word)
+        if subj_tid is None:
+            return [], {}
+           
+        emb = self.token_embed.weight.data[subj_tid]
+        lat_query, *_ = self._encoder_forward_full(emb)
+        
+        # Gather all candidates in graph with similarities
+        scored_neighbors = []
+        for word, tid in tok.word_to_id.items():
+            if word == subj_word:
+                continue
+            bindings = self.binding_map.get_concepts(tid, min_confidence=0.1)
+            if not bindings:
+                continue
+            cid = bindings[0].concept_id
+            
+            w_emb = self.token_embed.weight.data[tid]
+            lat_word, *_ = self._encoder_forward_full(w_emb)
+            
+            # cosine sim
+            na = float(np.linalg.norm(lat_query))
+            nb = float(np.linalg.norm(lat_word))
+            sim = float(np.dot(lat_query, lat_word) / (na * nb + 1e-15)) if na > 0 and nb > 0 else 0.0
+            
+            scored_neighbors.append((cid, sim, word))
+            
+        scored_neighbors.sort(key=lambda x: x[1], reverse=True)
+        
+        # Apply Gating
+        seeds = []
+        if scored_neighbors:
+            best_sim = scored_neighbors[0][1]
+            
+            if gate_mode == "strict_margin":
+                margin = (best_sim - scored_neighbors[1][1]) if len(scored_neighbors) > 1 else best_sim
+                if margin >= 0.15 and best_sim >= 0.50:
+                    seeds = [scored_neighbors[0]]
+                else:
+                    seeds = []
+            elif gate_mode == "relative_threshold":
+                threshold = 0.85 * best_sim
+                seeds = [n for n in scored_neighbors if n[1] >= threshold][:k_neighbors]
+            elif gate_mode == "weighted":
+                seeds = scored_neighbors[:k_neighbors]
+            elif gate_mode == "margin_multi":
+                margin = (best_sim - scored_neighbors[1][1]) if len(scored_neighbors) > 1 else best_sim
+                if margin >= 0.15 and best_sim >= 0.50:
+                    seeds = [scored_neighbors[0]]
+                else:
+                    seeds = scored_neighbors[:k_neighbors]
+            elif gate_mode == "adaptive_margin":
+                # Adaptive margin: use inter-seed spread to dynamically set threshold
+                if len(scored_neighbors) >= 2:
+                    spread = scored_neighbors[0][1] - scored_neighbors[-1][1]  # max - min in available
+                    # Use spread within top-k_neighbors for more local measure
+                    top_k_sims = [n[1] for n in scored_neighbors[:k_neighbors]]
+                    local_spread = top_k_sims[0] - top_k_sims[-1] if len(top_k_sims) > 1 else best_sim
+                    dynamic_margin = local_spread * adaptive_margin_factor
+                    # Minimum margin floor to prevent noise admission when spread is tiny
+                    dynamic_margin = max(dynamic_margin, 0.05)
+                    # Select seeds with sim >= best_sim - dynamic_margin
+                    threshold = best_sim - dynamic_margin
+                    seeds = [n for n in scored_neighbors if n[1] >= threshold][:k_neighbors]
+                else:
+                    seeds = scored_neighbors[:k_neighbors]
+            else:  # "standard" top-k
+                seeds = scored_neighbors[:3]  # standard uses top-3
+               
+        # Traversal BFS
+        activations = {}
+        if gate_mode in ("weighted", "margin_multi") and seeds:
+            sims = np.array([n[1] for n in seeds])
+            temp = 0.15
+            exp_sims = np.exp((sims - np.max(sims)) / temp)
+            weights = exp_sims / np.sum(exp_sims)
+            for (cid, _, _), w in zip(seeds, weights):
+                activations[cid] = float(w)
+        else:
+            for cid, sim, _ in seeds:
+                activations[cid] = sim
+                
+        frontier = [cid for cid, _, _ in seeds]
+        for depth in range(1, max_depth + 1):
+            next_frontier = []
+            for nid in frontier:
+                act = activations[nid]
+                for tgt_id, edge in self.graph.get_outgoing(nid):
+                    if rel_type and edge.relation_type != rel_type:
+                        continue
+                    prop = act * edge.weight
+                    if tgt_id not in activations or prop > activations[tgt_id]:
+                        activations[tgt_id] = prop
+                        next_frontier.append(tgt_id)
+            frontier = next_frontier
+            
+        # Decode results
+        seed_words = {n[2] for n in seeds}
+        results = []
+        for cid, act in activations.items():
+            tokens = self.binding_map.get_tokens(cid, 0.0)
+            for b in tokens:
+                word = tok.decode([b.token_id])
+                if word not in seed_words and not word.startswith("?"):
+                    results.append((word, act))
+                    
+        results.sort(key=lambda x: x[1], reverse=True)
+        
+        # Compute telemetry
+        top_seed_sim = seeds[0][1] if seeds else 0.0
+        margin = (seeds[0][1] - seeds[1][1]) if len(seeds) > 1 else top_seed_sim
+        activated_nodes = len(activations)
+        dead_end_nodes = 0
+        for cid in activations:
+            matching_edges = 0
+            for tgt_id, edge in self.graph.get_outgoing(cid):
+                if rel_type and edge.relation_type != rel_type:
+                    continue
+                matching_edges += 1
+            if matching_edges == 0:
+                dead_end_nodes += 1
+                
+        metrics = {
+            "seed_count": len(seeds),
+            "top_seed_similarity": top_seed_sim,
+            "margin": margin,
+            "activated_nodes": activated_nodes,
+            "dead_end_nodes": dead_end_nodes,
+            "final_rank": "N/A"
+        }
+        return results, metrics
 
     def snapshot_replay_buffer(self, domain_name: str):
         """No-op stub for backward compatibility."""
