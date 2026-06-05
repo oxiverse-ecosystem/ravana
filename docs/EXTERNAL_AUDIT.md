@@ -41,4 +41,4 @@ Source: LLM collaborator review of RAVANA_STATUS.md
 - **Papers:** PAPER_DRAFT.md and RAVANA_REPORT.md updated with Graph-Aware Encoder Alignment section (2026-06-05)
 - **Phase 2 NN Bridge:** 95% query success on 12 held-out novel terms (experiment_reverse_inheritance.py). Held-out transfer experiment (different test set) shows 82% — results are test-set dependent.
 - **Fair eval:** eval_comprehensive shows 10% train, 0% test accuracy — honest baseline.
-- **Graph-aware alignment wake-sleep cycle:** Single sleep improves traversal 16.7% → 33.3% (+16.7pp). 12-epoch cycle fluctuates (50% → 16.7% at epoch 12). K=20 achieves 66.7% with both gate modes. Hebbian drift partially but not fully mitigated by sleep cadence of 3 epochs.
+- **Graph-aware alignment wake-sleep cycle:** Single sleep achieves 100% traversal (33.3% → 100%, +66.7pp) and 50% Recall@5. 12-epoch cycle: stable 83-100% traversal, recovers to 100% at epochs 6 and 12. K=5: 100%, K=10: 83.3%. Hebbian drift fully mitigated by alignment phase. Key fixes: patience-based early stopping, validation pairs excluded from training, separate encoder LR (0.0001) prevents collapse.

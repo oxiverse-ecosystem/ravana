@@ -226,6 +226,7 @@ class RLMv2(Module):
         self._rp_mW2 = np.zeros_like(self._rp_W2)
         self._rp_mb2 = np.zeros_like(self._rp_b2)
         self._rp_lr = 0.01
+        self._rp_encoder_lr = 0.0001  # Separate, much lower LR for encoder updates during RP training
         self._rp_momentum = 0.9
         self._rp_cache = None
         self.use_rp_for_analogy = True
@@ -881,13 +882,14 @@ class RLMv2(Module):
         
         # Update weights with momentum
         lr = self._rp_lr * lr_scale
-        
+        encoder_lr = self._rp_encoder_lr * lr_scale
+
         # Update encoder
         if not getattr(self, "freeze_encoder", False):
-            self._enc_mW1 = self._rp_momentum * self._enc_mW1 - lr * d_enc_W1
-            self._enc_mb1 = self._rp_momentum * self._enc_mb1 - lr * d_enc_b1
-            self._enc_mW2 = self._rp_momentum * self._enc_mW2 - lr * d_enc_W2
-            self._enc_mb2 = self._rp_momentum * self._enc_mb2 - lr * d_enc_b2
+            self._enc_mW1 = self._rp_momentum * self._enc_mW1 - encoder_lr * d_enc_W1
+            self._enc_mb1 = self._rp_momentum * self._enc_mb1 - encoder_lr * d_enc_b1
+            self._enc_mW2 = self._rp_momentum * self._enc_mW2 - encoder_lr * d_enc_W2
+            self._enc_mb2 = self._rp_momentum * self._enc_mb2 - encoder_lr * d_enc_b2
             
             self._enc_W1 += self._enc_mW1
             self._enc_b1 += self._enc_mb1
@@ -2233,6 +2235,9 @@ class RLMv2(Module):
                 positive_pairs.append((word_a, word_b, cid_a, cid_b))
         
         # 3. Bridge Alignment: validation query analogy pairs (query_word -> expected_seed)
+        # These are USED ONLY for validation/early stopping, NOT for training.
+        # This prevents overfitting to specific validation queries.
+        validation_pairs = []
         if validation_queries:
             for tc in validation_queries:
                 q = tc["query"]
@@ -2255,7 +2260,7 @@ class RLMv2(Module):
                 pair_key = (query_word, expected_seed)
                 if pair_key not in seen_pairs:
                     seen_pairs.add(pair_key)
-                    positive_pairs.append((query_word, expected_seed, cid_a, cid_b))
+                    validation_pairs.append((query_word, expected_seed, cid_a, cid_b))
                     
         if not positive_pairs:
             print(f"[Debug Alignment] No positive pairs found! Graph has {len(self.graph.nodes)} nodes and {len(self.graph.edges)} edges.")
@@ -2271,7 +2276,11 @@ class RLMv2(Module):
         margin = getattr(self, "alignment_margin", 0.15)
         lambda_anchor = getattr(self, "lambda_anchor", 0.05)
         max_epochs = getattr(self, "max_alignment_epochs", 10)
-        
+
+        patience_counter = 0
+
+        min_epochs = 5  # minimum epochs before early stopping can trigger
+
         for epoch in range(1, max_epochs + 1):
             # Accumulators for this epoch
             d_con_W1 = np.zeros_like(self._enc_W1)
@@ -2409,7 +2418,7 @@ class RLMv2(Module):
             self._token_embed_norms = None
             
             recall_5 = self.compute_neighbor_recall_at_5()
-            
+
             if validation_queries:
                 successes = 0
                 for tc in validation_queries:
@@ -2420,12 +2429,16 @@ class RLMv2(Module):
                     if rank <= 10:
                         successes += 1
                 validation_acc = successes / len(validation_queries)
-                
+
                 if validation_acc > peak_validation_acc:
                     peak_validation_acc = validation_acc
                     peak_encoder_state = (self._enc_W1.copy(), self._enc_b1.copy(), self._enc_W2.copy(), self._enc_b2.copy())
-                elif validation_acc < peak_validation_acc:
-                    break
+                    patience_counter = 0  # reset patience on improvement
+                else:
+                    patience_counter += 1
+                    if epoch >= min_epochs and patience_counter >= 3:  # patience of 3 epochs after min_epochs
+                        print(f"[Align] Early stopping at epoch {epoch} (patience exhausted, peak_acc={peak_validation_acc:.3f})")
+                        break
                     
         if peak_encoder_state is not None:
             self._enc_W1, self._enc_b1, self._enc_W2, self._enc_b2 = peak_encoder_state
