@@ -127,7 +127,9 @@ class RLMv2(Module):
                  n_concepts: int, max_seq_len: int = 128,
                  sleep_interval: int = 100,
                  gate_concept_creation: bool = True,
-                 anchor_relation_vectors: bool = True):
+                 anchor_relation_vectors: bool = True,
+                 latent_dim: int = 32,
+                 hidden_dim: int = 48):
         super().__init__()
         self.vocab_size = vocab_size
         self.embed_dim = embed_dim
@@ -210,6 +212,62 @@ class RLMv2(Module):
         self._node_matrix_version = -1   # graph version counter
         self._rel_vector_cache = {}      # rel_type_name → avg relation vector
         self._rel_vector_version = -1
+
+        # ── Learned Relation Predictor MLP (For compatibility/backup) ──
+        rp_in = concept_dim * 2
+        rp_dim = concept_dim
+        self._rp_W1 = np.random.randn(rp_dim, rp_in).astype(np.float32) * np.sqrt(2.0 / rp_in)
+        self._rp_b1 = np.zeros(rp_dim, dtype=np.float32)
+        self._rp_W2 = np.random.randn(vocab_size, rp_dim).astype(np.float32) * np.sqrt(2.0 / rp_dim)
+        self._rp_b2 = np.zeros(vocab_size, dtype=np.float32)
+
+        self._rp_mW1 = np.zeros_like(self._rp_W1)
+        self._rp_mb1 = np.zeros_like(self._rp_b1)
+        self._rp_mW2 = np.zeros_like(self._rp_W2)
+        self._rp_mb2 = np.zeros_like(self._rp_b2)
+        self._rp_lr = 0.01
+        self._rp_momentum = 0.9
+        self._rp_cache = None
+        self.use_rp_for_analogy = True
+
+        # ── Domain-Agnostic Bilinear Relation Predictor ──
+        self.latent_dim = latent_dim
+        self.hidden_dim = hidden_dim
+        
+        # Encoder weights
+        scale_enc1 = np.sqrt(2.0 / embed_dim)
+        scale_enc2 = np.sqrt(2.0 / self.hidden_dim)
+        self._enc_W1 = np.random.randn(self.hidden_dim, embed_dim).astype(np.float32) * scale_enc1
+        self._enc_b1 = np.zeros(self.hidden_dim, dtype=np.float32)
+        self._enc_W2 = np.random.randn(self.latent_dim, self.hidden_dim).astype(np.float32) * scale_enc2
+        self._enc_b2 = np.zeros(self.latent_dim, dtype=np.float32)
+        
+        self._enc_mW1 = np.zeros_like(self._enc_W1)
+        self._enc_mb1 = np.zeros_like(self._enc_b1)
+        self._enc_mW2 = np.zeros_like(self._enc_W2)
+        self._enc_mb2 = np.zeros_like(self._enc_b2)
+        
+        # Decoder weights (for autoencoder pre-training only)
+        scale_dec1 = np.sqrt(2.0 / self.latent_dim)
+        scale_dec2 = np.sqrt(2.0 / self.hidden_dim)
+        self._dec_W1 = np.random.randn(self.hidden_dim, self.latent_dim).astype(np.float32) * scale_dec1
+        self._dec_b1 = np.zeros(self.hidden_dim, dtype=np.float32)
+        self._dec_W2 = np.random.randn(embed_dim, self.hidden_dim).astype(np.float32) * scale_dec2
+        self._dec_b2 = np.zeros(embed_dim, dtype=np.float32)
+        
+        # Relation matrices (one for each relation type in RELATION_TYPES)
+        n_rel_types = len(RELATION_TYPES)
+        self._rp_rel_matrices = np.random.randn(n_rel_types, self.latent_dim, self.latent_dim).astype(np.float32) * np.sqrt(2.0 / self.latent_dim)
+        self._rp_mrel_matrices = np.zeros_like(self._rp_rel_matrices)
+        self.freeze_encoder = True
+        self.rp_scale = 16.0
+        
+        # ── Contrastive Regularization Attributes ──
+        self.use_contrastive_reg = False
+        self.lambda_contrastive = 0.5
+        self.semantic_pairs = []
+        self.neg_sample_size = 5
+
 
     def _init_structured_concepts(self):
         """Create initial concept nodes distributed across the concept space."""
@@ -431,6 +489,407 @@ class RLMv2(Module):
         self.binding_map.bind(token_id, nid, confidence=0.9)
         return nid
 
+    @property
+    def _tokenizer(self):
+        return getattr(self, '_tokenizer_val', None)
+
+    @_tokenizer.setter
+    def _tokenizer(self, val):
+        self._tokenizer_val = val
+        if val is not None:
+            # 1. Initialize token embeddings using LearnedEmbedder to capture morphological similarity
+            self._initialize_token_embeddings_from_tokenizer()
+            # 2. Pre-train the encoder as an autoencoder over the whole vocabulary (Domain A + B)
+            self._pretrain_encoder_autoencoder(epochs=300, lr=0.01)
+
+    def _initialize_token_embeddings_from_tokenizer(self):
+        """Initialize token embeddings using LearnedEmbedder to capture character n-gram structure."""
+        from ..embedder import LearnedEmbedder
+        embedder = LearnedEmbedder(dim=self.embed_dim)
+        
+        tokenizer = self._tokenizer_val
+        # Determine vocabulary mapping
+        mapping = {}
+        if hasattr(tokenizer, 'word_to_id') and tokenizer.word_to_id:
+            mapping = tokenizer.word_to_id
+        elif hasattr(tokenizer, 'char_to_id') and tokenizer.char_to_id:
+            mapping = tokenizer.char_to_id
+        else:
+            # Fallback if no mapping is found: use decoded tokens
+            mapping = {self._decode_token(tid): tid for tid in range(self.vocab_size)}
+            
+        # Fit IDF if words are available
+        words = [w for w in mapping.keys() if isinstance(w, str)]
+        if hasattr(embedder, 'fit') and words:
+            try:
+                embedder.fit(words)
+            except Exception:
+                pass
+                
+        for key, tid in mapping.items():
+            if isinstance(tid, int) and 0 <= tid < self.vocab_size:
+                word_str = str(key)
+                vec = embedder.encode(word_str)
+                self.token_embed.weight.data[tid] = vec
+                
+        # Clear/invalidate cached norms
+        self._token_embed_norms = None
+
+    def _pretrain_encoder_autoencoder(self, epochs=300, lr=0.01):
+        """Pre-train the encoder as an autoencoder over all vocabulary tokens."""
+        X = self.token_embed.weight.data  # (vocab_size, embed_dim)
+        
+        # Momentum buffers for autoencoder weights
+        dec_mW1 = np.zeros_like(self._dec_W1)
+        dec_mb1 = np.zeros_like(self._dec_b1)
+        dec_mW2 = np.zeros_like(self._dec_W2)
+        dec_mb2 = np.zeros_like(self._dec_b2)
+        
+        for epoch in range(epochs):
+            # Forward pass: Encoder
+            z1 = X @ self._enc_W1.T + self._enc_b1      # (V, hidden_dim)
+            h1 = np.tanh(z1)                           # (V, hidden_dim)
+            z2 = h1 @ self._enc_W2.T + self._enc_b2    # (V, latent_dim)
+            latent = np.tanh(z2)                       # (V, latent_dim)
+            
+            # Forward pass: Decoder
+            dec_z1 = latent @ self._dec_W1.T + self._dec_b1  # (V, hidden_dim)
+            dec_h1 = np.tanh(dec_z1)                        # (V, hidden_dim)
+            dec_z2 = dec_h1 @ self._dec_W2.T + self._dec_b2  # (V, embed_dim)
+            recon = dec_z2                                  # (V, embed_dim)
+            
+            # Loss: Mean Squared Error
+            loss = np.mean((recon - X) ** 2)
+            if epoch % 50 == 0 or epoch == epochs - 1:
+                print(f"  [Autoencoder] Epoch {epoch:3d} Loss: {loss:.6f}")
+            
+            # Backward pass: Decoder
+            d_recon = 2.0 * (recon - X) / len(X)       # (V, embed_dim)
+            
+            d_dec_W2 = d_recon.T @ dec_h1              # (embed_dim, hidden_dim)
+            d_dec_b2 = np.sum(d_recon, axis=0)         # (embed_dim,)
+            
+            d_dec_h1 = d_recon @ self._dec_W2          # (V, hidden_dim)
+            d_dec_z1 = d_dec_h1 * (1.0 - dec_h1 * dec_h1) # (V, hidden_dim)
+            
+            d_dec_W1 = d_dec_z1.T @ latent             # (hidden_dim, latent_dim)
+            d_dec_b1 = np.sum(d_dec_z1, axis=0)        # (hidden_dim,)
+            
+            d_latent = d_dec_z1 @ self._dec_W1         # (V, latent_dim)
+            
+            # Backward pass: Encoder
+            d_z2 = d_latent * (1.0 - latent * latent)  # (V, latent_dim)
+            d_enc_W2 = d_z2.T @ h1                     # (latent_dim, hidden_dim)
+            d_enc_b2 = np.sum(d_z2, axis=0)            # (latent_dim,)
+            
+            d_h1 = d_z2 @ self._enc_W2                 # (V, hidden_dim)
+            d_z1 = d_h1 * (1.0 - h1 * h1)              # (V, hidden_dim)
+            d_enc_W1 = d_z1.T @ X                      # (hidden_dim, embed_dim)
+            d_enc_b1 = np.sum(d_z1, axis=0)            # (hidden_dim,)
+            
+            # Update Decoder
+            dec_mW2 = self._rp_momentum * dec_mW2 - lr * d_dec_W2
+            dec_mb2 = self._rp_momentum * dec_mb2 - lr * d_dec_b2
+            dec_mW1 = self._rp_momentum * dec_mW1 - lr * d_dec_W1
+            dec_mb1 = self._rp_momentum * dec_mb1 - lr * d_dec_b1
+            
+            self._dec_W2 += dec_mW2
+            self._dec_b2 += dec_mb2
+            self._dec_W1 += dec_mW1
+            self._dec_b1 += dec_mb1
+            
+            # Update Encoder
+            self._enc_mW2 = self._rp_momentum * self._enc_mW2 - lr * d_enc_W2
+            self._enc_mb2 = self._rp_momentum * self._enc_mb2 - lr * d_enc_b2
+            self._enc_mW1 = self._rp_momentum * self._enc_mW1 - lr * d_enc_W1
+            self._enc_mb1 = self._rp_momentum * self._enc_mb1 - lr * d_enc_b1
+            
+            self._enc_W2 += self._enc_mW2
+            self._enc_b2 += self._enc_mb2
+            self._enc_W1 += self._enc_mW1
+            self._enc_b1 += self._enc_mb1
+
+    def _encoder_forward_full(self, X):
+        """Pass inputs through the encoder, returning all activations for backpropagation.
+        X: (B, embed_dim) or (embed_dim,)
+        """
+        is_flat = X.ndim == 1
+        if is_flat:
+            X_batch = X[np.newaxis, :]
+        else:
+            X_batch = X
+        z1 = X_batch @ self._enc_W1.T + self._enc_b1       # (B, hidden_dim)
+        h1 = np.tanh(z1)                            # (B, hidden_dim)
+        z2 = h1 @ self._enc_W2.T + self._enc_b2     # (B, latent_dim)
+        latent = np.tanh(z2)                        # (B, latent_dim)
+        if is_flat:
+            return latent[0], z1[0], h1[0], z2[0]
+        return latent, z1, h1, z2
+
+    def _encoder_backward(self, X, z1, h1, z2, h2, d_h2):
+        """Compute encoder parameter gradients.
+        X: (B, embed_dim)
+        z1, h1: (B, hidden_dim)
+        z2, h2: (B, latent_dim)
+        d_h2: (B, latent_dim)
+        """
+        d_z2 = d_h2 * (1.0 - h2 * h2)                # (B, latent_dim)
+        d_W2 = d_z2.T @ h1                           # (latent_dim, hidden_dim)
+        d_b2 = np.sum(d_z2, axis=0)                  # (latent_dim,)
+        
+        d_h1 = d_z2 @ self._enc_W2                   # (B, hidden_dim)
+        d_z1 = d_h1 * (1.0 - h1 * h1)                # (B, hidden_dim)
+        d_W1 = d_z1.T @ X                            # (hidden_dim, embed_dim)
+        d_b1 = np.sum(d_z1, axis=0)                  # (hidden_dim,)
+        
+        return d_W1, d_b1, d_W2, d_b2
+
+    def _rp_forward(self, subject_tid, rel_type_idx):
+        """Relation predictor forward pass using domain-agnostic latent space."""
+        subject_tid = int(subject_tid)
+        rel_type_idx = int(rel_type_idx)
+
+        # Get source and target embeddings
+        source_embed = self.token_embed.weight.data[subject_tid] # (embed_dim,)
+        target_embeds = self.token_embed.weight.data             # (vocab_size, embed_dim)
+        
+        # Pass through encoder
+        source_latent, src_z1, src_h1, src_z2 = self._encoder_forward_full(source_embed) # (latent_dim,)
+        target_latents, tgt_z1, tgt_h1, tgt_z2 = self._encoder_forward_full(target_embeds) # (vocab_size, latent_dim)
+        
+        # Get relation matrix
+        rel_matrix = self._rp_rel_matrices[rel_type_idx] # (latent_dim, latent_dim)
+        
+        # Compute bilinear product
+        proj_latent = source_latent @ rel_matrix
+        logits = (proj_latent @ target_latents.T) * getattr(self, "rp_scale", 16.0) # (vocab_size,)
+        
+        # Cache for backprop
+        self._rp_cache = (
+            subject_tid, rel_type_idx,
+            source_embed, target_embeds,
+            source_latent, src_z1, src_h1, src_z2,
+            target_latents, tgt_z1, tgt_h1, tgt_z2,
+            rel_matrix, logits
+        )
+        return logits
+
+    def _compute_contrastive_gradients(self):
+        """Compute contrastive loss gradients w.r.t. encoder parameters."""
+        d_con_W1 = np.zeros_like(self._enc_W1)
+        d_con_b1 = np.zeros_like(self._enc_b1)
+        d_con_W2 = np.zeros_like(self._enc_W2)
+        d_con_b2 = np.zeros_like(self._enc_b2)
+        
+        pairs = getattr(self, "semantic_pairs", [])
+        if not pairs:
+            return d_con_W1, d_con_b1, d_con_W2, d_con_b2, 0.0
+            
+        tokenizer = getattr(self, "_tokenizer", None)
+        if tokenizer is None:
+            return d_con_W1, d_con_b1, d_con_W2, d_con_b2, 0.0
+            
+        # Draw negative samples
+        vocab_words = list(tokenizer.word_to_id.keys())
+        neg_size = getattr(self, "neg_sample_size", 5)
+        
+        total_loss = 0.0
+        n_pairs_processed = 0
+        
+        for word_a, word_b in pairs:
+            tid_a = tokenizer.word_to_id.get(word_a)
+            tid_b = tokenizer.word_to_id.get(word_b)
+            if tid_a is None or tid_b is None:
+                continue
+                
+            embed_a = self.token_embed.weight.data[tid_a]
+            embed_b = self.token_embed.weight.data[tid_b]
+            
+            lat_a, z1_a, h1_a, z2_a = self._encoder_forward_full(embed_a)
+            lat_b, z1_b, h1_b, z2_b = self._encoder_forward_full(embed_b)
+            
+            norm_a = np.linalg.norm(lat_a)
+            norm_b = np.linalg.norm(lat_b)
+            
+            unit_a = lat_a / (norm_a + 1e-15)
+            unit_b = lat_b / (norm_b + 1e-15)
+            
+            s = np.dot(unit_a, unit_b)
+            sig_s = 1.0 / (1.0 + np.exp(-s) + 1e-15)
+            
+            # Positive loss: -log(sigmoid(s))
+            total_loss -= np.log(sig_s + 1e-15)
+            n_pairs_processed += 1
+            
+            # Gradients of positive loss w.r.t lat_a and lat_b
+            d_s_d_lat_a = (unit_b - s * unit_a) / (norm_a + 1e-15)
+            d_s_d_lat_b = (unit_a - s * unit_b) / (norm_b + 1e-15)
+            
+            d_lat_a = (sig_s - 1.0) * d_s_d_lat_a
+            d_lat_b = (sig_s - 1.0) * d_s_d_lat_b
+            
+            # Backprop for word_a and word_b
+            dW1_a, db1_a, dW2_a, db2_a = self._encoder_backward(
+                embed_a[np.newaxis, :], z1_a[np.newaxis, :], h1_a[np.newaxis, :], z2_a[np.newaxis, :],
+                lat_a[np.newaxis, :], d_lat_a[np.newaxis, :]
+            )
+            dW1_b, db1_b, dW2_b, db2_b = self._encoder_backward(
+                embed_b[np.newaxis, :], z1_b[np.newaxis, :], h1_b[np.newaxis, :], z2_b[np.newaxis, :],
+                lat_b[np.newaxis, :], d_lat_b[np.newaxis, :]
+            )
+            
+            d_con_W1 += dW1_a + dW1_b
+            d_con_b1 += db1_a + db1_b
+            d_con_W2 += dW2_a + dW2_b
+            d_con_b2 += db2_a + db2_b
+            
+            # Negative sampling
+            if vocab_words:
+                neg_words = np.random.choice(vocab_words, size=min(neg_size, len(vocab_words)), replace=False)
+                for word_neg in neg_words:
+                    if word_neg == word_a or word_neg == word_b:
+                        continue
+                    tid_neg = tokenizer.word_to_id.get(word_neg)
+                    if tid_neg is None:
+                        continue
+                    embed_neg = self.token_embed.weight.data[tid_neg]
+                    lat_neg, z1_neg, h1_neg, z2_neg = self._encoder_forward_full(embed_neg)
+                    
+                    norm_neg = np.linalg.norm(lat_neg)
+                    unit_neg = lat_neg / (norm_neg + 1e-15)
+                    
+                    s_neg = np.dot(unit_a, unit_neg)
+                    sig_s_neg = 1.0 / (1.0 + np.exp(-s_neg) + 1e-15)
+                    
+                    # Negative loss: log(sigmoid(s_neg))
+                    total_loss += np.log(sig_s_neg + 1e-15)
+                    
+                    # Gradients of negative loss w.r.t lat_a and lat_neg
+                    d_s_d_lat_a_neg = (unit_neg - s_neg * unit_a) / (norm_a + 1e-15)
+                    d_s_d_lat_neg = (unit_a - s_neg * unit_neg) / (norm_neg + 1e-15)
+                    
+                    d_lat_a_neg = (1.0 - sig_s_neg) * d_s_d_lat_a_neg
+                    d_lat_neg = (1.0 - sig_s_neg) * d_s_d_lat_neg
+                    
+                    # Backprop
+                    dW1_a_neg, db1_a_neg, dW2_a_neg, db2_a_neg = self._encoder_backward(
+                        embed_a[np.newaxis, :], z1_a[np.newaxis, :], h1_a[np.newaxis, :], z2_a[np.newaxis, :],
+                        lat_a[np.newaxis, :], d_lat_a_neg[np.newaxis, :]
+                    )
+                    dW1_neg, db1_neg, dW2_neg, db2_neg = self._encoder_backward(
+                        embed_neg[np.newaxis, :], z1_neg[np.newaxis, :], h1_neg[np.newaxis, :], z2_neg[np.newaxis, :],
+                        lat_neg[np.newaxis, :], d_lat_neg[np.newaxis, :]
+                    )
+                    
+                    d_con_W1 += dW1_a_neg + dW1_neg
+                    d_con_b1 += db1_a_neg + db1_neg
+                    d_con_W2 += dW2_a_neg + dW2_neg
+                    d_con_b2 += db2_a_neg + db2_neg
+                    
+        if n_pairs_processed > 0:
+            scale = 1.0 / n_pairs_processed
+            d_con_W1 *= scale
+            d_con_b1 *= scale
+            d_con_W2 *= scale
+            d_con_b2 *= scale
+            total_loss *= scale
+            
+        return d_con_W1, d_con_b1, d_con_W2, d_con_b2, total_loss
+
+    def _rp_backward(self, target_id, lr_scale=1.0):
+        """Relation predictor backward pass for domain-agnostic bilinear relation embedding."""
+        if self._rp_cache is None:
+            return
+            
+        (
+            subject_tid, rel_type_idx,
+            source_embed, target_embeds,
+            source_latent, src_z1, src_h1, src_z2,
+            target_latents, tgt_z1, tgt_h1, tgt_z2,
+            rel_matrix, logits
+        ) = self._rp_cache
+        
+        # Softmax loss gradient
+        exp_logits = np.exp(logits - np.max(logits))
+        probs = exp_logits / (np.sum(exp_logits) + 1e-10)
+        d_logits = probs.copy()
+        if 0 <= target_id < len(d_logits):
+            d_logits[target_id] -= 1.0
+        d_logits *= getattr(self, "rp_scale", 16.0)
+            
+        # Let p = rel_matrix.T @ source_latent (shape (latent_dim,))
+        p = rel_matrix.T @ source_latent # (latent_dim,)
+        
+        # Gradient with respect to target_latents (shape (vocab_size, latent_dim))
+        d_target_latents = np.outer(d_logits, p)
+        
+        # Gradient with respect to p
+        d_p = target_latents.T @ d_logits # (latent_dim,)
+        
+        # Gradient with respect to rel_matrix
+        d_rel_matrix = np.outer(source_latent, d_p) # (latent_dim, latent_dim)
+        
+        # Gradient with respect to source_latent
+        d_source_latent = rel_matrix @ d_p # (latent_dim,)
+        
+        # Backprop through encoder for source embedding path
+        d_W1_src, d_b1_src, d_W2_src, d_b2_src = self._encoder_backward(
+            source_embed[np.newaxis, :],
+            src_z1[np.newaxis, :],
+            src_h1[np.newaxis, :],
+            src_z2[np.newaxis, :],
+            source_latent[np.newaxis, :],
+            d_source_latent[np.newaxis, :]
+        )
+        
+        # Backprop through encoder for target embeddings path
+        d_W1_tgt, d_b1_tgt, d_W2_tgt, d_b2_tgt = self._encoder_backward(
+            target_embeds,
+            tgt_z1,
+            tgt_h1,
+            tgt_z2,
+            target_latents,
+            d_target_latents
+        )
+        
+        # Sum encoder gradients
+        d_enc_W1 = d_W1_src + d_W1_tgt
+        d_enc_b1 = d_b1_src + d_b1_tgt
+        d_enc_W2 = d_W2_src + d_W2_tgt
+        d_enc_b2 = d_b2_src + d_b2_tgt
+        
+        # Add contrastive loss regularizer gradients
+        if not getattr(self, "freeze_encoder", False) and getattr(self, "use_contrastive_reg", False):
+            d_con_W1, d_con_b1, d_con_W2, d_con_b2, con_loss = self._compute_contrastive_gradients()
+            lambda_c = getattr(self, "lambda_contrastive", 0.5)
+            d_enc_W1 += lambda_c * d_con_W1
+            d_enc_b1 += lambda_c * d_con_b1
+            d_enc_W2 += lambda_c * d_con_W2
+            d_enc_b2 += lambda_c * d_con_b2
+        
+        # Update weights with momentum
+        lr = self._rp_lr * lr_scale
+        
+        # Update encoder
+        if not getattr(self, "freeze_encoder", False):
+            self._enc_mW1 = self._rp_momentum * self._enc_mW1 - lr * d_enc_W1
+            self._enc_mb1 = self._rp_momentum * self._enc_mb1 - lr * d_enc_b1
+            self._enc_mW2 = self._rp_momentum * self._enc_mW2 - lr * d_enc_W2
+            self._enc_mb2 = self._rp_momentum * self._enc_mb2 - lr * d_enc_b2
+            
+            self._enc_W1 += self._enc_mW1
+            self._enc_b1 += self._enc_mb1
+            self._enc_W2 += self._enc_mW2
+            self._enc_b2 += self._enc_mb2
+        
+        # Update relation matrix
+        self._rp_mrel_matrices[rel_type_idx] = (
+            self._rp_momentum * self._rp_mrel_matrices[rel_type_idx] - lr * d_rel_matrix
+        )
+        self._rp_rel_matrices[rel_type_idx] += self._rp_mrel_matrices[rel_type_idx]
+        self._rp_cache = None
+
+
     # ── Spreading Activation Inference ──────────────────────────────────────
 
     def forward(self, token_ids: np.ndarray) -> 'tensor':
@@ -459,8 +918,13 @@ class RLMv2(Module):
             token_ids = token_ids.flatten()
         token_ids = token_ids.tolist()
 
-        # Decompose triple — we predict the object given subject + relation
-        subject_ids, relation_ids, object_ids = self.decompose_triple(token_ids)
+        # Decompose input prompt (which has no object at the end)
+        if len(token_ids) >= 1:
+            subject_ids = [token_ids[0]]
+            relation_ids = token_ids[1:]
+        else:
+            subject_ids = []
+            relation_ids = []
 
         # If no subject, return uniform logits
         if not subject_ids:
@@ -480,42 +944,70 @@ class RLMv2(Module):
         if relation_ids:
             relation_tid = relation_ids[0]
             # Look up existing concept without creating one
-            existing = self.binding_map.get_tokens(relation_tid, min_confidence=0.0)
+            existing = self.binding_map.get_concepts(relation_tid, min_confidence=0.0)
             if existing:
                 relation_cid = existing[0].concept_id
 
-        # ── Vector Arithmetic (word2vec-style analogy) — VECTORIZED ──
-        # Compute expected output: subject_embed + relation_vector
+        # ── Vector Arithmetic or MLP Analogy (cross-domain transfer) ──
         analogy_targets = {}
-        # Cache avg relation vectors per type (expensive to recompute every forward)
-        rel_version = (len(self.graph.edges), rel_type_name)
-        if self._rel_vector_version != rel_version:
-            rvs = []
-            for (src, tgt), edge in self.graph.edges.items():
-                if edge.relation_type == rel_type_name and hasattr(edge, 'relation_vector') and edge.relation_vector is not None:
-                    rvs.append(edge.relation_vector)
-            self._rel_vector_cache[rel_type_name] = np.mean(rvs, axis=0) if rvs else None
-            self._rel_vector_version = rel_version
+        subject_node = self.graph.get_node(subject_cid)
+        if subject_node is None:
+            return make_tensor(np.zeros(self.vocab_size, dtype=np.float32))
 
-        avg_rv = self._rel_vector_cache.get(rel_type_name)
-        if avg_rv is not None:
-            expected = subject_embed + avg_rv
-            cv = self._project_to_concept(expected)
-            cv_norm = np.linalg.norm(cv)
-            if cv_norm > 0:
-                # Batch cosine similarity against all concept nodes
-                node_ids, node_matrix, node_norms = self._get_node_matrix()
-                if len(node_ids) > 0:
-                    min_len = min(len(cv), node_matrix.shape[1])
-                    sims = (node_matrix[:, :min_len] @ cv[:min_len]) / (node_norms * cv_norm + 1e-15)
-                    # Mask subject
-                    for i, cid in enumerate(node_ids):
-                        if cid == subject_cid:
-                            sims[i] = -1.0
-                            break
-                    mask = sims > 0.3
-                    for i in np.where(mask)[0]:
-                        analogy_targets[node_ids[i]] = float(sims[i]) * 2.0
+        self._rp_probs_cache = None
+        if self.use_rp_for_analogy:
+            # Run the learned relation predictor
+            rp_logits = self._rp_forward(subject_tid, rel_type_idx)
+            exp_logits = np.exp(rp_logits - np.max(rp_logits))
+            probs = exp_logits / (np.sum(exp_logits) + 1e-10)
+            self._rp_probs_cache = probs
+            
+            # Map top tokens to analogy targets
+            top_tok_indices = np.argsort(probs)[::-1][:10]
+            for tok_id in top_tok_indices:
+                if tok_id == subject_tid:
+                    continue
+                prob = float(probs[tok_id])
+                if prob < 0.01:
+                    continue
+                bindings = self.binding_map.get_concepts(tok_id, min_confidence=0.1)
+                for b in bindings:
+                    cid = b.concept_id
+                    score = prob * 8.0  # Boosted weight
+                    if cid in analogy_targets:
+                        analogy_targets[cid] = max(analogy_targets[cid], score)
+                    else:
+                        analogy_targets[cid] = score
+        else:
+            # Cache avg relation vectors per type (expensive to recompute every forward)
+            rel_version = (len(self.graph.edges), rel_type_name)
+            if self._rel_vector_version != rel_version:
+                rvs = []
+                for (src, tgt), edge in self.graph.edges.items():
+                    if edge.relation_type == rel_type_name and hasattr(edge, 'relation_vector') and edge.relation_vector is not None:
+                        rvs.append(edge.relation_vector)
+                self._rel_vector_cache[rel_type_name] = np.mean(rvs, axis=0) if rvs else None
+                self._rel_vector_version = rel_version
+
+            avg_rv = self._rel_vector_cache.get(rel_type_name)
+            if avg_rv is not None:
+                expected = subject_embed + avg_rv
+                cv = self._project_to_concept(expected)
+                cv_norm = np.linalg.norm(cv)
+                if cv_norm > 0:
+                    # Batch cosine similarity against all concept nodes
+                    node_ids, node_matrix, node_norms = self._get_node_matrix()
+                    if len(node_ids) > 0:
+                        min_len = min(len(cv), node_matrix.shape[1])
+                        sims = (node_matrix[:, :min_len] @ cv[:min_len]) / (node_norms * cv_norm + 1e-15)
+                        # Mask subject
+                        for i, cid in enumerate(node_ids):
+                            if cid == subject_cid:
+                                sims[i] = -1.0
+                                break
+                        mask = sims > 0.3
+                        for i in np.where(mask)[0]:
+                            analogy_targets[node_ids[i]] = float(sims[i]) * 2.0
 
         # ── Spreading Activation ──
         # Reset all activations
@@ -589,6 +1081,22 @@ class RLMv2(Module):
 
         # ── Score tokens via activated concepts ──
         concept_scores = np.zeros(self.vocab_size, dtype=np.float32)
+        if getattr(self, '_rp_probs_cache', None) is not None:
+            gated_rp = np.zeros_like(self._rp_probs_cache)
+            for tok_id in range(self.vocab_size):
+                prob = self._rp_probs_cache[tok_id]
+                bindings = self.binding_map.get_concepts(tok_id, min_confidence=0.0)
+                if bindings:
+                    max_act = 0.0
+                    for b in bindings:
+                        node = self.graph.get_node(b.concept_id)
+                        if node is not None:
+                            max_act = max(max_act, node.activation)
+                    gated_rp[tok_id] = prob * (0.15 + max_act)
+                else:
+                    gated_rp[tok_id] = prob * 0.8
+            concept_scores += gated_rp * 35.0
+
 
         # Collect all active nodes with their activations
         active_nodes = []
@@ -650,36 +1158,64 @@ class RLMv2(Module):
                     else:
                         matching_targets[tgt_id] = cross_score
 
-        # ── 2-Hop edge traversal (compositionality) ──
+        # ── N-Hop BFS traversal (compositionality) ──
         # "fire causes ?" → fire→heat (any type), heat→expansion (causal) → boost expansion
-        # This enables cross-subject transfer: fire isn't trained with expansion,
-        # but heat is, and fire→heat exists.
-        subject_outgoing = self.graph.get_outgoing(subject_cid)
-        for mid_cid, mid_edge in subject_outgoing:
+        # "exercise produces crashes" → exercise→stress→bugs→crashes (3 hops)
+        # First hop: follow ALL edges (any type) to reach domain intermediaries.
+        # Subsequent hops: only follow edges matching the query relation type.
+        from collections import deque
+        _max_hops = 3
+        _hop_base_boost = 8.0
+        _hop_decay = 0.6  # per-hop score decay
+        # BFS queue: (node_id, cumulative_score, depth, visited_set)
+        bfs_queue = deque()
+        for mid_cid, mid_edge in self.graph.get_outgoing(subject_cid):
+            if mid_cid == subject_cid:
+                continue
             mid_node = self.graph.get_node(mid_cid)
             if mid_node is None:
                 continue
-            # Check mid's outgoing edges for matching relation type
-            for tgt_cid, tgt_edge in self.graph.get_outgoing(mid_cid):
-                if tgt_cid == subject_cid:
+            hop_score = mid_edge.weight * mid_edge.confidence
+            bfs_queue.append((mid_cid, hop_score, 1, {subject_cid}))
+
+        while bfs_queue:
+            nid, cum_score, depth, visited = bfs_queue.popleft()
+            if depth > _max_hops:
+                continue
+            for tgt_cid, tgt_edge in self.graph.get_outgoing(nid):
+                if tgt_cid in visited or tgt_cid == subject_cid:
                     continue
-                if tgt_edge.relation_type == rel_type_name:
-                    # 2-hop score: subject→mid weight × mid→target weight
-                    hop_score = mid_edge.weight * mid_edge.confidence * tgt_edge.weight * tgt_edge.confidence * 3.0
-                    if tgt_cid in matching_targets:
-                        matching_targets[tgt_cid] = max(matching_targets[tgt_cid], hop_score)
-                    else:
-                        matching_targets[tgt_cid] = hop_score
+                # After first hop (depth>=1), only follow edges matching relation type
+                if depth >= 1 and tgt_edge.relation_type != rel_type_name:
+                    continue
+                edge_score = cum_score * tgt_edge.weight * tgt_edge.confidence
+                # Apply boost with per-hop decay
+                final_score = edge_score * _hop_base_boost * (_hop_decay ** (depth - 1))
+                if tgt_cid in matching_targets:
+                    matching_targets[tgt_cid] = max(matching_targets[tgt_cid], final_score)
+                else:
+                    matching_targets[tgt_cid] = final_score
+                # Continue BFS if we haven't reached max depth
+                if depth < _max_hops:
+                    new_visited = visited | {nid}
+                    bfs_queue.append((tgt_cid, edge_score, depth + 1, new_visited))
 
         # Also include directly active concepts (for same-type queries)
-        # Aggressive boosting: activated concepts get full activation as score
+        # Hub suppression: penalize low-activation high-in-degree noise nodes
         for nid, node in active_nodes:
             if nid == subject_cid:
                 continue  # Don't predict subject itself
             if nid == relation_cid:
                 continue  # Don't predict relation node (it's an intermediary)
-            # Score based on activation strength (boosted heavily for multi-hop)
-            act_score = node.activation * 3.0
+            # Hub suppression: penalize low-activation nodes with high in-degree
+            in_deg = len(self.graph._incoming.get(nid, []))
+            if node.activation < 0.5 and in_deg > 5:
+                hub_factor = 0.3
+            elif node.activation < 0.3 and in_deg > 3:
+                hub_factor = 0.5
+            else:
+                hub_factor = 1.0
+            act_score = node.activation * 3.0 * hub_factor
             if nid in matching_targets:
                 matching_targets[nid] = max(matching_targets[nid], act_score)
             else:
@@ -885,6 +1421,16 @@ class RLMv2(Module):
                 weight=0.3, relation_type=rel_type_name,
             )
 
+        # Reverse edges: weak bidirectional inference
+        # If "anger → heat" exists, create weak "heat → anger" so cross-domain
+        # queries like "heat causes ?" can traverse back through anger.
+        reverse_direct = self.graph.get_edge(object_cid, subject_cid)
+        if reverse_direct is None:
+            reverse_direct = self.graph.add_edge(
+                source=object_cid, target=subject_cid,
+                weight=0.1, relation_type=rel_type_name,
+            )
+
         # Store predicate token
         if relation_ids:
             edge_direct.predicate_token_id = relation_ids[0]
@@ -980,6 +1526,26 @@ class RLMv2(Module):
             if tgt_norm > 0:
                 tgt_node.vector /= tgt_norm
 
+            # Path-aware concept vector update: pull subject and object vectors
+            # closer together. This builds analogical structure — if anger→heat
+            # and heat→expansion, anger and expansion become closer in concept
+            # space, enabling cross-domain transfer via embedding similarity.
+            path_lr = 0.005  # gentle to avoid destroying existing structure
+            src_to_tgt = tgt_node.vector - src_node.vector
+            path_delta_src = path_lr * src_to_tgt
+            path_delta_tgt = -path_lr * src_to_tgt * 0.3  # asymmetric: move src more
+            path_delta_src = np.clip(path_delta_src, -self.graph.max_step_delta, self.graph.max_step_delta)
+            path_delta_tgt = np.clip(path_delta_tgt, -self.graph.max_step_delta, self.graph.max_step_delta)
+            src_node.vector += path_delta_src
+            tgt_node.vector += path_delta_tgt
+            # Re-normalize
+            src_norm = np.linalg.norm(src_node.vector)
+            if src_norm > 0:
+                src_node.vector /= src_norm
+            tgt_norm = np.linalg.norm(tgt_node.vector)
+            if tgt_norm > 0:
+                tgt_node.vector /= tgt_norm
+
         # ── Update relation classifier weights (local Hebbian) ──
         self._update_relation_classifier(relation_ids, rel_type_idx)
 
@@ -1071,6 +1637,10 @@ class RLMv2(Module):
         if self.sleep_interval > 0 and self._step_counter % self.sleep_interval == 0:
             self.sleep_cycle()
 
+        # ── Train learned relation predictor MLP ──
+        self._rp_forward(subject_tid, rel_type_idx)
+        self._rp_backward(target_id)
+
         loss = float(np.mean(prediction_error ** 2))
         self._last_loss = loss
 
@@ -1155,6 +1725,14 @@ class RLMv2(Module):
             edge_ro = self.graph.add_edge(
                 source=rel_obj_cid, target=object_cid,
                 weight=0.3, relation_type=rel_type_name,
+            )
+
+        # Reverse edges: weak bidirectional inference
+        reverse_direct = self.graph.get_edge(object_cid, subject_cid)
+        if reverse_direct is None:
+            reverse_direct = self.graph.add_edge(
+                source=object_cid, target=subject_cid,
+                weight=0.1, relation_type=rel_type_name,
             )
 
         if relation_ids:
@@ -1391,9 +1969,8 @@ class RLMv2(Module):
         self._normalize_outgoing_weights(budget=5.0)
 
         # ── Prune weak edges ──
-        # Only prune edges that have been seen many times AND are still weak.
-        # Higher threshold for prediction_count prevents killing new cross-domain bridges.
-        self._prune_weak_edges(threshold=0.03)
+        # Prune edges with weight below 0.1 to clear out spurious semantic edges.
+        self._prune_weak_edges(threshold=0.1)
 
         # ── Drift defense ──
         # Pull concept vectors back toward their core vectors if they've drifted too far.
@@ -1432,16 +2009,15 @@ class RLMv2(Module):
                 for _, edge in edges:
                     edge.weight *= scale
 
-    def _prune_weak_edges(self, threshold: float = 0.03):
+    def _prune_weak_edges(self, threshold: float = 0.1):
         """Remove edges with weight below threshold.
 
         Keeps the graph clean and prevents accumulation of noise edges.
-        Only prunes edges that have been seen enough times (prediction_count > 15)
-        to give them a fair chance to learn.
+        Prunes weak edges regardless of prediction count.
         """
         edges_to_remove = []
         for (src, tgt), edge in self.graph.edges.items():
-            if edge.weight < threshold and edge.prediction_count > 15:
+            if edge.weight < threshold:
                 edges_to_remove.append((src, tgt))
 
         for src, tgt in edges_to_remove:
@@ -1482,12 +2058,35 @@ class RLMv2(Module):
             "step_counter": self._step_counter,
             "train_correct": self._train_correct,
             "train_total": self._train_total,
+            "_rp_W1": self._rp_W1.copy(),
+            "_rp_b1": self._rp_b1.copy(),
+            "_rp_W2": self._rp_W2.copy(),
+            "_rp_b2": self._rp_b2.copy(),
+            "_rp_mW1": self._rp_mW1.copy(),
+            "_rp_mb1": self._rp_mb1.copy(),
+            "_rp_mW2": self._rp_mW2.copy(),
+            "_rp_mb2": self._rp_mb2.copy(),
+            "_enc_W1": self._enc_W1.copy(),
+            "_enc_b1": self._enc_b1.copy(),
+            "_enc_W2": self._enc_W2.copy(),
+            "_enc_b2": self._enc_b2.copy(),
+            "_enc_mW1": self._enc_mW1.copy(),
+            "_enc_mb1": self._enc_mb1.copy(),
+            "_enc_mW2": self._enc_mW2.copy(),
+            "_enc_mb2": self._enc_mb2.copy(),
+            "_dec_W1": self._dec_W1.copy(),
+            "_dec_b1": self._dec_b1.copy(),
+            "_dec_W2": self._dec_W2.copy(),
+            "_dec_b2": self._dec_b2.copy(),
+            "_rp_rel_matrices": self._rp_rel_matrices.copy(),
+            "_rp_mrel_matrices": self._rp_mrel_matrices.copy(),
             "binding_map": {
                 "by_token": {tid: [(b.concept_id, b.confidence, b.source) for b in blist]
                              for tid, blist in self.binding_map._by_token.items()},
                 "by_concept": {cid: [(b.token_id, b.confidence, b.source) for b in blist]
                                for cid, blist in self.binding_map._by_concept.items()},
             },
+            "_tokenizer": self._tokenizer if hasattr(self, '_tokenizer') and self._tokenizer is not None else None,
         }
 
     def save(self, path: str):
@@ -1500,6 +2099,9 @@ class RLMv2(Module):
         """Load model from file."""
         with open(path, 'rb') as f:
             state = pickle.load(f)
+
+        # Restore tokenizer (bypass setter to avoid redundant pre-training)
+        self._tokenizer_val = state.get("_tokenizer", None)
 
         # Restore embeddings
         self.token_embed.weight.data = state["token_embed"]
@@ -1543,9 +2145,51 @@ class RLMv2(Module):
         self._train_correct = state.get("train_correct", 0)
         self._train_total = state.get("train_total", 0)
 
+        # Restore Relation Predictor MLP weights
+        if "_rp_W1" in state:
+            self._rp_W1 = state["_rp_W1"]
+            self._rp_b1 = state["_rp_b1"]
+            self._rp_W2 = state["_rp_W2"]
+            self._rp_b2 = state["_rp_b2"]
+            self._rp_mW1 = state["_rp_mW1"]
+            self._rp_mb1 = state["_rp_mb1"]
+            self._rp_mW2 = state["_rp_mW2"]
+            self._rp_mb2 = state["_rp_mb2"]
+
+        # Restore Domain-Agnostic variables if they exist
+        if "_enc_W1" in state:
+            self._enc_W1 = state["_enc_W1"]
+            self._enc_b1 = state["_enc_b1"]
+            self._enc_W2 = state["_enc_W2"]
+            self._enc_b2 = state["_enc_b2"]
+            self._enc_mW1 = state["_enc_mW1"]
+            self._enc_mb1 = state["_enc_mb1"]
+            self._enc_mW2 = state["_enc_mW2"]
+            self._enc_mb2 = state["_enc_mb2"]
+            self._dec_W1 = state["_dec_W1"]
+            self._dec_b1 = state["_dec_b1"]
+            self._dec_W2 = state["_dec_W2"]
+            self._dec_b2 = state["_dec_b2"]
+            self._rp_rel_matrices = state["_rp_rel_matrices"]
+            self._rp_mrel_matrices = state["_rp_mrel_matrices"]
+
         # Restore binding map
         self.binding_map = ConceptBindingMap()
         bm_data = state.get("binding_map", {})
         for tid, bindings in bm_data.get("by_token", {}).items():
             for cid, conf, src in bindings:
                 self.binding_map.bind(int(tid), int(cid), confidence=conf, source=src)
+
+        # Rebuild raw numpy caches in submodules and clear cached norms
+        for mod in self.modules():
+            if hasattr(mod, '_rebuild_raw_cache'):
+                mod._rebuild_raw_cache()
+        self._token_embed_norms = None
+
+    def snapshot_replay_buffer(self, domain_name: str):
+        """No-op stub for backward compatibility."""
+        pass
+
+    def activate_domain_memories(self, domain_name: str):
+        """No-op stub for backward compatibility."""
+        pass

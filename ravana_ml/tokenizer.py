@@ -40,6 +40,14 @@ class BPETokenizer(TokenizerInterface):
     def __repr__(self) -> str:
         return f"BPETokenizer(encoding={self._encoding_name}, vocab_size={self.vocab_size})"
 
+    def __getstate__(self):
+        return {"_encoding_name": self._encoding_name}
+
+    def __setstate__(self, state):
+        self._encoding_name = state["_encoding_name"]
+        import tiktoken
+        self.encoding = tiktoken.get_encoding(self._encoding_name)
+
 
 class SimpleTokenizer(TokenizerInterface):
     """Fallback character-level tokenizer when tiktoken is not available."""

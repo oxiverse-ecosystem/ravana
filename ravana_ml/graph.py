@@ -1209,13 +1209,16 @@ class ConceptGraph:
         )
         return max(0.0, sim)
 
-    def spread_activation(self, steps: int = 3, k_active: int = 7, decay: float = 0.5):
+    def spread_activation(self, steps: int = 3, k_active: int = 7, decay: float = 0.5,
+                          relation_type: Optional[str] = None):
         for _ in range(steps):
             new_activations: Dict[int, float] = {}
 
             # Sparse bulk path for large graphs (Phase 3a)
             # Handles base propagation; relation boost still per-edge
-            if (self._adj_sparse is not None
+            # Skip sparse path when relation_type filter is set (no per-edge info)
+            if (relation_type is None
+                    and self._adj_sparse is not None
                     and len(self.nodes) > self._sparse_threshold
                     and not self._adj_dirty):
                 # Build activation vector for all nodes
@@ -1249,6 +1252,9 @@ class ConceptGraph:
                     src_normed = src_vec / src_norm if src_norm > 0 else None
                     # O(degree) neighbor lookup via adjacency list
                     for target_id, edge in self._outgoing.get(nid, []):
+                        # Relation type filter: only spread along matching edges
+                        if relation_type is not None and edge.relation_type != relation_type:
+                            continue
                         # Precision weighting: edge.confidence modulates signal strength
                         # Relation vector gate: RV alignment with source concept boosts flow
                         # Cache rv norm on edge (invalidated in learn() when RV changes)

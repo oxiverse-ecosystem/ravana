@@ -14,9 +14,15 @@ Method:
 This is the ACTUAL RAVANA use case: reasoning about novel concepts.
 """
 import sys
+import os
 import io
 import time
 import numpy as np
+
+# Ensure project root is in sys.path
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
@@ -666,7 +672,7 @@ def main():
     # Load MiniLM and inject embeddings
     print("\nLoading MiniLM...")
     t0 = time.time()
-    st_model = SentenceTransformer('all-mpnet-base-v2')
+    st_model = SentenceTransformer('all-MiniLM-L6-v2')
     print(f"  Loaded in {time.time()-t0:.1f}s")
 
     inject_minilm_embeddings(model, tok, st_model)

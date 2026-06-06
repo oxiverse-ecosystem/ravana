@@ -20,7 +20,7 @@ import numpy as np
 import time
 from collections import Counter
 from ravana_ml.nn.rlm_v2 import RLMv2
-from ravana_ml.tokenizer import SimpleTokenizer
+from ravana_ml.tokenizer import WordTokenizer
 
 
 def weight_entropy(graph):
@@ -76,7 +76,7 @@ def run_fair_eval():
     print("1. FAIR EVAL — Novel Token Prediction")
     print("=" * 60)
     
-    tok = SimpleTokenizer()
+    tok = WordTokenizer()
     
     # Training facts (known)
     train_facts_list = [
@@ -101,8 +101,15 @@ def run_fair_eval():
         ('rain produces', 'growth'),         # trained  
     ]
     
-    model = RLMv2(vocab_size=tok.vocab_size, embed_dim=32, concept_dim=32,
+    tok = WordTokenizer()
+    for fact in train_facts_list:
+        tok.encode(fact)
+    for fact, target in test_facts + novel_facts:
+        tok.encode(f"{fact} {target}")
+    
+    model = RLMv2(vocab_size=tok.vocab_size + 5, embed_dim=32, concept_dim=32,
                   n_concepts=tok.vocab_size, sleep_interval=999999)
+    model._tokenizer = tok
     
     print(f"\nTraining on {len(train_facts_list)} facts, 100 epochs...")
     train_facts(model, tok, train_facts_list, epochs=100)
@@ -128,8 +135,6 @@ def run_scaling_test():
     print("2. SCALING TEST — Performance vs Graph Size")
     print("=" * 60)
     
-    tok = SimpleTokenizer()
-    
     # Generate facts with increasing vocabulary
     all_facts = [
         'heat causes expansion', 'fire produces smoke', 'ice causes cold',
@@ -153,11 +158,16 @@ def run_scaling_test():
         'friction produces wear', 'pressure causes stress', 'education leads opportunity',
     ]
     
+    tok = WordTokenizer()
+    for fact in all_facts:
+        tok.encode(fact)
+    
     results = []
     for n_facts in [10, 25, 40, 55]:
         facts = all_facts[:n_facts]
-        model = RLMv2(vocab_size=tok.vocab_size, embed_dim=32, concept_dim=32,
+        model = RLMv2(vocab_size=tok.vocab_size + 5, embed_dim=32, concept_dim=32,
                       n_concepts=tok.vocab_size, sleep_interval=999999)
+        model._tokenizer = tok
         
         t0 = time.perf_counter()
         train_facts(model, tok, facts, epochs=50)
@@ -212,7 +222,6 @@ def run_entropy_tracking():
     print("3. WEIGHT ENTROPY TRACKING — Rich-Get-Richer Detection")
     print("=" * 60)
     
-    tok = SimpleTokenizer()
     facts = [
         'heat causes expansion', 'fire produces smoke', 'ice causes cold',
         'sun produces warmth', 'rain causes growth', 'wind produces waves',
@@ -223,8 +232,13 @@ def run_entropy_tracking():
         'steel causes strength', 'oxygen produces rust',
     ]
     
-    model = RLMv2(vocab_size=tok.vocab_size, embed_dim=32, concept_dim=32,
+    tok = WordTokenizer()
+    for fact in facts:
+        tok.encode(fact)
+    
+    model = RLMv2(vocab_size=tok.vocab_size + 5, embed_dim=32, concept_dim=32,
                   n_concepts=tok.vocab_size, sleep_interval=999999)
+    model._tokenizer = tok
     
     entropy_log = []
     for epoch in range(100):
@@ -262,8 +276,6 @@ def run_probes():
     print("4. GENERALIZATION PROBES")
     print("=" * 60)
     
-    tok = SimpleTokenizer()
-    
     # ── Type A: Novel Subject ──
     # Train capital facts for known countries, test on unseen country
     print("\n  --- Type A: Novel Subject ---")
@@ -277,16 +289,23 @@ def run_probes():
     type_a_train_extra = [
         'canada has forests', 'canada has mountains', 'canada produces maple',
     ]
+    a_pairs = [('canada capital', 'ottawa')]
     
-    model_a = RLMv2(vocab_size=tok.vocab_size, embed_dim=32, concept_dim=32,
-                    n_concepts=tok.vocab_size, sleep_interval=999999)
-    train_facts(model_a, tok, type_a_train + type_a_train_extra, epochs=100)
+    tok_a = WordTokenizer()
+    for fact in type_a_train + type_a_train_extra:
+        tok_a.encode(fact)
+    for fact, target in a_pairs + [('france capital', 'paris')]:
+        tok_a.encode(f"{fact} {target}")
+    
+    model_a = RLMv2(vocab_size=tok_a.vocab_size + 5, embed_dim=32, concept_dim=32,
+                    n_concepts=tok_a.vocab_size, sleep_interval=999999)
+    model_a._tokenizer = tok_a
+    train_facts(model_a, tok_a, type_a_train + type_a_train_extra, epochs=100)
     
     # Test: "canada capital" → should predict something capital-like
-    a_pairs = [('canada capital', 'ottawa')]
-    a_acc = measure_topk(model_a, tok, a_pairs, k=5)
+    a_acc = measure_topk(model_a, tok_a, a_pairs, k=5)
     # Also test known capitals (retrieval baseline)
-    a_known = measure_topk(model_a, tok, [('france capital', 'paris')], k=1)
+    a_known = measure_topk(model_a, tok_a, [('france capital', 'paris')], k=1)
     print(f"    Known capital (france→paris): {a_known:.0%}")
     print(f"    Novel subject (canada→ottawa): {a_acc:.0%} (top-5)")
     print(f"    Note: 'ottawa' may not be in vocab — testing if 'capital-like' tokens rank high")
@@ -297,17 +316,24 @@ def run_probes():
         'alice parent bob', 'bob parent charlie',
         'diana parent eve', 'eve parent frank',
     ]
+    b_pairs = [('alice parent', 'bob'), ('bob parent', 'charlie')]
     
-    model_b = RLMv2(vocab_size=tok.vocab_size, embed_dim=32, concept_dim=32,
-                    n_concepts=tok.vocab_size, sleep_interval=999999)
-    train_facts(model_b, tok, type_b_train, epochs=100)
+    tok_b = WordTokenizer()
+    for fact in type_b_train:
+        tok_b.encode(fact)
+    for fact, target in b_pairs:
+        tok_b.encode(f"{fact} {target}")
+    
+    model_b = RLMv2(vocab_size=tok_b.vocab_size + 5, embed_dim=32, concept_dim=32,
+                    n_concepts=tok_b.vocab_size, sleep_interval=999999)
+    model_b._tokenizer = tok_b
+    train_facts(model_b, tok_b, type_b_train, epochs=100)
     
     # Test: alice grandparent → charlie (2-hop reasoning)
     # The model needs to traverse alice→bob→charlie
-    b_pairs = [('alice parent', 'bob'), ('bob parent', 'charlie')]
-    b_direct = measure_topk(model_b, tok, b_pairs, k=1)
+    b_direct = measure_topk(model_b, tok_b, b_pairs, k=1)
     print(f"    Direct parent (alice→bob): {b_direct:.0%}")
-    print(f"    Direct parent (bob→charlie): {measure_topk(model_b, tok, [('bob parent', 'charlie')], k=1):.0%}")
+    print(f"    Direct parent (bob→charlie): {measure_topk(model_b, tok_b, [('bob parent', 'charlie')], k=1):.0%}")
     
     # ── Type C: Relation Transfer ──
     print("\n  --- Type C: Relation Transfer ---")
@@ -315,15 +341,22 @@ def run_probes():
         'dog is animal', 'cat is animal', 'sparrow is bird',
         'eagle has wings', 'eagle has talons', 'eagle hunts prey',
     ]
+    c_pairs = [('eagle is', 'bird')]
     
-    model_c = RLMv2(vocab_size=tok.vocab_size, embed_dim=32, concept_dim=32,
-                    n_concepts=tok.vocab_size, sleep_interval=999999)
-    train_facts(model_c, tok, type_c_train, epochs=100)
+    tok_c = WordTokenizer()
+    for fact in type_c_train:
+        tok_c.encode(fact)
+    for fact, target in c_pairs + [('dog is', 'animal')]:
+        tok_c.encode(f"{fact} {target}")
+    
+    model_c = RLMv2(vocab_size=tok_c.vocab_size + 5, embed_dim=32, concept_dim=32,
+                    n_concepts=tok_c.vocab_size, sleep_interval=999999)
+    model_c._tokenizer = tok_c
+    train_facts(model_c, tok_c, type_c_train, epochs=100)
     
     # Test: eagle is → ? (should be bird-like, since eagle shares features with sparrow)
-    c_pairs = [('eagle is', 'bird')]
-    c_acc = measure_topk(model_c, tok, c_pairs, k=5)
-    c_known = measure_topk(model_c, tok, [('dog is', 'animal')], k=1)
+    c_acc = measure_topk(model_c, tok_c, c_pairs, k=5)
+    c_known = measure_topk(model_c, tok_c, [('dog is', 'animal')], k=1)
     print(f"    Known relation (dog→animal): {c_known:.0%}")
     print(f"    Relation transfer (eagle→bird): {c_acc:.0%} (top-5)")
     

@@ -440,6 +440,8 @@ A clean-room rewrite replacing character-level GRU with brain-inspired triple de
 
 **Key innovation**: Instead of character-level sequence modeling, RLMv2 parses knowledge into structured triples and performs graph-based reasoning — closer to how biological neural circuits encode relational knowledge.
 
+**Current RLMv2 v6 benchmark**: 80.9% top-10 on 47-triple benchmark (500 epochs, standard config). Relation vector separation: 0.551.
+
 ---
 
 ## Phase 2: NN Bridge + Composed Reasoning
@@ -452,19 +454,19 @@ Pre-trained sentence transformer (MiniLM-L6-v2, 384-dim) provides semantic embed
 - Reverse edge inheritance (if A→B, infer B can relate back to A)
 - Bridge-as-candidate (bridged concepts compete with direct matches)
 
-**Best Results** (experiment_reverse_inheritance.py):
+**Best Results** (experiment_reverse_inheritance.py / experiment_final_bridge.py, verified 2026-06-03):
 
 | Metric | Value |
 |--------|-------|
 | Bridge accuracy | 67% (8/12 terms) |
-| Query success | 91% (20/22) |
-| Object hit rate | 90% (28/31) |
+| Query success | 95% (21/22) |
+| Object hit rate | 94% (29/31) |
 
 Only failure: matcha (MiniLM embedding similarity 0.32 — below threshold).
 
 **Progression over iterations:**
 ```
-42% bridge / 45% query → 67% bridge / 59% query → 67% bridge / 68% query → 67% bridge / 91% query
+42% bridge / 45% query → 67% bridge / 59% query → 67% bridge / 68% query → 67% bridge / 95% query
 ```
 
 ---
@@ -480,14 +482,15 @@ Only failure: matcha (MiniLM embedding similarity 0.32 — below threshold).
 
 ---
 
-## Updated Line Counts (2026-06-01)
+## Updated Line Counts (2026-06-02)
 
 | Component | Lines | Files |
 |-----------|-------|-------|
-| `ravana_ml/` | 11,993 | 20 |
-| `ravana-v2/core/` | 13,600 | 33 |
-| `ravana/` package | 909 | 11 |
-| **Total** | **46,059** | **159** |
+| `ravana_ml/` | 4,383 | 16 |
+| `ravana-v2/core/` | 10,162 | 27 |
+| `ravana/` package | 855 | 10 |
+| **Source total** | **15,400** | **53** |
+| **Full project (all Python)** | **~40,700** | **170** |
 
 ---
 

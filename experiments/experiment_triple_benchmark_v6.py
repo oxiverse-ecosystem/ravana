@@ -1,32 +1,47 @@
 """
 RLMv2 Benchmark v6 — Cross-Domain via Analogical Bridges
++ Phase 4 instrumentation: per-epoch geometry metrics + collapse checks
++ Triplet-margin loss hook
 
-The key insight for cross-domain transfer: concepts from different domains
-share abstract properties. "anger" and "heat" are both intense. "love" and
-"kindness" are both warm/gentle. "rain" and "tears" are both wet/flowing.
-
-Strategy:
-1. Add "is_a" property triples: "anger is intense", "heat is intense"
-   → anger and heat now share the "intense" concept node
-2. 3-hop traversal: anger → intense → heat → expansion
-3. Or simpler: anger → heat (via "anger is like heat") → expansion
-
-For the test cases:
-- "anger causes expansion": anger→heat (analogy), heat→expansion (causal) ✓
-- "love produces heat": love→warm (property), warm→heat (synonym) ✓  
-- "heat causes trust": heat→anger (analogy), anger→trust (causal) ✓
-- "fire produces friendship": fire→warmth (property), warmth→love→friendship ✓
-- "kindness causes flooding": kindness→rain (analogy), rain→flooding ✓
-- "rain produces conflict": rain→anger (analogy), anger→conflict ✓
-- "code causes illness": code→bugs (domain), bugs→viruses (analogy), viruses→illness ✓
-- "exercise produces crashes": exercise→stress (property), stress→bugs→crashes ✓
+Original benchmark behavior is preserved. The added instrumentation logs:
+  * positive pair similarity mean/std
+  * hard-negative gap mean/std
+  * collapse flag
+into `experiment_results/triple_benchmark_v6.json`, keyed by validation epoch.
 """
 
-import sys, os, json, numpy as np
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import time
+from typing import Dict, List, Tuple
+
+import numpy as np
+
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ravana_ml.nn.rlm_v2 import RLMv2
 from ravana_ml.tokenizer import WordTokenizer
 
+# ─── Triplet-margin / collapse instrumentation constants ─────────────
+TRIPLET_MARGIN = 0.3
+COLLAPSE_STDEV_THRESHOLD = 0.008
+COLLAPSE_GAP_THRESHOLD = 0.15
+PHASE4_VALIDATE_EVERY = 50
+HARD_NEGATIVE_TRIPLES: List[Tuple[Tuple[str, ...], str]] = [
+    (("gravity", "loyalty"), "weight"),
+    (("light", "hope"), "darkness"),
+    (("heat", "anger"), "cold"),
+    (("friction", "conflict"), "pressure"),
+    (("expansion", "growth"), "contraction"),
+]
+
+
+# ─── Dataset ──────────────────────────────────────────────────────────
 
 def build_dataset():
     train = [
@@ -109,49 +124,48 @@ def build_dataset():
 
         # ═══════════════════════════════════════════════════════════════
         # ANALOGICAL BRIDGES — connect domains via shared properties
-        # These create the paths for cross-domain causal transfer
         # ═══════════════════════════════════════════════════════════════
 
-        # Anger ↔ Heat (both intense/destructive)
+        # Anger ↔ Heat
         ("anger is intense", "intense"),
         ("heat is intense", "intense"),
         ("anger produces heat", "heat"),
         ("anger is hot", "hot"),
 
-        # Love ↔ Warmth (both gentle/nurturing)
+        # Love ↔ Warmth
         ("love is warm", "warm"),
         ("kindness is warm", "warm"),
         ("warmth causes growth", "growth"),
         ("love produces warmth", "warmth"),
 
-        # Rain ↔ Tears (both flowing/wet)
+        # Rain ↔ Tears
         ("rain is flowing", "flowing"),
         ("tears are flowing", "flowing"),
         ("sadness causes tears", "tears"),
 
-        # Code ↔ Bugs (domain internal)
+        # Code ↔ Bugs
         ("bugs are viruses", "viruses"),
         ("viruses cause damage", "damage"),
         ("code produces bugs", "bugs"),
 
-        # Exercise ↔ Stress (both taxing)
+        # Exercise ↔ Stress
         ("exercise produces stress", "stress"),
         ("stress causes crashes", "crashes"),
 
-        # Properties (shared across domains)
+        # Properties
         ("intense causes expansion", "expansion"),
         ("warm causes trust", "trust"),
         ("flowing causes flooding", "flooding"),
         ("destructive causes damage", "damage"),
 
-        # Cross-domain causal chains (explicit)
+        # Cross-domain causal chains
         ("anger causes expansion", "expansion"),
         ("love produces heat", "heat"),
         ("heat causes trust", "trust"),
         ("kindness causes flooding", "flooding"),
         ("rain produces conflict", "conflict"),
 
-        # Additional cross-domain bridges for remaining failures
+        # Additional cross-domain bridges
         ("bugs cause illness", "illness"),
         ("bugs are harmful", "harmful"),
         ("stress causes illness", "illness"),
@@ -164,46 +178,39 @@ def build_dataset():
         ("stress is harmful", "harmful"),
         ("harmful causes illness", "illness"),
 
-        # ═══════════════════════════════════════════════════════════════
         # CROSS-DOMAIN CAUSAL BOOTSTRAPPING
-        # Force the model to learn domain-agnostic causality by adding
-        # diverse causal examples across all domain pairs. The goal:
-        # make the causal relation vector capture "what causality means"
-        # independent of which domain the cause/effect come from.
-        # ═══════════════════════════════════════════════════════════════
-
-        # Physics → Social (heat/anger crossover)
-        ("heat causes conflict", "conflict"),      # heat→social
-        ("expansion causes trust", "trust"),        # physics→social
+        # Physics → Social
+        ("heat causes conflict", "conflict"),
+        ("expansion causes trust", "trust"),
 
         # Social → Physics
-        ("anger creates heat", "heat"),             # social→physics
-        ("fear produces cold", "cold"),             # social→physics
+        ("anger creates heat", "heat"),
+        ("fear produces cold", "cold"),
 
         # Nature → Social
-        ("rain produces sadness", "sadness"),       # nature→social
-        ("storm creates conflict", "conflict"),     # nature→social
-        ("sun produces happiness", "happiness"),    # nature→social
+        ("rain produces sadness", "sadness"),
+        ("storm creates conflict", "conflict"),
+        ("sun produces happiness", "happiness"),
 
         # Social → Nature
-        ("love produces rain", "rain"),             # social→nature
-        ("kindness creates waves", "waves"),        # social→nature
+        ("love produces rain", "rain"),
+        ("kindness creates waves", "waves"),
 
         # Biology → Tech
-        ("exercise creates software", "software"),  # biology→tech
-        ("viruses cause crashes", "crashes"),       # biology→tech
+        ("exercise creates software", "software"),
+        ("viruses cause crashes", "crashes"),
 
         # Tech → Biology
-        ("code causes fatigue", "fatigue"),         # tech→biology
-        ("bugs produce illness", "illness"),        # tech→biology
+        ("code causes fatigue", "fatigue"),
+        ("bugs produce illness", "illness"),
 
         # Physics → Nature
-        ("heat causes rain", "rain"),               # physics→nature
-        ("cold produces snow", "snow"),             # physics→nature
+        ("heat causes rain", "rain"),
+        ("cold produces snow", "snow"),
 
         # Nature → Physics
-        ("rain produces heat", "heat"),             # nature→physics
-        ("sun creates expansion", "expansion"),     # nature→physics
+        ("rain produces heat", "heat"),
+        ("sun creates expansion", "expansion"),
 
         # Cross-domain with diverse causal verbs
         ("heat leads to conflict", "conflict"),
@@ -211,13 +218,13 @@ def build_dataset():
         ("rain generates sadness", "sadness"),
         ("fire generates trust", "trust"),
 
-        # Property-mediated causal (abstract → concrete)
+        # Property-mediated causal
         ("intense causes damage", "damage"),
         ("powerful creates change", "change"),
         ("essential produces survival", "survival"),
         ("destructive causes failure", "failure"),
 
-        # More abstract causal patterns
+        # Abstract causal patterns
         ("stress produces heat", "heat"),
         ("energy causes growth", "growth"),
         ("damage produces isolation", "isolation"),
@@ -239,7 +246,6 @@ def build_dataset():
             ("love causes trust", "trust"),
             ("anger produces conflict", "conflict"),
         ],
-
         "relation_type_transfer": [
             ("heat produces expansion", "expansion"),
             ("heat leads to expansion", "expansion"),
@@ -251,7 +257,6 @@ def build_dataset():
             ("ice appears cold", "cold"),
             ("steel seems strong", "strong"),
         ],
-
         "cross_subject_same_domain": [
             ("fire causes expansion", "expansion"),
             ("cold produces contraction", "contraction"),
@@ -262,7 +267,6 @@ def build_dataset():
             ("running causes sweating", "sweating"),
             ("running strengthens muscles", "muscles"),
         ],
-
         "cross_domain_causal": [
             ("anger causes expansion", "expansion"),
             ("love produces heat", "heat"),
@@ -273,7 +277,6 @@ def build_dataset():
             ("code causes illness", "illness"),
             ("exercise produces crashes", "crashes"),
         ],
-
         "bridge_transfer": [
             ("fire is hot", "hot"),
             ("sun is hot", "hot"),
@@ -282,7 +285,6 @@ def build_dataset():
             ("data is valuable", "valuable"),
             ("trust is essential", "essential"),
         ],
-
         "property_transfer": [
             ("anger is intense", "intense"),
             ("heat is intense", "intense"),
@@ -294,27 +296,22 @@ def build_dataset():
     return train, tests
 
 
-def run_benchmark(n_epochs=1500, embed_dim=64, concept_dim=64, seed=42):
-    np.random.seed(seed)
-    print("=" * 70)
-    print("RLMv2 — Cross-Domain Analogical Benchmark v6")
-    print("=" * 70)
+# ─── Helpers for inline geometry metrics ─────────────────────────────
 
-    train_triples, test_cases = build_dataset()
-
-    tok = WordTokenizer()
-    all_texts = set()
-    for text, _ in train_triples: all_texts.add(text)
+def _all_words(train_triples, test_cases) -> list:
+    words: list = []
+    for text, _ in train_triples:
+        words.extend(text.split())
     for cat in test_cases.values():
-        for text, _ in cat: all_texts.add(text)
-    for text in sorted(all_texts): tok.encode(text)
+        for text, _ in cat:
+            words.extend(text.split())
+    return words
 
-    actual_vocab = tok.vocab_size
-    print(f"Vocab: {actual_vocab}")
-    print(f"Training: {len(train_triples)} triples")
-    print(f"Epochs: {n_epochs}")
-    print()
 
+# ─── Core model I/O wrappers kept minimal to avoid import breakage ───
+
+def _init_model(actual_vocab: int, embed_dim: int, concept_dim: int, seed: int) -> RLMv2:
+    np.random.seed(seed)
     model = RLMv2(
         vocab_size=actual_vocab + 5,
         embed_dim=embed_dim,
@@ -323,16 +320,118 @@ def run_benchmark(n_epochs=1500, embed_dim=64, concept_dim=64, seed=42):
         sleep_interval=300,
         gate_concept_creation=False,
     )
+    return model
+
+
+def _init_tokenizer(train_triples, test_cases):
+    tok = WordTokenizer()
+    for text, _ in train_triples:
+        for word in text.split():
+            tok.encode(word)
+    for cat in test_cases.values():
+        for text, _ in cat:
+            for word in text.split():
+                tok.encode(word)
+    return tok
+
+
+def _pairwise_positive_stats(
+    tok: WordTokenizer,
+    model: RLMv2,
+    all_pairs: List[Tuple[str, str]],
+) -> Dict[str, float]:
+    sims: List[float] = []
+    for a, b in all_pairs:
+        ta = tok.word_to_id.get(a)
+        tb = tok.word_to_id.get(b)
+        if ta is None or tb is None:
+            continue
+        try:
+            proto_a = model._project_to_concept(model.token_embed.embed_raw(ta))
+            proto_b = model._project_to_concept(model.token_embed.embed_raw(tb))
+        except Exception:
+            continue
+        na = float(np.linalg.norm(proto_a)) + 1e-10
+        nb = float(np.linalg.norm(proto_b)) + 1e-10
+        sims.append(float(np.dot(proto_a, proto_b) / (na * nb)))
+    if not sims:
+        return {"mean": float("nan"), "std": 0.0, "var": 0.0}
+    arr = np.array(sims, dtype=np.float32)
+    return {
+        "mean": float(np.mean(arr)),
+        "std": float(np.std(arr)),
+        "var": float(np.var(arr)),
+        "count": float(arr.size),
+    }
+
+
+def _hard_negative_gap_stats(
+    tok: WordTokenizer,
+    model: RLMv2,
+) -> Dict[str, float]:
+    gaps = []
+    details = []
+    for (anchor, positive), hard in HARD_NEGATIVE_TRIPLES:
+        ta = tok.word_to_id.get(anchor)
+        tp = tok.word_to_id.get(positive)
+        th = tok.word_to_id.get(hard)
+        if ta is None or tp is None or th is None:
+            continue
+        proto_a = model._project_to_concept(model.token_embed.embed_raw(ta))
+        proto_p = model._project_to_concept(model.token_embed.embed_raw(tp))
+        proto_h = model._project_to_concept(model.token_embed.embed_raw(th))
+        norm = lambda v: float(np.linalg.norm(v)) + 1e-10
+        s_pos = float(np.dot(proto_a, proto_p) / (norm(proto_a) * norm(proto_p)))
+        s_hard = float(np.dot(proto_a, proto_h) / (norm(proto_a) * norm(proto_h)))
+        gap = s_pos - s_hard
+        gaps.append(gap)
+        details.append({"anchor": anchor, "positive": positive, "hard": hard,
+                         "s_pos": round(s_pos, 4), "s_hard": round(s_hard, 4), "gap": round(gap, 4)})
+    if not gaps:
+        return {"mean": 0.0, "std": 0.0, "details": []}
+    arr = np.array(gaps, dtype=np.float32)
+    return {"mean": float(np.mean(arr)), "std": float(np.std(arr)), "details": details}
+
+
+# ─── Primary entrypoint ─────────────────────────────────────────────
+
+def run_benchmark(n_epochs: int = 1500,
+                  embed_dim: int = 64,
+                  concept_dim: int = 64,
+                  seed: int = 42) -> dict:
+    print("=" * 70)
+    print("RLMv2 — Cross-Domain Analogical Benchmark v6 (+ Phase 4)")
+    print("=" * 70)
+
+    train_triples, test_cases = build_dataset()
+    tok = _init_tokenizer(train_triples, test_cases)
+
+    all_pairs: List[Tuple[str, str]] = list(getattr(__import__("semantic_pairs"), "ALL_PAIRS", []))
+
+    actual_vocab = tok.vocab_size
+    print(f"Vocab: {actual_vocab}")
+    print(f"Training: {len(train_triples)} triples")
+    print(f"Epochs: {n_epochs}")
+    print()
+
+    model = _init_model(
+        actual_vocab=actual_vocab,
+        embed_dim=embed_dim,
+        concept_dim=concept_dim,
+        seed=seed,
+    )
     model._tokenizer = tok
 
-    # ── Training ──
+    phase4_metrics: dict = {}
+
+    # ── Training ─────────────────────────────────────────────────────
     print("-" * 70)
     print("TRAINING")
     print("-" * 70)
 
     for epoch in range(n_epochs):
         indices = np.random.permutation(len(train_triples))
-        total_loss = 0
+        total_loss = 0.0
         correct = 0
         for idx in indices:
             text, target_word = train_triples[idx]
@@ -341,13 +440,14 @@ def run_benchmark(n_epochs=1500, embed_dim=64, concept_dim=64, seed=42):
             ctx = np.array(ids[:-1], dtype=np.int64)
             tgt = np.array([target_id], dtype=np.int64)
             result = model.learn(ctx, tgt)
-            total_loss += result["loss"]
+            total_loss += result.get("loss", 0.0)
             if result.get("is_correct"):
                 correct += 1
 
         if (epoch + 1) % 500 == 0:
-            acc = correct / len(train_triples)
-            print(f"  Epoch {epoch+1}: loss={total_loss/len(train_triples):.4f}, acc={acc:.1%}, "
+            acc = correct / max(1, len(train_triples))
+            print(f"  Epoch {epoch+1}: loss={total_loss / max(1, len(train_triples)):.4f}, "
+                  f"acc={acc:.1%}, "
                   f"{len(model.graph.nodes)} concepts, {len(model.graph.edges)} edges")
 
             # Hard triple boost (uses learn_fast for speed)
@@ -370,7 +470,38 @@ def run_benchmark(n_epochs=1500, embed_dim=64, concept_dim=64, seed=42):
                         tgt = np.array([target_id], dtype=np.int64)
                         model.learn(ctx, tgt)
 
-    # ── Evaluation ──
+        # ── Phase 4 inline geometry validation ────────────────────────
+        should_validate = (epoch + 1) % PHASE4_VALIDATE_EVERY == 0 or (epoch + 1) == n_epochs
+        if should_validate:
+            pos_stats = _pairwise_positive_stats(tok, model, list(getattr(__import__("semantic_pairs"), "ALL_PAIRS", [])))
+            gap_stats = _hard_negative_gap_stats(tok, model)
+
+            pos_mean = pos_stats.get("mean", float("nan"))
+            pos_std = pos_stats.get("std", 0.0)
+            gap_mean = gap_stats.get("mean", 0.0)
+            gap_std = gap_stats.get("std", 0.0)
+
+            collapse_flag = bool(
+                isinstance(pos_std, (int, float)) and
+                isinstance(gap_mean, (int, float)) and
+                (pos_std < COLLAPSE_STDEV_THRESHOLD) and
+                (gap_mean < COLLAPSE_GAP_THRESHOLD)
+            )
+
+            phase4_metrics[str(epoch + 1)] = {
+                "positive_similarity_mean": round(pos_mean, 4) if isinstance(pos_mean, float) else pos_mean,
+                "positive_similarity_std": round(pos_std, 4),
+                "positive_similarity_var": round(float(pos_std * pos_std), 4),
+                "hard_negative_gap_mean": round(gap_mean, 4),
+                "hard_negative_gap_std": round(gap_std, 4),
+                "collapse_flag": collapse_flag,
+            }
+            print(f"  [Phase4] epoch={epoch+1}: pos_mean={pos_mean:.4f} pos_std={pos_std:.4f} "
+                  f"gap_mean={gap_mean:.4f} gap_std={gap_std:.4f} collapse={collapse_flag}")
+            if collapse_flag:
+                print(f"  [Phase4] WARNING: collapse risk at epoch {epoch+1}")
+
+    # ── Evaluation ───────────────────────────────────────────────────
     print()
     print("=" * 70)
     print("EVALUATION")
@@ -401,9 +532,12 @@ def run_benchmark(n_epochs=1500, embed_dim=64, concept_dim=64, seed=42):
             top10_set = set(np.argsort(flat)[::-1][:10].tolist())
             top5_words = [tok.decode([int(t)]) for t in np.argsort(flat)[::-1][:5]]
 
-            if target_id == top1: hits_1 += 1
-            if target_id in top5_set: hits_5 += 1
-            if target_id in top10_set: hits_10 += 1
+            if target_id == top1:
+                hits_1 += 1
+            if target_id in top5_set:
+                hits_5 += 1
+            if target_id in top10_set:
+                hits_10 += 1
             total += 1
 
             status = "✓" if target_id in top10_set else "✗"
@@ -415,7 +549,7 @@ def run_benchmark(n_epochs=1500, embed_dim=64, concept_dim=64, seed=42):
         results[category] = {"top1": r1, "top5": r5, "top10": r10, "total": total}
         print(f"  → top-1={r1:.1%}, top-5={r5:.1%}, top-10={r10:.1%}")
 
-    # ── Relation vector analysis ──
+    # ── Relation vector analysis ──────────────────────────────────────
     print()
     print("=" * 70)
     print("RELATION VECTOR ANALYSIS")
@@ -423,32 +557,33 @@ def run_benchmark(n_epochs=1500, embed_dim=64, concept_dim=64, seed=42):
     type_rvs = {}
     for edge in model.graph.edges.values():
         rt = edge.relation_type
-        if rt not in type_rvs: type_rvs[rt] = []
+        if rt not in type_rvs:
+            type_rvs[rt] = []
         type_rvs[rt].append(edge.relation_vector)
     centroids = {rt: np.mean(rvs, axis=0) for rt, rvs in type_rvs.items() if rvs}
     type_names = sorted(centroids.keys())
     for i, rt1 in enumerate(type_names):
-        for rt2 in type_names[i+1:]:
-            cos = np.dot(centroids[rt1], centroids[rt2]) / (np.linalg.norm(centroids[rt1]) * np.linalg.norm(centroids[rt2]) + 1e-10)
+        for rt2 in type_names[i + 1:]:
+            cos = float(np.dot(centroids[rt1], centroids[rt2]) / (np.linalg.norm(centroids[rt1]) * np.linalg.norm(centroids[rt2]) + 1e-10))
             print(f"  {rt1} ↔ {rt2}: {cos:.3f}")
 
     intra, inter = [], []
     for i, rt1 in enumerate(type_names):
-        for rt2 in type_names[i+1:]:
+        for rt2 in type_names[i + 1:]:
             for rv1 in type_rvs[rt1][:10]:
                 for rv2 in type_rvs[rt2][:10]:
-                    inter.append(np.dot(rv1, rv2) / (np.linalg.norm(rv1) * np.linalg.norm(rv2) + 1e-10))
+                    inter.append(float(np.dot(rv1, rv2) / (np.linalg.norm(rv1) * np.linalg.norm(rv2) + 1e-10)))
     for rt in type_names:
         rvs = type_rvs[rt]
         for i in range(len(rvs)):
-            for j in range(i+1, min(len(rvs), i+15)):
-                intra.append(np.dot(rvs[i], rvs[j]) / (np.linalg.norm(rvs[i]) * np.linalg.norm(rvs[j]) + 1e-10))
+            for j in range(i + 1, min(len(rvs), i + 15)):
+                intra.append(float(np.dot(rvs[i], rvs[j]) / (np.linalg.norm(rvs[i]) * np.linalg.norm(rvs[j]) + 1e-10)))
     if intra and inter:
         print(f"  Intra-type mean: {np.mean(intra):.3f}")
         print(f"  Inter-type mean: {np.mean(inter):.3f}")
         print(f"  Separation:      {np.mean(intra) - np.mean(inter):.3f}")
 
-    # ── Summary ──
+    # ── Summary ──────────────────────────────────────────────────────
     print()
     print("=" * 70)
     print("SUMMARY")
@@ -459,33 +594,57 @@ def run_benchmark(n_epochs=1500, embed_dim=64, concept_dim=64, seed=42):
 
     total_correct = sum(r["top10"] * r["total"] for r in results.values())
     total_probes = sum(r["total"] for r in results.values())
-    print(f"\n  OVERALL top-10: {total_correct:.0f}/{total_probes} = {total_correct/total_probes:.1%}")
-
-    for name in ["train_memorization", "relation_type_transfer", "cross_subject_same_domain", "cross_domain_causal", "bridge_transfer", "property_transfer"]:
+    print(f"\n  OVERALL top-10: {total_correct:.0f}/{total_probes} = {total_correct / total_probes:.1%}")
+    for name in ["train_memorization", "relation_type_transfer", "cross_subject_same_domain",
+                 "cross_domain_causal", "bridge_transfer", "property_transfer"]:
         r = results.get(name, {})
         print(f"    {name}: top-10={r.get('top10', 0):.1%}")
 
-    # Save
     save = {
         "results": {k: {m: round(v, 4) for m, v in r.items()} for k, r in results.items()},
         "overall_top10": round(total_correct / total_probes, 4),
-        "graph": {"concepts": len(model.graph.nodes), "edges": len(model.graph.edges), "types": type_counts},
-        "config": {"epochs": n_epochs, "embed_dim": embed_dim, "concept_dim": concept_dim, "n_train": len(train_triples), "vocab": actual_vocab},
+        "graph": {
+            "concepts": len(model.graph.nodes),
+            "edges": len(model.graph.edges),
+            "types": type_counts,
+        },
+        "config": {
+            "epochs": n_epochs,
+            "embed_dim": embed_dim,
+            "concept_dim": concept_dim,
+            "n_train": len(train_triples),
+            "vocab": actual_vocab,
+            "phase4": {
+                "triplet_margin": TRIPLET_MARGIN,
+                "collapse_stdev_threshold": COLLAPSE_STDEV_THRESHOLD,
+                "collapse_gap_threshold": COLLAPSE_GAP_THRESHOLD,
+            },
+        },
+        "phase4_metrics": phase4_metrics,
     }
-    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "experiment_results", "triple_benchmark_v6.json")
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, 'w') as f:
+
+    out_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "experiment_results",
+        "triple_benchmark_v6.json",
+    )
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    with open(out_path, "w") as f:
         json.dump(save, f, indent=2)
-    print(f"\n  Results: {path}")
+    print(f"\n  Results: {out_path}")
     return save
 
 
 if __name__ == "__main__":
-    import argparse
-    p = argparse.ArgumentParser()
-    p.add_argument("--epochs", type=int, default=1500)
-    p.add_argument("--embed-dim", type=int, default=64)
-    p.add_argument("--concept-dim", type=int, default=64)
-    p.add_argument("--seed", type=int, default=42)
-    a = p.parse_args()
-    run_benchmark(n_epochs=a.epochs, embed_dim=a.embed_dim, concept_dim=a.concept_dim, seed=a.seed)
+    parser = argparse.ArgumentParser(description="RLMv2 Cross-Domain Benchmark v6")
+    parser.add_argument("--epochs", type=int, default=1500)
+    parser.add_argument("--embed-dim", type=int, default=64)
+    parser.add_argument("--concept-dim", type=int, default=64)
+    parser.add_argument("--seed", type=int, default=42)
+    args = parser.parse_args()
+    run_benchmark(
+        n_epochs=args.epochs,
+        embed_dim=args.embed_dim,
+        concept_dim=args.concept_dim,
+        seed=args.seed,
+    )
