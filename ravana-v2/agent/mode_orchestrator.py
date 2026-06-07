@@ -153,26 +153,46 @@ class ModeOrchestrator:
         if hasattr(rg, 'ingest_news'):
             cycle = rg.ingest_news(ravana_state=self.ravana.get_state_vector(), max_items=5, max_scenarios=3)
             events = cycle.get('news_items', [])
+            scenarios = cycle.get('scenarios', [])
+            alignment = cycle.get('alignment', {})
+            top_pressure = float(cycle.get('max_pressure', 0.0) or 0.0)
+            cycle_summary = cycle.get('summary', '')
             sources = [topic for topic, _ in getattr(rg, 'rss_feeds', [])]
         else:
             events = rg.fetch_all()
+            scenarios = []
+            alignment = {}
+            top_pressure = 0.0
+            cycle_summary = f'{len(events)} events collected'
             sources = getattr(rg, 'sources', [])
-            cycle = {'summary': f'{len(events)} events collected'}
+            cycle = {'summary': cycle_summary}
         
+        top_action = getattr(scenarios[0], 'action', '') if scenarios else ''
+        alignment_verdict = str(alignment.get('verdict', 'no_evidence')) if alignment else 'no_evidence'
         research_notes = {
             'events_collected': len(events),
+            'scenario_count': len(scenarios),
+            'top_pressure': top_pressure,
+            'top_action': top_action,
+            'alignment_verdict': alignment_verdict,
             'sources': sources,
             'findings': [],
-            'cycle_summary': cycle.get('summary', ''),
+            'cycle_summary': cycle_summary,
         }
         
         improvements = 0
-        if len(events) > 10:
+        should_queue = len(events) > 10 or top_pressure >= 0.65 or alignment_verdict == 'misaligned'
+        if should_queue and events:
             first_title = self._event_title(events[0])
+            queue_reason = f"News events suggest: {first_title[:50]}"
+            if top_pressure:
+                queue_reason += f" | pressure={top_pressure:.2f}"
+            if alignment_verdict and alignment_verdict != 'no_evidence':
+                queue_reason += f" | alignment={alignment_verdict}"
             self.vm.queue_improvement(
-                description=f"News events suggest: {first_title[:50]}",
+                description=queue_reason,
                 source='news',
-                priority=5,
+                priority=5 if top_pressure >= 0.65 or alignment_verdict == 'misaligned' else 4,
             )
             improvements += 1
         
@@ -180,7 +200,7 @@ class ModeOrchestrator:
             'mode': 'research',
             'events': len(events),
             'improvements_queued': improvements,
-            'notes': research_notes
+            'notes': research_notes,
         }
 
     def run_interview_mode(self) -> Dict[str, Any]:
@@ -231,14 +251,22 @@ class ModeOrchestrator:
         if hasattr(rg, 'ingest_news'):
             cycle = rg.ingest_news(ravana_state=self.ravana.get_state_vector(), max_items=5, max_scenarios=5)
             events = cycle.get('news_items', [])
+            scenarios = cycle.get('scenarios', [])
         else:
             events = rg.fetch_all()
+            scenarios = []
         
+        learn_sources = scenarios[:5] if scenarios else events[:5]
         learn_results = []
-        for event in events[:5]:  # Process top 5
-            title = self._event_title(event)
-            source = self._event_source(event)
-            card = self._event_to_card(event)
+        for item in learn_sources:
+            if scenarios:
+                card = self._scenario_to_card(item)
+                title = getattr(item, 'topic', 'news scenario')
+                source = 'news-mdp'
+            else:
+                card = self._event_to_card(item)
+                title = self._event_title(item)
+                source = self._event_source(item)
             
             if card:
                 before_D = self.last_D
@@ -263,6 +291,28 @@ class ModeOrchestrator:
             'mode': 'learn',
             'events_processed': len(learn_results),
             'results': learn_results
+        }
+
+    def _scenario_to_card(self, scenario: Any) -> Optional[Dict]:
+        """Convert a structured news-to-MDP scenario into a learnable card."""
+        action = str(getattr(scenario, 'action', '')).lower()
+        pressure = float(getattr(scenario, 'pressure', 0.5) or 0.5)
+        reward = float(getattr(scenario, 'reward', 0.0) or 0.0)
+        
+        if action in {'increase scrutiny', 'escalate attention'}:
+            correctness = False
+        elif action == 'update beliefs':
+            correctness = True
+        elif action == 'monitor impact':
+            correctness = True
+        else:
+            correctness = reward >= 0.2
+        
+        return {
+            'correctness': correctness,
+            'difficulty': max(0.1, min(0.9, pressure)),
+            'domain': str(getattr(scenario, 'topic', 'news-mdp')),
+            'source': 'news-mdp',
         }
 
     def _event_to_card(self, event: Dict) -> Optional[Dict]:
@@ -349,7 +399,14 @@ class ModeOrchestrator:
                   for r in result['results']]
             ])
         elif report['mode'] == 'research':
-            lines.append(f"Events: {result['events']}, queued: {result['improvements_queued']}")
+            notes = result.get('notes', {})
+            lines.extend([
+                f"Events: {result['events']}, scenarios: {notes.get('scenario_count', 0)}, queued: {result['improvements_queued']}",
+                f"Top pressure: {notes.get('top_pressure', 0.0):.2f}",
+                f"Alignment: {notes.get('alignment_verdict', 'no_evidence')}",
+            ])
+            if notes.get('cycle_summary'):
+                lines.append(f"Cycle: {notes['cycle_summary']}")
         elif report['mode'] == 'learn':
             lines.extend([
                 f"Processed: {result['events_processed']} events",
