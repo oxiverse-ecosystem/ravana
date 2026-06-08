@@ -26,6 +26,7 @@ if hasattr(sys.stdout, 'reconfigure'):
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ravana_ml.nn.rlm_v2 import RLMv2
 from ravana_ml.tokenizer import WordTokenizer
+from experiments import semantic_pairs
 
 # ─── Triplet-margin / collapse instrumentation constants ─────────────
 TRIPLET_MARGIN = 0.3
@@ -406,7 +407,7 @@ def run_benchmark(n_epochs: int = 1500,
     train_triples, test_cases = build_dataset()
     tok = _init_tokenizer(train_triples, test_cases)
 
-    all_pairs: List[Tuple[str, str]] = list(getattr(__import__("semantic_pairs"), "ALL_PAIRS", []))
+    all_pairs: List[Tuple[str, str]] = list(semantic_pairs.ALL_PAIRS)
 
     actual_vocab = tok.vocab_size
     print(f"Vocab: {actual_vocab}")
@@ -473,7 +474,7 @@ def run_benchmark(n_epochs: int = 1500,
         # ── Phase 4 inline geometry validation ────────────────────────
         should_validate = (epoch + 1) % PHASE4_VALIDATE_EVERY == 0 or (epoch + 1) == n_epochs
         if should_validate:
-            pos_stats = _pairwise_positive_stats(tok, model, list(getattr(__import__("semantic_pairs"), "ALL_PAIRS", [])))
+            pos_stats = _pairwise_positive_stats(tok, model, list(semantic_pairs.ALL_PAIRS))
             gap_stats = _hard_negative_gap_stats(tok, model)
 
             pos_mean = pos_stats.get("mean", float("nan"))

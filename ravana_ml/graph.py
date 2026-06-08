@@ -119,8 +119,8 @@ class ConceptEdge:
                  relation_type: str = "semantic", relation_dim: int = 16):
         self.source = source
         self.target = target
-        self.weight = max(0.0, min(1.0, weight))
-        self.confidence = 0.1
+        self._weight = max(0.0, min(1.0, weight))
+        self._confidence = 0.1
         self.prediction_free_energy = 0.0
         self.stability = 0.3
         self.timestamp = time.time()
@@ -128,7 +128,7 @@ class ConceptEdge:
         self.forward_pred_count = 0   # A→B successful predictions
         self.backward_pred_count = 0  # B→A successful predictions
         self.shortcut = shortcut  # context→target edges are exempt from competition
-        self.edge_type = edge_type  # "excitatory" or "inhibitory"
+        self._edge_type = edge_type  # "excitatory" or "inhibitory"
         self.relation_type = relation_type  # "semantic", "causal", "temporal", "analogical", "contextual", "inferred"
         # Predicate token: the verb token ID that created/primarily trains this edge.
         # Enables verb-level discrimination within the same relation type.
@@ -143,10 +143,62 @@ class ConceptEdge:
         self.old_weight: float = 0.5         # weight snapshot at domain boundary
         # Bayesian posterior: Beta(alpha, beta) over edge weight
         # alpha = 1 + successes, beta = 1 + failures — starts as uniform Beta(1,1)
-        self.posterior_alpha: float = 1.0 + weight * 10.0  # prior from initial weight
-        self.posterior_beta: float = 1.0 + (1.0 - weight) * 10.0
+        self._posterior_alpha: float = 1.0 + weight * 10.0  # prior from initial weight
+        self._posterior_beta: float = 1.0 + (1.0 - weight) * 10.0
         # Cached norm for relation_vector (invalidated when RV changes)
         self._rv_norm_cache: Optional[float] = None
+        self.parent_graph = None
+
+    @property
+    def weight(self):
+        return self._weight
+
+    @weight.setter
+    def weight(self, val):
+        self._weight = max(0.0, min(1.0, val))
+        self._on_change()
+
+    @property
+    def confidence(self):
+        return self._confidence
+
+    @confidence.setter
+    def confidence(self, val):
+        self._confidence = val
+        self._on_change()
+
+    @property
+    def edge_type(self):
+        return self._edge_type
+
+    @edge_type.setter
+    def edge_type(self, val):
+        self._edge_type = val
+        self._on_change()
+
+    @property
+    def posterior_alpha(self):
+        return self._posterior_alpha
+
+    @posterior_alpha.setter
+    def posterior_alpha(self, val):
+        self._posterior_alpha = val
+        self._on_change()
+
+    @property
+    def posterior_beta(self):
+        return self._posterior_beta
+
+    @posterior_beta.setter
+    def posterior_beta(self, val):
+        self._posterior_beta = val
+        self._on_change()
+
+    def _on_change(self):
+        p_graph = getattr(self, "parent_graph", None)
+        if p_graph is not None:
+            p_graph._adj_dirty = True
+            p_graph.version = getattr(p_graph, "version", 0) + 1
 
     @staticmethod
     def _init_relation_vector(relation_type: str, dim: int) -> np.ndarray:
@@ -204,12 +256,24 @@ class ConceptEdge:
     def __setstate__(self, state):
         """Handle deserialization of older checkpoints missing newer attributes."""
         self.__dict__.update(state)
+        if 'weight' in state and not hasattr(self, '_weight'):
+            self._weight = state['weight']
+        if 'confidence' in state and not hasattr(self, '_confidence'):
+            self._confidence = state['confidence']
+        if 'edge_type' in state and not hasattr(self, '_edge_type'):
+            self._edge_type = state['edge_type']
+        if 'posterior_alpha' in state and not hasattr(self, '_posterior_alpha'):
+            self._posterior_alpha = state['posterior_alpha']
+        if 'posterior_beta' in state and not hasattr(self, '_posterior_beta'):
+            self._posterior_beta = state['posterior_beta']
+
         defaults = {
             'predicate_token_id': -1,
             'fisher_importance': 0.0,
             'old_weight': 0.5,
-            'posterior_alpha': 1.0,
-            'posterior_beta': 1.0,
+            '_posterior_alpha': 1.0,
+            '_posterior_beta': 1.0,
+            'parent_graph': None,
         }
         for attr, default in defaults.items():
             if not hasattr(self, attr):
@@ -863,6 +927,7 @@ class ConceptGraph:
         self._adaptive_downscale = adaptive_downscale
         self.nodes: Dict[int, ConceptNode] = {}
         self.edges: Dict[Tuple[int, int], ConceptEdge] = {}
+        self.version = 0
 
         # Scalability: optional FAISS index for O(log N) similarity search
         self._faiss_index = None
@@ -902,8 +967,8 @@ class ConceptGraph:
         self._dirty_nodes: Set[int] = set()  # nodes needing matrix row update
         # Sparse adjacency matrix for bulk spread_activation (Phase 3a)
         self._adj_sparse = None  # scipy.sparse CSR, lazy-built
-        self._adj_dirty: bool = True
-        self._sparse_threshold = 1000  # use sparse path when nodes > this
+        self._adj_dirty = True
+        self._sparse_threshold = 200  # use sparse path when nodes > this
 
         # ── Relational inference tracking ──
         # Successful inference paths: (source, target) -> usage_count
@@ -946,7 +1011,7 @@ class ConceptGraph:
             '_vectors_dirty': True,
             '_adj_sparse': None,
             '_adj_dirty': True,
-            '_sparse_threshold': 1000,
+            '_sparse_threshold': 200,
             '_diagnostics_cache': None,
             '_diagnostics_cache_step': -999,
             '_activated_since_sleep': set(),
@@ -959,6 +1024,7 @@ class ConceptGraph:
             '_neighbor_snapshot': {},
             '_curvature_history': [],
             'max_step_delta': 0.01,
+            'version': 0,
         }
         for attr, default in defaults.items():
             if not hasattr(self, attr):
@@ -970,6 +1036,9 @@ class ConceptGraph:
             self._faiss = faiss
         except ImportError:
             pass
+        # Ensure parent_graph is set on all edges
+        for edge in self.edges.values():
+            edge.parent_graph = self
 
     # ── node management ──
 
@@ -982,6 +1051,8 @@ class ConceptGraph:
         node = ConceptNode(nid, v, label)
         self.nodes[nid] = node
         self._vectors_dirty = True
+        self._adj_dirty = True
+        self.version = getattr(self, "version", 0) + 1
         return node
 
     def get_node(self, nid: int) -> Optional[ConceptNode]:
@@ -1008,11 +1079,11 @@ class ConceptGraph:
             self._outgoing.pop(nid, None)
             self._incoming.pop(nid, None)
             # Clean references to this node from other adjacency lists
-            for s in self._outgoing:
-                self._outgoing[s] = [(t, e) for t, e in self._outgoing[s] if t != nid]
             for t in self._incoming:
                 self._incoming[t] = [(s, e) for s, e in self._incoming[t] if s != nid]
             self._active_nodes.discard(nid)
+            self._adj_dirty = True
+            self.version = getattr(self, "version", 0) + 1
 
     # ── adjacency helpers ──
 
@@ -1129,6 +1200,7 @@ class ConceptGraph:
         key = (source, target)
         if key in self.edges:
             edge = self.edges[key]
+            edge.parent_graph = self
             edge.weight = max(0.0, min(1.0, weight))
             if shortcut:
                 edge.shortcut = True
@@ -1140,6 +1212,7 @@ class ConceptGraph:
         edge = ConceptEdge(source, target, weight, shortcut=shortcut,
                           edge_type=edge_type, relation_type=relation_type,
                           relation_dim=self._relation_dim)
+        edge.parent_graph = self
         # Ablation: randomize relation vector if type-anchoring is disabled
         if not self._anchor_relation_vectors:
             edge.relation_vector = np.random.randn(self._relation_dim).astype(np.float32)
@@ -1151,6 +1224,7 @@ class ConceptGraph:
         # Maintain relation-type bucket index for scalable contrastive sampling
         self._edges_by_relation_type[relation_type].append((key, edge))
         self._adj_dirty = True
+        self.version = getattr(self, "version", 0) + 1
         return edge
 
     def get_edge(self, source: int, target: int) -> Optional[ConceptEdge]:
@@ -1162,6 +1236,7 @@ class ConceptGraph:
             self._outgoing[source] = [(t, e) for t, e in self._outgoing.get(source, []) if t != target]
             self._incoming[target] = [(s, e) for s, e in self._incoming.get(target, []) if s != source]
             self._adj_dirty = True
+            self.version = getattr(self, "version", 0) + 1
 
     # ── activation ──
 
@@ -1217,27 +1292,28 @@ class ConceptGraph:
             # Sparse bulk path for large graphs (Phase 3a)
             # Handles base propagation; relation boost still per-edge
             # Skip sparse path when relation_type filter is set (no per-edge info)
-            if (relation_type is None
-                    and self._adj_sparse is not None
-                    and len(self.nodes) > self._sparse_threshold
-                    and not self._adj_dirty):
-                # Build activation vector for all nodes
-                n = self._adj_sparse.shape[0]
-                act_vec = np.zeros(n, dtype=np.float32)
-                for nid in self._active_nodes:
-                    node = self.nodes.get(nid)
-                    if node is not None and node.activation > 0.01:
-                        act_vec[nid] = node.activation
-                # Bulk propagation: sparse.T @ act_vec gives incoming activation
-                bulk_prop = self._adj_sparse.T @ act_vec  # (n,)
-                # Apply fan effect vectorized
-                in_degrees = np.array(self._adj_sparse.sum(axis=0)).flatten()
-                fan_factors = 1.0 / (np.sqrt(in_degrees) + 1.0)
-                bulk_prop *= fan_factors * decay
-                # Accumulate
-                for nid in self._active_nodes:
-                    if bulk_prop[nid] != 0:
-                        new_activations[nid] = new_activations.get(nid, 0.0) + float(bulk_prop[nid])
+            if relation_type is None:
+                if self._adj_dirty:
+                    self._rebuild_sparse_adj()
+                if (self._adj_sparse is not None
+                        and len(self.nodes) > self._sparse_threshold):
+                    # Build activation vector for all nodes
+                    n = self._adj_sparse.shape[0]
+                    act_vec = np.zeros(n, dtype=np.float32)
+                    for nid in self._active_nodes:
+                        node = self.nodes.get(nid)
+                        if node is not None and node.activation > 0.01:
+                            act_vec[nid] = node.activation
+                    # Bulk propagation: sparse.T @ act_vec gives incoming activation
+                    bulk_prop = self._adj_sparse.T @ act_vec  # (n,)
+                    # Apply fan effect vectorized
+                    in_degrees = np.array(self._adj_sparse.sum(axis=0)).flatten()
+                    fan_factors = 1.0 / (np.sqrt(np.maximum(0.0, in_degrees)) + 1.0)
+                    bulk_prop *= fan_factors * decay
+                    # Accumulate
+                    for nid in self._active_nodes:
+                        if bulk_prop[nid] != 0:
+                            new_activations[nid] = new_activations.get(nid, 0.0) + float(bulk_prop[nid])
 
             # Fine-grained path: handles relation vector gate + precision weighting
             # (only when sparse path is not active — avoids double-counting)

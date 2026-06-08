@@ -25,7 +25,7 @@ sys.path.insert(0, PROJECT_ROOT)
 
 from ravana_ml.nn.rlm_v2 import RLMv2
 from ravana_ml.tokenizer import WordTokenizer
-from experiment_grounding_evaluation import FACTS, CHALLENGE_CASES, expand_vocabulary_and_embeddings, inject_precise_embeddings, cosine, proto
+from experiments.experiment_grounding_evaluation import FACTS, CHALLENGE_CASES, expand_vocabulary_and_embeddings, inject_precise_embeddings, cosine, proto
 
 
 def run_evaluation(model, tok, title):

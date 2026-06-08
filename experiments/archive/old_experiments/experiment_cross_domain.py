@@ -23,7 +23,7 @@ if hasattr(sys.stdout, 'reconfigure'):
 
 from ravana_ml.nn.rlm_v2 import RLMv2
 from ravana_ml.tokenizer import WordTokenizer
-from experiments.experiment_baselines import SimpleMLP
+from experiments.archive.old_experiments.experiment_baselines import SimpleMLP
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -537,6 +537,12 @@ def run_cross_domain_experiment(config: CrossDomainConfig) -> Dict[str, Any]:
         sleep_interval=config.sleep_interval,
     )
     model._tokenizer = tokenizer
+
+    # Inject MiniLM and pretrain autoencoder
+    from experiments.experiment_phase4_integrated import inject_minilm_embeddings
+    inject_minilm_embeddings(model, tokenizer)
+    print("Pre-training encoder autoencoder on MiniLM embeddings...")
+    model._pretrain_encoder_autoencoder(epochs=300, lr=0.01)
 
     # ── Phase 0: Baseline (before any training) ──
     print("\n[Phase 0] Pre-training baseline...")

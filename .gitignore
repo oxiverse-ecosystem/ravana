@@ -59,3 +59,6 @@ AGENTS.md
 
 # Scratch files and folders
 scratch/
+
+# Windows reserved device name (can't be deleted)
+nul

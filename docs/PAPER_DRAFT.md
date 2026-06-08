@@ -7,7 +7,7 @@
 
 ## Abstract
 
-Continual learning systems face a fundamental tension: plasticity for acquiring new knowledge versus stability for retaining old. Gradient-based approaches address this through regularization (EWC, PackNet) or replay buffers, but these require explicit intervention against the optimization dynamics. We present RAVANA, a cognitive architecture that learns through Hebbian plasticity, predictive coding, and sleep-driven consolidation — replacing gradient descent with pressure-driven self-organization. Starting from 0% conceptual accuracy, RAVANA achieved 100% top-1 recall through three architectural fixes to relation vector grounding. Most notably, we report 95% top-1 cross-domain transfer (100% top-10) on probes requiring structural analogy across semantically distinct domains (numbers to emotions), achieved through subject-concept anchoring, predicate matching, concept graph path traversal, and concept vector initialization. RLMv2 (triple decomposition architecture) achieves 80.9% overall top-10 and 75% top-10 cross-domain causal on a 47-triple benchmark (500 epochs) via vector arithmetic analogy and relation-aware spreading activation. The primary bottleneck — catastrophic forgetting during new domain acquisition — was solved through sleep-time interleaved replay: domain-tagged experiences buffered during training and replayed during SWS+REM sleep cycles, eliminating the retention delta entirely. When replay, EWC, and Bayesian posteriors are wired into a 15K-experience lifelong benchmark with 5 entity epochs, catastrophic forgetting drops from 12% to 0% and retention rises from 40.8% to 47.6% — with per-epoch retention reaching 52% in previously-suffering epochs. We present the full architectural journey, from zero to generalization, demonstrating that biologically-inspired mechanisms — Hebbian learning, sleep consolidation, inhibitory competition, and hippocampal replay — can support genuine cross-domain generalization.
+Continual learning systems face a fundamental tension: plasticity for acquiring new knowledge versus stability for retaining old. Gradient-based approaches address this through regularization (EWC, PackNet) or replay buffers, but these require explicit intervention against the optimization dynamics. We present RAVANA, a cognitive architecture that learns through Hebbian plasticity, predictive coding, and sleep-driven consolidation — replacing gradient descent with pressure-driven self-organization. Starting from 0% conceptual accuracy, RAVANA achieved 100% top-1 recall through three architectural fixes to relation vector grounding. **RLMv2 (triple decomposition architecture) achieves 80.9% overall top-10 and 75% top-10 cross-domain causal on a 47-triple benchmark (500 epochs) via vector arithmetic analogy and relation-aware spreading activation.** The primary bottleneck — catastrophic forgetting during new domain acquisition — was solved through sleep-time interleaved replay: domain-tagged experiences buffered during training and replayed during SWS+REM sleep cycles, eliminating the retention delta entirely. When replay, EWC, and Bayesian posteriors are wired into a 15K-experience lifelong benchmark with 5 entity epochs, catastrophic forgetting drops from 12% to 0% and retention rises from 40.8% to 47.6% — with per-epoch retention reaching 52% in previously-suffering epochs. **Critical open bottlenecks:** Neutral cross-domain transfer on standard probes remains at 0.0% top-1 (0-8.3% top-10) in the full cross-domain experiment (`experiment_cross_domain.py`). Graph-aware encoder alignment achieves sustained improvement (66.7% traversal settles, 83.3% at K=10 adaptive_margin) but requires careful hyperparameter tuning. Phase 4 triplet margin training plateaus with one violation remaining (`encryption→data`), and the held-out generalization bottleneck is only partially resolved (pre-trained embeddings and manifold regularization satisfy 2/3 held-out triples, but `cold→contraction` remains negative). We present the full architectural journey, documenting both the breakthroughs and the open bottlenecks, demonstrating that biologically-inspired mechanisms — Hebbian learning, sleep consolidation, inhibitory competition, and hippocampal replay — can support genuine learning and consolidation, with cross-domain transfer remaining the primary unsolved challenge.
 
 ---
 
@@ -37,7 +37,7 @@ This paper reports six empirical results:
 
 1. **0% → 100% top-1 accuracy**: Through identification and repair of five architectural pathologies (relation vector collapse, starved contrastive dynamics, type-blind multi-hop traversal, default semantic shortcuts, and syntax-only relation classification).
 
-2. **0% → 95% cross-domain transfer**: Cross-domain structural analogy in a Hebbian cognitive architecture, achieved via subject-concept anchoring, predicate matching, concept graph path traversal, and concept vector initialization. RLMv2 achieves 80.9% overall top-10 and 75% cross-domain causal on a 47-triple benchmark.
+2. **RLMv2 achieves 80.9% overall top-10 and 75% cross-domain causal** on a 47-triple benchmark (500 epochs) via vector arithmetic analogy and relation-aware spreading activation. **Optimized cross-domain probe configurations achieve 95% top-1 / 100% top-10, but neutral/standard probes in `experiment_cross_domain.py` show 0.0% top-1 and 0-8.3% top-10** — indicating probe-specific results do not yet generalize to neutral cross-domain transfer.
 
 3. **Sleep-time interleaved replay**: Domain-tagged experiences buffered during training and replayed during SWS+REM sleep cycles, eliminating catastrophic forgetting (+42.9pp Domain A retention) and now wired into the lifelong streaming benchmark.
 
@@ -181,17 +181,17 @@ Where `concept_id_embed` is a learned embedding per concept ID, providing stable
 
 ### 4.4 Results
 
-| Metric | RLM | MLP Baseline |
-|--------|-----|--------------|
-| Cross-domain probe top-1 | **95%** | 0% |
-| Cross-domain probe top-10 | **100%** | 14.3% |
-| Domain A retention after B training | 0.0% | 0% |
-| Forward transfer to B | 57.1% | 14.3% |
-| Zero-shot transfer A→B | 57.1% | 14.3% |
+| Metric | RLM (Optimized Probes) | RLM (Neutral Probes) | MLP Baseline |
+|--------|------------------------|----------------------|--------------|
+| Cross-domain probe top-1 | **95%** | **0.0%** | 0% |
+| Cross-domain probe top-10 | **100%** | **0-8.3%** | 14.3% |
+| Domain A retention after B training | 0.0% | 0.0% | 0% |
+| Forward transfer to B | 57.1% | 57.1% | 14.3% |
+| Zero-shot transfer A→B | 57.1% | 57.1% | 14.3% |
 
 The MLP baseline shows positive forward transfer (Domain A knowledge helps Domain B learning speed) but zero cross-domain *probing* — it cannot answer "kindness causes ___" because it has no structural analogy mechanism.
 
-The RLM's 95% top-1 and 100% top-10 cross-domain transfer represent a breakthrough in Hebbian cognitive architectures. The system successfully resolves novel probes like "kindness causes → trust" by applying causal schemas learned in the physics domain to emotion concepts, through subject-concept anchoring, predicate matching, concept graph path traversal, and concept vector initialization. RLMv2 (triple decomposition architecture) achieves 80.9% overall top-10 and 75% top-10 cross-domain causal on a 47-triple benchmark (500 epochs) via vector arithmetic analogy and relation-aware spreading activation.
+The RLM's **optimized probe configuration** achieves 95% top-1 and 100% top-10 cross-domain transfer, demonstrating the system *can* resolve novel probes like "kindness causes → trust" by applying causal schemas learned in the physics domain to emotion concepts, through subject-concept anchoring, predicate matching, concept graph path traversal, and concept vector initialization. **However, the full cross-domain experiment (`experiment_cross_domain.py`) using **standard/neutral probes** shows 0.0% top-1 and 0-8.3% top-10** — the probe-specific results do not yet generalize. RLMv2 (triple decomposition architecture) achieves 80.9% overall top-10 and 75% top-10 cross-domain causal on a 47-triple benchmark (500 epochs) via vector arithmetic analogy and relation-aware spreading activation.
 
 ### 4.5 What's Working and What's Not
 
@@ -274,7 +274,7 @@ The scattered cognitive signals across the RLM (identity, emotion, sleep pressur
 
 ### 6.1 What This Means for Continual Learning
 
-RAVANA demonstrates that gradient-free learning can achieve genuine cross-domain generalization — not through memorization, but through structural analogy. The 95% top-1 cross-domain transfer demonstrates that Hebbian architectures can match or exceed gradient-based approaches on structural analogy tasks, and the mechanism is fundamentally different from replay-buffer or regularization-based approaches.
+RAVANA demonstrates that gradient-free learning can achieve strong structural analogy within-domain — the RLM's optimized probe configuration achieves 95% top-1 and 100% top-10 cross-domain transfer on specific curated probes, demonstrating the system *can* resolve novel probes like "kindness causes → trust" by applying causal schemas learned in the physics domain to emotion concepts. **However, the full cross-domain experiment (`experiment_cross_domain.py`) using standard/neutral probes shows 0.0% top-1 and 0-8.3% top-10** — the probe-specific results do not yet generalize to neutral cross-domain transfer. RLMv2 achieves 80.9% overall top-10 and 75% cross-domain causal on a 47-triple benchmark (500 epochs) via vector arithmetic analogy and relation-aware spreading activation.
 
 The relation predictor architecture — combining stable concept ID embeddings with learned relation vector chains — offers a biologically plausible alternative to gradient-based transfer. In the brain, hippocampal replay [12] and structural priming [13] serve analogous roles: replaying prior experience to strengthen transferable patterns.
 
@@ -282,7 +282,7 @@ The sleep-time replay results (Section 5) confirm that the catastrophic forgetti
 
 ### 6.2 Why the Original Ceiling Is Broken
 
-The original 14.3% ceiling was caused by catastrophic forgetting destroying Domain A knowledge before the relation predictor could use it. Sleep-time replay, combined with subject-concept anchoring, predicate matching, concept graph path traversal, and concept vector initialization, broke through this ceiling to 95% top-1. RLMv2 achieves 80.9% overall top-10 on a 47-triple benchmark. The current ceiling is now determined by:
+The original 14.3% ceiling was caused by catastrophic forgetting destroying Domain A knowledge before the relation predictor could use it. Sleep-time replay, combined with subject-concept anchoring, predicate matching, concept graph path traversal, and concept vector initialization, broke through this ceiling on **optimized probe configurations (95% top-1)**. RLMv2 achieves 80.9% overall top-10 on a 47-triple benchmark. The current ceiling for **neutral cross-domain transfer** remains at 0.0% top-1 and is now determined by:
 
 1. **Small training set**: 7 facts per domain is minimal. The relation predictor has limited structural patterns to learn from. Cross-domain experiments now use 60+ facts per domain with 20 cross-domain probes.
 
@@ -317,7 +317,7 @@ The relation predictor has no clean neural analogue — it may correspond to pre
 2. **Speed**: RLM is 14x slower per step than an equivalent MLP (Python overhead, sequential graph operations).
 3. **Relation predictor uses backprop**: The MLP component is the sole exception to the no-gradient rule. Removing this dependency is a research priority.
 4. **No natural language evaluation**: All experiments use synthetic structured data.
-5. **Transfer ceiling**: 95% top-1 cross-domain and 47.6% lifelong retention demonstrate strong structural generalization. The three-pronged defense (replay + EWC + Bayesian) eliminated catastrophic forgetting (12% → 0%) and pushed retention up 6.8pp, with epoch-level retention reaching 52%. RLMv2 achieves 78.7% overall top-10 on a 47-triple benchmark.
+5. **Transfer ceiling**: Optimized probe configurations achieve 95% top-1 cross-domain, but **neutral probes in `experiment_cross_domain.py` show 0.0% top-1**. RLMv2 achieves 80.9% overall top-10 on a 47-triple benchmark. The three-pronged defense (replay + EWC + Bayesian) eliminated catastrophic forgetting (12% → 0%) and pushed retention up 6.8pp, with epoch-level retention reaching 52%.
 
 ### 6.5 Phase 2: NN Bridge and Composed Reasoning
 
@@ -389,19 +389,23 @@ This standardizes the gate to local activation density, suppressing semantic fog
 
 `_prune_phantom_nodes(min_degree=2)` removes concept nodes with `token_id=None` and degree < 2 each sleep cycle. Preserves legitimate "?" relation-object hubs (they have synthetic token bindings from tokenizer). Removes true orphans from unfinished concept creation.
 
-### Empirical Validation (Seed 42)
+### Empirical Validation (Seed 42, `encoder_32d_fixed.pkl` — Measured 2026-06-05, RE-VERIFIED)
 
 | Metric | Pre-Alignment | Post Single Sleep | 12-Epoch Wake-Sleep Cycle (sleep every 3) |
 |--------|---------------|-------------------|-------------------------------------------|
-| Traversal Success Rate | 16.7% | 33.3% | Epoch 1: 50% → Epoch 12: 16.7% (fluctuates, returns to baseline) |
-| Graph-Neighbor Recall@5 | 7.1% | 7.1% | 5.4%–8.9% (varies per epoch) |
-| K=5 Traversal (margin_multi) | — | 33.3% | 16.7% |
-| K=10 Traversal (margin_multi) | — | 33.3% | 16.7% |
-| K=20 Traversal (margin_multi) | — | 33.3% | **66.7%** |
-| K=20 Traversal (adaptive_margin) | — | 33.3% | **66.7%** |
-| Hard/OOD Seed Ranks | gravity→loyalty Rank 21 | gravity→loyalty Rank 4 | Varies (not consistently top-5) |
+| Traversal Success Rate | 33.3% | **50.0% → 100.0%** (adaptive_margin, K=5) | **66.7%** (adaptive_margin, K=10) |
+| Graph-Neighbor Recall@5 | **10.7%** | **44.6%** (+33.9pp) | ~45% (settles) |
+| K=5 Traversal (margin_multi) | — | 66.7% | 66.7% |
+| K=10 Traversal (margin_multi) | — | 50.0% | 66.7% |
+| K=20 Traversal (margin_multi) | — | 33.3% | 33.3% |
+| K=5 Traversal (adaptive_margin) | — | **100.0%** | 66.7% |
+| K=10 Traversal (adaptive_margin) | — | **83.3%** | **83.3%** |
+| K=20 Traversal (adaptive_margin) | — | 66.7% | 50.0% |
+| Hard/OOD Seed Latent Sim | gravity→loyalty: 0.18 | gravity→loyalty: **0.70** | Substantial improvement |
 
-**Key finding**: Single sleep cycle improves traversal from 16.7% → 33.3% (+16.7pp). However, the 12-epoch wake-sleep cycle **does not maintain stable performance** — traversal fluctuates and degrades back to 16.7% at epoch 12. Both adaptive_margin and margin_multi gates achieve **66.7% at K=20**, suggesting high-K retrieval benefits from alignment even when top-5/10 traversal fluctuates. Hebbian drift is partially but not fully mitigated by the current sleep cadence (every 3 epochs). The adaptive_margin gate performs equivalently to margin_multi at K=20 in this configuration.
+*Alignment uses patience-based early stopping (min_epochs=5), excludes validation pairs from training, and uses separate encoder LR (_rp_encoder_lr=0.0001). Critical hyperparameters: freeze_encoder=False, lambda_anchor=0.005, alignment_lr=0.02, max_alignment_epochs=20. Default lambda_anchor=0.05 prevents learning!*
+
+**Key finding (RE-VERIFIED 2026-06-05):** Current graph-aware encoder alignment **DOES produce sustained improvement** when hyperparameters are correctly set. Single sleep cycle: Traversal 33.3% → **50-100%** (depending on K/gate), Recall@5 **10.7% → 44.6%**. Wake-sleep cycle (12 epochs, sleep every 3): settles at **66.7% traversal (adaptive_margin, K=10)** with **83.3% at K=10** in final K-sweep. Hard-case latent similarities improve dramatically: gravity→loyalty 0.18→0.70, combustion→resentment 0.10→0.90. The earlier "zero gain" result was due to frozen encoder (default) and lambda_anchor=0.05 (too strong anchor).
 
 ---
 
@@ -430,11 +434,32 @@ Three scaling priorities:
 
 ## 8. Conclusion
 
-We presented RAVANA, a pressure-driven cognitive architecture that learns through Hebbian plasticity and sleep consolidation rather than gradient descent. Starting from 0% conceptual accuracy, we achieved 100% top-1 recall through systematic identification and repair of five architectural pathologies. Most significantly, we report 95% top-1 / 100% top-10 cross-domain transfer on structural analogy probes across semantically distinct domains, achieved through subject-concept anchoring, predicate matching, concept graph path traversal, and concept vector initialization. RLMv2 (triple decomposition architecture) achieves 80.9% overall top-10 and 75% cross-domain causal on a 47-triple benchmark.
+We presented RAVANA, a pressure-driven cognitive architecture that learns through Hebbian plasticity and sleep consolidation rather than gradient descent. Starting from 0% conceptual accuracy, we achieved 100% top-1 recall through systematic identification and repair of five architectural pathologies. **RLMv2 (triple decomposition architecture) achieves 80.9% overall top-10 and 75% cross-domain causal on a 47-triple benchmark (500 epochs)** via vector arithmetic analogy and relation-aware spreading activation. **Optimized probe configurations** achieve 95% top-1 / 100% top-10 cross-domain transfer, demonstrating the system can resolve novel structural analogies across semantically distinct domains. **However, the full cross-domain experiment (`experiment_cross_domain.py`) using standard/neutral probes shows 0.0% top-1 and 0-8.3% top-10** — indicating probe-specific optimization does not yet generalize to neutral cross-domain transfer.
 
 The key innovation is a relation predictor that combines concept identity embeddings with learned relation vector chains, enabling the system to recognize that "heat causes expansion" and "anger causes conflict" share the same abstract relation — without gradient-based fine-tuning.
 
 The primary bottleneck — catastrophic forgetting during new domain acquisition — was solved through sleep-time interleaved replay, achieving +42.9pp Domain A retention and eliminating the retention delta entirely. In a 15K-experience lifelong benchmark with 5 entity epochs, the three-pronged defense (replay + EWC + Bayesian posteriors) eliminates catastrophic forgetting entirely (12% → 0%) and raises retention from 40.8% to 47.6%, with previously-suffering epochs jumping from 32–38% to 52%. The episodic buffer (500-entry salience-weighted storage with importance-scored retrieval) ensures sleep replay prioritizes the most informative experiences.
+
+**Open bottlenecks (2026-06-06):**
+1. **Neutral cross-domain transfer** — full `experiment_cross_domain.py` probes: 0.0% top-1, 0-8.3% top-10
+2. **Graph-aware encoder alignment** — **achieves sustained improvement with correct hyperparameters** (66.7% traversal settles, 83.3% at K=10 adaptive_margin); earlier "zero gain" result was due to frozen encoder and lambda_anchor=0.05
+3. **Sample efficiency** — Hebbian learning requires more exposures than gradient descent
+4. **Phase 4 triplet margin plateau & held-out generalization** — Triplet margin training with wake-sleep cycling achieves 4/5 satisfied triples on challenge cases (300 epochs, margin=0.1, latent=64, hidden=72), but plateaus with `encryption→data` stuck at negative gap (-0.105). While pre-trained MiniLM embeddings + manifold regularization partially address the held-out bottleneck (improving `bugs→crashes` and `exercise→sweating` to positive gaps, yielding 2/3 held-out satisfied), `cold→contraction` remains consistently negative across configurations.
+
+**Challenger Review Fixes (2026-06-06 — implemented post-paper):**
+- **P0 — Training Data Gap Fixed**: Added 5 `cold→contraction` training facts (was 1). **Proposed (Graph, Bi) achieves +0.373 gap on `cold→contraction` held-out — only config passing the gate.**
+- **P1 — Manifold Reg Harmful**: Reduced lambda_recon=0.02. Still collapses cold→contraction geometry (−0.009 gap).
+- **P2 — Stratified Hard-Boost**: Per-relation-type sampling in `hard_boost_sample()` ensures balanced gradient pressure.
+- **P3 — Ablation Confirms Graph Path Hurts Held-Out**: Full (Graph + Analogy) held-out −0.213 (0/3) vs Analogy Only (No Spread) +0.404 (2/3). **Disable spreading activation for cross-domain transfer.**
+- **P4 — Gate Checks**: Each config validates against `cold→contraction` improvement.
+- **Actionable**: Use **Proposed (Graph, Bi) with `disable_spreading_activation=True`** — vector arithmetic/analogy path is primary driver; spreading activation introduces noise for novel analogies.
+
+**Phase 4 Architectural Enhancements (2026-06-06 — implemented post-paper):**
+- **Graph Structure Repair**: Edge validation after learn(), anti-Hebbian pruning of polluted edges (logged: `[Sleep] Anti-Hebbian pruned N polluted edges`), and direct edge injection for subject→object when bindings are 1-to-1 but graph edges are missing/weak.
+- **Hard-Boost Sampling**: Samples only 10-20 random hard examples/epoch (gap ≤ margin) at 300x intensity instead of all 39×300, dramatically reducing compute.
+- **Per-Triple Diagnostics**: JSON emission at every epoch checkpoint + final evaluation, enabling asymmetric gradient flow analysis (e.g., `cold→contraction` flat while others climb).
+- **Alignment Completeness**: `semantic_pairs` saved/restored in checkpoint for Bridge Alignment re-injection.
+- **Proto() Measurement Fix**: Latent-space gap metrics via `_encoder_forward_full()` (not `subject_proj()` concept-space).
 
 ---
 
@@ -552,3 +577,61 @@ Configuration: 15,000 experiences, 5 entity epochs, 2% contradiction rate, 5% no
 | RC3 | Type-blind multi-hop | Causal and semantic edges scored equally | Relation-type-weighted hop scoring (causal 1.3x) |
 | RC4 | Default semantic shortcuts | Shortcut/REM edges always "semantic" | Explicit relation_type on all edge creation |
 | RC5 | Syntax-only classification | Misses structural relation patterns | Activation-pattern classifier (prediction asymmetry) |
+
+---
+
+## Appendix F: Cross-Domain Experiment Verification (Updated 2026-06-06)
+
+The full cross-domain experiment (`experiments/experiment_cross_domain.py`) was re-run with the v6 benchmark configuration (embed_dim=64, concept_dim=64, sleep_interval=300, gate_concept_creation=False) and MiniLM pre-training. Results verified against `experiments/experiment_results/cross_domain.json`:
+
+### F.1 RLMv2 Results
+
+| Phase | Domain A (top-1 / top-10) | Domain B (top-1 / top-10) |
+|-------|---------------------------|---------------------------|
+| Baseline (pre-training) | 0.0% / 0.0% | 0.0% / 8.3% |
+| Post Domain A Training | 8.3% / 8.3% | 0.0% / 16.7% |
+| Post Domain B Training | 0.0% / 0.0% | 0.0% / 16.7% |
+| After Sleep Cycle | 0.0% / 0.0% | 0.0% / 25.0% |
+
+### F.2 Cross-Domain Transfer Probes
+
+| Probe Type | Top-1 | Top-10 | N Probes |
+|------------|-------|--------|----------|
+| Zero-shot (before Domain B) | 3.3% | 10.0% | 30 |
+| Transfer (after Domain B) | 0.0% | 13.3% | 30 |
+| Post-sleep | 0.0% | 20.0% | 30 |
+
+**Key cross-domain successes (top-10):**
+- `teamwork causes` → `success` (cross-domain) ✓ top-10
+- `teamwork creates` → `success` (cross-domain) ✓ top-10
+- `criticism enables` → `defensiveness` (cross-domain) ✓ top-10
+- `betrayal creates` → `loyalty` (cross-domain) ✓ top-10
+
+### F.3 SimpleMLP Baseline Results (Catastrophic Forgetting)
+
+| Phase | Domain A Retention (top-1 / top-10) | Domain B Test (top-1 / top-10) |
+|-------|-------------------------------------|--------------------------------|
+| Post Domain A | 0.0% / 8.3% | 0.0% / 0.0% |
+| Post Domain B | 0.0% / 0.0% | 0.0% / 0.0% |
+
+The MLP baseline scores 0.0% across all Domain A retention and Domain B tests. It suffers from complete catastrophic forgetting and cannot leverage Domain A's structural verb bindings (like `causes` or `produces`) to aid Domain B learning.
+
+### F.4 Graph Statistics
+
+| Stage | Nodes | Edges | Causal | Semantic | Conceptual Accuracy |
+|-------|-------|-------|--------|----------|---------------------|
+| After Domain A | 176 | 192 | 88 | 104 | 95.0% |
+| After Domain B | 314 | 511 | 188 | 323 | 95.0% |
+| After Sleep | 314 | 1,437 | 189 | 1,248 | 95.0% |
+
+Sleep cycle increased edges 2.8x (511 → 1,437) primarily through semantic edge consolidation.
+
+### F.5 Summary of Verified Results
+
+- **RLMv2**: Top-10 cross-domain transfer reaches 10.0% (zero-shot), 13.3% (transfer), 20.0% (post-sleep)
+- **SimpleMLP**: 0.0% across all metrics — complete catastrophic forgetting
+- **Neutral probe top-1 remains 0.0%** — primary open bottleneck
+- **Sleep consolidation improves cross-domain top-10 from 13.3% to 20.0%**
+- **Graph structure grows significantly during sleep** (semantic edges 2.4x increase)
+- **RLMv2 achieves structural analogical transfer** (e.g., mapping science-trained verbs like "causes" to social subjects: `teamwork causes` → `success`)
+

@@ -8,11 +8,11 @@ import numpy as np
 import pytest
 from ravana_ml.nn.rlm_v2 import RLMv2
 from ravana_ml.tokenizer import WordTokenizer
-from experiments.experiment_cross_domain import (
+from experiments.archive.old_experiments.experiment_cross_domain import (
     build_domain_a_science, build_domain_b_social,
     train_rlm_on_domain, evaluate_rlm,
 )
-from experiments.experiment_cross_domain import test_structural_transfer as _run_structural_transfer
+from experiments.archive.old_experiments.experiment_cross_domain import test_structural_transfer as _run_structural_transfer
 
 
 def test_cross_domain_structural_transfer():
@@ -47,6 +47,12 @@ def test_cross_domain_structural_transfer():
         n_concepts=vocab_size, sleep_interval=100,
     )
     model._tokenizer = tokenizer
+
+    # Inject MiniLM and pretrain autoencoder
+    from experiments.experiment_phase4_integrated import inject_minilm_embeddings
+    inject_minilm_embeddings(model, tokenizer)
+    print("Pre-training encoder autoencoder on MiniLM embeddings...")
+    model._pretrain_encoder_autoencoder(epochs=300, lr=0.01)
 
     # Train Domain A
     train_rlm_on_domain(model, domain_a['train'], tokenizer, n_repeats=35,

@@ -450,14 +450,18 @@ Standardizes margin to local activation density; handles semantic fog at high K.
 
 `_prune_phantom_nodes(min_degree=2)` removes `token_id=None` nodes with degree < 2 each sleep. Preserves "?" relation-object hubs (have synthetic token bindings).
 
-### Validation Results (Seed 42)
+### Validation Results (Seed 42, `encoder_32d_fixed.pkl` — Measured 2026-06-05, RE-VERIFIED)
 
-Pre-alignment: 33.3% traversal, 8.9% Recall@5
-Post single sleep: **100% traversal, 50% Recall@5** (+66.7pp traversal, +41.1pp Recall@5)
-12-epoch wake-sleep cycle (sleep every 3): Stable high performance — Epoch 1: 83.3%, Epoch 3: 50.0%, Epoch 6: 100%, Epoch 9: 83.3%, Epoch 12: 100%
-K-sweep after cycle: K=5: **100%**, K=10: **83.3%**, K=20: 16.7% (margin_multi) / K=5: 100%, K=10: 83.3%, K=20: 16.7% (adaptive_margin)
+Pre-alignment: 33.3% traversal, 10.7% Recall@5
+Post single sleep: **50.0% → 100.0% traversal** (adaptive_margin, K=5), **44.6% Recall@5** (+33.9pp)
+12-epoch wake-sleep cycle (sleep every 3): Settles at **66.7% traversal** (adaptive_margin, K=10), **83.3% at K=10** in final K-sweep
+K-sweep after single sleep: K=5: 100.0%, K=10: 83.3%, K=20: 66.7% (adaptive_margin)
+K-sweep after 12-epoch cycle: K=5: 66.7%, K=10: **83.3%**, K=20: 50.0% (adaptive_margin)
+Hard-case latent similarity improvement: gravity→loyalty 0.18→0.70, combustion→resentment 0.10→0.90
 
-Graph-aware encoder alignment (with Bridge Alignment via semantic_pairs, proper early stopping, and separate encoder LR for RP training) now achieves full traversal success on all 6 challenge categories (Easy, Medium, Hard, Adversarial, OOD×2) and maintains stable wake-sleep performance. Hebbian drift is fully mitigated by the alignment phase.
+*Critical hyperparameters: freeze_encoder=False, lambda_anchor=0.005, alignment_lr=0.02, max_alignment_epochs=20. Default lambda_anchor=0.05 prevents learning!*
+
+**Key finding (RE-VERIFIED 2026-06-05):** Graph-aware encoder alignment **DOES produce significant improvement** when hyperparameters are correctly set. The earlier "zero gain" result was due to frozen encoder (default) and lambda_anchor=0.05 (too strong anchor).
 
 ---
 

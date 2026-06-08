@@ -9,9 +9,9 @@
 ### Abstract
 Continual learning systems face a fundamental stability-plasticity dilemma: the parameter updates required to acquire new concepts typically overwrite and destroy previously learned representations, a phenomenon known as catastrophic forgetting. Traditional mitigation strategies in gradient-based neural networks (e.g., Elastic Weight Consolidation, Experience Replay, or parameter masking) rely on explicit external intervention and task boundaries to regulate the optimizer. We present **RAVANA** (combined with the **GRACE** architecture: Governance, Reflection, Adaptation, Constraint, and Exploration), a CPU-native, non-gradient cognitive architecture where learning and stabilization emerge from pressure-driven self-organization. Replacing backpropagation and global loss functions with local Hebbian plasticity, a predictive coding settle loop, and a multi-channel free energy accumulator, RAVANA resolves cognitive dissonance ($D$) while maintaining a structural self-concept called Identity ($I$). 
 
-We report three major empirical results from this architecture: 
+We report four major empirical results from this architecture: 
 1. **0% to 100% Top-1 Recall**: Achieved within-domain through the resolution of five distinct representational pathologies (relation vector collapse, starved contrastive dynamics, type-blind multi-hop traversal, default semantic shortcuts, and syntax-only classification).
-2. **Cross-Domain Analogy**: The first non-zero cross-domain structural transfer in a purely Hebbian cognitive network, achieving **95% top-1 and 100% top-10 accuracy** on analogical probes across semantically distinct vocabularies (e.g., transferring causal structures from physical sciences to social emotions) using subject-concept anchoring, predicate matching, concept graph path traversal, and concept vector initialization. RLMv2 (triple decomposition architecture) achieves **80.9% overall top-10** and **75% top-10 cross-domain causal** on a 47-triple benchmark (500 epochs) via vector arithmetic analogy and relation-aware spreading activation.
+2. **RLMv2 Cross-Domain Benchmark**: **80.9% overall top-10** and **75% top-10 cross-domain causal** on a 47-triple benchmark (500 epochs) via vector arithmetic analogy and relation-aware spreading activation. **Optimized probe configurations** achieve 95% top-1 / 100% top-10 on curated analogical probes, but **verified 2026-06-06 cross-domain results show 10.0% top-10 (zero-shot), 13.3% top-10 (transfer), 20.0% top-10 (post-sleep)**; top-1 remains 0.0% — primary open bottleneck indicates probe-specific results do not yet generalize to neutral cross-domain transfer.
 3. **Catastrophic Forgetting Elimination**: Under a lifelong streaming benchmark of 15,000 to 100,000 experiences with 5 sequential entity epochs, the introduction of a three-pronged defense—slow-wave and REM sleep-time interleaved replay, Elastic Weight Consolidation adapted for Hebbian synapses, and a Bayesian semantic graph carrying Beta posteriors—reduced catastrophic forgetting from **12.0% to 0.0%**, keeping long-term retention stable at **47.6%** (peaking at **52%** in previously damaged epochs) with 384 self-organized concepts and over 21,000 edges.
 4. **Non-Zero-Sum Fairness**: In a large-scale classroom interaction pilot ($N = 10,000$), RAVANA v2's governor reduced the demographic parity gap by **60.1%** (from 19.58% to 7.81%) while simultaneously increasing absolute success rates for both advantaged and disadvantaged groups, demonstrating that equity and alignment can emerge from internal consistency dynamics rather than externally imposed constraints.
 
@@ -375,19 +375,17 @@ resolved these issues, enabling the RLM to achieve **100% top-1 within-domain ac
 ### 6.2 Cross-Domain Transfer Analogy Probes
 Using the science-to-emotion transfer design, we trained the models on Domain A (Science) and evaluated them on Domain B (Emotions) using structural probes.
 
-| Metric | RLM (Hebbian) | MLP Baseline (Backprop) |
-| :--- | :--- | :--- |
-| **Cross-domain Probe Top-1** | **95%** | 0.0% |
-| **Cross-domain Probe Top-10** | **100%** | 14.3% |
-| **Fair Evaluation Top-1** | **14.4%** | 0.0% |
-| **Fair Evaluation Top-10** | **48.4%** | 10.3% |
-| **Fair Evaluation Discrimination** | **0.44** | 0.08 |
-| **Forward Transfer to Domain B** | **57.1%** | 14.3% |
-| **Zero-Shot Transfer** | **57.1%** | 14.3% |
+| Metric | RLM (Optimized Probes) | RLM (Neutral Probes) | MLP Baseline (Backprop) |
+| :--- | :--- | :--- | :--- |
+| **Cross-domain Probe Top-1** | **95%** | **0.0%** | 0.0% |
+| **Cross-domain Probe Top-10** | **100%** | **0-8.3%** | 14.3% |
+| **Fair Evaluation Top-1** | 14.4% | 14.4% | 0.0% |
+| **Fair Evaluation Top-10** | 48.4% | 48.4% | 10.3% |
+| **Fair Evaluation Discrimination** | 0.44 | 0.44 | 0.08 |
+| **Forward Transfer to Domain B** | 57.1% | 57.1% | 14.3% |
+| **Zero-Shot Transfer** | 57.1% | 57.1% | 14.3% |
 
-**Table 2**: Cross-domain transfer probe performance. RLM outperforms the backpropagation baseline on structural analogy tasks.
-
-The RLM successfully resolved the novel probe *"kindness causes [trust]"* by applying the causal schema learned in the physics domain (*"friction causes heat"*) to emotion concepts. The MLP baseline failed on these probes, as it lacked a structural analogy mechanism.
+**Table 2**: Cross-domain transfer probe performance. RLM's optimized probe configuration achieves 95% top-1 and 100% top-10, demonstrating the system *can* resolve novel structural analogies. **However, the full cross-domain experiment (`experiment_cross_domain.py`) using standard/neutral probes shows 0.0% top-1 and 0-8.3% top-10** — the probe-specific results do not yet generalize to neutral cross-domain transfer. The MLP baseline failed on these probes, as it lacked a structural analogy mechanism. RLMv2 achieves 80.9% overall top-10 and 75% cross-domain causal on a 47-triple benchmark (500 epochs).
 
 ### 6.3 Catastrophic Forgetting Elimination in Lifelong Streaming Benchmark
 To test long-term stability, we evaluated the model on a 15,000-experience streaming benchmark with 5 entity epochs. We compared the Hebbian baseline with the full three-pronged defense (Sleep Replay + EWC + Bayesian Posteriors).
@@ -545,9 +543,26 @@ Updated codebase: ~40,700 lines across 170 Python files (source: ~15,400).
 
 ## 8. Conclusion
 
-This paper presented RAVANA, a non-gradient cognitive architecture where learning and stability emerge from pressure-driven self-organization. Starting from 0% within-domain recall, we resolved five key pathologies to achieve 100% accuracy. We demonstrated cross-domain transfer of 95% top-1 / 100% top-10 accuracy on structural analogy probes without global loss functions, achieved through subject-concept anchoring, predicate matching, concept graph path traversal, and concept vector initialization. RLMv2 (triple decomposition architecture) achieves 80.9% overall top-10 and 75% top-10 cross-domain causal on a 47-triple benchmark. Catastrophic forgetting was eliminated in a lifelong streaming benchmark using sleep-time interleaved replay, Hebbian EWC, and Bayesian semantic graph posteriors. Finally, RAVANA v2's governor achieved a 60.1% reduction in demographic parity gap while increasing success rates across all groups in a student interaction pilot.
+This paper presented RAVANA, a non-gradient cognitive architecture where learning and stability emerge from pressure-driven self-organization. Starting from 0% within-domain recall, we resolved five key pathologies to achieve 100% accuracy. **RLMv2 (triple decomposition architecture) achieves 80.9% overall top-10 and 75% top-10 cross-domain causal on a 47-triple benchmark (500 epochs) via vector arithmetic analogy and relation-aware spreading activation.** Optimized probe configurations achieve 95% top-1 / 100% top-10 on curated structural analogy probes, but **the full cross-domain experiment (`experiment_cross_domain.py`) using neutral/standard probes shows 0.0% top-1 and 0-8.3% top-10** — indicating probe-specific results do not yet generalize to neutral cross-domain transfer. Catastrophic forgetting was eliminated in a lifelong streaming benchmark using sleep-time interleaved replay, Hebbian EWC, and Bayesian semantic graph posteriors (12% → 0% forgetting, 47.6% retention). Finally, RAVANA v2's governor achieved a 60.1% reduction in demographic parity gap while increasing success rates across all groups in a student interaction pilot.
 
-Our results suggest that biologically inspired mechanisms—including Hebbian learning, sleep consolidation, and homeostatic regulation—can support learning, consolidation, and generalization. RAVANA offers an alternative paradigm for continual learning, combining structural transparency with low-power, CPU-native execution.
+**Open bottlenecks**: Verified 2026-06-06: Top-10 cross-domain transfer reaches 10.0% (zero-shot), 13.3% (transfer), 20.0% (post-sleep); top-1 remains 0.0% — primary open bottleneck; graph-aware encoder alignment achieves **sustained improvement with correct hyperparameters** (66.7% traversal settles, 83.3% at K=10 adaptive_margin); sample efficiency of Hebbian learning trails gradient descent; Phase 4 triplet margin training plateaus with one violation remaining (`encryption→data` gap -0.105), and held-out generalization is only partially resolved (`bugs→crashes` and `exercise→sweating` satisfy the margin but `cold→contraction` remains negative).
+
+**Challenger Review Fixes (2026-06-06 — implemented post-submission):**
+- **P0 — Training Data Gap Fixed**: Added 5 `cold→contraction` training facts (was 1). **Proposed (Graph, Bi) achieves +0.373 gap on `cold→contraction` held-out — only config passing the gate.**
+- **P1 — Manifold Reg Harmful**: Reduced lambda_recon=0.02. Still collapses cold→contraction geometry (−0.009 gap).
+- **P2 — Stratified Hard-Boost**: Per-relation-type sampling in `hard_boost_sample()` ensures balanced gradient pressure.
+- **P3 — Ablation Confirms Graph Path Hurts Held-Out**: Full (Graph + Analogy) held-out −0.213 (0/3) vs Analogy Only (No Spread) +0.404 (2/3). **Disable spreading activation for cross-domain transfer.**
+- **P4 — Gate Checks**: Each config validates against `cold→contraction` improvement.
+- **Actionable**: Use **Proposed (Graph, Bi) with `disable_spreading_activation=True`** — vector arithmetic/analogy path is primary driver; spreading activation introduces noise for novel analogies.
+
+**Phase 4 Architectural Enhancements (2026-06-06 — implemented post-submission):**
+- **Graph Structure Repair**: Edge validation after learn(), anti-Hebbian pruning of polluted edges (logged: `[Sleep] Anti-Hebbian pruned N polluted edges`), and direct edge injection for subject→object when bindings are 1-to-1 but graph edges are missing/weak.
+- **Hard-Boost Sampling**: Samples only 10-20 random hard examples/epoch (gap ≤ margin) at 300x intensity instead of all 39×300, dramatically reducing compute.
+- **Per-Triple Diagnostics**: JSON emission at every epoch checkpoint + final evaluation, enabling asymmetric gradient flow analysis (e.g., `cold→contraction` flat while others climb).
+- **Alignment Completeness**: `semantic_pairs` saved/restored in checkpoint for Bridge Alignment re-injection.
+- **Proto() Measurement Fix**: Latent-space gap metrics via `_encoder_forward_full()` (not `subject_proj()` concept-space).
+
+Our results suggest that biologically inspired mechanisms—including Hebbian learning, sleep consolidation, and homeostatic regulation—can support genuine learning, consolidation, and within-domain generalization. RAVANA offers an alternative paradigm for continual learning, combining structural transparency with low-power, CPU-native execution.
 
 ---
 
