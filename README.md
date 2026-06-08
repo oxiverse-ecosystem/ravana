@@ -329,9 +329,9 @@ python experiments/experiment_phase4_integrated.py
 # RLMv2 triple benchmark
 python experiments/experiment_triple_benchmark_v6.py
 
-# RP-only diagnostic tests
-python test_rp_only.py
-python test_rp_contrastive.py
+# RP-only diagnostic tests (moved to tests/)
+python tests/test_rp_only.py
+python tests/test_rp_contrastive.py
 python tests/test_structural_transfer.py
 
 # Cognitive architecture experiments
