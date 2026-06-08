@@ -69,8 +69,6 @@ def _build_glove_embedding_matrix(tokenizer, target_dim=64, glove_dim=100, max_w
         return None
     
     # Load GloVe vectors into dict
-
-    
     word_vecs = {}
     with open(str(glove_path), 'r', encoding='utf-8') as f:
         for i, line in enumerate(f):
@@ -90,13 +88,6 @@ def _build_glove_embedding_matrix(tokenizer, target_dim=64, glove_dim=100, max_w
     proj = full_q[:target_dim, :glove_dim].copy()
     proj *= np.sqrt(float(glove_dim) / float(target_dim))
     
-    vocab_size = tokenizer.vocab_size
-    
-    # Check for cached projected matrix
-    cache_path = Path('data') / 'glove' / f'projected_{vocab_size}_{target_dim}.npy'
-    if cache_path.exists():
-        return np.load(str(cache_path))
-    
     # Build token->id mapping
     word_to_id = {}
     if hasattr(tokenizer, 'word_to_id') and tokenizer.word_to_id:
@@ -111,6 +102,12 @@ def _build_glove_embedding_matrix(tokenizer, target_dim=64, glove_dim=100, max_w
                 pass
     
     vocab_size = tokenizer.vocab_size
+    
+    # Check for cached projected matrix
+    cache_path = Path('data') / 'glove' / f'projected_{vocab_size}_{target_dim}.npy'
+    if cache_path.exists():
+        return np.load(str(cache_path))
+    
     matrix = np.zeros((vocab_size, target_dim), dtype=np.float32)
     found = 0
     total = 0
@@ -298,10 +295,9 @@ class RLMv2(Module):
 
         # ── Concept creation gating ──
         self._concept_similarity_threshold = 0.7 if gate_concept_creation else 0.0
-        # 2x headroom: tokenizer discovers words lazily during training, so the
-        # first N tokens fill the graph to capacity and later tokens get bound
-        # to the nearest existing concept (many-to-one contamination).
-        self._max_concepts = max(n_concepts * 2, vocab_size, 100)
+        # 2x headroom + guarantee every vocab token gets its own concept:
+        # vocab_size + 50 ensures enough slots for all token concepts + intermediates
+        self._max_concepts = max(n_concepts * 2, vocab_size + 50, 150)
 
         # ── Relation type classifier learning rate ──
         self._classifier_lr = 0.01
@@ -381,7 +377,7 @@ class RLMv2(Module):
         # Gradient dW_rel = outer(source_latent, d_logits @ token_embeds) is
         # naturally O(vocab_size) larger than old linear form. Use rp_scale=0.1
         # to compensate, plus gradient clipping (norm=10) in _rp_backward.
-        self.rp_scale = 0.1
+        self.rp_scale = 1.0
 
         # ── Direct Latent -> Domain Logits (bypasses bottleneck) ──
         self.use_sparse_concept_predictor = False
@@ -540,7 +536,6 @@ class RLMv2(Module):
         self._verb_offset_count: Dict[str, int] = {}             # verb_stem -> count
         self._verb_accum_buffer: List[Tuple[str, np.ndarray]] = []  # (verb_stem, offset_vec) pairs
         self.use_verb_offset = False                              # enabled by experiment
-        self._verb_offset_used_this_forward = False               # flag for conditional OOD weight
 
         # Track cross-domain edges injected analogically (subject_cid, object_cid).
         self._cross_domain_edges_injected: Set[Tuple[int, int]] = set()
@@ -1295,9 +1290,8 @@ class RLMv2(Module):
         if not verb_word or not self.use_verb_offset:
             return
         stem = self._verb_stem(verb_word)
-        # Use robust embedding for consistency with _rp_forward_verb_offset inference
-        subject_embed = self.get_robust_embedding(subject_tid)
-        target_embed = self.get_robust_embedding(target_tid)
+        subject_embed = self.token_embed.weight.data[subject_tid]
+        target_embed = self.token_embed.weight.data[target_tid]
         offset = target_embed - subject_embed
         self._verb_accum_buffer.append((stem, offset))
 
@@ -1349,7 +1343,7 @@ class RLMv2(Module):
         if stem not in self._verb_offsets:
             return None
         
-        source_embed = self.get_robust_embedding(subject_tid)
+        source_embed = self.token_embed.weight.data[subject_tid]
         offset = self._verb_offsets[stem]
         predicted = source_embed + offset
         
@@ -1363,11 +1357,11 @@ class RLMv2(Module):
             normed_tok = token_embeds.copy()
             normed_tok[valid_tok] /= token_norms[valid_tok, np.newaxis]
             logits = (predicted / pred_norm) @ normed_tok.T  # cosine similarities
-            # Scale up to make softmax meaningful FIRST
-            logits *= 10.0
-            # Suppress subject token (self-prediction) AFTER scaling
+            # Suppress subject token (self-prediction) - strong negation
             if 0 <= subject_tid < len(logits):
                 logits[subject_tid] = np.min(logits) - 10.0
+            # Scale up to make softmax meaningful
+            logits *= 10.0
             return logits
         return None
 
@@ -1393,9 +1387,6 @@ class RLMv2(Module):
             if verb_logits is not None:
                 self._rp_cache = None  # prevent stale cache from corrupting W_rel
                 return verb_logits
-
-        # ── Verb offset was not used — clear flag
-        self._verb_offset_used_this_forward = False
 
         # ── Bilinear W_rel Path (fallback) ──
         # Use raw token embeddings directly (bypass collapsed encoder)
@@ -1697,7 +1688,6 @@ class RLMv2(Module):
         if self.use_rp_for_analogy:
             # Run the learned relation predictor
             # Pass verb_word for verb-offset path (when use_verb_offset is True)
-            self._verb_offset_used_this_forward = True  # will be cleared if offset fails
             rp_logits = self._rp_forward(subject_tid, rel_type_idx, verb_word=query_verb_word)
             exp_logits = np.exp(rp_logits - np.max(rp_logits))
             probs = exp_logits / (np.sum(exp_logits) + 1e-10)
@@ -1786,6 +1776,8 @@ class RLMv2(Module):
 
         if disable_spreading:
             # OOD / novel query: skip spreading, rely on direct RP + similarity
+            for node in self.graph.nodes.values():
+                node.activation = 0.0
             self.graph.activate(subject_cid, amount=1.0)
         else:
                 # Reset all activations
@@ -1906,10 +1898,10 @@ class RLMv2(Module):
                 else:
                     gated_rp[tok_id] = prob * 0.8
             concept_scores += gated_rp * 35.0
-
+        
         # OOD fallback: direct similarity scoring via token embedding space
-        # When OOD is detected, skip RP entirely and rely on embedding similarity
-        ood_embed = self.get_robust_embedding(subject_tid)
+        # Use raw token embedding (not get_robust_embedding which has random char-CNN noise)
+        ood_embed = self.token_embed.weight.data[subject_tid]
         ood_norm = np.linalg.norm(ood_embed)
         if ood_norm > 0:
             ood_unit = ood_embed / ood_norm
@@ -1922,9 +1914,7 @@ class RLMv2(Module):
                 normed_tok = token_embeds.copy()
                 normed_tok[valid_tok] /= token_norms[valid_tok, np.newaxis]
                 ood_sims = ood_unit @ normed_tok.T
-                # Lower OOD weight when verb offset is active (less reliance on raw similarity)
-                use_vo = getattr(self, '_verb_offset_used_this_forward', False)
-                sim_weight = 3.0 if use_vo else (5.0 if disable_spreading else 3.0)
+                sim_weight = 5.0 if disable_spreading else 3.0
                 concept_scores += ood_sims * sim_weight
 
 
