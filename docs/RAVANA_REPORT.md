@@ -361,11 +361,11 @@ New modules added to the framework:
 - LearnedEmbedder (ravana-v2/core/embedder.py, 188 lines): Character n-gram + random projection
 
 Updated codebase metrics:
-- ravana_ml/: 4,500+ lines across 16 files
+- ravana_ml/: 5,200+ lines across 18 files
 - ravana-v2/core/: 10,162 lines across 27 files
 - ravana/: 855 lines across 10 files
-- Source total: ~15,500+ lines (53 Python files)
-- Full project Python: ~40,800+ lines (170 files)
+- Source total: ~16,200+ lines (55 Python files)
+- Full project Python: ~51,700+ lines (225 files)
 
 ---
 
@@ -635,6 +635,28 @@ Five additional architectural enhancements were implemented addressing graph top
 - **`_proto_latent()` method** uses `_encoder_forward_full()` latent vectors (not `subject_proj()` concept-space projections) for gap metrics.
 - Used by both `hard_boost_sample()` and `evaluate_per_triple()` for consistent latent-space measurement.
 - Supports `use_subspace_projection` flag with `rel_proj` matrix.
+
+---
+
+## GloVe Semantic Embeddings & Verb-Stem Offset Predictor (NEW — 2026-06-07/08)
+
+### GloVe Semantic Embeddings
+
+Token embeddings are now initialized from pre-trained GloVe vectors (100D) projected to the model's embedding dimension via QR-based orthogonal projection. This replaces the previous MiniLM injection and character n-gram LearnedEmbedder. The `_build_glove_embedding_matrix()` method loads `glove.6B.100d.txt`, projects via random orthogonal matrix, and caches as `.npy`. Coverage is ~60-80% of vocabulary; missing tokens get random orthogonal vectors.
+
+### Verb-Stem Offset Predictor
+
+A new inference path replaces bilinear `W_rel @ subject` with verb-conditioned vector arithmetic: `offset(verb) = avg(target_embed - subject_embed)`, `predicted_embed = subject_embed + offset(verb)`, `logits = predicted_embed @ token_embed`. Each verb gets its own offset vector, enabling same-subject different-verb predictions. The bilinear form is mathematically incapable of mapping the same (subject, relation) to two different targets since W_rel is shared across all subjects.
+
+**Results**: RP-only (verb-offset) cross-domain accuracy: **6.7% top-10** (was 3.3% with bilinear W_rel).
+
+### Subject-Holdout Split
+
+Replaced the old stratified domain split with `_subject_holdout_split()` that holds out entire subjects from training, testing true generalization via shared verb offsets.
+
+### Scoring Balance & RP Fixes
+
+Three root causes closed the gap between raw verb-offset (37.9%) and forward() (6.7%): residual activation bleed (fixed with explicit activation reset), concept capacity exhaustion (_max_concepts enlarged), and OOD path using random encoder weights (switched to raw token embeddings). Additional fixes: subject suppression order, GloVe cache position, NPY caching.
 
 ---
 

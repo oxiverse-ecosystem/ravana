@@ -196,6 +196,21 @@ If you see:
 
 ---
 
+---
+
+## 🔗 Related: ML Framework (ravana_ml/)
+
+The `ravana_ml/` package (the ML framework powering the underlying learning) has been updated with:
+
+- **GloVe Semantic Embeddings** — Token embeddings initialized from pre-trained GloVe vectors (100D) via random orthogonal projection, replacing the previous character n-gram approach.
+- **Verb-Stem Offset Predictor** — Replaces bilinear `W_rel` with verb-conditioned vector arithmetic (`predicted_embed = subject_embed + offset(verb)`), enabling cross-domain held-out generalization.
+- **Subject-Holdout Split** — Evaluation split that holds out entire subjects from training to test true structural generalization.
+- **RP-only cross-domain accuracy**: **3.3% → 6.7%** top-10.
+
+See `docs/ARCHITECTURE.md` and `docs/RAVANA_STATUS.md` for full details.
+
+---
+
 ## License
 
 MIT — Built for the RAVANA-AGI-Research initiative.

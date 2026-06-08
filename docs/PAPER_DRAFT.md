@@ -336,7 +336,7 @@ On 12 held-out terms never seen during training (22 queries, 6 relation types): 
 - Word Tokenizer (`ravana_ml/word_tokenizer.py`, 46 lines)
 - LearnedEmbedder (`ravana-v2/core/embedder.py`, 188 lines)
 
-Updated codebase: ~40,800 lines across 170 Python files (source: ~15,500).
+Updated codebase: ~51,700 lines across 225 Python files (source: ~16,200).
 
 ---
 
@@ -406,6 +406,22 @@ This standardizes the gate to local activation density, suppressing semantic fog
 *Alignment uses patience-based early stopping (min_epochs=5), excludes validation pairs from training, and uses separate encoder LR (_rp_encoder_lr=0.0001). Critical hyperparameters: freeze_encoder=False, lambda_anchor=0.005, alignment_lr=0.02, max_alignment_epochs=20. Default lambda_anchor=0.05 prevents learning!*
 
 **Key finding (RE-VERIFIED 2026-06-05):** Current graph-aware encoder alignment **DOES produce sustained improvement** when hyperparameters are correctly set. Single sleep cycle: Traversal 33.3% → **50-100%** (depending on K/gate), Recall@5 **10.7% → 44.6%**. Wake-sleep cycle (12 epochs, sleep every 3): settles at **66.7% traversal (adaptive_margin, K=10)** with **83.3% at K=10** in final K-sweep. Hard-case latent similarities improve dramatically: gravity→loyalty 0.18→0.70, combustion→resentment 0.10→0.90. The earlier "zero gain" result was due to frozen encoder (default) and lambda_anchor=0.05 (too strong anchor).
+
+---
+
+## GloVe Semantic Embeddings & Verb-Stem Offset Predictor (NEW — 2026-06-07/08)
+
+### GloVe Semantic Embeddings
+
+Token embeddings are now initialized from pre-trained GloVe vectors (100D) projected via random orthogonal projection, replacing MiniLM injection. The `_build_glove_embedding_matrix()` method loads `glove.6B.100d.txt`, projects via QR-based orthogonal matrix, and caches as `.npy`. Coverage ~60-80% of vocabulary; missing tokens get deterministic random orthogonal vectors.
+
+### Verb-Stem Offset Predictor
+
+Replaces bilinear `W_rel @ subject` with verb-conditioned vector arithmetic: `offset(verb) = avg(target - subject)`, `predicted = subject + offset(verb)`. Each verb gets its own offset, solving W_rel's inability to map the same (subject, relation) to multiple targets. **Results**: RP-only cross-domain accuracy: **6.7% top-10** (was 3.3%).
+
+### Subject-Holdout Split & Scoring Fixes
+
+`_subject_holdout_split()` holds out entire subjects — true generalization test via verb offsets. Three scoring fixes closed the gap from raw verb-offset (37.9%) to forward() (6.7%): activation reset, concept capacity enlargement, and OOD path fix.
 
 ---
 

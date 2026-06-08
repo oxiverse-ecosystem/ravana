@@ -1,6 +1,6 @@
 # RAVANA — Codebase Status Report
-**Date:** 2026-06-06 (verified — experiments re-run, docs updated with actual measured results)
-**Commit:** 2206649 + 14 untracked diagnostic/profiling scripts
+**Date:** 2026-06-08 (updated — GloVe embeddings, verb-stem offset predictor, subject-holdout split)
+**Commit:** 842a491 (RP-only cross-domain accuracy: 3.3% -> 6.7%)
 **Author:** Likhith (169 commits total, 48 since May 20)
 **Purpose:** Shareable status document for LLM collaborators
 
@@ -14,9 +14,9 @@ A cognitive architecture research project proposing **pressure-driven self-organ
 
 ---
 
-## Architecture: Three-Layer Package (170 Python files, ~40,695 lines)
+## Architecture: Three-Layer Package (225 Python files, ~51,700 lines)
 
-### Layer 1: `ravana_ml/` — The ML Framework (4,383 lines, 16 files)
+### Layer 1: `ravana_ml/` — The ML Framework (5,200+ lines, 18 files)
 
 A PyTorch-compatible API surface built on NumPy. Only hard dependency: `numpy`.
 
@@ -481,6 +481,7 @@ Five additional architectural enhancements were implemented addressing graph top
 | Phase 2 NN bridge (`experiment_final_bridge.py`) | 67% bridge, 95% query, 94% object | ✓ |
 | Dense KB validation | 86% avg hit rate (6 composed reasoning tests) | ✓ CONFIRMED |
 | Cross-domain transfer (`experiment_cross_domain.py`) | **0.0% top-1, 3.3% top-10** (RLMv1) | ✗ NEUTRAL TRANSFER |
+| RP-only verb-offset (`test_rp_only.py`) | **6.7% top-10** (was 3.3% with bilinear W_rel) | ✅ IMPROVED |
 | `eval_comprehensive.py` | 10% train top-1, 0% test top-1, 0% novel top-1 | ✗ |
 | Semantic clustering | intra-domain 0.413, cross-domain 0.155 (2.5x gap) | ⚠ |
 | Graph scaling (10K nodes) | 1.07ms spread activation, sub-linear scaling | ✓ |
@@ -1637,3 +1638,117 @@ Sleep cycle increased edges 2.8x (511 → 1,437) primarily through semantic edge
 - **Neutral probe top-1 remains 0.0%** — primary open bottleneck
 - **Sleep consolidation improves cross-domain top-10 from 13.3% to 20.0%**
 - **Graph structure grows significantly during sleep** (semantic edges 2.4x increase)
+
+
+---
+
+## GloVe Semantic Embeddings (NEW — 2026-06-07)
+
+Token embeddings are now initialized from pre-trained GloVe vectors (100D) projected to the model's embedding dimension via a random orthogonal projection. This replaces the previous character n-gram LearnedEmbedder which could not capture genuine semantic relationships.
+
+**`_build_glove_embedding_matrix()`** loads `glove.6B.100d.txt` from `data/glove/`, projects 100D → target_dim via QR-based orthogonal projection, and caches the projected matrix as a `.npy` file for fast re-runs. Falls back to 50D if 100D unavailable, or random orthogonal init if GloVe is not present.
+
+**Coverage**: ~60-80% of vocabulary tokens receive genuine GloVe vectors. Missing tokens get random orthogonal vectors seeded deterministically.
+
+**Why GloVe matters**: The verb-stem offset predictor (`predicted_embed = subject_embed + offset(verb)`) requires token embeddings that encode genuine semantic relationships. GloVe vectors satisfy `vec("king") - vec("man") + vec("woman") ≈ vec("queen")` — and similarly `offset("causes") = avg(expansion - heat, conflict - anger, ...)`. Character n-gram embeddings cannot capture this.
+
+---
+
+## Verb-Stem Offset Predictor (NEW — 2026-06-07)
+
+A new inference path that replaces bilinear `W_rel @ subject` with verb-conditioned vector arithmetic for cross-domain held-out generalization.
+
+### Architecture
+
+```
+offset(verb) = avg(target_embed - subject_embed) over all training pairs using that verb
+
+predicted_embed = subject_embed + offset(query_verb)
+logits_k = predicted_embed @ token_embed_k  (cosine similarity)
+```
+
+Each verb has its own offset vector, enabling **same-subject different-verb predictions**:
+- `cold causes` → `offset("causes")` → shivering
+- `cold freezes` → `offset("freezes")` → water
+
+### Key Methods
+
+| Method | Purpose |
+|--------|---------|
+| `_verb_stem(word)` | Strips suffixes (ing/ed/es/s) for verb normalization |
+| `_accumulate_verb_offset(subject_tid, target_tid, verb_word)` | Accumulates `target - subject` during `learn()` |
+| `_compute_verb_offsets()` | Averages accumulated offsets per verb stem after training |
+| `_rp_forward_verb_offset(subject_tid, verb_word)` | Predicts using offset arithmetic, falling back to bilinear W_rel if verb unknown |
+
+### Why This Works
+
+The bilinear form `source_latent @ W_rel @ target_latent` is mathematically incapable of mapping the same (subject, relation) to two different targets — W_rel is shared across all subjects. The verb-stem offset solves this by making the offset **verb-specific**, not just relation-type-specific.
+
+**Cross-domain transfer**: A verb like "causes" appears in both Domain A (heat→expansion) and Domain B (anger→conflict). Its offset vector `avg(expansion - heat, conflict - anger, trust - kindness, ...)` averages to a generic causal direction. At inference, `subject_embed + offset("causes")` produces a predicted embedding that cosine-matches any domain's causal targets — the definition of cross-domain generalization.
+
+### Results
+
+- RP-only (verb-offset) cross-domain accuracy: **6.7% top-10** (was 3.3% with bilinear W_rel)
+- Successfully predicts for held-out subjects using only shared verb offsets
+- Falls back to bilinear W_rel for unseen verbs
+
+---
+
+## Subject-Holdout Split (NEW — 2026-06-07)
+
+Replaced the old stratified domain split (which grouped by target/relation-type) with `_subject_holdout_split()` that holds out **entire subjects** from training. This tests TRUE generalization: can the model predict targets for entirely unseen subjects using only the shared verb offset?
+
+The old stratified split guaranteed 0% held-out because the bilinear W_rel @ subject is mathematically incapable of mapping the same (subject, relation) to two different targets. The subject-holdout split plus verb-stem offset predictor finally makes this test meaningful.
+
+---
+
+## Scoring Balance & RP Fixes (NEW — 2026-06-08)
+
+Three root causes closed the gap between raw verb-offset (37.9%) and forward() (6.7%):
+
+1. **Residual activation bleed**: Concept nodes retained training activations. The `disable_spreading` branch skipped activation reset. Fixed by adding explicit `node.activation = 0.0` before subject activation.
+
+2. **Concept capacity exhaustion**: `_max_concepts` was too small (100 for a 76-token vocab), causing 'mercury' to map to nearest concept ('harmful') instead of getting its own node. Fixed to `max(n_concepts*2, vocab_size+50, 150)`.
+
+3. **OOD path used random encoder weights**: Was using `get_robust_embedding()` with random char-CNN weights (cosine similarity with raw embeddings ~0.02). Switched to raw `token_embed.weight.data` for both OOD similarity and verb-offset accumulation/inference.
+
+**Additional fixes**:
+- Subject suppression order fixed (apply AFTER logits × 10.0, not before)
+- GloVe cache check moved after vocab_size computation
+- NPY caching added for projected GloVe matrix
+
+---
+
+## New Test Files & Diagnostic Scripts
+
+The following test and diagnostic files were added alongside the GloVe/verb-stem changes:
+
+| File | Lines | Purpose |
+|------|-------|---------|
+| `test_rp_only.py` | 64 | Standalone test for RP-only inference path (verb-offset accuracy) |
+| `test_rp_contrastive.py` | 96 | Contrastive test comparing verb-offset vs bilinear W_rel paths |
+| `test_structural_transfer.py` | 155 | Structural transfer test for subject-holdout verification |
+
+### Patch Scripts (Historical Fixes)
+
+19 `patch_*.py` scripts are archived in the project root, documenting the iterative fixing process:
+
+| Category | Scripts |
+|----------|--------|
+| **Cross-domain fixes** | `patch_cross_align.py`, `patch_edge_domain.py`, `patch_exp_align.py` |
+| **Experiment tuning** | `patch_experiment.py`, `patch_experiment2.py`, `patch_exp_final.py`, `patch_exp_param.py`, `patch_exp_phase3.py`, `patch_exp_shared.py` |
+| **Encoder/alignment** | `patch_align_v2.py`, `patch_init_param.py`, `patch_rp_backward.py` |
+| **Graph/bridge fixes** | `patch_bridges.py`, `patch_shared_rel.py` |
+| **Softmax/learn fixes** | `patch_softly.py`, `patch_softly2.py`, `patch_learn.py`, `patch_tokenizer_fix.py` |
+| **Debug/analysis** | `patch_debug.py` |
+
+---
+
+## Updated Line Counts (2026-06-08)
+| Component | Lines | Files |
+|-----------|-------|-------|
+| `ravana_ml/` | 5,200+ | 18 |
+| `ravana-v2/core/` | 10,162 | 27 |
+| `ravana/` | 855 | 10 |
+| **Source total** | **~16,200** | **55** |
+| **Full project (all Python)** | **~51,700** | **225** |

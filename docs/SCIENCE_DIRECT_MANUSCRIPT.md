@@ -474,6 +474,22 @@ Removing the dissonance engine resulted in a **24.0% relative collapse in fairne
 
 ---
 
+## GloVe Semantic Embeddings & Verb-Stem Offset Predictor (NEW — 2026-06-07/08)
+
+### GloVe Semantic Embeddings
+
+Token embeddings are now initialized from pre-trained GloVe vectors (100D) projected via QR-based orthogonal projection, replacing MiniLM injection and character n-gram embeddings. The `_build_glove_embedding_matrix()` method loads `glove.6B.100d.txt`, projects 100D → target_dim via random orthogonal matrix, and caches as `.npy`. Coverage ~60-80% of vocabulary; missing tokens get deterministic random orthogonal vectors.
+
+### Verb-Stem Offset Predictor
+
+A new inference path replaces bilinear `W_rel @ subject` with verb-conditioned vector arithmetic: `offset(verb) = avg(target - subject)`, `predicted_embed = subject_embed + offset(verb)`, `logits = predicted_embed @ token_embed`. Each verb gets its own offset vector, enabling same-subject different-verb predictions. The bilinear form cannot map the same (subject, relation) to different targets — the verb-specific offset solves this. **Results**: RP-only cross-domain accuracy: **6.7% top-10** (was 3.3%).
+
+### Subject-Holdout Split & Scoring Fixes
+
+`_subject_holdout_split()` holds out entire subjects. Three root causes closed the gap between raw verb-offset (37.9%) and forward() (6.7%): activation reset, concept capacity enlargement, and OOD path fix (switched to raw token embeddings).
+
+---
+
 ## 7. Discussion
 
 ### 7.1 RAVANA vs. Backpropagation-Based Architectures
@@ -537,7 +553,7 @@ On 12 held-out terms (22 queries, 6 relation types): 95% query success, 94% obje
 - Word Tokenizer (`ravana_ml/word_tokenizer.py`, 46 lines)
 - LearnedEmbedder (`ravana-v2/core/embedder.py`, 188 lines)
 
-Updated codebase: ~40,700 lines across 170 Python files (source: ~15,400).
+Updated codebase: ~51,700 lines across 225 Python files (source: ~16,200).
 
 ---
 

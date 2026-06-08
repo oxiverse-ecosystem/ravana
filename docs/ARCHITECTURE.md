@@ -3,8 +3,8 @@
 > **A self-stabilizing, self-expanding epistemic system.**
 > CPU-native cognitive ML framework — no GPU required.
 >
-> **Date**: 2026-06-01
-> **Status**: Active Development (v2 GRACE + Cognitive Modules + RLMv2 + Phase 2 NN Bridge)
+> **Date**: 2026-06-08
+> **Status**: Active Development (v2 GRACE + Cognitive Modules + RLMv2 + Phase 2 NN Bridge + GloVe embeddings + Verb-Stem Offset Predictor)
 > **Author**: Likhith + Zo Agent
 
 ---
@@ -482,6 +482,83 @@ Only failure: matcha (MiniLM embedding similarity 0.32 — below threshold).
 
 ---
 
+## GloVe Semantic Embeddings (NEW — 2026-06-07)
+
+Token embeddings are now initialized from pre-trained GloVe vectors (100D) projected to the model's embedding dimension via a random orthogonal projection. This replaces the previous character n-gram LearnedEmbedder which could not capture genuine semantic relationships.
+
+**`_build_glove_embedding_matrix()`** loads `glove.6B.100d.txt` from `data/glove/`, projects 100D → target_dim via QR-based orthogonal projection, and caches the projected matrix as a `.npy` file for fast re-runs. Falls back to 50D if 100D unavailable, or random orthogonal init if GloVe is not present.
+
+**Coverage**: ~60-80% of vocabulary tokens receive genuine GloVe vectors. Missing tokens get random orthogonal vectors seeded deterministically.
+
+**Why GloVe matters**: The verb-stem offset predictor (`predicted_embed = subject_embed + offset(verb)`) requires token embeddings that encode genuine semantic relationships. GloVe vectors satisfy `vec("king") - vec("man") + vec("woman") ≈ vec("queen")` — and similarly `offset("causes") = avg(expansion - heat, conflict - anger, ...)`. Character n-gram embeddings cannot capture this.
+
+---
+
+## Verb-Stem Offset Predictor (NEW — 2026-06-07)
+
+A new inference path that replaces bilinear `W_rel @ subject` with verb-conditioned vector arithmetic for cross-domain held-out generalization.
+
+### Architecture
+
+```
+offset(verb) = avg(target_embed - subject_embed) over all training pairs using that verb
+
+predicted_embed = subject_embed + offset(query_verb)
+logits_k = predicted_embed @ token_embed_k  (cosine similarity)
+```
+
+Each verb has its own offset vector, enabling **same-subject different-verb predictions**:
+- `cold causes` → `offset("causes")` → shivering
+- `cold freezes` → `offset("freezes")` → water
+
+### Key Methods
+
+| Method | Purpose |
+|--------|---------|
+| `_verb_stem(word)` | Strips suffixes (ing/ed/es/s) for verb normalization |
+| `_accumulate_verb_offset(subject_tid, target_tid, verb_word)` | Accumulates `target - subject` during `learn()` |
+| `_compute_verb_offsets()` | Averages accumulated offsets per verb stem after training |
+| `_rp_forward_verb_offset(subject_tid, verb_word)` | Predicts using offset arithmetic, falling back to bilinear W_rel if verb unknown |
+
+### Why This Works
+
+The bilinear form `source_latent @ W_rel @ target_latent` is mathematically incapable of mapping the same (subject, relation) to two different targets — W_rel is shared across all subjects. The verb-stem offset solves this by making the offset **verb-specific**, not just relation-type-specific.
+
+**Cross-domain transfer**: A verb like "causes" appears in both Domain A (heat→expansion) and Domain B (anger→conflict). Its offset vector `avg(expansion - heat, conflict - anger, trust - kindness, ...)` averages to a generic causal direction. At inference, `subject_embed + offset("causes")` produces a predicted embedding that cosine-matches any domain's causal targets — the definition of cross-domain generalization.
+
+### Results
+
+- RP-only (verb-offset) cross-domain accuracy: **6.7% top-10** (was 3.3% with bilinear W_rel)
+- Successfully predicts for held-out subjects using only shared verb offsets
+- Falls back to bilinear W_rel for unseen verbs
+
+---
+
+## Subject-Holdout Split (NEW — 2026-06-07)
+
+Replaced the old stratified domain split (which grouped by target/relation-type) with `_subject_holdout_split()` that holds out **entire subjects** from training. This tests TRUE generalization: can the model predict targets for entirely unseen subjects using only the shared verb offset?
+
+The old stratified split guaranteed 0% held-out because the bilinear W_rel @ subject is mathematically incapable of mapping the same (subject, relation) to two different targets. The subject-holdout split plus verb-stem offset predictor finally makes this test meaningful.
+
+---
+
+## Scoring Balance & RP Fixes (NEW — 2026-06-08)
+
+Three root causes closed the gap between raw verb-offset (37.9%) and forward() (6.7%):
+
+1. **Residual activation bleed**: Concept nodes retained training activations. The `disable_spreading` branch skipped activation reset. Fixed by adding explicit `node.activation = 0.0` before subject activation.
+
+2. **Concept capacity exhaustion**: `_max_concepts` was too small (100 for a 76-token vocab), causing 'mercury' to map to nearest concept ('harmful') instead of getting its own node. Fixed to `max(n_concepts*2, vocab_size+50, 150)`.
+
+3. **OOD path used random encoder weights**: Was using `get_robust_embedding()` with random char-CNN weights (cosine similarity with raw embeddings ~0.02). Switched to raw `token_embed.weight.data` for both OOD similarity and verb-offset accumulation/inference.
+
+**Additional fixes**:
+- Subject suppression order fixed (apply AFTER logits × 10.0, not before)
+- GloVe cache check moved after vocab_size computation
+- NPY caching added for projected GloVe matrix
+
+---
+
 ## Phase 4: RLMv2 Architecture Enhancements (2026-06-06)
 
 Three major architectural enhancements were implemented to solve the held-out generalization bottleneck and graph structure issues:
@@ -556,15 +633,15 @@ The spreading activation path actively degrades held-out generalization. **Disab
 
 ---
 
-## Updated Line Counts (2026-06-06)
+## Updated Line Counts (2026-06-08)
 
 | Component | Lines | Files |
 |-----------|-------|-------|
-| `ravana_ml/` | 4,383 | 16 |
+| `ravana_ml/` | 5,200+ | 18 |
 | `ravana-v2/core/` | 10,162 | 27 |
 | `ravana/` package | 855 | 10 |
-| **Source total** | **15,400** | **53** |
-| **Full project (all Python)** | **~40,700** | **170** |
+| **Source total** | **~16,200** | **55** |
+| **Full project (all Python)** | **~51,700** | **225** |
 
 ---
 
