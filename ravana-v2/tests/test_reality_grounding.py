@@ -44,6 +44,8 @@ def test_build_news_mdp():
     assert 0.0 <= scenarios[0]["next_state"]["dissonance"] <= 1.0
     assert 0.0 <= scenarios[1]["next_state"]["identity"] <= 1.0
     assert "rationale" in scenarios[0]
+    assert scenarios[0]["learning_card"]["source"] == "news-mdp"
+    assert "correctness" in scenarios[0]["learning_card"]
 
 
 def test_ingest_news_pipeline():

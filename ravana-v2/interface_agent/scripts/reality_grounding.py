@@ -52,6 +52,26 @@ class NewsMDPScenario:
     source_url: str = ""
     published_epoch: float = 0.0
 
+    def to_learning_card(self) -> Dict[str, Any]:
+        action = self.action.lower()
+        if action in {"increase scrutiny", "escalate attention"}:
+            correctness = False
+        elif action in {"update beliefs", "monitor impact"}:
+            correctness = True
+        else:
+            correctness = self.reward >= 0.2
+
+        return {
+            "correctness": correctness,
+            "difficulty": max(0.1, min(0.9, self.pressure)),
+            "domain": self.topic,
+            "source": "news-mdp",
+            "pressure": round(self.pressure, 3),
+            "confidence": round(self.confidence, 3),
+            "reward": round(self.reward, 3),
+            "rationale": self.rationale,
+        }
+
 
 class NewsToMDPPipeline:
     """Convert news items into a structured grounding cycle."""
@@ -350,7 +370,12 @@ class RealityGrounding:
         that news is a clean reinforcement-learning environment.
         """
         scenarios = self.pipeline.build_scenarios(news_items, ravana_state=ravana_state, max_scenarios=max_scenarios)
-        return [scenario.__dict__.copy() for scenario in scenarios]
+        structured = []
+        for scenario in scenarios:
+            payload = scenario.__dict__.copy()
+            payload["learning_card"] = scenario.to_learning_card()
+            structured.append(payload)
+        return structured
 
     def search_news(self, query: str, num_results: int = 5) -> List[NewsItem]:
         """

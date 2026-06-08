@@ -20,20 +20,24 @@ from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
-# Add skills to path
-sys.path.insert(0, "/home/workspace/Projects/ravana-v2/agent")
-sys.path.insert(0, "/home/workspace/Projects/ravana-v2/interface_agent/scripts")
-sys.path.insert(0, "/home/workspace/Projects/ravana-v2")
+# Add project paths to sys.path using the real repository layout.
+SCRIPT_DIR = Path(__file__).resolve().parent
+RAVANA_DIR = SCRIPT_DIR.parent
+SCRIPTS_DIR = RAVANA_DIR / "interface_agent" / "scripts"
+AGENT_DIR = RAVANA_DIR / "agent"
+
+sys.path.insert(0, str(SCRIPTS_DIR))
+sys.path.insert(0, str(AGENT_DIR))
+sys.path.insert(0, str(RAVANA_DIR))
 
 from version_manager import VersionManager
+from reality_grounding import RealityGrounding
 from groq import Groq
 
 # ─── Config ────────────────────────────────────────────────────────
 
-SKILL_DIR = Path("/home/workspace/Projects/ravana-v2/interface_agent")
-RAVANA_DIR = Path("/home/workspace/Projects/ravana-v2")
-SCRIPTS_DIR = RAVANA_DIR / "interface_agent" / "scripts"
-DB_PATH = os.environ.get("CONTEXT_DB", "/home/workspace/Projects/ravana-v2/interface_agent/context.db")
+SKILL_DIR = RAVANA_DIR / "interface_agent"
+DB_PATH = os.environ.get("CONTEXT_DB", str(SKILL_DIR / "context.db"))
 
 # Groq models (fast for agents, capable for research)
 FAST_MODEL = "llama-3.1-8b-instant"
@@ -55,7 +59,7 @@ def groq_complete(prompt: str, model: str = CAPABLE_MODEL, system: str = "") -> 
     if system:
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": prompt})
-    
+
     response = client.chat.completions.create(
         model=model,
         messages=messages,
@@ -67,7 +71,7 @@ def groq_complete(prompt: str, model: str = CAPABLE_MODEL, system: str = "") -> 
 # ─── Web Research ────────────────────────────────────────────────
 
 def research_ravana_improvements() -> List[Dict]:
-    """Research new methods for RAVANA enhancement."""
+    """Research new methods for RAVANA enhancement from live grounding data."""
     queries = [
         "cognitive architecture AGI self-improving agent 2025",
         "Hermes Agent Nous Research latest updates github",
@@ -75,18 +79,49 @@ def research_ravana_improvements() -> List[Dict]:
         "AI agent memory systems episodic semantic learning",
         "real-time news RSS feed AI belief revision",
     ]
-    
-    findings = []
+
+    grounding = RealityGrounding()
+    findings: List[Dict[str, Any]] = []
+
     for query in queries:
-        # Simulate web search results (in production, use actual web search)
-        findings.append({
-            "query": query,
-            "topic": extract_topic(query),
-            "relevance": "high",
-            "notes": f"Research queued for: {query}"
-        })
+        try:
+            items = grounding.search_news(query, num_results=3)
+            if items:
+                best = items[0]
+                findings.append(
+                    {
+                        "query": query,
+                        "topic": extract_topic(query),
+                        "relevance": min(10, max(6, int(round(best.relevance_score * 10)) + 2)),
+                        "news_count": len(items),
+                        "headlines": [item.title for item in items[:3]],
+                        "notes": f"Grounded in {len(items)} recent news items; top hit: {best.title}",
+                    }
+                )
+            else:
+                findings.append(
+                    {
+                        "query": query,
+                        "topic": extract_topic(query),
+                        "relevance": 5,
+                        "news_count": 0,
+                        "headlines": [],
+                        "notes": f"No live hits for: {query}",
+                    }
+                )
+        except Exception as exc:
+            findings.append(
+                {
+                    "query": query,
+                    "topic": extract_topic(query),
+                    "relevance": 4,
+                    "news_count": 0,
+                    "headlines": [],
+                    "notes": f"Research fallback after error: {str(exc)[:120]}",
+                }
+            )
         time.sleep(0.1)
-    
+
     return findings
 
 
@@ -273,7 +308,7 @@ def build_report(vm: VersionManager, test_results: Dict, new_findings: int, impr
         "🔄 RAVANA Agent — Run Complete",
         "─────────────────────────────",
         f"Time: {datetime.now().strftime('%H:%M')}",
-        f"Agent v(summary['agent_version'])",
+        f"Agent v{summary['agent_version']}",
         "",
         f"📊 Tests: {passed}/{total} passed",
     ]

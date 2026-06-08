@@ -295,9 +295,22 @@ class ModeOrchestrator:
 
     def _scenario_to_card(self, scenario: Any) -> Optional[Dict]:
         """Convert a structured news-to-MDP scenario into a learnable card."""
-        action = str(getattr(scenario, 'action', '')).lower()
-        pressure = float(getattr(scenario, 'pressure', 0.5) or 0.5)
-        reward = float(getattr(scenario, 'reward', 0.0) or 0.0)
+        if isinstance(scenario, dict):
+            learning_card = scenario.get('learning_card')
+            if isinstance(learning_card, dict):
+                return learning_card
+            action = str(scenario.get('action', '')).lower()
+            pressure = float(scenario.get('pressure', 0.5) or 0.5)
+            reward = float(scenario.get('reward', 0.0) or 0.0)
+            topic = str(scenario.get('topic', 'news-mdp'))
+        else:
+            learning_card = getattr(scenario, 'learning_card', None)
+            if isinstance(learning_card, dict):
+                return learning_card
+            action = str(getattr(scenario, 'action', '')).lower()
+            pressure = float(getattr(scenario, 'pressure', 0.5) or 0.5)
+            reward = float(getattr(scenario, 'reward', 0.0) or 0.0)
+            topic = str(getattr(scenario, 'topic', 'news-mdp'))
         
         if action in {'increase scrutiny', 'escalate attention'}:
             correctness = False
@@ -311,7 +324,7 @@ class ModeOrchestrator:
         return {
             'correctness': correctness,
             'difficulty': max(0.1, min(0.9, pressure)),
-            'domain': str(getattr(scenario, 'topic', 'news-mdp')),
+            'domain': topic,
             'source': 'news-mdp',
         }
 
