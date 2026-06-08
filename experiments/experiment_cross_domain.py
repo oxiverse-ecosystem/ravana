@@ -4,13 +4,22 @@ Cross-Domain Transfer Experiment for RAVANA RLMv2
 Ported to RLMv2 (triple decomposition + spreading activation + Relation Predictor MLP).
 Tests whether knowledge learned in Domain A transfers to Domain B.
 Includes programmatically injected abstract cross-domain bridge nodes.
+
+Usage:
+    python experiments/experiment_cross_domain.py
+    python experiments/experiment_cross_domain.py --n-repeats 5
+    python experiments/experiment_cross_domain.py --skip-baselines
 """
 
 import os
 import sys
-_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if _PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, _PROJECT_ROOT)
+from pathlib import Path
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+
+# Ensure project root is in sys.path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 import time
 import json
 import numpy as np
@@ -18,12 +27,9 @@ from typing import List, Dict, Any, Tuple, Optional
 from collections import defaultdict
 from dataclasses import dataclass, field, asdict
 
-if hasattr(sys.stdout, 'reconfigure'):
-    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
-
 from ravana_ml.nn.rlm_v2 import RLMv2
 from ravana_ml.tokenizer import WordTokenizer
-from experiments.experiment_baselines import SimpleMLP
+from experiments.archive.old_experiments.experiment_baselines import SimpleMLP
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -37,23 +43,59 @@ class CrossDomainConfig:
     seed: int = 42
     skip_baselines: bool = False
 
-    # RLMv2 architecture
+    # RLMv2 architecture (80.9% benchmark architecture configuration)
     embed_dim: int = 64
     concept_dim: int = 64
     n_hidden: int = 128
     n_layers: int = 3
-    sleep_interval: int = 100
+    sleep_interval: int = 300           # 80.9% v6 benchmark config
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Domain Knowledge Bases
 # ═══════════════════════════════════════════════════════════════════════════
 
-def build_domain_a_science() -> Dict[str, List[Tuple[str, str, str]]]:
-    """Domain A: Science — causal relationships between physical concepts.
+def _stratified_domain_split(facts, seed=42):
+    """Split facts into train/test with stratified holdout.
 
-    Returns dict with 'train' and 'test' splits. Each item is
-    (input_text, target_text, relation_type).
+    Key design: EVERY target token appears in training at least once.
+    Test facts use held-out subjects (the target was trained with a DIFFERENT subject).
+    This ensures the RP path can learn all target tokens during training.
+    """
+    rng = np.random.RandomState(seed)
+
+    from collections import defaultdict as _dd
+    all_facts = list(facts)
+    rng.shuffle(all_facts)
+
+    # Group by (target_text, relation_type)
+    groups = _dd(list)
+    for fact in all_facts:
+        groups[(fact[1], fact[2])].append(fact)
+
+    train = []
+    test = []
+
+    # Sort groups for deterministic handling
+    for (target, rel_type), entries in sorted(groups.items()):
+        if len(entries) >= 2:
+            # Hold out ONE entry as test; rest go to training
+            test_entry = entries[0]
+            train_entries = entries[1:]
+            test.append(test_entry)
+            train.extend(train_entries)
+        else:
+            # Single entry: must be in training to learn the target
+            train.append(entries[0])
+
+    return {"train": train, "test": test}
+
+
+def build_domain_a_science():
+    """Domain A: Science -- causal relationships between physical concepts.
+
+    Returns dict with 'train' and 'test' splits using stratified holdout:
+    every target appears in training at least once.
     """
     facts = [
         # Causal facts
@@ -120,24 +162,14 @@ def build_domain_a_science() -> Dict[str, List[Tuple[str, str, str]]]:
         ("aluminum is ", "lightweight", "semantic"),
     ]
 
-    # Split into train/test: hold out ~20% of each category for evaluation
-    causal = [f for f in facts if f[2] == "causal"]
-    semantic = [f for f in facts if f[2] == "semantic"]
-    rng = np.random.RandomState(42)
-    rng.shuffle(causal)
-    rng.shuffle(semantic)
-    n_causal_test = max(1, len(causal) // 5)
-    n_semantic_test = max(1, len(semantic) // 5)
-    train = causal[n_causal_test:] + semantic[n_semantic_test:]
-    test = causal[:n_causal_test] + semantic[:n_semantic_test]
-    return {"train": train, "test": test}
+    return _stratified_domain_split(facts, seed=42)
 
 
-def build_domain_b_social() -> Dict[str, List[Tuple[str, str, str]]]:
-    """Domain B: Social — relationships and emotions between people.
+def build_domain_b_social():
+    """Domain B: Social -- relationships and emotions between people.
 
-    Structurally parallel to Domain A (cause→effect + is-a) but
-    semantically distinct. Tests whether structural patterns transfer.
+    Structurally parallel to Domain A but semantically distinct.
+    Uses stratified holdout: every target appears in training at least once.
     """
     facts = [
         # Causal facts
@@ -204,22 +236,10 @@ def build_domain_b_social() -> Dict[str, List[Tuple[str, str, str]]]:
         ("grace is ", "inspiring", "semantic"),
     ]
 
-    # Split into train/test: hold out ~20% of each category for evaluation
-    causal = [f for f in facts if f[2] == "causal"]
-    semantic = [f for f in facts if f[2] == "semantic"]
-    rng = np.random.RandomState(42)
-    rng.shuffle(causal)
-    rng.shuffle(semantic)
-    n_causal_test = max(1, len(causal) // 5)
-    n_semantic_test = max(1, len(semantic) // 5)
-    train = causal[n_causal_test:] + semantic[n_semantic_test:]
-    test = causal[:n_causal_test] + semantic[:n_semantic_test]
-    return {"train": train, "test": test}
+    return _stratified_domain_split(facts, seed=42)
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Training & Evaluation Helpers (RLMv2 style)
-# ═══════════════════════════════════════════════════════════════════════════
+
 
 def encode_fact(tokenizer, input_text: str, target_text: str):
     """Encode a (input, target) pair into token arrays."""
@@ -244,8 +264,10 @@ def train_rlm_on_domain(model: RLMv2, facts: List[Tuple[str, str, str]],
             input_ids, target_ids = encode_fact(tokenizer, input_text, target_text)
             err = model.learn(input_ids, target_ids)
             errors.append(err)
-            acc = err.get("accuracy", 0.0)
-            acc_history.append(acc)
+            
+            if buffer_for_replay:
+                model.buffer_experience(input_ids, target_ids)
+                
             losses.append(err.get("loss", 0.0))
             if err.get("is_correct", False):
                 correct += 1
@@ -259,7 +281,7 @@ def train_rlm_on_domain(model: RLMv2, facts: List[Tuple[str, str, str]],
 
 
 def evaluate_rlm(model: RLMv2, facts: List[Tuple[str, str, str]],
-                  tokenizer, temperature: float = 1.0) -> Dict[str, Any]:
+                  tokenizer) -> Dict[str, Any]:
     """Evaluate RLMv2 on a set of facts."""
     correct_top1 = 0
     correct_top10 = 0
@@ -460,7 +482,8 @@ def add_abstract_bridge(model: RLMv2, label: str, source_token: str, target_toke
     if bridge_vec_norm > 0:
         bridge_vec /= bridge_vec_norm
         
-    bridge_cid = model.graph.add_node(bridge_vec, label=label)
+    bridge_node = model.graph.add_node(bridge_vec, label=label)
+    bridge_cid = bridge_node.id  # CRITICAL FIX: retrieved node ID instead of using the node object directly
     
     # Create the analogical bridge links: src -> bridge -> tgt
     model.graph.add_edge(src_cid, bridge_cid, weight=weight, relation_type="semantic")
@@ -535,8 +558,9 @@ def run_cross_domain_experiment(config: CrossDomainConfig) -> Dict[str, Any]:
         concept_dim=config.concept_dim,
         n_concepts=vocab_size,
         sleep_interval=config.sleep_interval,
+        gate_concept_creation=False,
     )
-    model._tokenizer = tokenizer
+    model._tokenizer = tokenizer  # triggers embed init + autoencoder pre-training
 
     # ── Phase 0: Baseline (before any training) ──
     print("\n[Phase 0] Pre-training baseline...")
@@ -547,14 +571,16 @@ def run_cross_domain_experiment(config: CrossDomainConfig) -> Dict[str, Any]:
 
     # ── Phase 1: Train on Domain A ──
     print("\n[Phase 1] Training on Domain A (Science)...")
+    model.set_domain(0)  # Domain A = head 0
     t0 = time.time()
     acc_a, errors_a = train_rlm_on_domain(
         model, domain_a["train"], tokenizer,
         n_repeats=config.n_train_repeats,
-        domain_tag="science", buffer_for_replay=False,
+        domain_tag="science", buffer_for_replay=True,
     )
     phase1_time = time.time() - t0
 
+    model.set_domain(None)  # Soft routing for evaluation
     post_a_on_a = evaluate_rlm(model, domain_a["test"], tokenizer)
     post_a_on_b = evaluate_rlm(model, domain_b["test"], tokenizer)
     graph_after_a = measure_graph_overlap(model)
@@ -582,16 +608,19 @@ def run_cross_domain_experiment(config: CrossDomainConfig) -> Dict[str, Any]:
         print(f"    [{status}] '{probe['input'].strip()}' -> expected '{probe['expected']}'"
               f"  got '{probe['predicted']}'  ({probe['description']})")
 
-    # ── Phase 2: Train on Domain B ──
+    # ── Phase 2: Train on Domain B (freeze Domain A head) ──
     print("\n[Phase 2] Training on Domain B (Social)...")
+    model.freeze_domain(0)  # Preserve Domain A knowledge
+    model.set_domain(1)     # Domain B = head 1
     t0 = time.time()
     acc_b, errors_b = train_rlm_on_domain(
         model, domain_b["train"], tokenizer,
         n_repeats=config.n_train_repeats,
-        domain_tag="social", buffer_for_replay=False,
+        domain_tag="social", buffer_for_replay=True,
     )
     phase2_time = time.time() - t0
 
+    model.set_domain(None)  # Soft routing for evaluation
     post_b_on_a = evaluate_rlm(model, domain_a["test"], tokenizer)
     post_b_on_b = evaluate_rlm(model, domain_b["test"], tokenizer)
     graph_after_b = measure_graph_overlap(model)
@@ -707,7 +736,7 @@ if __name__ == "__main__":
     parser.add_argument("--n-repeats", type=int, default=3, help="Training repeats per fact")
     parser.add_argument("--skip-baselines", action="store_true", help="Skip baseline evaluation")
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--output", type=str, default="experiment_results/cross_domain_v2.json")
+    parser.add_argument("--output", type=str, default="experiments/experiment_results/cross_domain.json")
     args = parser.parse_args()
 
     config = CrossDomainConfig(
@@ -721,7 +750,8 @@ if __name__ == "__main__":
     # Save results
     out_path = args.output
     if not os.path.isabs(out_path):
-        out_path = os.path.join(_PROJECT_ROOT, out_path)
+        # Resolve relative to project root
+        out_path = os.path.join(str(Path(__file__).parent.parent), out_path)
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
     def convert(obj):
