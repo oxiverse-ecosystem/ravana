@@ -69,10 +69,7 @@ def _build_glove_embedding_matrix(tokenizer, target_dim=64, glove_dim=100, max_w
         return None
     
     # Load GloVe vectors into dict
-    # Check for cached projected matrix
-    cache_path = Path('data') / 'glove' / f'projected_{vocab_size}_{target_dim}.npy'
-    if cache_path.exists():
-        return np.load(str(cache_path))
+
     
     word_vecs = {}
     with open(str(glove_path), 'r', encoding='utf-8') as f:
@@ -92,6 +89,13 @@ def _build_glove_embedding_matrix(tokenizer, target_dim=64, glove_dim=100, max_w
     full_q, _ = np.linalg.qr(rng.randn(max_d, max_d).astype(np.float32))
     proj = full_q[:target_dim, :glove_dim].copy()
     proj *= np.sqrt(float(glove_dim) / float(target_dim))
+    
+    vocab_size = tokenizer.vocab_size
+    
+    # Check for cached projected matrix
+    cache_path = Path('data') / 'glove' / f'projected_{vocab_size}_{target_dim}.npy'
+    if cache_path.exists():
+        return np.load(str(cache_path))
     
     # Build token->id mapping
     word_to_id = {}
@@ -536,6 +540,7 @@ class RLMv2(Module):
         self._verb_offset_count: Dict[str, int] = {}             # verb_stem -> count
         self._verb_accum_buffer: List[Tuple[str, np.ndarray]] = []  # (verb_stem, offset_vec) pairs
         self.use_verb_offset = False                              # enabled by experiment
+        self._verb_offset_used_this_forward = False               # flag for conditional OOD weight
 
         # Track cross-domain edges injected analogically (subject_cid, object_cid).
         self._cross_domain_edges_injected: Set[Tuple[int, int]] = set()
@@ -1358,11 +1363,11 @@ class RLMv2(Module):
             normed_tok = token_embeds.copy()
             normed_tok[valid_tok] /= token_norms[valid_tok, np.newaxis]
             logits = (predicted / pred_norm) @ normed_tok.T  # cosine similarities
-            # Suppress subject token (self-prediction) - strong negation
+            # Scale up to make softmax meaningful FIRST
+            logits *= 10.0
+            # Suppress subject token (self-prediction) AFTER scaling
             if 0 <= subject_tid < len(logits):
                 logits[subject_tid] = np.min(logits) - 10.0
-            # Scale up to make softmax meaningful
-            logits *= 10.0
             return logits
         return None
 
@@ -1388,6 +1393,9 @@ class RLMv2(Module):
             if verb_logits is not None:
                 self._rp_cache = None  # prevent stale cache from corrupting W_rel
                 return verb_logits
+
+        # ── Verb offset was not used — clear flag
+        self._verb_offset_used_this_forward = False
 
         # ── Bilinear W_rel Path (fallback) ──
         # Use raw token embeddings directly (bypass collapsed encoder)
@@ -1689,6 +1697,7 @@ class RLMv2(Module):
         if self.use_rp_for_analogy:
             # Run the learned relation predictor
             # Pass verb_word for verb-offset path (when use_verb_offset is True)
+            self._verb_offset_used_this_forward = True  # will be cleared if offset fails
             rp_logits = self._rp_forward(subject_tid, rel_type_idx, verb_word=query_verb_word)
             exp_logits = np.exp(rp_logits - np.max(rp_logits))
             probs = exp_logits / (np.sum(exp_logits) + 1e-10)
@@ -1913,7 +1922,9 @@ class RLMv2(Module):
                 normed_tok = token_embeds.copy()
                 normed_tok[valid_tok] /= token_norms[valid_tok, np.newaxis]
                 ood_sims = ood_unit @ normed_tok.T
-                sim_weight = 5.0 if disable_spreading else 3.0
+                # Lower OOD weight when verb offset is active (less reliance on raw similarity)
+                use_vo = getattr(self, '_verb_offset_used_this_forward', False)
+                sim_weight = 3.0 if use_vo else (5.0 if disable_spreading else 3.0)
                 concept_scores += ood_sims * sim_weight
 
 
