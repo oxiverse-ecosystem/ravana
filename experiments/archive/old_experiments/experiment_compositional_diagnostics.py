@@ -266,7 +266,7 @@ def hybrid_predict_gated(
     query: str,
     k_neighbors: int = 3,
     max_depth: int = 3,
-    gate_mode: str = "standard"  # "standard", "strict_margin", "relative_threshold"
+    gate_mode: str = "standard"  # "standard", "strict_margin", "relative_threshold", "weighted", "margin_multi"
 ) -> list[tuple[str, float]]:
     """Hybrid traversal with different vector seeding gating strategies."""
     parts = query.split()
@@ -319,13 +319,44 @@ def hybrid_predict_gated(
             threshold = 0.85 * best_sim
             seeds = [n for n in scored_neighbors if n[1] >= threshold][:k_neighbors]
             
+        elif gate_mode == "weighted":
+            # Seed top-5 neighbors to allow alternative path exploration
+            seeds = scored_neighbors[:5]
+            
+        elif gate_mode == "margin_multi":
+            # Confidence-aware gating using similarity margins:
+            # If margin to runner-up is large, we have a clear winner (seed only top-1).
+            # Otherwise, seed top-5 because of high ambiguity.
+            if len(scored_neighbors) > 1:
+                margin = best_sim - scored_neighbors[1][1]
+            else:
+                margin = best_sim
+                
+            if margin >= 0.15 and best_sim >= 0.50:
+                seeds = [scored_neighbors[0]]
+            else:
+                seeds = scored_neighbors[:5]
+            
         else:  # "standard" top-k
             seeds = scored_neighbors[:k_neighbors]
             
     # 3. Traversal BFS
     activations = {}
-    for cid, sim, _ in seeds:
-        activations[cid] = sim
+    if gate_mode in ("weighted", "margin_multi"):
+        # Apply softmax weighting over similarities (with temperature = 0.15)
+        if seeds:
+            sims = np.array([n[1] for n in seeds])
+            temp = 0.15
+            # Shift similarities for numerical stability
+            exp_sims = np.exp((sims - np.max(sims)) / temp)
+            weights = exp_sims / np.sum(exp_sims)
+            for (cid, _, _), w in zip(seeds, weights):
+                activations[cid] = float(w)
+        else:
+            pass
+    else:
+        for cid, sim, _ in seeds:
+            activations[cid] = sim
         
     frontier = [cid for cid, _, _ in seeds]
     for depth in range(1, max_depth + 1):
@@ -412,7 +443,7 @@ def main():
     print("\n" + "-" * 80)
     print("STUDY 1: ABLATION OF PATHWAY COMPONENTS (Rank / Score of Target)")
     print("-" * 80)
-    print(f"{'Test Case':<22s} | {'Graph-Only':<12s} | {'Encoder-Only':<12s} | {'Hybrid (Std)':<12s} | {'Hybrid (Gated)':<12s}")
+    print(f"{'Test Case':<22s} | {'Graph-Only':<12s} | {'Encoder-Only':<12s} | {'Hybrid (Std)':<12s} | {'Hybrid (Gated)':<12s} | {'Hybrid (Wtd)':<12s} | {'Hybrid (Margin)':<12s}")
     print("-" * 80)
     
     for tc in TEST_CASES:
@@ -443,7 +474,19 @@ def main():
         hg_score = next((x[1] for x in hg if x[0] == expected), 0.0)
         hg_str = f"R{hg_rank} ({hg_score:.3f})" if hg_rank != "N/A" else "N/A"
         
-        print(f"{tc['category']:<22s} | {go_str:<12s} | {eo_str:<12s} | {hs_str:<12s} | {hg_str:<12s}")
+        # 5. Hybrid Softmax-Weighted (top-5 weighted seeds)
+        hw = hybrid_predict_gated(model, tok, q, gate_mode="weighted")
+        hw_rank = next((i+1 for i, x in enumerate(hw) if x[0] == expected), "N/A")
+        hw_score = next((x[1] for x in hw if x[0] == expected), 0.0)
+        hw_str = f"R{hw_rank} ({hw_score:.3f})" if hw_rank != "N/A" else "N/A"
+        
+        # 6. Hybrid Margin-Gated Multi-Seed
+        hm = hybrid_predict_gated(model, tok, q, gate_mode="margin_multi")
+        hm_rank = next((i+1 for i, x in enumerate(hm) if x[0] == expected), "N/A")
+        hm_score = next((x[1] for x in hm if x[0] == expected), 0.0)
+        hm_str = f"R{hm_rank} ({hm_score:.3f})" if hm_rank != "N/A" else "N/A"
+        
+        print(f"{tc['category']:<22s} | {go_str:<12s} | {eo_str:<12s} | {hs_str:<12s} | {hg_str:<12s} | {hw_str:<12s} | {hm_str:<12s}")
         
     # ======================================================================
     # STUDY 2: HOP LIMIT SWEEP ON HYBRID
@@ -503,18 +546,41 @@ def main():
         best_neighbor = sims[0][0]
         correct_seed = analogs[1]
         
+        # Check direct similarity to correct seed
+        correct_seed_sim = cosine(lat_q, proto(model, tok, correct_seed))
+        print(f"  3. Direct Query-to-Expected-Seed Encoder Similarity: {correct_seed_sim:.4f}")
+        
         if best_neighbor != correct_seed:
-            print("  3. FAILURE CLASS: SEMANTIC AMBIGUITY (Wrong Seed)")
+            print("  4. FAILURE CLASS: SEMANTIC AMBIGUITY (Wrong Seed)")
             print(f"     - Reason: The encoder mapped query '{analogs[0]}' closest to '{best_neighbor}' instead of expected '{correct_seed}'.")
+            
+            # Check if multi-seed weighted or margin_multi resolves it
+            hw_res = hybrid_predict_gated(model, tok, q, gate_mode="weighted")
+            hw_reached = any(x[0] == expected for x in hw_res)
+            hm_res = hybrid_predict_gated(model, tok, q, gate_mode="margin_multi")
+            hm_reached = any(x[0] == expected for x in hm_res)
+            
+            if hw_reached or hm_reached:
+                print("     - RESOLUTION:")
+                if hw_reached:
+                    hw_rank = next((i+1 for i, x in enumerate(hw_res) if x[0] == expected))
+                    hw_score = next((x[1] for x in hw_res if x[0] == expected))
+                    print(f"       * Multi-Seed Weighted RESOLVED this failure! Target reached at Rank {hw_rank} (score={hw_score:.3f}).")
+                if hm_reached:
+                    hm_rank = next((i+1 for i, x in enumerate(hm_res) if x[0] == expected))
+                    hm_score = next((x[1] for x in hm_res if x[0] == expected))
+                    print(f"       * Margin-Gated Multi-Seed RESOLVED this failure! Target reached at Rank {hm_rank} (score={hm_score:.3f}).")
+            else:
+                print("       * Neither Multi-Seed nor Margin-Gated Multi-Seed resolved this failure (correct seed not in top-5).")
         else:
             # Seed is correct, check graph traversal results at different hops
             go_res = graph_only_predict(model, tok, f"{correct_seed} causes", max_depth=3)
             reached = any(x[0] == expected for x in go_res)
             if not reached:
-                print("  3. FAILURE CLASS: GRAPH BREAK (Disconnected Topology)")
+                print("  4. FAILURE CLASS: GRAPH BREAK (Disconnected Topology)")
                 print(f"     - Reason: Even from correct seed '{correct_seed}', the expected target '{expected}' was unreachable in the graph.")
             else:
-                print("  3. DIAGNOSIS: CORRECT COMPOSITION PATHWAY")
+                print("  4. DIAGNOSIS: CORRECT COMPOSITION PATHWAY")
                 print(f"     - Path: {analogs[0]} -> {correct_seed} (seeding) -> {' -> '.join(chain[1:])} (traversal)")
                 
                 # Check for graph drift (did performance drop at depth 4?)

@@ -1,24 +1,24 @@
 """
-RLM v2 - Triple-Based Cognitive Architecture
+RLM v2 — Triple-Based Cognitive Architecture
 
 Brain-inspired semantic memory that decomposes input into (subject, relation_type, object)
 triples and uses spreading activation over a concept graph for inference.
 
 Key differences from v1 (rlm.py):
-- No character-level GRU - triple decomposition replaces sequential processing
-- No 5-path logit blend - spreading activation is the sole inference mechanism
-- Learned relation type embeddings - not keyword-based classification
-- Hebbian learning on (subject @ relation_type) -> object associations
+- No character-level GRU — triple decomposition replaces sequential processing
+- No 5-path logit blend — spreading activation is the sole inference mechanism
+- Learned relation type embeddings — not keyword-based classification
+- Hebbian learning on (subject ⊗ relation_type) → object associations
 - Sleep cycles consolidate triple associations and prune weak edges
 
 Architecture:
     input "heat causes expansion"
-        -> decompose: (subject="heat", relation="causes", object="expansion")
-        -> classify relation: "causes" -> CAUSAL type embedding
-        -> find subject concept node in graph
-        -> spread activation from subject, filtered by relation type
-        -> score activated nodes against all token embeddings
-        -> return logits over vocab
+        → decompose: (subject="heat", relation="causes", object="expansion")
+        → classify relation: "causes" → CAUSAL type embedding
+        → find subject concept node in graph
+        → spread activation from subject, filtered by relation type
+        → score activated nodes against all token embeddings
+        → return logits over vocab
 
     Learning: Hebbian edge strengthening + relation vector updates
     Sleep: consolidate triples, prune weak edges, replay important triples
@@ -45,107 +45,6 @@ from ..currency import create_rlm_currency
 import zipfile
 import json
 
-# ── GloVe Embedding Loader ──────────────────────────────────────────────
-
-def _build_glove_embedding_matrix(tokenizer, target_dim=64, glove_dim=100, max_words=200000):
-    """Build embedding matrix from pre-trained GloVe vectors.
-    
-    Downloads glove.6B.100d.txt (cached in data/glove/) on first call.
-    Projects 100D -> target_dim using a random orthogonal projection.
-    Returns (vocab_size, target_dim) float32 matrix or None if unavailable.
-    """
-    import numpy as np
-    import os
-    from pathlib import Path
-    
-    glove_path = Path('data') / 'glove' / 'glove.6B.100d.txt'
-    
-    # Fallback to 50D if 100D not available
-    if not glove_path.exists():
-        glove_path = Path('data') / 'glove' / 'glove.6B.50d.txt'
-        glove_dim = 50
-    
-    if not glove_path.exists():
-        return None
-    
-    # Load GloVe vectors into dict
-    word_vecs = {}
-    with open(str(glove_path), 'r', encoding='utf-8') as f:
-        for i, line in enumerate(f):
-            if i >= max_words:
-                break
-            parts = line.strip().split()
-            if len(parts) != glove_dim + 1:
-                continue
-            word = parts[0]
-            vec = np.array([float(x) for x in parts[1:]], dtype=np.float32)
-            word_vecs[word] = vec
-    
-    # Build projection matrix glove_dim -> target_dim (random orthogonal)
-    rng = np.random.RandomState(42)
-    max_d = max(glove_dim, target_dim)
-    full_q, _ = np.linalg.qr(rng.randn(max_d, max_d).astype(np.float32))
-    proj = full_q[:target_dim, :glove_dim].copy()
-    proj *= np.sqrt(float(glove_dim) / float(target_dim))
-    
-    # Build token->id mapping
-    word_to_id = {}
-    if hasattr(tokenizer, 'word_to_id') and tokenizer.word_to_id:
-        word_to_id = tokenizer.word_to_id
-    else:
-        for tid in range(tokenizer.vocab_size):
-            try:
-                w = tokenizer.decode([tid]).strip().lower()
-                if w:
-                    word_to_id[w] = tid
-            except Exception:
-                pass
-    
-    vocab_size = tokenizer.vocab_size
-    
-    # Check for cached projected matrix
-    cache_path = Path('data') / 'glove' / f'projected_{vocab_size}_{target_dim}.npy'
-    if cache_path.exists():
-        return np.load(str(cache_path))
-    
-    matrix = np.zeros((vocab_size, target_dim), dtype=np.float32)
-    found = 0
-    total = 0
-    
-    for word, tid in word_to_id.items():
-        if not isinstance(word, str) or not word:
-            continue
-        total += 1
-        w = word.lower().strip()
-        
-        vec = word_vecs.get(w)
-        if vec is None and len(w) > 1:
-            # Try stripping plural/tense markers
-            vec = word_vecs.get(w.rstrip('s'))
-        if vec is None and len(w) > 2:
-            vec = word_vecs.get(w[:-1])
-        
-        if vec is not None:
-            matrix[tid] = proj @ vec
-            norm = np.linalg.norm(matrix[tid])
-            if norm > 0:
-                matrix[tid] *= 2.0 / norm  # normalize to radius ~2.0
-            found += 1
-    
-    # Fill missing with random
-    if found < total:
-        rng2 = np.random.RandomState(42)
-        for word, tid in word_to_id.items():
-            if not isinstance(word, str):
-                continue
-            if np.all(matrix[tid] == 0):
-                matrix[tid] = rng2.randn(target_dim).astype(np.float32) * 0.3
-    
-    # Cache the projected matrix
-    cache_path = Path('data') / 'glove' / f'projected_{vocab_size}_{target_dim}.npy'
-    np.save(str(cache_path), matrix)
-    return matrix
-
 
 # ─── Relation Type Definitions ───────────────────────────────────────────────
 
@@ -158,7 +57,7 @@ RELATION_TYPES = [
     "contextual",   # in, at, on, with, under, over
 ]
 
-# Keyword -> relation type mapping for initial classification
+# Keyword → relation type mapping for initial classification
 _KEYWORD_MAP = {
     "causal": [
         "causes", "cause", "produces", "produce", "leads", "results",
@@ -234,8 +133,8 @@ class RLMv2(Module):
                  sleep_interval: int = 100,
                  gate_concept_creation: bool = True,
                  anchor_relation_vectors: bool = True,
-                 latent_dim: int = 96,
-                 hidden_dim: int = 128,
+                 latent_dim: int = 32,
+                 hidden_dim: int = 48,
                  **kwargs):
         super().__init__()
         self.vocab_size = vocab_size
@@ -262,7 +161,7 @@ class RLMv2(Module):
         # Learned embeddings for each relation type
         n_rel_types = len(RELATION_TYPES)
         self.relation_type_embed = Embedding(n_rel_types, concept_dim)
-        # Classifier: concept_dim -> n_rel_types
+        # Classifier: concept_dim → n_rel_types
         self.relation_classifier = Linear(concept_dim, n_rel_types, bias=True)
 
         # ── Concept Graph ──
@@ -295,9 +194,10 @@ class RLMv2(Module):
 
         # ── Concept creation gating ──
         self._concept_similarity_threshold = 0.7 if gate_concept_creation else 0.0
-        # 2x headroom + guarantee every vocab token gets its own concept:
-        # vocab_size + 50 ensures enough slots for all token concepts + intermediates
-        self._max_concepts = max(n_concepts * 2, vocab_size + 50, 150)
+        # 2x headroom: tokenizer discovers words lazily during training, so the
+        # first N tokens fill the graph to capacity and later tokens get bound
+        # to the nearest existing concept (many-to-one contamination).
+        self._max_concepts = max(n_concepts * 2, vocab_size, 100)
 
         # ── Relation type classifier learning rate ──
         self._classifier_lr = 0.01
@@ -307,19 +207,18 @@ class RLMv2(Module):
         self._episodic_triples: List[Tuple[int, int, int, float]] = []
         self._max_episodic = 500
 
-        # ── Initialize structured concepts (DISABLED - 1-to-1 mapping) ──
+        # ── Initialize structured concepts (DISABLED — 1-to-1 mapping) ──
         # self._init_structured_concepts()
 
         # ── Performance tracking ──
         self._train_correct = 0
         self._train_total = 0
-        self._seen_predicates = set()
         self._last_loss = 0.0
 
         # ── Forward pass caches (invalidated when graph changes) ──
         self._node_matrix_cache = None   # (node_ids, matrix, norms)
         self._node_matrix_version = -1   # graph version counter
-        self._rel_vector_cache = {}      # rel_type_name -> avg relation vector
+        self._rel_vector_cache = {}      # rel_type_name → avg relation vector
         self._rel_vector_version = -1
 
         # ── Learned Relation Predictor MLP (For compatibility/backup) ──
@@ -335,7 +234,7 @@ class RLMv2(Module):
         self._rp_mW2 = np.zeros_like(self._rp_W2)
         self._rp_mb2 = np.zeros_like(self._rp_b2)
         self._rp_lr = 0.01
-        self._rp_encoder_lr = 0.005  # encoder fine-tuning LR during RP training
+        self._rp_encoder_lr = 0.0001  # Separate, much lower LR for encoder updates during RP training
         self._rp_momentum = 0.9
         self._rp_cache = None
         self.use_rp_for_analogy = True
@@ -344,13 +243,12 @@ class RLMv2(Module):
         self.latent_dim = latent_dim
         self.hidden_dim = hidden_dim
         
-        # Encoder weights (orthogonal init for stable gradients)
-        rng_enc = np.random.RandomState(42)
-        max_dim = max(self.hidden_dim, self.latent_dim, embed_dim)
-        full_q, _ = np.linalg.qr(rng_enc.randn(max_dim, max_dim).astype(np.float32))
-        self._enc_W1 = (full_q[:self.hidden_dim, :embed_dim].copy() * np.sqrt(2.0 / embed_dim)).astype(np.float32)
+        # Encoder weights
+        scale_enc1 = np.sqrt(2.0 / embed_dim)
+        scale_enc2 = np.sqrt(2.0 / self.hidden_dim)
+        self._enc_W1 = np.random.randn(self.hidden_dim, embed_dim).astype(np.float32) * scale_enc1
         self._enc_b1 = np.zeros(self.hidden_dim, dtype=np.float32)
-        self._enc_W2 = (full_q[:self.latent_dim, :self.hidden_dim].copy() * np.sqrt(2.0 / self.hidden_dim)).astype(np.float32)
+        self._enc_W2 = np.random.randn(self.latent_dim, self.hidden_dim).astype(np.float32) * scale_enc2
         self._enc_b2 = np.zeros(self.latent_dim, dtype=np.float32)
         
         self._enc_mW1 = np.zeros_like(self._enc_W1)
@@ -368,88 +266,10 @@ class RLMv2(Module):
         
         # Relation matrices (one for each relation type in RELATION_TYPES)
         n_rel_types = len(RELATION_TYPES)
-        # Identity init: source_embed @ I @ target_embed = dot product (cosine-like)
-        # Gradients learn deviations from identity, enabling shared relation-specific transformations
-        self._rp_rel_matrices = np.tile(np.eye(self.latent_dim, dtype=np.float32), (n_rel_types, 1, 1))
+        self._rp_rel_matrices = np.random.randn(n_rel_types, self.latent_dim, self.latent_dim).astype(np.float32) * np.sqrt(2.0 / self.latent_dim)
         self._rp_mrel_matrices = np.zeros_like(self._rp_rel_matrices)
-        self.freeze_encoder = False
-        # Bilinear form: logits = source_latent @ W_rel @ token_embeds.T
-        # Gradient dW_rel = outer(source_latent, d_logits @ token_embeds) is
-        # naturally O(vocab_size) larger than old linear form. Use rp_scale=0.1
-        # to compensate, plus gradient clipping (norm=10) in _rp_backward.
-        self.rp_scale = 1.0
-
-        # ── Direct Latent -> Domain Logits (bypasses bottleneck) ──
-        self.use_sparse_concept_predictor = False
-        self.bottleneck_dim = 128  # kept for backward compat loading only
-        self.num_domains = 2
-        self.current_domain_id = None
-        self.spreading_confidence_threshold = 0.35
-
-        # Domain-Specific Heads (direct from source_latent, no bottleneck)
-        self.domain_W_logits = []
-        self.domain_b_logits = []
-
-        for d in range(self.num_domains):
-            W_logits = np.random.normal(0, 0.1, (self.vocab_size, self.embed_dim)).astype(np.float32)
-            self.domain_W_logits.append(W_logits)
-            self.domain_b_logits.append(np.zeros(self.vocab_size, dtype=np.float32))
-
-        # Domain isolation: track which domains are frozen
-        self._frozen_domains: Set[int] = set()
-
-        # Momentum buffers
-        self.domain_W_logits_m = [np.zeros_like(w) for w in self.domain_W_logits]
-        self.domain_b_logits_m = [np.zeros_like(b) for b in self.domain_b_logits]
-
-        # ── Deprecated bottleneck params (kept as zeros for backward state loading) ──
-        n_rel_types = len(RELATION_TYPES)
-        self.rel_encoder = np.zeros((n_rel_types, self.bottleneck_dim, self.latent_dim), dtype=np.float32)
-        self.rel_bias = np.zeros((n_rel_types, self.bottleneck_dim), dtype=np.float32)
-        self.rel_encoder_m = np.zeros_like(self.rel_encoder)
-        self.rel_bias_m = np.zeros_like(self.rel_bias)
-        self.domain_W_gates = [np.zeros((self.vocab_size, self.bottleneck_dim), dtype=np.float32) for _ in range(self.num_domains)]
-        self.domain_b_gates = [np.zeros(self.vocab_size, dtype=np.float32) for _ in range(self.num_domains)]
-        self.domain_W_gates_m = [np.zeros_like(w) for w in self.domain_W_gates]
-        self.domain_b_gates_m = [np.zeros_like(b) for b in self.domain_b_gates]
-        self.router_W = np.zeros((self.num_domains, self.bottleneck_dim), dtype=np.float32)
-        self.router_b = np.zeros(self.num_domains, dtype=np.float32)
-        self.router_W_m = np.zeros_like(self.router_W)
-        self.router_b_m = np.zeros_like(self.router_b)
-
-        # Deterministic Subword (char-level CNN) weights
-        rng_char = np.random.RandomState(42)
-        self.char_embed = rng_char.randn(128, 64).astype(np.float32) * 0.1
-        self.char_cnn_W = rng_char.randn(128, 3, 64).astype(np.float32) * np.sqrt(2.0 / (3 * 64))
-        self.char_cnn_b = np.zeros(128, dtype=np.float32)
-        self.char_to_token_W = rng_char.randn(embed_dim, 128).astype(np.float32) * np.sqrt(2.0 / 128)
-        self.char_to_token_b = np.zeros(embed_dim, dtype=np.float32)
-        self.fusion_W = rng_char.randn(embed_dim, embed_dim * 2).astype(np.float32) * np.sqrt(2.0 / (embed_dim * 2))
-        self.fusion_b = np.zeros(embed_dim, dtype=np.float32)
-
-        # Pre-defined OOD anchor concepts mapping
-        self.anchor_concepts = {
-            "gravity": ["force", "mass", "field", "weight"],
-            "orbits": ["circular", "path", "motion", "celestial"],
-            "kindness": ["sharing", "empathy", "generosity", "friendship"],
-            "anger": ["conflict", "jealousy", "rudeness", "resentment"],
-            "sharing": ["friendship", "generosity", "kindness"],
-            "lying": ["betrayal", "gossip", "mistrust"],
-            "patience": ["understanding", "harmony", "peaceful"],
-            "honesty": ["trust", "respect", "noble"],
-            "empathy": ["connection", "compassion", "understanding"],
-            "greed": ["loneliness", "harmful", "dangerous"],
-            "jealousy": ["resentment", "conflict", "sadness"],
-            "generosity": ["gratitude", "valuable", "important"],
-            "rudeness": ["offense", "harmful", "tension"],
-            "gossip": ["mistrust", "lying", "betrayal"],
-            "collaboration": ["teamwork", "success", "innovation"],
-            "grief": ["empathy", "sadness", "natural"],
-            "curiosity": ["discovery", "exploration", "valuable"],
-            "apology": ["harmony", "restorative", "forgiveness"],
-            "compassion": ["suffering", "peaceful", "helpfulness"],
-            "leadership": ["action", "excellence", "admirable"]
-        }
+        self.freeze_encoder = True
+        self.rp_scale = 16.0
         
         # ── Contrastive Regularization Attributes ──
         self.use_contrastive_reg = False
@@ -471,11 +291,8 @@ class RLMv2(Module):
         self.use_subspace_projection = False
         self.lambda_recon = 0.0
         self.rel_proj = np.eye(self.latent_dim, dtype=np.float32)
-        
-        # Ablation: disable spreading activation to isolate analogy path
-        self.disable_spreading_activation = False
 
-        # ── Cognitive State - unified via CognitiveCurrencies ──
+        # ── Cognitive State — unified via CognitiveCurrencies ──
         self.currencies = CognitiveCurrencies()
 
         # Native Memory (lightweight episodic buffer + semantic consolidation)
@@ -517,56 +334,6 @@ class RLMv2(Module):
         self._replay_buffer_max: int = 500
         self._replay_n_samples: int = 20
         self._domain_memories: Dict[str, List[Tuple[np.ndarray, np.ndarray]]] = {}
-
-        # ── CROSS-DOMAIN GENERALIZATION FLAGS ──
-        # Freeze token embeddings during RP backward (prevents per-pair memorization).
-        # The autoencoder pre-train provides a stable semantic space; only W_rel learns.
-        self.freeze_token_embeds_in_rp = True
-        # Cross-domain alignment toggle (used by _cross_domain_relation_alignment).
-        self.use_cross_domain_alignment = False
-        # ── VERB-STEM OFFSET PREDICTOR ──
-        # Replaces bilinear W_rel @ subject for cross-domain held-out generalization.
-        # offset(verb) = avg(target_embed - subject_embed) over all training pairs
-        #   using that verb. Prediction at inference:
-        #     predicted_embed = subject_embed + offset(query_verb)
-        #     logits_k = predicted_embed @ token_embed_k  (cosine similarity)
-        # This naturally handles same-subject different-verb cases (causes vs freezes)
-        # because each verb has its own offset vector.
-        self._verb_offsets: Dict[str, np.ndarray] = {}          # verb_stem -> offset vector
-        self._verb_offset_count: Dict[str, int] = {}             # verb_stem -> count
-        self._verb_accum_buffer: List[Tuple[str, np.ndarray]] = []  # (verb_stem, offset_vec) pairs
-        self.use_verb_offset = False                              # enabled by experiment
-
-        # Track cross-domain edges injected analogically (subject_cid, object_cid).
-        self._cross_domain_edges_injected: Set[Tuple[int, int]] = set()
-
-
-    # ── Domain Isolation Methods ─────────────────────────────────────────
-
-    def set_domain(self, domain_id: Optional[int], freeze_others: bool = True):
-        """Set active domain and optionally freeze all other domain heads.
-        
-        When domain_id is None: all heads are trainable (soft routing).
-        When domain_id is set: only that head is active and trainable.
-        """
-        self.current_domain_id = domain_id
-        if domain_id is not None and freeze_others:
-            self._frozen_domains = {d for d in range(self.num_domains) if d != domain_id}
-        else:
-            self._frozen_domains = set()
-        # During forward/backward, only non-frozen domains are updated
-
-    def freeze_domain(self, domain_id: int):
-        """Freeze a specific domain head (prevents updates during training)."""
-        self._frozen_domains.add(domain_id)
-
-    def unfreeze_domain(self, domain_id: int):
-        """Unfreeze a domain head."""
-        self._frozen_domains.discard(domain_id)
-
-    def unfreeze_all_domains(self):
-        """Unfreeze all domain heads."""
-        self._frozen_domains.clear()
 
 
     def _init_structured_concepts(self):
@@ -828,7 +595,7 @@ class RLMv2(Module):
         return self.concept_to_embed(concept_vec.reshape(1, -1)).data.flatten()
 
     def _cached_norm(self, vec: np.ndarray, cache_key: str) -> float:
-        """Cached linalg.norm - avoids redundant computation within a forward pass."""
+        """Cached linalg.norm — avoids redundant computation within a forward pass."""
         val = self._norm_cache.get(cache_key)
         if val is None:
             val = float(np.linalg.norm(vec))
@@ -888,7 +655,7 @@ class RLMv2(Module):
         Uses keyword matching for initial classification, then learned embeddings
         for refinement. Returns index into RELATION_TYPES.
 
-        This is what makes "melts" -> CAUSAL work (same pathway as "causes").
+        This is what makes "melts" → CAUSAL work (same pathway as "causes").
         """
         if not relation_token_ids:
             return RELATION_TYPES.index("semantic")  # default
@@ -952,7 +719,7 @@ class RLMv2(Module):
         exp_sims = np.exp(sims / temp - np.max(sims / temp))
         probs = exp_sims / (np.sum(exp_sims) + 1e-10)
 
-        # Use keyword classifier directly - learned relation type embeddings
+        # Use keyword classifier directly — learned relation type embeddings
         # are never trained (learn() updates edge relation_vectors, not
         # relation_type_embed.weight). With 300x hard boost, keyword-only
         # is deterministic and avoids random noise corrupting relation types.
@@ -976,7 +743,7 @@ class RLMv2(Module):
     def _nearest_concept(self, embed_vec: np.ndarray) -> Tuple[int, float]:
         """Find the nearest concept node to an embedding vector.
 
-        Uses the subject projection to map embed_dim -> concept_dim,
+        Uses the subject projection to map embed_dim → concept_dim,
         then cosine similarity against all concept vectors.
 
         Returns (concept_id, similarity_score).
@@ -994,7 +761,7 @@ class RLMv2(Module):
         1-to-1 mapping: each token gets exactly one concept. No merging.
         This prevents unrelated concepts from being collapsed together.
         """
-        # Check binding map first - reuse existing concept for this token
+        # Check binding map first — reuse existing concept for this token
         bindings = self.binding_map.get_concepts(token_id, min_confidence=0.1)
         if bindings:
             cid = bindings[0].concept_id
@@ -1002,7 +769,7 @@ class RLMv2(Module):
             # (binding may be stale if node was pruned)
             if self.graph.get_node(cid) is not None:
                 return cid
-            # Stale binding - fall through to create a fresh concept
+            # Stale binding — fall through to create a fresh concept
 
         # Always create a new concept for this token (no merging)
         concept_vec = self._project_to_concept(embed_vec)
@@ -1010,11 +777,11 @@ class RLMv2(Module):
             node = self.graph.add_node(vector=concept_vec, label=self._decode_token(token_id))
             nid = node.id
         else:
-            # At capacity - find nearest existing concept to reuse
+            # At capacity — find nearest existing concept to reuse
             # (better than a phantom ID that doesn't exist in the graph)
             nid, sim = self._nearest_concept(embed_vec)
             if nid < 0:
-                # No concepts at all - force create
+                # No concepts at all — force create
                 node = self.graph.add_node(vector=concept_vec, label=self._decode_token(token_id))
                 nid = node.id
 
@@ -1036,33 +803,34 @@ class RLMv2(Module):
             self._pretrain_encoder_autoencoder(epochs=300, lr=0.01)
 
     def _initialize_token_embeddings_from_tokenizer(self):
-        """Initialize token embeddings using pre-trained GloVe vectors.
+        """Initialize token embeddings using LearnedEmbedder to capture character n-gram structure."""
+        from ..embedder import LearnedEmbedder
+        embedder = LearnedEmbedder(dim=self.embed_dim)
         
-        Uses glove.6B.100d.txt (cached in data/glove/) projected to embed_dim.
-        GloVe vectors capture genuine semantic relationships, making the
-        verb-stem offset predictor work:
-          offset("causes") = avg(expansion - heat, vision - light, ...)
-        Character n-gram embeddings (previously used) cannot capture this.
-        """
-        import numpy as np
         tokenizer = self._tokenizer_val
-        
-        matrix = _build_glove_embedding_matrix(
-            tokenizer, target_dim=self.embed_dim, glove_dim=100
-        )
-        
-        if matrix is not None:
-            n_found = np.count_nonzero(matrix.any(axis=1))
-            coverage = n_found / max(1, self.vocab_size)
-            print(f"  [Embeddings] GloVe 100D -> {self.embed_dim}D: {n_found}/{self.vocab_size} tokens ({coverage:.1%})")
-            self.token_embed.weight.data[:matrix.shape[0]] = matrix
+        # Determine vocabulary mapping
+        mapping = {}
+        if hasattr(tokenizer, 'word_to_id') and tokenizer.word_to_id:
+            mapping = tokenizer.word_to_id
+        elif hasattr(tokenizer, 'char_to_id') and tokenizer.char_to_id:
+            mapping = tokenizer.char_to_id
         else:
-            # Fallback: random orthogonal init
-            print(f"  [Embeddings] GloVe unavailable. Using random init.")
-            rng = np.random.RandomState(42)
-            max_dim = max(self.vocab_size, self.embed_dim)
-            full_q, _ = np.linalg.qr(rng.randn(max_dim, max_dim).astype(np.float32))
-            self.token_embed.weight.data[:] = full_q[:self.vocab_size, :self.embed_dim] * 0.1
+            # Fallback if no mapping is found: use decoded tokens
+            mapping = {self._decode_token(tid): tid for tid in range(self.vocab_size)}
+            
+        # Fit IDF if words are available
+        words = [w for w in mapping.keys() if isinstance(w, str)]
+        if hasattr(embedder, 'fit') and words:
+            try:
+                embedder.fit(words)
+            except Exception:
+                pass
+                
+        for key, tid in mapping.items():
+            if isinstance(tid, int) and 0 <= tid < self.vocab_size:
+                word_str = str(key)
+                vec = embedder.encode(word_str)
+                self.token_embed.weight.data[tid] = vec
                 
         # Clear/invalidate cached norms
         self._token_embed_norms = None
@@ -1163,255 +931,51 @@ class RLMv2(Module):
     def _encoder_backward(self, X, z1, h1, z2, h2, d_h2):
         """Compute encoder parameter gradients.
         X: (B, embed_dim)
-        z1, h1: (B, hidden_dim) pre/post activation of first layer
-        z2, h2: (B, latent_dim) pre/post activation of second layer
-        d_h2: (B, latent_dim) gradient w.r.t. h2
-        Returns (d_W1, d_b1, d_W2, d_b2).
+        z1, h1: (B, hidden_dim)
+        z2, h2: (B, latent_dim)
+        d_h2: (B, latent_dim)
         """
-        d_z2 = d_h2 * (1.0 - h2 * h2)
-        d_enc_W2 = d_z2.T @ h1
-        d_enc_b2 = np.sum(d_z2, axis=0)
-
-        d_h1 = d_z2 @ self._enc_W2
-        d_z1 = d_h1 * (1.0 - h1 * h1)
-        d_enc_W1 = d_z1.T @ X
-        d_enc_b1 = np.sum(d_z1, axis=0)
-
-        return d_enc_W1, d_enc_b1, d_enc_W2, d_enc_b2
-    def get_robust_embedding(self, tid):
-        """Get subword character-CNN augmented robust embedding for a token ID."""
-        token_emb = self.token_embed.weight.data[tid]
-        if not hasattr(self, "_tokenizer") or self._tokenizer is None:
-            return token_emb
-        word = ""
-        try:
-            word = self._tokenizer.decode([tid]).strip()
-        except Exception:
-            pass
-        if not word:
-            return token_emb
+        d_z2 = d_h2 * (1.0 - h2 * h2)                # (B, latent_dim)
+        d_W2 = d_z2.T @ h1                           # (latent_dim, hidden_dim)
+        d_b2 = np.sum(d_z2, axis=0)                  # (latent_dim,)
         
-        c_ids = [ord(c) for c in word if ord(c) < 128]
-        if not c_ids:
-            return token_emb
-            
-        char_emb = self.char_embed[c_ids] # (L, 64)
-        L = len(c_ids)
-        padded = np.zeros((L + 2, 64), dtype=np.float32)
-        padded[1:-1] = char_emb
+        d_h1 = d_z2 @ self._enc_W2                   # (B, hidden_dim)
+        d_z1 = d_h1 * (1.0 - h1 * h1)                # (B, hidden_dim)
+        d_W1 = d_z1.T @ X                            # (hidden_dim, embed_dim)
+        d_b1 = np.sum(d_z1, axis=0)                  # (hidden_dim,)
         
-        conv_out = np.zeros((L, 128), dtype=np.float32)
-        for i in range(L):
-            patch = padded[i:i+3] # (3, 64)
-            conv_out[i] = np.sum(patch[np.newaxis, :, :] * self.char_cnn_W, axis=(1, 2)) + self.char_cnn_b
-            
-        features = np.max(conv_out, axis=0) # (128,)
-        char_emb_final = self.char_to_token_W @ features + self.char_to_token_b # (embed_dim,)
-        
-        combined = np.concatenate([token_emb, char_emb_final]) # (embed_dim * 2,)
-        fused = self.fusion_W @ combined + self.fusion_b # (embed_dim,)
-        return fused
+        return d_W1, d_b1, d_W2, d_b2
 
-    def _get_anchor_regularized_latent(self, token_id, latent):
-        """Regularize latent representation towards expected semantic anchor neighborhoods."""
-        if not hasattr(self, "_tokenizer") or self._tokenizer is None or not hasattr(self, "anchor_concepts"):
-            return latent
-        try:
-            word = self._tokenizer.decode([token_id]).strip().lower()
-        except Exception:
-            return latent
-        if word not in self.anchor_concepts:
-            return latent
-            
-        anchors = self.anchor_concepts[word]
-        anchor_latents = []
-        for anchor_word in anchors:
-            aid = self._tokenizer.word_to_id.get(anchor_word)
-            if aid is not None:
-                a_embed = self.get_robust_embedding(aid)
-                a_lat, _, _, _ = self._encoder_forward_full(a_embed)
-                anchor_latents.append(a_lat)
-        if not anchor_latents:
-            return latent
-        mean_anchor_latent = np.mean(anchor_latents, axis=0)
-        lambda_anchor = getattr(self, "lambda_anchor", 0.3)
-        
-        norm_before = np.linalg.norm(latent)
-        reg_latent = (1.0 - lambda_anchor) * latent + lambda_anchor * mean_anchor_latent
-        norm_after = np.linalg.norm(reg_latent)
-        if norm_after > 0:
-            reg_latent = reg_latent * (norm_before / norm_after)
-        return reg_latent
-
-    def get_query_confidence(self, subject_cid, rel_type_name, rp_probs=None):
-        """Compute confidence score. Uses RP output entropy when available, falls back to edge-based."""
-        if rp_probs is not None:
-            max_prob = float(np.max(rp_probs))
-            if max_prob > 0.3:
-                return 1.0
-            entropy = -float(np.sum(rp_probs * np.log(rp_probs + 1e-15)))
-            max_entropy = float(np.log(len(rp_probs)))
-            norm_entropy = entropy / max_entropy if max_entropy > 0 else 1.0
-            confidence = 1.0 - norm_entropy
-            return min(1.0, max(0.0, confidence))
-        matching_edges = [edge for _, edge in self.graph.get_outgoing(subject_cid) if edge.relation_type == rel_type_name]
-        if not matching_edges:
-            return 0.0
-        return max(edge.weight * edge.confidence for edge in matching_edges)
-
-    # ── Verb-Stem Helper ───────────────────────────────────────────────────
-
-    @staticmethod
-    def _verb_stem(word: str) -> str:
-        """Extract verb stem by stripping common suffixes.
-        
-        'causes' -> 'caus', 'freezes' -> 'freez', 'produces' -> 'produc',
-        'makes' -> 'make', 'melts' -> 'melt', 'is' -> 'is'
-        Stemming preserves enough information to distinguish verbs that
-        map to the same relation type but have different semantics.
-        """
-        w = word.lower().strip()
-        # Handle short words (2+ chars for stem)
-        if len(w) <= 3:
-            return w
-        # Strip common suffixes
-        for suffix in ['ing', 'ed', 'es', 's', 'd']:
-            if w.endswith(suffix) and len(w) > len(suffix) + 1:
-                w = w[:-len(suffix)]
-                break
-        return w
-
-    def _accumulate_verb_offset(self, subject_tid: int, target_tid: int, verb_word: str):
-        """Accumulate offset = target_embed - subject_embed for a verb stem.
-        
-        Called during learn() for each training triple.
-        Offsets are finalized into _verb_offsets by _compute_verb_offsets().
-        """
-        if not verb_word or not self.use_verb_offset:
-            return
-        stem = self._verb_stem(verb_word)
-        subject_embed = self.token_embed.weight.data[subject_tid]
-        target_embed = self.token_embed.weight.data[target_tid]
-        offset = target_embed - subject_embed
-        self._verb_accum_buffer.append((stem, offset))
-
-    def _compute_verb_offsets(self):
-        """Finalize verb offsets by averaging accumulated (target - subject) vectors.
-        
-        Should be called after training is complete (before evaluation).
-        Unseen verbs at inference fall back to bilinear W_rel.
-        """
-        if not self.use_verb_offset:
-            return
-        # Group by verb stem
-        sums: Dict[str, np.ndarray] = {}
-        counts: Dict[str, int] = {}
-        for stem, offset in self._verb_accum_buffer:
-            if stem not in sums:
-                sums[stem] = np.zeros_like(offset)
-                counts[stem] = 0
-            sums[stem] += offset
-            counts[stem] += 1
-        # Compute averages
-        for stem, total in sums.items():
-            if counts[stem] > 0:
-                offset = total / counts[stem]
-                # Normalize to prevent embedding-space drift
-                norm = np.linalg.norm(offset)
-                if norm > 0:
-                    offset = offset / norm * min(norm, 5.0)  # cap magnitude at 5
-                self._verb_offsets[stem] = offset
-                self._verb_offset_count[stem] = counts[stem]
-        n_verbs = len(self._verb_offsets)
-        if n_verbs > 0:
-            print(f"  [Verb Offset] Computed {n_verbs} verb offsets from {len(self._verb_accum_buffer)} training pairs")
-            # Log some examples
-            for stem, cnt in sorted(self._verb_offset_count.items(), key=lambda x: -x[1])[:5]:
-                print(f"    '{stem}': {cnt} examples")
-
-    def _rp_forward_verb_offset(self, subject_tid: int, verb_word: str) -> Optional[np.ndarray]:
-        """Predict using verb-stem offset arithmetic.
-        
-        predicted_embed = subject_embed + offset(verb_stem)
-        logits_k = predicted_embed @ token_embed_k / (temperature)
-        
-        Returns logits over vocab, or None if verb is unknown.
-        """
-        if not verb_word or not self.use_verb_offset:
-            return None
-        stem = self._verb_stem(verb_word)
-        if stem not in self._verb_offsets:
-            return None
-        
-        source_embed = self.token_embed.weight.data[subject_tid]
-        offset = self._verb_offsets[stem]
-        predicted = source_embed + offset
-        
-        # Cosine similarity against all token embeddings
-        token_embeds = self.token_embed.weight.data  # (vocab_size, embed_dim)
-        token_norms = np.linalg.norm(token_embeds, axis=1)
-        pred_norm = np.linalg.norm(predicted)
-        
-        if pred_norm > 0 and np.any(token_norms > 0):
-            valid_tok = token_norms > 0
-            normed_tok = token_embeds.copy()
-            normed_tok[valid_tok] /= token_norms[valid_tok, np.newaxis]
-            logits = (predicted / pred_norm) @ normed_tok.T  # cosine similarities
-            # Suppress subject token (self-prediction) - strong negation
-            if 0 <= subject_tid < len(logits):
-                logits[subject_tid] = np.min(logits) - 10.0
-            # Scale up to make softmax meaningful
-            logits *= 10.0
-            return logits
-        return None
-
-    def _rp_forward(self, subject_tid, rel_type_idx, route_softly=None, verb_word=None):
-        """Bilinear RP forward using raw token embeddings (bypass collapsed encoder).
-
-        Uses source_embed directly (no encoder projection) and target_embeds
-        directly. The bilinear gradient trains token embeddings end-to-end,
-        just like standard KG completion (RESCAL).
-
-        logits_k = source_embed @ W_rel @ target_embed_k
-        """
+    def _rp_forward(self, subject_tid, rel_type_idx):
+        """Relation predictor forward pass using domain-agnostic latent space."""
         subject_tid = int(subject_tid)
         rel_type_idx = int(rel_type_idx)
 
-        # ── Verb-Stem Offset Path (primary) ──
-        # When use_verb_offset is True and the verb is known, use offset arithmetic
-        # instead of bilinear W_rel. This enables same-subject different-target
-        # predictions (e.g., "cold causes" -> shivering, "cold freezes" -> water).
-        # It also enables cross-domain transfer via shared verb semantics.
-        if verb_word:
-            verb_logits = self._rp_forward_verb_offset(subject_tid, verb_word)
-            if verb_logits is not None:
-                self._rp_cache = None  # prevent stale cache from corrupting W_rel
-                return verb_logits
-
-        # ── Bilinear W_rel Path (fallback) ──
-        # Use raw token embeddings directly (bypass collapsed encoder)
-        source_embed = self.get_robust_embedding(subject_tid)  # (embed_dim,)
-        token_embeds = self.token_embed.weight.data  # (vocab_size, embed_dim)
-
-        # Source latent = source embedding (preserves discriminative info)
-        source_latent = source_embed  # (embed_dim,) — must match latent_dim
-        target_latents = token_embeds  # (vocab_size, embed_dim) — must match latent_dim
-
-        # Relation matrix (shared across ALL subjects)
-        W_rel = self._rp_rel_matrices[rel_type_idx]  # (latent_dim, latent_dim)
-
-        # Bilinear scoring: logits = source_latent @ W_rel @ target_latents.T
-        projected = source_latent @ W_rel  # (latent_dim,)
-        logits = projected @ target_latents.T  # (vocab_size,)
-
+        # Get source and target embeddings
+        source_embed = self.token_embed.weight.data[subject_tid] # (embed_dim,)
+        target_embeds = self.token_embed.weight.data             # (vocab_size, embed_dim)
+        
+        # Pass through encoder
+        source_latent, src_z1, src_h1, src_z2 = self._encoder_forward_full(source_embed) # (latent_dim,)
+        target_latents, tgt_z1, tgt_h1, tgt_z2 = self._encoder_forward_full(target_embeds) # (vocab_size, latent_dim)
+        
+        # Get relation matrix
+        rel_matrix = self._rp_rel_matrices[rel_type_idx] # (latent_dim, latent_dim)
+        
+        # Compute bilinear product
+        proj_latent = source_latent @ rel_matrix
+        logits = (proj_latent @ target_latents.T) * getattr(self, "rp_scale", 16.0) # (vocab_size,)
+        
         # Cache for backprop
         self._rp_cache = (
             subject_tid, rel_type_idx,
-            source_embed, source_latent,
-            token_embeds, target_latents,
-            W_rel, logits
+            source_embed, target_embeds,
+            source_latent, src_z1, src_h1, src_z2,
+            target_latents, tgt_z1, tgt_h1, tgt_z2,
+            rel_matrix, logits
         )
         return logits
+
     def _compute_contrastive_gradients(self):
         """Compute contrastive loss gradients w.r.t. encoder parameters."""
         d_con_W1 = np.zeros_like(self._enc_W1)
@@ -1535,24 +1099,16 @@ class RLMv2(Module):
         return d_con_W1, d_con_b1, d_con_W2, d_con_b2, total_loss
 
     def _rp_backward(self, target_id, lr_scale=1.0):
-        """Bilinear RP backward with token embedding gradient flow.
-
-        Gradients flow through:
-        1. W_rel via dW_rel = outer(source_latent, d_logits @ target_latents)
-        2. Source embedding: d_source_embed = W_rel @ (d_logits @ target_latents)
-        3. Target embeddings: d_target_latents[k] = d_logits[k] * (W_rel @ source_latent)
-
-        This trains token embeddings end-to-end with the bilinear scoring,
-        just like standard KG completion (RESCAL).
-        """
+        """Relation predictor backward pass for domain-agnostic bilinear relation embedding."""
         if self._rp_cache is None:
             return
             
         (
             subject_tid, rel_type_idx,
-            source_embed, source_latent,
-            token_embeds, target_latents,
-            W_rel, logits
+            source_embed, target_embeds,
+            source_latent, src_z1, src_h1, src_z2,
+            target_latents, tgt_z1, tgt_h1, tgt_z2,
+            rel_matrix, logits
         ) = self._rp_cache
         
         # Softmax loss gradient
@@ -1562,71 +1118,98 @@ class RLMv2(Module):
         if 0 <= target_id < len(d_logits):
             d_logits[target_id] -= 1.0
         d_logits *= getattr(self, "rp_scale", 16.0)
-
-        # === Gradient w.r.t. W_rel ===
-        d_logits_proj = d_logits @ target_latents  # (latent_dim,)
-        dW_rel = np.outer(source_latent, d_logits_proj)  # (latent_dim, latent_dim)
-
-        # Gradient clipping (prevent NaN from bilinear amplification)
-        grad_norm = np.linalg.norm(dW_rel)
-        if grad_norm > 10.0:
-            dW_rel *= (10.0 / (grad_norm + 1e-15))
-
-        # === Gradients w.r.t. token embeddings ===
-        # dL/d(source_embed) = W_rel @ (d_logits @ target_latents)
-        d_source_latent = W_rel @ d_logits_proj  # (latent_dim,)
+            
+        # Let p = rel_matrix.T @ source_latent (shape (latent_dim,))
+        p = rel_matrix.T @ source_latent # (latent_dim,)
         
-        # dL/d(target_latents[k]) = d_logits[k] * (W_rel @ source_latent)
-        d_target_latent_proj = W_rel @ source_latent  # (latent_dim,)
-        # Full gradient matrix: d_logits (vocab_size,) * d_target_latent_proj (latent_dim,)
-        # = outer(d_logits, d_target_latent_proj)  # (vocab_size, latent_dim)
-        d_target_latents = np.outer(d_logits, d_target_latent_proj)  # (vocab_size, latent_dim)
-
+        # Gradient with respect to target_latents (shape (vocab_size, latent_dim))
+        d_target_latents = np.outer(d_logits, p)
+        
+        # Gradient with respect to p
+        d_p = target_latents.T @ d_logits # (latent_dim,)
+        
+        # Gradient with respect to rel_matrix
+        d_rel_matrix = np.outer(source_latent, d_p) # (latent_dim, latent_dim)
+        
+        # Gradient with respect to source_latent
+        d_source_latent = rel_matrix @ d_p # (latent_dim,)
+        
+        # Backprop through encoder for source embedding path
+        d_W1_src, d_b1_src, d_W2_src, d_b2_src = self._encoder_backward(
+            source_embed[np.newaxis, :],
+            src_z1[np.newaxis, :],
+            src_h1[np.newaxis, :],
+            src_z2[np.newaxis, :],
+            source_latent[np.newaxis, :],
+            d_source_latent[np.newaxis, :]
+        )
+        
+        # Backprop through encoder for target embeddings path
+        d_W1_tgt, d_b1_tgt, d_W2_tgt, d_b2_tgt = self._encoder_backward(
+            target_embeds,
+            tgt_z1,
+            tgt_h1,
+            tgt_z2,
+            target_latents,
+            d_target_latents
+        )
+        
+        # Sum encoder gradients
+        d_enc_W1 = d_W1_src + d_W1_tgt
+        d_enc_b1 = d_b1_src + d_b1_tgt
+        d_enc_W2 = d_W2_src + d_W2_tgt
+        d_enc_b2 = d_b2_src + d_b2_tgt
+        
+        # Add contrastive loss regularizer gradients
+        if not getattr(self, "freeze_encoder", False) and getattr(self, "use_contrastive_reg", False):
+            d_con_W1, d_con_b1, d_con_W2, d_con_b2, con_loss = self._compute_contrastive_gradients()
+            lambda_c = getattr(self, "lambda_contrastive", 0.5)
+            d_enc_W1 += lambda_c * d_con_W1
+            d_enc_b1 += lambda_c * d_con_b1
+            d_enc_W2 += lambda_c * d_con_W2
+            d_enc_b2 += lambda_c * d_con_b2
+        
+        # Update weights with momentum
         lr = self._rp_lr * lr_scale
-        # ── CROSS-DOMAIN GENERALIZATION FIX ──
-        # Token embeddings are FROZEN during RP training by default. Set
-        # self.freeze_token_embeds_in_rp = False to revert to the old
-        # per-pair memorization behavior.
-        #
-        # Why: When embed_lr > 0, every step pulls source toward W_rel @ target AND
-        # pulls all targets toward W_rel @ source. Over thousands of steps each (s, o)
-        # pair co-adapts (memorization), and held-out subjects drift into noise via
-        # negative-gradient updates. Result: 100% train acc, 0% held-out.
-        # Freezing embeddings keeps them in the autoencoder-aligned semantic space and
-        # forces W_rel to learn a generic relation transform that actually generalizes.
-        freeze_token_embeds = getattr(self, 'freeze_token_embeds_in_rp', True)
-        embed_lr = 0.0 if freeze_token_embeds else lr * 0.1
+        encoder_lr = self._rp_encoder_lr * lr_scale
 
-        # Update the SHARED relation matrix with momentum
+        # Update encoder
+        if not getattr(self, "freeze_encoder", False):
+            self._enc_mW1 = self._rp_momentum * self._enc_mW1 - encoder_lr * d_enc_W1
+            self._enc_mb1 = self._rp_momentum * self._enc_mb1 - encoder_lr * d_enc_b1
+            self._enc_mW2 = self._rp_momentum * self._enc_mW2 - encoder_lr * d_enc_W2
+            self._enc_mb2 = self._rp_momentum * self._enc_mb2 - encoder_lr * d_enc_b2
+            
+            self._enc_W1 += self._enc_mW1
+            self._enc_b1 += self._enc_mb1
+            self._enc_W2 += self._enc_mW2
+            self._enc_b2 += self._enc_mb2
+            # Encoder changed - need re-alignment on next sleep
+            self.mark_alignment_needed()
+        
+        # Update relation matrix
         self._rp_mrel_matrices[rel_type_idx] = (
-            self._rp_momentum * self._rp_mrel_matrices[rel_type_idx] - lr * dW_rel
+            self._rp_momentum * self._rp_mrel_matrices[rel_type_idx] - lr * d_rel_matrix
         )
         self._rp_rel_matrices[rel_type_idx] += self._rp_mrel_matrices[rel_type_idx]
-
-        if embed_lr > 0:
-            # Update source embedding (trains it to be relation-aware)
-            self.token_embed.weight.data[subject_tid] -= embed_lr * d_source_latent
-            # Update ALL target embeddings (the relation-aware signal spreads)
-            self.token_embed.weight.data -= embed_lr * d_target_latents
-            # Embeddings changed -> invalidate norm cache
-            self._token_embed_norms = None
-
         self._rp_cache = None
+
+
     # ── Spreading Activation Inference ──────────────────────────────────────
 
     def forward(self, token_ids: np.ndarray) -> 'tensor':
         """Forward pass: predict next token via spreading activation.
 
-        Input: token_ids array (1-D or 2-D with batch dim)
+        Input: token_ids array (1D or 2D with batch dim)
         Output: logits over vocab_size
 
         This is the core inference mechanism:
-        Step 1: Decompose into (subject, relation, object) -- object is what we predict
-        Step 2: Find subject concept node
-        Step 3: Classify relation type
-        Step 4: Spread activation from subject, filtered by relation type
-        Step 5: Score activated nodes against all token embeddings
-        Step 6: Return logits over vocab
+        1. Decompose into (subject, relation, object) — object is what we predict
+        2. Find subject concept node
+        3. Classify relation type
+        4. Spread activation from subject, filtered by relation type
+        5. Score activated nodes against all token embeddings
+        6. Return logits over vocab
         """
         from ..tensor import tensor as make_tensor
 
@@ -1687,8 +1270,7 @@ class RLMv2(Module):
         self._rp_probs_cache = None
         if self.use_rp_for_analogy:
             # Run the learned relation predictor
-            # Pass verb_word for verb-offset path (when use_verb_offset is True)
-            rp_logits = self._rp_forward(subject_tid, rel_type_idx, verb_word=query_verb_word)
+            rp_logits = self._rp_forward(subject_tid, rel_type_idx)
             exp_logits = np.exp(rp_logits - np.max(rp_logits))
             probs = exp_logits / (np.sum(exp_logits) + 1e-10)
             self._rp_probs_cache = probs
@@ -1740,151 +1322,111 @@ class RLMv2(Module):
                         for i in np.where(mask)[0]:
                             analogy_targets[node_ids[i]] = float(sims[i]) * 2.0
 
-        # ── OOD Detection for Spreading Activation ──
-        # Three signals for OOD:
-        # 1. Unseen predicate (was never in training data)
-        # 2. RP max_prob low (< 0.05) 
-        # 3. No matching outgoing edges from subject for this relation type
-        in_training = getattr(self, '_training_mode', False)
-        disable_spreading = getattr(self, 'disable_spreading_activation', False)
-        if not in_training and not disable_spreading:
-            seen_preds = getattr(self, '_seen_predicates', set())
-            rp_probs_for_conf = getattr(self, '_rp_probs_cache', None)
+        # ── Spreading Activation ──
+        # Reset all activations
+        for node in self.graph.nodes.values():
+            node.activation = 0.0
 
-            # Signal 1: unseen predicate
-            pred_is_ood = bool(
-                query_verb_word
-                and query_verb_word not in seen_preds
-                and len(seen_preds) > 0
-            )
+        # Activate subject concept
+        self.graph.activate(subject_cid, amount=1.0)
 
-            # Signal 2: RP uncertainty
-            rp_is_uncertain = False
-            if rp_probs_for_conf is not None:
-                max_rp = float(np.max(rp_probs_for_conf))
-                rp_is_uncertain = max_rp < 0.05
+        # Phase 0: Similarity-based priming (VECTORIZED — single matmul)
+        # "Tiger is cat-like" — activate concepts with similar embeddings.
+        subject_node = self.graph.get_node(subject_cid)
+        if subject_node is None:
+            from ..tensor import tensor as make_tensor
+            return make_tensor(np.zeros(self.vocab_size, dtype=np.float32))
+        subject_vec = subject_node.vector
+        sv_norm = np.linalg.norm(subject_vec)
+        if sv_norm > 0:
+            node_ids, node_matrix, node_norms = self._get_node_matrix()
+            if len(node_ids) > 0:
+                # Batch cosine similarity: one matmul instead of N Python loops
+                sims = (node_matrix @ subject_vec) / (node_norms * sv_norm + 1e-15)
+                # Find subject index and mask it out
+                subject_idx = -1
+                for i, cid in enumerate(node_ids):
+                    if cid == subject_cid:
+                        subject_idx = i
+                        break
+                if subject_idx >= 0:
+                    sims[subject_idx] = -1.0
+                # Activate nodes above threshold
+                mask = sims > 0.3
+                for i in np.where(mask)[0]:
+                    self.graph.activate(node_ids[i], amount=float(sims[i]) * 0.3)
 
-            # Signal 3: no matching outgoing edges from subject
-            subject_out = self.graph.get_outgoing(subject_cid)
-            has_matching_edges = any(
-                e.relation_type == rel_type_name for _, e in subject_out
-            ) if subject_out else False
+        # Phase 1: General spreading (3 steps, decay 0.3)
+        self.graph.spread_activation(steps=3, k_active=10, decay=0.3)
 
-            is_ood_query = pred_is_ood or rp_is_uncertain or not has_matching_edges
-            if is_ood_query:
-                disable_spreading = True
-
-        if disable_spreading:
-            # OOD / novel query: skip spreading, rely on direct RP + similarity
-            for node in self.graph.nodes.values():
-                node.activation = 0.0
-            self.graph.activate(subject_cid, amount=1.0)
-        else:
-                # Reset all activations
-                for node in self.graph.nodes.values():
-                    node.activation = 0.0
-
-                # Activate subject concept
-                self.graph.activate(subject_cid, amount=1.0)
-
-                # Phase 0: Similarity-based priming (VECTORIZED - single matmul)
-                # "Tiger is cat-like" - activate concepts with similar embeddings.
-                subject_node = self.graph.get_node(subject_cid)
-                if subject_node is None:
-                    from ..tensor import tensor as make_tensor
-                    return make_tensor(np.zeros(self.vocab_size, dtype=np.float32))
-                subject_vec = subject_node.vector
-                sv_norm = np.linalg.norm(subject_vec)
-                if sv_norm > 0:
-                    node_ids, node_matrix, node_norms = self._get_node_matrix()
-                    if len(node_ids) > 0:
-                        # Batch cosine similarity: one matmul instead of N Python loops
-                        sims = (node_matrix @ subject_vec) / (node_norms * sv_norm + 1e-15)
-                        # Find subject index and mask it out
-                        subject_idx = -1
-                        for i, cid in enumerate(node_ids):
-                            if cid == subject_cid:
-                                subject_idx = i
-                                break
-                        if subject_idx >= 0:
-                            sims[subject_idx] = -1.0
-                        # Activate nodes above threshold
-                        mask = sims > 0.3
-                        for i in np.where(mask)[0]:
-                            self.graph.activate(node_ids[i], amount=float(sims[i]) * 0.3)
-
-                # Phase 1: General spreading (3 steps, decay 0.3)
-                self.graph.spread_activation(steps=3, k_active=10, decay=0.3)
-
-                # Phase 2: Relation-aware spreading (2 extra steps along matching edges)
-                # This preferentially spreads activation along edges that match the query
-                # relation type, enabling deeper cross-domain paths.
-                for _ in range(2):
-                    to_activate = []
-                    for nid, node in self.graph.nodes.items():
-                        if node.activation < 0.005:
-                            continue
-                        for tgt_id, edge in self.graph.get_outgoing(nid):
-                            if edge.relation_type == rel_type_name:
-                                tgt_node = self.graph.get_node(tgt_id)
-                                if tgt_node is not None:
-                                    score = node.activation * 0.5 * edge.weight * edge.confidence
-                                    # Apply predicate matching
-                                    pred_mult = 1.0
-                                    if query_verb_word and hasattr(edge, 'predicate_token_id') and edge.predicate_token_id != -1:
-                                        try:
-                                            edge_verb_word = self._decode_token(edge.predicate_token_id).lower().strip()
-                                            if edge_verb_word:
-                                                w1 = query_verb_word.rstrip('s').rstrip('d')
-                                                w2 = edge_verb_word.rstrip('s').rstrip('d')
-                                                if w1 == w2 or w1 in w2 or w2 in w1:
-                                                    pred_mult = 2.5
-                                            else:
-                                                    pred_mult = 0.4
-                                        except Exception:
-                                            pass
-                                    score *= pred_mult
-                                    to_activate.append((tgt_id, score))
-                    for nid, amount in to_activate:
-                        self.graph.activate(nid, amount=amount)
-
-                # Phase 2b: Direct-edge boost from subject
-                # Spreading activation decays subject's activation (1.0 -> ~0.8) before it
-                # reaches direct targets, while similarity-primed nodes accumulate activation
-                # from multiple paths. This phase gives the subject's own direct outgoing
-                # edges (matching relation type) a strong boost so they compete with
-                # indirect high-activation nodes. Without this, "heat causes expansion"
-                # produces expansion at 0.14 while "intense" (similarity-primed) hits 1.0.
-                # Phase 2b: Direct-edge boost from subject
-                subject_node_final = self.graph.get_node(subject_cid)
-                if subject_node_final is not None and subject_node_final.activation > 0.01:
-                    for tgt_id, edge in self.graph.get_outgoing(subject_cid):
-                        if edge.relation_type == rel_type_name and tgt_id != subject_cid:
-                            tgt_node = self.graph.get_node(tgt_id)
-                            if tgt_node is not None:
-                                boost = subject_node_final.activation * 2.0 * edge.weight * edge.confidence
-                                # Apply predicate matching
-                                pred_mult = 1.0
-                                if query_verb_word and hasattr(edge, 'predicate_token_id') and edge.predicate_token_id != -1:
-                                    try:
-                                        edge_verb_word = self._decode_token(edge.predicate_token_id).lower().strip()
-                                        if edge_verb_word:
-                                            w1 = query_verb_word.rstrip('s').rstrip('d')
-                                            w2 = edge_verb_word.rstrip('s').rstrip('d')
-                                            if w1 == w2 or w1 in w2 or w2 in w1:
-                                                pred_mult = 2.5
+        # Phase 2: Relation-aware spreading (2 extra steps along matching edges)
+        # This preferentially spreads activation along edges that match the query
+        # relation type, enabling deeper cross-domain paths.
+        for _ in range(2):
+            to_activate = []
+            for nid, node in self.graph.nodes.items():
+                if node.activation < 0.005:
+                    continue
+                for tgt_id, edge in self.graph.get_outgoing(nid):
+                    if edge.relation_type == rel_type_name:
+                        tgt_node = self.graph.get_node(tgt_id)
+                        if tgt_node is not None:
+                            score = node.activation * 0.5 * edge.weight * edge.confidence
+                            # Apply predicate matching
+                            pred_mult = 1.0
+                            if query_verb_word and hasattr(edge, 'predicate_token_id') and edge.predicate_token_id != -1:
+                                try:
+                                    edge_verb_word = self._decode_token(edge.predicate_token_id).lower().strip()
+                                    if edge_verb_word:
+                                        w1 = query_verb_word.rstrip('s').rstrip('d')
+                                        w2 = edge_verb_word.rstrip('s').rstrip('d')
+                                        if w1 == w2 or w1 in w2 or w2 in w1:
+                                            pred_mult = 2.5
                                         else:
-                                                pred_mult = 0.4
-                                    except Exception:
-                                        pass
-                                boost *= pred_mult
-                                self.graph.activate(tgt_id, amount=boost)
+                                            pred_mult = 0.4
+                                except Exception:
+                                    pass
+                            score *= pred_mult
+                            to_activate.append((tgt_id, score))
+            for nid, amount in to_activate:
+                self.graph.activate(nid, amount=amount)
+
+        # Phase 2b: Direct-edge boost from subject
+        # Spreading activation decays subject's activation (1.0 → ~0.8) before it
+        # reaches direct targets, while similarity-primed nodes accumulate activation
+        # from multiple paths. This phase gives the subject's own direct outgoing
+        # edges (matching relation type) a strong boost so they compete with
+        # indirect high-activation nodes. Without this, "heat causes expansion"
+        # produces expansion at 0.14 while "intense" (similarity-primed) hits 1.0.
+        # Phase 2b: Direct-edge boost from subject
+        subject_node_final = self.graph.get_node(subject_cid)
+        if subject_node_final is not None and subject_node_final.activation > 0.01:
+            for tgt_id, edge in self.graph.get_outgoing(subject_cid):
+                if edge.relation_type == rel_type_name and tgt_id != subject_cid:
+                    tgt_node = self.graph.get_node(tgt_id)
+                    if tgt_node is not None:
+                        boost = subject_node_final.activation * 2.0 * edge.weight * edge.confidence
+                        # Apply predicate matching
+                        pred_mult = 1.0
+                        if query_verb_word and hasattr(edge, 'predicate_token_id') and edge.predicate_token_id != -1:
+                            try:
+                                edge_verb_word = self._decode_token(edge.predicate_token_id).lower().strip()
+                                if edge_verb_word:
+                                    w1 = query_verb_word.rstrip('s').rstrip('d')
+                                    w2 = edge_verb_word.rstrip('s').rstrip('d')
+                                    if w1 == w2 or w1 in w2 or w2 in w1:
+                                        pred_mult = 2.5
+                                    else:
+                                        pred_mult = 0.4
+                            except Exception:
+                                pass
+                        boost *= pred_mult
+                        self.graph.activate(tgt_id, amount=boost)
 
         # ── Score tokens via activated concepts ──
         concept_scores = np.zeros(self.vocab_size, dtype=np.float32)
         if getattr(self, '_rp_probs_cache', None) is not None:
             gated_rp = np.zeros_like(self._rp_probs_cache)
-            rp_gate_base = 0.15
             for tok_id in range(self.vocab_size):
                 prob = self._rp_probs_cache[tok_id]
                 bindings = self.binding_map.get_concepts(tok_id, min_confidence=0.0)
@@ -1894,28 +1436,10 @@ class RLMv2(Module):
                         node = self.graph.get_node(b.concept_id)
                         if node is not None:
                             max_act = max(max_act, node.activation)
-                    gated_rp[tok_id] = prob * (rp_gate_base + max_act)
+                    gated_rp[tok_id] = prob * (0.15 + max_act)
                 else:
                     gated_rp[tok_id] = prob * 0.8
             concept_scores += gated_rp * 35.0
-        
-        # OOD fallback: direct similarity scoring via token embedding space
-        # Use raw token embedding (not get_robust_embedding which has random char-CNN noise)
-        ood_embed = self.token_embed.weight.data[subject_tid]
-        ood_norm = np.linalg.norm(ood_embed)
-        if ood_norm > 0:
-            ood_unit = ood_embed / ood_norm
-            token_embeds = self.token_embed.weight.data
-            token_norms = self._token_embed_norms
-            if token_norms is None:
-                token_norms = np.linalg.norm(token_embeds, axis=1)
-            valid_tok = token_norms > 0
-            if np.any(valid_tok):
-                normed_tok = token_embeds.copy()
-                normed_tok[valid_tok] /= token_norms[valid_tok, np.newaxis]
-                ood_sims = ood_unit @ normed_tok.T
-                sim_weight = 5.0 if disable_spreading else 3.0
-                concept_scores += ood_sims * sim_weight
 
 
         # Collect all active nodes with their activations
@@ -1925,11 +1449,11 @@ class RLMv2(Module):
                 active_nodes.append((nid, node))
 
         # For each active node, check outgoing edges
-        matching_targets = {}  # target_concept_id -> score
+        matching_targets = {}  # target_concept_id → score
         for nid, node in active_nodes:
             outgoing = self.graph.get_outgoing(nid)
             for tgt_id, edge in outgoing:
-                # Filter by relation type - the KEY to cross-domain transfer
+                # Filter by relation type — the KEY to cross-domain transfer
                 # "causes" edges from heat activate expansion, not kindness
                 type_match = (edge.relation_type == rel_type_name)
 
@@ -1995,8 +1519,8 @@ class RLMv2(Module):
                         matching_targets[tgt_id] = cross_score
 
         # ── N-Hop BFS traversal (compositionality) ──
-        # "fire causes ?" -> fire->heat (any type), heat->expansion (causal) -> boost expansion
-        # "exercise produces crashes" -> exercise->stress->bugs->crashes (3 hops)
+        # "fire causes ?" → fire→heat (any type), heat→expansion (causal) → boost expansion
+        # "exercise produces crashes" → exercise→stress→bugs→crashes (3 hops)
         # First hop: follow ALL edges (any type) to reach domain intermediaries.
         # Subsequent hops: only follow edges matching the query relation type.
         from collections import deque
@@ -2071,8 +1595,6 @@ class RLMv2(Module):
 
         # Also include directly active concepts (for same-type queries)
         # Hub suppression: penalize low-activation high-in-degree noise nodes
-        # Stronger suppression during OOD queries (when spreading is disabled)
-        hub_suppress_strength = 1.5 if disable_spreading else 1.0
         for nid, node in active_nodes:
             if nid == subject_cid:
                 continue  # Don't predict subject itself
@@ -2081,11 +1603,11 @@ class RLMv2(Module):
             # Hub suppression: penalize low-activation nodes with high in-degree
             in_deg = len(self.graph._incoming.get(nid, []))
             if node.activation < 0.5 and in_deg > 5:
-                hub_factor = 0.3 / hub_suppress_strength
+                hub_factor = 0.3
             elif node.activation < 0.3 and in_deg > 3:
-                hub_factor = 0.5 / hub_suppress_strength
+                hub_factor = 0.5
             else:
-                hub_factor = 1.0 / hub_suppress_strength if in_deg > 10 else 1.0
+                hub_factor = 1.0
             act_score = node.activation * 3.0 * hub_factor
             if nid in matching_targets:
                 matching_targets[nid] = max(matching_targets[nid], act_score)
@@ -2123,7 +1645,7 @@ class RLMv2(Module):
                 continue
 
             # Method 1: Check binding map for bound tokens (immediate)
-            # Boosted from 1.0 to 2.0 - binding map is exact match, should dominate
+            # Boosted from 1.0 to 2.0 — binding map is exact match, should dominate
             bindings = self.binding_map.get_tokens(tgt_cid, min_confidence=0.1)
             for binding in bindings:
                 tok_id = binding.token_id
@@ -2132,12 +1654,12 @@ class RLMv2(Module):
 
             batch_targets.append((tgt_cid, score, tgt_node.vector))
 
-        # Method 2: Batch cosine similarity - one matmul instead of N loops
+        # Method 2: Batch cosine similarity — one matmul instead of N loops
         if batch_targets:
             tgt_vecs = np.stack([tv[2] for tv in batch_targets])  # (n_targets, concept_dim)
             # Project to embed_dim (same as _project_to_embed but batched)
             if self.concept_dim == self.embed_dim:
-                tgt_embeds = tgt_vecs  # identity - no projection needed
+                tgt_embeds = tgt_vecs  # identity — no projection needed
             else:
                 tgt_embeds = self.concept_to_embed(tgt_vecs).data  # (n_targets, embed_dim)
             tgt_norms = np.linalg.norm(tgt_embeds, axis=1)  # (n_targets,)
@@ -2150,7 +1672,7 @@ class RLMv2(Module):
                 self._token_embed_norms = token_norms
             valid_tok = token_norms > 0
 
-            # Similarity matrix: (n_targets, vocab_size) - one big matmul
+            # Similarity matrix: (n_targets, vocab_size) — one big matmul
             sim_matrix = np.zeros((len(batch_targets), self.vocab_size), dtype=np.float32)
             if np.any(valid_tgt) and np.any(valid_tok):
                 normed_tgt = tgt_embeds.copy()
@@ -2200,7 +1722,7 @@ class RLMv2(Module):
         1. Forward pass to get prediction
         2. Decompose into (subject, relation, object) triple
         3. Create/update concept nodes for subject and object
-        4. Create/update typed edge (subject -> object) with relation_type
+        4. Create/update typed edge (subject → object) with relation_type
         5. Hebbian update on edge weight
         6. Update relation vectors (pull toward target, push from negatives)
         7. Update relation classifier weights
@@ -2217,11 +1739,9 @@ class RLMv2(Module):
         input_ids = token_ids.tolist()
         target_id = int(target_ids.flatten()[0])
 
-        # ── Forward pass (enable spreading during training) ──
-        self._training_mode = True
+        # ── Forward pass ──
         logits_tensor = self.forward(token_ids)
         logits = logits_tensor.data.flatten() if hasattr(logits_tensor.data, 'flatten') else logits_tensor.data
-        self._training_mode = False
 
         # Prediction error
         target_onehot = np.zeros(self.vocab_size, dtype=np.float32)
@@ -2240,7 +1760,7 @@ class RLMv2(Module):
 
         # ── Decompose triple ──
         # Reconstruct full triple from context + target for proper decomposition
-        # e.g., "heat causes" + "expansion" -> "heat causes expansion" -> (heat, causes, expansion)
+        # e.g., "heat causes" + "expansion" → "heat causes expansion" → (heat, causes, expansion)
         full_triple_ids = input_ids + [target_id]
         subject_ids, relation_ids, object_ids = self.decompose_triple(full_triple_ids)
 
@@ -2252,19 +1772,6 @@ class RLMv2(Module):
             return {"loss": float(np.mean(prediction_error ** 2)), "accuracy": self._train_correct / max(1, self._train_total)}
 
         subject_tid = subject_ids[0]
-
-        # Track seen predicates for OOD detection
-        if relation_ids and hasattr(self, '_decode_token'):
-            try:
-                pred_word = self._decode_token(relation_ids[0]).lower().strip()
-                if pred_word:
-                    if not hasattr(self, '_seen_predicates'):
-                        self._seen_predicates = set()
-                    self._seen_predicates.add(pred_word)
-                    # Accumulate verb offset for verb-stem predictor
-                    self._accumulate_verb_offset(subject_tid, object_tid, pred_word)
-            except Exception:
-                pass
 
         # ── Get/create concept nodes ──
         subject_embed = self.token_embed.weight.data[subject_tid]
@@ -2280,7 +1787,7 @@ class RLMv2(Module):
         # ── Create relation concept node ──
         # The relation becomes a SHARED NODE in the graph, not just edge metadata.
         # "cat has tail" and "dog has tail" both route through the same "has" node.
-        # This gives the graph real topology: cat->has->tail, dog->has->tail.
+        # This gives the graph real topology: cat→has→tail, dog→has→tail.
         if relation_ids:
             relation_tid = relation_ids[0]  # first relation token
             relation_embed = self.token_embed.weight.data[relation_tid]
@@ -2291,9 +1798,9 @@ class RLMv2(Module):
         # ── Create relation-object concept node ──
         # Instead of a global "has" hub (which gets overloaded with 10+ facts),
         # create relation-OBJECT nodes: "has:tail", "has:wing", etc.
-        # Multiple subjects sharing the same object (cat, dog -> tail) route
+        # Multiple subjects sharing the same object (cat, dog → tail) route
         # through the same hub, enabling WITHIN-group transfer.
-        # Cross-group transfer (tiger is cat-like -> tail) uses embedding similarity.
+        # Cross-group transfer (tiger is cat-like → tail) uses embedding similarity.
         # Synthetic token ID to avoid collision with real tokens.
         if relation_ids:
             rel_obj_tid = 10000 + relation_ids[0] * 256 + object_tid
@@ -2324,7 +1831,7 @@ class RLMv2(Module):
             )
 
         # Reverse edges: weak bidirectional inference
-        # If "anger -> heat" exists, create weak "heat -> anger" so cross-domain
+        # If "anger → heat" exists, create weak "heat → anger" so cross-domain
         # queries like "heat causes ?" can traverse back through anger.
         reverse_direct = self.graph.get_edge(object_cid, subject_cid)
         if reverse_direct is None:
@@ -2343,7 +1850,7 @@ class RLMv2(Module):
         # If bindings have shifted since edge creation, re-validate edge topology
         self._validate_edge_bindings(subject_cid, object_cid, rel_type_name, relation_ids)
 
-        # ── Direct Edge Injection: For cross-domain causal, inject subject->object edges
+        # ── Direct Edge Injection: For cross-domain causal, inject subject→object edges
         # when binding map shows 1-to-1 mapping but graph edges are missing/polluted
         self._inject_direct_edges_if_needed(subject_cid, object_cid, rel_type_name)
 
@@ -2361,7 +1868,7 @@ class RLMv2(Module):
             rel_obj_node.activation = max(rel_obj_node.activation, 0.7)
             tgt_node.activation = max(tgt_node.activation, 0.8)
 
-            # Direct edge: subject -> object (memorization path)
+            # Direct edge: subject → object (memorization path)
             delta = self._base_lr * src_node.activation * tgt_node.activation * hebbian_multiplier
             edge_direct.weight = max(0.0, min(1.0, edge_direct.weight + delta))
             edge_direct.confidence = edge_direct.weight
@@ -2370,7 +1877,7 @@ class RLMv2(Module):
             if is_correct:
                 edge_direct.forward_pred_count += 1
 
-            # Edge 1: subject -> rel_obj hub (transfer path)
+            # Edge 1: subject → rel_obj hub (transfer path)
             delta = self._base_lr * src_node.activation * rel_obj_node.activation * hebbian_multiplier
             edge_sr.weight = max(0.0, min(1.0, edge_sr.weight + delta))
             edge_sr.confidence = edge_sr.weight
@@ -2379,7 +1886,7 @@ class RLMv2(Module):
             if is_correct:
                 edge_sr.forward_pred_count += 1
 
-            # Edge 2: rel_obj hub -> object (transfer path)
+            # Edge 2: rel_obj hub → object (transfer path)
             delta = self._base_lr * rel_obj_node.activation * tgt_node.activation * hebbian_multiplier
             edge_ro.weight = max(0.0, min(1.0, edge_ro.weight + delta))
             edge_ro.confidence = edge_ro.weight
@@ -2408,7 +1915,7 @@ class RLMv2(Module):
             # ── Concept vector updates ──
             pull_lr = 0.02
 
-            # Subject concept -> subject token embedding
+            # Subject concept → subject token embedding
             subject_concept_vec = self._project_to_concept(subject_embed)
             src_delta = pull_lr * (subject_concept_vec - src_node.vector)
             src_delta = np.clip(src_delta, -self.graph.max_step_delta, self.graph.max_step_delta)
@@ -2417,7 +1924,7 @@ class RLMv2(Module):
             if src_norm > 0:
                 src_node.vector /= src_norm
 
-            # Relation-object concept -> blended embedding
+            # Relation-object concept → blended embedding
             if relation_ids:
                 rel_obj_concept_vec = self._project_to_concept(rel_obj_embed)
                 rel_obj_delta = pull_lr * (rel_obj_concept_vec - rel_obj_node.vector)
@@ -2427,7 +1934,7 @@ class RLMv2(Module):
                 if rel_obj_norm > 0:
                     rel_obj_node.vector /= rel_obj_norm
 
-            # Object concept -> object embedding
+            # Object concept → object embedding
             object_concept_vec = self._project_to_concept(object_embed)
             tgt_delta = pull_lr * (object_concept_vec - tgt_node.vector)
             tgt_delta = np.clip(tgt_delta, -self.graph.max_step_delta, self.graph.max_step_delta)
@@ -2437,8 +1944,8 @@ class RLMv2(Module):
                 tgt_node.vector /= tgt_norm
 
             # Path-aware concept vector update: pull subject and object vectors
-            # closer together. This builds analogical structure - if anger->heat
-            # and heat->expansion, anger and expansion become closer in concept
+            # closer together. This builds analogical structure — if anger→heat
+            # and heat→expansion, anger and expansion become closer in concept
             # space, enabling cross-domain transfer via embedding similarity.
             path_lr = 0.005  # gentle to avoid destroying existing structure
             src_to_tgt = tgt_node.vector - src_node.vector
@@ -2459,10 +1966,10 @@ class RLMv2(Module):
         # ── Update relation classifier weights (local Hebbian) ──
         self._update_relation_classifier(relation_ids, rel_type_idx)
 
-        # ── Train token embeddings (DISABLED - corrupts semantic structure) ──
+        # ── Train token embeddings (DISABLED — corrupts semantic structure) ──
         # Pulling token embeddings together during training destroys the
         # carefully structured embedding space. "heat" gets pulled toward
-        # "expansion", "cold", "melts" simultaneously - ending up in a
+        # "expansion", "cold", "melts" simultaneously — ending up in a
         # meaningless average position. Concept vectors + projection layers
         # handle the learning instead.
         # if is_correct:
@@ -2476,7 +1983,7 @@ class RLMv2(Module):
 
         # ── Predictive Coding: update RELEVANT edges only ──
         # Only edges touching subject, relation, or object nodes learn from this triple.
-        # Updating ALL edges causes catastrophic interference - training "heat causes
+        # Updating ALL edges causes catastrophic interference — training "heat causes
         # expansion" would also modify edges for kindness, trust, rain, etc.
         if self.predictive_coding_enabled:
             pc_lr = self._base_lr * 0.15
@@ -2650,7 +2157,7 @@ class RLMv2(Module):
     def _inject_direct_edges_if_needed(self, subject_cid: int, object_cid: int,
                                        rel_type_name: str, threshold: float = 0.5) -> int:
         """
-        Inject direct subject->object edges when binding map shows 1-to-1
+        Inject direct subject→object edges when binding map shows 1-to-1
         but graph edges are missing or weak (polluted by Hebbian noise).
         
         This bypasses the graph topology bottleneck for cross-domain causal
@@ -2714,11 +2221,11 @@ class RLMv2(Module):
         return pruned
 
     def learn_fast(self, token_ids: np.ndarray, target_ids: np.ndarray) -> Dict[str, float]:
-        """Fast learn() for hard-example boosting - skips forward() call.
+        """Fast learn() for hard-example boosting — skips forward() call.
 
         Use this during hard-boost training when we already know the prediction
-        is wrong. Saves approx 0.7 to 1.0 ms per call by skipping the forward pass.
-        Also skips the O-of-E predictive coding loop (uses only local Hebbian).
+        is wrong. Saves ~0.7-1.0ms per call by skipping the forward pass.
+        Also skips the O(E) predictive coding loop (uses only local Hebbian).
         """
         # Flatten inputs
         if token_ids.ndim > 1:
@@ -2744,19 +2251,6 @@ class RLMv2(Module):
 
         subject_cid = self._get_or_create_concept(subject_tid, subject_embed)
         object_cid = self._get_or_create_concept(target_id, object_embed)
-
-        # Track seen predicates for OOD detection
-        if relation_ids and hasattr(self, '_decode_token'):
-            try:
-                pred_word = self._decode_token(relation_ids[0]).lower().strip()
-                if pred_word:
-                    if not hasattr(self, '_seen_predicates'):
-                        self._seen_predicates = set()
-                    self._seen_predicates.add(pred_word)
-                    # Accumulate verb offset for verb-stem predictor
-                    self._accumulate_verb_offset(subject_tid, object_tid, pred_word)
-            except Exception:
-                pass
 
         # ── Classify relation type ──
         rel_type_idx, rel_type_embed = self._classify_relation_learned(relation_ids)
@@ -2811,7 +2305,7 @@ class RLMv2(Module):
             edge_sr.predicate_token_id = relation_ids[0]
             edge_ro.predicate_token_id = relation_ids[0]
 
-        # ── Hebbian edge updates (local only - no forward pass needed) ──
+        # ── Hebbian edge updates (local only — no forward pass needed) ──
         src_node = self.graph.get_node(subject_cid)
         rel_obj_node = self.graph.get_node(rel_obj_cid)
         tgt_node = self.graph.get_node(object_cid)
@@ -2820,21 +2314,21 @@ class RLMv2(Module):
             rel_obj_node.activation = max(rel_obj_node.activation, 0.7)
             tgt_node.activation = max(tgt_node.activation, 0.8)
 
-            # Direct edge: subject -> object
+            # Direct edge: subject → object
             delta = self._base_lr * src_node.activation * tgt_node.activation * 16.0
             edge_direct.weight = max(0.0, min(1.0, edge_direct.weight + delta))
             edge_direct.confidence = edge_direct.weight
             edge_direct.stability = min(1.0, edge_direct.stability + 0.01)
             edge_direct.prediction_count += 1
 
-            # Edge 1: subject -> rel_obj hub
+            # Edge 1: subject → rel_obj hub
             delta = self._base_lr * src_node.activation * rel_obj_node.activation * 16.0
             edge_sr.weight = max(0.0, min(1.0, edge_sr.weight + delta))
             edge_sr.confidence = edge_sr.weight
             edge_sr.stability = min(1.0, edge_sr.stability + 0.01)
             edge_sr.prediction_count += 1
 
-            # Edge 2: rel_obj hub -> object
+            # Edge 2: rel_obj hub → object
             delta = self._base_lr * rel_obj_node.activation * tgt_node.activation * 16.0
             edge_ro.weight = max(0.0, min(1.0, edge_ro.weight + delta))
             edge_ro.confidence = edge_ro.weight
@@ -2948,8 +2442,7 @@ class RLMv2(Module):
 
     def hard_boost_sample(self, tok, triplet_pairs: List[Tuple[str, str, str]],
                           n_samples: int = 15, intensity: float = 300.0,
-                          margin: float = 0.1,
-                          triplet_rel_types: Optional[List[str]] = None) -> Dict[str, Any]:
+                          margin: float = 0.1) -> Dict[str, Any]:
         """
         Hard-boost sampling: Select only N random hard examples per epoch
         instead of applying to all pairs. Keeps 300x intensity but fits timeout.
@@ -2960,8 +2453,6 @@ class RLMv2(Module):
             n_samples: Number of hard examples to sample per epoch (default 15)
             intensity: Boost intensity multiplier (default 300.0)
             margin: Triplet margin (default 0.1)
-            triplet_rel_types: Optional list of relation types for each triplet (e.g., 'causal', 'semantic', 'temporal').
-                               If provided, performs stratified sampling to ensure each underperforming relation type gets boost cycles.
             
         Returns:
             Dict with sampled indices and per-triple gap metrics
@@ -2997,40 +2488,16 @@ class RLMv2(Module):
                 
                 # Hard example: gap <= margin (violation or near-violation)
                 if gap <= margin:
-                    rel_type = triplet_rel_types[i] if triplet_rel_types and i < len(triplet_rel_types) else 'unknown'
-                    hard_candidates.append((i, gap, rel_type))
+                    hard_candidates.append((i, gap))
             except (KeyError, IndexError):
                 continue
         
-        # Stratified sampling by relation type if rel_types provided
-        if triplet_rel_types:
-            # Group hard candidates by relation type
-            by_type = defaultdict(list)
-            for idx, gap, rel_type in hard_candidates:
-                by_type[rel_type].append((idx, gap))
-            
-            # Sample from each bucket proportionally
-            sampled_indices = []
-            n_types = len(by_type)
-            if n_types > 0:
-                per_type = max(1, n_samples // n_types)
-                for rel_type, candidates in by_type.items():
-                    candidates.sort(key=lambda x: x[1])  # hardest first
-                    sampled_indices.extend([idx for idx, _ in candidates[:per_type]])
-            
-            # If we have fewer than n_samples, fill from remaining hardest across all types
-            if len(sampled_indices) < n_samples:
-                all_remaining = [(idx, gap) for idx, gap, _ in hard_candidates if idx not in sampled_indices]
-                all_remaining.sort(key=lambda x: x[1])
-                sampled_indices.extend([idx for idx, _ in all_remaining[:n_samples - len(sampled_indices)]])
-            
-            sampled_indices = sampled_indices[:n_samples]
-        else:
-            # Original behavior: sort by gap (most negative first = hardest)
-            hard_candidates.sort(key=lambda x: x[1])
-            # Sample N from hardest, or all if fewer than N
-            sampled = hard_candidates[:n_samples] if hard_candidates else []
-            sampled_indices = [idx for idx, _ in sampled]
+        # Sort by gap (most negative first = hardest)
+        hard_candidates.sort(key=lambda x: x[1])
+        
+        # Sample N from hardest, or all if fewer than N
+        sampled = hard_candidates[:n_samples] if hard_candidates else []
+        sampled_indices = [idx for idx, _ in sampled]
         
         # Apply intensified triplet margin to sampled hard examples
         boosted_results = {}
@@ -3100,7 +2567,7 @@ class RLMv2(Module):
 
         # Local Hebbian update: ΔW = lr × error ⊗ input
         # This is Hebbian (pre × post × error), NOT backprop.
-        # No chain rule - uses only the local error signal and local input.
+        # No chain rule — uses only the local error signal and local input.
         lr = self._classifier_lr
         input_2d = rel_concept.reshape(1, -1)
         error_2d = error.reshape(-1, 1)
@@ -3333,7 +2800,7 @@ class RLMv2(Module):
                     force_alignment: bool = False):
         """Sleep cycle: consolidate triples, prune weak edges, replay important memories.
 
-        This is the brain's "offline consolidation" - during sleep, the model:
+        This is the brain's "offline consolidation" — during sleep, the model:
         1. Replays important episodic triples (hippocampal replay)
         2. Consolidates edge weights (homeostatic downscaling)
         3. Prunes weak/unstable edges
@@ -3345,108 +2812,99 @@ class RLMv2(Module):
             validation_queries: Held-out queries for validation during alignment
             force_alignment: If True, run alignment even if encoder hasn't changed
         """
-        # Prevent recursive sleep cycle calls during replay or model training inside sleep
-        if getattr(self, '_in_sleep_cycle', False):
-            return
-        self._in_sleep_cycle = True
-        self._last_sleep_step = self._step_counter
+        # ── Hippocampal replay ──
+        # Replay the most recent/important triples
+        if self._episodic_triples:
+            n_replay = min(10, len(self._episodic_triples))
+            replay_triples = self._episodic_triples[-n_replay:]
 
-        try:
-            # ── Hippocampal replay ──
-            # Replay the most recent/important triples
-            if self._episodic_triples:
-                n_replay = min(10, len(self._episodic_triples))
-                replay_triples = self._episodic_triples[-n_replay:]
+            for subj_cid, rel_idx, obj_cid, ts in replay_triples:
+                src = self.graph.get_node(subj_cid)
+                tgt = self.graph.get_node(obj_cid)
+                if src is None or tgt is None:
+                    continue
 
-                for subj_cid, rel_idx, obj_cid, ts in replay_triples:
-                    src = self.graph.get_node(subj_cid)
-                    tgt = self.graph.get_node(obj_cid)
-                    if src is None or tgt is None:
-                        continue
+                edge = self.graph.get_edge(subj_cid, obj_cid)
+                if edge is None:
+                    continue
 
-                    edge = self.graph.get_edge(subj_cid, obj_cid)
-                    if edge is None:
-                        continue
+                # Strengthen edge through replay
+                edge.weight = min(1.0, edge.weight + 0.02)
+                edge.confidence = min(1.0, edge.confidence + 0.01)
 
-                    # Strengthen edge through replay
-                    edge.weight = min(1.0, edge.weight + 0.02)
-                    edge.confidence = min(1.0, edge.confidence + 0.01)
+                # Hebbian co-activation replay
+                self.graph.hebbian_update(subj_cid, obj_cid, coactivation=0.5, lr=0.005)
 
-                    # Hebbian co-activation replay
-                    self.graph.hebbian_update(subj_cid, obj_cid, coactivation=0.5, lr=0.005)
+        # ── Homeostatic downscaling ──
+        # Normalize edge weights to prevent runaway strengthening
+        # Budget increased from 3.0 to 5.0 — less aggressive, preserves learned edges
+        self._normalize_outgoing_weights(budget=5.0)
 
-            # ── Homeostatic downscaling ──
-            # Normalize edge weights to prevent runaway strengthening
-            # Budget increased from 3.0 to 5.0 - less aggressive, preserves learned edges
-            self._normalize_outgoing_weights(budget=5.0)
+        # ── Prune weak edges ──
+        # Prune edges with weight below 0.1 to clear out spurious semantic edges.
+        self._prune_weak_edges(threshold=0.1)
 
-            # ── Prune weak edges ──
-            # Prune edges with weight below 0.1 to clear out spurious semantic edges.
-            self._prune_weak_edges(threshold=0.1)
+        # ── Anti-Hebbian Pruning: Remove polluted edges ──
+        # Edges created during early training with different bindings that now
+        # consistently predict incorrectly are weakened/removed.
+        n_pruned = self._anti_hebbian_prune_polluted_edges()
+        if n_pruned:
+            print(f"[Sleep] Anti-Hebbian pruned {n_pruned} polluted edges")
 
-            # ── Anti-Hebbian Pruning: Remove polluted edges ──
-            # Edges created during early training with different bindings that now
-            # consistently predict incorrectly are weakened/removed.
-            n_pruned = self._anti_hebbian_prune_polluted_edges()
-            if n_pruned:
-                print(f"[Sleep] Anti-Hebbian pruned {n_pruned} polluted edges")
+        # ── Prune phantom nodes ──
+        # Remove concept nodes that have no token binding (token_id == None)
+        # and degree < 2 (isolated or single-edge artifacts from tokenizer expansion)
+        self._prune_phantom_nodes(min_degree=2)
 
-            # ── Prune phantom nodes ──
-            # Remove concept nodes that have no token binding (token_id == None)
-            # and degree < 2 (isolated or single-edge artifacts from tokenizer expansion)
-            self._prune_phantom_nodes(min_degree=2)
+        # ── Representation Alignment ──
+        # Align encoder representations to graph topology if needed or forced or graph changed
+        graph_version = getattr(self.graph, 'version', 0)
+        last_aligned = getattr(self, '_last_aligned_version', -1)
+        if self.alignment_needed or force_alignment or graph_version > last_aligned:
+            self.align_encoder_to_graph(validation_queries=validation_queries)
+            self.alignment_needed = False  # reset flag after alignment
 
-            # ── Representation Alignment ──
-            # Align encoder representations to graph topology if needed or forced or graph changed
-            graph_version = getattr(self.graph, 'version', 0)
-            last_aligned = getattr(self, '_last_aligned_version', -1)
-            if self.alignment_needed or force_alignment or graph_version > last_aligned:
-                self.align_encoder_to_graph(validation_queries=validation_queries)
-                self.alignment_needed = False  # reset flag after alignment
+        # ── Drift defense ──
+        # Pull concept vectors back toward their core vectors if they've drifted too far.
+        # Threshold increased from 0.4 to 0.7 — allow more movement before correction.
+        # Pull strength reduced from 0.1 to 0.05 — gentler correction.
+        for nid, node in self.graph.nodes.items():
+            drift = node.drift_magnitude
+            if drift > 0.7:
+                # Pull back toward core vector (gentler)
+                pull = 0.05 * (node.core_vector - node.vector)
+                node.vector += pull
+                norm = np.linalg.norm(node.vector)
+                if norm > 0:
+                    node.vector /= norm
 
-            # ── Drift defense ──
-            # Pull concept vectors back toward their core vectors if they've drifted too far.
-            # Threshold increased from 0.4 to 0.7 - allow more movement before correction.
-            # Pull strength reduced from 0.1 to 0.05 - gentler correction.
-            for nid, node in self.graph.nodes.items():
-                drift = node.drift_magnitude
-                if drift > 0.7:
-                    # Pull back toward core vector (gentler)
-                    pull = 0.05 * (node.core_vector - node.vector)
-                    node.vector += pull
-                    norm = np.linalg.norm(node.vector)
-                    if norm > 0:
-                        node.vector /= norm
+        # ── Episodic → semantic consolidation ──
+        self._consolidate_episodic_to_semantic()
 
-            # ── Episodic -> semantic consolidation ──
-            self._consolidate_episodic_to_semantic()
+        # ── Semantic memory decay ──
+        self._decay_semantic_memories()
 
-            # ── Semantic memory decay ──
-            self._decay_semantic_memories()
+        # ── Memory → weights bridge ──
+        self._bridge_memories_to_graph()
 
-            # ── Memory -> weights bridge ──
-            self._bridge_memories_to_graph()
+        # ── Interleaved named domain memories replay ──
+        self._replay_old_memories(n_samples=self._replay_n_samples)
 
-            # ── Interleaved named domain memories replay ──
-            self._replay_old_memories(n_samples=self._replay_n_samples)
+        # ── Cognitive currency consolidation (emotion, identity, meaning, sleep) ──
+        self.currencies.consolidate_on_sleep()
 
-            # ── Cognitive currency consolidation (emotion, identity, meaning, sleep) ──
-            self.currencies.consolidate_on_sleep()
+        # ── Reset sleep pressure ──
+        self._sleep_pressure = 0.0
+        self.wake_epochs_since_sleep = 0
+        self.sleep_cycles_completed += 1
 
-            # ── Reset sleep pressure ──
-            self._sleep_pressure = 0.0
-            self.wake_epochs_since_sleep = 0
-            self.sleep_cycles_completed += 1
+        # ── Final self-regulation ──
+        self._regulate_cognitive_state()
 
-            # ── Final self-regulation ──
-            self._regulate_cognitive_state()
-
-            # ── Reset activations ──
-            for node in self.graph.nodes.values():
-                node.activation = 0.0
-                node.fatigue = 0.0
-        finally:
-            self._in_sleep_cycle = False
+        # ── Reset activations ──
+        for node in self.graph.nodes.values():
+            node.activation = 0.0
+            node.fatigue = 0.0
 
     def _prune_phantom_nodes(self, min_degree: int = 2):
         """Remove concept nodes without token bindings that are structural artifacts.
@@ -3954,7 +3412,6 @@ class RLMv2(Module):
             "step_counter": self._step_counter,
             "train_correct": self._train_correct,
             "train_total": self._train_total,
-            "seen_predicates": sorted(self._seen_predicates),
             "_rp_W1": self._rp_W1.copy(),
             "_rp_b1": self._rp_b1.copy(),
             "_rp_W2": self._rp_W2.copy(),
@@ -3980,18 +3437,6 @@ class RLMv2(Module):
             "rel_proj": self.rel_proj.copy() if hasattr(self, "rel_proj") else np.eye(self.latent_dim, dtype=np.float32),
             "use_subspace_projection": self.use_subspace_projection,
             "lambda_recon": self.lambda_recon,
-            
-            # --- Sparse Concept Predictor Weights ---
-            # Bottleneck params (DEPRECATED - kept for backward compat loading)
-            "rel_encoder": self.rel_encoder.copy(),
-            "rel_bias": self.rel_bias.copy(),
-            "domain_W_logits": [w.copy() for w in self.domain_W_logits],
-            "domain_b_logits": [b.copy() for b in self.domain_b_logits],
-            "domain_W_gates": self.domain_W_gates,
-            "domain_b_gates": self.domain_b_gates,
-            "router_W": self.router_W,
-            "router_b": self.router_b,
-
             "binding_map": {
                 "by_token": {tid: [(b.concept_id, b.confidence, b.source) for b in blist]
                              for tid, blist in self.binding_map._by_token.items()},
@@ -4041,6 +3486,13 @@ class RLMv2(Module):
         if state["relation_classifier_bias"] is not None:
             self.relation_classifier.bias.data = state["relation_classifier_bias"]
 
+        # Restore graph
+        self.graph.nodes.clear()
+        self.graph.edges.clear()
+        self.graph._outgoing.clear()
+        self.graph._incoming.clear()
+        self.graph._edges_by_relation_type.clear()
+
         for nid, ndata in state["graph_nodes"].items():
             node = ConceptNode(nid, ndata["vector"], ndata["label"])
             node.core_vector = ndata["core_vector"]
@@ -4069,38 +3521,6 @@ class RLMv2(Module):
         self._step_counter = state.get("step_counter", 0)
         self._train_correct = state.get("train_correct", 0)
         self._train_total = state.get("train_total", 0)
-        self._seen_predicates = set(state.get("seen_predicates", []))
-
-        # Restore new concept predictor weights
-        if "rel_encoder" in state:
-            # Load bottleneck params for backward compat (new arch ignores them)
-            self.rel_encoder = state["rel_encoder"].copy()
-            self.rel_bias = state["rel_bias"].copy()
-            # Domain heads: handle both old (bottleneck_dim) and new (latent_dim) shapes
-            old_W = state["domain_W_logits"]
-            expected_shape = (self.vocab_size, self.embed_dim)
-            self.domain_W_logits = []
-            for w in old_W:
-                if w.shape != expected_shape:
-                    # Reinit with correct shape (old checkpoint had bottleneck_dim)
-                    w_new = np.random.normal(0, 0.1, expected_shape).astype(np.float32)
-                    self.domain_W_logits.append(w_new)
-                else:
-                    self.domain_W_logits.append(w.copy())
-            old_b = state["domain_b_logits"]
-            self.domain_b_logits = []
-            for b in old_b:
-                if len(b) != self.vocab_size:
-                    self.domain_b_logits.append(np.zeros(self.vocab_size, dtype=np.float32))
-                else:
-                    self.domain_b_logits.append(b.copy())
-            # Deprecated gate/router params (loaded for backward compat, unused)
-            if "domain_W_gates" in state:
-                self.domain_W_gates = [w.copy() for w in state["domain_W_gates"]]
-                self.domain_b_gates = [b.copy() for b in state["domain_b_gates"]]
-            if "router_W" in state:
-                self.router_W = state["router_W"].copy()
-                self.router_b = state["router_b"].copy()
 
         # Restore Relation Predictor MLP weights
         if "_rp_W1" in state:
@@ -4865,136 +4285,3 @@ class RLMv2(Module):
     def activate_domain_memories(self, domain_name: str):
         """No-op stub for backward compatibility."""
         pass
-    # ── Cross-Domain Relation Alignment (Fix #3) ──
-    # Pulls subject->object pairs that share the same relation type closer in latent
-    # space across domains. Without this, W_rel learns separate sub-clusters per
-    # domain (heat->expansion in physics, anger->conflict in social) and held-out
-    # cross-domain queries fail.
-
-    def _cross_domain_relation_alignment(self, lr=None):
-        """One step of cross-domain relation alignment.
-
-        For each relation type, find all subject-object pairs in the graph that use
-        that relation, compute the mean (target_embed - W_rel @ source_embed) residual,
-        and nudge W_rel to reduce that residual averaged across ALL pairs (regardless
-        of domain). This pushes W_rel toward a domain-agnostic relation transform.
-        """
-        if lr is None:
-            lr = getattr(self, "alignment_lr", 0.005)
-
-        from collections import defaultdict
-        pairs_by_rel = defaultdict(list)
-        for (src_cid, tgt_cid), edge in self.graph.edges.items():
-            rel_name = edge.relation_type
-            if rel_name not in RELATION_TYPES:
-                continue
-            if edge.weight < 0.2 or edge.confidence < 0.2:
-                continue
-            # Look up token IDs from binding map
-            src_tokens = self.binding_map.get_tokens(src_cid, min_confidence=0.1)
-            tgt_tokens = self.binding_map.get_tokens(tgt_cid, min_confidence=0.1)
-            if not src_tokens or not tgt_tokens:
-                continue
-            src_tid = src_tokens[0].token_id
-            tgt_tid = tgt_tokens[0].token_id
-            # Skip synthetic tokens (rel_obj hubs use IDs >= 10000)
-            if src_tid >= self.vocab_size or tgt_tid >= self.vocab_size:
-                continue
-            pairs_by_rel[rel_name].append((src_tid, tgt_tid))
-
-        results = {}
-        for rel_name, pairs in pairs_by_rel.items():
-            if len(pairs) < 2:
-                continue
-            rel_idx = RELATION_TYPES.index(rel_name)
-            W_rel = self._rp_rel_matrices[rel_idx]
-            # Accumulate gradient toward minimizing mean residual norm
-            grad_sum = np.zeros_like(W_rel)
-            for src_tid, tgt_tid in pairs:
-                s = self.token_embed.weight.data[src_tid]   # (embed_dim,)
-                t = self.token_embed.weight.data[tgt_tid]   # (embed_dim,)
-                pred = s @ W_rel                            # (embed_dim,)
-                residual = pred - t                          # (embed_dim,)
-                grad_sum += np.outer(s, residual)            # (embed_dim, embed_dim)
-            grad_mean = grad_sum / len(pairs)
-            # Clip
-            gn = np.linalg.norm(grad_mean)
-            if gn > 5.0:
-                grad_mean *= (5.0 / (gn + 1e-15))
-            self._rp_rel_matrices[rel_idx] -= lr * grad_mean
-            results[rel_name] = float(np.linalg.norm(grad_mean))
-        return results
-
-    def measure_cross_domain_alignment(self):
-        """Measure how well W_rel transforms generalize across all subject-object pairs.
-
-        Returns dict mapping relation_type -> mean cosine similarity between
-        (W_rel @ source_embed) and target_embed across all stored pairs of that type.
-        Higher = better alignment (W_rel actually maps subject->object generically).
-        """
-        from collections import defaultdict
-        pairs_by_rel = defaultdict(list)
-        for (src_cid, tgt_cid), edge in self.graph.edges.items():
-            rel_name = edge.relation_type
-            if rel_name not in RELATION_TYPES:
-                continue
-            if edge.weight < 0.2:
-                continue
-            src_tokens = self.binding_map.get_tokens(src_cid, min_confidence=0.1)
-            tgt_tokens = self.binding_map.get_tokens(tgt_cid, min_confidence=0.1)
-            if not src_tokens or not tgt_tokens:
-                continue
-            src_tid = src_tokens[0].token_id
-            tgt_tid = tgt_tokens[0].token_id
-            if src_tid >= self.vocab_size or tgt_tid >= self.vocab_size:
-                continue
-            pairs_by_rel[rel_name].append((src_tid, tgt_tid))
-
-        results = {}
-        for rel_name, pairs in pairs_by_rel.items():
-            if not pairs:
-                continue
-            rel_idx = RELATION_TYPES.index(rel_name)
-            W_rel = self._rp_rel_matrices[rel_idx]
-            sims = []
-            for src_tid, tgt_tid in pairs:
-                s = self.token_embed.weight.data[src_tid]
-                t = self.token_embed.weight.data[tgt_tid]
-                pred = s @ W_rel
-                sn = np.linalg.norm(pred); tn = np.linalg.norm(t)
-                if sn > 0 and tn > 0:
-                    sims.append(float(np.dot(pred, t) / (sn * tn)))
-            if sims:
-                results[rel_name] = float(np.mean(sims))
-        return results
-
-    def _inject_cross_domain_edge(self, subject_cid, object_cid, rel_name, subject_tid):
-        """Inject (or strengthen) a relation-typed edge subject->object.
-
-        Used by experiments to seed cross-domain analogical edges (e.g.
-        anger->conflict mirroring heat->expansion). Idempotent: tracks injected
-        pairs in self._cross_domain_edges_injected so repeat calls don't pollute.
-        """
-        if rel_name not in RELATION_TYPES:
-            return
-        key = (subject_cid, object_cid, rel_name)
-        if key in self._cross_domain_edges_injected:
-            return
-        edge = self.graph.get_edge(subject_cid, object_cid)
-        if edge is None:
-            edge = self.graph.add_edge(
-                source=subject_cid, target=object_cid,
-                weight=0.5, relation_type=rel_name,
-            )
-        else:
-            # Strengthen if same relation type, otherwise leave alone
-            if edge.relation_type == rel_name:
-                edge.weight = min(1.0, edge.weight + 0.2)
-                edge.confidence = min(1.0, edge.confidence + 0.1)
-        if subject_tid is not None and 0 <= subject_tid < self.vocab_size:
-            try:
-                edge.predicate_token_id = int(subject_tid)
-            except Exception:
-                pass
-        self._cross_domain_edges_injected.add(key)
-

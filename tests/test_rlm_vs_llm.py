@@ -16,7 +16,7 @@ import numpy as np
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
-from experiments.experiment_rlm_vs_llm import (
+from experiments.archive.old_experiments.experiment_rlm_vs_llm import (
     run_few_shot_experiment,
     run_contradiction_experiment,
     run_identity_experiment,

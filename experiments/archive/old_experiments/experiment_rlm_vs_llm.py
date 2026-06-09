@@ -28,7 +28,7 @@ if _PROJECT_ROOT not in sys.path:
 
 from ravana_ml.nn.rlm import RLM
 from ravana_ml.tokenizer import SimpleTokenizer, WordTokenizer
-from experiments.experiment_baselines import SimpleMLP, FrozenLLM, measure_time_and_memory
+from experiments.archive.old_experiments.experiment_baselines import SimpleMLP, FrozenLLM, measure_time_and_memory
 
 
 # ─── Data ────────────────────────────────────────────────────────────────
