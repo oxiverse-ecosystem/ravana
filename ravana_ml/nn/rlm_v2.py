@@ -379,98 +379,32 @@ class RLMv2(Module):
         # to compensate, plus gradient clipping (norm=10) in _rp_backward.
         self.rp_scale = 1.0
 
-        # ── Direct Latent -> Domain Logits (bypasses bottleneck) ──
-        self.use_sparse_concept_predictor = False
-        self.bottleneck_dim = 128  # kept for backward compat loading only
-        self.num_domains = 2
-        self.current_domain_id = None
-        self.spreading_confidence_threshold = 0.35
+        # A latent-space RP path is required whenever embed_dim != latent_dim.
+        self._rp_use_encoder_latent = self.embed_dim != self.latent_dim
 
         # Domain-Specific Heads (direct from source_latent, no bottleneck)
-        self.domain_W_logits = []
-        self.domain_b_logits = []
+        self.bottleneck_dim = kwargs.get("bottleneck_dim", 32)
+        self.num_domains = kwargs.get("num_domains", 4)
+        self._domain_heads = {}
+        self.current_domain_id = None
+        self._frozen_domains = set()
+        self._seen_domain_ids = set()
+        self._init_domain_heads()
 
-        for d in range(self.num_domains):
-            W_logits = np.random.normal(0, 0.1, (self.vocab_size, self.embed_dim)).astype(np.float32)
-            self.domain_W_logits.append(W_logits)
-            self.domain_b_logits.append(np.zeros(self.vocab_size, dtype=np.float32))
-
-        # Domain isolation: track which domains are frozen
-        self._frozen_domains: Set[int] = set()
-
-        # Momentum buffers
-        self.domain_W_logits_m = [np.zeros_like(w) for w in self.domain_W_logits]
-        self.domain_b_logits_m = [np.zeros_like(b) for b in self.domain_b_logits]
-
-        # ── Deprecated bottleneck params (kept as zeros for backward state loading) ──
-        n_rel_types = len(RELATION_TYPES)
-        self.rel_encoder = np.zeros((n_rel_types, self.bottleneck_dim, self.latent_dim), dtype=np.float32)
-        self.rel_bias = np.zeros((n_rel_types, self.bottleneck_dim), dtype=np.float32)
-        self.rel_encoder_m = np.zeros_like(self.rel_encoder)
-        self.rel_bias_m = np.zeros_like(self.rel_bias)
-        self.domain_W_gates = [np.zeros((self.vocab_size, self.bottleneck_dim), dtype=np.float32) for _ in range(self.num_domains)]
-        self.domain_b_gates = [np.zeros(self.vocab_size, dtype=np.float32) for _ in range(self.num_domains)]
-        self.domain_W_gates_m = [np.zeros_like(w) for w in self.domain_W_gates]
-        self.domain_b_gates_m = [np.zeros_like(b) for b in self.domain_b_gates]
-        self.router_W = np.zeros((self.num_domains, self.bottleneck_dim), dtype=np.float32)
-        self.router_b = np.zeros(self.num_domains, dtype=np.float32)
-        self.router_W_m = np.zeros_like(self.router_W)
-        self.router_b_m = np.zeros_like(self.router_b)
-
-        # Deterministic Subword (char-level CNN) weights
-        rng_char = np.random.RandomState(42)
-        self.char_embed = rng_char.randn(128, 64).astype(np.float32) * 0.1
-        self.char_cnn_W = rng_char.randn(128, 3, 64).astype(np.float32) * np.sqrt(2.0 / (3 * 64))
-        self.char_cnn_b = np.zeros(128, dtype=np.float32)
-        self.char_to_token_W = rng_char.randn(embed_dim, 128).astype(np.float32) * np.sqrt(2.0 / 128)
-        self.char_to_token_b = np.zeros(embed_dim, dtype=np.float32)
-        self.fusion_W = rng_char.randn(embed_dim, embed_dim * 2).astype(np.float32) * np.sqrt(2.0 / (embed_dim * 2))
-        self.fusion_b = np.zeros(embed_dim, dtype=np.float32)
-
-        # Pre-defined OOD anchor concepts mapping
-        self.anchor_concepts = {
-            "gravity": ["force", "mass", "field", "weight"],
-            "orbits": ["circular", "path", "motion", "celestial"],
-            "kindness": ["sharing", "empathy", "generosity", "friendship"],
-            "anger": ["conflict", "jealousy", "rudeness", "resentment"],
-            "sharing": ["friendship", "generosity", "kindness"],
-            "lying": ["betrayal", "gossip", "mistrust"],
-            "patience": ["understanding", "harmony", "peaceful"],
-            "honesty": ["trust", "respect", "noble"],
-            "empathy": ["connection", "compassion", "understanding"],
-            "greed": ["loneliness", "harmful", "dangerous"],
-            "jealousy": ["resentment", "conflict", "sadness"],
-            "generosity": ["gratitude", "valuable", "important"],
-            "rudeness": ["offense", "harmful", "tension"],
-            "gossip": ["mistrust", "lying", "betrayal"],
-            "collaboration": ["teamwork", "success", "innovation"],
-            "grief": ["empathy", "sadness", "natural"],
-            "curiosity": ["discovery", "exploration", "valuable"],
-            "apology": ["harmony", "restorative", "forgiveness"],
-            "compassion": ["suffering", "peaceful", "helpfulness"],
-            "leadership": ["action", "excellence", "admirable"]
-        }
-        
-        # ── Contrastive Regularization Attributes ──
-        self.use_contrastive_reg = False
-        self.lambda_contrastive = 0.5
-        self.semantic_pairs = []
-        self.neg_sample_size = 5
-
-        # ── Graph-Aware Encoder Alignment Attributes ──
-        self.alignment_margin = 0.15
-        self.lambda_anchor = 0.05
-        self.max_alignment_epochs = 10
-        self.alignment_lr = 0.005
-        self.alignment_edge_threshold = 0.25
-        self.alignment_needed = False  # flag: encoder changed, needs re-alignment
-        self.wake_epochs_since_sleep = 0  # count wake epochs for fixed-cadence sleep
-        self.sleep_every_n_wake_epochs = 3  # sleep every N wake epochs (default 3)
-        
-        # Generalization Enhancement Attributes
+        # Bridge alignment and relation traversal controls
+        self.use_bridge_alignment = False
+        self.use_reverse_edge_inheritance = False
+        self.use_depth_decay = False
         self.use_subspace_projection = False
         self.lambda_recon = 0.0
         self.rel_proj = np.eye(self.latent_dim, dtype=np.float32)
+        self.alignment_needed = False
+        self.alignment_edge_threshold = 0.2
+        self.alignment_lr = 0.005
+        self.alignment_margin = 0.15
+        self.max_alignment_epochs = 10
+        self.wake_epochs_since_sleep = 0
+        self.sleep_every_n_wake_epochs = 3
         
         # Ablation: disable spreading activation to isolate analogy path
         self.disable_spreading_activation = False
@@ -540,8 +474,36 @@ class RLMv2(Module):
         # Track cross-domain edges injected analogically (subject_cid, object_cid).
         self._cross_domain_edges_injected: Set[Tuple[int, int]] = set()
 
+        # Legacy sparse-concept predictor compatibility fields.
+        # These are retained so older save/load paths and tests still work.
+        self.use_sparse_concept_predictor = False
+        self.spreading_confidence_threshold = 0.35
+        self.rel_encoder = np.zeros((len(RELATION_TYPES), self.bottleneck_dim, self.latent_dim), dtype=np.float32)
+        self.rel_bias = np.zeros((len(RELATION_TYPES), self.bottleneck_dim), dtype=np.float32)
+        self.domain_W_logits = [np.zeros((self.vocab_size, self.embed_dim), dtype=np.float32) for _ in range(self.num_domains)]
+        self.domain_b_logits = [np.zeros(self.vocab_size, dtype=np.float32) for _ in range(self.num_domains)]
+        self.domain_W_gates = [np.zeros((self.vocab_size, self.bottleneck_dim), dtype=np.float32) for _ in range(self.num_domains)]
+        self.domain_b_gates = [np.zeros(self.vocab_size, dtype=np.float32) for _ in range(self.num_domains)]
+        self.router_W = np.zeros((self.num_domains, self.bottleneck_dim), dtype=np.float32)
+        self.router_b = np.zeros(self.num_domains, dtype=np.float32)
+
 
     # ── Domain Isolation Methods ─────────────────────────────────────────
+
+    def _init_domain_heads(self):
+        """Compatibility hook for older domain-head routing code.
+
+        The current RLMv2 path no longer relies on separate learned domain heads,
+        but some checkpoints and call sites still expect this initializer to exist.
+        Keep it as a no-op that leaves the existing domain bookkeeping intact.
+        """
+        if not hasattr(self, '_domain_heads'):
+            self._domain_heads = {}
+        if not hasattr(self, 'current_domain_id'):
+            self.current_domain_id = None
+        if not hasattr(self, '_frozen_domains'):
+            self._frozen_domains = set()
+        return None
 
     def set_domain(self, domain_id: Optional[int], freeze_others: bool = True):
         """Set active domain and optionally freeze all other domain heads.
@@ -1183,6 +1145,10 @@ class RLMv2(Module):
         token_emb = self.token_embed.weight.data[tid]
         if not hasattr(self, "_tokenizer") or self._tokenizer is None:
             return token_emb
+        if not hasattr(self, "char_embed") or not hasattr(self, "char_cnn_W"):
+            return token_emb
+        if not hasattr(self, "char_to_token_W") or not hasattr(self, "fusion_W"):
+            return token_emb
         word = ""
         try:
             word = self._tokenizer.decode([tid]).strip()
@@ -1389,20 +1355,24 @@ class RLMv2(Module):
                 return verb_logits
 
         # ── Bilinear W_rel Path (fallback) ──
-        # Use raw token embeddings directly (bypass collapsed encoder)
+        # Use raw token embeddings directly (bypass collapsed encoder) unless the
+        # relation predictor is configured to operate in latent space.
         source_embed = self.get_robust_embedding(subject_tid)  # (embed_dim,)
         token_embeds = self.token_embed.weight.data  # (vocab_size, embed_dim)
 
-        # Source latent = source embedding (preserves discriminative info)
-        source_latent = source_embed  # (embed_dim,) — must match latent_dim
-        target_latents = token_embeds  # (vocab_size, embed_dim) — must match latent_dim
+        if self._rp_use_encoder_latent:
+            source_latent, _, _, _ = self._encoder_forward_full(source_embed)
+            target_latents, _, _, _ = self._encoder_forward_full(token_embeds)
+        else:
+            source_latent = source_embed  # (embed_dim,)
+            target_latents = token_embeds  # (vocab_size, embed_dim)
 
         # Relation matrix (shared across ALL subjects)
-        W_rel = self._rp_rel_matrices[rel_type_idx]  # (latent_dim, latent_dim)
+        W_rel = self._rp_rel_matrices[rel_type_idx]
 
         # Bilinear scoring: logits = source_latent @ W_rel @ target_latents.T
-        projected = source_latent @ W_rel  # (latent_dim,)
-        logits = projected @ target_latents.T  # (vocab_size,)
+        projected = source_latent @ W_rel
+        logits = projected @ target_latents.T
 
         # Cache for backprop
         self._rp_cache = (
@@ -1412,6 +1382,7 @@ class RLMv2(Module):
             W_rel, logits
         )
         return logits
+
     def _compute_contrastive_gradients(self):
         """Compute contrastive loss gradients w.r.t. encoder parameters."""
         d_con_W1 = np.zeros_like(self._enc_W1)
@@ -1564,51 +1535,35 @@ class RLMv2(Module):
         d_logits *= getattr(self, "rp_scale", 16.0)
 
         # === Gradient w.r.t. W_rel ===
-        d_logits_proj = d_logits @ target_latents  # (latent_dim,)
-        dW_rel = np.outer(source_latent, d_logits_proj)  # (latent_dim, latent_dim)
+        d_logits_proj = d_logits @ target_latents
+        dW_rel = np.outer(source_latent, d_logits_proj)
 
         # Gradient clipping (prevent NaN from bilinear amplification)
         grad_norm = np.linalg.norm(dW_rel)
         if grad_norm > 10.0:
             dW_rel *= (10.0 / (grad_norm + 1e-15))
 
-        # === Gradients w.r.t. token embeddings ===
-        # dL/d(source_embed) = W_rel @ (d_logits @ target_latents)
-        d_source_latent = W_rel @ d_logits_proj  # (latent_dim,)
-        
-        # dL/d(target_latents[k]) = d_logits[k] * (W_rel @ source_latent)
-        d_target_latent_proj = W_rel @ source_latent  # (latent_dim,)
-        # Full gradient matrix: d_logits (vocab_size,) * d_target_latent_proj (latent_dim,)
-        # = outer(d_logits, d_target_latent_proj)  # (vocab_size, latent_dim)
-        d_target_latents = np.outer(d_logits, d_target_latent_proj)  # (vocab_size, latent_dim)
-
         lr = self._rp_lr * lr_scale
-        # ── CROSS-DOMAIN GENERALIZATION FIX ──
-        # Token embeddings are FROZEN during RP training by default. Set
-        # self.freeze_token_embeds_in_rp = False to revert to the old
-        # per-pair memorization behavior.
-        #
-        # Why: When embed_lr > 0, every step pulls source toward W_rel @ target AND
-        # pulls all targets toward W_rel @ source. Over thousands of steps each (s, o)
-        # pair co-adapts (memorization), and held-out subjects drift into noise via
-        # negative-gradient updates. Result: 100% train acc, 0% held-out.
-        # Freezing embeddings keeps them in the autoencoder-aligned semantic space and
-        # forces W_rel to learn a generic relation transform that actually generalizes.
         freeze_token_embeds = getattr(self, 'freeze_token_embeds_in_rp', True)
-        embed_lr = 0.0 if freeze_token_embeds else lr * 0.1
+        embed_lr = 0.0 if freeze_token_embeds or self._rp_use_encoder_latent else lr * 0.1
 
-        # Update the SHARED relation matrix with momentum
         self._rp_mrel_matrices[rel_type_idx] = (
             self._rp_momentum * self._rp_mrel_matrices[rel_type_idx] - lr * dW_rel
         )
         self._rp_rel_matrices[rel_type_idx] += self._rp_mrel_matrices[rel_type_idx]
 
+        if self._rp_use_encoder_latent:
+            self._rp_cache = None
+            return
+
+        # === Gradients w.r.t. token embeddings ===
+        d_source_latent = W_rel @ d_logits_proj
+        d_target_latent_proj = W_rel @ source_latent
+        d_target_latents = np.outer(d_logits, d_target_latent_proj)
+
         if embed_lr > 0:
-            # Update source embedding (trains it to be relation-aware)
             self.token_embed.weight.data[subject_tid] -= embed_lr * d_source_latent
-            # Update ALL target embeddings (the relation-aware signal spreads)
             self.token_embed.weight.data -= embed_lr * d_target_latents
-            # Embeddings changed -> invalidate norm cache
             self._token_embed_norms = None
 
         self._rp_cache = None
