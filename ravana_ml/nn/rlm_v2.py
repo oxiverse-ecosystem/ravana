@@ -1393,9 +1393,22 @@ class RLMv2(Module):
         source_embed = self.get_robust_embedding(subject_tid)  # (embed_dim,)
         token_embeds = self.token_embed.weight.data  # (vocab_size, embed_dim)
 
-        # Source latent = source embedding (preserves discriminative info)
-        source_latent = source_embed  # (embed_dim,) — must match latent_dim
-        target_latents = token_embeds  # (vocab_size, embed_dim) — must match latent_dim
+        # Project to latent_dim if embed_dim != latent_dim
+        if self.embed_dim != self.latent_dim:
+            source_latent, _, _, _ = self._encoder_forward_full(source_embed)
+            # Cache encoded targets (token embeddings are frozen during RP training,
+            # so encode once and reuse). Invalidate by re-computing on first call
+            # after token_embed changes (freeze_token_embeds_in_rp=True by default).
+            if getattr(self, '_cached_encoded_targets', None) is None:
+                encoded = []
+                for i in range(token_embeds.shape[0]):
+                    lat, _, _, _ = self._encoder_forward_full(token_embeds[i])
+                    encoded.append(lat)
+                self._cached_encoded_targets = np.stack(encoded)
+            target_latents = self._cached_encoded_targets
+        else:
+            source_latent = source_embed
+            target_latents = token_embeds
 
         # Relation matrix (shared across ALL subjects)
         W_rel = self._rp_rel_matrices[rel_type_idx]  # (latent_dim, latent_dim)

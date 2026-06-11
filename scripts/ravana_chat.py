@@ -223,6 +223,7 @@ TEEN_CONCEPTS = [
     ("and", "also plus together"),
     ("so", "therefore thus hence"),
     ("then", "next after afterwards"),
+    ("link", "connect join bond tie"),
     ("why", "reason because explanation cause"),
     ("how", "method way process means"),
     ("what", "which thing object identity"),
@@ -283,6 +284,44 @@ class ChainTrace:
     completed: bool = False
 
 @dataclass
+class UserModel:
+    """Tracks user interaction patterns via edge reactivation frequency.
+    
+    No hardcoded patterns — preferences emerge from graph traversal stats.
+    """
+    edge_reactivations: Dict[Tuple[str, str], int] = field(default_factory=dict)
+    query_concepts: Set[str] = field(default_factory=set)
+
+    def observe_chain(self, hops: List[Tuple[str, str]], is_user_query: bool = False):
+        """Record which edges were traversed during a chain walk."""
+        for from_label, to_label in hops:
+            key = (from_label.lower(), to_label.lower())
+            self.edge_reactivations[key] = self.edge_reactivations.get(key, 0) + 1
+        if is_user_query:
+            for from_label, to_label in hops:
+                self.query_concepts.add(from_label.lower())
+                self.query_concepts.add(to_label.lower())
+
+    def inferred_preferences(self, threshold: int = 2) -> Dict[Tuple[str, str], int]:
+        """Return edges the user has reactivated >= threshold times.
+        Used for display/debugging, NOT for boost calculation."""
+        return {(f, t): c for (f, t), c in self.edge_reactivations.items()
+                if c >= threshold}
+
+    def activation_boost_for(self, concept: str) -> Dict[str, float]:
+        """Continuous activation boost for edges reachable from concept.
+        
+        Uses sigmoid confidence: 0 visits → 1.0x, 1 visit → 1.15x,
+        2 visits → 1.2x, saturating at 1.3x.
+        No hard threshold — even a single visit provides a small boost."""
+        boost: Dict[str, float] = {}
+        cl = concept.lower()
+        for (from_c, to_c), count in self.edge_reactivations.items():
+            if from_c == cl:
+                boost[to_c] = 1.0 + (count / (count + 1.0)) * 0.3
+        return boost
+
+@dataclass
 class CognitiveResponseContext:
     """All cognitive signals available for response generation."""
     subject: str = ""
@@ -305,6 +344,61 @@ class CognitiveResponseContext:
     meaning_generated: float = 0.0
     exploration_drive: float = 0.0
     learned_recently: bool = False  # Did we just learn something new?
+
+
+class BeliefStore:
+    """Tracks asserted belief triples and contradiction history.
+    
+    Each belief is (subject, predicate, value) with confidence and timestamp.
+    Contradictions are detected and recorded for edge-weight modulation.
+    """
+    def __init__(self):
+        self.beliefs: Dict[Tuple[str, str], Tuple[str, float, int]] = {}
+        # (subject, predicate) -> (value, confidence, turn)
+        self.contradictions: List[Tuple[Tuple, Tuple, int]] = []
+        # [(old_triple, new_triple, turn)]
+        self.resolution_history: Dict[str, str] = {}
+        # triple_str -> "accept_new" | "reject_new" | "both"
+        self.turn_num = 0
+
+    def advance_turn(self):
+        self.turn_num += 1
+
+    def assert_belief(self, subject_id: str, predicate: str,
+                       value: str, confidence: float = 0.8):
+        key = (subject_id, predicate)
+        self.beliefs[key] = (value, confidence, self.turn_num)
+
+    def query_belief(self, subject_id: str,
+                     predicate: str) -> Optional[Tuple[str, float, int]]:
+        return self.beliefs.get((subject_id, predicate))
+
+    def detect_contradiction(self, subject_id: str, predicate: str,
+                              new_value: str) -> Optional[Tuple]:
+        existing = self.query_belief(subject_id, predicate)
+        if existing and existing[0] != new_value:
+            return (existing, new_value, existing[2])
+        return None
+
+    def resolve_contradiction(self, old_triple: Tuple, new_triple: Tuple,
+                               choice: str):
+        self.contradictions.append((old_triple, new_triple, self.turn_num))
+        key = str(new_triple)
+        self.resolution_history[key] = choice
+
+    def get_state(self) -> Dict:
+        return {
+            'beliefs': self.beliefs,
+            'contradictions': self.contradictions,
+            'resolution_history': self.resolution_history,
+            'turn_num': self.turn_num,
+        }
+
+    def set_state(self, state: Dict):
+        self.beliefs = state.get('beliefs', {})
+        self.contradictions = state.get('contradictions', [])
+        self.resolution_history = state.get('resolution_history', {})
+        self.turn_num = state.get('turn_num', 0)
 
 
 class CognitiveChatEngine:
@@ -347,7 +441,22 @@ class CognitiveChatEngine:
         self._trace_enabled = False
         self._contradiction_map: Dict[str, Set[str]] = {}
         self._belief_assertions: List[Tuple[str, str, str]] = []
-        self._user_interests: Dict[str, float] = {}  # concept -> strength (decays)
+        self.user_model = UserModel()
+        self._last_hops: List[List[Tuple[str, str]]] = []  # concept -> strength (decays)
+        # Integration toggles (can be disabled via CLI)
+        self.use_vad = True
+        self.use_rlm = True
+        self.use_beliefs = True
+        self.belief_store = BeliefStore()
+
+        # Build reverse lookup from connector word → relation type
+        self._CONNECTOR_TO_REL: Dict[str, str] = {}
+        for rel_type, tiers in self._EDGE_CONNECTORS.items():
+            for entry in tiers:
+                options = entry[1] if isinstance(entry, tuple) and len(entry) == 2 else entry[2]
+                for opt in options:
+                    self._CONNECTOR_TO_REL[opt] = rel_type
+        self._CONNECTOR_SET = set(self._CONNECTOR_TO_REL.keys())
 
         # Try loading saved weights first
         # Meta-cognition layer
@@ -905,6 +1014,7 @@ class CognitiveChatEngine:
 
         # Step 1b: If this is a follow-up (more/else/also), reactivate the latest
         # past topic so the graph walks find it naturally
+        self._activation_boost: Optional[Dict[str, float]] = None
         if self._is_follow_up(user_input) and self._past_topics:
             last_topic = self._past_topics[-1]
             lt_nids = self._concept_keywords.get(last_topic.lower(), [])
@@ -912,9 +1022,8 @@ class CognitiveChatEngine:
                 if nid not in activated:
                     activated.append(nid)
                     self.graph.activate(nid, 0.6)
-
-        # Step 1c: Extract user interests from "I like/love {concept}" patterns
-        self._store_user_interests(user_input)
+            # Compute activation boost from user model's inferred preferences
+            self._activation_boost = self.user_model.activation_boost_for(last_topic)
 
         # Step 2: Extract topic
         subject, obj = self._extract_topic(user_input, activated)
@@ -1022,12 +1131,6 @@ class CognitiveChatEngine:
         # Step 11: Store episodic memory — link subject to its associations
         self._store_episodic(subject, associations)
 
-        # Step 12: Decay user interests (fade 5% per turn)
-        for k in list(self._user_interests):
-            self._user_interests[k] *= 0.95
-            if self._user_interests[k] < 0.1:
-                del self._user_interests[k]
-
         self._last_responses.append(response)
         if len(self._last_responses) > 10:
             self._last_responses = self._last_responses[-10:]
@@ -1114,21 +1217,6 @@ class CognitiveChatEngine:
                     not self.graph.get_edge(subj_nids[0], assoc_nids[0])):
                 self.graph.add_edge(subj_nids[0], assoc_nids[0],
                                     weight=0.15, relation_type="episodic")
-
-    # Verbs that signal user interest when used as "I {verb} {concept}"
-    _INTEREST_VERBS = {"like", "love", "enjoy", "play", "listen", "watch",
-                        "read", "study", "practice", "explore", "create"}
-
-    def _store_user_interests(self, text: str):
-        """Parse 'I {verb} {concept}' patterns and store as user interests."""
-        words = text.lower().split()
-        for i, w in enumerate(words):
-            if w == "i" and i + 2 < len(words):
-                verb = words[i + 1].strip(".,!?'")
-                if verb in self._INTEREST_VERBS:
-                    obj = words[i + 2].strip(".,!?'")
-                    if obj in self._concept_keywords:
-                        self._user_interests[obj] = min(1.0, self._user_interests.get(obj, 0) + 0.4)
 
     TOPIC_SKIP_WORDS = {"i", "you", "we", "they", "he", "she", "it", "me", "my",
                         "your", "our", "their", "him", "her", "its", "this", "that",
@@ -1318,6 +1406,8 @@ class CognitiveChatEngine:
         self.emotion.update(stimulus_valence=sv, stimulus_arousal=sa,
                            stimulus_dominance=self.identity.state.strength * 0.4 + 0.2,
                            uncertainty=self._free_energy * 0.5)
+        # VAD decay toward neutral each turn
+        self._vad_decay(rate=0.95)
 
     def _recall_past(self, subj: str, obj: str) -> List[str]:
         related = []
@@ -1332,6 +1422,38 @@ class CognitiveChatEngine:
     # NO hardcoded strings. ALL content words are concept labels from the graph.
     # Edge relation types (stored in graph edge data) are mapped to graph concept
     # labels that already exist in the seeded vocabulary — no external text.
+
+    # Tiered connectors: (min_weight, [word, ...])
+    # Auto-wired edges: min=0.30, ~0.30-0.40 common, max=0.50
+    # Weight ≥ 0.33 (~top 25%): stronger connector (e.g. "link", "and")
+    # Weight 0.30-0.33 (bulk): default "connect"
+    # Lower temperature = conservative (pick first option), higher = random.
+    _EDGE_CONNECTORS = {
+        "semantic": [
+            (0.35, ["link", "and", "connect"]),
+            (0.0, ["connect"]),
+        ],
+        "causal": [
+            (0.33, ["make", "create", "cause"]),
+            (0.0, ["cause", "so", "because"]),
+        ],
+        "analogical": [
+            (0.33, ["like", "love"]),
+            (0.0, ["like"]),
+        ],
+        "contrastive": [
+            (0.20, ["but", "but", "but"]),
+            (0.0, ["but"]),
+        ],
+        "temporal": [
+            (0.28, ["change", "then"]),
+            (0.0, ["then"]),
+        ],
+        "episodic": [
+            (0.20, ["connect", "and"]),
+            (0.0, ["connect"]),
+        ],
+    }
 
     _EDGE_TO_GRAPH_LABEL = {
         "causal": "cause",
@@ -1386,7 +1508,7 @@ class CognitiveChatEngine:
 
     def _rel_clause(self, subject: str, rel: str, concepts: List[str]) -> str:
         """Build a clause like 'subject cause concept1 concept2'."""
-        connector = self._EDGE_TO_GRAPH_LABEL.get(rel, "")
+        connector = self._pick_connector(rel, 0.5, 1.0, 0.25)
         concepts = [c for c in concepts if c.lower() != connector]
         if not concepts:
             return ""
@@ -1405,6 +1527,163 @@ class CognitiveChatEngine:
                 concepts = [c for c in concepts if c.lower() != connector]
             parts.extend(concepts)
         return " ".join(parts)
+
+    # ─── VAD Modulation ───
+
+    def _get_temperature(self, sentence_idx: int,
+                         base_temps: Optional[List[float]] = None) -> float:
+        """Return temperature for sentence, scaled by current arousal.
+        
+        High arousal → more exploration (higher temp).
+        Low arousal → more focused (lower temp).
+        """
+        if not getattr(self, 'use_vad', True):
+            base = (base_temps or [0.15, 0.30, 0.40])[min(sentence_idx, 2)]
+            return base
+        base_temps = base_temps or [0.15, 0.30, 0.40]
+        base = base_temps[min(sentence_idx, 2)]
+        arousal = self.emotion.state.arousal  # 0..1
+        arousal_factor = 0.7 + (arousal * 0.6)  # [0.7, 1.3]
+        return base * arousal_factor
+
+    def _vad_decay(self, rate: float = 0.95):
+        """Return VAD toward neutral each turn."""
+        if not getattr(self, 'use_vad', True):
+            return
+        s = self.emotion.state
+        s.valence *= rate
+        s.arousal = 0.3 + (s.arousal - 0.3) * rate
+        s.dominance = 0.5 + (s.dominance - 0.5) * rate
+
+    # ─── Relation Verifier (lightweight RLMv2 wrapper) ───
+
+    def _classify_triple(self, source_label: str, target_label: str,
+                         relation_type: str) -> Dict[str, Any]:
+        """Verify a (source, relation, target) triple using graph + vector data.
+        
+        Returns:
+            {'confidence': float (0..1),
+             'top_relations': List[(rel_type, score)],
+             'is_analogical': bool,
+             'suggested_type': str}
+        """
+        src_nids = self._concept_keywords.get(source_label.lower(), [])
+        tgt_nids = self._concept_keywords.get(target_label.lower(), [])
+        if not src_nids or not tgt_nids:
+            return {'confidence': 0.0, 'top_relations': [],
+                    'is_analogical': False, 'suggested_type': relation_type}
+
+        # Edge-based confidence
+        edge_info = self._get_edge_info(source_label, target_label)
+        if edge_info:
+            edge_conf = edge_info['weight'] * edge_info['confidence']
+            matches = edge_info['relation_type'] == relation_type
+        else:
+            edge_conf = 0.0
+            matches = False
+
+        # Vector similarity confidence (cosine)
+        src_node = self.graph.get_node(src_nids[0])
+        tgt_node = self.graph.get_node(tgt_nids[0])
+        vec_conf = 0.0
+        if src_node and tgt_node and src_node.vector is not None and tgt_node.vector is not None:
+            vec_conf = float(np.dot(src_node.vector, tgt_node.vector))
+
+        # Blend: edge (0.6) + vector (0.4), with boost if edge matches
+        if matches:
+            confidence = min(1.0, edge_conf * 0.7 + vec_conf * 0.3)
+        elif edge_conf > 0:
+            confidence = 0.3 + edge_conf * 0.3
+        else:
+            confidence = max(0.0, vec_conf * 0.4 - 0.1)
+
+        # Rank all relation types by vector-based plausibility
+        top_relations = self._rank_relations(source_label, target_label, relation_type)
+
+        # Cross-domain detection: different concept categories
+        is_analogical = self._is_cross_domain(source_label, target_label)
+
+        return {
+            'confidence': confidence,
+            'top_relations': top_relations,
+            'is_analogical': is_analogical,
+            'suggested_type': top_relations[0][0] if top_relations else relation_type,
+        }
+
+    DOMAIN_MAP = {
+        "emotion": {"love", "hate", "fear", "joy", "sad", "angry", "happy", "scared",
+                     "excited", "curious", "confused", "bored", "proud", "lonely",
+                     "grateful", "anxiety", "excitement", "frustration", "hope",
+                     "grief", "surprise", "guilt", "disappointment",
+                     "empathy", "lonely", "heart", "feel"},
+        "abstract": {"truth", "justice", "freedom", "power", "knowledge", "wisdom",
+                      "meaning", "pattern", "system", "perspective", "context",
+                      "paradox", "principle", "theory", "evidence", "analysis",
+                      "conclusion", "logic", "intuition", "identity", "culture",
+                      "responsibility", "trust", "hypocrisy", "respect",
+                      "belief", "significant", "fundamental", "inevitable",
+                      "possible", "obvious", "subtle", "profound"},
+        "social": {"friend", "people", "person", "trust", "respect",
+                    "culture", "power", "freedom", "responsibility",
+                    "we", "they", "you", "i", "friend"},
+        "concrete": {"water", "food", "home", "sun", "moon", "tree", "bird",
+                      "dog", "cat", "book", "song", "world", "nature",
+                      "machine", "invention", "water", "food", "sun"},
+        "action": {"make", "create", "destroy", "protect", "accept", "reject",
+                    "analyze", "conclude", "reflect", "question", "explore",
+                    "understand", "compare", "criticize", "assume", "imagine",
+                    "cause", "change", "grow", "learn", "teach",
+                    "go", "come", "see", "hear", "eat", "drink", "sleep",
+                    "play", "help", "get", "know", "think", "say", "feel",
+                    "give", "take"},
+    }
+
+    def _is_cross_domain(self, label_a: str, label_b: str) -> bool:
+        """Check if two concepts belong to different domains."""
+        la = label_a.lower()
+        lb = label_b.lower()
+        domain_a = None
+        domain_b = None
+        for domain, words in self.DOMAIN_MAP.items():
+            if la in words:
+                domain_a = domain
+            if lb in words:
+                domain_b = domain
+        return domain_a is not None and domain_b is not None and domain_a != domain_b
+
+    def _rank_relations(self, source_label: str, target_label: str,
+                        default_type: str) -> List[Tuple[str, float]]:
+        """Rank relation types by vector-based plausibility for a concept pair."""
+        src_nids = self._concept_keywords.get(source_label.lower(), [])
+        tgt_nids = self._concept_keywords.get(target_label.lower(), [])
+        if not src_nids or not tgt_nids:
+            return [(default_type, 0.5)]
+
+        src_node = self.graph.get_node(src_nids[0])
+        tgt_node = self.graph.get_node(tgt_nids[0])
+        if src_node is None or tgt_node is None:
+            return [(default_type, 0.5)]
+
+        src_vec = src_node.vector
+        tgt_vec = tgt_node.vector
+        if src_vec is None or tgt_vec is None:
+            return [(default_type, 0.5)]
+
+        # Causal scoring: positive + strong magnitude = likely causal
+        cosine = float(np.dot(src_vec, tgt_vec))
+        mag_ratio = float(np.linalg.norm(tgt_vec) / max(np.linalg.norm(src_vec), 0.001))
+
+        scores = {
+            "semantic": max(0.0, cosine),
+            "causal": max(0.0, 0.3 + 0.3 * mag_ratio - 0.2 * (1.0 - abs(cosine))),
+            "contrastive": max(0.0, 0.5 - 0.5 * cosine),
+            "analogical": max(0.0, 0.2 + 0.3 * cosine - 0.3 * abs(mag_ratio - 1.0)),
+            "temporal": 0.1,
+            "emotional": 0.1,
+        }
+
+        ranked = sorted(scores.items(), key=lambda x: -x[1])
+        return ranked
 
     def _find_vector_neighbor(self, label: str) -> Optional[str]:
         """Find the most semantically similar concept (GloVe cosine similarity)."""
@@ -1447,6 +1726,36 @@ class CognitiveChatEngine:
             return None
         return phrase
 
+    def _pick_connector(self, relation_type: str, weight: float,
+                        confidence: float, temperature: float) -> str:
+        """Pick a connector word based on edge weight, temp, and VAD state.
+        
+        Higher weight → stronger connector (e.g. "link" over "connect").
+        Higher temperature → more random selection among options.
+        High arousal → prefer stronger/assertive connectors.
+        Low arousal → prefer weaker/softer connectors.
+        All returned words are graph concept labels."""
+        tiers = self._EDGE_CONNECTORS.get(relation_type, [])
+        if not tiers:
+            return ""
+        for min_weight, options in tiers:
+            if weight >= min_weight:
+                # VAD modulation: arousal shifts preference within the tier
+                if getattr(self, 'use_vad', True):
+                    arousal = self.emotion.state.arousal
+                    dominance = self.emotion.state.dominance
+                    # High arousal + high dominance → prefer first (strongest) option
+                    if arousal > 0.65 and dominance > 0.55 and len(options) > 1:
+                        return options[0]
+                    # Low arousal → prefer last (weakest) option
+                    if arousal < 0.35 and len(options) > 1:
+                        return options[-1]
+                # Standard temperature-driven choice
+                if temperature < 0.2:
+                    return options[0]
+                return self.rng.choice(options)
+        return tiers[-1][1][0]
+
     def _starter_from_chain(self, chain: str, subject: str) -> str:
         """Extract the first edge relation type from a chain string and return
         a discourse starter (graph label). The matched starter is weighted 3x
@@ -1457,13 +1766,12 @@ class CognitiveChatEngine:
         matched = "and"
         parts = chain.split()
         if len(parts) >= 3:
-            conn = parts[1]
-            for rel_type, graph_label in self._EDGE_TO_GRAPH_LABEL.items():
-                if graph_label and conn == graph_label:
-                    starter = self._EDGE_TO_STARTER.get(rel_type)
-                    if starter:
-                        matched = starter
-                    break
+            conn = parts[1].lower()
+            rel_type = self._CONNECTOR_TO_REL.get(conn)
+            if rel_type:
+                starter = self._EDGE_TO_STARTER.get(rel_type)
+                if starter:
+                    matched = starter
         candidates = list(self._EDGE_TO_STARTER.values())
         weights = np.array([3.0 if s == matched else 1.0 for s in candidates], dtype=np.float64)
         weights /= weights.sum()
@@ -1471,13 +1779,15 @@ class CognitiveChatEngine:
 
     def _walk_chain(self, label: str, seen: Set[str], max_hops: int,
                     temperature: float = 0.25,
-                    contradiction_penalty: float = 0.6) -> Optional[str]:
+                    contradiction_penalty: float = 0.6,
+                    activation_boost: Optional[Dict[str, float]] = None) -> Optional[str]:
         """Walk a path through the graph from label, temperature-weighted.
         temperature=0 → greedy (always strongest), temperature=1 → near-uniform.
         Each hop adds `connector concept` to the chain. Returns None if no path.
 
         Applies contradiction_penalty to edges whose target contradicts a
         previously asserted belief about the source concept.
+        activation_boost: {target_label: multiplier} from user model preferences.
 
         Records detailed hop info in self._chain_traces when self._trace_enabled."""
         nids = self._concept_keywords.get(label.lower(), [])
@@ -1488,6 +1798,7 @@ class CognitiveChatEngine:
         cur_nid = nids[0]
         cur_label = label
         hops = 0
+        local_hops: List[Tuple[str, str]] = []
         trace = ChainTrace(max_hops=max_hops) if self._trace_enabled else None
         while hops < max_hops:
             candidates = []
@@ -1507,8 +1818,7 @@ class CognitiveChatEngine:
                 candidates.append((edge.weight * edge.confidence, sn.label, edge, "in"))
             if not candidates:
                 break
-            # Apply contradiction penalty: if target contradicts a belief
-            # about cur_label, reduce its score by penalty factor
+            # Apply contradiction penalty (from _belief_assertions)
             if contradiction_penalty > 0 and self._contradiction_map:
                 penalized = []
                 for sig, tgt_lbl, edge, d in candidates:
@@ -1516,15 +1826,67 @@ class CognitiveChatEngine:
                         sig *= (1.0 - contradiction_penalty)
                     penalized.append((sig, tgt_lbl, edge, d))
                 candidates = penalized
-            # Personalization bonus: boost edges toward user interest concepts
-            if self._user_interests:
+            # Preference boost: continuous sigmoid from edge reactivation frequency
+            if self.user_model.edge_reactivations:
                 boosted = []
                 for sig, tgt_lbl, edge, d in candidates:
-                    interest_strength = self._user_interests.get(tgt_lbl.lower(), 0.0)
-                    if interest_strength > 0:
-                        sig += interest_strength * 0.2
-                    boosted.append((sig, tgt_lbl, edge, d))
+                    key = (cur_label.lower(), tgt_lbl.lower())
+                    count = self.user_model.edge_reactivations.get(key, 0)
+                    boost = 1.0 + (count / (count + 1.0)) * 0.3
+                    boosted.append((sig * boost, tgt_lbl, edge, d))
                 candidates = boosted
+            # Activation boost from follow-up handler (targeted preference bias)
+            if activation_boost:
+                boosted = []
+                for sig, tgt_lbl, edge, d in candidates:
+                    boost = activation_boost.get(tgt_lbl.lower(), 1.0)
+                    boosted.append((sig * boost, tgt_lbl, edge, d))
+                candidates = boosted
+            # ── VAD Edge Preference ──
+            if getattr(self, 'use_vad', True):
+                valence = self.emotion.state.valence
+                dominance = self.emotion.state.dominance
+                vad_boosted = []
+                max_w = max((c[0] for c in candidates), default=0.001)
+                for sig, tgt_lbl, edge, d in candidates:
+                    adj = sig
+                    if valence > 0.65:
+                        adj *= (1.0 + 0.15 * (edge.weight / max_w))
+                    elif valence < -0.3:
+                        adj *= 0.9
+                    if dominance < 0.4:
+                        adj *= (0.6 + 0.4 * edge.weight / max_w)
+                    vad_boosted.append((adj, tgt_lbl, edge, d))
+                candidates = vad_boosted
+            # ── RLMv2 Confidence Modulation ──
+            if getattr(self, 'use_rlm', True):
+                rlm_boosted = []
+                for sig, tgt_lbl, edge, d in candidates:
+                    triple = self._classify_triple(cur_label, tgt_lbl, edge.relation_type)
+                    rlm_conf = triple['confidence']
+                    adj = sig
+                    if rlm_conf < 0.4:
+                        adj *= 0.7
+                    elif rlm_conf > 0.75:
+                        adj *= 1.15
+                    if triple['is_analogical']:
+                        adj *= 0.85
+                    rlm_boosted.append((adj, tgt_lbl, edge, d))
+                candidates = rlm_boosted
+            # ── BeliefStore Confidence Weighting ──
+            if getattr(self, 'use_beliefs', True):
+                belief_boosted = []
+                for sig, tgt_lbl, edge, d in candidates:
+                    belief = self.belief_store.query_belief(cur_label, edge.relation_type)
+                    adj = sig
+                    if belief:
+                        value, bconf, turn = belief
+                        if value == tgt_lbl:
+                            adj *= (1.0 + 0.2 * bconf)
+                        else:
+                            adj *= (1.0 - 0.4 * bconf)
+                    belief_boosted.append((adj, tgt_lbl, edge, d))
+                candidates = belief_boosted
             # Temperature-weighted selection
             if temperature > 0 and len(candidates) > 1:
                 sigs = np.array([c[0] for c in candidates])
@@ -1536,7 +1898,8 @@ class CognitiveChatEngine:
             else:
                 idx = max(range(len(candidates)), key=lambda i: candidates[i][0])
             best_sig, best_label, best_edge, direction = candidates[idx]
-            connector = self._EDGE_TO_GRAPH_LABEL.get(best_edge.relation_type, "")
+            connector = self._pick_connector(best_edge.relation_type, best_edge.weight,
+                                             best_edge.confidence, temperature)
             # Retry same hop if best neighbor IS the connector word
             if best_label.lower() == connector.lower():
                 seen.add(best_label.lower())
@@ -1554,6 +1917,14 @@ class CognitiveChatEngine:
                     relation_type=best_edge.relation_type,
                     weight=best_edge.weight, confidence=best_edge.confidence,
                     temperature=temperature, candidates=len(candidates)))
+            local_hops.append((cur_label, best_label))
+            # Record belief assertion
+            self._belief_assertions.append((cur_label, best_edge.relation_type, best_label))
+            if getattr(self, 'use_beliefs', True):
+                self.belief_store.assert_belief(
+                    cur_label, best_edge.relation_type, best_label,
+                    confidence=best_edge.weight * best_edge.confidence)
+                self.belief_store.advance_turn()
             cur_label = best_label
             cur_nid = self._concept_keywords.get(best_label.lower(), [None])[0]
             if cur_nid is None:
@@ -1562,6 +1933,8 @@ class CognitiveChatEngine:
         if trace is not None:
             trace.completed = hops >= max_hops
             self._chain_traces.append(trace)
+        if local_hops:
+            self._last_hops.append(local_hops)
         if len(chain) <= 1:
             return None
         return " ".join(chain)
@@ -1572,6 +1945,8 @@ class CognitiveChatEngine:
         multi-hop narrative. All words from graph labels, connectors from edge data."""
         subject = ctx.subject
         assocs = ctx.associated_concepts
+        act_boost = getattr(self, '_activation_boost', None)
+        self._last_hops = []
 
         if not assocs:
             if subject:
@@ -1586,9 +1961,10 @@ class CognitiveChatEngine:
 
         # Walk progressive depths: 1 hop, 2 more, 3 more
         # Each subsequent walk starts from the last concept of the previous walk
-        # Vary temperature per sentence: first sentence mostly greedy,
-        # later sentences more exploratory
-        chain1 = self._walk_chain(subject, seen, max_hops=1, temperature=0.15)
+        # Temperature scaled by VAD arousal (high arousal → more exploration)
+        temps = [self._get_temperature(0), self._get_temperature(1), self._get_temperature(2)]
+        chain1 = self._walk_chain(subject, seen, max_hops=1, temperature=temps[0],
+                                  activation_boost=act_boost)
         if not chain1:
             neighbor = self._find_vector_neighbor(subject)
             if neighbor and neighbor.lower() != subject.lower():
@@ -1598,20 +1974,23 @@ class CognitiveChatEngine:
 
         # Extract last concept of chain1 as the new starting point
         c1_parts = chain1.split()
-        start2 = c1_parts[-1] if c1_parts[-1] not in self._EDGE_TO_GRAPH_LABEL.values() and \
+        start2 = c1_parts[-1] if c1_parts[-1].lower() not in self._CONNECTOR_SET and \
             c1_parts[-1].lower() not in self.TOPIC_SKIP_WORDS else subject
-        chain2 = self._walk_chain(start2, seen, max_hops=2, temperature=0.3)
+        chain2 = self._walk_chain(start2, seen, max_hops=2, temperature=temps[1],
+                                  activation_boost=act_boost)
         if chain2:
             conn = self._starter_from_chain(chain2, subject)
             sentences.append(f"{conn} {chain2}.")
         else:
             # Multi-branch fallback: try subject, then other associations
-            chain2 = self._walk_chain(subject, seen, max_hops=2, temperature=0.3)
+            chain2 = self._walk_chain(subject, seen, max_hops=2, temperature=temps[1],
+                                       activation_boost=act_boost)
             if not chain2:
                 for alt_label, _ in assocs[:4]:
                     alc = alt_label.lower()
                     if alc not in seen and alc not in self.TOPIC_SKIP_WORDS:
-                        chain2 = self._walk_chain(alt_label, seen, max_hops=2, temperature=0.3)
+                        chain2 = self._walk_chain(alt_label, seen, max_hops=2, temperature=temps[1],
+                                                   activation_boost=act_boost)
                         if chain2:
                             break
             if chain2:
@@ -1622,11 +2001,12 @@ class CognitiveChatEngine:
             # Try extending from chain2's end
             if chain2:
                 c2_parts = chain2.split()
-                start3 = c2_parts[-1] if c2_parts[-1] not in self._EDGE_TO_GRAPH_LABEL.values() and \
+                start3 = c2_parts[-1] if c2_parts[-1].lower() not in self._CONNECTOR_SET and \
                     c2_parts[-1].lower() not in self.TOPIC_SKIP_WORDS else subject
             else:
                 start3 = subject
-            chain3 = self._walk_chain(start3, seen, max_hops=3, temperature=0.4)
+            chain3 = self._walk_chain(start3, seen, max_hops=3, temperature=temps[2],
+                                       activation_boost=act_boost)
             if chain3:
                 conn = self._starter_from_chain(chain3, subject)
                 sentences.append(f"{conn} {chain3}.")
@@ -1639,6 +2019,12 @@ class CognitiveChatEngine:
                         break
 
         self._log_assertions(sentences, subject)
+
+        # Observe all chain hops in the user model
+        for hops in self._last_hops:
+            self.user_model.observe_chain(hops, is_user_query=False)
+        self._activation_boost = None
+        self._last_hops = []
         return (" ".join(sentences), "associative")
 
 
@@ -1748,6 +2134,24 @@ class CognitiveChatEngine:
                 print(f"  [trace]     hop {i}: {h.from_label}{dir_sym}{h.to_label}  "
                       f"[{h.relation_type}] w={h.weight:.3f} c={h.confidence:.3f} "
                       f"t={h.temperature:.2f} ({h.candidates} cand)")
+        # Print user model state
+        if self.user_model.edge_reactivations:
+            print(f"  [trace]   user_model: {len(self.user_model.edge_reactivations)} edge visits")
+            prefs = self.user_model.inferred_preferences(threshold=1)
+            if prefs:
+                for (frm, to), cnt in sorted(prefs.items(), key=lambda x: -x[1])[:5]:
+                    print(f"  [trace]     pref: {frm} -> {to} (visit={cnt})")
+        # Print belief store state
+        if getattr(self, 'use_beliefs', False) and hasattr(self, 'belief_store'):
+            bs = self.belief_store
+            if bs.beliefs:
+                print(f"  [trace]   belief_store: {len(bs.beliefs)} beliefs, "
+                      f"{len(bs.contradictions)} contradictions")
+                for (subj, pred), (val, conf, turn) in list(bs.beliefs.items())[:3]:
+                    print(f"  [trace]     belief: {subj} . {pred} = {val} @ {conf:.2f} (turn {turn})")
+        # Print VAD state
+        print(f"  [trace]   vad: v={self.emotion.state.valence:.2f} "
+              f"a={self.emotion.state.arousal:.2f} d={self.emotion.state.dominance:.2f}")
         self._chain_traces.clear()
 
     def save(self) -> str:
@@ -1776,6 +2180,11 @@ class CognitiveChatEngine:
             'concept_vad': self._concept_vad,
             'meta_mode': self.meta_cog.current_mode.value,
             'contradiction_map': self._contradiction_map,
+            'user_model': self.user_model,
+            'use_vad': getattr(self, 'use_vad', True),
+            'use_rlm': getattr(self, 'use_rlm', True),
+            'use_beliefs': getattr(self, 'use_beliefs', True),
+            'belief_store_state': getattr(self, 'belief_store', BeliefStore()).get_state(),
         }
         try:
             with open(self._save_path, 'wb') as f:
@@ -1833,6 +2242,12 @@ class CognitiveChatEngine:
 
             # Restore contradiction map (may not exist in old saves)
             self._contradiction_map = state.get('contradiction_map', {})
+            # Restore user model
+            self.user_model = state.get('user_model', UserModel())
+            # Restore belief store
+            bs_state = state.get('belief_store_state', None)
+            if bs_state:
+                self.belief_store.set_state(bs_state)
 
             return True
         except Exception as e:
@@ -1854,6 +2269,9 @@ def main():
              'Outputs Q: and A: lines for easy parsing. E.g.: --chat "hi|what is trust|bye"')
     parser.add_argument("--strategy", action="store_true", help="Include strategy name in --chat output")
     parser.add_argument("--trace", action="store_true", help="Print edge-level chain traces")
+    parser.add_argument("--no-vad", action="store_true", help="Disable VAD emotion modulation")
+    parser.add_argument("--no-rlm", action="store_true", help="Disable RLMv2 triple verification")
+    parser.add_argument("--no-beliefs", action="store_true", help="Disable belief store")
     args = parser.parse_args()
 
     # Handle --reset
@@ -1868,6 +2286,15 @@ def main():
     engine = CognitiveChatEngine(dim=args.dim, seed=args.seed, baby_mode=True)
     if args.trace:
         engine._trace_enabled = True
+    if args.no_vad:
+        engine.use_vad = False
+        print("  [Config] VAD modulation disabled")
+    if args.no_rlm:
+        engine.use_rlm = False
+        print("  [Config] RLMv2 triple verification disabled")
+    if args.no_beliefs:
+        engine.use_beliefs = False
+        print("  [Config] Belief store disabled")
 
     # ── BATCH MODE (--chat) ──
     if args.chat is not None:

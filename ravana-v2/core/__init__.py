@@ -67,6 +67,10 @@ from .global_workspace import GlobalWorkspace, GWConfig, GWContent
 # Phase O: Human Memory
 from .human_memory import HumanMemoryEngine, HumanMemoryConfig, HumanMemoryRecord
 
+# Dialogue System (Phase P)
+from .dialogue_context import DialogueContext, ActiveSubgraph, Triple, DialogueState
+from .conversational_repair import ConversationalRepair, RepairEvent, CorrectionType
+
 __all__ = [
     # Phase A
     "Governor", "GovernorConfig", "RegulationMode", "ClampDiagnostics",
@@ -110,4 +114,7 @@ __all__ = [
     "GlobalWorkspace", "GWConfig", "GWContent",
     # Phase O
     "HumanMemoryEngine", "HumanMemoryConfig", "HumanMemoryRecord",
+    # Phase P: Dialogue System
+    "DialogueContext", "ActiveSubgraph", "Triple", "DialogueState",
+    "ConversationalRepair", "RepairEvent", "CorrectionType",
 ]
