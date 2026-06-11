@@ -1308,16 +1308,27 @@ class CognitiveChatEngine:
         # Phase 7: Store activated IDs for strategy framework
         self._last_activated_ids = list(activated)
 
-        # Step 1b.75: Phase 3.3 — Detect recall triggers
+        # Step 1b.75: Phase 3.3 + 9c — Detect recall triggers with hippocampal reactivation
         recall_topic = self._detect_recall_trigger(user_input)
         if recall_topic:
-            rt_nids = self._concept_keywords.get(recall_topic.lower(), [])
-            for nid in rt_nids:
-                if nid not in activated:
-                    activated.append(nid)
-                    self.graph.activate(nid, 0.8)
-            if self._trace_enabled:
-                print(f"  [trace]   recall trigger -> '{recall_topic}' activated at 0.8")
+            # Phase 9c: Use hippocampal indexing to reactivate the distributed pattern
+            reactivated = self._recall_hippocampal(recall_topic)
+            if reactivated:
+                for nid in reactivated:
+                    if nid not in activated:
+                        activated.append(nid)
+                if self._trace_enabled:
+                    print(f"  [trace]   hippocampal recall -> '{recall_topic}' "
+                          f"reactivated {len(reactivated)} concepts")
+            else:
+                # Fallback: simple node activation
+                rt_nids = self._concept_keywords.get(recall_topic.lower(), [])
+                for nid in rt_nids:
+                    if nid not in activated:
+                        activated.append(nid)
+                        self.graph.activate(nid, 0.8)
+                if self._trace_enabled:
+                    print(f"  [trace]   recall trigger -> '{recall_topic}' activated at 0.8")
 
         # Step 1c: If this is a follow-up (more/else/also), reactivate the latest
         # past topic so the graph walks find it naturally
@@ -1426,28 +1437,19 @@ class CognitiveChatEngine:
         # Step 9: Update cognitive state
         self._update_state(ctx)
 
-        # Phase 3.1: Track topics with rich metadata
+        # Phase 3.1 + 9c: Track topics with hippocampal indexing
         if subject:
             sl = subject.lower()
+            # Build hop labels for hippocampal index
+            hop_labels = []
+            for hops_list in self._last_chain_hops:
+                for f, t in hops_list:
+                    hop_labels.append((f, t))
+            # Create hippocampal index (stores sparese pointers to graph pattern)
+            self._hippocampal_index_topic(subject, list(activated) if activated else [],
+                                          hop_labels)
             if not any(t.lower() == sl for t in self._topic_list):
                 self._topic_list.append(subject)
-                self._topic_store[sl] = {
-                    'label': subject,
-                    'turn': self.turn_count,
-                    'assertions': list(self._belief_assertions[-5:]),
-                    'vad': (self.emotion.state.valence, self.emotion.state.arousal,
-                            self.emotion.state.dominance),
-                    'response_summary': response[:100],
-                    'visit_count': 1,
-                }
-            else:
-                entry = self._topic_store.get(sl)
-                if entry:
-                    entry['visit_count'] += 1
-                    entry['turn'] = self.turn_count
-                    entry['response_summary'] = response[:100]
-                    entry['vad'] = (self.emotion.state.valence, self.emotion.state.arousal,
-                                    self.emotion.state.dominance)
         # Keep last 50 topics
         if len(self._topic_list) > 50:
             removed = self._topic_list[:-50]
@@ -1819,6 +1821,100 @@ class CognitiveChatEngine:
             if pl != sl and (pl in sl or sl in pl or len(set(pl.split()) & set(sl.split())) > 0):
                 related.append(t)
         return related[:3]
+
+    # ─── Phase 9c: Hippocampal Indexing ───
+    # Based on: Teyler & Rudy (2007) hippocampal indexing theory.
+    # The hippocampus stores an INDEX to distributed neocortical patterns,
+    # not the memory content itself. Reactivation of the index → reactivation
+    # of the distributed pattern → memory experience.
+    #
+    # Instead of storing full topic content, we store a sparse index:
+    # which concept IDs were activated, which edges were traversed.
+    # During recall, the index reactivates the distributed graph pattern.
+
+    def _hippocampal_index_topic(self, subject: str, activated_ids: List[int],
+                                   hop_labels: List[Tuple[str, str]]):
+        """Create a hippocampal index for the current topic and store it.
+
+        The index is a lightweight pointer to the distributed graph pattern
+        (concept IDs + edge references), not the content itself.
+        """
+        sl = subject.lower()
+        # Build index: which concept nodes were activated
+        indexed_concepts = list(set(activated_ids))
+
+        # Build index: which edge pairs were traversed
+        indexed_edges = [(f.lower(), t.lower()) for f, t in hop_labels]
+
+        # Store as lightweight index, not full content
+        index_entry = {
+            'label': subject,
+            'turn': self.turn_count,
+            'indexed_concepts': indexed_concepts[:10],  # sparse index
+            'indexed_edges': indexed_edges[:5],
+            'vad': (self.emotion.state.valence, self.emotion.state.arousal,
+                    self.emotion.state.dominance),
+            'visit_count': 1,
+            'response_summary': '',  # placeholder, not content
+        }
+
+        if sl not in self._topic_store:
+            self._topic_store[sl] = index_entry
+        else:
+            entry = self._topic_store[sl]
+            entry['visit_count'] += 1
+            entry['turn'] = self.turn_count
+            # Merge new indexed concepts
+            existing_cons = set(entry.get('indexed_concepts', []))
+            existing_cons.update(indexed_concepts[:10])
+            entry['indexed_concepts'] = list(existing_cons)[:15]
+            entry['vad'] = index_entry['vad']
+
+    def _recall_hippocampal(self, topic: str) -> Optional[List[int]]:
+        """Reactivate a hippocampal index, spreading activation through the
+        indexed graph pattern to reconstruct the memory experience.
+
+        Returns the list of reactivated concept IDs, or None if topic not found.
+        """
+        entry = self._topic_store.get(topic.lower())
+        if not entry:
+            return None
+
+        reactivated = []
+        # Phase 1: Reactivate indexed concepts (sparse pattern)
+        for nid in entry.get('indexed_concepts', []):
+            node = self.graph.get_node(nid)
+            if node and node.label:
+                self.graph.activate(nid, 0.5)
+                reactivated.append(nid)
+
+        # Phase 2: Spread activation through indexed edges (pattern completion)
+        for f_label, t_label in entry.get('indexed_edges', []):
+            f_nids = self._concept_keywords.get(f_label.lower(), [])
+            t_nids = self._concept_keywords.get(t_label.lower(), [])
+            for fn in f_nids:
+                for tn in t_nids:
+                    edge = self.graph.get_edge(fn, tn)
+                    if edge:
+                        # Strengthen episodic edges during recall (pattern strengthening)
+                        if edge.relation_type == "episodic":
+                            edge.weight = min(0.35, edge.weight + 0.05)
+                        # Activate both endpoints
+                        self.graph.activate(fn, 0.4)
+                        self.graph.activate(tn, 0.4)
+                        if fn not in reactivated:
+                            reactivated.append(fn)
+                        if tn not in reactivated:
+                            reactivated.append(tn)
+
+        # Phase 3: Activate the subject concept at higher strength
+        subj_nids = self._concept_keywords.get(topic.lower(), [])
+        for sn in subj_nids:
+            self.graph.activate(sn, 0.7)
+            if sn not in reactivated:
+                reactivated.append(sn)
+
+        return reactivated
 
     # ─── Graph-Driven Response Generation ───
     # NO hardcoded strings. ALL content words are concept labels from the graph.
@@ -2681,7 +2777,10 @@ class CognitiveChatEngine:
                 return (subject + ".", "associative")
             return ("...", "associative")
 
-        seen: Set[str] = {subject.lower()}
+        # Phase 9c: Per-sentence working memory (teen-like limited PFC)
+        # Each sentence has its OWN seen set so later sentences can explore
+        # the same neighborhood as earlier ones. This mimics teens' limited
+        # working memory — they don't strictly track what they just said.
         sentences = []
 
         # Phase 9: Initialize prefrontal buffer with subject (seeds working memory)
@@ -2702,12 +2801,13 @@ class CognitiveChatEngine:
         if arousal > 0.6:
             s_hops = [1, 1, 1]
         elif arousal > 0.4:
-            s_hops = [1, 2, 1]
-        else:
             s_hops = [1, 2, 2]
+        else:
+            s_hops = [2, 2, 2]
 
-        # Sentence 1: walk from subject
-        chain1 = self._walk_chain(subject, seen, max_hops=s_hops[0], temperature=temps[0],
+        # Sentence 1: walk from subject (own seen set)
+        s1_seen = {subject.lower()}
+        chain1 = self._walk_chain(subject, s1_seen, max_hops=s_hops[0], temperature=temps[0],
                                   activation_boost=act_boost,
                                   subject_proximity=subject)
         if not chain1:
@@ -2723,12 +2823,13 @@ class CognitiveChatEngine:
             if word.lower() in self._CONNECTOR_SET:
                 connector_counts[word.lower()] = connector_counts.get(word.lower(), 0) + 1
 
-        # Sentence 2: walk from subject again (not from chain1's tail)
-        chain2 = self._walk_chain(subject, seen, max_hops=s_hops[1], temperature=temps[1],
+        # Sentence 2: walk from subject again with own seen set
+        s2_seen = {subject.lower()}
+        chain2 = self._walk_chain(subject, s2_seen, max_hops=s_hops[1], temperature=temps[1],
                                   activation_boost=act_boost,
                                   subject_proximity=subject)
         if not chain2:
-            chain2 = self._walk_chain(subject, seen, max_hops=1, temperature=temps[1],
+            chain2 = self._walk_chain(subject, s2_seen, max_hops=1, temperature=temps[1],
                                        activation_boost=act_boost, subject_proximity=subject)
         if chain2:
             sentences.append(self._format_sentence(chain2, subject, connector_counts, 1))
@@ -2739,8 +2840,9 @@ class CognitiveChatEngine:
                 if word.lower() in self._CONNECTOR_SET:
                     connector_counts[word.lower()] = connector_counts.get(word.lower(), 0) + 1
 
-        # Sentence 3: walk from subject again with varied perspective
-        chain3 = self._walk_chain(subject, seen, max_hops=s_hops[2], temperature=temps[2],
+        # Sentence 3: walk from subject again with own seen set
+        s3_seen = {subject.lower()}
+        chain3 = self._walk_chain(subject, s3_seen, max_hops=s_hops[2], temperature=temps[2],
                                   activation_boost=act_boost,
                                   subject_proximity=subject)
         if chain3:
@@ -2755,7 +2857,14 @@ class CognitiveChatEngine:
         # Phase 7.2: Check if response is weak (no substantive path found)
         # Store which strategy was used for impossible query tracking
         if len(sentences) < 2 or all(len(s.strip(".").split()) < 3 for s in sentences):
-            # Primary walk failed — try multi-strategy escalation
+            # Build fallback seen set from all sentences so far
+            fallback_seen = {subject.lower()}
+            for s in sentences:
+                for w in s.strip(".").split():
+                    wl = w.lower()
+                    if wl not in self._CONNECTOR_SET:
+                        fallback_seen.add(wl)
+            seen = fallback_seen
             strategies_tried = ["A_direct_chain"]
             strategy_result = None
 
