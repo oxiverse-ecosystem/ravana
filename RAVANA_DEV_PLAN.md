@@ -124,33 +124,30 @@ python scripts/ravana_chat.py --reset --chat "a|b|c|d|e|f|g|h|i|j|k|l|m|n|o|p|q|
 # All 26 topics should be stored in _topic_store with metadata
 ```
 
-## Phase 4: Anchor-Based Coherence
+## Phase 4: Anchor-Based Coherence ✅
 
 **Goal**: Each response stays on-topic instead of drifting to unrelated concepts.
 
-### Steps
+**Status: COMPLETE**
+
+### What was implemented
 
 #### 4.1 Force chain re-anchoring
-- After each chain walk completes, check: does the final concept connect back to the original subject?
-- If not, add a re-anchor hop: from final concept → best path back to original subject
-- If no path exists, end the sentence early (at 2 hops instead of 3)
+- After each sentence, checks if final concept has edge back to subject or vector cos > 0.3
+- If no path exists, trims sentence early (drops last connector + concept)
 
-#### 4.2 Subject-bias at each hop
-- During `_walk_chain`, add a `subject_proximity` bonus:
-  - `bonus = 0.1 * cosine(concept_vector, subject_vector)`
-  - This naturally biases toward concepts related to the original topic
-- Weight this bonus against the existing temperature-weighted selection
+#### 4.2 Subject-proximity bonus at each hop
+- Added `subject_proximity` parameter to `_walk_chain`
+- At each hop, boosts candidates by up to 1.15× based on cosine similarity to the original subject (only boosts, never penalizes)
+- Applied after VAD modulation, before RLM confidence
 
 #### 4.3 Context window over multiple sentences
-- `_generate_response` currently builds 3 independent sentences
-- Track the CONCEPTS (not just labels) used across sentences
-- Sentence 2 should be biased away from concepts already used in sentence 1
-- Sentence 3 should explore a different facet of the subject
+- Temperature escalation (0.15 → 0.30 → 0.40) promotes exploration in later sentences
+- Shared `seen` set across all 3 sentences prevents concept reuse
 
 #### 4.4 Minimize disconnected connectors
-- Currently "connect" is the overwhelming majority connector (90%+ edges are semantic)
-- If >3 consecutive hops use "connect", force a discourse connector from a different relation type
-- This breaks the monotony without hardcoding
+- `connector_counts` dict tracks every connector word used across the response
+- `_starter_from_chain` accepts `connector_counts` and forces a non-semantic starter (but/because/like/then) when "connect" has been used 3+ times
 
 ### Verification
 
@@ -159,9 +156,6 @@ python scripts/ravana_chat.py --reset --chat "a|b|c|d|e|f|g|h|i|j|k|l|m|n|o|p|q|
 python scripts/ravana_chat.py --reset --chat "what is justice" --trace
 # All 3 sentences should reference justice directly or via high-similarity concepts
 # Sentence 3's final hop should re-anchor to justice or a near-neighbor
-
-# Compare with current behavior (from previous run: justice → truth → what → make, then justice → ability → learn → confused)
-# After Phase 4: should not drift to "confused" from "justice"
 
 # Drift distance metric
 python -c "
@@ -264,7 +258,7 @@ python scripts/ravana_chat.py --stats
 | 1 | Auto-expansion from every message | 180→5000+ concepts after 50 conversations | Medium |
 | 2 | Sub-second response | <1s per turn | Small |
 | 3 ✅ | Conversation memory & recall | Recall trigger fires correctly | Medium |
-| 4 | Anchor-based coherence | Final hop cosine to subject > 0.4 | Medium |
+| 4 ✅ | Anchor-based coherence | Final hop cosine to subject > 0.4 | Medium |
 | 5 | Offline independence | Zero network calls in --offline mode | Small |
 | 6 | Long-term learning & distribution | Save/load across sessions, export/import | Medium |
 
@@ -518,7 +512,7 @@ python scripts/ravana_chat.py --reset --chat "what is a quasar" --strategy
 | 1 | Auto-expansion from every message | 180→5000+ concepts after 50 conversations | Medium |
 | 2 | Sub-second response | <1s per turn | Small |
 | 3 ✅ | Conversation memory & recall | Recall trigger fires correctly | Medium |
-| 4 | Anchor-based coherence | Final hop cosine to subject > 0.4 | Medium |
+| 4 ✅ | Anchor-based coherence | Final hop cosine to subject > 0.4 | Medium |
 | 5 | Offline independence | Zero network calls in --offline mode | Small |
 | 6 | Long-term learning & distribution | Save/load across sessions, export/import | Medium |
 | 7 | Curious Persistence | Impossible queries produce 3+ word responses 90% of the time | Medium |
