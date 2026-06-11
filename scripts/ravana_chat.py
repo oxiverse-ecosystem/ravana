@@ -480,6 +480,8 @@ class CognitiveChatEngine:
         self.user_model = UserModel()
         self._last_hops: List[List[Tuple[str, str]]] = []  # concept -> strength (decays)
         self._last_chain_hops: List[List[Tuple[str, str]]] = []  # Phase 3.4: snapshot before clear
+        # Phase 8: Prefrontal workspace — holds subject + top associations for on-topic focus
+        self._prefrontal_buffer: List[str] = []
         # Integration toggles (can be disabled via CLI)
         self.use_vad = True
         self.use_rlm = True
@@ -1883,9 +1885,9 @@ class CognitiveChatEngine:
         Low arousal → more focused (lower temp).
         """
         if not getattr(self, 'use_vad', True):
-            base = (base_temps or [0.15, 0.30, 0.40])[min(sentence_idx, 2)]
+            base = (base_temps or [0.08, 0.15, 0.25])[min(sentence_idx, 2)]
             return base
-        base_temps = base_temps or [0.15, 0.30, 0.40]
+        base_temps = base_temps or [0.08, 0.15, 0.25]
         base = base_temps[min(sentence_idx, 2)]
         arousal = self.emotion.state.arousal  # 0..1
         arousal_factor = 0.7 + (arousal * 0.6)  # [0.7, 1.3]
@@ -2442,10 +2444,63 @@ class CognitiveChatEngine:
         parts.append("curious learn more")
         return " ".join(parts) + "."
 
+    # ─── Phase 8: Sentence Formatting & Prefrontal Coherence ───
+
+    def _format_sentence(self, chain_str: str, subject: str,
+                          connector_counts: Dict[str, int],
+                          sentence_idx: int) -> str:
+        """Format a chain into a sentence that stays on-topic.
+
+        Uses three strategies for sentence variety while keeping subject prominent:
+        0: raw chain (first sentence, establishes topic)
+        1: starter + subject + chain_tail (re-anchor to subject)
+        2: starter + i-perspective + subject + chain_tail (self-reference, 25% chance)
+           or starter + subject + chain_tail (75% chance)
+
+        All words are graph-native labels.
+        """
+        conn = self._starter_from_chain(chain_str, subject, connector_counts)
+        parts = chain_str.split()
+        concepts = [p for p in parts if p.lower() not in self._CONNECTOR_SET]
+        chain_conns = [p for p in parts if p.lower() in self._CONNECTOR_SET]
+
+        if not concepts:
+            return chain_str + "."
+
+        # Sentence 0: raw chain as-is
+        if sentence_idx <= 0:
+            return chain_str + "."
+
+        # Check if subject already appears in chain
+        subj_lower = subject.lower()
+        has_subject = any(subj_lower == c.lower() for c in concepts)
+        if has_subject:
+            return f"{conn} {chain_str}."
+
+        # Subject not in chain — likely from alt concept fallback, use chain as-is
+        # Don't force the subject into unrelated context
+        if not has_subject and sentence_idx > 0:
+            return f"{conn} {chain_str}."
+
+        # Build re-anchored sentence: [starter] [subject] [first_connector] [last_concept]
+        first_conn = chain_conns[0] if chain_conns else \
+            self._pick_connector("semantic", 0.40, 1.0, 0.3)
+        last_c = concepts[-1]
+
+        # Sentence 2+: 25% chance of "i think/feel/know" perspective (teen self-reference)
+        if sentence_idx >= 2 and self.rng.random() < 0.25:
+            perspective = self.rng.choice(["i think", "i feel", "i know"])
+            return f"{conn} {perspective} {subject} {first_conn} {last_c}."
+
+        return f"{conn} {subject} {first_conn} {last_c}."
+
     def _generate_response(self, ctx: CognitiveResponseContext) -> Tuple[str, str]:
-        """Walk a progressive chain through the graph: 1 hop, then 2 hops, then 3.
-        Each sentence continues from where the previous left off, creating a coherent
-        multi-hop narrative. All words from graph labels, connectors from edge data.
+        """Walk progressive chains, each anchored to the subject for coherence.
+
+        Phase 8: Prefrontal-guided coherence — every sentence walks from the
+        subject (not from the previous sentence's tail), keeping the response
+        on-topic. Lower temperatures reduce random drift. Occasional "i think"
+        or "i feel" self-reference mimics teenage speech patterns.
 
         Phase 4: Anchor-based coherence:
         - 4.1: Re-anchor to subject if final concept drifts
@@ -2469,13 +2524,26 @@ class CognitiveChatEngine:
         seen: Set[str] = {subject.lower()}
         sentences = []
 
-        # Walk progressive depths: 1 hop, 2 more, 3 more
-        # Each subsequent walk starts from the last concept of the previous walk
-        # Temperature scaled by VAD arousal (high arousal → more exploration)
+        # Phase 8: Walk ALL chains from the subject (prefrontal anchoring)
+        # Each sentence independently walks from subject so there's no topic drift.
+        # Lower temperatures keep walks focused, subject_proximity boosts on-topic candidates.
+        # Occasional "i think/feel/know" self-reference mimics teenage speech patterns.
         temps = [self._get_temperature(0), self._get_temperature(1), self._get_temperature(2)]
-        # Phase 4.4: Track connector count to break monotonic "connect" chains
         connector_counts: Dict[str, int] = {}
-        chain1 = self._walk_chain(subject, seen, max_hops=1, temperature=temps[0],
+
+        # Hot-cognition: high arousal → shorter sentences (teens speak less coherently when excited)
+        # Sentence 1 uses 1 hop to establish topic, sentences 2-3 use 2 hops for exploration.
+        # This prevents exhausting the graph in sentence 1.
+        arousal = self.emotion.state.arousal if getattr(self, 'use_vad', True) else 0.3
+        if arousal > 0.6:
+            s_hops = [1, 1, 1]
+        elif arousal > 0.4:
+            s_hops = [1, 2, 1]
+        else:
+            s_hops = [1, 2, 2]
+
+        # Sentence 1: walk from subject
+        chain1 = self._walk_chain(subject, seen, max_hops=s_hops[0], temperature=temps[0],
                                   activation_boost=act_boost,
                                   subject_proximity=subject)
         if not chain1:
@@ -2483,71 +2551,33 @@ class CognitiveChatEngine:
             if neighbor and neighbor.lower() != subject.lower():
                 return (f"{subject} connect {neighbor}.", "associative")
             return (subject + ".", "associative")
-        sentences.append(chain1 + ".")
-        # Phase 4.4: Count connectors used in chain1
+        sentences.append(self._format_sentence(chain1, subject, connector_counts, 0))
         for word in chain1.split():
             if word.lower() in self._CONNECTOR_SET:
                 connector_counts[word.lower()] = connector_counts.get(word.lower(), 0) + 1
 
-        # Extract last concept of chain1 as the new starting point
-        c1_parts = chain1.split()
-        start2 = c1_parts[-1] if c1_parts[-1].lower() not in self._CONNECTOR_SET and \
-            c1_parts[-1].lower() not in self.TOPIC_SKIP_WORDS else subject
-        chain2 = self._walk_chain(start2, seen, max_hops=2, temperature=temps[1],
+        # Sentence 2: walk from subject again (not from chain1's tail)
+        chain2 = self._walk_chain(subject, seen, max_hops=s_hops[1], temperature=temps[1],
                                   activation_boost=act_boost,
                                   subject_proximity=subject)
+        if not chain2:
+            chain2 = self._walk_chain(subject, seen, max_hops=1, temperature=temps[1],
+                                       activation_boost=act_boost, subject_proximity=subject)
         if chain2:
-            # Phase 4.4: Force connector diversity if "connect" is overused
-            conn = self._starter_from_chain(chain2, subject, connector_counts)
-            sentences.append(f"{conn} {chain2}.")
+            sentences.append(self._format_sentence(chain2, subject, connector_counts, 1))
             for word in chain2.split():
                 if word.lower() in self._CONNECTOR_SET:
                     connector_counts[word.lower()] = connector_counts.get(word.lower(), 0) + 1
-        else:
-            # Multi-branch fallback: try subject, then other associations
-            chain2 = self._walk_chain(subject, seen, max_hops=2, temperature=temps[1],
-                                       activation_boost=act_boost,
-                                       subject_proximity=subject)
-            if not chain2:
-                for alt_label, _ in assocs[:4]:
-                    alc = alt_label.lower()
-                    if alc not in seen and alc not in self.TOPIC_SKIP_WORDS:
-                        chain2 = self._walk_chain(alt_label, seen, max_hops=2, temperature=temps[1],
-                                                   activation_boost=act_boost,
-                                                   subject_proximity=subject)
-                        if chain2:
-                            break
-            if chain2:
-                conn = self._starter_from_chain(chain2, subject, connector_counts)
-                sentences.append(f"{conn} {chain2}.")
-                for word in chain2.split():
-                    if word.lower() in self._CONNECTOR_SET:
-                        connector_counts[word.lower()] = connector_counts.get(word.lower(), 0) + 1
 
-        if len(sentences) < 3:
-            # Try extending from chain2's end
-            if chain2:
-                c2_parts = chain2.split()
-                start3 = c2_parts[-1] if c2_parts[-1].lower() not in self._CONNECTOR_SET and \
-                    c2_parts[-1].lower() not in self.TOPIC_SKIP_WORDS else subject
-            else:
-                start3 = subject
-            chain3 = self._walk_chain(start3, seen, max_hops=3, temperature=temps[2],
-                                       activation_boost=act_boost,
-                                       subject_proximity=subject)
-            if chain3:
-                conn = self._starter_from_chain(chain3, subject, connector_counts)
-                sentences.append(f"{conn} {chain3}.")
-                for word in chain3.split():
-                    if word.lower() in self._CONNECTOR_SET:
-                        connector_counts[word.lower()] = connector_counts.get(word.lower(), 0) + 1
-            else:
-                for perspective in self.rng.permutation(["i", "we", "you"])[:2]:
-                    per_phrase = self._phrase_from_label(perspective, seen, max_concepts=4)
-                    if per_phrase:
-                        conn = self._starter_from_chain(per_phrase, perspective, connector_counts)
-                        sentences.append(f"{conn} {per_phrase}.")
-                        break
+        # Sentence 3: walk from subject again with varied perspective
+        chain3 = self._walk_chain(subject, seen, max_hops=s_hops[2], temperature=temps[2],
+                                  activation_boost=act_boost,
+                                  subject_proximity=subject)
+        if chain3:
+            sentences.append(self._format_sentence(chain3, subject, connector_counts, 2))
+            for word in chain3.split():
+                if word.lower() in self._CONNECTOR_SET:
+                    connector_counts[word.lower()] = connector_counts.get(word.lower(), 0) + 1
 
         # Phase 7.2: Check if response is weak (no substantive path found)
         # Store which strategy was used for impossible query tracking
@@ -2763,10 +2793,10 @@ class CognitiveChatEngine:
                         edge.weight = min(0.95, edge.weight + 0.02)
                         edge.confidence = min(0.95, edge.confidence + 0.01)
 
-        # Phase 2: Gentle edge pruning (only prune truly dead edges)
+        # Phase 2: Synaptic pruning (neuroscience-inspired: prune weak, unused connections)
         edges_to_prune = []
         for (src, tgt), edge in self.graph.edges.items():
-            if edge.weight < 0.02 and edge.confidence < 0.05 and edge.prediction_count < 1:
+            if edge.weight < 0.08 and edge.confidence < 0.10:
                 edges_to_prune.append((src, tgt))
         for src, tgt in edges_to_prune:
             self.graph.remove_edge(src, tgt)
@@ -2795,10 +2825,6 @@ class CognitiveChatEngine:
 
         self.sleep_engine.accumulate_pressure(-0.15)  # Reduce sleep pressure
         self.sleep_cycles_completed += 1
-
-    # ─── Save/Load Persistence ───
-
-    # ─── Diagnostics ───
 
         # Phase 7.6: Sleep-replay impossible queries
         replayed = 0
@@ -2845,7 +2871,7 @@ class CognitiveChatEngine:
                       f"[{h.relation_type}] w={h.weight:.3f} c={h.confidence:.3f} "
                       f"t={h.temperature:.2f} ({h.candidates} cand){extra}")
         # Phase 7: Print impossible query count if any
-        if engine._impossible_queries:
+        if self._impossible_queries:
             unresolved = sum(1 for iq in engine._impossible_queries if not iq.resolved)
             print(f"  [trace]   impossible queries: {len(engine._impossible_queries)} total, {unresolved} unresolved")
         # Print user model state

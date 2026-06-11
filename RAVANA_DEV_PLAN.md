@@ -303,6 +303,60 @@ python scripts/ravana_chat.py --stats
 | 5 ✅ | Offline independence | Zero network calls in --offline mode | Small |
 | 6 ✅ | Long-term learning & distribution | Save/load across sessions, export/import | Medium |
 | 7 ✅ | Curious Persistence | Impossible queries produce 3+ word responses 90% of the time | Medium |
+| 8 ✅ | Prefrontal-Guided Coherence | Every sentence references subject; teenspeak patterns | Small |
+
+## Phase 8: Prefrontal-Guided Coherence (Neuroscience-Inspired)
+
+**Goal**: RAVANA speaks like a teenager — simple, topic-anchored sentences with occasional self-reference ("i think/feel/know"). Every sentence stays on-topic by re-walking from the subject instead of chaining from the previous sentence.
+
+**Neuroscience Basis**:
+- **Prefrontal cortex develops late**: teens struggle with executive function; RAVANA now uses a prefrontal workspace buffer to hold topic focus
+- **Synaptic pruning**: teen brains prune ~40% of unused synapses; RAVANA now aggressively prunes weak edges (weight < 0.08) during sleep
+- **Hot cognition**: high arousal → shorter sentences; RAVANA reduces max_hops when arousal > 0.6
+- **Self-reference**: teens relate topics to themselves; RAVANA now uses "i think/feel/know" in 25% of sentences
+- **Exploration with boundaries**: teens explore within familiar territory; lower temperatures (0.08/0.15/0.25) keep walks focused
+
+### What was implemented
+
+#### 8.1 Prefrontal workspace buffer
+- `_prefrontal_buffer: List[str]` holds the current conversation topic
+- Every sentence generation references this buffer for topic anchoring
+
+#### 8.2 Subject-anchored response generation
+- Each sentence independently walks from the subject (not from the previous sentence's last concept)
+- `_format_sentence()` method formats chains into topic-anchored sentences
+- Three sentence strategies: raw chain, subject re-reference, occasional "i" perspective
+
+#### 8.3 Lower temperatures
+- Base temperatures reduced from [0.15, 0.30, 0.40] to [0.08, 0.15, 0.25]
+- More deterministic, less random drift
+
+#### 8.4 Hot-cognition modulation
+- High arousal (>0.6) → max_hops = [1, 1, 1] (very short sentences)
+- Moderate arousal (>0.4) → max_hops = [1, 2, 1]
+- Normal → max_hops = [1, 2, 2]
+
+#### 8.5 Aggressive synaptic pruning
+- Pruning threshold raised from weight < 0.02 to weight < 0.08
+- Confidence threshold raised from 0.05 to 0.10
+- Fixed orphan code bug: Phase 7.6 sleep-replay was outside the method (would crash on sleep)
+
+#### 8.6 Teen self-reference
+- 25% of third sentences start with "i think", "i feel", or "i know"
+- All using graph-native vocabulary
+
+### Verification
+
+```bash
+python scripts/ravana_chat.py --reset --chat "what is justice|what is time|what is freedom|what is knowledge|what is love"
+# Every response should have 3 sentences
+# Every sentence should reference the subject
+# Example: "justice connect truth. but justice connect fairness. i think justice connect right."
+
+# Sleep/consolidation test
+python scripts/ravana_chat.py --reset --chat "what is trust|what is empathy|what is power|what is truth|what is life|what is meaning|what is identity|what is culture|what is wisdom|what is science|what is art|what is mind|what is nature" --strategy
+# Sleeps > 0 (sleep consolidation runs)
+```
 
 ## Phase 7: Curious Persistence — Never Give Up on Impossible Queries
 
@@ -558,6 +612,7 @@ python scripts/ravana_chat.py --reset --chat "what is a quasar" --strategy
 | 5 ✅ | Offline independence | Zero network calls in --offline mode | Small |
 | 6 ✅ | Long-term learning & distribution | Save/load across sessions, export/import | Medium |
 | 7 ✅ | Curious Persistence | Impossible queries produce 3+ word responses 90% of the time | Medium |
+| 8 ✅ | Prefrontal-Guided Coherence | Every sentence references subject; teenspeak patterns | Small |
 
 ## Guiding Principles
 
