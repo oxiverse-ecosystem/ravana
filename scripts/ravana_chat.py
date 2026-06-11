@@ -418,6 +418,10 @@ class CognitiveChatEngine:
         self._glove_vecs: Optional[Dict[str, np.ndarray]] = None
         self._glove_proj: Optional[np.ndarray] = None
         self._glove_dim: int = 100
+        # Phase 2.1: GloVe vector cache (avoid recomputing projection)
+        self._glove_vector_cache: Dict[str, np.ndarray] = {}
+        # Phase 2.3: Warm-start cache file path
+        self._glove_cache_path = os.path.join(_proj_root, "ravana_glove_cache.npz")
 
         # Cognitive engines (emotion, identity, meaning, dual-process, global workspace)
         self.emotion = VADEmotionEngine(VADConfig(eta_valence=0.3, eta_arousal=0.4, eta_dominance=0.25))
@@ -682,7 +686,37 @@ class CognitiveChatEngine:
     # ─── GloVe Semantic Vectors ───
 
     def _init_glove(self):
-        """Load GloVe 100D vectors and build projection to self.dim."""
+        """Load GloVe 100D vectors and build projection to self.dim.
+        
+        Phase 2.3: Warm-start — tries to load pre-computed projected vectors
+        from 'ravana_glove_cache.npz' first. Falls back to reading the raw
+        GloVe file and caching the result for next time.
+        """
+        # Phase 2.3: Try warm-start cache first
+        if os.path.exists(self._glove_cache_path):
+            try:
+                data = np.load(self._glove_cache_path, allow_pickle=True)
+                words = data['words'].tolist()
+                vecs = data['vecs']
+                proj = data['proj']
+                self._glove_dim = int(data['glove_dim'])
+                self._glove_proj = proj
+                self._glove_vecs = {}
+                for i, w in enumerate(words):
+                    self._glove_vecs[w] = vecs[i]
+                # Pre-populate vector cache with PROJECTED (not raw) vectors
+                for w, raw_vec in self._glove_vecs.items():
+                    pv = self._glove_proj @ raw_vec
+                    norm = np.linalg.norm(pv)
+                    if norm > 0:
+                        pv /= norm
+                    self._glove_vector_cache[w] = pv.astype(np.float32)
+                print(f"  [GloVe] Loaded {len(self._glove_vecs)} projected vectors from cache ({self._glove_dim}D -> {self.dim}D)")
+                return
+            except Exception:
+                print(f"  [GloVe] Cache load failed, re-reading from file...")
+
+        # Fall back to reading raw GloVe file
         for name in ['glove.6B.100d.txt', 'glove.6B.50d.txt']:
             path = os.path.join(_proj_root, 'data', 'glove', name)
             if os.path.exists(path):
@@ -706,11 +740,34 @@ class CognitiveChatEngine:
         self._glove_proj *= np.sqrt(float(self._glove_dim) / float(self.dim))
         print(f"  [GloVe] {len(self._glove_vecs)} words, {self._glove_dim}D -> {self.dim}D")
 
+        # Phase 2.3: Save projected vectors as warm-start cache
+        try:
+            words_list = list(self._glove_vecs.keys())
+            vecs_array = np.array([self._glove_vecs[w] for w in words_list], dtype=np.float32)
+            np.savez_compressed(
+                self._glove_cache_path,
+                words=words_list,
+                vecs=vecs_array,
+                proj=self._glove_proj,
+                glove_dim=self._glove_dim,
+            )
+            print(f"  [GloVe] Saved projected cache ({len(words_list)} words)")
+        except Exception as e:
+            print(f"  [GloVe] Warning: could not save cache: {e}")
+
     def _glove_vector(self, label: str) -> Optional[np.ndarray]:
-        """Look up a label in GloVe, project to self.dim, return unit vector."""
+        """Look up a label in GloVe, project to self.dim, return unit vector.
+        
+        Phase 2.1: Results are cached so repeated lookups (e.g. auto-expansion
+        for every input word) avoid recomputing the projection.
+        """
         if self._glove_vecs is None:
             return None
         w = label.lower().strip()
+        # Check cache first (Phase 2.1)
+        cached = self._glove_vector_cache.get(w)
+        if cached is not None:
+            return cached
         vec = self._glove_vecs.get(w)
         if vec is None and len(w) > 1:
             vec = self._glove_vecs.get(w.rstrip('s'))
@@ -721,7 +778,14 @@ class CognitiveChatEngine:
             norm = np.linalg.norm(pv)
             if norm > 0:
                 pv /= norm
-            return pv.astype(np.float32)
+            result = pv.astype(np.float32)
+            self._glove_vector_cache[w] = result
+            # Also cache variants for fast lookup
+            if w.rstrip('s') != w:
+                self._glove_vector_cache[w.rstrip('s')] = result
+            if len(w) > 2 and w[:-1] != w:
+                self._glove_vector_cache[w[:-1]] = result
+            return result
         return None
 
     # ─── Phase 1: Auto-Expansion from Every Message ───
@@ -794,23 +858,36 @@ class CognitiveChatEngine:
 
             if not similarities:
                 continue
-            similarities.sort(key=lambda x: x[1], reverse=True)
 
-            # Phase 1.1: Wire to top-5 GloVe nearest neighbors (cosine > 0.4)
-            wired_11 = 0
-            for other_nid, sim in similarities:
-                if wired_11 >= 5:
-                    break
-                if sim > 0.4 and self.graph.get_edge(nid, other_nid) is None:
-                    weight = min(0.4, sim * 0.4)
-                    self.graph.add_edge(nid, other_nid, weight=weight, relation_type="semantic")
-                    wired_11 += 1
+            # Phase 2.4: Use np.argpartition for O(N) top-5 selection
+            # instead of O(N log N) full sort
+            sim_array = np.array([s[1] for s in similarities], dtype=np.float32)
+            nid_array = np.array([s[0] for s in similarities], dtype=np.int32)
+
+            # Phase 1.1: Wire to top-5 nearest neighbors (cosine > 0.4)
+            k_top = min(5, len(sim_array))
+            if k_top > 0:
+                top_idx = np.argpartition(sim_array, -k_top)[-k_top:]
+                # Sort the top-k by descending similarity for deterministic wiring
+                top_order = np.argsort(-sim_array[top_idx])
+                top_idx = top_idx[top_order]
+                wired_11 = 0
+                for idx in top_idx:
+                    if wired_11 >= 5:
+                        break
+                    sim = float(sim_array[idx])
+                    other_nid = int(nid_array[idx])
+                    if sim > 0.4 and self.graph.get_edge(nid, other_nid) is None:
+                        weight = min(0.4, sim * 0.4)
+                        self.graph.add_edge(nid, other_nid, weight=weight, relation_type="semantic")
+                        wired_11 += 1
 
             # Phase 1.2: Auto-wire to ALL existing concepts where sim > 0.5
-            for other_nid, sim in similarities:
-                if sim > 0.5 and self.graph.get_edge(nid, other_nid) is None:
+            for idx in range(len(similarities)):
+                sim = float(sim_array[idx])
+                if sim > 0.5 and self.graph.get_edge(nid, int(nid_array[idx])) is None:
                     weight = min(0.5, sim * 0.5)
-                    self.graph.add_edge(nid, other_nid, weight=weight, relation_type="semantic")
+                    self.graph.add_edge(nid, int(nid_array[idx]), weight=weight, relation_type="semantic")
 
         return new_count
 
