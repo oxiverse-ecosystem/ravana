@@ -345,6 +345,9 @@ class CognitiveChatEngine:
         self.sleep_cycles_completed = 0
         self._chain_traces: List[ChainTrace] = []
         self._trace_enabled = False
+        self._contradiction_map: Dict[str, Set[str]] = {}
+        self._belief_assertions: List[Tuple[str, str, str]] = []
+        self._user_interests: Dict[str, float] = {}  # concept -> strength (decays)
 
         # Try loading saved weights first
         # Meta-cognition layer
@@ -558,6 +561,7 @@ class CognitiveChatEngine:
                     auto_count += 1
 
         self._all_labels = label_to_id
+        self._build_contradiction_map(contrastive_edges)
         print(f"  [Teen] Seeded {len(self.graph.nodes)} concepts, {len(self.graph.edges)} connections ({auto_count} auto-wired) across 5 relation types")
 
     # ─── GloVe Semantic Vectors ───
@@ -604,6 +608,70 @@ class CognitiveChatEngine:
                 pv /= norm
             return pv.astype(np.float32)
         return None
+
+    def _build_contradiction_map(self, contrastive_edges: List[Tuple[str, str]]):
+        """Build a map of concept → set of antonym concepts from contrastive edges."""
+        for a, b in contrastive_edges:
+            al, bl = a.lower(), b.lower()
+            self._contradiction_map.setdefault(al, set()).add(bl)
+            self._contradiction_map.setdefault(bl, set()).add(al)
+
+    def _rebuild_contradiction_map(self):
+        """Rebuild contradiction map from graph edges (used after load)."""
+        for (src, tgt), edge in self.graph.edges.items():
+            if edge.relation_type != "contrastive":
+                continue
+            sn = self.graph.nodes.get(src)
+            tn = self.graph.nodes.get(tgt)
+            if sn and sn.label and tn and tn.label:
+                al, bl = sn.label.lower(), tn.label.lower()
+                self._contradiction_map.setdefault(al, set()).add(bl)
+                self._contradiction_map.setdefault(bl, set()).add(al)
+
+    def _is_contradictory(self, source_label: str, target_label: str,
+                          relation_type: str) -> bool:
+        """Check if asserting (source, relation, target) contradicts a logged belief.
+        
+        A contradiction occurs when source already asserted about concept X,
+        and target is a known antonym of X (from the contradiction map).
+        """
+        tl = target_label.lower()
+        sl = source_label.lower()
+        for bel_src, bel_rel, bel_tgt in self._belief_assertions:
+            if bel_src.lower() != sl:
+                continue
+            # Check if target is an antonym of the previously asserted object
+            bel_antonyms = self._contradiction_map.get(bel_tgt.lower(), set())
+            if tl in bel_antonyms:
+                return True
+        return False
+
+    def _log_assertions(self, chains: List[str], subject: str):
+        """Extract and log (subject, relation, object) triples from generated chains."""
+        starter_values = set(self._EDGE_TO_STARTER.values())
+        for chain_str in chains:
+            parts = chain_str.strip(".").split()
+            # Skip discourse starter if present (e.g. "but", "then", "like")
+            start = 1 if parts and parts[0] in starter_values else 0
+            if len(parts) - start < 3:
+                continue
+            if start == 0:
+                cur_subj = parts[0]
+            else:
+                cur_subj = parts[1]
+            # Walk (connector, object) pairs
+            i = start + 1 if start == 0 else start + 2
+            actual_start = start + 1 if start == 0 else start + 1
+            for j in range(actual_start, len(parts) - 1, 2):
+                connector = parts[j]
+                obj = parts[j + 1]
+                rel_type = "semantic"
+                for rtype, glabel in self._EDGE_TO_GRAPH_LABEL.items():
+                    if glabel == connector:
+                        rel_type = rtype
+                        break
+                self._belief_assertions.append((cur_subj, rel_type, obj))
+                cur_subj = obj
 
     def _apply_edges(self, label_to_id, edge_list, rel_type, base_weight):
         """Apply a list of (src, tgt) edges to the graph with a relation type."""
@@ -845,6 +913,9 @@ class CognitiveChatEngine:
                     activated.append(nid)
                     self.graph.activate(nid, 0.6)
 
+        # Step 1c: Extract user interests from "I like/love {concept}" patterns
+        self._store_user_interests(user_input)
+
         # Step 2: Extract topic
         subject, obj = self._extract_topic(user_input, activated)
         relation = "is"
@@ -951,6 +1022,12 @@ class CognitiveChatEngine:
         # Step 11: Store episodic memory — link subject to its associations
         self._store_episodic(subject, associations)
 
+        # Step 12: Decay user interests (fade 5% per turn)
+        for k in list(self._user_interests):
+            self._user_interests[k] *= 0.95
+            if self._user_interests[k] < 0.1:
+                del self._user_interests[k]
+
         self._last_responses.append(response)
         if len(self._last_responses) > 10:
             self._last_responses = self._last_responses[-10:]
@@ -1037,6 +1114,22 @@ class CognitiveChatEngine:
                     not self.graph.get_edge(subj_nids[0], assoc_nids[0])):
                 self.graph.add_edge(subj_nids[0], assoc_nids[0],
                                     weight=0.15, relation_type="episodic")
+
+    # Verbs that signal user interest when used as "I {verb} {concept}"
+    _INTEREST_VERBS = {"like", "love", "enjoy", "play", "listen", "watch",
+                        "read", "study", "practice", "explore", "create"}
+
+    def _store_user_interests(self, text: str):
+        """Parse 'I {verb} {concept}' patterns and store as user interests."""
+        words = text.lower().split()
+        for i, w in enumerate(words):
+            if w == "i" and i + 2 < len(words):
+                verb = words[i + 1].strip(".,!?'")
+                if verb in self._INTEREST_VERBS:
+                    obj = words[i + 2].strip(".,!?'")
+                    if obj in self._concept_keywords:
+                        self._user_interests[obj] = min(1.0, self._user_interests.get(obj, 0) + 0.4)
+
     TOPIC_SKIP_WORDS = {"i", "you", "we", "they", "he", "she", "it", "me", "my",
                         "your", "our", "their", "him", "her", "its", "this", "that",
                         "these", "those", "there", "here", "some", "any", "all",
@@ -1377,16 +1470,21 @@ class CognitiveChatEngine:
         return candidates[self.rng.choice(len(candidates), p=weights)]
 
     def _walk_chain(self, label: str, seen: Set[str], max_hops: int,
-                    temperature: float = 0.25) -> Optional[str]:
+                    temperature: float = 0.25,
+                    contradiction_penalty: float = 0.6) -> Optional[str]:
         """Walk a path through the graph from label, temperature-weighted.
         temperature=0 → greedy (always strongest), temperature=1 → near-uniform.
         Each hop adds `connector concept` to the chain. Returns None if no path.
+
+        Applies contradiction_penalty to edges whose target contradicts a
+        previously asserted belief about the source concept.
 
         Records detailed hop info in self._chain_traces when self._trace_enabled."""
         nids = self._concept_keywords.get(label.lower(), [])
         if not nids:
             return None
         chain = [label]
+        chain_labels = {label.lower()}  # path-level cycle detection
         cur_nid = nids[0]
         cur_label = label
         hops = 0
@@ -1397,17 +1495,41 @@ class CognitiveChatEngine:
                 tn = self.graph.nodes.get(tid)
                 if tn is None or tn.label is None or tn.label.lower() in seen:
                     continue
+                if tn.label.lower() in chain_labels:
+                    continue  # cycle detected within this chain
                 candidates.append((edge.weight * edge.confidence, tn.label, edge, "out"))
             for src, edge in self.graph.get_incoming(cur_nid):
                 sn = self.graph.nodes.get(src)
                 if sn is None or sn.label is None or sn.label.lower() in seen:
                     continue
+                if sn.label.lower() in chain_labels:
+                    continue  # cycle detected within this chain
                 candidates.append((edge.weight * edge.confidence, sn.label, edge, "in"))
             if not candidates:
                 break
+            # Apply contradiction penalty: if target contradicts a belief
+            # about cur_label, reduce its score by penalty factor
+            if contradiction_penalty > 0 and self._contradiction_map:
+                penalized = []
+                for sig, tgt_lbl, edge, d in candidates:
+                    if self._is_contradictory(cur_label, tgt_lbl, edge.relation_type):
+                        sig *= (1.0 - contradiction_penalty)
+                    penalized.append((sig, tgt_lbl, edge, d))
+                candidates = penalized
+            # Personalization bonus: boost edges toward user interest concepts
+            if self._user_interests:
+                boosted = []
+                for sig, tgt_lbl, edge, d in candidates:
+                    interest_strength = self._user_interests.get(tgt_lbl.lower(), 0.0)
+                    if interest_strength > 0:
+                        sig += interest_strength * 0.2
+                    boosted.append((sig, tgt_lbl, edge, d))
+                candidates = boosted
             # Temperature-weighted selection
             if temperature > 0 and len(candidates) > 1:
                 sigs = np.array([c[0] for c in candidates])
+                # Clamp to avoid numerical issues with near-zero sigs
+                sigs = np.clip(sigs, 1e-10, None)
                 weights = np.exp(sigs / temperature)
                 weights /= weights.sum()
                 idx = self.rng.choice(len(candidates), p=weights)
@@ -1422,6 +1544,9 @@ class CognitiveChatEngine:
             if connector and chain[-1] != connector:
                 chain.append(connector)
             chain.append(best_label)
+            chain_labels.add(best_label.lower())
+            if connector:
+                chain_labels.add(connector.lower())
             seen.add(best_label.lower())
             if trace is not None:
                 trace.hops.append(ChainHop(
@@ -1513,6 +1638,7 @@ class CognitiveChatEngine:
                         sentences.append(f"{conn} {per_phrase}.")
                         break
 
+        self._log_assertions(sentences, subject)
         return (" ".join(sentences), "associative")
 
 
@@ -1649,6 +1775,7 @@ class CognitiveChatEngine:
             'sleep_cycles_completed': self.sleep_cycles_completed,
             'concept_vad': self._concept_vad,
             'meta_mode': self.meta_cog.current_mode.value,
+            'contradiction_map': self._contradiction_map,
         }
         try:
             with open(self._save_path, 'wb') as f:
@@ -1703,6 +1830,9 @@ class CognitiveChatEngine:
             # Ensure parent_graph is set on all edges (pickle might not preserve this)
             for edge in self.graph.edges.values():
                 edge.parent_graph = self.graph
+
+            # Restore contradiction map (may not exist in old saves)
+            self._contradiction_map = state.get('contradiction_map', {})
 
             return True
         except Exception as e:
