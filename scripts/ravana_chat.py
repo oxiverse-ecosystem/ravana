@@ -434,7 +434,11 @@ class CognitiveChatEngine:
 
         # State
         self.turn_count = 0
-        self._past_topics: List[str] = []
+        # Phase 3.1: Topic-indexed conversation store (dict, last 50)
+        self._topic_list: List[str] = []
+        self._topic_store: Dict[str, Dict] = {}
+        # Phase 3.4: Response-aware context
+        self._response_context: List[Dict] = []
         self._last_responses: List[str] = []
         self._last_strategy: str = ""
         self._free_energy = 0.0
@@ -453,6 +457,7 @@ class CognitiveChatEngine:
         self._belief_assertions: List[Tuple[str, str, str]] = []
         self.user_model = UserModel()
         self._last_hops: List[List[Tuple[str, str]]] = []  # concept -> strength (decays)
+        self._last_chain_hops: List[List[Tuple[str, str]]] = []  # Phase 3.4: snapshot before clear
         # Integration toggles (can be disabled via CLI)
         self.use_vad = True
         self.use_rlm = True
@@ -1196,11 +1201,22 @@ class CognitiveChatEngine:
         if new_concepts > 0:
             activated = self._activate_from_input(user_input)
 
+        # Step 1b.75: Phase 3.3 — Detect recall triggers
+        recall_topic = self._detect_recall_trigger(user_input)
+        if recall_topic:
+            rt_nids = self._concept_keywords.get(recall_topic.lower(), [])
+            for nid in rt_nids:
+                if nid not in activated:
+                    activated.append(nid)
+                    self.graph.activate(nid, 0.8)
+            if self._trace_enabled:
+                print(f"  [trace]   recall trigger -> '{recall_topic}' activated at 0.8")
+
         # Step 1c: If this is a follow-up (more/else/also), reactivate the latest
         # past topic so the graph walks find it naturally
         self._activation_boost: Optional[Dict[str, float]] = None
-        if self._is_follow_up(user_input) and self._past_topics:
-            last_topic = self._past_topics[-1]
+        if self._is_follow_up(user_input) and self._topic_list:
+            last_topic = self._topic_list[-1]
             lt_nids = self._concept_keywords.get(last_topic.lower(), [])
             for nid in lt_nids:
                 if nid not in activated:
@@ -1208,6 +1224,14 @@ class CognitiveChatEngine:
                     self.graph.activate(nid, 0.6)
             # Compute activation boost from user model's inferred preferences
             self._activation_boost = self.user_model.activation_boost_for(last_topic)
+            # Phase 3.4: Bias chain walking toward edges from original response
+            if self._response_context:
+                last_ctx = self._response_context[-1]
+                if last_ctx['subject'].lower() == last_topic.lower():
+                    for f, t in last_ctx['hops']:
+                        key = (f.lower(), t.lower())
+                        self.user_model.edge_reactivations[key] = \
+                            self.user_model.edge_reactivations.get(key, 0) + 1
 
         # Step 2: Extract topic
         subject, obj = self._extract_topic(user_input, activated)
@@ -1295,11 +1319,34 @@ class CognitiveChatEngine:
         # Step 9: Update cognitive state
         self._update_state(ctx)
 
-        # Step 10: Track topics
-        if subject and subject.lower() not in [t.lower() for t in self._past_topics]:
-            self._past_topics.append(subject)
-        if len(self._past_topics) > 30:
-            self._past_topics = self._past_topics[-30:]
+        # Phase 3.1: Track topics with rich metadata
+        if subject:
+            sl = subject.lower()
+            if not any(t.lower() == sl for t in self._topic_list):
+                self._topic_list.append(subject)
+                self._topic_store[sl] = {
+                    'label': subject,
+                    'turn': self.turn_count,
+                    'assertions': list(self._belief_assertions[-5:]),
+                    'vad': (self.emotion.state.valence, self.emotion.state.arousal,
+                            self.emotion.state.dominance),
+                    'response_summary': response[:100],
+                    'visit_count': 1,
+                }
+            else:
+                entry = self._topic_store.get(sl)
+                if entry:
+                    entry['visit_count'] += 1
+                    entry['turn'] = self.turn_count
+                    entry['response_summary'] = response[:100]
+                    entry['vad'] = (self.emotion.state.valence, self.emotion.state.arousal,
+                                    self.emotion.state.dominance)
+        # Keep last 50 topics
+        if len(self._topic_list) > 50:
+            removed = self._topic_list[:-50]
+            self._topic_list = self._topic_list[-50:]
+            for r in removed:
+                self._topic_store.pop(r.lower(), None)
 
         # Step 11: Store episodic memory — link subject to its associations
         self._store_episodic(subject, associations)
@@ -1307,6 +1354,20 @@ class CognitiveChatEngine:
         self._last_responses.append(response)
         if len(self._last_responses) > 10:
             self._last_responses = self._last_responses[-10:]
+
+        # Phase 3.4: Store response context for follow-up bias
+        hop_labels = []
+        for hops_list in self._last_chain_hops:
+            for f, t in hops_list:
+                hop_labels.append((f, t))
+        self._response_context.append({
+            'subject': subject,
+            'response': response,
+            'hops': hop_labels,
+            'turn': self.turn_count,
+        })
+        if len(self._response_context) > 10:
+            self._response_context = self._response_context[-10:]
 
         # Step 12: Phase 1.3 — Flush deferred learning queue (rate-limited)
         self._turns_since_last_search += 1
@@ -1383,23 +1444,45 @@ class CognitiveChatEngine:
     FOLLOW_UP_WORDS = {"more", "else", "another", "also", "further",
                        "other", "additionally", "favorite"}
 
+    # Phase 3.3: Recall trigger patterns
+    RECALL_TRIGGERS = [
+        "remember when", "remember we", "earlier you", "you said",
+        "you mentioned", "we talked about", "we discussed", "before you",
+        "what did you say about", "what did we say about",
+        "recall", "previously", "last time",
+    ]
+
     def _is_follow_up(self, text: str) -> bool:
         words = set(w.lower().strip(".,!?") for w in text.split())
         return bool(words & self.FOLLOW_UP_WORDS)
 
     def _store_episodic(self, subject: str, associations: List[Tuple[str, float]]):
-        """Create episodic edges linking current subject to top associations."""
+        """Create episodic edges linking current subject to top associations.
+        Phase 3.2: On revisit, boost weight. 3+ visits => migrate to semantic."""
         if not subject or not associations:
             return
         subj_nids = self._concept_keywords.get(subject.lower(), [])
         if not subj_nids:
             return
+        subj_nid = subj_nids[0]
         for assoc_label, _ in associations[:3]:
             assoc_nids = self._concept_keywords.get(assoc_label.lower(), [])
-            if (assoc_nids and
-                    not self.graph.get_edge(subj_nids[0], assoc_nids[0])):
-                self.graph.add_edge(subj_nids[0], assoc_nids[0],
+            if not assoc_nids:
+                continue
+            assoc_nid = assoc_nids[0]
+            existing = self.graph.get_edge(subj_nid, assoc_nid)
+            if existing is None:
+                self.graph.add_edge(subj_nid, assoc_nid,
                                     weight=0.15, relation_type="episodic")
+            elif existing.relation_type == "episodic":
+                sl = subject.lower()
+                entry = self._topic_store.get(sl, {})
+                visits = entry.get('visit_count', 1) if isinstance(entry, dict) else 1
+                if visits >= 3:
+                    existing.relation_type = "semantic"
+                    existing.weight = min(0.40, existing.weight + 0.15)
+                elif visits >= 2:
+                    existing.weight = min(0.30, existing.weight + 0.10)
 
     TOPIC_SKIP_WORDS = {"i", "you", "we", "they", "he", "she", "it", "me", "my",
                         "your", "our", "their", "him", "her", "its", "this", "that",
@@ -1590,10 +1673,25 @@ class CognitiveChatEngine:
                            stimulus_dominance=self.identity.state.strength * 0.4 + 0.2,
                            uncertainty=self._free_energy * 0.5, dt=1.0)
 
+    def _detect_recall_trigger(self, text: str) -> Optional[str]:
+        """Phase 3.3: Detect if user is recalling a past topic."""
+        text_lower = text.lower()
+        for trigger in self.RECALL_TRIGGERS:
+            if trigger in text_lower:
+                trigger_idx = text_lower.index(trigger) + len(trigger)
+                after = text_lower[trigger_idx:].strip().strip(".,!?").split()
+                for word in after:
+                    for t in reversed(self._topic_list):
+                        if t.lower() == word or (len(word) >= 3 and t.lower().startswith(word)):
+                            return t
+                if self._topic_list:
+                    return self._topic_list[-1]
+        return None
+
     def _recall_past(self, subj: str, obj: str) -> List[str]:
         related = []
-        for p in self._past_topics:
-            pl = p.lower()
+        for t in self._topic_list:
+            pl = t.lower()
             sl = subj.lower()
             if pl != sl and (pl in sl or sl in pl or len(set(pl.split()) & set(sl.split())) > 0):
                 related.append(p)
@@ -2225,6 +2323,8 @@ class CognitiveChatEngine:
         # Observe all chain hops in the user model
         for hops in self._last_hops:
             self.user_model.observe_chain(hops, is_user_query=False)
+        # Phase 3.4: Save snapshot before clearing for response context
+        self._last_chain_hops = list(self._last_hops)
         self._activation_boost = None
         self._last_hops = []
         return (" ".join(sentences), "associative")
@@ -2276,7 +2376,7 @@ class CognitiveChatEngine:
             return
 
         # Phase 1: Strengthen edges between concepts that co-occur in conversation
-        for topic in self._past_topics[-5:]:
+        for topic in self._topic_list[-5:]:
             tids = self._concept_keywords.get(topic.lower(), [])
             if len(tids) < 2:
                 continue
@@ -2367,7 +2467,9 @@ class CognitiveChatEngine:
             'graph': self.graph,
             'concept_keywords': self._concept_keywords,
             'turn_count': self.turn_count,
-            'past_topics': self._past_topics,
+            'topic_list': self._topic_list,
+        'topic_store': self._topic_store,
+        'response_context': self._response_context,
             'last_responses': self._last_responses,
             'last_strategy': self._last_strategy,
             'free_energy': self._free_energy,
@@ -2411,7 +2513,9 @@ class CognitiveChatEngine:
             self.graph = state['graph']
             self._concept_keywords = state['concept_keywords']
             self.turn_count = state['turn_count']
-            self._past_topics = state['past_topics']
+            self._topic_list = state.get('topic_list', [])
+            self._topic_store = state.get("topic_store", {})
+            self._response_context = state.get("response_context", [])
             self._last_responses = state['last_responses']
             self._last_strategy = state['last_strategy']
             self._free_energy = state['free_energy']
