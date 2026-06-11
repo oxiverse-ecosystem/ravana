@@ -86,50 +86,42 @@ Measure-Command { python scripts/ravana_chat.py --reset --chat "hello|what is li
 # Previous 10-turn run was ~72s total → should drop to < 10s
 ```
 
-## Phase 3: Conversation Memory & Recall
+## Phase 3: Conversation Memory & Recall ✅
 
 **Goal**: User can refer back to previous topics and RAVANA recalls them meaningfully.
 
-### Steps
+**Status: COMPLETE** — Implemented in commit `7250a27`
+
+### What was implemented
 
 #### 3.1 Topic-indexed conversation store
-- `_past_topics` currently stores just label strings. Replace with dict:
-  ```python
-  {
-    "topic_label": {
-      "turn": int,
-      "assertions": [(subj, rel, obj), ...],
-      "vad_at_time": (v, a, d),
-      "response_summary": str
-    }
-  }
-  ```
-- Keep last 50 topics, not 30
+- `_past_topics` list replaced with `_topic_list: List[str]` + `_topic_store: Dict[str, Dict]`
+- Each topic entry stores: `turn`, `assertions`, `vad`, `response_summary`, `visit_count`
+- Max 50 topics (up from 30)
 
 #### 3.2 Strengthen episodic edges
-- After a topic is revisited, boost episodic edges from w=0.15 to w=0.25 (not overwriting, just increment)
-- If same pair appears in 3+ conversations, migrate to semantic (w=0.30)
+- Episodic edges boost from w=0.15 → 0.25 on 2nd visit
+- Migrate to semantic (w=0.40) after 3+ visits
 
 #### 3.3 Explicit recall trigger
-- Detect phrases like "remember when we talked about X", "earlier you said X", "what did we say about X"
-- `_recall_past()` currently uses simple string overlap — add regex patterns for recall triggers
-- On recall trigger: find the topic in `_past_topics` dict, activate its subgraph with 0.8 activation
+- `RECALL_TRIGGERS` list with 12 patterns ("remember when", "you said", "we talked about", etc.)
+- `_detect_recall_trigger()` method detects triggers and activates recalled topic at 0.8
 
 #### 3.4 Response-aware context
-- Store last 10 responses alongside topics
-- When follow-up is detected, bias chain walking toward edges that were traversed in the original response
+- `_response_context` stores last 10 response chains with hop metadata
+- Follow-up handler biases edges from the original response via `user_model.edge_reactivations`
+- `_last_chain_hops` snapshot saved before `_last_hops` cleared in `_generate_response`
 
 ### Verification
 
 ```bash
 # Recall test
 python scripts/ravana_chat.py --reset --chat "tell me about justice|what is freedom|what did we say about justice" --trace
-# Third query should activate "justice" subgraph at higher activation
+# Third query should activate "justice" subgraph at 0.8 activation
 
 # Topic accumulation test
 python scripts/ravana_chat.py --reset --chat "a|b|c|d|e|f|g|h|i|j|k|l|m|n|o|p|q|r|s|t|u|v|w|x|y|z" --trace
-# All 26 topics should be stored in _past_topics
-# Episodic edges should connect adjacent topics
+# All 26 topics should be stored in _topic_store with metadata
 ```
 
 ## Phase 4: Anchor-Based Coherence
@@ -271,7 +263,7 @@ python scripts/ravana_chat.py --stats
 |-------|------|------------|--------|
 | 1 | Auto-expansion from every message | 180→5000+ concepts after 50 conversations | Medium |
 | 2 | Sub-second response | <1s per turn | Small |
-| 3 | Conversation memory & recall | Recall trigger fires correctly | Medium |
+| 3 ✅ | Conversation memory & recall | Recall trigger fires correctly | Medium |
 | 4 | Anchor-based coherence | Final hop cosine to subject > 0.4 | Medium |
 | 5 | Offline independence | Zero network calls in --offline mode | Small |
 | 6 | Long-term learning & distribution | Save/load across sessions, export/import | Medium |
@@ -525,7 +517,7 @@ python scripts/ravana_chat.py --reset --chat "what is a quasar" --strategy
 |-------|------|------------|--------|
 | 1 | Auto-expansion from every message | 180→5000+ concepts after 50 conversations | Medium |
 | 2 | Sub-second response | <1s per turn | Small |
-| 3 | Conversation memory & recall | Recall trigger fires correctly | Medium |
+| 3 ✅ | Conversation memory & recall | Recall trigger fires correctly | Medium |
 | 4 | Anchor-based coherence | Final hop cosine to subject > 0.4 | Medium |
 | 5 | Offline independence | Zero network calls in --offline mode | Small |
 | 6 | Long-term learning & distribution | Save/load across sessions, export/import | Medium |
