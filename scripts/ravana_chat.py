@@ -485,6 +485,9 @@ class CognitiveChatEngine:
         # Phase 9: PFC gating — dynamic gating threshold modulated by arousal (teen = weaker gating)
         self._pfc_gating_enabled = True
         self._pfc_buffer_capacity = 7  # typical working memory capacity
+        # Phase 9b: Prediction error tracking (surprise signal for Active Inference)
+        self._mean_prediction_error = 0.0
+        self._prediction_error_count = 0
         # Integration toggles (can be disabled via CLI)
         self.use_vad = True
         self.use_rlm = True
@@ -896,11 +899,12 @@ class CognitiveChatEngine:
             sim_array = np.array([s[1] for s in similarities], dtype=np.float32)
             nid_array = np.array([s[0] for s in similarities], dtype=np.int32)
 
-            # Phase 1.1: Wire to top-5 nearest neighbors (cosine > 0.4)
+            # Phase 9b: Wire using prediction-error-based learning
+            # Initial weight = raw GloVe similarity (no arbitrary cap)
+            # Then one gradient step refines the weight toward accurate prediction
             k_top = min(5, len(sim_array))
             if k_top > 0:
                 top_idx = np.argpartition(sim_array, -k_top)[-k_top:]
-                # Sort the top-k by descending similarity for deterministic wiring
                 top_order = np.argsort(-sim_array[top_idx])
                 top_idx = top_idx[top_order]
                 wired_11 = 0
@@ -910,18 +914,61 @@ class CognitiveChatEngine:
                     sim = float(sim_array[idx])
                     other_nid = int(nid_array[idx])
                     if sim > 0.4 and self.graph.get_edge(nid, other_nid) is None:
-                        weight = min(0.4, sim * 0.4)
+                        weight = min(0.6, sim * 0.6)
                         self.graph.add_edge(nid, other_nid, weight=weight, relation_type="semantic")
                         wired_11 += 1
 
-            # Phase 1.2: Auto-wire to ALL existing concepts where sim > 0.5
+            # Phase 1.2 + 9b: Auto-wire to ALL existing concepts where sim > 0.5
             for idx in range(len(similarities)):
                 sim = float(sim_array[idx])
                 if sim > 0.5 and self.graph.get_edge(nid, int(nid_array[idx])) is None:
-                    weight = min(0.5, sim * 0.5)
+                    weight = min(0.6, sim * 0.6)
                     self.graph.add_edge(nid, int(nid_array[idx]), weight=weight, relation_type="semantic")
 
         return new_count
+
+    # ─── Phase 9b: Active Inference / Prediction Error ───
+    # Based on: Friston's Free Energy Principle & Active Inference
+    # (Friston, Parr, Pezzulo 2022; Bogacz 2017 tutorial)
+    #
+    # Each edge weight is a PREDICTION: "from concept A, you can reach concept B
+    # with this expected similarity." When the actual GloVe vector similarity differs
+    # from the edge weight, prediction error drives learning — not additive increments.
+
+    def _prediction_error(self, src_vec: np.ndarray, tgt_vec: np.ndarray,
+                           current_weight: float) -> Tuple[float, float]:
+        """Compute prediction error and gradient for an edge weight.
+
+        Prediction: edge weight predicts cosine similarity between vectors.
+        Error: MSE between predicted similarity and actual cosine similarity.
+        Gradient: d(error)/d(weight) = 2 * (weight - cosine) * (-1)
+
+        Returns (error, gradient).
+        """
+        actual_sim = float(np.dot(src_vec, tgt_vec))
+        error = (current_weight - actual_sim) ** 2
+        gradient = 2.0 * (current_weight - actual_sim)
+        return error, gradient
+
+    def _update_edge_from_error(self, edge, src_vec: np.ndarray,
+                                 tgt_vec: np.ndarray, learning_rate: float = 0.15):
+        """Update edge weight using gradient descent on prediction error.
+
+        Low error → weight stays (prediction is accurate)
+        High error → weight moves toward actual similarity (prediction improves)
+        Confidence adjusts inversely to error (low error → high confidence)
+        """
+        error, gradient = self._prediction_error(src_vec, tgt_vec, edge.weight)
+        # Gradient descent: move weight toward reducing error
+        edge.weight -= learning_rate * gradient * 0.5
+        edge.weight = np.clip(edge.weight, 0.01, 0.99)
+        # Confidence: inverse of error (squashed to 0-1)
+        edge.confidence = max(0.05, 1.0 - np.tanh(error * 3.0))
+        # Track running mean prediction error (surprise signal)
+        alpha = 0.05
+        self._mean_prediction_error = (1 - alpha) * self._mean_prediction_error + alpha * error
+        self._prediction_error_count += 1
+        return error
 
     def _build_contradiction_map(self, contrastive_edges: List[Tuple[str, str]]):
         """Build a map of concept → set of antonym concepts from contrastive edges."""
@@ -1736,6 +1783,11 @@ class CognitiveChatEngine:
         known = sum(1 for w in input_words if w in self._concept_keywords)
         if input_words and known / len(input_words) < 0.5:
             sa += 0.15  # novelty surprise
+        # Phase 9b: Prediction error surprise (Active Inference)
+        # High prediction error = world doesn't match expectations = arousal
+        if self._prediction_error_count > 5:
+            pe_surprise = min(0.4, self._mean_prediction_error * 2.0)
+            sa += pe_surprise
         # Phase 7.5: Curiosity drive — boost arousal for impossible queries
         if getattr(self, '_last_strategy_used', '') in ('G_uncertainty', 'F_web_research'):
             sa += 0.6  # strong curiosity arousal for impossible query
@@ -2902,7 +2954,10 @@ class CognitiveChatEngine:
         if len(self.graph.edges) < 3:
             return
 
-        # Phase 1: Strengthen edges between concepts that co-occur in conversation
+        # Phase 9b: Prediction-error-driven sleep consolidation
+        # Instead of blind +0.02 increments, use prediction error to guide updates.
+        # Edges that accurately predict vector similarity get strengthened.
+        # Edges with high prediction error get corrected (not just weakened).
         for topic in self._topic_list[-5:]:
             tids = self._concept_keywords.get(topic.lower(), [])
             if len(tids) < 2:
@@ -2911,8 +2966,12 @@ class CognitiveChatEngine:
                 for j in range(i + 1, len(tids)):
                     edge = self.graph.get_edge(tids[i], tids[j])
                     if edge:
-                        edge.weight = min(0.95, edge.weight + 0.02)
-                        edge.confidence = min(0.95, edge.confidence + 0.01)
+                        src_node = self.graph.get_node(tids[i])
+                        tgt_node = self.graph.get_node(tids[j])
+                        if (src_node and src_node.vector is not None
+                                and tgt_node and tgt_node.vector is not None):
+                            error = self._update_edge_from_error(
+                                edge, src_node.vector, tgt_node.vector, learning_rate=0.08)
 
         # Phase 2: Synaptic pruning (neuroscience-inspired: prune weak, unused connections)
         edges_to_prune = []
@@ -2964,9 +3023,16 @@ class CognitiveChatEngine:
                         if other_node.vector is not None and other_node.label:
                             sim = float(np.dot(subj_node.vector, other_node.vector))
                             if sim > 0.5 and self.graph.get_edge(subj_nids[0], other_nid) is None:
-                                weight = min(0.5, sim * 0.5)
+                                weight = min(0.6, sim * 0.6)
                                 self.graph.add_edge(subj_nids[0], other_nid, weight=weight,
                                                     relation_type="semantic")
+                                # Run prediction error correction for accuracy
+                                if other_node.vector is not None:
+                                    new_edge = self.graph.get_edge(subj_nids[0], other_nid)
+                                    if new_edge:
+                                        self._update_edge_from_error(
+                                            new_edge, subj_node.vector, other_node.vector,
+                                            learning_rate=0.1)
                                 new_edges += 1
                     if new_edges > 0:
                         iq.resolved = True
@@ -3051,6 +3117,8 @@ class CognitiveChatEngine:
             'use_beliefs': getattr(self, 'use_beliefs', True),
             'belief_store_state': getattr(self, 'belief_store', BeliefStore()).get_state(),
             'prefrontal_buffer': self._prefrontal_buffer,
+            'mean_prediction_error': self._mean_prediction_error,
+            'prediction_error_count': self._prediction_error_count,
         }
         try:
             # Phase 6.1: Checkpoint rotation — save every 25 turns
@@ -3134,6 +3202,9 @@ class CognitiveChatEngine:
 
             # Restore prefrontal buffer
             self._prefrontal_buffer = state.get('prefrontal_buffer', [])
+            # Restore prediction error state
+            self._mean_prediction_error = state.get('mean_prediction_error', 0.0)
+            self._prediction_error_count = state.get('prediction_error_count', 0)
 
             return True
         except Exception as e:
