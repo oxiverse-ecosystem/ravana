@@ -3050,6 +3050,44 @@ class CognitiveChatEngine:
                 if be_pair in self._dormant_edges:
                     self._dormant_edges.discard(be_pair)
                     best_edge.confidence = 0.3  # awakened to normal level
+            # Phase 10.1: Per-hop prediction error
+            _cur_node_walk = self.graph.get_node(cur_nid)
+            _tgt_node_walk = self.graph.get_node(best_edge.target) if best_edge.target is not None else self.graph.get_node(best_edge.source)
+            _hop_pe = 0.0
+            if _cur_node_walk is not None and _cur_node_walk.vector is not None and _tgt_node_walk is not None and _tgt_node_walk.vector is not None:
+                _sn_walk = None
+                if subject_proximity:
+                    _snids_walk = self._concept_keywords.get(subject_proximity.lower(), [])
+                    if _snids_walk:
+                        _sn_node = self.graph.get_node(_snids_walk[0])
+                        if _sn_node is not None and _sn_node.vector is not None:
+                            _sn_walk = _sn_node.vector
+                _subj_vec_walk = _sn_walk if _sn_walk is not None else _cur_node_walk.vector
+                _pfc_vecs_walk = []
+                for _bl in self._prefrontal_buffer:
+                    _bn = self._concept_keywords.get(_bl, [])
+                    if _bn:
+                        _bnnode = self.graph.get_node(_bn[0])
+                        if _bnnode is not None and _bnnode.vector is not None:
+                            _pfc_vecs_walk.append(_bnnode.vector)
+                _pfc_centroid_walk = np.mean(_pfc_vecs_walk, axis=0) if _pfc_vecs_walk else np.zeros(self.dim)
+                _hop_pe = self._compute_hop_prediction_error(
+                    _cur_node_walk.vector, _subj_vec_walk, _pfc_centroid_walk, _tgt_node_walk.vector)
+                _alpha_pe = 0.05
+                self._mean_sentence_pe = (1 - _alpha_pe) * self._mean_sentence_pe + _alpha_pe * _hop_pe
+                self._sentence_pe_count += 1
+            # Phase 14.1: TD learning on traversed edge
+            if _hop_pe > 0:
+                self._td_learn(cur_label, best_label, best_edge, _hop_pe)
+            # Phase 13.1: Activation fatigue for traversed nodes
+            for _nid in [cur_nid, best_edge.source, best_edge.target]:
+                if _nid is not None and _nid >= 0:
+                    self._activation_fatigue[_nid] = self._activation_fatigue.get(_nid, 0.0) + 0.15
+            # Phase 13.2: Track recent traversals
+            if best_edge.source is not None and best_edge.target is not None:
+                self._recent_traversals.append((best_edge.source, best_edge.target))
+                if len(self._recent_traversals) > 30:
+                    self._recent_traversals = self._recent_traversals[-30:]
             connector = self._pick_connector(best_edge.relation_type, best_edge.weight,
                                              best_edge.confidence, temperature)
             # Retry same hop if best neighbor IS the connector word
@@ -3332,6 +3370,8 @@ class CognitiveChatEngine:
                 chain1_concepts = [p for p in chain1.split() if p.lower() not in self._CONNECTOR_SET]
                 if getattr(self, '_pfc_gating_enabled', True):
                     self._prefrontal_maintain_buffer(subject, chain1_concepts)
+                # Phase 10.3: Update sentence schema after sentence
+                self._update_sentence_schema(subject, [c for c in chain1_concepts if len(c) >= 3][:5])
                 for word in chain1.split():
                     if word.lower() in self._CONNECTOR_SET:
                         connector_counts[word.lower()] = connector_counts.get(word.lower(), 0) + 1
@@ -3346,6 +3386,8 @@ class CognitiveChatEngine:
                 chain2_concepts = [p for p in chain2.split() if p.lower() not in self._CONNECTOR_SET]
                 if getattr(self, '_pfc_gating_enabled', True):
                     self._prefrontal_maintain_buffer(subject, chain2_concepts)
+                # Phase 10.3: Update sentence schema after sentence
+                self._update_sentence_schema(subject, [c for c in chain2_concepts if len(c) >= 3][:5])
                 for word in chain2.split():
                     if word.lower() in self._CONNECTOR_SET:
                         connector_counts[word.lower()] = connector_counts.get(word.lower(), 0) + 1
@@ -3360,6 +3402,8 @@ class CognitiveChatEngine:
                 chain3_concepts = [p for p in chain3.split() if p.lower() not in self._CONNECTOR_SET]
                 if getattr(self, '_pfc_gating_enabled', True):
                     self._prefrontal_maintain_buffer(subject, chain3_concepts)
+                # Phase 10.3: Update sentence schema after sentence
+                self._update_sentence_schema(subject, [c for c in chain3_concepts if len(c) >= 3][:5])
                 for word in chain3.split():
                     if word.lower() in self._CONNECTOR_SET:
                         connector_counts[word.lower()] = connector_counts.get(word.lower(), 0) + 1
@@ -3400,6 +3444,8 @@ class CognitiveChatEngine:
                 chain2_concepts = [p for p in chain2.split() if p.lower() not in self._CONNECTOR_SET]
                 if getattr(self, '_pfc_gating_enabled', True):
                     self._prefrontal_maintain_buffer(subject, chain2_concepts)
+                # Phase 10.3: Update sentence schema after sentence
+                self._update_sentence_schema(subject, [c for c in chain2_concepts if len(c) >= 3][:5])
                 for word in chain2.split():
                     if word.lower() in self._CONNECTOR_SET:
                         connector_counts[word.lower()] = connector_counts.get(word.lower(), 0) + 1
@@ -3414,6 +3460,8 @@ class CognitiveChatEngine:
                 chain3_concepts = [p for p in chain3.split() if p.lower() not in self._CONNECTOR_SET]
                 if getattr(self, '_pfc_gating_enabled', True):
                     self._prefrontal_maintain_buffer(subject, chain3_concepts)
+                # Phase 10.3: Update sentence schema after sentence
+                self._update_sentence_schema(subject, [c for c in chain3_concepts if len(c) >= 3][:5])
                 for word in chain3.split():
                     if word.lower() in self._CONNECTOR_SET:
                         connector_counts[word.lower()] = connector_counts.get(word.lower(), 0) + 1
@@ -3579,7 +3627,10 @@ class CognitiveChatEngine:
         self._last_chain_hops = list(self._last_hops)
         self._activation_boost = None
         self._last_hops = []
-        return (" ".join(sentences), "associative")
+        _reported_strat = getattr(self, '_last_strategy_used', '')
+        if not _reported_strat or _reported_strat == 'associative':
+            _reported_strat = self._last_strategy if self._last_strategy else 'associative'
+        return (" ".join(sentences), _reported_strat)
 
 
     def _update_state(self, ctx: CognitiveResponseContext):
