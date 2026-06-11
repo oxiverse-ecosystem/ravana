@@ -754,19 +754,22 @@ class CognitiveChatEngine:
                     # Don't duplicate existing edges, just boost weight
                     existing = self.graph.get_edge(nid1, nid2)
                     if existing is None:
-                        weight = min(0.7, 0.2 + word_counts.get(w1, 1) * word_counts.get(w2, 1) * 0.001)
+                        weight = max(0.3, min(0.7, 0.2 + word_counts.get(w1, 1) * word_counts.get(w2, 1) * 0.001))
                         self.graph.add_edge(nid1, nid2, weight=weight, relation_type="semantic")
                     else:
                         existing.weight = min(0.9, existing.weight + 0.05)
 
         # Connect new words to existing related concepts via vector similarity
-        for word in important_words:
+        # Only do this for the topic word and first 2 important words (others
+        # rely on co-occurrence edges, which are more topically coherent)
+        for word in important_words[:3]:
             nid = label_to_id.get(word)
             if nid is None:
                 continue
             node = self.graph.get_node(nid)
             if node is None:
                 continue
+            edge_count = 0
             for existing_nid, existing_node in self.graph.nodes.items():
                 if existing_nid == nid or (existing_node.label and existing_node.label in important_words):
                     continue
@@ -774,8 +777,25 @@ class CognitiveChatEngine:
                     sim = float(np.dot(node.vector, existing_node.vector))
                     if sim > 0.3:
                         if self.graph.get_edge(nid, existing_nid) is None:
-                            self.graph.add_edge(nid, existing_nid, weight=min(0.5, sim * 0.5),
+                            weight = max(0.25, min(0.5, sim * 0.5))
+                            self.graph.add_edge(nid, existing_nid, weight=weight,
                                                 relation_type="semantic")
+                            edge_count += 1
+            # Guarantee at least one connection for the topic word
+            if edge_count == 0 and word == important_words[0]:
+                best_sim = 0.0
+                best_nid = None
+                for existing_nid, existing_node in self.graph.nodes.items():
+                    if existing_nid == nid or existing_node.label in important_words:
+                        continue
+                    if existing_node.vector is not None and node.vector is not None:
+                        sim = float(np.dot(node.vector, existing_node.vector))
+                        if sim > best_sim:
+                            best_sim = sim
+                            best_nid = existing_nid
+                if best_nid is not None:
+                    weight = max(0.25, min(0.4, best_sim * 0.5))
+                    self.graph.add_edge(nid, best_nid, weight=weight, relation_type="semantic")
         return new_count
 
     def _learn_from_snippets(self, query: str, snippets: List[str]) -> str:
@@ -796,6 +816,16 @@ class CognitiveChatEngine:
         # Step 1: Find matching concepts
         activated = self._activate_from_input(user_input)
 
+        # Step 1b: If this is a follow-up (more/else/also), reactivate the latest
+        # past topic so the graph walks find it naturally
+        if self._is_follow_up(user_input) and self._past_topics:
+            last_topic = self._past_topics[-1]
+            lt_nids = self._concept_keywords.get(last_topic.lower(), [])
+            for nid in lt_nids:
+                if nid not in activated:
+                    activated.append(nid)
+                    self.graph.activate(nid, 0.6)
+
         # Step 2: Extract topic
         subject, obj = self._extract_topic(user_input, activated)
         relation = "is"
@@ -811,11 +841,13 @@ class CognitiveChatEngine:
         associations = self._spread_and_collect(activated, primary_ids=subject_ids)
 
         # Step 4: Decide if we need to learn from the web
-        # Auto-learn when most words in the input are unknown
+        # Auto-learn when there are unknown meaningful words in the input
         input_words = [w.strip(".,!?") for w in user_input.lower().split()
                       if len(w.strip(".,!?")) >= 3]
-        known_ratio = len(activated) / max(len(input_words), 1) if input_words else 0
-        needs_learning = (known_ratio < 0.4 and len(input_words) >= 2 and
+        known_words = sum(1 for w in input_words if w in self._concept_keywords)
+        unknown_meaningful = [w for w in input_words
+                              if w not in self._concept_keywords and w not in STOP_WORDS]
+        needs_learning = (len(unknown_meaningful) > 0 and
                          self._learning_count < 15)  # Limit to 15 searches per session
 
         if needs_learning and self.baby_mode:
@@ -897,6 +929,9 @@ class CognitiveChatEngine:
         if len(self._past_topics) > 30:
             self._past_topics = self._past_topics[-30:]
 
+        # Step 11: Store episodic memory — link subject to its associations
+        self._store_episodic(subject, associations)
+
         self._last_responses.append(response)
         if len(self._last_responses) > 10:
             self._last_responses = self._last_responses[-10:]
@@ -962,7 +997,27 @@ class CognitiveChatEngine:
                         "does", "do", "is", "are", "can", "will", "would",
                         "could", "should", "did", "have", "has", "had"}
 
-    # Pronouns and generic words to skip when picking a topic
+    # Words that signal the user is asking for more on a previous topic
+    FOLLOW_UP_WORDS = {"more", "else", "another", "also", "further",
+                       "other", "additionally", "favorite"}
+
+    def _is_follow_up(self, text: str) -> bool:
+        words = set(w.lower().strip(".,!?") for w in text.split())
+        return bool(words & self.FOLLOW_UP_WORDS)
+
+    def _store_episodic(self, subject: str, associations: List[Tuple[str, float]]):
+        """Create episodic edges linking current subject to top associations."""
+        if not subject or not associations:
+            return
+        subj_nids = self._concept_keywords.get(subject.lower(), [])
+        if not subj_nids:
+            return
+        for assoc_label, _ in associations[:3]:
+            assoc_nids = self._concept_keywords.get(assoc_label.lower(), [])
+            if (assoc_nids and
+                    not self.graph.get_edge(subj_nids[0], assoc_nids[0])):
+                self.graph.add_edge(subj_nids[0], assoc_nids[0],
+                                    weight=0.15, relation_type="episodic")
     TOPIC_SKIP_WORDS = {"i", "you", "we", "they", "he", "she", "it", "me", "my",
                         "your", "our", "their", "him", "her", "its", "this", "that",
                         "these", "those", "there", "here", "some", "any", "all",
@@ -1172,6 +1227,7 @@ class CognitiveChatEngine:
         "semantic": "connect",
         "contrastive": "but",
         "temporal": "change",
+        "episodic": "connect",
     }
 
     # Edge type → discourse starter (all labels exist in seeded TEEN_CONCEPTS)
