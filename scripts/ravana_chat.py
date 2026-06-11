@@ -219,6 +219,9 @@ TEEN_CONCEPTS = [
     ("experiment", "trial test attempt investigation"),
 
     # ── Relational / Meta ──
+    ("and", "also plus together"),
+    ("so", "therefore thus hence"),
+    ("then", "next after afterwards"),
     ("why", "reason because explanation cause"),
     ("how", "method way process means"),
     ("what", "which thing object identity"),
@@ -974,7 +977,8 @@ class CognitiveChatEngine:
                         # Generic adjectives & filler that make poor conversation topics
                         "good", "bad", "big", "small", "always", "never", "maybe",
                         "if", "but", "in", "out", "up", "down",
-                        "point", "way", "thing", "stuff"}
+                        "point", "way", "thing", "stuff",
+                        "and", "so"}
 
     def _extract_topic(self, text: str, activated: List[int]) -> Tuple[str, str]:
         """Extract the main topic from input. Uses graph-activated concepts
@@ -1170,6 +1174,15 @@ class CognitiveChatEngine:
         "temporal": "change",
     }
 
+    # Edge type → discourse starter (all labels exist in seeded TEEN_CONCEPTS)
+    _EDGE_TO_STARTER = {
+        "causal": "because",
+        "contrastive": "but",
+        "semantic": "and",
+        "analogical": "like",
+        "temporal": "then",
+    }
+
     def _get_edge_info(self, src_label: str, tgt_label: str) -> Optional[Dict]:
         """Get edge information between two concept labels from the graph."""
         src_ids = self._concept_keywords.get(src_label.lower(), [])
@@ -1266,6 +1279,28 @@ class CognitiveChatEngine:
             return None
         return phrase
 
+    def _starter_from_chain(self, chain: str, subject: str) -> str:
+        """Extract the first edge relation type from a chain string and return
+        a discourse starter (graph label). The matched starter is weighted 3x
+        higher but other starters still have a chance — prevents monotony when
+        most edges are semantic."""
+        if not chain:
+            return "and"
+        matched = "and"
+        parts = chain.split()
+        if len(parts) >= 3:
+            conn = parts[1]
+            for rel_type, graph_label in self._EDGE_TO_GRAPH_LABEL.items():
+                if graph_label and conn == graph_label:
+                    starter = self._EDGE_TO_STARTER.get(rel_type)
+                    if starter:
+                        matched = starter
+                    break
+        candidates = list(self._EDGE_TO_STARTER.values())
+        weights = np.array([3.0 if s == matched else 1.0 for s in candidates], dtype=np.float64)
+        weights /= weights.sum()
+        return candidates[self.rng.choice(len(candidates), p=weights)]
+
     def _walk_chain(self, label: str, seen: Set[str], max_hops: int,
                     temperature: float = 0.25) -> Optional[str]:
         """Walk a path through the graph from label, temperature-weighted.
@@ -1353,7 +1388,7 @@ class CognitiveChatEngine:
             c1_parts[-1].lower() not in self.TOPIC_SKIP_WORDS else subject
         chain2 = self._walk_chain(start2, seen, max_hops=2, temperature=0.3)
         if chain2:
-            conn = ["and", "but", "because"][self.rng.randint(0, 3)]
+            conn = self._starter_from_chain(chain2, subject)
             sentences.append(f"{conn} {chain2}.")
         else:
             # Multi-branch fallback: try subject, then other associations
@@ -1366,7 +1401,7 @@ class CognitiveChatEngine:
                         if chain2:
                             break
             if chain2:
-                conn = ["and", "but", "because"][self.rng.randint(0, 3)]
+                conn = self._starter_from_chain(chain2, subject)
                 sentences.append(f"{conn} {chain2}.")
 
         if len(sentences) < 3:
@@ -1379,13 +1414,13 @@ class CognitiveChatEngine:
                 start3 = subject
             chain3 = self._walk_chain(start3, seen, max_hops=3, temperature=0.4)
             if chain3:
-                conn = ["and", "but", "so"][self.rng.randint(0, 3)]
+                conn = self._starter_from_chain(chain3, subject)
                 sentences.append(f"{conn} {chain3}.")
             else:
                 for perspective in self.rng.permutation(["i", "we", "you"])[:2]:
                     per_phrase = self._phrase_from_label(perspective, seen, max_concepts=4)
                     if per_phrase:
-                        conn = ["and", "but", "so"][self.rng.randint(0, 3)]
+                        conn = self._starter_from_chain(per_phrase, perspective)
                         sentences.append(f"{conn} {per_phrase}.")
                         break
 
