@@ -276,6 +276,8 @@ class ChainHop:
     confidence: float
     temperature: float
     candidates: int  # how many edges were considered at this hop
+    rlm_confidence: float = 0.0  # RLMv2 triple verification score
+    contradiction: str = ""  # contradiction detail if detected
 
 @dataclass
 class ChainTrace:
@@ -434,6 +436,10 @@ class CognitiveChatEngine:
         self._free_energy = 0.0
         self._learning_count = 0
         self._learned_this_turn = False
+        # Phase 1.3: Deferred web learning queue
+        self._pending_learning_queue: List[str] = []
+        # Phase 1.4: Per-session rate limit (max 1 search per 3 turns)
+        self._turns_since_last_search: int = 0
         self._concept_keywords: Dict[str, List[int]] = {}
         self._save_path = os.path.join(_proj_root, "ravana_weights.pkl")
         self.sleep_cycles_completed = 0
@@ -717,6 +723,96 @@ class CognitiveChatEngine:
                 pv /= norm
             return pv.astype(np.float32)
         return None
+
+    # ─── Phase 1: Auto-Expansion from Every Message ───
+
+    def _auto_expand_concepts(self, text: str) -> int:
+        """Phase 1.1+1.2: Auto-expand graph from user input.
+
+        For each meaningful word in input that is not yet a graph concept:
+        - If word has a GloVe vector: add as concept node, wire to top-5 GloVe
+          nearest neighbors (Phase 1.1), then auto-wire to ALL existing concepts
+          with cosine > 0.5 (Phase 1.2).
+        - If word has no GloVe vector: skip (web search handles later).
+
+        Returns number of new concepts added.
+        """
+        # Extract meaningful words from input
+        words = re.findall(r"[a-zA-Z']{3,}", text.lower())
+        meaningful = set()
+        for w in words:
+            wc = w.strip("'")
+            if wc not in STOP_WORDS and len(wc) >= 3:
+                meaningful.add(wc)
+        if not meaningful:
+            return 0
+
+        # Build set of existing graph labels for fast lookup
+        existing_labels = set()
+        for nid, node in self.graph.nodes.items():
+            if node.label:
+                existing_labels.add(node.label.lower())
+
+        new_count = 0
+        new_nodes: Dict[str, int] = {}  # word -> node_id
+
+        # Phase 1.1: Add each new word as a concept (GloVe only, skip non-GloVe)
+        for word in meaningful:
+            if word in existing_labels:
+                continue
+            vec = self._glove_vector(word)
+            if vec is None:
+                continue  # Not in GloVe — web search can handle later
+            node = self.graph.add_node(vector=vec, label=word)
+            self._concept_keywords[word] = self._concept_keywords.get(word, []) + [node.id]
+            self._concept_labels.add(word.lower())
+            existing_labels.add(word)
+            new_nodes[word] = node.id
+            new_count += 1
+
+        if not new_nodes:
+            return 0
+
+        # Phase 1.1+1.2: Wire new concepts to existing graph concepts via vector similarity
+        for word, nid in new_nodes.items():
+            node = self.graph.get_node(nid)
+            if node is None or node.vector is None:
+                continue
+
+            # Compute cosine similarity against ALL existing concepts
+            similarities = []
+            for other_nid, other_node in self.graph.nodes.items():
+                if other_nid == nid:
+                    continue
+                if other_node.label is None or other_node.vector is None:
+                    continue
+                if other_node.label.lower() in new_nodes:
+                    continue  # Skip other freshly-added concepts (they wire themselves)
+                sim = float(np.dot(node.vector, other_node.vector))
+                if sim > 0.3:
+                    similarities.append((other_nid, sim))
+
+            if not similarities:
+                continue
+            similarities.sort(key=lambda x: x[1], reverse=True)
+
+            # Phase 1.1: Wire to top-5 GloVe nearest neighbors (cosine > 0.4)
+            wired_11 = 0
+            for other_nid, sim in similarities:
+                if wired_11 >= 5:
+                    break
+                if sim > 0.4 and self.graph.get_edge(nid, other_nid) is None:
+                    weight = min(0.4, sim * 0.4)
+                    self.graph.add_edge(nid, other_nid, weight=weight, relation_type="semantic")
+                    wired_11 += 1
+
+            # Phase 1.2: Auto-wire to ALL existing concepts where sim > 0.5
+            for other_nid, sim in similarities:
+                if sim > 0.5 and self.graph.get_edge(nid, other_nid) is None:
+                    weight = min(0.5, sim * 0.5)
+                    self.graph.add_edge(nid, other_nid, weight=weight, relation_type="semantic")
+
+        return new_count
 
     def _build_contradiction_map(self, contrastive_edges: List[Tuple[str, str]]):
         """Build a map of concept → set of antonym concepts from contrastive edges."""
@@ -1012,7 +1108,18 @@ class CognitiveChatEngine:
         # Step 1: Find matching concepts
         activated = self._activate_from_input(user_input)
 
-        # Step 1b: If this is a follow-up (more/else/also), reactivate the latest
+        # Step 1b.5: Phase 1 — Auto-expand graph from every message
+        # Every input word that has a GloVe vector becomes a new concept,
+        # wired to top-5 neighbors and all similar existing concepts.
+        # No web search needed for expansion — purely local GloVe.
+        new_concepts = self._auto_expand_concepts(user_input)
+        if new_concepts > 0 and self._trace_enabled:
+            print(f"  [trace]   auto-expanded {new_concepts} new concepts from input")
+        # Re-activate in case new concepts were added
+        if new_concepts > 0:
+            activated = self._activate_from_input(user_input)
+
+        # Step 1c: If this is a follow-up (more/else/also), reactivate the latest
         # past topic so the graph walks find it naturally
         self._activation_boost: Optional[Dict[str, float]] = None
         if self._is_follow_up(user_input) and self._past_topics:
@@ -1039,29 +1146,18 @@ class CognitiveChatEngine:
         # Step 3: Spread activation through graph
         associations = self._spread_and_collect(activated, primary_ids=subject_ids)
 
-        # Step 4: Decide if we need to learn from the web
-        # Auto-learn when there are unknown meaningful words in the input
+        # Step 4: Collect unknown words for deferred web learning
+        # Phase 1.4: No hard lifetime cap — per-session rate limit (max 1 search per 3 turns)
         input_words = [w.strip(".,!?") for w in user_input.lower().split()
                       if len(w.strip(".,!?")) >= 3]
         known_words = sum(1 for w in input_words if w in self._concept_keywords)
         unknown_meaningful = [w for w in input_words
                               if w not in self._concept_keywords and w not in STOP_WORDS]
-        needs_learning = (len(unknown_meaningful) > 0 and
-                         self._learning_count < 15)  # Limit to 15 searches per session
-
-        if needs_learning and self.baby_mode:
-            learn_query = self._extract_learning_query(user_input, activated)
-            if learn_query:
-                learn_summary = self.learn_from_web(learn_query)
-                # Re-activate with new knowledge
-                activated = self._activate_from_input(user_input)
-                subject, obj = self._extract_topic(user_input, activated)
-                # Recompute primary IDs for new subject
-                subject_ids = set()
-                sl2 = subject.lower()
-                if sl2 in self._concept_keywords:
-                    subject_ids.update(self._concept_keywords[sl2])
-                associations = self._spread_and_collect(activated, primary_ids=subject_ids)
+        # Phase 1.3: Collect unknown words into queue instead of searching synchronously
+        if unknown_meaningful and self.baby_mode:
+            for w in unknown_meaningful:
+                if w not in self._pending_learning_queue:
+                    self._pending_learning_queue.append(w)
 
         # Step 5: Emotional modulation (with concept-specific tagging)
         self._update_emotion(user_input)
@@ -1134,6 +1230,16 @@ class CognitiveChatEngine:
         self._last_responses.append(response)
         if len(self._last_responses) > 10:
             self._last_responses = self._last_responses[-10:]
+
+        # Step 12: Phase 1.3 — Flush deferred learning queue (rate-limited)
+        self._turns_since_last_search += 1
+        if (self._pending_learning_queue and
+                self._turns_since_last_search >= 3):  # Max 1 search per 3 turns
+            learn_query = self._pending_learning_queue.pop(0)
+            if self._trace_enabled:
+                print(f"  [trace]   deferred web learn: {learn_query}")
+            learn_summary = self.learn_from_web(learn_query)
+            self._turns_since_last_search = 0
 
         return response
 
@@ -1380,34 +1486,32 @@ class CognitiveChatEngine:
                     "really", "tell me", "explain", "mean"}
         words = set(w.lower().strip(".,!?") for w in text.split())
         sv = 0.0
-        sa = 0.15
+        sa = 0.2  # baseline engagement floor
         # Positive words boost valence
         if words & positive:
-            sv += 0.25
-            sa += 0.08
+            sv += 0.4
+            sa += 0.2
         # Negative words lower valence
         if words & negative:
-            sv -= 0.25
-            sa += 0.12
+            sv -= 0.4
+            sa += 0.25
         # Curiosity words increase arousal (engagement)
         if words & curious:
-            sa += 0.1
+            sa += 0.3
             if sv == 0.0:
                 sv += 0.05  # slight positive bias for curiosity
         # Learning excitement
         if self._learned_this_turn:
-            sa += 0.25
-            sv += 0.1
+            sa += 0.3
+            sv += 0.2
         # Novelty-based arousal (unknown words = mild surprise)
         input_words = [w for w in words if len(w) >= 3]
         known = sum(1 for w in input_words if w in self._concept_keywords)
         if input_words and known / len(input_words) < 0.5:
-            sa += 0.1  # novelty surprise
+            sa += 0.15  # novelty surprise
         self.emotion.update(stimulus_valence=sv, stimulus_arousal=sa,
                            stimulus_dominance=self.identity.state.strength * 0.4 + 0.2,
-                           uncertainty=self._free_energy * 0.5)
-        # VAD decay toward neutral each turn
-        self._vad_decay(rate=0.95)
+                           uncertainty=self._free_energy * 0.5, dt=1.0)
 
     def _recall_past(self, subj: str, obj: str) -> List[str]:
         related = []
@@ -1743,12 +1847,13 @@ class CognitiveChatEngine:
                 # VAD modulation: arousal shifts preference within the tier
                 if getattr(self, 'use_vad', True):
                     arousal = self.emotion.state.arousal
+                    valence = self.emotion.state.valence
                     dominance = self.emotion.state.dominance
-                    # High arousal + high dominance → prefer first (strongest) option
-                    if arousal > 0.65 and dominance > 0.55 and len(options) > 1:
+                    # High arousal + positive valence → prefer assertive (first) connector
+                    if arousal > 0.50 and valence > 0.10 and len(options) > 1:
                         return options[0]
-                    # Low arousal → prefer last (weakest) option
-                    if arousal < 0.35 and len(options) > 1:
+                    # Low arousal + negative valence → prefer weakest (last) connector
+                    if arousal < 0.25 and valence < -0.10 and len(options) > 1:
                         return options[-1]
                 # Standard temperature-driven choice
                 if temperature < 0.2:
@@ -1850,24 +1955,29 @@ class CognitiveChatEngine:
                 max_w = max((c[0] for c in candidates), default=0.001)
                 for sig, tgt_lbl, edge, d in candidates:
                     adj = sig
-                    if valence > 0.65:
+                    # Positive mood: prefer stronger existing paths
+                    if valence > 0.10:
                         adj *= (1.0 + 0.15 * (edge.weight / max_w))
-                    elif valence < -0.3:
+                    # Negative mood: slightly flatten all weights (exploration)
+                    elif valence < -0.10:
                         adj *= 0.9
-                    if dominance < 0.4:
+                    # Low dominance: less assertive path selection
+                    if dominance < 0.35:
                         adj *= (0.6 + 0.4 * edge.weight / max_w)
                     vad_boosted.append((adj, tgt_lbl, edge, d))
                 candidates = vad_boosted
             # ── RLMv2 Confidence Modulation ──
+            rlm_data = {}  # tgt_label -> confidence for trace logging
             if getattr(self, 'use_rlm', True):
                 rlm_boosted = []
                 for sig, tgt_lbl, edge, d in candidates:
                     triple = self._classify_triple(cur_label, tgt_lbl, edge.relation_type)
-                    rlm_conf = triple['confidence']
+                    rlm_conf_local = triple['confidence']
+                    rlm_data[tgt_lbl.lower()] = rlm_conf_local
                     adj = sig
-                    if rlm_conf < 0.4:
+                    if rlm_conf_local < 0.4:
                         adj *= 0.7
-                    elif rlm_conf > 0.75:
+                    elif rlm_conf_local > 0.75:
                         adj *= 1.15
                     if triple['is_analogical']:
                         adj *= 0.85
@@ -1911,20 +2021,35 @@ class CognitiveChatEngine:
             if connector:
                 chain_labels.add(connector.lower())
             seen.add(best_label.lower())
+            # Record belief assertion BEFORE ChainHop creation (contradiction_detail needed for trace)
+            self._belief_assertions.append((cur_label, best_edge.relation_type, best_label))
+            contradiction_detail: str = ""
+            if getattr(self, 'use_beliefs', True):
+                # Check for contradiction BEFORE asserting (detect overwrite)
+                c = self.belief_store.detect_contradiction(
+                    cur_label, best_edge.relation_type, best_label)
+                if c is not None:
+                    (old_val, old_conf, old_turn), new_val, _ = c
+                    contradiction_detail = (
+                        f"{cur_label} -> {old_val} (turn {old_turn}) vs "
+                        f"{cur_label} -> {new_val} @ conf {best_edge.weight:.3f}")
+                    if self._trace_enabled:
+                        print(f"  [trace]     contradiction: {contradiction_detail}")
+                self.belief_store.assert_belief(
+                    cur_label, best_edge.relation_type, best_label,
+                    confidence=best_edge.weight)
+                self.belief_store.advance_turn()
+            # RLM confidence for the selected edge
+            rlm_hop_conf = rlm_data.get(best_label.lower(), 0.0) if rlm_data else 0.0
             if trace is not None:
                 trace.hops.append(ChainHop(
                     from_label=cur_label, to_label=best_label,
                     relation_type=best_edge.relation_type,
                     weight=best_edge.weight, confidence=best_edge.confidence,
-                    temperature=temperature, candidates=len(candidates)))
+                    temperature=temperature, candidates=len(candidates),
+                    rlm_confidence=rlm_hop_conf,
+                    contradiction=contradiction_detail))
             local_hops.append((cur_label, best_label))
-            # Record belief assertion
-            self._belief_assertions.append((cur_label, best_edge.relation_type, best_label))
-            if getattr(self, 'use_beliefs', True):
-                self.belief_store.assert_belief(
-                    cur_label, best_edge.relation_type, best_label,
-                    confidence=best_edge.weight * best_edge.confidence)
-                self.belief_store.advance_turn()
             cur_label = best_label
             cur_nid = self._concept_keywords.get(best_label.lower(), [None])[0]
             if cur_nid is None:
@@ -2131,9 +2256,14 @@ class CognitiveChatEngine:
             print(f"  [trace]   chain {ci}: {t.max_hops} max, {'done' if t.completed else 'short'}")
             for i, h in enumerate(t.hops):
                 dir_sym = " -> " if h.relation_type != "episodic" else " ~~ "
+                extra = ""
+                if h.rlm_confidence > 0:
+                    extra += f" [RLM: {h.rlm_confidence:.2f}]"
+                if h.contradiction:
+                    extra += f" [CON: {h.contradiction}]"
                 print(f"  [trace]     hop {i}: {h.from_label}{dir_sym}{h.to_label}  "
                       f"[{h.relation_type}] w={h.weight:.3f} c={h.confidence:.3f} "
-                      f"t={h.temperature:.2f} ({h.candidates} cand)")
+                      f"t={h.temperature:.2f} ({h.candidates} cand){extra}")
         # Print user model state
         if self.user_model.edge_reactivations:
             print(f"  [trace]   user_model: {len(self.user_model.edge_reactivations)} edge visits")
