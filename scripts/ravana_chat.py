@@ -406,7 +406,7 @@ class BeliefStore:
 class CognitiveChatEngine:
     """RAVANA cognitive chat engine — starts as a baby, learns from the web."""
 
-    def __init__(self, dim: int = 64, seed: int = 42, baby_mode: bool = True):
+    def __init__(self, dim: int = 64, seed: int = 42, baby_mode: bool = True, data_dir: Optional[str] = None):
         self.dim = dim
         self.rng = np.random.RandomState(seed)
 
@@ -421,7 +421,6 @@ class CognitiveChatEngine:
         # Phase 2.1: GloVe vector cache (avoid recomputing projection)
         self._glove_vector_cache: Dict[str, np.ndarray] = {}
         # Phase 2.3: Warm-start cache file path
-        self._glove_cache_path = os.path.join(_proj_root, "ravana_glove_cache.npz")
 
         # Cognitive engines (emotion, identity, meaning, dual-process, global workspace)
         self.emotion = VADEmotionEngine(VADConfig(eta_valence=0.3, eta_arousal=0.4, eta_dominance=0.25))
@@ -446,10 +445,19 @@ class CognitiveChatEngine:
         self._learned_this_turn = False
         # Phase 1.3: Deferred web learning queue
         self._pending_learning_queue: List[str] = []
+        # Phase 5: Auto offline fallback (None = untested, False = down)
+        self._network_available: Optional[bool] = None
+        self._network_retry_turn: int = 0  # retry network every 20 turns if down
         # Phase 1.4: Per-session rate limit (max 1 search per 3 turns)
         self._turns_since_last_search: int = 0
         self._concept_keywords: Dict[str, List[int]] = {}
-        self._save_path = os.path.join(_proj_root, "ravana_weights.pkl")
+        # Phase 5: Use data_dir if provided
+        if data_dir:
+            self._save_path = os.path.join(data_dir, "ravana_weights.pkl")
+            self._glove_cache_path = os.path.join(data_dir, "ravana_glove_cache.npz")
+        else:
+            self._save_path = os.path.join(_proj_root, "ravana_weights.pkl")
+            self._glove_cache_path = os.path.join(_proj_root, "ravana_glove_cache.npz")
         self.sleep_cycles_completed = 0
         self._chain_traces: List[ChainTrace] = []
         self._trace_enabled = False
@@ -974,27 +982,46 @@ class CognitiveChatEngine:
     def learn_from_web(self, query: str) -> str:
         """Search the web, fetch articles, extract concepts, and learn from them.
         
-        Returns a summary of what was learned.
+        Phase 5: Auto offline fallback. If the network API fails (timeout, DNS,
+        HTTP error), sets _network_available = False and falls back silently.
+        No error messages leak to the user — just returns a short summary.
         """
         self._learned_this_turn = True
         self._learning_count += 1
+
+        # Phase 5: Skip API call if we already know the network is down
+        # (unless it's time for a retry — check every 20 turns)
+        if self._network_available is False:
+            if self._network_retry_turn > 0 and self.turn_count >= self._network_retry_turn:
+                self._network_available = None  # try again
+                self._network_retry_turn = 0
+            else:
+                # Still try GloVe-only learning from the query text itself
+                known_count = self._learn_from_text(query + " " + query, query)
+                if known_count > 0:
+                    return f"learned {known_count} things about {query}"
+                return f"offline - already knew about {query}"
+
         query_clean = quote(query)
 
         try:
-            # Step 1: Search
+            # Step 1: Search (Phase 5: shorter 3s timeout for faster fallback)
             search_url = f"{SEARCH_API}{query_clean}"
             req = urllib.request.Request(search_url, headers={
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) RAVANA-Baby/1.0'
             })
-            resp = urllib.request.urlopen(req, timeout=10)
+            resp = urllib.request.urlopen(req, timeout=3)
             data = json.loads(resp.read().decode('utf-8'))
             results = data.get('results', [])
+
+            # Network worked — mark as available
+            if self._network_available is None:
+                self._network_available = True
 
             if not results:
                 return self._learn_from_snippets(query, [])
 
             # Step 2: Get snippets and try to fetch article text
-            new_concepts_added = 0
             snippets = []
 
             for i, r in enumerate(results[:3]):  # Top 3 results
@@ -1023,8 +1050,19 @@ class CognitiveChatEngine:
             else:
                 return f"read about {query} but already knew the words"
 
-        except Exception as e:
-            return f"tried to learn but got confused: {e}"
+        except (urllib.request.URLError, urllib.request.HTTPError,
+                ConnectionError, TimeoutError, OSError, json.JSONDecodeError):
+            # Phase 5: Network failure — mark as unavailable, fall back silently
+            self._network_available = False
+            # Still try GloVe-only learning from the query text
+            known_count = self._learn_from_text(query + " " + query, query)
+            if known_count > 0:
+                return f"learned {known_count} things about {query}"
+            return f"offline - already knew about {query}"
+        except Exception:
+            # Any other error — also fall back silently
+            self._network_available = False
+            return f"offline"
 
     def _fetch_article_text(self, url: str) -> Optional[str]:
         """Fetch a URL and extract readable article text."""
@@ -1376,7 +1414,13 @@ class CognitiveChatEngine:
             learn_query = self._pending_learning_queue.pop(0)
             if self._trace_enabled:
                 print(f"  [trace]   deferred web learn: {learn_query}")
+            # Phase 5: learn_from_web handles offline fallback internally
             learn_summary = self.learn_from_web(learn_query)
+            # If network is down, re-queue the item for later
+            if self._network_available is False:
+                self._pending_learning_queue.insert(0, learn_query)
+                # Schedule network retry in 20 turns
+                self._network_retry_turn = self.turn_count + 20
             self._turns_since_last_search = 0
 
         return response
@@ -2695,6 +2739,9 @@ def main():
     parser.add_argument("--no-vad", action="store_true", help="Disable VAD emotion modulation")
     parser.add_argument("--no-rlm", action="store_true", help="Disable RLMv2 triple verification")
     parser.add_argument("--no-beliefs", action="store_true", help="Disable belief store")
+    
+    parser.add_argument("--data-dir", type=str, default=None,
+                        help="Custom data directory for weights and GloVe cache")
     args = parser.parse_args()
 
     # Handle --reset
@@ -2706,7 +2753,7 @@ def main():
         else:
             print("  [Reset] No saved weights found, starting fresh!")
 
-    engine = CognitiveChatEngine(dim=args.dim, seed=args.seed, baby_mode=True)
+    engine = CognitiveChatEngine(dim=args.dim, seed=args.seed, baby_mode=True, data_dir=data_dir)
     if args.trace:
         engine._trace_enabled = True
     if args.no_vad:
