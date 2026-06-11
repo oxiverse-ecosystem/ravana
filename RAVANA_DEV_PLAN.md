@@ -128,7 +128,7 @@ python scripts/ravana_chat.py --reset --chat "a|b|c|d|e|f|g|h|i|j|k|l|m|n|o|p|q|
 
 **Goal**: Each response stays on-topic instead of drifting to unrelated concepts.
 
-**Status: COMPLETE**
+**Status: COMPLETE** — Implemented in commit `34f4772`
 
 ### What was implemented
 
