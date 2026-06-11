@@ -22,7 +22,7 @@ _proj_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _proj_root)
 sys.path.insert(0, os.path.join(_proj_root, "ravana-v2"))
 
-from ravana_ml.graph import ConceptGraph
+from ravana_ml.graph import ConceptGraph, ConceptEdge
 from core.emotion import VADEmotionEngine, VADConfig
 from core.identity import IdentityEngine
 from core.meaning import MeaningEngine, MeaningConfig
@@ -580,6 +580,31 @@ class CognitiveChatEngine:
 
         # Concept-emotion tags
         self._concept_vad: Dict[int, Tuple[float, float, float]] = {}
+        # Phase 10-17: Instance state initialization
+        self._sentence_schema: Dict[str, float] = {}
+        self._mean_sentence_pe: float = 0.0
+        self._sentence_pe_count: int = 0
+        self._current_context_vector: Optional[np.ndarray] = None
+        self._modulated_vectors: Dict[int, np.ndarray] = {}
+        self._state_dependent_boosts: Dict[str, Dict[str, float]] = {}
+        self._cognitive_state: str = "default"
+        self._state_duration: int = 0
+        self._cognitive_state_hold: int = 0
+        self._schema_mode: bool = False
+        self._activation_fatigue: Dict[int, float] = {}
+        self._recent_traversals: List[Tuple[int, int]] = []
+        self._visited_concepts: Set[str] = set()
+        self._dopamine_tone: float = 0.5
+        self._td_error_history: List[float] = []
+        self._expected_strength: float = 0.25
+        self._episodic_edges: Dict[Tuple[int, int], Any] = {}
+        self._semantic_edges: Dict[Tuple[int, int], Any] = {}
+        self._cerebellar_ngram: Dict[str, Dict[str, float]] = {}
+        self._cerebellar_depth: Dict[str, float] = {}
+        self._concept_confidence: Dict[str, float] = {}
+        self._calibration_error: float = 0.0
+        self._metacognitive_review_turn: int = 0
+
 
         if os.path.exists(self._save_path):
             loaded = self._load()
@@ -1440,6 +1465,12 @@ class CognitiveChatEngine:
                 if w not in self._pending_learning_queue:
                     self._pending_learning_queue.append(w)
 
+        # Phase 11.1: Build context vector for this turn
+        if subject:
+            self._current_context_vector = self._build_context_vector(subject)
+        else:
+            self._current_context_vector = None
+        
         # Step 5: Emotional modulation (with concept-specific tagging)
         self._update_emotion(user_input)
         for nid in activated:
@@ -1461,6 +1492,9 @@ class CognitiveChatEngine:
         if self.turn_count > 3 and self.turn_count % 3 == 0:
             bias_report = self.meta_cog.detect_reasoning_bias(self.turn_count)
             epistemic_mode = self.meta_cog.recommend_epistemic_mode(self.turn_count)
+            # Phase 17.4: Metacognitive review every 5 turns
+            if self.turn_count % 5 == 0:
+                self._metacognitive_review()
         else:
             epistemic_mode = self.meta_cog.current_mode
 
@@ -1476,6 +1510,14 @@ class CognitiveChatEngine:
         past = self._recall_past(subject, obj)
 
         # Step 8: Build context and generate response
+        # Phase 12: Detect brain state for schema modulation
+        state = self._detect_brain_state()
+        schema_ids = set()
+        if state == 'heteromodal' or state == 'default':
+            schema_ids = self._activate_schema(subject)
+            if self._trace_enabled and schema_ids:
+                print(f'  [trace]   {state} mode: schema activated {len(schema_ids)} concepts')
+
         ctx = CognitiveResponseContext(
             subject=subject, relation=relation, object=obj, raw_input=user_input,
             associated_concepts=associations,
@@ -1527,6 +1569,10 @@ class CognitiveChatEngine:
         if len(self._last_responses) > 10:
             self._last_responses = self._last_responses[-10:]
 
+        # Phase 16.5: Update cerebellar n-gram model
+        for hops_list in self._last_chain_hops:
+            self._update_cerebellar_ngram(hops_list)
+        
         # Phase 3.4: Store response context for follow-up bias
         hop_labels = []
         for hops_list in self._last_chain_hops:
@@ -1853,6 +1899,15 @@ class CognitiveChatEngine:
         if self._prediction_error_count > 5:
             pe_surprise = min(0.4, self._mean_prediction_error * 2.0)
             sa += pe_surprise
+        # Phase 10.4: N400-like arousal modulation from per-hop prediction error
+        if hasattr(self, '_mean_sentence_pe') and self._sentence_pe_count > 0:
+            n400_surprise = min(0.3, self._mean_sentence_pe * 2.0)
+            sa += n400_surprise
+        # Phase 14.4: Identity prediction error
+        if hasattr(self, '_expected_strength'):
+            identity_pe = abs(self.identity.state.strength - self._expected_strength)
+            if identity_pe > 0.3:
+                sa += min(0.3, identity_pe * 0.5)
         # Phase 7.5: Curiosity drive — boost arousal for impossible queries
         if getattr(self, '_last_strategy_used', '') in ('G_uncertainty', 'F_web_research'):
             sa += 0.6  # strong curiosity arousal for impossible query
@@ -2105,7 +2160,18 @@ class CognitiveChatEngine:
         base = base_temps[min(sentence_idx, 2)]
         arousal = self.emotion.state.arousal  # 0..1
         arousal_factor = 0.7 + (arousal * 0.6)  # [0.7, 1.3]
-        return base * arousal_factor
+        temp = base * arousal_factor
+        # Phase 12.2: Brain state modulation of temperature
+        state = getattr(self, '_cognitive_state', 'default')
+        if state == "heteromodal":
+            temp *= 1.3  # more exploration
+        elif state == "unimodal":
+            temp *= 0.7  # more precision
+        # Phase 14.3: Dopamine tone modulation of temperature
+        dt = getattr(self, '_dopamine_tone', 0.5)
+        dt_factor = 0.7 + (dt - 0.5) * 1.0  # [0.7, 1.1] at [0.1, 0.9]
+        temp *= dt_factor
+        return temp
 
     def _vad_decay(self, rate: float = 0.95):
         """Return VAD toward neutral each turn."""
@@ -2318,6 +2384,141 @@ class CognitiveChatEngine:
                 return self.rng.choice(options)
         return tiers[-1][1][0]
 
+    
+    # ── Phase 10: Predictive Coding in Chain Walking ──
+    # Neuroscience: N400 = lexico-semantic prediction error (Wang, Noureddine & Kuperberg 2025)
+    # Each hop predicts the next concept; mismatch = prediction error
+
+    def _compute_hop_prediction_error(self, cur_vec: np.ndarray,
+                                       subj_vec: np.ndarray,
+                                       pfc_centroid: np.ndarray,
+                                       chosen_vec: np.ndarray) -> float:
+        """Compute prediction error for a chain walk hop.
+        
+        Predicts next concept as weighted blend of current, subject, and PFC centroid.
+        Error = 1.0 - cosine(predicted, actual)
+        Returns 0.0 if vectors are invalid.
+        """
+        if cur_vec is None or chosen_vec is None:
+            return 0.0
+        if subj_vec is None:
+            subj_vec = np.zeros_like(cur_vec)
+        if pfc_centroid is None:
+            pfc_centroid = np.zeros_like(cur_vec)
+        
+        predicted = cur_vec * 0.6 + subj_vec * 0.3 + pfc_centroid * 0.1
+        norm = np.linalg.norm(predicted)
+        if norm > 0:
+            predicted /= norm
+        actual_cos = float(np.dot(predicted, chosen_vec))
+        error = 1.0 - actual_cos  # 0 = perfect, 1 = completely surprising
+        return error
+
+    def _update_sentence_schema(self, subject: str, new_concepts: List[str]):
+        """Phase 10.3: Sparse-updating sentence schema.
+        
+        Schema only changes between sentences, not during chain walking.
+        New concepts at weight 0.5, old concepts decay by 0.8.
+        """
+        # Decay existing
+        for k in list(self._sentence_schema.keys()):
+            self._sentence_schema[k] *= 0.8
+            if self._sentence_schema[k] < 0.1:
+                del self._sentence_schema[k]
+        # Add subject always at high weight
+        self._sentence_schema[subject.lower()] = 1.0
+        # Add new concepts at moderate weight
+        for c in new_concepts[:3]:
+            cl = c.lower()
+            if cl not in self._sentence_schema:
+                self._sentence_schema[cl] = 0.5
+
+
+    # ── Phase 11: Context-Dependent Vector Modulation ──
+    # Neuroscience: PFC neurons represent SAME word differently per context (Nature 2024)
+    # HPC broadcasts context state to OFC via theta synchronization (Nature Comms 2025)
+
+    def _build_context_vector(self, subject: str) -> np.ndarray:
+        """Build a context vector from topic, recent history, PFC, and emotion.
+        
+        Components:
+        - Subject topic vector × 0.4
+        - Mean of last 5 response concept vectors × 0.3
+        - Current PFC buffer centroid × 0.2
+        - Current VAD emotional vector × 0.1
+        """
+        components = []
+        weights = []
+        
+        # Subject vector
+        subj_nids = self._concept_keywords.get(subject.lower(), [])
+        if subj_nids:
+            subj_node = self.graph.get_node(subj_nids[0])
+            if subj_node and subj_node.vector is not None:
+                components.append(subj_node.vector)
+                weights.append(0.4)
+        
+        # Recent response centroid
+        recent_vecs = []
+        for resp in self._last_responses[-3:]:
+            for w in resp.split():
+                wn = self._concept_keywords.get(w.lower(), [])
+                if wn:
+                    wn_node = self.graph.get_node(wn[0])
+                    if wn_node and wn_node.vector is not None:
+                        recent_vecs.append(wn_node.vector)
+        if recent_vecs:
+            components.append(np.mean(recent_vecs, axis=0))
+            weights.append(0.3)
+        
+        # PFC buffer centroid
+        pfc_vecs = []
+        for bl in self._prefrontal_buffer:
+            bn = self._concept_keywords.get(bl, [])
+            if bn:
+                bn_node = self.graph.get_node(bn[0])
+                if bn_node and bn_node.vector is not None:
+                    pfc_vecs.append(bn_node.vector)
+        if pfc_vecs:
+            components.append(np.mean(pfc_vecs, axis=0))
+            weights.append(0.2)
+        
+        # Emotional vector
+        e_vec = np.array([self.emotion.state.valence,
+                          self.emotion.state.arousal,
+                          self.emotion.state.dominance], dtype=np.float32)
+        e_pad = np.zeros(self.dim, dtype=np.float32)
+        e_pad[:3] = e_vec
+        components.append(e_pad)
+        weights.append(0.1)
+        
+        if not components:
+            return np.zeros(self.dim, dtype=np.float32)
+        
+        ctx = np.average(np.array(components), axis=0, weights=np.array(weights))
+        norm = np.linalg.norm(ctx)
+        if norm > 0:
+            ctx /= norm
+        return ctx.astype(np.float32)
+
+    def _modulate_vector(self, node_id: int) -> Optional[np.ndarray]:
+        """Phase 11.2: Return context-modulated vector for a concept node.
+        
+        Modulated = original_vector + 0.15 * context_vector, then normalized.
+        Returns None if node or vector is missing.
+        """
+        node = self.graph.get_node(node_id)
+        if node is None or node.vector is None:
+            return None
+        ctx = getattr(self, '_current_context_vector', None)
+        if ctx is None or np.all(ctx == 0):
+            return node.vector
+        modulated = node.vector + 0.15 * ctx
+        norm = np.linalg.norm(modulated)
+        if norm > 0:
+            modulated /= norm
+        return modulated.astype(np.float32)
+
     def _starter_from_chain(self, chain: str, subject: str,
                              connector_counts: Optional[Dict[str, int]] = None) -> str:
         """Extract the first edge relation type from a chain string and return
@@ -2449,6 +2650,218 @@ class CognitiveChatEngine:
                             buffer.add(label.lower())
 
         self._prefrontal_buffer = list(buffer)
+
+    
+    # ── Phase 12: Schema-Level Activation ──
+    # Neuroscience: vmPFC activates whole semantic schemas from minimal input (Entropy 2026)
+    # Two brain states: heteromodal (integrative) and unimodal (focused) (Comms Bio 2024)
+
+    def _activate_schema(self, subject: str) -> Set[int]:
+        """Phase 12.1: Activate a schema cluster around the subject.
+        
+        Schema = top-K GloVe neighbors (cosine > 0.5) around the subject.
+        All concepts in the schema get activation × 1.3 during spread-and-collect.
+        Returns set of concept IDs in the schema.
+        """
+        subj_nids = self._concept_keywords.get(subject.lower(), [])
+        if not subj_nids:
+            return set()
+        subj_nid = subj_nids[0]
+        subj_node = self.graph.get_node(subj_nid)
+        if subj_node is None or subj_node.vector is None:
+            return set()
+        
+        # Dynamic threshold based on prediction error
+        pe = getattr(self, '_mean_prediction_error', 0.3)
+        threshold = 0.6 if pe < 0.2 else (0.4 if pe > 0.5 else 0.5)
+        
+        schema_ids = {subj_nid}
+        for other_nid, other_node in self.graph.nodes.items():
+            if other_nid == subj_nid or other_node.vector is None:
+                continue
+            cos = float(np.dot(subj_node.vector, other_node.vector))
+            if cos > threshold:
+                schema_ids.add(other_nid)
+                self.graph.activate(other_nid, 0.6)
+        return schema_ids
+
+    def _detect_brain_state(self) -> str:
+        """Phase 12.2: Detect whether RAVANA is in heteromodal (integrative) or unimodal (focused) state.
+        
+        Heteromodal: confidence < 0.3 OR mean_prediction_error > 0.4 OR novelty > 0.6
+        Unimodal: confidence > 0.5 AND mean_prediction_error < 0.2 AND novelty < 0.3
+        """
+        confidence = self.identity.state.strength * 0.5 + 0.2
+        pe = getattr(self, '_mean_prediction_error', 0.3)
+        novelty = 0.1 if len(self._last_responses) > 0 else 0.6
+        
+        if confidence < 0.3 or pe > 0.4 or novelty > 0.6:
+            new_state = "heteromodal"
+        elif confidence > 0.5 and pe < 0.2 and novelty < 0.3:
+            new_state = "unimodal"
+        else:
+            new_state = "default"
+        
+        # Damped state transitions: hold for 2 turns before switching
+        if new_state != self._cognitive_state:
+            if self._cognitive_state_hold > 0:
+                self._cognitive_state_hold -= 1
+            else:
+                self._cognitive_state = new_state
+                self._cognitive_state_hold = 2
+                self._state_duration = 0
+        else:
+            self._cognitive_state_hold = 0
+            self._state_duration += 1
+        
+        return self._cognitive_state
+
+
+    # ── Phase 13: Adaptive Gain Control ──
+    # Neuroscience: Semantic satiation = bottom-up gain reduction (Zhang, Comms Bio 2024)
+    # Adolescent PFC has high Glu:GABA, more exploration, less stability (PMC 2024)
+
+    def _apply_activation_fatigue(self, candidates: List[Tuple]) -> List[Tuple]:
+        """Phase 13.1: Reduce signal for recently overused concepts.
+        
+        Fatigue accumulates by 0.15 per activation, decays 0.95 per turn.
+        Signal *= max(0.3, 1.0 - fatigue). High-fatigue nodes fade after ~5 activations.
+        """
+        fatigued = []
+        for item in candidates:
+            sig, tgt_lbl, edge, d = item
+            tgt_nids = self._concept_keywords.get(tgt_lbl.lower(), [])
+            fatigue = 0.0
+            for nid in tgt_nids:
+                fatigue = max(fatigue, self._activation_fatigue.get(nid, 0.0))
+            adjusted = sig * max(0.3, 1.0 - fatigue)
+            fatigued.append((adjusted, tgt_lbl, edge, d))
+        return fatigued
+
+    def _apply_edge_repetition_penalty(self, candidates: List[Tuple]) -> List[Tuple]:
+        """Phase 13.2: Penalize recently-traversed edges.
+        
+        Same edge within 1 turn: signal × 0.3
+        Same edge within 2 turns: signal × 0.6
+        Same edge within 3 turns: signal × 0.8
+        """
+        penalized = []
+        for sig, tgt_lbl, edge, d in candidates:
+            penalty = 1.0
+            if edge is not None:
+                key = (edge.source, edge.target)
+                for i, (s, t) in enumerate(reversed(self._recent_traversals)):
+                    if (s, t) == key:
+                        turns_ago = i + 1
+                        if turns_ago <= 1:
+                            penalty = 0.3
+                        elif turns_ago <= 2:
+                            penalty = 0.6
+                        elif turns_ago <= 3:
+                            penalty = 0.8
+                        break
+            penalized.append((sig * penalty, tgt_lbl, edge, d))
+        return penalized
+
+    def _apply_novelty_bonus(self, candidates: List[Tuple]) -> List[Tuple]:
+        """Phase 13.4: Bonus for unvisited concepts (teen exploration).
+        
+        First 50 turns: ×1.3 for novel concepts, after 50: ×1.05.
+        """
+        if self.turn_count < 50:
+            novelty_mult = 1.3
+        else:
+            novelty_mult = 1.05
+        
+        boosted = []
+        for sig, tgt_lbl, edge, d in candidates:
+            if tgt_lbl.lower() not in self._visited_concepts:
+                sig *= novelty_mult
+            boosted.append((sig, tgt_lbl, edge, d))
+        return boosted
+
+
+    # ── Phase 14: Online Dopamine-Gated Learning ──
+    # Neuroscience: Striatal DA signals prediction errors across ALL domains (Costa, Sci Adv 2025)
+    # DA prediction errors drive internal model updates (Gershman, Nat Neurosci 2024)
+
+    def _td_learn(self, cur_label: str, tgt_label: str, edge,
+                   hop_prediction_error: float, td_lr: float = 0.1):
+        """Phase 14.1: Update edge weight using temporal difference learning.
+        
+        TD_error = V_actual - V_expected
+        V_expected = edge.weight * edge.confidence
+        V_actual = 1.0 - hop_prediction_error
+        Positive TD: edge better than expected → strengthen.
+        Negative TD: edge worse than expected → weaken.
+        """
+        if edge is None:
+            return
+        V_expected = edge.weight * edge.confidence
+        V_actual = 1.0 - hop_prediction_error
+        td_error = V_actual - V_expected
+        
+        # Modulate learning rate by dopamine tone
+        dt = getattr(self, '_dopamine_tone', 0.5)
+        effective_lr = td_lr * (0.5 + dt)  # 0.06 at low, 0.14 at high
+        
+        delta = effective_lr * td_error
+        edge.weight = np.clip(edge.weight + delta, 0.01, 0.99)
+        
+        # Update confidence based on absolute TD error
+        abs_error = abs(td_error)
+        if abs_error < 0.2:
+            edge.confidence = min(1.0, edge.confidence + 0.05)
+        elif abs_error > 0.5:
+            edge.confidence = max(0.05, edge.confidence - 0.1)
+        
+        # Track TD error history
+        self._td_error_history.append(td_error)
+        if len(self._td_error_history) > 20:
+            self._td_error_history = self._td_error_history[-20:]
+
+    def _update_dopamine_tone(self):
+        """Phase 14.2: Update dopamine tone based on mean TD error, novelty, and repetition.
+        
+        dopamine_tone = 0.5 + 0.3 * mean_TD + 0.2 * novelty - 0.1 * repetition_penalty
+        Clamped to [0.1, 0.9].
+        """
+        if not self._td_error_history:
+            return
+        mean_TD = np.mean(np.abs(self._td_error_history[-5:]))
+        
+        # Novelty: fraction of unseen concepts in last response
+        if self._last_responses:
+            last_words = set(self._last_responses[-1].lower().split())
+            novel = sum(1 for w in last_words if w not in self._visited_concepts)
+            novelty = novel / max(1, len(last_words))
+        else:
+            novelty = 0.5
+        
+        # Repetition penalty
+        if len(self._recent_traversals) > 5:
+            unique = len(set(self._recent_traversals[-5:]))
+            repetition = 1.0 - (unique / 5.0)
+        else:
+            repetition = 0.0
+        
+        self._dopamine_tone = np.clip(
+            0.5 + 0.3 * mean_TD + 0.2 * novelty - 0.1 * repetition,
+            0.1, 0.9
+        )
+
+    def _detect_latent_cause_switch(self) -> bool:
+        """Phase 14.5: Detect when prediction error is consistently high across edges.
+        
+        If mean absolute TD > 0.4 for 3+ hops: signal latent cause switch.
+        Returns True if switch detected.
+        """
+        if len(self._td_error_history) < 3:
+            return False
+        recent = np.abs(self._td_error_history[-3:])
+        if float(np.mean(recent)) > 0.4:
+            return True
+        return False
 
     def _walk_chain(self, label: str, seen: Set[str], max_hops: int,
                     temperature: float = 0.25,
@@ -3203,6 +3616,226 @@ class CognitiveChatEngine:
         self.gw.compete()
 
     # ── Sleep Consolidation ──
+
+    
+    # ── Phase 15: Complementary Learning Systems ──
+    # Neuroscience: Hippocampus (fast, sparse) + Neocortex (slow, overlapping) (McClelland 1995)
+    # Consolidation only when it aids generalization (Nat Neurosci 2023)
+
+    def _add_episodic_edge(self, src: int, tgt: int, weight: float = 0.3, confidence: float = 0.5):
+        """Phase 15.1: Add a fast-learning, high-decay episodic edge."""
+        if not hasattr(self, '_episodic_edges'):
+            self._episodic_edges = {}
+        key = (src, tgt)
+        if key not in self._episodic_edges:
+            edge = ConceptEdge(src, tgt, weight=weight, confidence=confidence, relation_type="episodic")
+            self._episodic_edges[key] = edge
+
+    def _add_semantic_edge(self, src: int, tgt: int, weight: float = 0.4, confidence: float = 0.3):
+        """Phase 15.1: Add a slow-learning, stable semantic edge."""
+        if not hasattr(self, '_semantic_edges'):
+            self._semantic_edges = {}
+        key = (src, tgt)
+        if key not in self._semantic_edges:
+            edge = ConceptEdge(src, tgt, weight=weight, confidence=confidence, relation_type="semantic")
+            self._semantic_edges[key] = edge
+
+    def _decay_episodic_edges(self):
+        """Phase 15.2: Decay episodic edges — 10% per turn, remove below 0.05."""
+        if not hasattr(self, '_episodic_edges'):
+            return
+        to_remove = []
+        for (src, tgt), edge in self._episodic_edges.items():
+            edge.weight *= 0.90
+            if edge.weight < 0.05:
+                to_remove.append((src, tgt))
+        for key in to_remove:
+            del self._episodic_edges[key]
+
+    def _consolidate_to_semantic(self):
+        """Phase 15.5: Transfer frequently-used episodic edges to semantic store.
+        
+        Edges traversed 2+ times get consolidated. If semantic equivalent exists,
+        weighted average merge. Episodic weight halved after consolidation.
+        Only consolidates if it aids generalization (Phase 15.6).
+        """
+        if not hasattr(self, '_episodic_edges') or not hasattr(self, '_semantic_edges'):
+            return 0
+        
+        # Count traversals from edge_reactivations
+        consolidated = 0
+        for (src, tgt), edge in list(self._episodic_edges.items()):
+            # Check if traversed 2+ times
+            src_node = self.graph.get_node(src)
+            tgt_node = self.graph.get_node(tgt)
+            if src_node is None or tgt_node is None:
+                continue
+            key = (src_node.label.lower(), tgt_node.label.lower())
+            count = self.user_model.edge_reactivations.get(key, 0)
+            
+            if count >= 2 and self._should_consolidate(src, tgt, edge.weight):
+                sem_key = (src, tgt)
+                if sem_key in self._semantic_edges:
+                    sem_edge = self._semantic_edges[sem_key]
+                    sem_edge.weight = (sem_edge.weight + edge.weight * count) / (1 + count)
+                else:
+                    self._add_semantic_edge(src, tgt, weight=edge.weight * 0.8, confidence=0.3)
+                edge.weight *= 0.5
+                consolidated += 1
+        return consolidated
+
+    def _should_consolidate(self, src: int, tgt: int, epi_weight: float) -> bool:
+        """Phase 15.6: Only consolidate if it aids generalization.
+        
+        If existing semantic edges from src predict a similar weight, consolidate.
+        If very different, don't consolidate (exception, not pattern).
+        """
+        if not hasattr(self, '_semantic_edges') or not self._semantic_edges:
+            return True
+        weights = [e.weight for (s, t), e in self._semantic_edges.items() if s == src]
+        if not weights:
+            return True
+        pred_weight = np.mean(weights)
+        delta = abs(epi_weight - pred_weight)
+        return delta < 0.3
+
+
+    # ── Phase 16: Thalamocortical Gating & Forward Model ──
+    # Neuroscience: High-order thalamic nuclei gate conscious perception (Science 2024)
+    # Cerebellar forward model predicts upcoming sensory consequences (Neuron 2026)
+
+    def _thalamic_gate(self, candidates: List[Tuple]) -> List[Tuple]:
+        """Phase 16.1: Gate candidates — only the most salient pass through.
+        
+        Salience = signal_ratio * 0.4 + novelty * 0.3 + schema_relevance * 0.3
+        Gate threshold: salience > 0.2
+        """
+        if not candidates:
+            return []
+        max_sig = max(c[0] for c in candidates) or 0.001
+        gated = []
+        for sig, tgt_lbl, edge, d in candidates:
+            novelty = 1.0 if tgt_lbl.lower() not in self._visited_concepts else 0.3
+            schema_rel = 1.2 if tgt_lbl.lower() in self._sentence_schema else 0.8
+            salience = (sig / max_sig) * 0.4 + novelty * 0.3 + schema_rel * 0.3
+            if salience > 0.2:
+                gated.append((sig, tgt_lbl, edge, d))
+        return gated
+
+    def _cerebellar_predictor(self, cur_label: str) -> Dict[str, float]:
+        """Phase 16.3: Predict next concepts from past traversal patterns.
+        
+        Uses n-gram model over _last_chain_hops.
+        Returns dict of {predicted_label: probability}.
+        """
+        predictions = {}
+        for hops_list in self._last_chain_hops[-10:]:
+            for i, (f, t) in enumerate(hops_list):
+                if f.lower() == cur_label.lower():
+                    predictions[t.lower()] = predictions.get(t.lower(), 0) + 1
+        if predictions:
+            total = sum(predictions.values())
+            return {k: v / total for k, v in predictions.items()}
+        return {}
+
+    def _get_cerebellar_depth(self, label: str) -> float:
+        """Phase 16.5: Get expected number of hops from past patterns."""
+        return self._cerebellar_depth.get(label.lower(), 0.0)
+
+    def _update_cerebellar_ngram(self, hops: List[Tuple[str, str]]):
+        """Update cerebellar n-gram model with a completed chain."""
+        for i, (f, t) in enumerate(hops):
+            fl, tl = f.lower(), t.lower()
+            if fl not in self._cerebellar_ngram:
+                self._cerebellar_ngram[fl] = {}
+            self._cerebellar_ngram[fl][tl] = self._cerebellar_ngram[fl].get(tl, 0) + 1
+            
+            # Also learn depth
+            remaining = len(hops) - i - 1
+            current_depth = self._cerebellar_depth.get(fl, 0.0)
+            self._cerebellar_depth[fl] = current_depth * 0.7 + remaining * 0.3
+
+
+    # ── Phase 17: Meta-Learning ──
+    # Neuroscience: Brain tracks own uncertainty, calibrates confidence (PMC 2024)
+    # Epistemic value = expected information gain (Free Energy Principle)
+
+    def _update_concept_confidence(self, label: str, prediction_error: float):
+        """Phase 17.1: Update per-concept confidence.
+        
+        Initial: 0.3 for seed, 0.1 for learned.
+        Increases by 0.05 on use, decreases by 0.1 on high PE.
+        """
+        cl = label.lower()
+        current = self._concept_confidence.get(cl, 0.3 if cl in self._concept_labels else 0.1)
+        if prediction_error < 0.2:
+            current += 0.05
+        elif prediction_error > 0.5:
+            current -= 0.1
+        self._concept_confidence[cl] = np.clip(current, 0.05, 0.99)
+
+    def _compute_epistemic_value(self, label: str) -> float:
+        """Phase 17.2: Compute epistemic value of exploring a concept.
+        
+        epistemic_value = uncertainty * expected_information_gain
+        """
+        conf = self._concept_confidence.get(label.lower(), 0.1)
+        uncertainty = 1.0 - conf
+        pe = self._mean_prediction_error
+        info_gain = 1.0 - pe  # High PE = high potential information gain
+        return uncertainty * info_gain
+
+    def _calibrated_confidence(self, label: str) -> float:
+        """Phase 17.3: Get calibrated confidence for a concept.
+        
+        Adjusts raw confidence by calibration error (subtract overconfidence).
+        """
+        raw = self._concept_confidence.get(label.lower(), 0.1)
+        calibration_penalty = getattr(self, '_calibration_error', 0.0) * 0.2
+        return max(0.05, raw - calibration_penalty)
+
+    def _metacognitive_review(self):
+        """Phase 17.4: Run metacognitive review every 5 turns.
+        
+        1. Check response diversity (same connector used 3+ times)
+        2. Check concept coverage (same 5 concepts keep appearing)
+        3. Check prediction error trend
+        """
+        if self.turn_count < 5:
+            return
+        
+        issues = []
+        
+        # 1. Connector diversity
+        if hasattr(self, '_response_context') and len(self._response_context) >= 3:
+            last_3 = ''.join(c['response'] for c in self._response_context[-3:])
+            for connector in ['connect', 'cause', 'but', 'like', 'then']:
+                if last_3.count(connector) >= 3:
+                    issues.append(f"overused connector '{connector}'")
+        
+        # 2. Concept coverage
+        if hasattr(self, '_last_responses') and len(self._last_responses) >= 3:
+            all_words = []
+            for r in self._last_responses[-3:]:
+                all_words.extend(r.lower().split())
+            word_counts = {}
+            for w in all_words:
+                word_counts[w] = word_counts.get(w, 0) + 1
+            # Check if same concept appears 5+ times
+            for w, c in word_counts.items():
+                if c >= 5 and w not in {'connect', 'but', 'like', 'cause', 'then', 'and', 'the'}:
+                    issues.append(f"repetitive concept '{w}' ({c}x)")
+        
+        # 3. Prediction error trend
+        if len(self._td_error_history) >= 5:
+            recent_pe = np.mean(np.abs(self._td_error_history[-3:]))
+            older_pe = np.mean(np.abs(self._td_error_history[:-3])) if len(self._td_error_history) > 3 else 0.3
+            if recent_pe > older_pe * 1.2:
+                issues.append(f"increasing PE trend (recent={recent_pe:.2f}, older={older_pe:.2f})")
+        
+        # Log findings
+        if issues and hasattr(self, '_trace_enabled') and self._trace_enabled:
+            print(f"  [meta]   review: {', '.join(issues)}")
 
     def _sleep_consolidate(self):
         """Run a mini sleep cycle to strengthen useful patterns and weaken noise.

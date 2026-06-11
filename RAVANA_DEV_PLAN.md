@@ -310,14 +310,14 @@ python scripts/ravana_chat.py --stats
 | 9 | Prediction-Error-Driven Active Inference | Edge weights updated by gradient descent on prediction error | Small | ✅ Complete |
 | 9b | Prefrontal Gating | Working memory buffer gates candidates by topic relevance | Small | ✅ Complete |
 | 9c | Hippocampal Indexing | Sparse index to distributed graph patterns enables recall | Medium | ✅ Complete |
-| **10** | **Predictive Coding in Chain Walking** | **Per-hop prediction error modulates confidence** | **Medium** | **⬜ New** |
-| **11** | **Context-Dependent Vector Modulation** | **Vectors dynamically modulated by conversation context** | **Small** | **⬜ New** |
-| **12** | **Schema-Level Activation** | **Minimal cues activate concept clusters, not single nodes** | **Medium** | **⬜ New** |
-| **13** | **Adaptive Gain Control** | **Node fatigue prevents repetition loops** | **Small** | **⬜ New** |
-| **14** | **Online Dopamine-Gated Learning** | **Real-time TD error adjusts edge weights per hop** | **Medium** | **⬜ New** |
-| **15** | **Complementary Learning Systems** | **Separate episodic (fast) + semantic (slow) edge stores** | **Large** | **⬜ New** |
-| **16** | **Thalamocortical Gating & Forward Model** | **Gate selects coherent path; predictor pre-activates expected** | **Medium** | **⬜ New** |
-| **17** | **Meta-Learning** | **Calibrated confidence expression; epistemic value seeking** | **Medium** | **⬜ New** |
+| **10** | **Predictive Coding in Chain Walking** | **Per-hop prediction error modulates confidence** | **Medium** | **Complete** |
+| **11** | **Context-Dependent Vector Modulation** | **Vectors dynamically modulated by conversation context** | **Small** | **Complete** |
+| **12** | **Schema-Level Activation** | **Minimal cues activate concept clusters, not single nodes** | **Medium** | **Complete** |
+| **13** | **Adaptive Gain Control** | **Node fatigue prevents repetition loops** | **Small** | **Complete** |
+| **14** | **Online Dopamine-Gated Learning** | **Real-time TD error adjusts edge weights per hop** | **Medium** | **Complete** |
+| **15** | **Complementary Learning Systems** | **Separate episodic (fast) + semantic (slow) edge stores** | **Large** | **Complete** |
+| **16** | **Thalamocortical Gating & Forward Model** | **Gate selects coherent path; predictor pre-activates expected** | **Medium** | **Complete** |
+| **17** | **Meta-Learning** | **Calibrated confidence expression; epistemic value seeking** | **Medium** | **Complete** |
 
 ## Phase 8: Prefrontal-Guided Coherence (Neuroscience-Inspired)
 
@@ -630,14 +630,14 @@ python scripts/ravana_chat.py --reset --chat "what is a quasar" --strategy
 | 9 | Prediction-Error-Driven Active Inference | Edge weights updated by gradient descent on prediction error | Small | ✅ Complete |
 | 9b | Prefrontal Gating | Working memory buffer gates candidates by topic relevance | Small | ✅ Complete |
 | 9c | Hippocampal Indexing | Sparse index to distributed graph patterns enables recall | Medium | ✅ Complete |
-| **10** | **Predictive Coding in Chain Walking** | **Per-hop prediction error modulates confidence** | **Medium** | **⬜ New** |
-| **11** | **Context-Dependent Vector Modulation** | **Vectors dynamically modulated by conversation context** | **Small** | **⬜ New** |
-| **12** | **Schema-Level Activation** | **Minimal cues activate concept clusters, not single nodes** | **Medium** | **⬜ New** |
-| **13** | **Adaptive Gain Control** | **Node fatigue prevents repetition loops** | **Small** | **⬜ New** |
-| **14** | **Online Dopamine-Gated Learning** | **Real-time TD error adjusts edge weights per hop** | **Medium** | **⬜ New** |
-| **15** | **Complementary Learning Systems** | **Separate episodic (fast) + semantic (slow) edge stores** | **Large** | **⬜ New** |
-| **16** | **Thalamocortical Gating & Forward Model** | **Gate selects coherent path; predictor pre-activates expected** | **Medium** | **⬜ New** |
-| **17** | **Meta-Learning** | **Calibrated confidence expression; epistemic value seeking** | **Medium** | **⬜ New** |
+| **10** | **Predictive Coding in Chain Walking** | **Per-hop prediction error modulates confidence** | **Medium** | **Complete** |
+| **11** | **Context-Dependent Vector Modulation** | **Vectors dynamically modulated by conversation context** | **Small** | **Complete** |
+| **12** | **Schema-Level Activation** | **Minimal cues activate concept clusters, not single nodes** | **Medium** | **Complete** |
+| **13** | **Adaptive Gain Control** | **Node fatigue prevents repetition loops** | **Small** | **Complete** |
+| **14** | **Online Dopamine-Gated Learning** | **Real-time TD error adjusts edge weights per hop** | **Medium** | **Complete** |
+| **15** | **Complementary Learning Systems** | **Separate episodic (fast) + semantic (slow) edge stores** | **Large** | **Complete** |
+| **16** | **Thalamocortical Gating & Forward Model** | **Gate selects coherent path; predictor pre-activates expected** | **Medium** | **Complete** |
+| **17** | **Meta-Learning** | **Calibrated confidence expression; epistemic value seeking** | **Medium** | **Complete** |
 
 ## Guiding Principles
 
