@@ -267,6 +267,22 @@ STOP_WORDS = {
 
 
 @dataclass
+class ChainHop:
+    from_label: str
+    to_label: str
+    relation_type: str
+    weight: float
+    confidence: float
+    temperature: float
+    candidates: int  # how many edges were considered at this hop
+
+@dataclass
+class ChainTrace:
+    hops: List[ChainHop] = field(default_factory=list)
+    max_hops: int = 0
+    completed: bool = False
+
+@dataclass
 class CognitiveResponseContext:
     """All cognitive signals available for response generation."""
     subject: str = ""
@@ -327,6 +343,8 @@ class CognitiveChatEngine:
         self._concept_keywords: Dict[str, List[int]] = {}
         self._save_path = os.path.join(_proj_root, "ravana_weights.pkl")
         self.sleep_cycles_completed = 0
+        self._chain_traces: List[ChainTrace] = []
+        self._trace_enabled = False
 
         # Try loading saved weights first
         # Meta-cognition layer
@@ -1362,25 +1380,29 @@ class CognitiveChatEngine:
                     temperature: float = 0.25) -> Optional[str]:
         """Walk a path through the graph from label, temperature-weighted.
         temperature=0 → greedy (always strongest), temperature=1 → near-uniform.
-        Each hop adds `connector concept` to the chain. Returns None if no path."""
+        Each hop adds `connector concept` to the chain. Returns None if no path.
+
+        Records detailed hop info in self._chain_traces when self._trace_enabled."""
         nids = self._concept_keywords.get(label.lower(), [])
         if not nids:
             return None
         chain = [label]
         cur_nid = nids[0]
+        cur_label = label
         hops = 0
+        trace = ChainTrace(max_hops=max_hops) if self._trace_enabled else None
         while hops < max_hops:
             candidates = []
             for tid, edge in self.graph.get_outgoing(cur_nid):
                 tn = self.graph.nodes.get(tid)
                 if tn is None or tn.label is None or tn.label.lower() in seen:
                     continue
-                candidates.append((edge.weight * edge.confidence, tn.label, edge))
+                candidates.append((edge.weight * edge.confidence, tn.label, edge, "out"))
             for src, edge in self.graph.get_incoming(cur_nid):
                 sn = self.graph.nodes.get(src)
                 if sn is None or sn.label is None or sn.label.lower() in seen:
                     continue
-                candidates.append((edge.weight * edge.confidence, sn.label, edge))
+                candidates.append((edge.weight * edge.confidence, sn.label, edge, "in"))
             if not candidates:
                 break
             # Temperature-weighted selection
@@ -1391,7 +1413,7 @@ class CognitiveChatEngine:
                 idx = self.rng.choice(len(candidates), p=weights)
             else:
                 idx = max(range(len(candidates)), key=lambda i: candidates[i][0])
-            best_sig, best_label, best_edge = candidates[idx]
+            best_sig, best_label, best_edge, direction = candidates[idx]
             connector = self._EDGE_TO_GRAPH_LABEL.get(best_edge.relation_type, "")
             # Retry same hop if best neighbor IS the connector word
             if best_label.lower() == connector.lower():
@@ -1401,10 +1423,20 @@ class CognitiveChatEngine:
                 chain.append(connector)
             chain.append(best_label)
             seen.add(best_label.lower())
+            if trace is not None:
+                trace.hops.append(ChainHop(
+                    from_label=cur_label, to_label=best_label,
+                    relation_type=best_edge.relation_type,
+                    weight=best_edge.weight, confidence=best_edge.confidence,
+                    temperature=temperature, candidates=len(candidates)))
+            cur_label = best_label
             cur_nid = self._concept_keywords.get(best_label.lower(), [None])[0]
             if cur_nid is None:
                 break
             hops += 1
+        if trace is not None:
+            trace.completed = hops >= max_hops
+            self._chain_traces.append(trace)
         if len(chain) <= 1:
             return None
         return " ".join(chain)
@@ -1576,6 +1608,22 @@ class CognitiveChatEngine:
 
     # ─── Save/Load Persistence ───
 
+    # ─── Diagnostics ───
+
+    def print_traces(self, label: str = ""):
+        """Print all chain walk traces from the last response."""
+        if not self._chain_traces:
+            return
+        print(f"  [trace] {label}: {len(self._chain_traces)} chains")
+        for ci, t in enumerate(self._chain_traces):
+            print(f"  [trace]   chain {ci}: {t.max_hops} max, {'done' if t.completed else 'short'}")
+            for i, h in enumerate(t.hops):
+                dir_sym = " -> " if h.relation_type != "episodic" else " ~~ "
+                print(f"  [trace]     hop {i}: {h.from_label}{dir_sym}{h.to_label}  "
+                      f"[{h.relation_type}] w={h.weight:.3f} c={h.confidence:.3f} "
+                      f"t={h.temperature:.2f} ({h.candidates} cand)")
+        self._chain_traces.clear()
+
     def save(self) -> str:
         """Save full cognitive state to disk. Returns path to save file."""
         state = {
@@ -1675,6 +1723,7 @@ def main():
         help='Send queries in batch mode. Use | to separate multiple queries. '
              'Outputs Q: and A: lines for easy parsing. E.g.: --chat "hi|what is trust|bye"')
     parser.add_argument("--strategy", action="store_true", help="Include strategy name in --chat output")
+    parser.add_argument("--trace", action="store_true", help="Print edge-level chain traces")
     args = parser.parse_args()
 
     # Handle --reset
@@ -1687,6 +1736,8 @@ def main():
             print("  [Reset] No saved weights found, starting fresh!")
 
     engine = CognitiveChatEngine(dim=args.dim, seed=args.seed, baby_mode=True)
+    if args.trace:
+        engine._trace_enabled = True
 
     # ── BATCH MODE (--chat) ──
     if args.chat is not None:
@@ -1708,6 +1759,8 @@ def main():
             print(f"A{i+1}: {resp}{strat_tag}")
             if elapsed > 0.5:
                 print(f"     [...{elapsed:.1f}s]")
+            if args.trace:
+                engine.print_traces(f"Q{i+1}")
             print()
         result = engine.save()
         print(f"  [{result}]")
