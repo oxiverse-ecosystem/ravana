@@ -61,6 +61,10 @@ def test_ingest_news_pipeline():
     assert "summary" in cycle
     assert "scenarios" in cycle
     assert "alignment" in cycle
+    assert "events" in cycle
+    assert "event_cards" in cycle
+    assert isinstance(cycle["events"], list)
+    assert isinstance(cycle["event_cards"], list)
     assert isinstance(cycle["max_pressure"], float)
     if cycle["scenarios"]:
         scenario = cycle["scenarios"][0]

@@ -36,6 +36,23 @@ class NewsItem:
     scenario_action: str = ""
     scenario_priority: float = 0.0
 
+    def to_event_record(self) -> Dict[str, Any]:
+        return {
+            "kind": "news",
+            "title": self.title,
+            "source": self.source,
+            "url": self.url,
+            "topic": self.topic,
+            "published": self.published,
+            "published_epoch": self.published_epoch,
+            "summary": self.summary,
+            "relevance_score": round(self.relevance_score, 3),
+            "entities": list(self.entities),
+            "dissonance_pressure": round(self.dissonance_pressure, 3),
+            "scenario_action": self.scenario_action,
+            "scenario_priority": round(self.scenario_priority, 3),
+        }
+
 
 @dataclass
 class NewsMDPScenario:
@@ -70,6 +87,23 @@ class NewsMDPScenario:
             "confidence": round(self.confidence, 3),
             "reward": round(self.reward, 3),
             "rationale": self.rationale,
+        }
+
+    def to_event_record(self) -> Dict[str, Any]:
+        return {
+            "kind": "scenario",
+            "topic": self.topic,
+            "action": self.action,
+            "reward": round(self.reward, 3),
+            "pressure": round(self.pressure, 3),
+            "confidence": round(self.confidence, 3),
+            "source_url": self.source_url,
+            "published_epoch": self.published_epoch,
+            "entities": list(self.entities),
+            "state": self.state,
+            "next_state": self.next_state,
+            "rationale": self.rationale,
+            "learning_card": self.to_learning_card(),
         }
 
 
@@ -222,6 +256,23 @@ class NewsToMDPPipeline:
 
         return scenarios
 
+    def build_event_stream(
+        self,
+        news_items: List[NewsItem],
+        scenarios: List[NewsMDPScenario],
+    ) -> List[Dict[str, Any]]:
+        events = [item.to_event_record() for item in self._dedupe_items(news_items)]
+        events.extend(scenario.to_event_record() for scenario in scenarios)
+        events.sort(
+            key=lambda event: (
+                float(event.get("published_epoch", 0.0) or 0.0),
+                float(event.get("pressure", 0.0) or 0.0),
+                float(event.get("relevance_score", 0.0) or 0.0),
+            ),
+            reverse=True,
+        )
+        return events
+
     def summarize_cycle(
         self,
         news_items: List[NewsItem],
@@ -268,12 +319,16 @@ class NewsToMDPPipeline:
             news_items=alignment_news,
         )
         summary = self.summarize_cycle(news_items, scenarios, alignment)
+        events = self.build_event_stream(news_items, scenarios)
+        event_cards = [scenario.to_learning_card() for scenario in scenarios]
 
         return {
             "query": query,
             "topics": topics,
             "news_items": news_items,
             "scenarios": scenarios,
+            "events": events,
+            "event_cards": event_cards,
             "alignment": alignment,
             "max_pressure": max((scenario.pressure for scenario in scenarios), default=0.0),
             "summary": summary,
