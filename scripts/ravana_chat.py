@@ -3,8 +3,9 @@
 RAVANA Baby — cognitive chat that starts like a baby and learns from the web
 ============================================================================
 No commands. No LLM. Pure RAVANA cognitive architecture.
-Starts knowing ~40 toddler words, auto-learns from the internet when it
-doesn't know something. Like a baby learning about the world.
+Starts knowing ~180 teen-level concepts with GloVe semantic embeddings
+and typed graph edges (causal, contrastive, analogical, temporal, semantic),
+auto-learns from the internet when it doesn't know something.
 
 Usage:
     python scripts/ravana_chat.py
