@@ -268,6 +268,17 @@ STOP_WORDS = {
 
 
 @dataclass
+class FailedQuery:
+    query: str = ""
+    subject: str = ""
+    activated_concepts: List[str] = field(default_factory=list)
+    strategies_tried: List[str] = field(default_factory=list)
+    best_guess_response: str = ""
+    turn: int = 0
+    free_energy_at_time: float = 0.0
+    resolved: bool = False
+
+@dataclass
 class ChainHop:
     from_label: str
     to_label: str
@@ -288,7 +299,7 @@ class ChainTrace:
 @dataclass
 class UserModel:
     """Tracks user interaction patterns via edge reactivation frequency.
-    
+
     No hardcoded patterns — preferences emerge from graph traversal stats.
     """
     edge_reactivations: Dict[Tuple[str, str], int] = field(default_factory=dict)
@@ -312,7 +323,7 @@ class UserModel:
 
     def activation_boost_for(self, concept: str) -> Dict[str, float]:
         """Continuous activation boost for edges reachable from concept.
-        
+
         Uses sigmoid confidence: 0 visits → 1.0x, 1 visit → 1.15x,
         2 visits → 1.2x, saturating at 1.3x.
         No hard threshold — even a single visit provides a small boost."""
@@ -350,7 +361,7 @@ class CognitiveResponseContext:
 
 class BeliefStore:
     """Tracks asserted belief triples and contradiction history.
-    
+
     Each belief is (subject, predicate, value) with confidence and timestamp.
     Contradictions are detected and recorded for edge-weight modulation.
     """
@@ -406,7 +417,7 @@ class BeliefStore:
 class CognitiveChatEngine:
     """RAVANA cognitive chat engine — starts as a baby, learns from the web."""
 
-    def __init__(self, dim: int = 64, seed: int = 42, baby_mode: bool = True, data_dir: Optional[str] = None):
+    def __init__(self, dim: int = 64, seed: int = 42, baby_mode: bool = True, data_dir: Optional[str] = None, user_suffix: str = ""):
         self.dim = dim
         self.rng = np.random.RandomState(seed)
 
@@ -453,13 +464,16 @@ class CognitiveChatEngine:
         self._concept_keywords: Dict[str, List[int]] = {}
         # Phase 5: Use data_dir if provided
         if data_dir:
-            self._save_path = os.path.join(data_dir, "ravana_weights.pkl")
+            self._save_path = os.path.join(data_dir, f"ravana_weights{user_suffix}.pkl")
             self._glove_cache_path = os.path.join(data_dir, "ravana_glove_cache.npz")
         else:
-            self._save_path = os.path.join(_proj_root, "ravana_weights.pkl")
+            self._save_path = os.path.join(_proj_root, f"ravana_weights{user_suffix}.pkl")
             self._glove_cache_path = os.path.join(_proj_root, "ravana_glove_cache.npz")
         self.sleep_cycles_completed = 0
         self._chain_traces: List[ChainTrace] = []
+        # Phase 7: Impossible Query Registry
+        self._impossible_queries: List[FailedQuery] = []
+        self._last_strategy_used: str = ""
         self._trace_enabled = False
         self._contradiction_map: Dict[str, Set[str]] = {}
         self._belief_assertions: List[Tuple[str, str, str]] = []
@@ -700,7 +714,7 @@ class CognitiveChatEngine:
 
     def _init_glove(self):
         """Load GloVe 100D vectors and build projection to self.dim.
-        
+
         Phase 2.3: Warm-start — tries to load pre-computed projected vectors
         from 'ravana_glove_cache.npz' first. Falls back to reading the raw
         GloVe file and caching the result for next time.
@@ -770,7 +784,7 @@ class CognitiveChatEngine:
 
     def _glove_vector(self, label: str) -> Optional[np.ndarray]:
         """Look up a label in GloVe, project to self.dim, return unit vector.
-        
+
         Phase 2.1: Results are cached so repeated lookups (e.g. auto-expansion
         for every input word) avoid recomputing the projection.
         """
@@ -926,7 +940,7 @@ class CognitiveChatEngine:
     def _is_contradictory(self, source_label: str, target_label: str,
                           relation_type: str) -> bool:
         """Check if asserting (source, relation, target) contradicts a logged belief.
-        
+
         A contradiction occurs when source already asserted about concept X,
         and target is a known antonym of X (from the contradiction map).
         """
@@ -981,7 +995,7 @@ class CognitiveChatEngine:
 
     def learn_from_web(self, query: str) -> str:
         """Search the web, fetch articles, extract concepts, and learn from them.
-        
+
         Phase 5: Auto offline fallback. If the network API fails (timeout, DNS,
         HTTP error), sets _network_available = False and falls back silently.
         No error messages leak to the user — just returns a short summary.
@@ -1095,7 +1109,7 @@ class CognitiveChatEngine:
 
     def _learn_from_text(self, text: str, topic: str) -> int:
         """Extract important keywords from text, add them as concepts, form connections.
-        
+
         Returns number of new concepts added.
         """
         # Tokenize and count word frequencies
@@ -1238,6 +1252,9 @@ class CognitiveChatEngine:
         # Re-activate in case new concepts were added
         if new_concepts > 0:
             activated = self._activate_from_input(user_input)
+
+        # Phase 7: Store activated IDs for strategy framework
+        self._last_activated_ids = list(activated)
 
         # Step 1b.75: Phase 3.3 — Detect recall triggers
         recall_topic = self._detect_recall_trigger(user_input)
@@ -1428,7 +1445,7 @@ class CognitiveChatEngine:
 
     def _extract_learning_query(self, text: str, activated_ids: List[int]) -> Optional[str]:
         """Extract what topic RAVANA should search for.
-        
+
         Uses the LEAST-known word (not matched to any concept) as the query.
         """
         words = re.findall(r"[a-zA-Z']{3,}", text.lower())
@@ -1438,7 +1455,7 @@ class CognitiveChatEngine:
             node = self.graph.get_node(nid)
             if node and node.label:
                 matched_labels.add(node.label.lower())
-        
+
         meaningful = [w.strip("'") for w in words if w.strip("'") not in STOP_WORDS]
         # Pick the last meaningful word that is NOT already known
         for w in reversed(meaningful):
@@ -1549,7 +1566,7 @@ class CognitiveChatEngine:
     def _extract_topic(self, text: str, activated: List[int]) -> Tuple[str, str]:
         """Extract the main topic from input. Uses graph-activated concepts
         first, then falls back to pattern detection.
-        
+
         For 'what is trust' -> 'trust'
         For 'you know i was thinking about trust' -> 'trust' (skips 'you', 'i')
         For 'does learning change your brain' -> 'learning'
@@ -1618,7 +1635,7 @@ class CognitiveChatEngine:
     def _spread_and_collect(self, seed_ids: List[int],
                              primary_ids: Optional[Set[int]] = None) -> List[Tuple[str, float]]:
         """Propagate activation through graph edges (3 hops).
-        
+
         Only concepts in primary_ids (or all seed_ids if not specified)
         serve as activation sources. Other seed_ids get context activation
         (0.3) but don't propagate — they only prevent their neighbors from
@@ -1714,6 +1731,10 @@ class CognitiveChatEngine:
         known = sum(1 for w in input_words if w in self._concept_keywords)
         if input_words and known / len(input_words) < 0.5:
             sa += 0.15  # novelty surprise
+        # Phase 7.5: Curiosity drive — boost arousal for impossible queries
+        if getattr(self, '_last_strategy_used', '') in ('G_uncertainty', 'F_web_research'):
+            sa += 0.6  # strong curiosity arousal for impossible query
+            sv += 0.1  # slight positive valence for curiosity
         self.emotion.update(stimulus_valence=sv, stimulus_arousal=sa,
                            stimulus_dominance=self.identity.state.strength * 0.4 + 0.2,
                            uncertainty=self._free_energy * 0.5, dt=1.0)
@@ -1857,7 +1878,7 @@ class CognitiveChatEngine:
     def _get_temperature(self, sentence_idx: int,
                          base_temps: Optional[List[float]] = None) -> float:
         """Return temperature for sentence, scaled by current arousal.
-        
+
         High arousal → more exploration (higher temp).
         Low arousal → more focused (lower temp).
         """
@@ -1884,7 +1905,7 @@ class CognitiveChatEngine:
     def _classify_triple(self, source_label: str, target_label: str,
                          relation_type: str) -> Dict[str, Any]:
         """Verify a (source, relation, target) triple using graph + vector data.
-        
+
         Returns:
             {'confidence': float (0..1),
              'top_relations': List[(rel_type, score)],
@@ -2053,7 +2074,7 @@ class CognitiveChatEngine:
     def _pick_connector(self, relation_type: str, weight: float,
                         confidence: float, temperature: float) -> str:
         """Pick a connector word based on edge weight, temp, and VAD state.
-        
+
         Higher weight → stronger connector (e.g. "link" over "connect").
         Higher temperature → more random selection among options.
         High arousal → prefer stronger/assertive connectors.
@@ -2316,6 +2337,111 @@ class CognitiveChatEngine:
             return None
         return " ".join(chain)
 
+
+    # ─── Phase 7: Multi-Strategy Reasoning ───
+
+    def _bridge_prospecting(self, activated_ids: List[int], subject: str,
+                             seen: Set[str], temperature: float) -> Optional[str]:
+        """Strategy B: Find a bridge concept connecting multiple activated inputs.
+        Reuses _spread_and_collect to find the highest-activation non-seed concept."""
+        if len(activated_ids) < 2:
+            return None
+        assocs = self._spread_and_collect(activated_ids, primary_ids=set(activated_ids))
+        if not assocs:
+            return None
+        bridge = assocs[0][0]
+        if bridge.lower() in seen or bridge.lower() == subject.lower():
+            if len(assocs) > 1:
+                bridge = assocs[1][0]
+            else:
+                return None
+        # Walk from the bridge concept
+        return self._walk_chain(bridge, seen, max_hops=2, temperature=temperature,
+                                subject_proximity=subject)
+
+    def _analogical_detour(self, subject: str, seen: Set[str],
+                            temperature: float) -> Optional[str]:
+        """Strategy C: Walk from analogically-linked concepts to the subject."""
+        subj_nids = self._concept_keywords.get(subject.lower(), [])
+        if not subj_nids:
+            return None
+        subj_nid = subj_nids[0]
+        analogical_targets = []
+        for tid, edge in self.graph.get_outgoing(subj_nid):
+            if edge.relation_type == "analogical":
+                tn = self.graph.get_node(tid)
+                if tn and tn.label and tn.label.lower() not in seen:
+                    analogical_targets.append(tn.label)
+        for src, edge in self.graph.get_incoming(subj_nid):
+            if edge.relation_type == "analogical":
+                sn = self.graph.get_node(src)
+                if sn and sn.label and sn.label.lower() not in seen:
+                    analogical_targets.append(sn.label)
+        if not analogical_targets:
+            return None
+        # Walk from the first analogical target
+        start = analogical_targets[0]
+        seen.add(start.lower())
+        return self._walk_chain(start, seen, max_hops=2, temperature=temperature,
+                                subject_proximity=subject)
+
+    def _contrastive_flip(self, subject: str, seen: Set[str],
+                           temperature: float) -> Optional[str]:
+        """Strategy D: Walk from the opposite of the subject (contrastive edges)."""
+        antonyms = self._contradiction_map.get(subject.lower(), set())
+        if not antonyms:
+            return None
+        for antonym in antonyms:
+            if antonym not in seen:
+                seen.add(antonym)
+                result = self._walk_chain(antonym, seen, max_hops=2, temperature=temperature)
+                if result:
+                    return f"{subject} but {result}"
+        return None
+
+    def _sub_question_decompose(self, subject: str, query: str,
+                                 seen: Set[str], temperature: float) -> Optional[str]:
+        """Strategy E: Split multi-word queries into existing graph concepts."""
+        words = re.findall(r"[a-zA-Z']{3,}", query.lower())
+        existing = [w for w in words
+                    if w in self._concept_keywords and w != subject.lower() and w not in seen]
+        if not existing:
+            return None
+        # Pick the most connected existing concept and walk from it
+        best_word = existing[0]
+        seen.add(best_word)
+        return self._walk_chain(best_word, seen, max_hops=2, temperature=temperature,
+                                subject_proximity=subject)
+
+    def _compose_uncertainty_response(self, query: str, subject: str,
+                                       activated_concepts: List[str],
+                                       strategies_tried: List[str]) -> str:
+        """Strategy G: Express uncertainty using graph labels only.
+        Pattern: '[subject] connect [c1] [c2]. curious learn more.'
+        All words must be existing graph labels."""
+        c1 = ""
+        c2 = ""
+        if activated_concepts:
+            c1 = activated_concepts[0]
+            if len(activated_concepts) > 1:
+                c2 = activated_concepts[1]
+        if not c1 or c1.lower() == subject.lower():
+            # Use the subject's vector neighbor
+            neighbor = self._find_vector_neighbor(subject)
+            if neighbor and neighbor.lower() != subject.lower():
+                c1 = neighbor
+        if not c2 or c2.lower() == subject.lower() or c2.lower() == c1.lower():
+            other = self._find_vector_neighbor(c1 if c1 else subject)
+            if other and other.lower() != subject.lower() and other.lower() != c1.lower():
+                c2 = other
+        parts = []
+        if c1:
+            parts.append(f"{subject} connect {c1}")
+        if c2:
+            parts.append(f"{c1} connect {c2}") if c1 else parts.append(f"{subject} connect {c2}")
+        parts.append("curious learn more")
+        return " ".join(parts) + "."
+
     def _generate_response(self, ctx: CognitiveResponseContext) -> Tuple[str, str]:
         """Walk a progressive chain through the graph: 1 hop, then 2 hops, then 3.
         Each sentence continues from where the previous left off, creating a coherent
@@ -2423,6 +2549,99 @@ class CognitiveChatEngine:
                         sentences.append(f"{conn} {per_phrase}.")
                         break
 
+        # Phase 7.2: Check if response is weak (no substantive path found)
+        # Store which strategy was used for impossible query tracking
+        if len(sentences) < 2 or all(len(s.strip(".").split()) < 3 for s in sentences):
+            # Primary walk failed — try multi-strategy escalation
+            strategies_tried = ["A_direct_chain"]
+            strategy_result = None
+
+            # Strategy B: Bridge Prospecting
+            if strategy_result is None:
+                bridge_result = self._bridge_prospecting(
+                    getattr(self, '_last_activated_ids', []), subject, seen, temps[1])
+                if bridge_result:
+                    conn = self._starter_from_chain(bridge_result, subject, connector_counts)
+                    strategy_result = f"{conn} {bridge_result}."
+                    strategies_tried.append("B_bridge")
+                    for w in bridge_result.split():
+                        if w.lower() in self._CONNECTOR_SET:
+                            connector_counts[w.lower()] = connector_counts.get(w.lower(), 0) + 1
+
+            # Strategy C: Analogical Detour
+            if strategy_result is None:
+                analog_result = self._analogical_detour(subject, seen, temps[1])
+                if analog_result:
+                    conn = self._starter_from_chain(analog_result, subject, connector_counts)
+                    strategy_result = f"{conn} {analog_result}."
+                    strategies_tried.append("C_analogical")
+                    for w in analog_result.split():
+                        if w.lower() in self._CONNECTOR_SET:
+                            connector_counts[w.lower()] = connector_counts.get(w.lower(), 0) + 1
+
+            # Strategy D: Contrastive Flip
+            if strategy_result is None:
+                contrast_result = self._contrastive_flip(subject, seen, temps[1])
+                if contrast_result:
+                    strategy_result = f"but {contrast_result}."
+                    strategies_tried.append("D_contrastive")
+
+            # Strategy E: Sub-Question Decomposition
+            if strategy_result is None:
+                decomp_result = self._sub_question_decompose(subject, ctx.raw_input, seen, temps[1])
+                if decomp_result:
+                    conn = self._starter_from_chain(decomp_result, subject, connector_counts)
+                    strategy_result = f"{conn} {decomp_result}."
+                    strategies_tried.append("E_decompose")
+
+            # Strategy F: Web Research Mode (if network available)
+            if strategy_result is None and getattr(self, '_network_available', True) is not False:
+                search_result = getattr(self, 'learn_from_web', None)
+                if search_result and subject:
+                    try:
+                        self.learn_from_web(subject)
+                        strategies_tried.append("F_web_research")
+                        # Retry A-E with expanded graph
+                        retry = self._walk_chain(subject, seen, max_hops=2,
+                                                  temperature=temps[1],
+                                                  subject_proximity=subject)
+                        if retry:
+                            conn = self._starter_from_chain(retry, subject, connector_counts)
+                            strategy_result = f"{conn} {retry}."
+                    except Exception:
+                        pass
+
+            # Strategy G: Honest Uncertainty
+            if strategy_result is None:
+                activated_labels = [a[0] for a in assocs[:5]]
+                uncertainty = self._compose_uncertainty_response(
+                    ctx.raw_input, subject, activated_labels, strategies_tried)
+                strategy_result = uncertainty
+                strategies_tried.append("G_uncertainty")
+
+            if strategy_result:
+                sentences.append(strategy_result)
+                self._last_strategy_used = strategies_tried[-1] if strategies_tried else "A"
+                if self._trace_enabled:
+                    print(f"  [trace]   strategy: {', '.join(strategies_tried)}")
+            else:
+                self._last_strategy_used = "G_uncertainty"
+
+        # Phase 7: Record impossible query if confidence was low
+        if len(sentences) < 2:
+            activated_labels = [a[0] for a in assocs[:5]]
+            failed = FailedQuery(
+                query=ctx.raw_input, subject=subject,
+                activated_concepts=activated_labels,
+                strategies_tried=getattr(self, '_last_strategy_used', 'A'),
+                best_guess_response=" ".join(sentences) if sentences else subject,
+                turn=self.turn_count,
+                free_energy_at_time=self._free_energy,
+            )
+            self._impossible_queries.append(failed)
+            if len(self._impossible_queries) > 50:
+                self._impossible_queries = self._impossible_queries[-50:]
+
         # Phase 4.1: Force chain re-anchoring for each sentence
         # Check if final concept of each sentence connects back to subject
         # If not, try to add a re-anchor hop or shorten the sentence
@@ -2524,7 +2743,7 @@ class CognitiveChatEngine:
 
     def _sleep_consolidate(self):
         """Run a mini sleep cycle to strengthen useful patterns and weaken noise.
-        
+
         Teenagers' brains consolidate learning during sleep! This mimics that
         by replaying recent topics through the graph and applying Hebbian
         strengthening to co-activated concepts.
@@ -2581,6 +2800,33 @@ class CognitiveChatEngine:
 
     # ─── Diagnostics ───
 
+        # Phase 7.6: Sleep-replay impossible queries
+        replayed = 0
+        for iq in self._impossible_queries:
+            if iq.resolved:
+                continue
+            subj_nids = self._concept_keywords.get(iq.subject.lower(), [])
+            if subj_nids:
+                subj_node = self.graph.get_node(subj_nids[0])
+                if subj_node and subj_node.vector is not None:
+                    # Try to auto-wire to all existing concepts with high similarity
+                    new_edges = 0
+                    for other_nid, other_node in self.graph.nodes.items():
+                        if other_nid == subj_nids[0]:
+                            continue
+                        if other_node.vector is not None and other_node.label:
+                            sim = float(np.dot(subj_node.vector, other_node.vector))
+                            if sim > 0.5 and self.graph.get_edge(subj_nids[0], other_nid) is None:
+                                weight = min(0.5, sim * 0.5)
+                                self.graph.add_edge(subj_nids[0], other_nid, weight=weight,
+                                                    relation_type="semantic")
+                                new_edges += 1
+                    if new_edges > 0:
+                        iq.resolved = True
+                        replayed += 1
+        if replayed > 0 and getattr(self, '_trace_enabled', False):
+            print(f"  [trace]   sleep replay: resolved {replayed} impossible queries")
+
     def print_traces(self, label: str = ""):
         """Print all chain walk traces from the last response."""
         if not self._chain_traces:
@@ -2598,6 +2844,10 @@ class CognitiveChatEngine:
                 print(f"  [trace]     hop {i}: {h.from_label}{dir_sym}{h.to_label}  "
                       f"[{h.relation_type}] w={h.weight:.3f} c={h.confidence:.3f} "
                       f"t={h.temperature:.2f} ({h.candidates} cand){extra}")
+        # Phase 7: Print impossible query count if any
+        if engine._impossible_queries:
+            unresolved = sum(1 for iq in engine._impossible_queries if not iq.resolved)
+            print(f"  [trace]   impossible queries: {len(engine._impossible_queries)} total, {unresolved} unresolved")
         # Print user model state
         if self.user_model.edge_reactivations:
             print(f"  [trace]   user_model: {len(self.user_model.edge_reactivations)} edge visits")
@@ -2625,8 +2875,8 @@ class CognitiveChatEngine:
             'concept_keywords': self._concept_keywords,
             'turn_count': self.turn_count,
             'topic_list': self._topic_list,
-        'topic_store': self._topic_store,
-        'response_context': self._response_context,
+            'topic_store': self._topic_store,
+            'response_context': self._response_context,
             'last_responses': self._last_responses,
             'last_strategy': self._last_strategy,
             'free_energy': self._free_energy,
@@ -2653,13 +2903,28 @@ class CognitiveChatEngine:
             'belief_store_state': getattr(self, 'belief_store', BeliefStore()).get_state(),
         }
         try:
+            # Phase 6.1: Checkpoint rotation — save every 25 turns
+            if self.turn_count > 0 and self.turn_count % 25 == 0:
+                checkpoint_path = self._save_path.replace('.pkl', f'_{self.turn_count}.pkl')
+                with open(checkpoint_path, 'wb') as f:
+                    pickle.dump(state, f)
+                # Keep last 3 checkpoints, remove older ones
+                import glob
+                checkpoints = sorted(glob.glob(self._save_path.replace('.pkl', '_[0-9]*.pkl')))
+                for old_cp in checkpoints[:-3]:
+                    try:
+                        os.remove(old_cp)
+                    except OSError:
+                        pass
+        except Exception:
+            pass
+        try:
             with open(self._save_path, 'wb') as f:
                 pickle.dump(state, f)
             size_kb = os.path.getsize(self._save_path) / 1024
             return f"saved {size_kb:.0f}KB to {os.path.basename(self._save_path)}"
         except Exception as e:
             return f"save failed: {e}"
-
     def _load(self) -> bool:
         """Load cognitive state from disk. Returns True if successful."""
         try:
@@ -2740,9 +3005,19 @@ def main():
     parser.add_argument("--no-vad", action="store_true", help="Disable VAD emotion modulation")
     parser.add_argument("--no-rlm", action="store_true", help="Disable RLMv2 triple verification")
     parser.add_argument("--no-beliefs", action="store_true", help="Disable belief store")
-    
+
+    parser.add_argument("--user", type=str, default=None,
+                        help="User name for multi-user isolation (creates user-specific save files)")
     parser.add_argument("--data-dir", type=str, default=None,
                         help="Custom data directory for weights and GloVe cache")
+    parser.add_argument("--export-graph", type=str, default=None,
+                        help="Export graph to JSON file (all concepts + edges)")
+    parser.add_argument("--import-graph", type=str, default=None,
+                        help="Import graph from JSON file (merge into existing)")
+    parser.add_argument("--stats", action="store_true",
+                        help="Print graph statistics")
+    parser.add_argument("--concept", type=str, default=None,
+                        help="Show what RAVANA knows about a concept")
     args = parser.parse_args()
 
     # Handle --reset
@@ -2754,7 +3029,9 @@ def main():
         else:
             print("  [Reset] No saved weights found, starting fresh!")
 
-    engine = CognitiveChatEngine(dim=args.dim, seed=args.seed, baby_mode=True, data_dir=data_dir)
+    data_dir = args.data_dir
+    user_suffix = args.user if args.user else None
+    engine = CognitiveChatEngine(dim=args.dim, seed=args.seed, baby_mode=True, data_dir=data_dir, user_suffix=user_suffix)
     if args.trace:
         engine._trace_enabled = True
     if args.no_vad:
@@ -2768,6 +3045,72 @@ def main():
         print("  [Config] Belief store disabled")
 
     # ── BATCH MODE (--chat) ──
+    # ── Phase 6 CLI Actions ──
+    if args.export_graph:
+        try:
+            import json
+            g = engine.graph
+            data = {
+                "nodes": [{"id": n.id, "label": n.label} for n in g.nodes.values()],
+                "edges": [{"source": e.source_id, "target": e.target_id,
+                           "relation": e.relation_type, "weight": e.weight}
+                          for e in g.edges],
+            }
+            with open(args.export_graph, "w") as f:
+                json.dump(data, f, indent=2)
+            ec = len(data["edges"])
+            nc = len(data["nodes"])
+            print(f"  [Export] Exported {nc} nodes + {ec} edges to {args.export_graph}")
+        except Exception as e:
+            print(f"  [Export] Failed: {e}")
+        engine.save()
+        return
+    if args.import_graph:
+        try:
+            import json
+            with open(args.import_graph, "r") as f:
+                data = json.load(f)
+            g = engine.graph
+            count = 0
+            for node_data in data.get("nodes", []):
+                nid = node_data.get("id")
+                label = node_data.get("label", "")
+                if nid is not None and label:
+                    g.add_node(nid, label=label)
+                    count += 1
+            for edge_data in data.get("edges", []):
+                src = edge_data.get("source")
+                tgt = edge_data.get("target")
+                rel = edge_data.get("relation", "related")
+                w = edge_data.get("weight", 0.5)
+                if src is not None and tgt is not None:
+                    g.add_edge(src, tgt, relation_type=rel, weight=w)
+            print(f"  [Import] Imported {len(data.get('nodes', []))} nodes + {len(data.get('edges', []))} edges")
+        except Exception as e:
+            print(f"  [Import] Failed: {e}")
+        engine.save()
+        return
+    if args.stats:
+        print(f"  [Stats] Graph has {engine.graph.node_count()} nodes and {engine.graph.edge_count()} edges")
+        print(f"  [Stats] Turn count: {engine.turn_count}")
+        return
+    if args.concept:
+        nids = engine._concept_keywords.get(args.concept.lower(), [])
+        if nids:
+            node = engine.graph.get_node(nids[0])
+            if node:
+                edges = engine.graph.get_edges(nids[0])
+                print(f"  [Concept] '{args.concept}': {len(edges)} edges, vector dim={len(node.vector) if node.vector is not None else 0}")
+                for e in edges[:10]:
+                    tgt = engine.graph.get_node(e.target_id)
+                    tgt_label = tgt.label if tgt else "?"
+                    print(f"    -> {tgt_label} [{e.relation_type}] w={e.weight:.3f}")
+            else:
+                print(f"  [Concept] '{args.concept}' found but no node data")
+        else:
+            print(f"  [Concept] '{args.concept}' not found in graph")
+        return
+
     if args.chat is not None:
         queries = [q.strip() for q in args.chat.split("|") if q.strip()]
         if not queries:
