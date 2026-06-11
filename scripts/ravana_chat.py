@@ -1419,8 +1419,9 @@ class CognitiveChatEngine:
             # If network is down, re-queue the item for later
             if self._network_available is False:
                 self._pending_learning_queue.insert(0, learn_query)
-                # Schedule network retry in 20 turns
-                self._network_retry_turn = self.turn_count + 20
+                # Schedule network retry in 20 turns (only on first failure)
+                if self._network_retry_turn == 0:
+                    self._network_retry_turn = self.turn_count + 20
             self._turns_since_last_search = 0
 
         return response
