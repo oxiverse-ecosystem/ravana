@@ -482,6 +482,9 @@ class CognitiveChatEngine:
         self._last_chain_hops: List[List[Tuple[str, str]]] = []  # Phase 3.4: snapshot before clear
         # Phase 8: Prefrontal workspace — holds subject + top associations for on-topic focus
         self._prefrontal_buffer: List[str] = []
+        # Phase 9: PFC gating — dynamic gating threshold modulated by arousal (teen = weaker gating)
+        self._pfc_gating_enabled = True
+        self._pfc_buffer_capacity = 7  # typical working memory capacity
         # Integration toggles (can be disabled via CLI)
         self.use_vad = True
         self.use_rlm = True
@@ -2136,6 +2139,106 @@ class CognitiveChatEngine:
         weights /= weights.sum()
         return candidates[self.rng.choice(len(candidates), p=weights)]
 
+    # ─── Phase 9: Prefrontal Gating (Neuroscience-Inspired Working Memory) ───
+
+    def _prefrontal_gate_candidates(self, candidates: List[Tuple],
+                                      subject: str) -> List[Tuple]:
+        """Gate candidates through prefrontal working memory buffer.
+
+        Boosts concepts actively held in the prefrontal buffer (working memory).
+        Mildly suppresses unrelated concepts to maintain topic coherence.
+        Gating strength is modulated by arousal — teens have weaker gating
+        under high arousal (limbic > PFC).
+
+        Based on: Ott & Nieder (2019) — Dopamine and Cognitive Control in PFC.
+        PFC D1/D2 receptors gate sensory input into working memory.
+        """
+        if not self._prefrontal_buffer or subject.lower() not in self._prefrontal_buffer:
+            return candidates
+
+        # Arousal modulates gating strength (high arousal = leaky gate)
+        arousal = self.emotion.state.arousal if getattr(self, 'use_vad', True) else 0.3
+        gate_strength = max(0.1, 0.5 - arousal * 0.4)  # 0.5 at calm, 0.26 at peak arousal
+        boost_factor = 1.0 + 0.5 * gate_strength       # 1.5 at calm, 1.13 at peak
+        penalty_factor = 0.6 + 0.3 * gate_strength     # 0.75 at calm, 0.68 at peak
+
+        gated = []
+        for sig, tgt_lbl, edge, d in candidates:
+            if tgt_lbl.lower() in self._prefrontal_buffer:
+                sig *= boost_factor
+            else:
+                # Check vector similarity to buffer contents
+                tgt_nids = self._concept_keywords.get(tgt_lbl.lower(), [])
+                if tgt_nids:
+                    tgt_node = self.graph.get_node(tgt_nids[0])
+                    if tgt_node and tgt_node.vector is not None:
+                        best_cos = 0.0
+                        for b_label in self._prefrontal_buffer:
+                            b_nids = self._concept_keywords.get(b_label.lower(), [])
+                            if b_nids:
+                                b_node = self.graph.get_node(b_nids[0])
+                                if b_node and b_node.vector is not None:
+                                    cos = float(np.dot(tgt_node.vector, b_node.vector))
+                                    if cos > best_cos:
+                                        best_cos = cos
+                        if best_cos > 0.25:
+                            sig *= (1.0 + 0.35 * best_cos * gate_strength)
+                        else:
+                            sig *= penalty_factor
+                    else:
+                        sig *= penalty_factor
+                else:
+                    sig *= penalty_factor
+            gated.append((sig, tgt_lbl, edge, d))
+        return gated
+
+    def _prefrontal_maintain_buffer(self, subject: str, chain_concepts: List[str]):
+        """Update prefrontal working memory buffer with recent chain concepts.
+
+        Maintains the subject + most vector-similar recently-used concepts.
+        Caps at ~7 items (typical working memory capacity).
+        Old buffer entries decay unless they are still semantically relevant.
+
+        Based on: Chatham, Frank & Badre (2014) — Corticostriatal output gating
+        during selection from working memory. PFC + basal ganglia control
+        what stays in working memory and what gets expressed.
+        """
+        buffer = {subject.lower()}
+
+        for label in chain_concepts:
+            if label.lower() == subject.lower():
+                continue
+            if len(buffer) >= self._pfc_buffer_capacity:
+                break
+            subj_nids = self._concept_keywords.get(subject.lower(), [])
+            lbl_nids = self._concept_keywords.get(label.lower(), [])
+            if subj_nids and lbl_nids:
+                subj_node = self.graph.get_node(subj_nids[0])
+                lbl_node = self.graph.get_node(lbl_nids[0])
+                if (subj_node and subj_node.vector is not None
+                        and lbl_node and lbl_node.vector is not None):
+                    cos = float(np.dot(lbl_node.vector, subj_node.vector))
+                    if cos > 0.25:
+                        buffer.add(label.lower())
+
+        # Merge with existing buffer (keep old entries if still relevant)
+        for label in self._prefrontal_buffer:
+            if len(buffer) >= self._pfc_buffer_capacity:
+                break
+            if label not in buffer:
+                lbl_nids = self._concept_keywords.get(label.lower(), [])
+                subj_nids = self._concept_keywords.get(subject.lower(), [])
+                if lbl_nids and subj_nids:
+                    lbl_node = self.graph.get_node(lbl_nids[0])
+                    subj_node = self.graph.get_node(subj_nids[0])
+                    if (lbl_node and lbl_node.vector is not None
+                            and subj_node and subj_node.vector is not None):
+                        cos = float(np.dot(lbl_node.vector, subj_node.vector))
+                        if cos > 0.15:
+                            buffer.add(label.lower())
+
+        self._prefrontal_buffer = list(buffer)
+
     def _walk_chain(self, label: str, seen: Set[str], max_hops: int,
                     temperature: float = 0.25,
                     contradiction_penalty: float = 0.6,
@@ -2241,6 +2344,11 @@ class CognitiveChatEngine:
                         else:
                             prox_boosted.append((sig, tgt_lbl, edge, d))
                     candidates = prox_boosted
+            # ── Prefrontal Gating (Phase 9) ──
+            # Filter through working memory buffer — boosts on-topic, suppresses drift
+            if getattr(self, '_pfc_gating_enabled', True) and self._prefrontal_buffer:
+                gate_subject = subject_proximity if subject_proximity else label
+                candidates = self._prefrontal_gate_candidates(candidates, gate_subject)
             # ── RLMv2 Confidence Modulation ──
             rlm_data = {}  # tgt_label -> confidence for trace logging
             if getattr(self, 'use_rlm', True):
@@ -2524,6 +2632,10 @@ class CognitiveChatEngine:
         seen: Set[str] = {subject.lower()}
         sentences = []
 
+        # Phase 9: Initialize prefrontal buffer with subject (seeds working memory)
+        if getattr(self, '_pfc_gating_enabled', True):
+            self._prefrontal_buffer = [subject.lower()]
+
         # Phase 8: Walk ALL chains from the subject (prefrontal anchoring)
         # Each sentence independently walks from subject so there's no topic drift.
         # Lower temperatures keep walks focused, subject_proximity boosts on-topic candidates.
@@ -2552,6 +2664,9 @@ class CognitiveChatEngine:
                 return (f"{subject} connect {neighbor}.", "associative")
             return (subject + ".", "associative")
         sentences.append(self._format_sentence(chain1, subject, connector_counts, 0))
+        chain1_concepts = [p for p in chain1.split() if p.lower() not in self._CONNECTOR_SET]
+        if getattr(self, '_pfc_gating_enabled', True):
+            self._prefrontal_maintain_buffer(subject, chain1_concepts)
         for word in chain1.split():
             if word.lower() in self._CONNECTOR_SET:
                 connector_counts[word.lower()] = connector_counts.get(word.lower(), 0) + 1
@@ -2565,6 +2680,9 @@ class CognitiveChatEngine:
                                        activation_boost=act_boost, subject_proximity=subject)
         if chain2:
             sentences.append(self._format_sentence(chain2, subject, connector_counts, 1))
+            chain2_concepts = [p for p in chain2.split() if p.lower() not in self._CONNECTOR_SET]
+            if getattr(self, '_pfc_gating_enabled', True):
+                self._prefrontal_maintain_buffer(subject, chain2_concepts)
             for word in chain2.split():
                 if word.lower() in self._CONNECTOR_SET:
                     connector_counts[word.lower()] = connector_counts.get(word.lower(), 0) + 1
@@ -2575,6 +2693,9 @@ class CognitiveChatEngine:
                                   subject_proximity=subject)
         if chain3:
             sentences.append(self._format_sentence(chain3, subject, connector_counts, 2))
+            chain3_concepts = [p for p in chain3.split() if p.lower() not in self._CONNECTOR_SET]
+            if getattr(self, '_pfc_gating_enabled', True):
+                self._prefrontal_maintain_buffer(subject, chain3_concepts)
             for word in chain3.split():
                 if word.lower() in self._CONNECTOR_SET:
                     connector_counts[word.lower()] = connector_counts.get(word.lower(), 0) + 1
@@ -2892,6 +3013,8 @@ class CognitiveChatEngine:
         # Print VAD state
         print(f"  [trace]   vad: v={self.emotion.state.valence:.2f} "
               f"a={self.emotion.state.arousal:.2f} d={self.emotion.state.dominance:.2f}")
+        if self._prefrontal_buffer:
+            print(f"  [trace]   pfc_buffer: {self._prefrontal_buffer[:5]}")
         self._chain_traces.clear()
 
     def save(self) -> str:
@@ -2927,6 +3050,7 @@ class CognitiveChatEngine:
             'use_rlm': getattr(self, 'use_rlm', True),
             'use_beliefs': getattr(self, 'use_beliefs', True),
             'belief_store_state': getattr(self, 'belief_store', BeliefStore()).get_state(),
+            'prefrontal_buffer': self._prefrontal_buffer,
         }
         try:
             # Phase 6.1: Checkpoint rotation — save every 25 turns
@@ -3007,6 +3131,9 @@ class CognitiveChatEngine:
             bs_state = state.get('belief_store_state', None)
             if bs_state:
                 self.belief_store.set_state(bs_state)
+
+            # Restore prefrontal buffer
+            self._prefrontal_buffer = state.get('prefrontal_buffer', [])
 
             return True
         except Exception as e:
