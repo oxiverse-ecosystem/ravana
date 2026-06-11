@@ -40,6 +40,23 @@ data/
 
 # Pickle files
 *.pickle
+*.pkl
+*.npz
+
+# Temporary fix scripts
+fix_*.py
+apply_phase*.py
+clean_phase*.py
+implement_phase*.py
+ravana_phase*.py
+
+# Export files
+test_export.json
+test_graph.json
+
+# Analysis artifacts
+*_indent_analysis.txt
+_indent_out.txt
 
 # LaTeX build artifacts
 paper/*.pdf

@@ -16,7 +16,7 @@ import urllib.request
 from urllib.parse import quote
 import numpy as np
 from dataclasses import dataclass, field
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, Set
 
 _proj_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _proj_root)
@@ -1760,7 +1760,7 @@ class CognitiveChatEngine:
             pl = t.lower()
             sl = subj.lower()
             if pl != sl and (pl in sl or sl in pl or len(set(pl.split()) & set(sl.split())) > 0):
-                related.append(p)
+                related.append(t)
         return related[:3]
 
     # ─── Graph-Driven Response Generation ───
@@ -3021,13 +3021,16 @@ def main():
     args = parser.parse_args()
 
     # Handle --reset
-    save_path = os.path.join(_proj_root, "ravana_weights.pkl")
+    if args.user:
+        save_path = os.path.join(_proj_root, f"ravana_weights{args.user}.pkl")
+    else:
+        save_path = os.path.join(_proj_root, "ravana_weightsNone.pkl")
     if args.reset:
         if os.path.exists(save_path):
             os.remove(save_path)
-            print("  [Reset] Deleted saved weights, starting fresh!")
+            print(f"  [Reset] Deleted {os.path.basename(save_path)}, starting fresh!")
         else:
-            print("  [Reset] No saved weights found, starting fresh!")
+            print(f"  [Reset] No saved weights found, starting fresh!")
 
     data_dir = args.data_dir
     user_suffix = args.user if args.user else None
@@ -3052,9 +3055,9 @@ def main():
             g = engine.graph
             data = {
                 "nodes": [{"id": n.id, "label": n.label} for n in g.nodes.values()],
-                "edges": [{"source": e.source_id, "target": e.target_id,
+                "edges": [{"source": src, "target": tgt,
                            "relation": e.relation_type, "weight": e.weight}
-                          for e in g.edges],
+                          for (src, tgt), e in g.edges.items()],
             }
             with open(args.export_graph, "w") as f:
                 json.dump(data, f, indent=2)
@@ -3091,7 +3094,7 @@ def main():
         engine.save()
         return
     if args.stats:
-        print(f"  [Stats] Graph has {engine.graph.node_count()} nodes and {engine.graph.edge_count()} edges")
+        print(f"  [Stats] Graph has {len(engine.graph.nodes)} nodes and {len(engine.graph.edges)} edges")
         print(f"  [Stats] Turn count: {engine.turn_count}")
         return
     if args.concept:
@@ -3099,11 +3102,10 @@ def main():
         if nids:
             node = engine.graph.get_node(nids[0])
             if node:
-                edges = engine.graph.get_edges(nids[0])
-                print(f"  [Concept] '{args.concept}': {len(edges)} edges, vector dim={len(node.vector) if node.vector is not None else 0}")
-                for e in edges[:10]:
-                    tgt = engine.graph.get_node(e.target_id)
-                    tgt_label = tgt.label if tgt else "?"
+                outgoing = engine.graph.get_outgoing(nids[0])
+                print(f"  [Concept] '{args.concept}': {len(outgoing)} edges, vector dim={len(node.vector) if node.vector is not None else 0}")
+                for tgt_node, e in outgoing[:10]:
+                    tgt_label = engine.graph.get_node(tgt_node).label if engine.graph.get_node(tgt_node) else "?"
                     print(f"    -> {tgt_label} [{e.relation_type}] w={e.weight:.3f}")
             else:
                 print(f"  [Concept] '{args.concept}' found but no node data")
