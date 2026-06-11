@@ -90,7 +90,7 @@ Measure-Command { python scripts/ravana_chat.py --reset --chat "hello|what is li
 
 **Goal**: User can refer back to previous topics and RAVANA recalls them meaningfully.
 
-**Status: COMPLETE** — Implemented in commit `7250a27`
+**Status: COMPLETE** — Implemented in commit `01c48c4`
 
 ### What was implemented
 
