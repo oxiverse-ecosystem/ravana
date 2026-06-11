@@ -295,6 +295,87 @@ python scripts/ravana_chat.py --reset --import-graph test_export.json --chat "he
 python scripts/ravana_chat.py --stats
 ```
 
+## Verification Summary
+
+### API Verification (June 11, 2026)
+```bash
+curl -s "https://api.oxiverse.com/search?q=quantum+physics" | python -m json.tool
+# ✅ API responds with JSON format: { "results": [{ "content": ..., "title": ..., "url": ... }] }
+# Response format matches what learn_from_web() expects
+```
+
+### 40-Turn Friendly Chat Test
+```bash
+python test_chat_40.py  # (temporary test script, since deleted)
+# ✅ 40/40 turns completed
+# Avg response time: 0.011s per turn
+# Graph growth: 180 nodes/2250 edges → 201 nodes/3612 edges
+# Sleep cycles: 3
+# Identity strength: 0.25 → 1.000 (trend: +0.047)
+# Emotion: Alert/tense (V=0.05, A=0.52, D=0.41)
+# Topics discussed: 39 unique
+```
+
+### Impossible Query Test (Phase 7 Strategy Framework)
+```bash
+python test_impossible_web.py
+# Queries tested: time machine, magic spells, making gold, invisibility, parallel universe,
+#   living forever, perpetual motion machine, read minds
+# ⚠️ Strategy always "associative" — Phase 7 (G_uncertainty, F_web_research) never triggered
+# Strategy selection logic needs attention: branching for impossible queries isn't activating
+```
+
+### Web Learning Test
+```bash
+direct learn_from_web test:
+# "quantum physics" → 26 items learned in 8.87s ✅ (network=True)
+# "machine learning" → 1 item in 3.78s ⚠️ (network rate-limited after first call)
+# "photosynthesis" → 1 item in 0.00s (offline fallback, network=False)
+# Final graph: 180→208 nodes, 2250→3114 edges
+# ⚠️ learn_from_web works when called directly, but the rate-limited deferred queue
+#   (1 search per 3 turns) prevents it from firing consistently in normal chat
+# ⚠️ Network appears to get rate-limited after first API call in each session
+# ✅ Offline _learn_from_text fallback works and grows the graph
+```
+
+### Phase 10-17 Integration Status
+| Phase | Component | Status | Notes |
+|-------|-----------|--------|-------|
+| P10 | `_compute_hop_prediction_error` | ❌ Defined but never called | Not wired into `_walk_chain` hop loop |
+| P10 | N400 arousal modulation | ✅ Wired into `_update_emotion` | Modulates arousal via `_mean_sentence_pe` |
+| P11 | `_build_context_vector` | ✅ Called each turn in `process_turn` | Context vector built from subject + recent + PFC + emotion |
+| P11 | `_modulate_vector` | ❌ Defined but never called | Not used during chain walking |
+| P12 | Schema activation + brain state | ✅ Runs each `process_turn` | Schema mode activates concept clusters |
+| P13 | `_apply_activation_fatigue` | ❌ Defined but never called | Not wired into `_walk_chain` |
+| P13 | Edge repetition penalty | ❌ Defined but never called | Not wired into `_walk_chain` |
+| P14 | `_td_learn` | ❌ Defined but never called | Not wired into `_walk_chain` |
+| P14 | `_update_dopamine_tone` | ❌ Defined but never called | Dopamine tone stuck at 0.500 default |
+| P14 | Identity PE | ✅ Wired into `_update_emotion` | Arousal modulated by identity prediction error |
+| P15 | `_add_episodic_edge` / `_add_semantic_edge` | ❌ Defined but never called | Dual stores sit empty |
+| P15 | `_consolidate_to_semantic` | ❌ Defined but never called | Never triggered by sleep |
+| P16 | `_thalamic_gate` | ❌ Defined but never called | Not integrated into candidate selection |
+| P16 | `_update_cerebellar_ngram` | ✅ Called after each response | Updates n-gram model from hop sequences |
+| P17 | `_metacognitive_review` | ✅ Fires every 5 turns | Periodic bias detection in process_turn |
+| P17 | `_update_concept_confidence` | ❌ Defined but never called | No concept confidence tracking at runtime |
+
+**Root Cause**: The original patch script couldn't find ~12 insertion targets in `_walk_chain` and `_generate_response` because the file exceeded the tool's readable range. Methods exist as standalone code but ~12/21 are dead code.
+
+### General Usability Gap Analysis
+
+| Priority | Issue | What's Needed |
+|----------|-------|--------------|
+| 🔴 Critical | Per-hop Phase methods are dead code | Wire `_walk_chain` loop: `_compute_hop_prediction_error`, `_td_learn`, `_apply_activation_fatigue` |
+| 🔴 Critical | Strategy selection always "associative" | Fix branching logic for `G_uncertainty`, `F_web_research` strategies |
+| 🔴 Critical | No GloVe → random vectors | Ship auto-download script or ship subset of GloVe 100D |
+| 🔴 Critical | Web search rate-limited + rate-limited API | Make rate limiter more aggressive or batch queries; first call works (26 items) |
+| 🟡 High | No `requirements.txt` | Create with `numpy`, `bs4`, `scipy` for `pip install` |
+| 🟡 High | No persistent chat memory across sessions | Save topics to disk alongside graph weights |
+| 🟡 High | CLI lacks first-user experience | Better `--help`, colored output, startup tips |
+| 🟡 High | GloVe download not automated | Script to download `glove.6B.zip` to `data/glove/` |
+| 🟢 Nice | README has no installation section | pip install + quickstart + examples |
+| 🟢 Nice | No pip-installable package | `setup.py` or `pyproject.toml` |
+| 🟢 Nice | No web UI | Streamlit/Gradio interface |
+
 ## Summary Roadmap
 
 | Phase | What | Key Metric | Effort | Status |
@@ -305,19 +386,19 @@ python scripts/ravana_chat.py --stats
 | 4 | Anchor-based coherence | Final hop cosine to subject > 0.4 | Medium | ✅ Complete |
 | 5 | Offline independence | Zero network calls in --offline mode | Small | ✅ Complete |
 | 6 | Long-term learning & distribution | Save/load across sessions, export/import | Medium | ✅ Complete |
-| 7 | Curious Persistence | Impossible queries produce 3+ word responses 90% of the time | Medium | ✅ Complete |
+| 7 | Curious Persistence | Impossible queries produce 3+ word responses 90% of the time | Medium | ✅ Partial |
 | 8 | Prefrontal-Guided Coherence | Every sentence references subject; teenspeak patterns | Small | ✅ Complete |
 | 9 | Prediction-Error-Driven Active Inference | Edge weights updated by gradient descent on prediction error | Small | ✅ Complete |
 | 9b | Prefrontal Gating | Working memory buffer gates candidates by topic relevance | Small | ✅ Complete |
 | 9c | Hippocampal Indexing | Sparse index to distributed graph patterns enables recall | Medium | ✅ Complete |
-| **10** | **Predictive Coding in Chain Walking** | **Per-hop prediction error modulates confidence** | **Medium** | **Complete** |
-| **11** | **Context-Dependent Vector Modulation** | **Vectors dynamically modulated by conversation context** | **Small** | **Complete** |
-| **12** | **Schema-Level Activation** | **Minimal cues activate concept clusters, not single nodes** | **Medium** | **Complete** |
-| **13** | **Adaptive Gain Control** | **Node fatigue prevents repetition loops** | **Small** | **Complete** |
-| **14** | **Online Dopamine-Gated Learning** | **Real-time TD error adjusts edge weights per hop** | **Medium** | **Complete** |
-| **15** | **Complementary Learning Systems** | **Separate episodic (fast) + semantic (slow) edge stores** | **Large** | **Complete** |
-| **16** | **Thalamocortical Gating & Forward Model** | **Gate selects coherent path; predictor pre-activates expected** | **Medium** | **Complete** |
-| **17** | **Meta-Learning** | **Calibrated confidence expression; epistemic value seeking** | **Medium** | **Complete** |
+| **10** | **Predictive Coding in Chain Walking** | **Per-hop prediction error modulates confidence** | **Medium** |⚠️ Partial (methods defined, not wired into walk loop) |
+| **11** | **Context-Dependent Vector Modulation** | **Vectors dynamically modulated by conversation context** | **Small** | ⚠️ Partial (context vector built but modulation not applied) |
+| **12** | **Schema-Level Activation** | **Minimal cues activate concept clusters, not single nodes** | **Medium** | ✅ Complete (wired into process_turn) |
+| **13** | **Adaptive Gain Control** | **Node fatigue prevents repetition loops** | **Small** | ⚠️ Partial (methods defined, not wired into walk loop) |
+| **14** | **Online Dopamine-Gated Learning** | **Real-time TD error adjusts edge weights per hop** | **Medium** | ⚠️ Partial (methods defined, not wired into walk loop) |
+| **15** | **Complementary Learning Systems** | **Separate episodic (fast) + semantic (slow) edge stores** | **Large** | ⚠️ Partial (stores defined, never populated) |
+| **16** | **Thalamocortical Gating & Forward Model** | **Gate selects coherent path; predictor pre-activates expected** | **Medium** | ⚠️ Partial (cerebellar ngram updates, gating not wired) |
+| **17** | **Meta-Learning** | **Calibrated confidence expression; epistemic value seeking** | **Medium** | ⚠️ Partial (metacognitive review fires, per-concept calibration not wired) |
 
 ## Phase 8: Prefrontal-Guided Coherence (Neuroscience-Inspired)
 
