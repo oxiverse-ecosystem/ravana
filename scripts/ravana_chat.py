@@ -1266,8 +1266,10 @@ class CognitiveChatEngine:
             return None
         return phrase
 
-    def _walk_chain(self, label: str, seen: Set[str], max_hops: int) -> Optional[str]:
-        """Walk a path through the graph from label, following strongest edges.
+    def _walk_chain(self, label: str, seen: Set[str], max_hops: int,
+                    temperature: float = 0.25) -> Optional[str]:
+        """Walk a path through the graph from label, temperature-weighted.
+        temperature=0 → greedy (always strongest), temperature=1 → near-uniform.
         Each hop adds `connector concept` to the chain. Returns None if no path."""
         nids = self._concept_keywords.get(label.lower(), [])
         if not nids:
@@ -1276,34 +1278,33 @@ class CognitiveChatEngine:
         cur_nid = nids[0]
         hops = 0
         while hops < max_hops:
-            best_label = None
-            best_edge = None
-            best_sig = 0.0
+            candidates = []
             for tid, edge in self.graph.get_outgoing(cur_nid):
                 tn = self.graph.nodes.get(tid)
                 if tn is None or tn.label is None or tn.label.lower() in seen:
                     continue
-                sig = edge.weight * edge.confidence
-                if sig > best_sig:
-                    best_sig = sig
-                    best_label = tn.label
-                    best_edge = edge
+                candidates.append((edge.weight * edge.confidence, tn.label, edge))
             for src, edge in self.graph.get_incoming(cur_nid):
                 sn = self.graph.nodes.get(src)
                 if sn is None or sn.label is None or sn.label.lower() in seen:
                     continue
-                sig = edge.weight * edge.confidence
-                if sig > best_sig:
-                    best_sig = sig
-                    best_label = sn.label
-                    best_edge = edge
-            if best_label is None:
+                candidates.append((edge.weight * edge.confidence, sn.label, edge))
+            if not candidates:
                 break
+            # Temperature-weighted selection
+            if temperature > 0 and len(candidates) > 1:
+                sigs = np.array([c[0] for c in candidates])
+                weights = np.exp(sigs / temperature)
+                weights /= weights.sum()
+                idx = self.rng.choice(len(candidates), p=weights)
+            else:
+                idx = max(range(len(candidates)), key=lambda i: candidates[i][0])
+            best_sig, best_label, best_edge = candidates[idx]
             connector = self._EDGE_TO_GRAPH_LABEL.get(best_edge.relation_type, "")
             # Retry same hop if best neighbor IS the connector word
             if best_label.lower() == connector.lower():
                 seen.add(best_label.lower())
-                continue  # hops doesn't increment — retry this hop
+                continue
             if connector and chain[-1] != connector:
                 chain.append(connector)
             chain.append(best_label)
@@ -1336,7 +1337,9 @@ class CognitiveChatEngine:
 
         # Walk progressive depths: 1 hop, 2 more, 3 more
         # Each subsequent walk starts from the last concept of the previous walk
-        chain1 = self._walk_chain(subject, seen, max_hops=1)
+        # Vary temperature per sentence: first sentence mostly greedy,
+        # later sentences more exploratory
+        chain1 = self._walk_chain(subject, seen, max_hops=1, temperature=0.15)
         if not chain1:
             neighbor = self._find_vector_neighbor(subject)
             if neighbor and neighbor.lower() != subject.lower():
@@ -1348,13 +1351,20 @@ class CognitiveChatEngine:
         c1_parts = chain1.split()
         start2 = c1_parts[-1] if c1_parts[-1] not in self._EDGE_TO_GRAPH_LABEL.values() and \
             c1_parts[-1].lower() not in self.TOPIC_SKIP_WORDS else subject
-        chain2 = self._walk_chain(start2, seen, max_hops=2)
+        chain2 = self._walk_chain(start2, seen, max_hops=2, temperature=0.3)
         if chain2:
             conn = ["and", "but", "because"][self.rng.randint(0, 3)]
             sentences.append(f"{conn} {chain2}.")
         else:
-            # Branch from subject's other neighbors
-            chain2 = self._walk_chain(subject, seen, max_hops=2)
+            # Multi-branch fallback: try subject, then other associations
+            chain2 = self._walk_chain(subject, seen, max_hops=2, temperature=0.3)
+            if not chain2:
+                for alt_label, _ in assocs[:4]:
+                    alc = alt_label.lower()
+                    if alc not in seen and alc not in self.TOPIC_SKIP_WORDS:
+                        chain2 = self._walk_chain(alt_label, seen, max_hops=2, temperature=0.3)
+                        if chain2:
+                            break
             if chain2:
                 conn = ["and", "but", "because"][self.rng.randint(0, 3)]
                 sentences.append(f"{conn} {chain2}.")
@@ -1367,7 +1377,7 @@ class CognitiveChatEngine:
                     c2_parts[-1].lower() not in self.TOPIC_SKIP_WORDS else subject
             else:
                 start3 = subject
-            chain3 = self._walk_chain(start3, seen, max_hops=3)
+            chain3 = self._walk_chain(start3, seen, max_hops=3, temperature=0.4)
             if chain3:
                 conn = ["and", "but", "so"][self.rng.randint(0, 3)]
                 sentences.append(f"{conn} {chain3}.")
