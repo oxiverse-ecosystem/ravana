@@ -357,6 +357,7 @@ class CognitiveResponseContext:
     meaning_generated: float = 0.0
     exploration_drive: float = 0.0
     learned_recently: bool = False  # Did we just learn something new?
+    recall_mode: bool = False  # Episodic re-traversal vs generic chain walk
 
 
 class BeliefStore:
@@ -390,6 +391,9 @@ class BeliefStore:
                               new_value: str) -> Optional[Tuple]:
         existing = self.query_belief(subject_id, predicate)
         if existing and existing[0] != new_value:
+            old_triple = (subject_id, predicate, existing[0])
+            new_triple = (subject_id, predicate, new_value)
+            self.contradictions.append((old_triple, new_triple, self.turn_num))
             return (existing, new_value, existing[2])
         return None
 
@@ -398,6 +402,56 @@ class BeliefStore:
         self.contradictions.append((old_triple, new_triple, self.turn_num))
         key = str(new_triple)
         self.resolution_history[key] = choice
+
+    def reconcile(self) -> Dict[Tuple[str, str], Tuple[str, float, int]]:
+        """Resolve contradictions: pick winner by confidence * recency decay.
+
+        The belief store keyed by (subject, predicate) holds only the latest
+        value per pair, but contradiction history lists every flip. We scan
+        contradictions to find each contested pair and pick the winner based
+        on confidence × recency (later turns = higher recency).
+        """
+        resolved: Dict[Tuple[str, str], Tuple[str, float, int]] = {}
+        # Group contradiction candidates by (subject, predicate)
+        groups: Dict[Tuple[str, str], List[Tuple[str, float, int]]] = {}
+        for old_triple, new_triple, c_turn in self.contradictions:
+            # old_triple = (subject, predicate, old_value)
+            # new_triple = (subject, predicate, new_value)
+            subj, pred = old_triple[0], old_triple[1]
+            key = (subj, pred)
+            # Add both sides of the contradiction
+            old_val, old_conf = old_triple[2], 0.0
+            new_val, new_conf = new_triple[2], 0.0
+            # Look up actual confidence from belief store if available
+            cur = self.beliefs.get(key)
+            if cur:
+                if cur[0] == old_val:
+                    old_conf = cur[1]
+                elif cur[0] == new_val:
+                    new_conf = cur[1]
+            groups.setdefault(key, []).append(
+                (old_val, old_conf if old_conf > 0 else 0.5, c_turn))
+            groups.setdefault(key, []).append(
+                (new_val, new_conf if new_conf > 0 else 0.5, c_turn))
+        # Deduplicate within each group
+        for key, candidates in groups.items():
+            seen = set()
+            unique = []
+            for c in candidates:
+                if c[0] not in seen:
+                    seen.add(c[0])
+                    unique.append(c)
+            if len(unique) < 2:
+                continue
+            def decay_score(vc: Tuple) -> float:
+                _, conf, turn = vc
+                recency = 1.0 / (1.0 + (self.turn_num - turn) * 0.1)
+                return conf * recency
+            winner = max(unique, key=decay_score)
+            # Update the belief store with the winner
+            self.beliefs[key] = (winner[0], winner[1], self.turn_num)
+            resolved[key] = self.beliefs[key]
+        return resolved
 
     def get_state(self) -> Dict:
         return {
@@ -477,6 +531,7 @@ class CognitiveChatEngine:
         self._trace_enabled = False
         self._contradiction_map: Dict[str, Set[str]] = {}
         self._belief_assertions: List[Tuple[str, str, str]] = []
+        self._recall_mode: bool = False
         self.user_model = UserModel()
         self._last_hops: List[List[Tuple[str, str]]] = []  # concept -> strength (decays)
         self._last_chain_hops: List[List[Tuple[str, str]]] = []  # Phase 3.4: snapshot before clear
@@ -493,6 +548,10 @@ class CognitiveChatEngine:
         self.use_rlm = True
         self.use_beliefs = True
         self.belief_store = BeliefStore()
+
+        # Fix 2: Dormant edge tracking — auto-wired GloVe edges are invisible
+        # until the user model visits them at least once.
+        self._dormant_edges: Set[Tuple[int, int]] = set()
 
         # Build reverse lookup from connector word → relation type
         self._CONNECTOR_TO_REL: Dict[str, str] = {}
@@ -711,7 +770,9 @@ class CognitiveChatEngine:
                 sim = float(np.dot(ni.vector, nj.vector))
                 if sim > 0.6:
                     weight = min(0.5, sim * 0.5)
-                    self.graph.add_edge(nids[i], nids[j], weight=weight, relation_type="semantic")
+                    edge = self.graph.add_edge(nids[i], nids[j], weight=weight, relation_type="semantic")
+                    edge.confidence = 0.001  # dormant: invisible until visited
+                    self._dormant_edges.add((nids[i], nids[j]))
                     auto_count += 1
 
         self._all_labels = label_to_id
@@ -1310,6 +1371,7 @@ class CognitiveChatEngine:
 
         # Step 1b.75: Phase 3.3 + 9c — Detect recall triggers with hippocampal reactivation
         recall_topic = self._detect_recall_trigger(user_input)
+        self._recall_mode = recall_topic is not None
         if recall_topic:
             # Phase 9c: Use hippocampal indexing to reactivate the distributed pattern
             reactivated = self._recall_hippocampal(recall_topic)
@@ -1429,6 +1491,7 @@ class CognitiveChatEngine:
             meaning_generated=self.meaning.accumulated_meaning,
             exploration_drive=0.3 * (1 - self.identity.state.strength) + 0.2 * self.emotion.state.arousal,
             learned_recently=self._learned_this_turn,
+            recall_mode=getattr(self, '_recall_mode', False),
         )
 
         response, strategy = self._generate_response(ctx)
@@ -2391,7 +2454,8 @@ class CognitiveChatEngine:
                     temperature: float = 0.25,
                     contradiction_penalty: float = 0.6,
                     activation_boost: Optional[Dict[str, float]] = None,
-                    subject_proximity: Optional[str] = None) -> Optional[str]:
+                    subject_proximity: Optional[str] = None,
+                    episodic_first: bool = False) -> Optional[str]:
         """Walk a path through the graph from label, temperature-weighted.
         temperature=0 → greedy (always strongest), temperature=1 → near-uniform.
         Each hop adds `connector concept` to the chain. Returns None if no path.
@@ -2399,6 +2463,9 @@ class CognitiveChatEngine:
         Applies contradiction_penalty to edges whose target contradicts a
         previously asserted belief about the source concept.
         activation_boost: {target_label: multiplier} from user model preferences.
+
+        When episodic_first=True, only episodic edges are considered for the
+        first hop, falling through to all edge types if none exist.
 
         Records detailed hop info in self._chain_traces when self._trace_enabled."""
         nids = self._concept_keywords.get(label.lower(), [])
@@ -2427,6 +2494,31 @@ class CognitiveChatEngine:
                 if sn.label.lower() in chain_labels:
                     continue  # cycle detected within this chain
                 candidates.append((edge.weight * edge.confidence, sn.label, edge, "in"))
+            if not candidates:
+                break
+            # Fix 2: Boost dormant edge confidence if endpoints co-occur in user model
+            if self._dormant_edges:
+                boosted = []
+                for sig, tgt_lbl, edge, d in candidates:
+                    edge_pair = (cur_nid, edge.target) if d == "out" else (edge.source, cur_nid)
+                    if edge_pair in self._dormant_edges:
+                        key = (cur_label.lower(), tgt_lbl.lower())
+                        visit_count = self.user_model.edge_reactivations.get(key, 0)
+                        if visit_count > 0 or edge.confidence > 0.15:
+                            # Awaken: enough contextual justification
+                            self._dormant_edges.discard(edge_pair)
+                            edge.confidence = 0.3
+                            sig = edge.weight * 0.3  # recompute signal with awakened confidence
+                    boosted.append((sig, tgt_lbl, edge, d))
+                candidates = boosted
+            if not candidates:
+                break
+            # Fix 1: Episodic-first mode (recall) — only episodic edges for this hop
+            if episodic_first:
+                episodic_cands = [(s, l, e, d) for (s, l, e, d) in candidates
+                                  if e.relation_type == "episodic"]
+                if episodic_cands:
+                    candidates = episodic_cands
             if not candidates:
                 break
             # Apply contradiction penalty (from _belief_assertions)
@@ -2539,6 +2631,12 @@ class CognitiveChatEngine:
             else:
                 idx = max(range(len(candidates)), key=lambda i: candidates[i][0])
             best_sig, best_label, best_edge, direction = candidates[idx]
+            # Fix 2: Awaken dormant edge when first traversed
+            if self._dormant_edges:
+                be_pair = (cur_nid, best_edge.target) if direction == "out" else (best_edge.source, cur_nid)
+                if be_pair in self._dormant_edges:
+                    self._dormant_edges.discard(be_pair)
+                    best_edge.confidence = 0.3  # awakened to normal level
             connector = self._pick_connector(best_edge.relation_type, best_edge.weight,
                                              best_edge.confidence, temperature)
             # Retry same hop if best neighbor IS the connector word
@@ -2805,54 +2903,107 @@ class CognitiveChatEngine:
         else:
             s_hops = [2, 2, 2]
 
-        # Sentence 1: walk from subject (own seen set)
-        s1_seen = {subject.lower()}
-        chain1 = self._walk_chain(subject, s1_seen, max_hops=s_hops[0], temperature=temps[0],
-                                  activation_boost=act_boost,
-                                  subject_proximity=subject)
-        if not chain1:
-            neighbor = self._find_vector_neighbor(subject)
-            if neighbor and neighbor.lower() != subject.lower():
-                return (f"{subject} connect {neighbor}.", "associative")
-            return (subject + ".", "associative")
-        sentences.append(self._format_sentence(chain1, subject, connector_counts, 0))
-        chain1_concepts = [p for p in chain1.split() if p.lower() not in self._CONNECTOR_SET]
-        if getattr(self, '_pfc_gating_enabled', True):
-            self._prefrontal_maintain_buffer(subject, chain1_concepts)
-        for word in chain1.split():
-            if word.lower() in self._CONNECTOR_SET:
-                connector_counts[word.lower()] = connector_counts.get(word.lower(), 0) + 1
+        # Fix 1: Recall mode — re-traverse episodic memory first, then extend
+        if ctx.recall_mode:
+            # Sentence 1: walk episodic edges from subject (re-trace conversation)
+            s1_seen = {subject.lower()}
+            chain1 = self._walk_chain(subject, s1_seen, max_hops=s_hops[0], temperature=temps[0],
+                                      activation_boost=act_boost,
+                                      subject_proximity=subject, episodic_first=True)
+            if not chain1:
+                chain1 = self._walk_chain(subject, s1_seen, max_hops=s_hops[0], temperature=temps[0],
+                                           activation_boost=act_boost,
+                                           subject_proximity=subject)
+            if chain1:
+                sentences.append(self._format_sentence(chain1, subject, connector_counts, 0))
+                chain1_concepts = [p for p in chain1.split() if p.lower() not in self._CONNECTOR_SET]
+                if getattr(self, '_pfc_gating_enabled', True):
+                    self._prefrontal_maintain_buffer(subject, chain1_concepts)
+                for word in chain1.split():
+                    if word.lower() in self._CONNECTOR_SET:
+                        connector_counts[word.lower()] = connector_counts.get(word.lower(), 0) + 1
 
-        # Sentence 2: walk from subject again with own seen set
-        s2_seen = {subject.lower()}
-        chain2 = self._walk_chain(subject, s2_seen, max_hops=s_hops[1], temperature=temps[1],
-                                  activation_boost=act_boost,
-                                  subject_proximity=subject)
-        if not chain2:
-            chain2 = self._walk_chain(subject, s2_seen, max_hops=1, temperature=temps[1],
-                                       activation_boost=act_boost, subject_proximity=subject)
-        if chain2:
-            sentences.append(self._format_sentence(chain2, subject, connector_counts, 1))
-            chain2_concepts = [p for p in chain2.split() if p.lower() not in self._CONNECTOR_SET]
+            # Sentence 2: extend semantically from subject (explore beyond episodic)
+            s2_seen = {subject.lower()}
+            chain2 = self._walk_chain(subject, s2_seen, max_hops=s_hops[1], temperature=temps[1],
+                                      activation_boost=act_boost,
+                                      subject_proximity=subject)
+            if chain2:
+                sentences.append(self._format_sentence(chain2, subject, connector_counts, 1))
+                chain2_concepts = [p for p in chain2.split() if p.lower() not in self._CONNECTOR_SET]
+                if getattr(self, '_pfc_gating_enabled', True):
+                    self._prefrontal_maintain_buffer(subject, chain2_concepts)
+                for word in chain2.split():
+                    if word.lower() in self._CONNECTOR_SET:
+                        connector_counts[word.lower()] = connector_counts.get(word.lower(), 0) + 1
+
+            # Sentence 3: summary perspective from subject
+            s3_seen = {subject.lower()}
+            chain3 = self._walk_chain(subject, s3_seen, max_hops=s_hops[2], temperature=temps[2],
+                                      activation_boost=act_boost,
+                                      subject_proximity=subject)
+            if chain3:
+                sentences.append(self._format_sentence(chain3, subject, connector_counts, 2))
+                chain3_concepts = [p for p in chain3.split() if p.lower() not in self._CONNECTOR_SET]
+                if getattr(self, '_pfc_gating_enabled', True):
+                    self._prefrontal_maintain_buffer(subject, chain3_concepts)
+                for word in chain3.split():
+                    if word.lower() in self._CONNECTOR_SET:
+                        connector_counts[word.lower()] = connector_counts.get(word.lower(), 0) + 1
+            if not sentences:
+                neighbor = self._find_vector_neighbor(subject)
+                if neighbor and neighbor.lower() != subject.lower():
+                    return (f"{subject} connect {neighbor}.", "associative")
+                return (subject + ".", "associative")
+        else:
+            # Sentence 1: walk from subject (own seen set)
+            s1_seen = {subject.lower()}
+            chain1 = self._walk_chain(subject, s1_seen, max_hops=s_hops[0], temperature=temps[0],
+                                      activation_boost=act_boost,
+                                      subject_proximity=subject)
+            if not chain1:
+                neighbor = self._find_vector_neighbor(subject)
+                if neighbor and neighbor.lower() != subject.lower():
+                    return (f"{subject} connect {neighbor}.", "associative")
+                return (subject + ".", "associative")
+            sentences.append(self._format_sentence(chain1, subject, connector_counts, 0))
+            chain1_concepts = [p for p in chain1.split() if p.lower() not in self._CONNECTOR_SET]
             if getattr(self, '_pfc_gating_enabled', True):
-                self._prefrontal_maintain_buffer(subject, chain2_concepts)
-            for word in chain2.split():
+                self._prefrontal_maintain_buffer(subject, chain1_concepts)
+            for word in chain1.split():
                 if word.lower() in self._CONNECTOR_SET:
                     connector_counts[word.lower()] = connector_counts.get(word.lower(), 0) + 1
 
-        # Sentence 3: walk from subject again with own seen set
-        s3_seen = {subject.lower()}
-        chain3 = self._walk_chain(subject, s3_seen, max_hops=s_hops[2], temperature=temps[2],
-                                  activation_boost=act_boost,
-                                  subject_proximity=subject)
-        if chain3:
-            sentences.append(self._format_sentence(chain3, subject, connector_counts, 2))
-            chain3_concepts = [p for p in chain3.split() if p.lower() not in self._CONNECTOR_SET]
-            if getattr(self, '_pfc_gating_enabled', True):
-                self._prefrontal_maintain_buffer(subject, chain3_concepts)
-            for word in chain3.split():
-                if word.lower() in self._CONNECTOR_SET:
-                    connector_counts[word.lower()] = connector_counts.get(word.lower(), 0) + 1
+            # Sentence 2: walk from subject again with own seen set
+            s2_seen = {subject.lower()}
+            chain2 = self._walk_chain(subject, s2_seen, max_hops=s_hops[1], temperature=temps[1],
+                                      activation_boost=act_boost,
+                                      subject_proximity=subject)
+            if not chain2:
+                chain2 = self._walk_chain(subject, s2_seen, max_hops=1, temperature=temps[1],
+                                           activation_boost=act_boost, subject_proximity=subject)
+            if chain2:
+                sentences.append(self._format_sentence(chain2, subject, connector_counts, 1))
+                chain2_concepts = [p for p in chain2.split() if p.lower() not in self._CONNECTOR_SET]
+                if getattr(self, '_pfc_gating_enabled', True):
+                    self._prefrontal_maintain_buffer(subject, chain2_concepts)
+                for word in chain2.split():
+                    if word.lower() in self._CONNECTOR_SET:
+                        connector_counts[word.lower()] = connector_counts.get(word.lower(), 0) + 1
+
+            # Sentence 3: walk from subject again with own seen set
+            s3_seen = {subject.lower()}
+            chain3 = self._walk_chain(subject, s3_seen, max_hops=s_hops[2], temperature=temps[2],
+                                      activation_boost=act_boost,
+                                      subject_proximity=subject)
+            if chain3:
+                sentences.append(self._format_sentence(chain3, subject, connector_counts, 2))
+                chain3_concepts = [p for p in chain3.split() if p.lower() not in self._CONNECTOR_SET]
+                if getattr(self, '_pfc_gating_enabled', True):
+                    self._prefrontal_maintain_buffer(subject, chain3_concepts)
+                for word in chain3.split():
+                    if word.lower() in self._CONNECTOR_SET:
+                        connector_counts[word.lower()] = connector_counts.get(word.lower(), 0) + 1
 
         # Phase 7.2: Check if response is weak (no substantive path found)
         # Store which strategy was used for impossible query tracking
@@ -3133,8 +3284,10 @@ class CognitiveChatEngine:
                             sim = float(np.dot(subj_node.vector, other_node.vector))
                             if sim > 0.5 and self.graph.get_edge(subj_nids[0], other_nid) is None:
                                 weight = min(0.6, sim * 0.6)
-                                self.graph.add_edge(subj_nids[0], other_nid, weight=weight,
-                                                    relation_type="semantic")
+                                ne = self.graph.add_edge(subj_nids[0], other_nid, weight=weight,
+                                                     relation_type="semantic")
+                                ne.confidence = 0.001  # dormant
+                                self._dormant_edges.add((subj_nids[0], other_nid))
                                 # Run prediction error correction for accuracy
                                 if other_node.vector is not None:
                                     new_edge = self.graph.get_edge(subj_nids[0], other_nid)
@@ -3148,6 +3301,14 @@ class CognitiveChatEngine:
                         replayed += 1
         if replayed > 0 and getattr(self, '_trace_enabled', False):
             print(f"  [trace]   sleep replay: resolved {replayed} impossible queries")
+
+        # Fix 3: Belief reconciliation — resolve contradictions by recency × confidence
+        if getattr(self, 'use_beliefs', True) and self.belief_store.beliefs:
+            before = len(self.belief_store.contradictions)
+            resolved = self.belief_store.reconcile()
+            after = len(self.belief_store.contradictions)
+            if after > before and getattr(self, '_trace_enabled', False):
+                print(f"  [trace]   sleep belief: reconciled {len(resolved)} contradictions")
 
     def print_traces(self, label: str = ""):
         """Print all chain walk traces from the last response."""
