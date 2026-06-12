@@ -3473,6 +3473,11 @@ class CognitiveChatEngine:
                             adj *= (1.0 - 0.4 * bconf)
                     belief_boosted.append((adj, tgt_lbl, edge, d))
                 candidates = belief_boosted
+
+            # Phase 13.3: Apply activation fatigue to penalize recently overused concepts
+            if candidates and self._activation_fatigue:
+                candidates = self._apply_activation_fatigue(candidates)
+
             # Temperature-weighted selection
             if getattr(self, 'reasoning_mode', 'stochastic') == 'deterministic':
                 # Greedy: always pick highest-scoring candidate (reproducible)
@@ -3815,7 +3820,14 @@ class CognitiveChatEngine:
             # First sentence: establish topic naturally
             if len(concepts) >= 2:
                 phrase = _get_phrase(dominant_rel)
-                return f"{subject.capitalize()} {phrase} {concepts[1] if concepts[1].lower() != subject.lower() else concepts[0]} and related ideas."
+                other = concepts[1] if concepts[1].lower() != subject.lower() else concepts[0]
+                # Variety: sometimes add a natural tail, sometimes end cleanly
+                if self.rng.random() < 0.4:
+                    tails = [" among other things", " and more", " and related ideas"]
+                    tail = self.rng.choice(tails)
+                else:
+                    tail = ""
+                return f"{subject.capitalize()} {phrase} {other}{tail}."
             return f"{subject.capitalize()} is an interesting concept to explore."
 
         # Check if subject already in chain
@@ -5213,8 +5225,21 @@ class CognitiveChatEngine:
     def _load(self) -> bool:
         """Load cognitive state from disk. Returns True if successful."""
         try:
+            # Use a custom unpickler that handles both 'ravana_chat' and
+            # 'scripts.ravana_chat' module name references (pickle may store
+            # either depending on how the module was imported when saved).
+            class _RavanaUnpickler(pickle.Unpickler):
+                def find_class(self, module, name):
+                    try:
+                        return super().find_class(module, name)
+                    except ModuleNotFoundError:
+                        if module == 'ravana_chat':
+                            return super().find_class('scripts.ravana_chat', name)
+                        elif module == 'scripts.ravana_chat':
+                            return super().find_class('ravana_chat', name)
+                        raise
             with open(self._save_path, 'rb') as f:
-                state = pickle.load(f)
+                state = _RavanaUnpickler(f).load()
 
             # Restore graph
             self.graph = state['graph']
