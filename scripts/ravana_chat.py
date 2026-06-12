@@ -4299,7 +4299,7 @@ class CognitiveChatEngine:
         """Background learning thread: processes pending queue and related searches when idle."""
         while self._bg_learning_active:
             # Wait until the user sends a message (idle event cleared = user active)
-            self._bg_idle_event.wait(timeout=60)  # wake every 30s to check queue
+            self._bg_idle_event.wait()  # wake every 30s to check queue
             if not self._bg_learning_active:
                 break
             # Process pending queue items in background
