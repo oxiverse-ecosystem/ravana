@@ -273,6 +273,44 @@ class NewsToMDPPipeline:
         )
         return events
 
+    def build_workspace_bids(
+        self,
+        news_items: List[NewsItem],
+        scenarios: List[NewsMDPScenario],
+    ) -> List[Dict[str, Any]]:
+        bids: List[Dict[str, Any]] = []
+
+        for item in self._dedupe_items(news_items):
+            urgency = min(1.0, max(0.05, 0.18 + item.relevance_score * 0.6))
+            bids.append(
+                {
+                    "source": f"news:{item.topic}",
+                    "urgency": round(urgency, 3),
+                    "valence": 0.05 if item.relevance_score >= 0.5 else -0.05,
+                    "payload": item.to_event_record(),
+                }
+            )
+
+        for scenario in scenarios:
+            urgency = min(1.0, max(0.08, 0.25 + scenario.pressure * 0.7))
+            bids.append(
+                {
+                    "source": f"news-mdp:{scenario.topic}",
+                    "urgency": round(urgency, 3),
+                    "valence": 0.1 if scenario.reward >= 0 else -0.1,
+                    "payload": scenario.to_event_record(),
+                }
+            )
+
+        bids.sort(
+            key=lambda bid: (
+                float(bid.get("urgency", 0.0) or 0.0),
+                float(bid.get("payload", {}).get("pressure", 0.0) or 0.0),
+            ),
+            reverse=True,
+        )
+        return bids
+
     def summarize_cycle(
         self,
         news_items: List[NewsItem],
@@ -321,6 +359,7 @@ class NewsToMDPPipeline:
         summary = self.summarize_cycle(news_items, scenarios, alignment)
         events = self.build_event_stream(news_items, scenarios)
         event_cards = [scenario.to_learning_card() for scenario in scenarios]
+        workspace_bids = self.build_workspace_bids(news_items, scenarios)
 
         return {
             "query": query,
@@ -329,6 +368,7 @@ class NewsToMDPPipeline:
             "scenarios": scenarios,
             "events": events,
             "event_cards": event_cards,
+            "workspace_bids": workspace_bids,
             "alignment": alignment,
             "max_pressure": max((scenario.pressure for scenario in scenarios), default=0.0),
             "summary": summary,
