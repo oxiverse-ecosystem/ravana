@@ -35,6 +35,7 @@ from ravana.language.cerebellar_ngram import CerebellarNgram, CerebellarState
 from ravana.language.prefrontal_workspace import PrefrontalWorkspace, DiscourseIntent, DiscoursePlan, DiscourseType
 from ravana.language.syntactic_cell_assembly import SyntacticCellAssembly, SyntacticFrame
 from ravana.language.surface_realizer import SurfaceRealizer, DiscourseState
+from ravana_ml.nn.neural_decoder import NeuralDecoder
 
 
 # Try importing beautifulsoup4 for HTML parsing (optional but recommended)
@@ -506,6 +507,16 @@ class BeliefStore:
 
 class CognitiveChatEngine:
     """RAVANA cognitive chat engine — starts as a baby, learns from the web."""
+    # Connector words for each relation type
+    _EDGE_CONNECTORS = {
+        "causal": [("cause", ["because", "since", "as"]), ("result", ["leads to", "causes"]), ("effect", ["so", "therefore"])],
+        "contrastive": [("contrast", ["but", "however", "yet"]), ("unexpected", ["nevertheless", "still"])],
+        "semantic": [("identity", ["is like", "refers to", "means"]), ("relation", ["relates to", "connects with"])],
+        "temporal": [("after", ["after", "then", "next"]), ("during", ["while", "during"])],
+        "analogical": [("simile", ["like", "similar to"]), ("meta", ["acts as", "functions like"])],
+    }
+
+
 
     def __init__(self, dim: int = 64, seed: int = 42, baby_mode: bool = True, data_dir: Optional[str] = None, user_suffix: str = ""):
         self.dim = dim
@@ -552,6 +563,8 @@ class CognitiveChatEngine:
         # Phase 1.4: Per-session rate limit (max 1 search per 3 turns)
         self._turns_since_last_search: int = 0
         self._concept_keywords: Dict[str, List[int]] = {}
+        # Phase A: Concept POS tags for syntactic assembly
+        self._concept_pos: Dict[str, str] = {}
         # Phase 5: Use data_dir if provided
         if data_dir:
             self._save_path = os.path.join(data_dir, f"ravana_weights{user_suffix}.pkl")
@@ -688,11 +701,19 @@ class CognitiveChatEngine:
         # Phase 18d: Explored contradiction pairs (prevent re-queuing "good vs bad debate")
         self._explored_contradictions: Set[Tuple[str, str]] = set()
 
+        # Neural decoder — initialized lazily after graph is ready
+        self.neural_decoder: Optional[NeuralDecoder] = None
+        self._decoder_word_to_idx: Dict[str, int] = {}
+        self._decoder_idx_to_word: Dict[int, str] = {}
+        self._decoder_word_to_embed: Dict[str, np.ndarray] = {}
+        self._decoder_vocab_built: bool = False
+        self._decoder_training_count: int = 0
 
         if os.path.exists(self._save_path):
             loaded = self._load()
             if loaded:
                 self._bootstrap_domain_concepts()
+                self._build_decoder_vocab()
                 print(f"  [Loaded] Remembered {len(self.graph.nodes)} words from before!")
                 return
 
@@ -700,7 +721,246 @@ class CognitiveChatEngine:
         self._init_glove()
         self._seed_concepts()
         self._bootstrap_domain_concepts()
+        self._build_decoder_vocab()
         print(f"  [Teen] Knows {len(self.graph.nodes)} words, ready to learn!")
+
+    # ─── Neural Decoder Vocabulary ───
+
+    def _build_decoder_vocab(self):
+        """Build vocabulary for the NeuralDecoder from graph concepts + GloVe + function words.
+
+        Maps every graph concept label and common English function words to
+        vocab indices and embedding vectors. Initializes the NeuralDecoder.
+        """
+        self._decoder_word_to_idx = {}
+        self._decoder_idx_to_word = {}
+        self._decoder_word_to_embed = {}
+
+        # Special tokens
+        special_tokens = ["<pad>", "<unk>", "<bos>", "<eos>"]
+        for i, tok in enumerate(special_tokens):
+            self._decoder_word_to_idx[tok] = i
+            self._decoder_idx_to_word[i] = tok
+            # Random embedding for special tokens
+            vec = np.random.randn(self.dim).astype(np.float32) * 0.05
+            norm = np.linalg.norm(vec)
+            if norm > 0:
+                vec /= norm
+            self._decoder_word_to_embed[tok] = vec
+
+        next_idx = len(special_tokens)
+
+        # Common function words for fluent generation
+        function_words = [
+            "a", "an", "the", "is", "are", "was", "were", "be", "been",
+            "being", "have", "has", "had", "do", "does", "did", "will",
+            "would", "could", "should", "may", "might", "shall", "can",
+            "not", "no", "nor", "so", "if", "then", "than", "too", "very",
+            "just", "about", "also", "into", "over", "after", "before",
+            "between", "through", "during", "because", "while", "which",
+            "who", "whom", "what", "when", "where", "why", "how", "all",
+            "each", "every", "both", "few", "more", "most", "some", "any",
+            "this", "that", "these", "those", "it", "its", "they", "them",
+            "their", "we", "our", "you", "your", "he", "she", "him", "her",
+            "his", "i", "me", "my", "myself", "am",
+            # Additional function words for fluent generation
+            "of", "to", "for", "with", "from", "at", "by", "as", "on",
+            "related", "connect", "connects", "mean", "means",
+            "concept", "concepts", "idea", "ideas", "important",
+            "lead", "leads", "talk", "think", "link", "links",
+        ]
+
+        # Add graph concept labels
+        concept_labels = set()
+        for nid, node in self.graph.nodes.items():
+            if node.label:
+                concept_labels.add(node.label.lower())
+
+        # Add concepts first
+        for label in sorted(concept_labels):
+            if label not in self._decoder_word_to_idx:
+                self._decoder_word_to_idx[label] = next_idx
+                self._decoder_idx_to_word[next_idx] = label
+                # Get embedding from graph node
+                nids = self._concept_keywords.get(label, [])
+                if nids:
+                    node = self.graph.get_node(nids[0])
+                    if node and node.vector is not None:
+                        vec = node.vector.copy()
+                    else:
+                        vec = self._glove_vector(label)
+                else:
+                    vec = self._glove_vector(label)
+                if vec is None:
+                    vec = np.random.randn(self.dim).astype(np.float32) * 0.1
+                    norm_v = np.linalg.norm(vec)
+                    if norm_v > 0:
+                        vec /= norm_v
+                self._decoder_word_to_embed[label] = vec.astype(np.float32)
+                next_idx += 1
+
+        # Add function words that aren't already in vocab
+        for fw in function_words:
+            if fw not in self._decoder_word_to_idx:
+                self._decoder_word_to_idx[fw] = next_idx
+                self._decoder_idx_to_word[next_idx] = fw
+                vec = self._glove_vector(fw)
+                if vec is None:
+                    vec = np.random.randn(self.dim).astype(np.float32) * 0.1
+                    norm_v = np.linalg.norm(vec)
+                    if norm_v > 0:
+                        vec /= norm_v
+                self._decoder_word_to_embed[fw] = vec.astype(np.float32)
+                next_idx += 1
+
+        vocab_size = len(self._decoder_word_to_idx)
+        self.neural_decoder = NeuralDecoder(
+            vocab_size=vocab_size,
+            embed_dim=self.dim,
+            hidden_dim=128,
+            n_attention_heads=2,
+        )
+
+        # Initialize decoder word embeddings from our built vectors
+        for word, idx in self._decoder_word_to_idx.items():
+            if word in self._decoder_word_to_embed:
+                self.neural_decoder.word_embedding.weight.data[idx] = \
+                    self._decoder_word_to_embed[word]
+        self.neural_decoder.rebuild_vocab_cache()
+        self._decoder_vocab_built = True
+        self._train_decoder_from_graph()
+
+    def _train_decoder_from_graph(self):
+        """Train neural decoder on synthetic sentences from graph relationships."""
+        if self.neural_decoder is None or not self._decoder_vocab_built:
+            return
+        templates = [
+            "the {s} and the {o} are related",
+            "when you think of {s} you think of {o}",
+            "there is a link between {s} and {o}",
+            "people connect {s} with {o}",
+            "the idea of {s} leads to {o}",
+            "when we talk about {s} we mean {o}",
+            "both {s} and {o} are important concepts",
+            "the meaning of {s} connects to {o}",
+            "you can see {s} in the concept of {o}",
+        ]
+        sentences = []
+        seen = set()
+        for (src_id, tgt_id), edge in self.graph.edges.items():
+            src_node = self.graph.get_node(src_id)
+            tgt_node = self.graph.get_node(tgt_id)
+            if src_node and tgt_node and src_node.label and tgt_node.label:
+                s_label = src_node.label.lower()
+                o_label = tgt_node.label.lower()
+                if s_label == o_label:
+                    continue
+                key = (s_label, o_label)
+                if key not in seen:
+                    seen.add(key)
+                    t = templates[len(sentences) % len(templates)]
+                    sent = t.format(s=s_label, o=o_label)
+                    sentences.append(sent)
+
+        # Train with moderate learning to avoid overfitting to frequent words
+        total_trained = 0
+        for sent in sentences:
+            words = sent.split()
+            err = self.neural_decoder.train_on_sentence(
+                words, self._decoder_word_to_embed, self._decoder_word_to_idx)
+        total_trained += len(sentences)
+        self.neural_decoder.sleep_cycle()
+        self._decoder_training_count += total_trained
+        print(f"  [Decoder] Trained on {total_trained} synthetic graph sentences")
+
+    # ─── Neural Decoder Generation ───
+
+    def _generate_with_decoder(self, ctx: CognitiveResponseContext) -> Optional[str]:
+        """Generate a response using the NeuralDecoder.
+
+        Takes the graph walk concept embeddings as conditioning context
+        and generates text autoregressively.
+
+        Returns None if decoder isn't ready or generation fails (falls back to templates).
+        """
+        if self.neural_decoder is None or not self._decoder_vocab_built:
+            return None
+        if self._decoder_training_count < 10:
+            return None
+
+        subject = ctx.subject
+        if not subject or subject.lower() not in self._concept_keywords:
+            return None
+
+        # Build conditioning embeddings from the subject and its associations
+        concept_embs = []
+        seen_labels = set()
+
+        # Add subject embedding
+        subj_nids = self._concept_keywords.get(subject.lower(), [])
+        if subj_nids:
+            subj_node = self.graph.get_node(subj_nids[0])
+            if subj_node and subj_node.vector is not None:
+                concept_embs.append(subj_node.vector.copy())
+                seen_labels.add(subject.lower())
+
+        # Add top associations
+        if ctx.associated_concepts:
+            for assoc_label, _ in ctx.associated_concepts[:5]:
+                al = assoc_label.lower()
+                if al not in seen_labels:
+                    assoc_nids = self._concept_keywords.get(al, [])
+                    if assoc_nids:
+                        assoc_node = self.graph.get_node(assoc_nids[0])
+                        if assoc_node and assoc_node.vector is not None:
+                            concept_embs.append(assoc_node.vector.copy())
+                            seen_labels.add(al)
+
+        if len(concept_embs) < 2:
+            # Need at least 2 concepts for meaningful conditioning
+            neighbor = self._find_vector_neighbor(subject)
+            if neighbor and neighbor.lower() != subject.lower():
+                nid_n = self._concept_keywords.get(neighbor.lower(), [])
+                if nid_n:
+                    n_node = self.graph.get_node(nid_n[0])
+                    if n_node and n_node.vector is not None:
+                        concept_embs.append(n_node.vector.copy())
+
+        if not concept_embs:
+            return None
+
+        conditioning_embs = np.stack(concept_embs, axis=0)
+
+        # Get vocab indices
+        bos_idx = self._decoder_word_to_idx.get("<bos>", 0)
+        eos_idx = self._decoder_word_to_idx.get("<eos>", 3)
+
+        # Generate
+        generated_indices = self.neural_decoder.generate(
+            conditioning_embs=conditioning_embs,
+            max_steps=15,
+            bos_idx=bos_idx,
+            eos_idx=eos_idx,
+            temperature=0.6,
+        )
+
+        # Map indices back to words
+        words = []
+        for idx in generated_indices:
+            word = self._decoder_idx_to_word.get(idx, "")
+            if not word or word in ("<pad>", "<unk>", "<bos>", "<eos>"):
+                continue
+            words.append(word)
+
+        if len(words) < 3:
+            return None
+
+        # Capitalize first word, add period
+        sentence = " ".join(words)
+        sentence = sentence[0].upper() + sentence[1:] if sentence else sentence
+        if not sentence.endswith("."):
+            sentence += "."
+        return sentence
 
     # ─── Teen Graph Seeding ───
 
@@ -893,6 +1153,8 @@ class CognitiveChatEngine:
         self._build_contradiction_map(contrastive_edges)
         # Fix seeded edge types using relation inference
         migrated = self._correct_relation_types()
+        # Phase A: Build concept POS tags from seeded concepts
+        self._build_concept_pos()
         # Phase C: Seed cerebellar n-gram from concept POS tags
         if hasattr(self, 'cerebellar_ngram') and hasattr(self, '_concept_pos'):
             self.cerebellar_ngram.seed_from_pos(self._concept_pos)
@@ -901,6 +1163,36 @@ class CognitiveChatEngine:
             self.syntactic_assembly.seed_from_pos(self._concept_pos)
         extra = f", {migrated} reclassified" if migrated else ""
         print(f"  [Teen] Seeded {len(self.graph.nodes)} concepts, {len(self.graph.edges)} connections ({auto_count} auto-wired) across 5 relation types{extra}")
+
+    def _build_concept_pos(self):
+        """Build POS tags for seeded concepts based on word characteristics."""
+        verb_suffixes = ['ing', 'ed', 'ize', 'ify', 'ate', 'en', 'ish']
+        adj_suffixes = ['able', 'ible', 'ful', 'less', 'ous', 'al', 'ic', 'ive']
+        known_verbs = {'know', 'think', 'feel', 'want', 'need', 'like', 'love',
+                      'go', 'come', 'see', 'hear', 'eat', 'drink', 'sleep', 'play',
+                      'help', 'make', 'get', 'say', 'give', 'take', 'cause', 'change',
+                      'grow', 'learn', 'teach', 'create', 'destroy', 'protect', 'accept',
+                      'reject', 'invent', 'connect', 'influence', 'struggle', 'challenge',
+                      'analyze', 'conclude', 'reflect', 'question', 'explore', 'understand',
+                      'compare', 'criticize', 'assume', 'imagine'}
+        known_adjs = {'good', 'bad', 'big', 'small', 'hot', 'cold', 'happy', 'sad',
+                     'scared', 'angry', 'tired', 'excited', 'curious', 'confused',
+                     'bored', 'proud', 'lonely', 'grateful', 'complex', 'significant',
+                     'fundamental', 'inevitable', 'possible', 'obvious', 'subtle',
+                     'profound'}
+        for label in self._concept_labels:
+            ll = label.lower()
+            if ll in known_verbs:
+                self._concept_pos[ll] = 'verb'
+            elif ll in known_adjs:
+                self._concept_pos[ll] = 'adj'
+            elif any(len(ll) > len(s) + 1 and ll.endswith(s) for s in verb_suffixes):
+                self._concept_pos[ll] = 'verb'
+            elif any(len(ll) > len(s) + 1 and ll.endswith(s) for s in adj_suffixes):
+                self._concept_pos[ll] = 'adj'
+            else:
+                self._concept_pos[ll] = 'noun'
+
 
     def _bootstrap_domain_concepts(self):
         """Seed domain-specific concepts (oxiverse, intentforge, ravana) with rich structure."""
@@ -1536,6 +1828,21 @@ class CognitiveChatEngine:
                     weight = max(0.25, min(0.4, best_sim * 0.5))
                     inf_type, _ = self._infer_relation_type(word, best_label, "semantic")
                     self.graph.add_edge(nid, best_nid, weight=weight, relation_type=inf_type)
+
+        # Train neural decoder on article text (unsupervised next-word prediction)
+        if self.neural_decoder is not None and self._decoder_vocab_built:
+            err, trained = self.neural_decoder.train_on_text(
+                text, self._decoder_word_to_embed, self._decoder_word_to_idx)
+            if trained > 0:
+                self._decoder_training_count += trained
+            # Multiple passes per article to strengthen Hebbian traces
+            if trained > 0:
+                for _ in range(4):
+                    err2, trained2 = self.neural_decoder.train_on_text(
+                        text, self._decoder_word_to_embed, self._decoder_word_to_idx)
+                    self._decoder_training_count += trained2
+                self.neural_decoder.sleep_cycle()
+
         return new_count
 
     def _learn_from_snippets(self, query: str, snippets: List[str]) -> str:
@@ -2096,12 +2403,16 @@ class CognitiveChatEngine:
                  and w.strip(".,!?") not in self.TOPIC_SKIP_WORDS
                  and w.strip(".,!?") not in STOP_WORDS]
         if words:
+            # Prefer words that are actually in the graph (known concepts) over unknown ones
+            known_words = [w for w in reversed(words) if w in self._concept_labels or w in self._concept_keywords]
+            if known_words:
+                return (known_words[0], text)
             return (words[-1], text)
 
         first = text.split()[0] if text.split() else ""
-        # Phase A: Confidence threshold — if subject confidence is too low, don't try to generate
-        if first and len(first) > 2 and first not in self.QUESTION_WORDS and first not in self.TOPIC_SKIP_WORDS:
-            return (first, text)
+        first_stripped = first.strip(".,!?").lower()
+        if first_stripped and len(first_stripped) > 2 and first_stripped not in self.QUESTION_WORDS and first_stripped not in self.TOPIC_SKIP_WORDS:
+            return (first_stripped, text)
         return ("", text)
 
     def _spread_and_collect(self, seed_ids: List[int],
@@ -3510,6 +3821,7 @@ class CognitiveChatEngine:
             
             # Build candidate list for BG Gate: (label, raw_score, confidence, relation_type)
             bg_input = []
+            cerebellar_bias = 0.0
             for c in candidates:
                 score = c[0]
                 label_c = c[1]
@@ -3517,6 +3829,7 @@ class CognitiveChatEngine:
                 conf_c = getattr(edge_c, 'confidence', 0.5)
                 rel_c = getattr(edge_c, 'relation_type', 'semantic')
                 cereb_str = self.cerebellar_ngram.get_transition_strength(label, label_c) if hasattr(self, "cerebellar_ngram") else 0.0
+                cerebellar_bias = max(cerebellar_bias, cereb_str)
                 bg_input.append((label_c, score + cereb_str * 0.15, conf_c, rel_c))
             
             # Set BG Gate parameters from the system's current modulators
@@ -4046,6 +4359,16 @@ class CognitiveChatEngine:
         """
         subject = ctx.subject
         assocs = ctx.associated_concepts
+
+        # Try neural decoder first if sufficiently trained
+        if self._decoder_training_count >= 20:
+            try:
+                decoder_response = self._generate_with_decoder(ctx)
+                if decoder_response is not None and len(decoder_response) > 10:
+                    return (decoder_response, "neural_decoder")
+            except Exception:
+                pass
+
         act_boost = getattr(self, '_activation_boost', None)
         self._last_hops = []
 
@@ -4064,10 +4387,24 @@ class CognitiveChatEngine:
                     if rel_labels:
                         props_str = ", ".join(rel_labels[:3])
                         return (f"{subject.capitalize()} is a {meta['keywords'].split()[1] if len(meta['keywords'].split()) > 1 else 'concept'} related to {props_str}.", "definition")
-                neighbor = self._find_vector_neighbor(subject)
-                if neighbor and neighbor.lower() != subject.lower():
-                    return (f"{subject} connect {neighbor}.", "associative")
-                return (subject + ".", "associative")
+                # Check if subject is actually in the graph
+                subj_in_graph = subj_lower in self._concept_labels or subj_lower in self._concept_keywords
+                if subj_in_graph:
+                    neighbor = self._find_vector_neighbor(subject)
+                    if neighbor and neighbor.lower() != subject.lower():
+                        return (f"{subject} connect {neighbor}.", "associative")
+                    # Known subject but no connections — use top-level fallback
+                    if subj_lower in self._concept_pos:
+                        pos = self._concept_pos[subj_lower]
+                        if pos == "verb":
+                            return (f"I {subject} all the time.", "associative")
+                        elif pos == "adj":
+                            return (f"That is {subject} indeed.", "associative")
+                        else:
+                            return (f"{subject.capitalize()} is something I think about.", "associative")
+                    return (f"{subject} is interesting.", "associative")
+                # Subject isn't in the graph at all — acknowledge uncertainty
+                return (f"I dont know about {subject} yet.", "unknown_subject")
             return ("...", "associative")
 
         # Phase D: Prefrontal discourse planning — plan before generating
@@ -4186,22 +4523,32 @@ class CognitiveChatEngine:
                     if word.lower() in self._CONNECTOR_SET:
                         connector_counts[word.lower()] = connector_counts.get(word.lower(), 0) + 1
             if not sentences:
-                neighbor = self._find_vector_neighbor(subject)
-                if neighbor and neighbor.lower() != subject.lower():
-                    return (f"{subject} connect {neighbor}.", "associative")
-                return (subject + ".", "associative")
+                subj_in_graph = subject.lower() in self._concept_labels or subject.lower() in self._concept_keywords
+                if subj_in_graph:
+                    neighbor = self._find_vector_neighbor(subject)
+                    if neighbor and neighbor.lower() != subject.lower():
+                        return (f"{subject} connect {neighbor}.", "associative")
+                    return (f"{subject} is interesting.", "associative")
+                return (f"I dont know about {subject} yet.", "unknown_subject")
         else:
             # Sentence 1: walk from subject (own seen set)
             s1_seen = {subject.lower()}
             s1_subj = plan.intents[0].subject if len(plan.intents) > 0 else subject
+            # If subject is empty, use top association as fallback subject
+            if not s1_subj and assocs:
+                s1_subj = assocs[0][0]
+                subject = s1_subj  # update for downstream use
             chain1 = self._walk_chain(s1_subj, s1_seen, max_hops=s_hops[0], temperature=temps[0],
                                       activation_boost=act_boost,
                                       subject_proximity=subject)
             if not chain1:
-                neighbor = self._find_vector_neighbor(subject)
-                if neighbor and neighbor.lower() != subject.lower():
-                    return (f"{subject} connect {neighbor}.", "associative")
-                return (subject + ".", "associative")
+                subj_in_graph = subject.lower() in self._concept_labels or subject.lower() in self._concept_keywords
+                if subj_in_graph:
+                    neighbor = self._find_vector_neighbor(subject)
+                    if neighbor and neighbor.lower() != subject.lower():
+                        return (f"{subject} connect {neighbor}.", "associative")
+                    return (f"{subject} is interesting.", "associative")
+                return (f"I dont know about {subject} yet.", "unknown_subject")
             sentences.append(self._format_sentence(chain1, s1_subj, connector_counts, 0))
             chain1_concepts = [p for p in chain1.split() if p.lower() not in self._CONNECTOR_SET]
             if getattr(self, '_pfc_gating_enabled', True):
@@ -4231,6 +4578,7 @@ class CognitiveChatEngine:
                         connector_counts[word.lower()] = connector_counts.get(word.lower(), 0) + 1
 
             # Sentence 3: walk from subject again with own seen set
+            s3_subj = subject
             s3_seen = {subject.lower()}
             chain3 = self._walk_chain(subject, s3_seen, max_hops=s_hops[2], temperature=temps[2],
                                       activation_boost=act_boost,
@@ -5526,6 +5874,9 @@ class CognitiveChatEngine:
             'prefrontal_buffer': self._prefrontal_buffer,
             'mean_prediction_error': self._mean_prediction_error,
             'prediction_error_count': self._prediction_error_count,
+            # Neural decoder
+            'decoder_state_dict': self.neural_decoder.state_dict() if self.neural_decoder is not None else None,
+            'decoder_training_count': self._decoder_training_count,
         }
         try:
             # Phase 6.1: Checkpoint rotation — save every 25 turns
@@ -5672,6 +6023,16 @@ class CognitiveChatEngine:
             self._cognitive_state = state.get('cognitive_state', 'default')
             self._state_duration = state.get('state_duration', 0)
             self._impossible_queries = state.get('impossible_queries', [])
+
+            # Restore neural decoder state
+            decoder_sd = state.get('decoder_state_dict', None)
+            if decoder_sd is not None and self.neural_decoder is not None:
+                try:
+                    self.neural_decoder.load_state_dict(decoder_sd)
+                except Exception:
+                    pass
+            self._decoder_training_count = state.get('decoder_training_count', 0)
+
             # Restart background learning
             self.start_background_learning()
 

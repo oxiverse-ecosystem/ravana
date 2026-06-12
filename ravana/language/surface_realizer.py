@@ -124,7 +124,8 @@ class SurfaceRealizer:
 
     def realize(self, frame, discourse_context: DiscourseState,
                 dopamine_tone: float = 0.5,
-                cerebellar_ngram=None) -> str:
+                cerebellar_ngram=None,
+                discourse_marker: Optional[str] = None) -> str:
         """Convert a syntactic frame into a well-formed English sentence.
 
         Pipeline:
@@ -187,11 +188,14 @@ class SurfaceRealizer:
             sentence = f"{subject_phrase} {verb} {object_phrase}"
 
         # Step 8: Add discourse marker
-        marker = self._select_discourse_marker(
-            discourse_context.discourse_type,
-            discourse_context.sentence_index,
-            dopamine_tone
-        )
+        if discourse_marker:
+            marker = discourse_marker
+        else:
+            marker = self._select_discourse_marker(
+                discourse_context.discourse_type,
+                discourse_context.sentence_index,
+                dopamine_tone
+            )
         if marker:
             sentence = f"{marker}, {sentence[0].lower() + sentence[1:]}"
 
