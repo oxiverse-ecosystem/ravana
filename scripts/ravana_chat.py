@@ -11,7 +11,7 @@ Usage:
     python scripts/ravana_chat.py
 """
 
-import sys, os, time, random, json, re, argparse, pickle
+import sys, os, time, random, json, re, argparse, pickle, threading
 import urllib.request
 from urllib.parse import quote
 import numpy as np
@@ -606,6 +606,14 @@ class CognitiveChatEngine:
         self._concept_confidence: Dict[str, float] = {}
         self._calibration_error: float = 0.0
         self._metacognitive_review_turn: int = 0
+        # Background web learning
+        self._bg_learning_thread: Optional[threading.Thread] = None
+        self._bg_learning_active: bool = False
+        self._bg_learning_queue: List[str] = []  # queries to research in background
+        self._bg_lock = threading.Lock()
+        self._bg_idle_event = threading.Event()  # set when user sends a message
+        self._bg_search_count: int = 0  # total background searches performed
+        self._bg_multi_search_max: int = 3  # related searches to expand per query
 
 
         if os.path.exists(self._save_path):
@@ -1378,6 +1386,8 @@ class CognitiveChatEngine:
         """Process input and generate a response, auto-learning when needed."""
         self.turn_count += 1
         self._learned_this_turn = False
+        # Signal background thread that user is active
+        self.notify_user_active()
 
         # Step 1: Find matching concepts
         activated = self._activate_from_input(user_input)
@@ -1589,22 +1599,15 @@ class CognitiveChatEngine:
         if len(self._response_context) > 10:
             self._response_context = self._response_context[-10:]
 
-        # Step 12: Phase 1.3 — Flush deferred learning queue (rate-limited)
-        self._turns_since_last_search += 1
-        if (self._pending_learning_queue and
-                self._turns_since_last_search >= 3):  # Max 1 search per 3 turns
-            learn_query = self._pending_learning_queue.pop(0)
-            if self._trace_enabled:
-                print(f"  [trace]   deferred web learn: {learn_query}")
-            # Phase 5: learn_from_web handles offline fallback internally
-            learn_summary = self.learn_from_web(learn_query)
-            # If network is down, re-queue the item for later
-            if self._network_available is False:
-                self._pending_learning_queue.insert(0, learn_query)
-                # Schedule network retry in 20 turns (only on first failure)
-                if self._network_retry_turn == 0:
-                    self._network_retry_turn = self.turn_count + 20
-            self._turns_since_last_search = 0
+        # Step 12: Queue unknown words for background learning
+        # Instead of rate-limited synchronous search, queue for background thread
+        if self._pending_learning_queue and self._bg_learning_active:
+            with self._bg_lock:
+                for w in self._pending_learning_queue:
+                    if w not in self._bg_learning_queue:
+                        self._bg_learning_queue.append(w)
+                self._pending_learning_queue.clear()
+            # Background thread will wake when queue has items (see _bg_learn_loop)
 
         return response
 
@@ -4170,6 +4173,133 @@ class CognitiveChatEngine:
             print(f"  [trace]   pfc_buffer: {self._prefrontal_buffer[:5]}")
         self._chain_traces.clear()
 
+    # === Background Web Learning ===
+    # RAVANA can learn from the web between user messages, performing
+    # multiple related searches per query to build richer knowledge.
+
+    def start_background_learning(self):
+        """Start the background learning thread. Called once at engine creation or CLI start."""
+        if self._bg_learning_active and self._bg_learning_thread and self._bg_learning_thread.is_alive():
+            return
+        self._bg_learning_active = True
+        self._bg_learning_thread = threading.Thread(target=self._bg_learn_loop, daemon=True)
+        self._bg_learning_thread.start()
+        if self._trace_enabled:
+            print('  [bg] background learning thread started')
+
+    def stop_background_learning(self):
+        """Stop the background learning thread gracefully.""" 
+        self._bg_learning_active = False
+        self._bg_idle_event.set()  # wake up the thread so it can exit
+        if self._bg_learning_thread and self._bg_learning_thread.is_alive():
+            self._bg_learning_thread.join(timeout=5)
+        if self._trace_enabled:
+            print(f'  [bg] background learning stopped (performed {self._bg_search_count} searches)')
+
+    def _bg_learn_loop(self):
+        """Background learning thread: processes pending queue and related searches when idle."""
+        while self._bg_learning_active:
+            # Wait until the user sends a message (idle event cleared = user active)
+            self._bg_idle_event.wait(timeout=30)  # wake every 30s to check queue
+            if not self._bg_learning_active:
+                break
+            # Process pending queue items in background
+            queries_to_process = []
+            with self._bg_lock:
+                queries_to_process = list(self._bg_learning_queue)
+                self._bg_learning_queue.clear()
+            # Also process deferred learning queue
+            with self._bg_lock:
+                deferred = list(self._pending_learning_queue)
+                self._pending_learning_queue.clear()
+            all_queries = queries_to_process + deferred
+            for query in all_queries:
+                if not self._bg_learning_active:
+                    break
+                self._bg_multi_search(query)
+            # Save periodically after learning
+            if all_queries:
+                try:
+                    self.save()
+                except Exception:
+                    pass
+
+    def _bg_multi_search(self, query: str):
+        """Perform multiple related searches for a single query.
+        1. Search the original query
+        2. Extract related terms from results
+        3. Search top 2-3 related terms
+        All done synchronously within the background thread."""
+        if not self._bg_learning_active:
+            return
+        # Step 1: Search the original query
+        try:
+            result_summary = self.learn_from_web(query)
+            self._bg_search_count += 1
+            if self._trace_enabled:
+                print(f'  [bg] search {self._bg_search_count}: {query} -> {result_summary}')
+        except Exception:
+            return
+        # Step 2: Extract related search terms from the query itself
+        related = self._extract_related_queries(query)
+        # Step 3: Search top related terms
+        for related_query in related[:self._bg_multi_search_max]:
+            if not self._bg_learning_active:
+                break
+            time.sleep(1)  # polite delay between searches
+            try:
+                result_summary = self.learn_from_web(related_query)
+                self._bg_search_count += 1
+                if self._trace_enabled:
+                    print(f'  [bg] search {self._bg_search_count}: {related_query} -> {result_summary}')
+            except Exception:
+                continue
+
+    def _extract_related_queries(self, query: str) -> List[str]:
+        """Extract related search queries from the original query.
+        Uses graph knowledge and word associations to generate related searches."""
+        related = []
+        words = [w for w in query.lower().split() if w not in STOP_WORDS and len(w) >= 3]
+        # Strategy 1: Individual word deep-dives
+        for w in words:
+            if w not in self._concept_labels and w not in related:
+                related.append(w)
+        # Strategy 2: Graph neighbors - what concepts are linked to the query concepts?
+        for w in words:
+            nids = self._concept_keywords.get(w, [])
+            for nid in nids:
+                for tid, edge in self.graph.get_outgoing(nid):
+                    tn = self.graph.nodes.get(tid)
+                    if tn and tn.label:
+                        neighbor = tn.label.lower()
+                        if neighbor not in STOP_WORDS and len(neighbor) >= 3 and neighbor not in related:
+                            related.append(f'{w} {neighbor}')
+                for src, edge in self.graph.get_incoming(nid):
+                    sn = self.graph.nodes.get(src)
+                    if sn and sn.label:
+                        neighbor = sn.label.lower()
+                        if neighbor not in STOP_WORDS and len(neighbor) >= 3 and neighbor not in related:
+                            related.append(f'{neighbor} {w}')
+        # Strategy 3: Compound queries from multi-word topics
+        if len(words) >= 2:
+            related.append(f'{words[0]} explained')
+            related.append(f'how does {words[0]} work')
+        return related[:self._bg_multi_search_max + 2]
+
+    def queue_background_search(self, query: str):
+        """Queue a query for background research. Thread-safe."""
+        with self._bg_lock:
+            if query not in self._bg_learning_queue:
+                self._bg_learning_queue.append(query)
+
+    def notify_user_active(self):
+        """Signal that the user is actively chatting (pause background learning)."""
+        self._bg_idle_event.clear()  # thread will block on wait
+
+    def notify_user_idle(self):
+        """Signal that the user is idle (resume background learning)."""
+        self._bg_idle_event.set()  # thread will wake up and process
+
     def save(self) -> str:
         """Save full cognitive state to disk. Returns path to save file."""
         state = {
@@ -4346,6 +4476,7 @@ def main():
     data_dir = args.data_dir
     user_suffix = args.user if args.user else None
     engine = CognitiveChatEngine(dim=args.dim, seed=args.seed, baby_mode=True, data_dir=data_dir, user_suffix=user_suffix)
+    engine.start_background_learning()
     if args.trace:
         engine._trace_enabled = True
     if args.no_vad:
@@ -4505,6 +4636,8 @@ def main():
                     import traceback
                     traceback.print_exc()
     finally:
+        # Stop background learning before saving
+        engine.stop_background_learning()
         # Auto-save on any exit
         result = engine.save()
         print(f"  [{result}]")
