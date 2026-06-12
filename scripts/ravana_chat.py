@@ -601,6 +601,9 @@ class CognitiveChatEngine:
         self._semantic_edges: Dict[Tuple[int, int], Any] = {}
         # Phase 15.4: Pre-built index for O(1) dual-store lookup
         self._dual_seen_srcs: Dict[int, Set[int]] = {}
+        # Phase 15.4: Pre-built src-indexed lookups for O(1) dual-store access
+        self._semantic_by_src: Dict[int, list] = {}
+        self._episodic_by_src: Dict[int, list] = {}
         self._cerebellar_ngram: Dict[str, Dict[str, float]] = {}
         self._cerebellar_depth: Dict[str, float] = {}
         self._concept_confidence: Dict[str, float] = {}
@@ -1388,6 +1391,16 @@ class CognitiveChatEngine:
         self._learned_this_turn = False
         # Signal background thread that user is active
         self.notify_user_active()
+        # Phase 15.2: Inter-turn episodic edge decay (forgetting between turns)
+        self._decay_episodic_edges()
+        # Phase 13.3: Decay activation fatigue between turns
+        for _fk in list(self._activation_fatigue.keys()):
+            self._activation_fatigue[_fk] *= 0.95
+            if self._activation_fatigue[_fk] < 0.01:
+                del self._activation_fatigue[_fk]
+        # Phase 13.3: Reset _visited_concepts every 50 turns for novelty
+        if self.turn_count % 50 == 0:
+            self._visited_concepts.clear()
 
         # Step 1: Find matching concepts
         activated = self._activate_from_input(user_input)
@@ -2915,31 +2928,17 @@ class CognitiveChatEngine:
             # Phase 15.4: Blend candidates from episodic + semantic dual stores
             # Build dedup set from main graph candidates already gathered
             _main_concepts = {c[1].lower() for c in candidates}
-            # Semantic edges (stable knowledge) - base weight, no decay
-            for (dsrc, dtgt), dedge in self._semantic_edges.items():
-                if dsrc == cur_nid and dtgt not in self._dual_seen_srcs.get(dsrc, set()):
-                    dnode = self.graph.nodes.get(dtgt)
-                    if dnode is None or dnode.label is None or dnode.label.lower() in seen or dnode.label.lower() in chain_labels or dnode.label.lower() in _main_concepts:
-                        continue
-                    candidates.append((dedge.weight * dedge.confidence * 1.0, dnode.label, dedge, "out"))
-                elif dtgt == cur_nid:
-                    dnode = self.graph.nodes.get(dsrc)
-                    if dnode is None or dnode.label is None or dnode.label.lower() in seen or dnode.label.lower() in chain_labels or dnode.label.lower() in _main_concepts:
-                        continue
-                    candidates.append((dedge.weight * dedge.confidence * 1.0, dnode.label, dedge, "in"))
-            # Episodic edges (conversation memory) - decay-modulated, 0.7x dampened
-            for (dsrc, dtgt), dedge in self._episodic_edges.items():
+            # Semantic edges (stable knowledge) - O(1) src-indexed
+            for dtgt, dedge in self._semantic_by_src.get(cur_nid, []):
+                dnode = self.graph.nodes.get(dtgt)
+                if dnode and dnode.label and dnode.label.lower() not in seen and dnode.label.lower() not in chain_labels and dnode.label.lower() not in _main_concepts:
+                    candidates.append((dedge.weight * dedge.confidence, dnode.label, dedge, "out"))
+            # Episodic edges (conversation memory) - O(1) src-indexed, decay-modulated
+            for dtgt, dedge in self._episodic_by_src.get(cur_nid, []):
                 decay_mod = dedge.weight / 0.3 if dedge.weight > 0 else 1.0
-                if dsrc == cur_nid and dtgt not in self._dual_seen_srcs.get(dsrc, set()):
-                    dnode = self.graph.nodes.get(dtgt)
-                    if dnode is None or dnode.label is None or dnode.label.lower() in seen or dnode.label.lower() in chain_labels or dnode.label.lower() in _main_concepts:
-                        continue
+                dnode = self.graph.nodes.get(dtgt)
+                if dnode and dnode.label and dnode.label.lower() not in seen and dnode.label.lower() not in chain_labels and dnode.label.lower() not in _main_concepts:
                     candidates.append((dedge.weight * dedge.confidence * 0.7 * decay_mod, dnode.label, dedge, "out"))
-                elif dtgt == cur_nid:
-                    dnode = self.graph.nodes.get(dsrc)
-                    if dnode is None or dnode.label is None or dnode.label.lower() in seen or dnode.label.lower() in chain_labels or dnode.label.lower() in _main_concepts:
-                        continue
-                    candidates.append((dedge.weight * dedge.confidence * 0.7 * decay_mod, dnode.label, dedge, "in"))
             if not candidates:
                 break
             # Fix 2: Boost dormant edge confidence if endpoints co-occur in user model
@@ -3342,7 +3341,7 @@ class CognitiveChatEngine:
 
         All words are graph-native labels.
         """
-        conn = self._starter_from_chain(chain_str, subject, connector_counts)
+        # Parse chain into concepts and connectors
         parts = chain_str.split()
         concepts = [p for p in parts if p.lower() not in self._CONNECTOR_SET]
         chain_conns = [p for p in parts if p.lower() in self._CONNECTOR_SET]
@@ -3350,33 +3349,84 @@ class CognitiveChatEngine:
         if not concepts:
             return chain_str + "."
 
-        # Sentence 0: raw chain as-is
-        if sentence_idx <= 0:
-            return chain_str + "."
+        # Natural phrasings mapped to edge types
+        _NATURAL_PHRASES = {
+            'semantic': ['is closely tied to', 'connects with', 'relates to', 'links to', 'goes hand in hand with'],
+            'causal': ['leads to', 'creates', 'causes', 'brings about', 'influences'],
+            'contrastive': ['contrasts with', 'differs from', 'stands against', 'challenges'],
+            'analogical': ['is like', 'resembles', 'mirrors', 'echoes'],
+            'temporal': ['comes before', 'follows', 'leads into', 'precedes'],
+            'episodic': ['connects to', 'links with', 'relates to'],
+        }
+        _STARTERS = {
+            'semantic': ['and', 'also', 'moreover', 'furthermore'],
+            'causal': ['because', 'since', 'so', 'therefore'],
+            'contrastive': ['but', 'however', 'yet', 'although'],
+            'analogical': ['like', 'similar to', 'just as'],
+            'temporal': ['then', 'next', 'afterwards', 'following that'],
+            'episodic': ['and', 'also', 'plus'],
+        }
 
-        # Check if subject already appears in chain
+        def _get_phrase(rel: str) -> str:
+            phrases = _NATURAL_PHRASES.get(rel, _NATURAL_PHRASES['semantic'])
+            return self.rng.choice(phrases)
+
+        def _get_starter(rel: str) -> str:
+            starters = _STARTERS.get(rel, _STARTERS['semantic'])
+            return self.rng.choice(starters)
+
+        # Determine the dominant relation type from the chain
+        dominant_rel = 'semantic'
+        if chain_conns:
+            for c in chain_conns:
+                for rel_type, glabel in self._EDGE_TO_GRAPH_LABEL.items():
+                    if glabel == c.lower():
+                        dominant_rel = rel_type
+                        break
+        elif concepts:
+            edge_info = self._get_edge_info(subject, concepts[0])
+            if edge_info:
+                dominant_rel = edge_info['relation_type']
+
+        # Build natural sentence
+        if sentence_idx <= 0:
+            # First sentence: establish topic naturally
+            if len(concepts) >= 2:
+                phrase = _get_phrase(dominant_rel)
+                return f"{subject.capitalize()} {phrase} {concepts[1] if concepts[1].lower() != subject.lower() else concepts[0]} and related ideas."
+            return f"{subject.capitalize()} is an interesting concept to explore."
+
+        # Check if subject already in chain
         subj_lower = subject.lower()
         has_subject = any(subj_lower == c.lower() for c in concepts)
-        if has_subject:
-            return f"{conn} {chain_str}."
 
-        # Subject not in chain — likely from alt concept fallback, use chain as-is
-        # Don't force the subject into unrelated context
-        if not has_subject and sentence_idx > 0:
-            return f"{conn} {chain_str}."
+        # Get concepts that aren't the subject
+        other_concepts = [c for c in concepts if c.lower() != subj_lower]
+        if not other_concepts:
+            other_concepts = concepts[:2]
 
-        # Build re-anchored sentence: [starter] [subject] [first_connector] [last_concept]
-        first_conn = chain_conns[0] if chain_conns else \
-            self._pick_connector("semantic", 0.40, 1.0, 0.3)
-        last_c = concepts[-1]
+        # Build the core content phrase
+        if len(other_concepts) >= 2:
+            phrase = _get_phrase(dominant_rel)
+            core = f"{other_concepts[0]} {phrase} {other_concepts[1]}"
+        elif other_concepts:
+            phrase = _get_phrase(dominant_rel)
+            core = f"{other_concepts[0]} {phrase} {subject}"
+        else:
+            core = chain_str
 
-        # Sentence 2+: 25% chance of "i think/feel/know" perspective (teen self-reference)
+        # Sentence 1+: re-anchor to subject with natural starter
+        starter = _get_starter(dominant_rel)
+
+        # 25% chance of i-perspective (teen self-reference)
         if sentence_idx >= 2 and self.rng.random() < 0.25:
-            perspective = self.rng.choice(["i think", "i feel", "i know"])
-            return f"{conn} {perspective} {subject} {first_conn} {last_c}."
+            perspective = self.rng.choice(['i think', 'i feel', 'i know'])
+            return f"{starter.capitalize()}, {perspective} {core}."
 
-        return f"{conn} {subject} {first_conn} {last_c}."
-
+        # Natural sentence with subject as anchor
+        if not has_subject:
+            return f"{starter.capitalize()}, {subject} {phrase} {', '.join(other_concepts[:2])}."
+        return f"{starter.capitalize()}, {core}."
     def _generate_response(self, ctx: CognitiveResponseContext) -> Tuple[str, str]:
         """Walk progressive chains, each anchored to the subject for coherence.
 
@@ -3792,6 +3842,7 @@ class CognitiveChatEngine:
         if key not in self._semantic_edges:
             edge = ConceptEdge(src, tgt, weight=weight, confidence=confidence, relation_type="semantic")
             self._semantic_edges[key] = edge
+            self._semantic_by_src.setdefault(src, []).append((tgt, edge))
 
     def _decay_episodic_edges(self):
         """Phase 15.2: Decay episodic edges — 10% per turn, remove below 0.05."""
@@ -4333,6 +4384,26 @@ class CognitiveChatEngine:
             'use_rlm': getattr(self, 'use_rlm', True),
             'use_beliefs': getattr(self, 'use_beliefs', True),
             'belief_store_state': getattr(self, 'belief_store', BeliefStore()).get_state(),
+            # Background learning state
+            'bg_learning_queue': list(self._bg_learning_queue),
+            'bg_search_count': self._bg_search_count,
+            'bg_multi_search_max': self._bg_multi_search_max,
+            # Dual stores
+            'episodic_edges': dict(self._episodic_edges),
+            'semantic_edges': dict(self._semantic_edges),
+            # Phase 10-17 state
+            'sentence_schema': dict(self._sentence_schema),
+            'mean_sentence_pe': self._mean_sentence_pe,
+            'dopamine_tone': self._dopamine_tone,
+            'td_error_history': list(self._td_error_history[-50:]),
+            'concept_confidence': dict(self._concept_confidence),
+            'cerebellar_ngram': dict(self._cerebellar_ngram),
+            'cerebellar_depth': dict(self._cerebellar_depth),
+            'visited_concepts': list(self._visited_concepts),
+            'activation_fatigue': dict(self._activation_fatigue),
+            'recent_traversals': list(self._recent_traversals[-30:]),
+            'cognitive_state': self._cognitive_state,
+            'state_duration': self._state_duration,
             'prefrontal_buffer': self._prefrontal_buffer,
             'mean_prediction_error': self._mean_prediction_error,
             'prediction_error_count': self._prediction_error_count,
@@ -4422,6 +4493,40 @@ class CognitiveChatEngine:
             # Restore prediction error state
             self._mean_prediction_error = state.get('mean_prediction_error', 0.0)
             self._prediction_error_count = state.get('prediction_error_count', 0)
+
+            # Restore background learning state
+            self._bg_learning_queue = state.get('bg_learning_queue', [])
+            self._bg_search_count = state.get('bg_search_count', 0)
+            self._bg_multi_search_max = state.get('bg_multi_search_max', 3)
+            # Restore dual stores
+            epi_state = state.get('episodic_edges', {})
+            if epi_state:
+                self._episodic_edges = epi_state
+                self._episodic_by_src.clear()
+                for (s, t), e in self._episodic_edges.items():
+                    self._episodic_by_src.setdefault(s, []).append((t, e))
+            sem_state = state.get('semantic_edges', {})
+            if sem_state:
+                self._semantic_edges = sem_state
+                self._semantic_by_src.clear()
+                for (s, t), e in self._semantic_edges.items():
+                    self._semantic_by_src.setdefault(s, []).append((t, e))
+            # Restore Phase 10-17 state
+            self._sentence_schema = state.get('sentence_schema', {})
+            self._mean_sentence_pe = state.get('mean_sentence_pe', 0.0)
+            self._dopamine_tone = state.get('dopamine_tone', 0.5)
+            self._td_error_history = state.get('td_error_history', [])
+            self._concept_confidence = state.get('concept_confidence', {})
+            self._cerebellar_ngram = state.get('cerebellar_ngram', {})
+            self._cerebellar_depth = state.get('cerebellar_depth', {})
+            self._visited_concepts = set(state.get('visited_concepts', []))
+            self._activation_fatigue = state.get('activation_fatigue', {})
+            self._recent_traversals = state.get('recent_traversals', [])
+            self._cognitive_state = state.get('cognitive_state', 'default')
+            self._state_duration = state.get('state_duration', 0)
+            self._impossible_queries = state.get('impossible_queries', [])
+            # Restart background learning
+            self.start_background_learning()
 
             return True
         except Exception as e:
