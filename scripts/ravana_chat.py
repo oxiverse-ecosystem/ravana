@@ -2019,6 +2019,19 @@ class CognitiveChatEngine:
             if words:
                 return (words[-1], 0.2, "all_unknown")
 
+        # Strategy D: Spelling-tolerant close match (handles typos like "intellegence")
+        if words:
+            close_matches = []
+            for w in words:
+                wl = w.lower()
+                for label in self._concept_labels:
+                    if (label.startswith(wl[:3]) and abs(len(label) - len(wl)) <= 2) or                        (len(wl) >= 4 and label.startswith(wl[:4])):
+                        close_matches.append(label)
+                        break
+            if close_matches:
+                topic = close_matches[-1]
+                return (topic, 0.5, f"close_match_{topic}")
+
         return ("", 0.0, "no_match")
 
     def _extract_topic(self, text: str, activated: List[int]) -> Tuple[str, str]:
@@ -2032,6 +2045,9 @@ class CognitiveChatEngine:
         # Use the multi-strategy query grounder
         topic, confidence, method = self._ground_query(text)
         if topic and confidence >= 0.5:
+            return (topic, text)
+        # Prefer low-confidence ground_query result over question/skip words
+        if topic and method != "all_unknown" and method != "no_pattern" and method != "no_match":
             return (topic, text)
 
         # Fallback: best activated concept (skip question, topic-skip, and short words)
@@ -2047,10 +2063,7 @@ class CognitiveChatEngine:
                             best_real = (node.label, text)
             if best_real:
                 return best_real
-            nid = activated[0]
-            node = self.graph.get_node(nid)
-            if node and node.label:
-                return (node.label, text)
+            # Don't use activated[0] if it's a question/skip word
 
         # Fallback: find meaningful words
         words = [w.strip(".,!?") for w in text.lower().split()
@@ -3264,7 +3277,17 @@ class CognitiveChatEngine:
                     continue
                 if tn.label.lower() in chain_labels:
                     continue  # cycle detected within this chain
-                candidates.append((edge.weight * edge.confidence, tn.label, edge, "out"))
+                # Self-penalty: penalize edges to concepts too semantically different from subject
+                score = edge.weight * edge.confidence
+                if label and tn.label and label.lower() != tn.label.lower():
+                    src_node = self.graph.get_node(nids[0])
+                    tgt_node = tn
+                    if src_node and src_node.vector is not None and tgt_node and tgt_node.vector is not None:
+                        semantic_sim = float(np.dot(src_node.vector, tgt_node.vector))
+                        # Penalize edges where target is too semantically distant from subject
+                        if semantic_sim < 0.3 and score > 0.1:
+                            score *= 0.5
+                candidates.append((score, tn.label, edge, "out"))
             for src, edge in self.graph.get_incoming(cur_nid):
                 sn = self.graph.nodes.get(src)
                 if sn is None or sn.label is None or sn.label.lower() in seen:
@@ -3702,10 +3725,12 @@ class CognitiveChatEngine:
             if other and other.lower() != subject.lower() and other.lower() != c1.lower():
                 c2 = other
         parts = []
-        if c1:
+        if c1 and c1.lower() != subject.lower():
             parts.append(f"{subject} connect {c1}")
-        if c2:
-            parts.append(f"{c1} connect {c2}") if c1 else parts.append(f"{subject} connect {c2}")
+        if c2 and c2.lower() != c1.lower() and c2.lower() != subject.lower():
+            parts.append(f"{c1} connect {c2}") if c1 and c1.lower() != subject.lower() else parts.append(f"{subject} connect {c2}")
+        if not parts:
+            parts.append(f"{subject} connect ...")
         parts.append("curious learn more")
         return " ".join(parts) + "."
 
@@ -3773,16 +3798,17 @@ class CognitiveChatEngine:
 
         # Determine the dominant relation type from the chain
         dominant_rel = 'semantic'
-        if chain_conns:
-            for c in chain_conns:
-                for rel_type, glabel in self._EDGE_TO_GRAPH_LABEL.items():
-                    if glabel == c.lower():
-                        dominant_rel = rel_type
-                        break
-        elif concepts:
+        # Prefer relation type from actual edge between subject and first concept
+        if concepts:
             edge_info = self._get_edge_info(subject, concepts[0])
-            if edge_info:
+            if edge_info and edge_info['relation_type'] != 'semantic':
                 dominant_rel = edge_info['relation_type']
+            elif chain_conns:
+                for c in chain_conns:
+                    for rel_type, glabel in self._EDGE_TO_GRAPH_LABEL.items():
+                        if glabel == c.lower():
+                            dominant_rel = rel_type
+                            break
 
         # Build natural sentence
         if sentence_idx <= 0:
@@ -3850,6 +3876,19 @@ class CognitiveChatEngine:
 
         if not assocs:
             if subject:
+                # Check if subject is a domain concept with known properties
+                subj_lower = subject.lower()
+                if subj_lower in DOMAIN_CONCEPTS:
+                    meta = DOMAIN_CONCEPTS[subj_lower]
+                    props = []
+                    rel_labels = []
+                    for src, tgt, rel_type, weight in meta["relations"]:
+                        if src == subj_lower or tgt == subj_lower:
+                            other = tgt if src == subj_lower else src
+                            rel_labels.append(other)
+                    if rel_labels:
+                        props_str = ", ".join(rel_labels[:3])
+                        return (f"{subject.capitalize()} is a {meta['keywords'].split()[1] if len(meta['keywords'].split()) > 1 else 'concept'} related to {props_str}.", "definition")
                 neighbor = self._find_vector_neighbor(subject)
                 if neighbor and neighbor.lower() != subject.lower():
                     return (f"{subject} connect {neighbor}.", "associative")
