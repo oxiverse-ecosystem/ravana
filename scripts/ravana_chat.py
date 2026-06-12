@@ -3781,6 +3781,12 @@ class CognitiveChatEngine:
 
         All words are graph-native labels.
         """
+        # Phase D: Select discourse format from cerebellar n-gram model
+        discourse = self._get_cerebellar_discourse(subject, sentence_idx)
+
+        # Phase E: Detect if chain contains contrastive edges
+        has_contrast = self._has_contrastive_connector(chain_str)
+
         # Parse chain into concepts and connectors
         parts = chain_str.split()
         concepts = [p for p in parts if p.lower() not in self._CONNECTOR_SET]
@@ -3822,13 +3828,16 @@ class CognitiveChatEngine:
                 phrase = _get_phrase(dominant_rel)
                 other = concepts[1] if concepts[1].lower() != subject.lower() else concepts[0]
                 # Variety: sometimes add a natural tail, sometimes end cleanly
-                # Phase G: Dopamine-modulated tail probability
-                tail_prob = max(0.15, min(0.65, 0.35 + (self._dopamine_tone - 0.5) * 0.5))
+                # Phase D+G: Cerebellar discourse + dopamine-modulated tail probability
+                # Use cerebellar depth to determine tail richness (familiar topics get richer tails)
+                cereb_depth = self._cerebellar_depth.get(subject.lower(), 0.0)
+                depth_boost = min(0.3, cereb_depth * 0.05)
+                tail_prob = max(0.15, min(0.65, 0.35 + depth_boost + (self._dopamine_tone - 0.5) * 0.4))
                 if self.rng.random() < tail_prob:
-                    if self._dopamine_tone > 0.6 and self.rng.random() < 0.3:
+                    if discourse == "exploratory" or (self._dopamine_tone > 0.6 and self.rng.random() < 0.3):
                         tails = [" among other things", " and more", " and related ideas",
                                  " which connects to many things", " that shape how we think",
-                                 " and everything that follows from that"]
+                                 " and everything that follows from that", " and so much more"]
                     else:
                         tails = [" among other things", " and more", " and related ideas"]
                     tail = self.rng.choice(tails)
@@ -3858,6 +3867,18 @@ class CognitiveChatEngine:
 
         # Sentence 1+: re-anchor to subject with natural starter
         starter = _get_starter(dominant_rel)
+
+        # Phase E: Contrastive discourse pivot — when chain has contrastive relation
+        if has_contrast and sentence_idx >= 1:
+            contrast_phrase = self._format_contrastive(core, starter, subject, sentence_idx)
+            if contrast_phrase:
+                return contrast_phrase
+
+        # Phase F: Recall grounding — when responding from hippocampal recall
+        if self._recall_mode and sentence_idx >= 1:
+            recall_starter = self._get_recall_grounding(subject)
+            if recall_starter:
+                starter = recall_starter
 
         # Phase C+G: Confidence-aware epistemic hedging with dopamine modulation
         if sentence_idx >= 2:
@@ -4988,6 +5009,109 @@ class CognitiveChatEngine:
             if self.rng.random() < 0.1 + pe_factor:
                 return self.rng.choice(['i know', 'indeed', 'of course'])
             return None
+
+    # ── Phase D: Cerebellar discourse format selection ──
+    # Neuroscience: Cerebellum proceduralizes practiced patterns into smooth, 
+    # automatic discourse. Familiar topics use richer, more structured sentences.
+
+    def _get_cerebellar_discourse(self, subject: str, sentence_idx: int) -> str:
+        """Select a discourse format based on cerebellar n-gram familiarity.
+
+        Returns one of:
+        - "concise": unfamiliar topic, short simple sentences
+        - "balanced": moderately familiar, standard sentence structure
+        - "exploratory": very familiar, richer sentence with multiple connectors
+        """
+        sl = subject.lower()
+        if sl not in self._cerebellar_ngram:
+            return "concise" if sentence_idx > 0 else "balanced"
+
+        # Count total transitions learned for this subject
+        total = sum(self._cerebellar_ngram[sl].values())
+        depth = self._cerebellar_depth.get(sl, 0.0)
+
+        # Familiar + deep = exploratory; unfamiliar + shallow = concise
+        if total > 5 and depth > 1.0:
+            return "exploratory"
+        elif total > 2 or depth > 0.5:
+            return "balanced"
+        else:
+            return "concise"
+
+    def _has_contrastive_connector(self, chain_str: str) -> bool:
+        """Check if a chain string contains contrastive connectors."""
+        for part in chain_str.split():
+            pl = part.lower()
+            # Check _EDGE_TO_GRAPH_LABEL for contrastive relation type
+            for rel_type, glabel in self._EDGE_TO_GRAPH_LABEL.items():
+                if glabel == pl and rel_type == "contrastive":
+                    return True
+        return False
+
+    # ── Phase E: Contrastive discourse pivots ──
+    # Neuroscience: Basal ganglia switches between competing action sequences.
+    # When contrastive edges are detected, the brain generates contrastive 
+    # discourse markers ("on one hand... but on the other hand...").
+
+    def _format_contrastive(self, core: str, starter: str, subject: str,
+                             sentence_idx: int) -> Optional[str]:
+        """Generate a contrastive discourse pivot sentence.
+
+        When the chain walk reveals contrasting concepts, structure the
+        response as a contrastive comparison rather than a flat chain.
+        """
+        sl = subject.lower()
+        antonyms = self._contradiction_map.get(sl, set())
+        if not antonyms:
+            return None
+
+        # Pick an antonym that appears in the core phrase
+        used_antonyms = [a for a in antonyms if a.lower() in core.lower()]
+        if not used_antonyms:
+            return None
+
+        ant = used_antonyms[0]
+        # Extract what comes before and after the antonym in the core
+        parts = core.lower().split(ant.lower(), 1)
+        if len(parts) < 2:
+            return None
+
+        before_ant = parts[0].strip().strip(",")
+        after_ant = parts[1].strip().strip(",")
+
+        if getattr(self, 'reasoning_mode', 'stochastic') == 'deterministic':
+            return f"{starter.capitalize()}, {before_ant} {ant} but they shape how we understand."
+
+        # Stochastic: variety of contrastive structures
+        templates = [
+            f"{starter.capitalize()}, {before_ant.strip()} {ant} — yet together they shape understanding.",
+            f"On one hand {before_ant.strip()}, but on the other {ant} {after_ant}.",
+            f"{subject.capitalize()} and {ant} are opposites, yet both connect to {before_ant.split()[-1] if before_ant.split() else fallback_idea}.",
+            f"{starter.capitalize()} {before_ant.strip()} {ant} — a contrast that deepens the picture.",
+        ]
+        return self.rng.choice(templates)
+
+    # ── Phase F: Recall grounding ──
+    # Neuroscience: Hippocampal indexing replays past episodes during recall.
+    # When _recall_mode is active, responses should reference past conversations.
+
+    def _get_recall_grounding(self, subject: str) -> str:
+        """Generate a recall-grounded starter phrase.
+
+        Returns a starter like "as we talked about before" or "I remember that"
+        when responding from hippocampal recall.
+        """
+        if getattr(self, 'reasoning_mode', 'stochastic') == 'deterministic':
+            return "as we discussed"
+
+        stems = [
+            f"as we talked about before",
+            f"i remember that",
+            f"as i recall",
+            f"we discussed earlier how",
+            f"thinking back to what we said",
+        ]
+        return self.rng.choice(stems)
 
     def _compute_dormant_edge_ratio(self) -> Dict[str, float]:
         """Compute dormant edge ratio per concept.
