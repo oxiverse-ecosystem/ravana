@@ -600,7 +600,7 @@ class CognitiveChatEngine:
         self._episodic_edges: Dict[Tuple[int, int], Any] = {}
         self._semantic_edges: Dict[Tuple[int, int], Any] = {}
         # Phase 15.4: Pre-built index for O(1) dual-store lookup
-        self._dual_seen_srcs: Dict[int, Set[int]] = {}
+
         # Phase 15.4: Pre-built src-indexed lookups for O(1) dual-store access
         self._semantic_by_src: Dict[int, list] = {}
         self._episodic_by_src: Dict[int, list] = {}
@@ -1621,6 +1621,7 @@ class CognitiveChatEngine:
                         self._bg_learning_queue.append(w)
                 self._pending_learning_queue.clear()
             # Background thread will wake when queue has items (see _bg_learn_loop)
+        self.notify_user_idle()  # wake background thread after response
 
         return response
 
@@ -3297,6 +3298,24 @@ class CognitiveChatEngine:
         return self._walk_chain(best_word, seen, max_hops=2, temperature=temperature,
                                 subject_proximity=subject)
 
+    # Natural sentence templates for LLM-like output
+    _NATURAL_PHRASES = {
+        'semantic': ['is closely tied to', 'connects with', 'relates to', 'links to', 'goes hand in hand with'],
+        'causal': ['leads to', 'creates', 'causes', 'brings about', 'influences'],
+        'contrastive': ['contrasts with', 'differs from', 'stands against', 'challenges'],
+        'analogical': ['is like', 'resembles', 'mirrors', 'echoes'],
+        'temporal': ['comes before', 'follows', 'leads into', 'precedes'],
+        'episodic': ['connects to', 'links with', 'relates to'],
+    }
+    _NATURAL_STARTERS = {
+        'semantic': ['and', 'also', 'moreover', 'furthermore'],
+        'causal': ['because', 'since', 'so', 'therefore'],
+        'contrastive': ['but', 'however', 'yet', 'although'],
+        'analogical': ['like', 'similar to', 'just as'],
+        'temporal': ['then', 'next', 'afterwards', 'following that'],
+        'episodic': ['and', 'also', 'plus'],
+    }
+
     def _compose_uncertainty_response(self, query: str, subject: str,
                                        activated_concepts: List[str],
                                        strategies_tried: List[str]) -> str:
@@ -4077,8 +4096,7 @@ class CognitiveChatEngine:
         if len(self.graph.edges) < 3:
             return
 
-        # Phase 15.2: Decay episodic edges (fast forgetting without rehearsal)
-        self._decay_episodic_edges()
+        # Phase 15.2: Episodic decay already runs per-turn in process_turn; skip double-decay here
 
         # Phase 9b: Prediction-error-driven sleep consolidation
         # Instead of blind +0.02 increments, use prediction error to guide updates.
@@ -4251,7 +4269,7 @@ class CognitiveChatEngine:
         """Background learning thread: processes pending queue and related searches when idle."""
         while self._bg_learning_active:
             # Wait until the user sends a message (idle event cleared = user active)
-            self._bg_idle_event.wait(timeout=30)  # wake every 30s to check queue
+            self._bg_idle_event.wait()  # wake every 30s to check queue
             if not self._bg_learning_active:
                 break
             # Process pending queue items in background
