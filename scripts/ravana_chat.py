@@ -30,6 +30,7 @@ from core.dual_process import DualProcessController, DualProcessConfig
 from core.global_workspace import GlobalWorkspace, GWConfig
 from core.meta_cognition import MetaCognition, MetaCognitiveConfig, EpistemicMode
 from core.sleep import SleepConsolidation, SleepConfig
+from ravana.language.basal_ganglia import BasalGangliaGate
 
 
 # Try importing beautifulsoup4 for HTML parsing (optional but recommended)
@@ -2075,7 +2076,10 @@ class CognitiveChatEngine:
             return (words[-1], text)
 
         first = text.split()[0] if text.split() else ""
-        return (first, text)
+        # Phase A: Confidence threshold — if subject confidence is too low, don't try to generate
+        if first and len(first) > 2 and first not in self.QUESTION_WORDS and first not in self.TOPIC_SKIP_WORDS:
+            return (first, text)
+        return ("", text)
 
     def _spread_and_collect(self, seed_ids: List[int],
                              primary_ids: Optional[Set[int]] = None) -> List[Tuple[str, float]]:
@@ -3478,31 +3482,62 @@ class CognitiveChatEngine:
             if candidates and self._activation_fatigue:
                 candidates = self._apply_activation_fatigue(candidates)
 
-            # Temperature-weighted selection
-            if getattr(self, 'reasoning_mode', 'stochastic') == 'deterministic':
-                # Greedy: always pick highest-scoring candidate (reproducible)
-                idx = max(range(len(candidates)), key=lambda i: candidates[i][0])
-                # Enforce consistency: if we've seen this (subject, hop) before, reuse same path
-                if self._consistency_paths:
-                    path_key = hash((label.lower(), tuple(sorted([c[1].lower() for c in candidates]))))
-                    expected = self._consistency_paths.get(path_key)
-                    if expected is not None and hops < len(expected):
-                        # Find the expected candidate
-                        expected_label = expected[hops]
-                        for ci, (_, cl, _, _) in enumerate(candidates):
-                            if cl.lower() == expected_label.lower():
-                                idx = ci
-                                break
-                    else:
-                        self._consistency_paths[path_key] = self._consistency_trace + [candidates[idx][1]]
-            elif temperature > 0 and len(candidates) > 1:
-                sigs = np.array([c[0] for c in candidates])
-                # Clamp to avoid numerical issues with near-zero sigs
-                sigs = np.clip(sigs, 1e-10, None)
-                weights = np.exp(sigs / temperature)
-                weights /= weights.sum()
-                idx = self.rng.choice(len(candidates), p=weights)
+            # Phase B: Basal Ganglia Gate selection (replaces temperature-weighted softmax)
+            # The 15+ modulators are reframed as inputs that set the gate's Go/NoGo parameters.
+            
+            # Build candidate list for BG Gate: (label, raw_score, confidence, relation_type)
+            bg_input = []
+            for c in candidates:
+                score = c[0]
+                label_c = c[1]
+                edge_c = c[2]
+                conf_c = getattr(edge_c, 'confidence', 0.5)
+                rel_c = getattr(edge_c, 'relation_type', 'semantic')
+                bg_input.append((label_c, score, conf_c, rel_c))
+            
+            # Set BG Gate parameters from the system's current modulators
+            # All 15+ existing modulators are reframed as gate parameter inputs, not additive bonuses.
+            arousal = float(self.emotion.state.arousal) if hasattr(self.emotion, 'state') and hasattr(self.emotion.state, 'arousal') else 0.3
+            identity_str = float(self.identity.state.strength) if hasattr(self.identity, 'state') and hasattr(self.identity.state, 'strength') else 0.5
+            # Exploration drive: computed from available fields (no ctx dependency)
+            exploration_drive = 0.3 * (1.0 - identity_str) + 0.2 * arousal
+            # Novelty: inline approximation from visited concepts
+            n_visited = len([v for v in self._visited_concepts if v.lower() == label.lower()]) if hasattr(self, '_visited_concepts') else 0
+            novelty = min(1.0, 1.0 - (n_visited / max(1, len(self._visited_concepts)))) if self._visited_concepts else 0.5
+            # Fatigue: inline lookup into _activation_fatigue
+            label_node_ids = self._concept_keywords.get(label.lower(), [])
+            fatigue = sum(self._activation_fatigue.get(nid, 0.0) for nid in label_node_ids) if hasattr(self, '_activation_fatigue') else 0.0
+            fatigue = min(1.0, fatigue)
+            
+            self.basal_ganglia.set_arousal(arousal)
+            self.basal_ganglia.set_novelty(novelty)
+            self.basal_ganglia.set_exploration_drive(exploration_drive)
+            self.basal_ganglia.set_prediction_error(self._mean_prediction_error)
+            self.basal_ganglia.set_identity_strength(identity_str)
+            self.basal_ganglia.set_fatigue(fatigue)
+            pfc_labels = [p.lower() for p in getattr(self, '_prefrontal_buffer', [])]
+            self.basal_ganglia.set_prefrontal_boost(0.5 if label.lower() in pfc_labels else 0.0)
+            self.basal_ganglia.set_thalamic_salience(0.5)
+            if subject_proximity:
+                self.basal_ganglia.set_subject_proximity_bonus(0.3)
+            self.basal_ganglia.set_contradiction_penalty(contradiction_penalty)
+            self.basal_ganglia.set_dopamine_tone(getattr(self, '_dopamine_tone', 0.5))
+            
+            # Select via BG Gate
+            bg_label, bg_rel, bg_go_score = self.basal_ganglia.select_concept(bg_input, self.rng)
+            
+            if bg_label:
+                found_idx = -1
+                for ci, (_, cl, _, _) in enumerate(candidates):
+                    if cl.lower() == bg_label.lower():
+                        found_idx = ci
+                        break
+                if found_idx >= 0:
+                    idx = found_idx
+                else:
+                    idx = max(range(len(candidates)), key=lambda i: candidates[i][0])
             else:
+                # Gate returned no winner — fallback to greedy
                 idx = max(range(len(candidates)), key=lambda i: candidates[i][0])
             best_sig, best_label, best_edge, direction = candidates[idx]
             # Fix 2: Awaken dormant edge when first traversed
