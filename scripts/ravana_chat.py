@@ -3368,30 +3368,12 @@ class CognitiveChatEngine:
         if not concepts:
             return chain_str + "."
 
-        # Natural phrasings mapped to edge types
-        _NATURAL_PHRASES = {
-            'semantic': ['is closely tied to', 'connects with', 'relates to', 'links to', 'goes hand in hand with'],
-            'causal': ['leads to', 'creates', 'causes', 'brings about', 'influences'],
-            'contrastive': ['contrasts with', 'differs from', 'stands against', 'challenges'],
-            'analogical': ['is like', 'resembles', 'mirrors', 'echoes'],
-            'temporal': ['comes before', 'follows', 'leads into', 'precedes'],
-            'episodic': ['connects to', 'links with', 'relates to'],
-        }
-        _STARTERS = {
-            'semantic': ['and', 'also', 'moreover', 'furthermore'],
-            'causal': ['because', 'since', 'so', 'therefore'],
-            'contrastive': ['but', 'however', 'yet', 'although'],
-            'analogical': ['like', 'similar to', 'just as'],
-            'temporal': ['then', 'next', 'afterwards', 'following that'],
-            'episodic': ['and', 'also', 'plus'],
-        }
-
         def _get_phrase(rel: str) -> str:
-            phrases = _NATURAL_PHRASES.get(rel, _NATURAL_PHRASES['semantic'])
+            phrases = self._NATURAL_PHRASES.get(rel, self._NATURAL_PHRASES['semantic'])
             return self.rng.choice(phrases)
 
         def _get_starter(rel: str) -> str:
-            starters = _STARTERS.get(rel, _STARTERS['semantic'])
+            starters = self._NATURAL_STARTERS.get(rel, self._NATURAL_STARTERS['semantic'])
             return self.rng.choice(starters)
 
         # Determine the dominant relation type from the chain
@@ -3874,6 +3856,12 @@ class CognitiveChatEngine:
                 to_remove.append((src, tgt))
         for key in to_remove:
             del self._episodic_edges[key]
+            # Clean up src-indexed lookup
+            src_id, tgt_id = key
+            if src_id in self._episodic_by_src:
+                self._episodic_by_src[src_id] = [(t, e) for t, e in self._episodic_by_src[src_id] if t != tgt_id]
+                if not self._episodic_by_src[src_id]:
+                    del self._episodic_by_src[src_id]
             # Update src-indexed lookup
             src_id, tgt_id = key
             if src_id in self._episodic_by_src:
@@ -4286,16 +4274,20 @@ class CognitiveChatEngine:
                 deferred = list(self._pending_learning_queue)
                 self._pending_learning_queue.clear()
             all_queries = queries_to_process + deferred
-            for query in all_queries:
-                if not self._bg_learning_active:
-                    break
-                self._bg_multi_search(query)
-            # Save periodically after learning
-            if all_queries:
-                try:
-                    self.save()
-                except Exception:
-                    pass
+            try:
+                for query in all_queries:
+                    if not self._bg_learning_active:
+                        break
+                    self._bg_multi_search(query)
+                # Save periodically after learning
+                if all_queries:
+                    try:
+                        self.save()
+                    except Exception:
+                        pass
+            except Exception:
+                # Prevent background thread from dying silently
+                pass
 
     def _bg_multi_search(self, query: str):
         """Perform multiple related searches for a single query.
@@ -4364,6 +4356,7 @@ class CognitiveChatEngine:
         with self._bg_lock:
             if query not in self._bg_learning_queue:
                 self._bg_learning_queue.append(query)
+        self._bg_idle_event.set()  # Wake the background thread
 
     def notify_user_active(self):
         """Signal that the user is actively chatting (pause background learning)."""
