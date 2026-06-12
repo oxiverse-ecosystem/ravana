@@ -31,6 +31,8 @@ from core.global_workspace import GlobalWorkspace, GWConfig
 from core.meta_cognition import MetaCognition, MetaCognitiveConfig, EpistemicMode
 from core.sleep import SleepConsolidation, SleepConfig
 from ravana.language.basal_ganglia import BasalGangliaGate
+from ravana.language.cerebellar_ngram import CerebellarNgram, CerebellarState
+from ravana.language.prefrontal_workspace import PrefrontalWorkspace, DiscourseIntent, DiscoursePlan, DiscourseType
 
 
 # Try importing beautifulsoup4 for HTML parsing (optional but recommended)
@@ -879,6 +881,9 @@ class CognitiveChatEngine:
         self._build_contradiction_map(contrastive_edges)
         # Fix seeded edge types using relation inference
         migrated = self._correct_relation_types()
+        # Phase C: Seed cerebellar n-gram from concept POS tags
+        if hasattr(self, 'cerebellar_ngram') and hasattr(self, '_concept_pos'):
+            self.cerebellar_ngram.seed_from_pos(self._concept_pos)
         extra = f", {migrated} reclassified" if migrated else ""
         print(f"  [Teen] Seeded {len(self.graph.nodes)} concepts, {len(self.graph.edges)} connections ({auto_count} auto-wired) across 5 relation types{extra}")
 
@@ -3493,7 +3498,8 @@ class CognitiveChatEngine:
                 edge_c = c[2]
                 conf_c = getattr(edge_c, 'confidence', 0.5)
                 rel_c = getattr(edge_c, 'relation_type', 'semantic')
-                bg_input.append((label_c, score, conf_c, rel_c))
+                cereb_str = self.cerebellar_ngram.get_transition_strength(label, label_c) if hasattr(self, "cerebellar_ngram") else 0.0
+                bg_input.append((label_c, score + cereb_str * 0.15, conf_c, rel_c))
             
             # Set BG Gate parameters from the system's current modulators
             # All 15+ existing modulators are reframed as gate parameter inputs, not additive bonuses.
@@ -3522,6 +3528,11 @@ class CognitiveChatEngine:
                 self.basal_ganglia.set_subject_proximity_bonus(0.3)
             self.basal_ganglia.set_contradiction_penalty(contradiction_penalty)
             self.basal_ganglia.set_dopamine_tone(getattr(self, '_dopamine_tone', 0.5))
+            
+            # Phase C: Cerebellar n-gram transition bias — prefer grammatically-proven transitions
+            # Phase C: cerebellar bias is applied per-candidate above (not post-hoc)
+            # If cerebellar predicts this transition, boost the selection; if not, slight penalty
+            self.basal_ganglia.set_subject_proximity_bonus(max(0.0, cerebellar_bias * 0.5))
             
             # Select via BG Gate
             bg_label, bg_rel, bg_go_score = self.basal_ganglia.select_concept(bg_input, self.rng)
@@ -3967,20 +3978,25 @@ class CognitiveChatEngine:
                 return (subject + ".", "associative")
             return ("...", "associative")
 
-        # Phase 9c: Per-sentence working memory (teen-like limited PFC)
-        # Each sentence has its OWN seen set so later sentences can explore
-        # the same neighborhood as earlier ones. This mimics teens' limited
-        # working memory — they don't strictly track what they just said.
+        # Phase D: Prefrontal discourse planning — plan before generating
         sentences = []
-
-        # Phase 9: Initialize prefrontal buffer with subject (seeds working memory)
+        connector_counts: Dict[str, int] = {}
+        
+        # Plan discourse using PFC workspace
+        plan = self.pfc_workspace.plan_discourse(
+            user_input=ctx.raw_input,
+            subject=subject,
+            concept_pos=self._concept_pos,
+            associations=assocs,
+            past_topics=ctx.past_topics if hasattr(ctx, 'past_topics') else None,
+            is_follow_up=self._is_follow_up(ctx.raw_input) if hasattr(self, '_is_follow_up') else False,
+        )
+        
+        # Phase 9: Initialize prefrontal buffer with subject
         if getattr(self, '_pfc_gating_enabled', True):
             self._prefrontal_buffer = [subject.lower()]
-
-        # Phase 8: Walk ALL chains from the subject (prefrontal anchoring)
-        # Each sentence independently walks from subject so there's no topic drift.
-        # Lower temperatures keep walks focused, subject_proximity boosts on-topic candidates.
-        # Occasional "i think/feel/know" self-reference mimics teenage speech patterns.
+        
+        # Phase 8: Walk chains according to discourse plan
         temps = [self._get_temperature(0), self._get_temperature(1), self._get_temperature(2)]
         connector_counts: Dict[str, int] = {}
 
@@ -3999,7 +4015,8 @@ class CognitiveChatEngine:
         if ctx.recall_mode:
             # Sentence 1: walk episodic edges from subject (re-trace conversation)
             s1_seen = {subject.lower()}
-            chain1 = self._walk_chain(subject, s1_seen, max_hops=s_hops[0], temperature=temps[0],
+            s1_subj = plan.intents[0].subject if len(plan.intents) > 0 else subject
+            chain1 = self._walk_chain(s1_subj, s1_seen, max_hops=s_hops[0], temperature=temps[0],
                                       activation_boost=act_boost,
                                       subject_proximity=subject, episodic_first=True)
             if not chain1:
@@ -4007,7 +4024,9 @@ class CognitiveChatEngine:
                                            activation_boost=act_boost,
                                            subject_proximity=subject)
             if chain1:
-                sentences.append(self._format_sentence(chain1, subject, connector_counts, 0))
+                marker1 = plan.intents[0].discourse_marker if len(plan.intents) > 0 and len(sentences) > 0 else ''
+                marker1 = marker1.capitalize() + ' ' if marker1 else ''
+                sentences.append(self._format_sentence(chain1, s1_subj, connector_counts, 0))
                 chain1_concepts = [p for p in chain1.split() if p.lower() not in self._CONNECTOR_SET]
                 # Phase 15.1: Track episodic edges from chain traversal
                 for ci in range(len(chain1_concepts) - 1):
@@ -4027,11 +4046,12 @@ class CognitiveChatEngine:
 
             # Sentence 2: extend semantically from subject (explore beyond episodic)
             s2_seen = {subject.lower()}
-            chain2 = self._walk_chain(subject, s2_seen, max_hops=s_hops[1], temperature=temps[1],
+            s2_subj = plan.intents[1].subject if len(plan.intents) > 1 else subject
+            chain2 = self._walk_chain(s2_subj, s2_seen, max_hops=s_hops[1], temperature=temps[1],
                                       activation_boost=act_boost,
                                       subject_proximity=subject)
             if chain2:
-                sentences.append(self._format_sentence(chain2, subject, connector_counts, 1))
+                sentences.append(self._format_sentence(chain2, s2_subj, connector_counts, 1))
                 chain2_concepts = [p for p in chain2.split() if p.lower() not in self._CONNECTOR_SET]
                 # Phase 15.1: Track episodic edges from chain traversal
                 for ci in range(len(chain2_concepts) - 1):
@@ -4051,11 +4071,12 @@ class CognitiveChatEngine:
 
             # Sentence 3: summary perspective from subject
             s3_seen = {subject.lower()}
-            chain3 = self._walk_chain(subject, s3_seen, max_hops=s_hops[2], temperature=temps[2],
+            s3_subj = plan.intents[2].subject if len(plan.intents) > 2 else subject
+            chain3 = self._walk_chain(s3_subj, s3_seen, max_hops=s_hops[2], temperature=temps[2],
                                       activation_boost=act_boost,
                                       subject_proximity=subject)
             if chain3:
-                sentences.append(self._format_sentence(chain3, subject, connector_counts, 2))
+                sentences.append(self._format_sentence(chain3, s3_subj, connector_counts, 2))
                 chain3_concepts = [p for p in chain3.split() if p.lower() not in self._CONNECTOR_SET]
                 # Phase 15.1: Track episodic edges from chain traversal
                 for ci in range(len(chain3_concepts) - 1):
@@ -4080,7 +4101,8 @@ class CognitiveChatEngine:
         else:
             # Sentence 1: walk from subject (own seen set)
             s1_seen = {subject.lower()}
-            chain1 = self._walk_chain(subject, s1_seen, max_hops=s_hops[0], temperature=temps[0],
+            s1_subj = plan.intents[0].subject if len(plan.intents) > 0 else subject
+            chain1 = self._walk_chain(s1_subj, s1_seen, max_hops=s_hops[0], temperature=temps[0],
                                       activation_boost=act_boost,
                                       subject_proximity=subject)
             if not chain1:
@@ -4088,7 +4110,7 @@ class CognitiveChatEngine:
                 if neighbor and neighbor.lower() != subject.lower():
                     return (f"{subject} connect {neighbor}.", "associative")
                 return (subject + ".", "associative")
-            sentences.append(self._format_sentence(chain1, subject, connector_counts, 0))
+            sentences.append(self._format_sentence(chain1, s1_subj, connector_counts, 0))
             chain1_concepts = [p for p in chain1.split() if p.lower() not in self._CONNECTOR_SET]
             if getattr(self, '_pfc_gating_enabled', True):
                 self._prefrontal_maintain_buffer(subject, chain1_concepts)
@@ -4098,14 +4120,15 @@ class CognitiveChatEngine:
 
             # Sentence 2: walk from subject again with own seen set
             s2_seen = {subject.lower()}
-            chain2 = self._walk_chain(subject, s2_seen, max_hops=s_hops[1], temperature=temps[1],
+            s2_subj = plan.intents[1].subject if len(plan.intents) > 1 else subject
+            chain2 = self._walk_chain(s2_subj, s2_seen, max_hops=s_hops[1], temperature=temps[1],
                                       activation_boost=act_boost,
                                       subject_proximity=subject)
             if not chain2:
                 chain2 = self._walk_chain(subject, s2_seen, max_hops=1, temperature=temps[1],
                                            activation_boost=act_boost, subject_proximity=subject)
             if chain2:
-                sentences.append(self._format_sentence(chain2, subject, connector_counts, 1))
+                sentences.append(self._format_sentence(chain2, s2_subj, connector_counts, 1))
                 chain2_concepts = [p for p in chain2.split() if p.lower() not in self._CONNECTOR_SET]
                 if getattr(self, '_pfc_gating_enabled', True):
                     self._prefrontal_maintain_buffer(subject, chain2_concepts)
@@ -4121,7 +4144,7 @@ class CognitiveChatEngine:
                                       activation_boost=act_boost,
                                       subject_proximity=subject)
             if chain3:
-                sentences.append(self._format_sentence(chain3, subject, connector_counts, 2))
+                sentences.append(self._format_sentence(chain3, s3_subj, connector_counts, 2))
                 chain3_concepts = [p for p in chain3.split() if p.lower() not in self._CONNECTOR_SET]
                 if getattr(self, '_pfc_gating_enabled', True):
                     self._prefrontal_maintain_buffer(subject, chain3_concepts)
@@ -4479,7 +4502,11 @@ class CognitiveChatEngine:
         return self._cerebellar_depth.get(label.lower(), 0.0)
 
     def _update_cerebellar_ngram(self, hops: List[Tuple[str, str]]):
-        """Update cerebellar n-gram model with a completed chain."""
+        """Update cerebellar n-gram model with a completed chain.
+        
+        Uses both the legacy _cerebellar_ngram dict and the new CerebellarNgram module.
+        """
+        # Legacy update (backward compatible)
         for i, (f, t) in enumerate(hops):
             fl, tl = f.lower(), t.lower()
             if fl not in self._cerebellar_ngram:
@@ -4490,6 +4517,17 @@ class CognitiveChatEngine:
             remaining = len(hops) - i - 1
             current_depth = self._cerebellar_depth.get(fl, 0.0)
             self._cerebellar_depth[fl] = current_depth * 0.7 + remaining * 0.3
+        
+        # Phase C: Also learn into CerebellarNgram module
+        if hasattr(self, 'cerebellar_ngram'):
+            chain_labels = []
+            for f, t in hops:
+                chain_labels.extend([f, t])
+            self.cerebellar_ngram.learn_chain(
+                chain_labels=chain_labels,
+                successful=True,
+                chain_hops=hops,
+            )
 
 
     # ── Phase 17: Meta-Learning ──
