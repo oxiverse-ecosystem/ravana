@@ -873,6 +873,146 @@ class CognitiveChatEngine:
         self._decoder_training_count += total_trained
         print(f"  [Decoder] Trained on {total_trained} synthetic graph sentences")
 
+    def _expand_decoder_vocab(self, new_words: List[str]):
+        """Add new words to the decoder vocabulary (hippocampal replay).
+
+        New words get embeddings from GloVe (or random if unavailable).
+        The decoder embedding table is resized and vocabulary caches rebuilt.
+        Existing embeddings are preserved (neocortical consolidation).
+        """
+        if not new_words or self.neural_decoder is None:
+            return
+        added = 0
+        for word in new_words:
+            wl = word.lower().strip()
+            if wl in self._decoder_word_to_idx or wl in ('<pad>', '<unk>', '<bos>', '<eos>'):
+                continue
+            idx = len(self._decoder_word_to_idx)
+            self._decoder_word_to_idx[wl] = idx
+            self._decoder_idx_to_word[idx] = wl
+            vec = self._glove_vector(wl)
+            if vec is None:
+                vec = np.random.randn(self.dim).astype(np.float32) * 0.1
+                n = np.linalg.norm(vec)
+                if n > 0:
+                    vec /= n
+            self._decoder_word_to_embed[wl] = vec.astype(np.float32)
+            added += 1
+
+        if added == 0:
+            return
+
+        old_vocab_size = self.neural_decoder.vocab_size
+        new_vocab_size = len(self._decoder_word_to_idx)
+
+        # Resize decoder embedding table (preserve existing weights)
+        old_weight = self.neural_decoder.word_embedding.weight.data
+        new_weight = np.zeros((new_vocab_size, self.dim), dtype=np.float32)
+        new_weight[:len(old_weight)] = old_weight
+        for word, idx in self._decoder_word_to_idx.items():
+            if idx >= len(old_weight) and word in self._decoder_word_to_embed:
+                new_weight[idx] = self._decoder_word_to_embed[word]
+
+        from ravana_ml.nn.module import Embedding, Linear
+        new_emb = Embedding(new_vocab_size, self.dim)
+        new_emb.weight.data = new_weight
+        self.neural_decoder.word_embedding = new_emb
+
+        # Resize output_proj weight and bias to match new vocab size
+        old_out_w = self.neural_decoder.output_proj.weight.data
+        new_out_w = np.zeros((new_vocab_size, self.neural_decoder.hidden_dim), dtype=np.float32)
+        new_out_w[:old_vocab_size] = old_out_w
+        new_out_proj = Linear(self.neural_decoder.hidden_dim, new_vocab_size)
+        new_out_proj.weight.data = new_out_w
+        if self.neural_decoder.output_proj.bias is not None:
+            old_bias = self.neural_decoder.output_proj.bias.data
+            new_bias = np.zeros(new_vocab_size, dtype=np.float32)
+            new_bias[:old_vocab_size] = old_bias
+            new_out_proj.bias.data = new_bias
+        self.neural_decoder.output_proj = new_out_proj
+
+        self.neural_decoder.vocab_size = new_vocab_size
+        self.neural_decoder._vocab_dim = self.dim
+        self.neural_decoder.rebuild_vocab_cache()
+
+        # Hippocampal replay: mix new embeddings with similar existing ones
+        for word in new_words:
+            wl = word.lower().strip()
+            idx = self._decoder_word_to_idx.get(wl)
+            if idx is None:
+                continue
+            vec = self._decoder_word_to_embed.get(wl)
+            if vec is None:
+                continue
+            # Find nearest neighbor in existing vocab via cosine similarity
+            best_sim = 0.0
+            best_label = None
+            for existing_word, existing_idx in list(self._decoder_word_to_idx.items()):
+                if existing_word == wl or existing_word.startswith('<'):
+                    continue
+                ev = self._decoder_word_to_embed.get(existing_word)
+                if ev is not None:
+                    sim = float(np.dot(vec, ev))
+                    if sim > best_sim:
+                        best_sim = sim
+                        best_label = existing_word
+            # Blend: 70% new + 30% nearest (hippocampal-neocortical consolidation)
+            if best_label is not None and best_sim > 0.3:
+                best_vec = self._decoder_word_to_embed[best_label]
+                blended = vec * 0.7 + best_vec * 0.3
+                blended /= np.linalg.norm(blended)
+                self._decoder_word_to_embed[wl] = blended
+                new_weight[idx] = blended
+        self.neural_decoder.word_embedding.weight.data = new_weight
+        print(f"  [Decoder] Expanded vocab by {added} words (now {new_vocab_size})")
+
+    def _build_conditioning_for_text(self, topic: str, text_words: List[str]) -> Optional[np.ndarray]:
+        """Build graph walk conditioning embeddings for a text's important words.
+
+        Walks from the topic through up to 5 of the most frequent content words
+        in the text, collecting their concept embeddings from the graph.
+        Falls back to text word embeddings if no graph concepts match.
+        """
+        concept_embs = []
+        seen = set()
+
+        # Collect from graph concepts first
+        tl = topic.lower().strip()
+        if tl in self._concept_keywords:
+            nids = self._concept_keywords[tl]
+            node = self.graph.get_node(nids[0])
+            if node and node.vector is not None:
+                concept_embs.append(node.vector.copy())
+                seen.add(tl)
+
+        counted = {}
+        for w in text_words:
+            wl = w.lower().strip(".,!?\"' ")
+            if wl not in STOP_WORDS and len(wl) >= 3:
+                counted[wl] = counted.get(wl, 0) + 1
+        for w, _ in sorted(counted.items(), key=lambda x: x[1], reverse=True)[:5]:
+            if w not in seen and w in self._concept_keywords:
+                nids = self._concept_keywords[w]
+                node = self.graph.get_node(nids[0])
+                if node and node.vector is not None:
+                    concept_embs.append(node.vector.copy())
+                    seen.add(w)
+
+        # Fall back to GloVe/decoder embeddings if no graph concepts found
+        if len(concept_embs) < 1:
+            tl = topic.lower().strip()
+            if tl in self._decoder_word_to_embed:
+                concept_embs.append(self._decoder_word_to_embed[tl].copy())
+                seen.add(tl)
+            for w, _ in sorted(counted.items(), key=lambda x: x[1], reverse=True)[:5]:
+                if w not in seen and w in self._decoder_word_to_embed:
+                    concept_embs.append(self._decoder_word_to_embed[w].copy())
+                    seen.add(w)
+
+        if len(concept_embs) < 1:
+            return None
+        return np.stack(concept_embs, axis=0).astype(np.float32)
+
     # ─── Neural Decoder Generation ───
 
     def _generate_with_decoder(self, ctx: CognitiveResponseContext) -> Optional[str]:
@@ -935,13 +1075,16 @@ class CognitiveChatEngine:
         bos_idx = self._decoder_word_to_idx.get("<bos>", 0)
         eos_idx = self._decoder_word_to_idx.get("<eos>", 3)
 
-        # Generate
+        # Generate with cerebellar bias and basal ganglia gating
         generated_indices = self.neural_decoder.generate(
             conditioning_embs=conditioning_embs,
             max_steps=15,
             bos_idx=bos_idx,
             eos_idx=eos_idx,
             temperature=0.6,
+            cerebellar_ngram=getattr(self, 'cerebellar_ngram', None),
+            idx_to_word=self._decoder_idx_to_word,
+            basal_ganglia=getattr(self, 'basal_ganglia', None),
         )
 
         # Map indices back to words
@@ -1831,15 +1974,28 @@ class CognitiveChatEngine:
 
         # Train neural decoder on article text (unsupervised next-word prediction)
         if self.neural_decoder is not None and self._decoder_vocab_built:
+            # Build graph walk conditioning from the article's important words
+            article_words = re.findall(r"[a-zA-Z']{3,}", text.lower())
+            cond_embs = self._build_conditioning_for_text(topic, article_words)
+
+            # Expand decoder vocab with newly added concepts
+            new_labels = [n.label for nid, n in self.graph.nodes.items()
+                          if n.label and n.label.lower() not in self._decoder_word_to_idx
+                          and n.label.lower() not in ('<pad>', '<unk>', '<bos>', '<eos>')]
+            if new_labels:
+                self._expand_decoder_vocab(new_labels)
+
             err, trained = self.neural_decoder.train_on_text(
-                text, self._decoder_word_to_embed, self._decoder_word_to_idx)
+                text, self._decoder_word_to_embed, self._decoder_word_to_idx,
+                conditioning_embs=cond_embs)
             if trained > 0:
                 self._decoder_training_count += trained
             # Multiple passes per article to strengthen Hebbian traces
             if trained > 0:
                 for _ in range(4):
                     err2, trained2 = self.neural_decoder.train_on_text(
-                        text, self._decoder_word_to_embed, self._decoder_word_to_idx)
+                        text, self._decoder_word_to_embed, self._decoder_word_to_idx,
+                        conditioning_embs=cond_embs)
                     self._decoder_training_count += trained2
                 self.neural_decoder.sleep_cycle()
 
@@ -5865,6 +6021,7 @@ class CognitiveChatEngine:
             'td_error_history': list(self._td_error_history[-50:]),
             'concept_confidence': dict(self._concept_confidence),
             'cerebellar_ngram': dict(self._cerebellar_ngram),
+            'cerebellar_ngram_state': self.cerebellar_ngram.get_state() if hasattr(self, 'cerebellar_ngram') else {},
             'cerebellar_depth': dict(self._cerebellar_depth),
             'visited_concepts': list(self._visited_concepts),
             'activation_fatigue': dict(self._activation_fatigue),
@@ -6017,6 +6174,10 @@ class CognitiveChatEngine:
             self._concept_confidence = state.get('concept_confidence', {})
             self._cerebellar_ngram = state.get('cerebellar_ngram', {})
             self._cerebellar_depth = state.get('cerebellar_depth', {})
+            # Restore CerebellarNgram object state
+            cng_state = state.get('cerebellar_ngram_state', {})
+            if cng_state and hasattr(self, 'cerebellar_ngram'):
+                self.cerebellar_ngram.set_state(cng_state)
             self._visited_concepts = set(state.get('visited_concepts', []))
             self._activation_fatigue = state.get('activation_fatigue', {})
             self._recent_traversals = state.get('recent_traversals', [])

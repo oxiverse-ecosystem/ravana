@@ -25,7 +25,7 @@ to predict the next embedding via local predictive coding error signals
 """
 
 import numpy as np
-from typing import Dict, List, Optional, Tuple, Set
+from typing import Dict, List, Optional, Tuple, Set, Callable
 from ..tensor import StateTensor, Parameter, RawTensor
 from .module import Module, Linear, Embedding, GRUCell, LayerNorm, Dropout, ConceptAttentionHead
 
@@ -153,11 +153,14 @@ class NeuralDecoder(Module):
                  max_steps: int = 20,
                  bos_idx: int = 0,
                  eos_idx: Optional[int] = None,
-                 temperature: float = 0.5) -> List[int]:
+                 temperature: float = 0.5,
+                 cerebellar_ngram=None,
+                 idx_to_word: Optional[Dict[int, str]] = None,
+                 basal_ganglia=None) -> List[int]:
         """Generate a sequence autoregressively conditioned on concept embeddings.
 
-        Uses the BasalGangliaGate-inspired selection: during generation,
-        logits are filtered through a competitive selection process.
+        Optionally uses cerebellar n-gram bias and basal ganglia gating
+        for biologically-plausible word selection.
 
         Args:
             conditioning_embs: (n_concepts, embed_dim) — graph walk concept embeddings
@@ -165,6 +168,9 @@ class NeuralDecoder(Module):
             bos_idx: beginning-of-sequence token index
             eos_idx: end-of-sequence token index (None = no early stopping)
             temperature: softmax temperature (lower = more deterministic)
+            cerebellar_ngram: optional CerebellarNgram for transition bias
+            idx_to_word: optional {idx: word} mapping for cerebellar lookups
+            basal_ganglia: optional BasalGangliaGate for Go/NoGo selection
 
         Returns:
             List of generated token indices
@@ -185,19 +191,57 @@ class NeuralDecoder(Module):
             combined = h + attn_logits * 0.1
             logits = self.output_proj.forward_raw(combined[np.newaxis, :])[0]
 
-            # Apply repetition penalty: scale down logits for already-generated tokens
+            # Cerebellar bias: boost transitions learned from past chain walks
+            if cerebellar_ngram is not None and idx_to_word is not None:
+                last_word = idx_to_word.get(generated[-1], "")
+                if last_word:
+                    for idx in range(self.vocab_size):
+                        cand = idx_to_word.get(idx, "")
+                        if cand:
+                            trans = cerebellar_ngram.get_transition_strength(last_word, cand)
+                            if trans > 0:
+                                logits[idx] += trans * 0.15
+                            fw = cerebellar_ngram.predict_function_word(last_word, cand)
+                            if fw and fw == cand:
+                                logits[idx] += 0.3
+
+            # Apply repetition penalty
             if len(generated) > 1:
                 for i, prev_idx in enumerate(generated):
                     penalty = 1.5 + 0.5 * i / len(generated)
                     logits[prev_idx] -= penalty
 
-            # Apply temperature and sample
+            # BasalGangliaGate Go/NoGo selection
+            if basal_ganglia is not None and idx_to_word is not None:
+                candidates = []
+                raw_max = np.max(np.abs(logits)) if np.max(np.abs(logits)) > 0 else 1.0
+                for idx in range(self.vocab_size):
+                    word = idx_to_word.get(idx, "")
+                    if word and not word.startswith("<"):
+                        score = float(logits[idx] / raw_max)  # normalize to ~[-1, 1]
+                        candidates.append((word, score, 0.5, "decoder"))
+                if len(candidates) >= 2:
+                    basal_ganglia.set_dopamine_tone(1.0 - temperature)
+                    winner_label, _, _ = basal_ganglia.select_concept(candidates)
+                    winner_idx = None
+                    for idx, w in idx_to_word.items():
+                        if w == winner_label:
+                            winner_idx = idx
+                            break
+                    if winner_idx is not None and winner_idx != bos_idx:
+                        if eos_idx is not None and winner_idx == eos_idx:
+                            break
+                        generated.append(winner_idx)
+                        self._recent_predictions.append(winner_idx)
+                        continue
+                # Fallthrough to softmax if BG gate fails
+                pass
+
+            # Apply temperature and sample (standard softmax)
             if temperature > 0:
                 logits = logits / temperature
-                # Softmax
                 logits_exp = np.exp(logits - np.max(logits))
                 probs = logits_exp / (np.sum(logits_exp) + 1e-10)
-                # Top-k filtering (keep top 30)
                 k = min(30, len(probs))
                 top_k_idx = np.argpartition(probs, -k)[-k:]
                 top_k_probs = probs[top_k_idx]
@@ -220,7 +264,8 @@ class NeuralDecoder(Module):
     def train_on_sentence(self, sentence_words: List[str],
                           word_to_embed: Dict[str, np.ndarray],
                           word_to_idx: Dict[str, int],
-                          unknown_idx: int = 1) -> float:
+                          unknown_idx: int = 1,
+                          conditioning_embs: Optional[np.ndarray] = None) -> float:
         """Unsupervised learning from a sentence.
 
         For each word in the sentence, predict the next word given previous words.
@@ -235,6 +280,8 @@ class NeuralDecoder(Module):
             word_to_embed: {word: embedding_vector} — embedding lookup
             word_to_idx: {word: index} — vocab index lookup
             unknown_idx: index for out-of-vocabulary words (default 1)
+            conditioning_embs: optional (n_concepts, embed_dim) graph walk embeddings.
+                If None, uses sentence's own word embeddings as pseudo-context.
 
         Returns:
             average prediction error for this sentence
@@ -242,33 +289,30 @@ class NeuralDecoder(Module):
         if len(sentence_words) < 2:
             return 0.0
 
-        # Build conditioning from the sentence itself (unsupervised: context = sentence)
-        # In a full system, conditioning comes from graph walk. During unsupervised
-        # pre-training, we use the sentence's own word embeddings as pseudo-context.
-        known_embs = []
-        for w in sentence_words:
-            wl = w.lower().strip(".,!?").strip("'")
-            if wl in word_to_embed:
-                known_embs.append(word_to_embed[wl])
-            elif wl:
-                # Use random embedding for unknown words (will be learned)
-                rand_emb = np.random.randn(self.embed_dim).astype(np.float32) * 0.1
-                norm = np.linalg.norm(rand_emb)
-                if norm > 0:
-                    rand_emb /= norm
-                known_embs.append(rand_emb)
+        if conditioning_embs is None:
+            # Build conditioning from the sentence itself (unsupervised: context = sentence)
+            known_embs = []
+            for w in sentence_words:
+                wl = w.lower().strip(".,!?").strip("'")
+                if wl in word_to_embed:
+                    known_embs.append(word_to_embed[wl])
+                elif wl:
+                    rand_emb = np.random.randn(self.embed_dim).astype(np.float32) * 0.1
+                    norm = np.linalg.norm(rand_emb)
+                    if norm > 0:
+                        rand_emb /= norm
+                    known_embs.append(rand_emb)
 
-        if len(known_embs) < 2:
-            # Need at least 2 embeddings for meaningful sequence learning
-            known_embs_flat = [np.random.randn(self.embed_dim).astype(np.float32) * 0.1
-                               for _ in range(max(2, len(sentence_words)))]
-            for i in range(len(known_embs_flat)):
-                n = np.linalg.norm(known_embs_flat[i])
-                if n > 0:
-                    known_embs_flat[i] /= n
-            conditioning_embs = np.stack(known_embs_flat, axis=0)
-        else:
-            conditioning_embs = np.stack(known_embs, axis=0)
+            if len(known_embs) < 2:
+                known_embs_flat = [np.random.randn(self.embed_dim).astype(np.float32) * 0.1
+                                   for _ in range(max(2, len(sentence_words)))]
+                for i in range(len(known_embs_flat)):
+                    n = np.linalg.norm(known_embs_flat[i])
+                    if n > 0:
+                        known_embs_flat[i] /= n
+                conditioning_embs = np.stack(known_embs_flat, axis=0)
+            else:
+                conditioning_embs = np.stack(known_embs, axis=0)
 
         # Build input word index sequence (predict word[t+1] given word[t])
         word_indices = []
@@ -325,7 +369,8 @@ class NeuralDecoder(Module):
                       word_to_embed: Dict[str, np.ndarray],
                       word_to_idx: Dict[str, int],
                       unknown_idx: int = 1,
-                      min_sentence_len: int = 3) -> Tuple[float, int]:
+                      min_sentence_len: int = 3,
+                      conditioning_embs: Optional[np.ndarray] = None) -> Tuple[float, int]:
         """Train on a full text (sentence by sentence).
 
         Splits text into sentences, trains on each sentence independently.
@@ -338,6 +383,8 @@ class NeuralDecoder(Module):
             word_to_idx: word → index mapping
             unknown_idx: index for unknown words
             min_sentence_len: minimum words in a sentence to train on
+            conditioning_embs: optional pre-computed conditioning embeddings.
+                If None, uses self-conditioning (sentence's own embeddings).
 
         Returns:
             (avg_error, sentences_trained): average error and count
@@ -355,8 +402,9 @@ class NeuralDecoder(Module):
 
         total_error = 0.0
         trained_count = 0
-        for words in sentences[:20]:  # cap per text to avoid OOM
-            err = self.train_on_sentence(words, word_to_embed, word_to_idx, unknown_idx)
+        for words in sentences[:50]:  # cap per text to avoid OOM
+            err = self.train_on_sentence(words, word_to_embed, word_to_idx, unknown_idx,
+                                         conditioning_embs=conditioning_embs)
             total_error += err
             trained_count += 1
 
