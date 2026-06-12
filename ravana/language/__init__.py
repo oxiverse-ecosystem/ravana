@@ -7,3 +7,5 @@ and Pulvermüller's neural syntax cell assemblies (2010).
 from ravana.language.basal_ganglia import BasalGangliaGate
 from ravana.language.cerebellar_ngram import CerebellarNgram
 from ravana.language.prefrontal_workspace import PrefrontalWorkspace, DiscourseIntent, DiscoursePlan, DiscourseType
+from ravana.language.syntactic_cell_assembly import SyntacticCellAssembly, SyntacticFrame
+from ravana.language.surface_realizer import SurfaceRealizer, DiscourseState

@@ -33,6 +33,8 @@ from core.sleep import SleepConsolidation, SleepConfig
 from ravana.language.basal_ganglia import BasalGangliaGate
 from ravana.language.cerebellar_ngram import CerebellarNgram, CerebellarState
 from ravana.language.prefrontal_workspace import PrefrontalWorkspace, DiscourseIntent, DiscoursePlan, DiscourseType
+from ravana.language.syntactic_cell_assembly import SyntacticCellAssembly, SyntacticFrame
+from ravana.language.surface_realizer import SurfaceRealizer, DiscourseState
 
 
 # Try importing beautifulsoup4 for HTML parsing (optional but recommended)
@@ -638,6 +640,16 @@ class CognitiveChatEngine:
         # Phase 15.4: Pre-built src-indexed lookups for O(1) dual-store access
         self._semantic_by_src: Dict[int, list] = {}
         self._episodic_by_src: Dict[int, list] = {}
+        # Phase B: Basal Ganglia Gate — Go/NoGo gating replaces temperature softmax
+        self.basal_ganglia = BasalGangliaGate()
+        # Phase C: Cerebellar n-gram — sparse sequence learning for grammatical transitions
+        self.cerebellar_ngram = CerebellarNgram()
+        # Phase D: Prefrontal workspace — discourse planning before generation
+        self.pfc_workspace = PrefrontalWorkspace(capacity=5)
+        # Phase E: Syntactic cell assemblies — Hebbian role learning with seeded priors
+        self.syntactic_assembly = SyntacticCellAssembly(learning_rate=0.05)
+        # Phase F: Surface realizer — rule-governed English morphology with dopamine modulation
+        self.surface_realizer = SurfaceRealizer()
         self._cerebellar_ngram: Dict[str, Dict[str, float]] = {}
         self._cerebellar_depth: Dict[str, float] = {}
         self._concept_confidence: Dict[str, float] = {}
@@ -884,6 +896,9 @@ class CognitiveChatEngine:
         # Phase C: Seed cerebellar n-gram from concept POS tags
         if hasattr(self, 'cerebellar_ngram') and hasattr(self, '_concept_pos'):
             self.cerebellar_ngram.seed_from_pos(self._concept_pos)
+        # Phase E: Seed syntactic cell assemblies from concept POS tags
+        if hasattr(self, 'syntactic_assembly') and hasattr(self, '_concept_pos'):
+            self.syntactic_assembly.seed_from_pos(self._concept_pos)
         extra = f", {migrated} reclassified" if migrated else ""
         print(f"  [Teen] Seeded {len(self.graph.nodes)} concepts, {len(self.graph.edges)} connections ({auto_count} auto-wired) across 5 relation types{extra}")
 
@@ -1547,6 +1562,9 @@ class CognitiveChatEngine:
             self._prefrontal_buffer = [self._prefrontal_buffer[-1]] if self._prefrontal_buffer else []
 
         # Signal background thread that user is active
+                # Phase F: Reset per-turn surface realizer state (pronoun tracking)
+        if hasattr(self, 'surface_realizer'):
+            self.surface_realizer.reset_turn()
         self.notify_user_active()
         # Phase 15.2: Inter-turn episodic edge decay (forgetting between turns)
         self._decay_episodic_edges()
@@ -3814,6 +3832,80 @@ class CognitiveChatEngine:
                             return True
         return False
 
+    # ─── Phase E+F+G: Syntactic assembly + Surface realization pipeline ───
+
+    def _build_sentence_from_chain(self, chain_str: str, subject: str,
+                                    relation: str,
+                                    intent=None,
+                                    dopamine_tone: float = 0.5,
+                                    sentence_idx: int = 0) -> str:
+        """Build a sentence using the SyntacticCellAssembly + SurfaceRealizer pipeline.
+
+        This replaces _format_sentence's random template approach with:
+        1. Parse the chain into concepts and connectors
+        2. Build a SyntacticFrame using Hebbian-weighted role assignment
+        3. Realize the frame using rule-governed English morphology
+        4. Apply dopamine-modulated variation
+
+        Falls back to _format_sentence if the pipeline is not available.
+        """
+        if not hasattr(self, 'syntactic_assembly') or not hasattr(self, 'surface_realizer'):
+            return self._format_sentence(chain_str, subject, {},
+                                         sentence_idx)
+
+        parts = chain_str.split()
+        concepts = [p for p in parts if p.lower() not in getattr(self, '_CONNECTOR_SET', set())]
+        connectors = [p for p in parts if p.lower() in getattr(self, '_CONNECTOR_SET', set())]
+
+        if not concepts:
+            return self._format_sentence(chain_str, subject, {},
+                                         sentence_idx)
+
+        # Determine relation type from connectors or intent
+        rel_type = 'semantic'
+        if intent and hasattr(intent, 'primary_relation') and intent.primary_relation:
+            rel_type = intent.primary_relation
+        elif connectors:
+            edge_info = self._get_edge_info(concepts[0], concepts[-1]) if len(concepts) >= 2 else None
+            if edge_info:
+                rel_type = edge_info.get('relation_type', 'semantic')
+
+        # The target concept is the last concept that's not the subject
+        target = concepts[-1] if concepts[-1].lower() != subject.lower() else (concepts[0] if concepts else subject)
+
+        # Build syntactic frame
+        frame = self.syntactic_assembly.bind_to_sentence(
+            subject=subject,
+            relation=rel_type,
+            target=target,
+            pos_map=getattr(self, '_concept_pos', {}),
+            chain_concepts=concepts,
+            chain_connectors=connectors,
+            depth=len(concepts),
+        )
+
+        # Determine discourse type and marker from intent
+        discourse_type = intent.type if intent and hasattr(intent, 'type') else 'explain'
+        discourse_marker = intent.discourse_marker if intent and hasattr(intent, 'discourse_marker') else ''
+
+        # Build discourse context
+        ctx = DiscourseState(
+            sentence_index=sentence_idx,
+            discourse_type=discourse_type,
+            total_sentences=3,
+        )
+
+        # Realize the surface form with dopamine modulation
+        dopamine = getattr(self, '_dopamine_tone', 0.5)
+        sentence = self.surface_realizer.realize(
+            frame=frame,
+            discourse_context=ctx,
+            dopamine_tone=dopamine,
+            cerebellar_ngram=getattr(self, 'cerebellar_ngram', None),
+        )
+
+        return sentence
+
     def _format_sentence(self, chain_str: str, subject: str,
                           connector_counts: Dict[str, int],
                           sentence_idx: int) -> str:
@@ -4026,7 +4118,7 @@ class CognitiveChatEngine:
             if chain1:
                 marker1 = plan.intents[0].discourse_marker if len(plan.intents) > 0 and len(sentences) > 0 else ''
                 marker1 = marker1.capitalize() + ' ' if marker1 else ''
-                sentences.append(self._format_sentence(chain1, s1_subj, connector_counts, 0))
+                sentences.append(self._build_sentence_from_chain(chain1, s1_subj, plan.intents[0].primary_relation if len(plan.intents) > 0 else 'semantic', intent=plan.intents[0] if len(plan.intents) > 0 else None, sentence_idx=0))
                 chain1_concepts = [p for p in chain1.split() if p.lower() not in self._CONNECTOR_SET]
                 # Phase 15.1: Track episodic edges from chain traversal
                 for ci in range(len(chain1_concepts) - 1):
@@ -4051,7 +4143,7 @@ class CognitiveChatEngine:
                                       activation_boost=act_boost,
                                       subject_proximity=subject)
             if chain2:
-                sentences.append(self._format_sentence(chain2, s2_subj, connector_counts, 1))
+                sentences.append(self._build_sentence_from_chain(chain2, s2_subj, plan.intents[1].primary_relation if len(plan.intents) > 1 else 'semantic', intent=plan.intents[1] if len(plan.intents) > 1 else None, sentence_idx=1))
                 chain2_concepts = [p for p in chain2.split() if p.lower() not in self._CONNECTOR_SET]
                 # Phase 15.1: Track episodic edges from chain traversal
                 for ci in range(len(chain2_concepts) - 1):
@@ -4076,7 +4168,7 @@ class CognitiveChatEngine:
                                       activation_boost=act_boost,
                                       subject_proximity=subject)
             if chain3:
-                sentences.append(self._format_sentence(chain3, s3_subj, connector_counts, 2))
+                sentences.append(self._build_sentence_from_chain(chain3, s3_subj, plan.intents[2].primary_relation if len(plan.intents) > 2 else 'semantic', intent=plan.intents[2] if len(plan.intents) > 2 else None, sentence_idx=2))
                 chain3_concepts = [p for p in chain3.split() if p.lower() not in self._CONNECTOR_SET]
                 # Phase 15.1: Track episodic edges from chain traversal
                 for ci in range(len(chain3_concepts) - 1):

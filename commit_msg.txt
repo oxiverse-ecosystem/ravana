@@ -1,0 +1,23 @@
+Phase C+D: Sparse cerebellar n-gram + Prefrontal discourse planner
+
+Phase C (Cerebellar N-gram):
+- Created ravana/language/cerebellar_ngram.py with sparse Dict-based bigram/trigram
+  storage (NOT a dense 10000x10000 matrix to avoid the 400MB trap)
+- Hebbian learn_chain() with bigram/trigram/function-word tracking
+- Per-candidate transition strength in the BG Gate candidate loop (before selection)
+- seed_from_pos integrates POS tags for agreement patterns
+- Serialization with get_state/set_state (tuple-key handling for trigrams)
+
+Phase D (Prefrontal Workspace - Discourse Planner):
+- Created ravana/language/prefrontal_workspace.py with DiscourseIntent/DiscoursePlan/DiscourseType
+- Question-type detection: what_is, why, tell_me, compare, do_you_know, follow_up
+- 6 planning strategies with deterministic strategy selection by question type
+- 3-sentence narrative arc per turn: EXPLAIN -> ELABORATE -> CONTRAST/CONNECT/ASK_BACK
+- plan_discourse() called before sentence generation (core architecture change)
+- plan.intents[i].subject wired into _walk_chain calls and _format_sentence calls
+- Discourse markers computed per intent (also, furthermore, however, similarly)
+- Capacity: 5 (teen) / 7 (adult), topic history (last 10)
+
+Module wiring:
+- Updated ravana/language/__init__.py to export all Phase C+D classes
+- All modules importable and tested end-to-end
