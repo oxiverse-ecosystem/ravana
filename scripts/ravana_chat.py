@@ -11,7 +11,7 @@ Usage:
     python scripts/ravana_chat.py
 """
 
-import sys, os, time, random, json, re, argparse, pickle, threading
+import sys, os, time, random, json, re, argparse, pickle, threading, hashlib
 import urllib.request
 from urllib.parse import quote
 import numpy as np
@@ -618,6 +618,21 @@ class CognitiveChatEngine:
         self._bg_search_count: int = 0  # total background searches performed
         self._bg_multi_search_max: int = 3  # related searches to expand per query
 
+        # Phase 18: Curiosity Drive - autonomous topic selection for background learning
+        self._curiosity_drive_enabled: bool = True  # can be disabled via --no-curiosity
+        self._curiosity_cycles_this_session: int = 0  # bg auto-select count per idle session
+        self._concept_visit_count: Dict[str, int] = {}  # how many times each concept was visited
+        self._concept_learning_progress: Dict[str, float] = {}  # rate of prediction error decrease per concept
+        self._concept_pe_delta: Dict[str, float] = {}  # per-step PE delta (positive = learning progress)
+        self._curiosity_topics_queue: List[str] = []  # topics autonomously selected for research
+        self._last_auto_learn_turn: int = 0  # turn when we last autonomously selected topics
+        self._curiosity_urgency: float = 0.0  # overall curiosity drive (0-1)
+        # Phase 18b: User priming - track recent user topics for curiosity boosting
+        self._user_query_topics: List[str] = []  # last 10 topics user asked about
+        self._user_last_topic: str = ""  # most recent user topic
+        # Phase 18c: Multi-source consensus tracking for hallucination guard
+        self._concept_sources: Dict[str, Set[str]] = {}  # concept -> set of source URLs
+
 
         if os.path.exists(self._save_path):
             loaded = self._load()
@@ -1162,7 +1177,7 @@ class CognitiveChatEngine:
                 self._network_retry_turn = 0
             else:
                 # Still try GloVe-only learning from the query text itself
-                known_count = self._learn_from_text(query + " " + query, query)
+                known_count = self._learn_from_text(query + " " + query, query, source_url=query)
                 if known_count > 0:
                     return f"learned {known_count} things about {query}"
                 return f"offline - already knew about {query}"
@@ -1208,7 +1223,7 @@ class CognitiveChatEngine:
 
             # Step 3: Extract and learn concepts from all gathered text
             combined_text = " ".join(snippets)
-            new_concepts_added = self._learn_from_text(combined_text, query)
+            new_concepts_added = self._learn_from_text(combined_text, query, source_url=url if url else query)
 
             if new_concepts_added > 0:
                 return f"learned {new_concepts_added} new things about {query}"
@@ -1220,7 +1235,7 @@ class CognitiveChatEngine:
             # Phase 5: Network failure — mark as unavailable, fall back silently
             self._network_available = False
             # Still try GloVe-only learning from the query text
-            known_count = self._learn_from_text(query + " " + query, query)
+            known_count = self._learn_from_text(query + " " + query, query, source_url=query)
             if known_count > 0:
                 return f"learned {known_count} things about {query}"
             return f"offline - already knew about {query}"
@@ -1258,7 +1273,7 @@ class CognitiveChatEngine:
         except Exception:
             return None
 
-    def _learn_from_text(self, text: str, topic: str) -> int:
+    def _learn_from_text(self, text: str, topic: str, source_url: str = "") -> int:
         """Extract important keywords from text, add them as concepts, form connections.
 
         Returns number of new concepts added.
@@ -1295,9 +1310,23 @@ class CognitiveChatEngine:
             if node.label:
                 label_to_id[node.label] = nid
 
+        # Phase 18c: Track source of this learning - use URL when available
+        if source_url:
+            source_id = hashlib.md5(source_url.encode()).hexdigest()[:16]
+        else:
+            source_id = hashlib.md5((source_url or topic).encode()).hexdigest()[:16]
+
         # Add new concepts
         for word in important_words:
             if word in existing_labels:
+                # Concept already exists - reinforce by tracking additional source
+                self._concept_sources.setdefault(word, set()).add(source_id)
+                # Boost edge confidence if concept confirmed by multiple sources
+                if len(self._concept_sources[word]) >= 2:
+                    nids = self._concept_keywords.get(word, [])
+                    for nid in nids:
+                        for tid, edge in self.graph.get_outgoing(nid):
+                            edge.confidence = min(0.8, edge.confidence + 0.05)
                 continue
             # GloVe vector if available, else hash-based random
             vec = self._glove_vector(word)
@@ -1314,6 +1343,11 @@ class CognitiveChatEngine:
             self._concept_labels.add(word.lower())
             existing_labels.add(word)
             new_count += 1
+            # Phase 18c: Track source for new concepts
+            self._concept_sources[word] = {source_id}
+            # New concepts from single source start with low confidence
+            for tid, edge in self.graph.get_outgoing(node.id):
+                edge.confidence = min(edge.confidence, 0.2)  # cap at 0.2 until reinforced
 
         # Form connections between co-occurring important words
         # Words that appear together in the article get edges
@@ -1378,7 +1412,7 @@ class CognitiveChatEngine:
     def _learn_from_snippets(self, query: str, snippets: List[str]) -> str:
         """Learn from search snippet text when article fetch fails."""
         combined = f"{query} " + " ".join(snippets[:3])
-        count = self._learn_from_text(combined, query)
+        count = self._learn_from_text(combined, query, source_url=query)
         if count > 0:
             return f"learned {count} new things about {query} from search snippets"
         return f"read about {query} but already knew those words"
@@ -1402,6 +1436,9 @@ class CognitiveChatEngine:
         # Phase 13.3: Reset _visited_concepts every 50 turns for novelty
         if self.turn_count > 1 and self.turn_count % 50 == 0:
             self._visited_concepts.clear()
+            # Phase 18: Decay concept visit counts to prevent saturation
+            for k in list(self._concept_visit_count.keys()):
+                self._concept_visit_count[k] = max(0, self._concept_visit_count[k] - 2)
 
         # Step 1: Find matching concepts
         activated = self._activate_from_input(user_input)
@@ -1622,6 +1659,29 @@ class CognitiveChatEngine:
                         self._bg_learning_queue.append(w)
                 self._pending_learning_queue.clear()
             # Background thread will wake when queue has items (see _bg_learn_loop)
+        # Phase 18b: Track user query topics for curiosity priming
+        if subject:
+            sl = subject.lower()
+            if sl != self._user_last_topic and len(sl) >= 3:
+                self._user_query_topics.append(sl)
+                if len(self._user_query_topics) > 10:
+                    self._user_query_topics = self._user_query_topics[-10:]
+                self._user_last_topic = sl
+
+        # Phase 18: Track concept visits for curiosity/novelty scoring
+        if subject:
+            sl = subject.lower()
+            self._concept_visit_count[sl] = self._concept_visit_count.get(sl, 0) + 1
+        for label, _ in ctx.associated_concepts[:5]:
+            ll = label.lower()
+            self._concept_visit_count[ll] = self._concept_visit_count.get(ll, 0) + 1
+
+        # Phase 18: Update concept learning progress from edge PE
+        self._update_concept_learning_progress()
+
+        # Phase 18: Compute curiosity urgency for autonomous exploration
+        self._compute_curiosity_urgency()
+
         self.notify_user_idle()  # wake background thread after response
 
         return response
@@ -4312,6 +4372,15 @@ class CognitiveChatEngine:
                 deferred = list(self._pending_learning_queue)
                 self._pending_learning_queue.clear()
             all_queries = queries_to_process + deferred
+            # Phase 18: If queue is empty, autonomously select curiosity topics
+            if not all_queries and self._curiosity_drive_enabled:
+                # Limit autonomous cycles to 3 per idle session to prevent runaway web searches
+                if self._curiosity_cycles_this_session < 3:
+                    self._curiosity_cycles_this_session += 1
+                    self._auto_select_curiosity_topics(max_topics=2)
+                    with self._bg_lock:
+                        all_queries = list(self._bg_learning_queue)
+                        self._bg_learning_queue.clear()
             try:
                 for query in all_queries:
                     if not self._bg_learning_active:
@@ -4358,6 +4427,28 @@ class CognitiveChatEngine:
             except Exception:
                 continue
 
+    def _generate_curiosity_query(self, concept: str, source_type: str = "default",
+                                antonym: str = "") -> str:
+        """Generate a targeted web search query based on curiosity source type.
+
+        Templates:
+        - default: concept name (already handled by _bg_multi_search)
+        - high_pe: concept + 'explained' or 'mechanism'
+        - contradiction: 'concept vs antonym' or 'concept controversy'
+        - dormant_edge: concept + 'related topics' or 'what is'
+        """
+        if source_type == "contradiction" and antonym:
+            # Target: expose why the contradiction exists
+            return f"{concept} vs {antonym} debate"
+        elif source_type == "high_pe":
+            # Target: clarify the confusing topic
+            return f"{concept} explained simply"
+        elif source_type == "dormant_edge":
+            # Target: discover what connects to this unexplored concept
+            return f"{concept} related concepts what is"
+        else:
+            return concept
+
     def _extract_related_queries(self, query: str) -> List[str]:
         """Extract related search queries from the original query.
         Uses graph knowledge and word associations to generate related searches."""
@@ -4397,12 +4488,285 @@ class CognitiveChatEngine:
         self._bg_idle_event.set()  # Wake the background thread
 
     def notify_user_active(self):
+        self._curiosity_cycles_this_session = 0
         """Signal that the user is actively chatting (pause background learning)."""
         self._bg_idle_event.clear()  # thread will block on wait
 
     def notify_user_idle(self):
         """Signal that the user is idle (resume background learning)."""
         self._bg_idle_event.set()  # thread will wake up and process
+
+    # --- Phase 18: Curiosity Drive - Autonomous Topic Selection ---
+    # Based on: Berlyne epistemic curiosity, Loewenstein information-gap theory,
+    # Friston Active Inference (prediction error minimization), Oudeyer learning progress.
+
+    def _update_concept_learning_progress(self):
+        """Aggregate edge-level prediction error to concept-level learning progress.
+
+        Uses EWMA with rolling window to track PE delta per concept.
+        Positive delta = genuine learning (PE dropping).
+        Flat/negative delta = stuck (curiosity should spike).
+        """
+        if not self._curiosity_drive_enabled:
+            return
+
+        # Build concept -> incident edges map
+        concept_edges: Dict[str, List[float]] = {}
+        for (src, tgt), edge in self.graph.edges.items():
+            src_node = self.graph.get_node(src)
+            tgt_node = self.graph.get_node(tgt)
+            pe = getattr(edge, 'prediction_free_energy', 0.0)
+            if src_node and src_node.label:
+                concept_edges.setdefault(src_node.label.lower(), []).append(pe)
+            if tgt_node and tgt_node.label:
+                concept_edges.setdefault(tgt_node.label.lower(), []).append(pe)
+
+        alpha = 0.3  # EWMA smoothing factor
+        for label, pe_list in concept_edges.items():
+            if not pe_list:
+                continue
+            mean_pe = sum(pe_list) / len(pe_list)
+            prev = self._concept_learning_progress.get(label, mean_pe)
+            # Compute delta: positive = PE dropping = genuine learning
+            # Negative = PE rising = getting more confused = curiosity spike
+            delta = prev - mean_pe  # positive = improvement
+            # Store smoothed PE value for next comparison
+            smoothed = (1 - alpha) * prev + alpha * mean_pe
+            # Store delta as learning progress (positive = learning, negative = stuck/confused)
+            self._concept_learning_progress[label] = smoothed
+            # Also track the delta separately for curiosity scoring
+
+            self._concept_pe_delta[label] = delta
+
+    def _compute_curiosity_urgency(self) -> float:
+        """Compute overall curiosity urgency from multiple signals.
+
+        Returns (0-1) urgency score. High urgency = strong drive to explore."""
+        if not self._curiosity_drive_enabled:
+            self._curiosity_urgency = 0.0
+            return 0.0
+
+        urgency = 0.0
+
+        # 1. Prediction error urgency (Active Inference: surprise drives exploration)
+        if self._prediction_error_count > 5:
+            pe_factor = min(0.4, self._mean_prediction_error * 2.0)
+            urgency += pe_factor
+
+        # 2. Information gap urgency (unresolved impossible queries)
+        unresolved = sum(1 for iq in self._impossible_queries if not iq.resolved)
+        if unresolved > 0:
+            gap_urgency = min(0.5, unresolved * 0.05)
+            urgency += gap_urgency
+
+        # 3. Arousal modulation (multiplicative, coupling dopamine and norepinephrine)
+        # Neuroscience: arousal amplifies exploration non-linearly
+        # Even at minimal arousal (0.1), 55% of curiosity remains
+        # At max arousal (1.0), curiosity is at 100%
+        arousal_gain = 0.5 + 0.5 * self.emotion.state.arousal
+        urgency *= arousal_gain
+
+        # 4. Identity uncertainty (low identity = more exploration)
+        identity_curiosity = (1.0 - self.identity.state.strength) * 0.15
+        urgency += identity_curiosity
+
+        # 5. Low-confidence concepts in the graph
+        low_conf_count = sum(1 for c in self._concept_confidence.values() if c < 0.3)
+        if low_conf_count > 0:
+            urgency += min(0.2, low_conf_count * 0.01)
+
+        self._curiosity_urgency = min(1.0, urgency)
+        return self._curiosity_urgency
+
+    def _get_concept_confidence(self, concept_label: str) -> float:
+        """Get the confidence level of a concept from its incident edges."""
+        nids = self._concept_keywords.get(concept_label.lower(), [])
+        if not nids:
+            return 0.0
+        confidences = []
+        for nid in nids:
+            for tid, edge in self.graph.get_outgoing(nid):
+                confidences.append(getattr(edge, 'confidence', 0.0))
+            for src, edge in self.graph.get_incoming(nid):
+                confidences.append(getattr(edge, 'confidence', 0.0))
+        if not confidences:
+            return 0.0
+        return sum(confidences) / len(confidences)
+
+    def _compute_dormant_edge_ratio(self) -> Dict[str, float]:
+        """Compute dormant edge ratio per concept.
+
+        Returns dict mapping concept label -> dormant_ratio (0-1).
+        High ratio = most edges are dormant = high novelty.
+        """
+        ratios: Dict[str, float] = {}
+        for nid, node in self.graph.nodes.items():
+            if not node.label:
+                continue
+            total = 0
+            dormant = 0
+            for tid, edge in self.graph.get_outgoing(nid):
+                total += 1
+                if (nid, tid) in self._dormant_edges:
+                    dormant += 1
+            for src, edge in self.graph.get_incoming(nid):
+                if src == nid:
+                    continue
+                pair = (src, nid)
+                total += 1
+                if pair in self._dormant_edges:
+                    dormant += 1
+            if total > 0:
+                ratios[node.label.lower()] = dormant / total
+        return ratios
+
+    def _auto_select_curiosity_topics(self, max_topics: int = 3) -> List[str]:
+        """Autonomously select topics for background research based on curiosity signals.
+
+        Priority order:
+        1. Unresolved impossible queries (direct knowledge gaps) - weight 5x
+        2. High prediction error concepts (surprising) - weight 3x
+        3. Contradiction pairs (cognitive dissonance) - weight 3x
+        4. Least-visited concepts (novelty) - weight 1x
+        5. Random graph walk from high-degree hubs (serendipity) - weight 1x
+
+        Returns list of topic strings to research."""
+        if not self._curiosity_drive_enabled or not self._bg_learning_active:
+            return []
+
+        candidates: List[Tuple[str, float]] = []
+        seen_topics = set()
+
+        # Source 1: Unresolved impossible queries (weight 5x)
+        for iq in self._impossible_queries:
+            if iq.resolved:
+                continue
+            topic = iq.subject.lower().strip()
+            if topic and topic not in seen_topics and len(topic) >= 3:
+                candidates.append((topic, 5.0))
+                seen_topics.add(topic)
+
+        # Source 2: High prediction error concepts (weight 3x, targeted query)
+        high_pe_nodes = []
+        for nid, node in self.graph.nodes.items():
+            if node.label and node.prediction_free_energy > 0.3:
+                label = node.label.lower()
+                if label not in seen_topics and len(label) >= 3:
+                    high_pe_nodes.append((label, node.prediction_free_energy))
+        high_pe_nodes.sort(key=lambda x: -x[1])
+        for label, pe in high_pe_nodes[:5]:
+            candidates.append((label, 3.0 * min(1.0, pe)))
+            seen_topics.add(label)
+
+        # Source 3: Contradiction pairs with confidence-mismatch scoring
+        # Higher confidence mismatch = more uncertain = more curious to resolve
+        for concept, antonyms in self._contradiction_map.items():
+            # Look up edge confidence for both sides of contradiction
+            concept_conf = self._get_concept_confidence(concept)
+            for ant in antonyms:
+                ant_conf = self._get_concept_confidence(ant)
+                # Mismatch score: how uncertain are we which side is correct?
+                mismatch = abs(concept_conf - ant_conf) * 2.0  # 0 if equal, up to 2.0
+                # Base weight: higher for high-mismatch (ambiguity) AND low-mismatch (both confident but opposing)
+                # This captures both "don't know which is right" and "both sides claim truth"
+                conf_level = (concept_conf + ant_conf) / 2.0
+                if conf_level > 0.6:
+                    # Both confident but contradictory - interesting!
+                    weight = 3.0 + mismatch * 0.5
+                else:
+                    # At least one side uncertain - knowledge gap
+                    weight = 2.0 + mismatch * 0.75
+                if concept not in seen_topics and len(concept) >= 3:
+                    candidates.append((concept, max(2.0, weight)))
+                    seen_topics.add(concept)
+                if ant not in seen_topics and len(ant) >= 3:
+                    candidates.append((ant, max(1.5, weight * 0.8)))
+                    seen_topics.add(ant)
+
+        # Source 4: Novel concepts via dormant edge ratio (high dormant = unexplored)
+        all_labels = set()
+        dormant_ratios = self._compute_dormant_edge_ratio()
+        for nid, node in self.graph.nodes.items():
+            if node.label:
+                all_labels.add(node.label.lower())
+        unvisited = [l for l in all_labels if l not in seen_topics and len(l) >= 3]
+        # Sort by dormant ratio descending (most unexplored first)
+        unvisited.sort(key=lambda l: dormant_ratios.get(l, 0), reverse=True)
+        for label in unvisited[:3]:
+            dr = dormant_ratios.get(label, 0)
+            novelty_weight = 0.5 + dr * 0.5  # range: 0.5 (fully explored) to 1.0 (fully dormant)
+            candidates.append((label, novelty_weight))
+            seen_topics.add(label)
+
+        # Generate targeted queries for top contradiction candidates
+        contradiction_queries = []
+        for topic, _ in candidates:
+            if topic in self._contradiction_map:
+                for ant in self._contradiction_map[topic]:
+                    targeted = self._generate_curiosity_query(
+                        topic, source_type="contradiction", antonym=ant)
+                    if targeted != topic:
+                        contradiction_queries.append(targeted)
+        # Queue contradiction-specific queries directly
+        for cq in contradiction_queries[:2]:
+            if self._bg_learning_active and cq not in self._bg_learning_queue:
+                self.queue_background_search(cq)
+
+        # Source 5: Random graph walk from high-degree hubs (serendipity)
+        if len(self.graph.nodes) > 0:
+            degree_counts: Dict[int, int] = {}
+            for src, tgt in self.graph.edges:
+                degree_counts[src] = degree_counts.get(src, 0) + 1
+                degree_counts[tgt] = degree_counts.get(tgt, 0) + 1
+            if degree_counts:
+                top_hub_id = max(degree_counts, key=degree_counts.get)
+                hub_node = self.graph.get_node(top_hub_id)
+                if hub_node and hub_node.label:
+                    current_id = top_hub_id
+                    for _ in range(2):
+                        edges = list(self.graph.get_outgoing(current_id))
+                        if not edges:
+                            break
+                        next_id = self.rng.choice([e[0] for e in edges]) if len(edges) > 1 else edges[0][0]
+                        next_node = self.graph.get_node(next_id)
+                        if next_node and next_node.label:
+                            lbl = next_node.label.lower()
+                            if lbl not in seen_topics and len(lbl) >= 3:
+                                candidates.append((lbl, 0.8))
+                                seen_topics.add(lbl)
+                            current_id = next_id
+
+        # Phase 18b: Boost candidates matching user's recent interests (priming)
+        if self._user_query_topics:
+            for i in range(len(candidates)):
+                topic, weight = candidates[i]
+                # Check if topic or any part matches user's recent queries
+                for uq in self._user_query_topics[-3:]:  # last 3 topics
+                    if uq in topic or topic in uq:
+                        candidates[i] = (topic, min(2.0, weight * 1.5))  # 1.5x boost (capped at 2.0)
+                        break
+                    # Also check if the topic is connected to user's interests via graph
+                    uq_nids = self._concept_keywords.get(uq, [])
+                    topic_nids = self._concept_keywords.get(topic, [])
+                    if uq_nids and topic_nids:
+                        for un in uq_nids:
+                            for tn in topic_nids:
+                                if self.graph.get_edge(un, tn) or self.graph.get_edge(tn, un):
+                                    candidates[i] = (topic, min(1.5, weight * 1.3))  # 1.3x boost (capped at 1.5)
+                                    break
+
+        candidates.sort(key=lambda x: -x[1])
+        selected = [topic for topic, _ in candidates[:max_topics]]
+
+        if selected and self._trace_enabled:
+            weights_str = ", ".join(f"{t}({w:.1f})" for t, w in candidates[:max_topics])
+            print(f"  [curiosity] auto-selected: {weights_str} (urgency={self._curiosity_urgency:.2f})")
+
+        for topic in selected:
+            self.queue_background_search(topic)
+
+        self._last_auto_learn_turn = self.turn_count
+        return selected
 
     def save(self) -> str:
         """Save full cognitive state to disk. Returns path to save file."""
@@ -4441,6 +4805,16 @@ class CognitiveChatEngine:
             'bg_learning_queue': list(self._bg_learning_queue),
             'bg_search_count': self._bg_search_count,
             'bg_multi_search_max': self._bg_multi_search_max,
+            # Curiosity Drive state
+            'curiosity_drive_enabled': self._curiosity_drive_enabled,
+            'concept_visit_count': self._concept_visit_count,
+            'concept_learning_progress': self._concept_learning_progress,            'concept_pe_delta': self._concept_pe_delta,
+            'curiosity_topics_queue': self._curiosity_topics_queue,
+            'last_auto_learn_turn': self._last_auto_learn_turn,
+            'curiosity_urgency': self._curiosity_urgency,
+            'user_query_topics': self._user_query_topics,
+            'user_last_topic': self._user_last_topic,
+            'concept_sources': {k: list(v) for k, v in self._concept_sources.items()},
             # Dual stores
             'episodic_edges': dict(self._episodic_edges),
             'semantic_edges': dict(self._semantic_edges),
@@ -4551,6 +4925,19 @@ class CognitiveChatEngine:
             self._bg_learning_queue = state.get('bg_learning_queue', [])
             self._bg_search_count = state.get('bg_search_count', 0)
             self._bg_multi_search_max = state.get('bg_multi_search_max', 3)
+
+            # Restore curiosity drive state
+            self._curiosity_drive_enabled = state.get('curiosity_drive_enabled', True)
+            self._concept_visit_count = state.get('concept_visit_count', {})
+            self._concept_learning_progress = state.get('concept_learning_progress', {})
+            self._concept_pe_delta = state.get('concept_pe_delta', {})
+            self._curiosity_topics_queue = state.get('curiosity_topics_queue', [])
+            self._last_auto_learn_turn = state.get('last_auto_learn_turn', 0)
+            self._curiosity_urgency = state.get('curiosity_urgency', 0.0)
+            self._user_query_topics = state.get('user_query_topics', [])
+            self._user_last_topic = state.get('user_last_topic', '')
+            raw_sources = state.get('concept_sources', {})
+            self._concept_sources = {k: set(v) for k, v in raw_sources.items()}
             # Restore dual stores
             epi_state = state.get('episodic_edges', {})
             if epi_state:
@@ -4604,6 +4991,7 @@ def main():
     parser.add_argument("--no-vad", action="store_true", help="Disable VAD emotion modulation")
     parser.add_argument("--no-rlm", action="store_true", help="Disable RLMv2 triple verification")
     parser.add_argument("--no-beliefs", action="store_true", help="Disable belief store")
+    parser.add_argument("--no-curiosity", action="store_true", help="Disable autonomous curiosity-driven learning")
 
     parser.add_argument("--user", type=str, default=None,
                         help="User name for multi-user isolation (creates user-specific save files)")
@@ -4646,6 +5034,10 @@ def main():
     if args.no_beliefs:
         engine.use_beliefs = False
         print("  [Config] Belief store disabled")
+    if args.no_curiosity:
+        engine._curiosity_drive_enabled = False
+        print('  [Curiosity] Autonomous learning disabled')
+
 
     # ── BATCH MODE (--chat) ──
     # ── Phase 6 CLI Actions ──
