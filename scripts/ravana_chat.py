@@ -1399,7 +1399,7 @@ class CognitiveChatEngine:
             if self._activation_fatigue[_fk] < 0.01:
                 del self._activation_fatigue[_fk]
         # Phase 13.3: Reset _visited_concepts every 50 turns for novelty
-        if self.turn_count % 50 == 0:
+        if self.turn_count > 1 and self.turn_count % 50 == 0:
             self._visited_concepts.clear()
 
         # Step 1: Find matching concepts
@@ -3420,7 +3420,7 @@ class CognitiveChatEngine:
         has_subject = any(subj_lower == c.lower() for c in concepts)
 
         # Get concepts that aren't the subject
-        other_concepts = [c for c in concepts if c.lower() != subj_lower]
+        other_concepts = [c for c in concepts if c.lower() != subj_lower and c.lower() not in self.QUESTION_WORDS and c.lower() not in self.TOPIC_SKIP_WORDS and c.lower() not in STOP_WORDS]
         if not other_concepts:
             other_concepts = concepts[:2]
 
@@ -3874,6 +3874,10 @@ class CognitiveChatEngine:
                 to_remove.append((src, tgt))
         for key in to_remove:
             del self._episodic_edges[key]
+            # Update src-indexed lookup
+            src_id, tgt_id = key
+            if src_id in self._episodic_by_src:
+                self._episodic_by_src[src_id] = [(t, e) for t, e in self._episodic_by_src[src_id] if t != tgt_id]
 
     def _consolidate_to_semantic(self):
         """Phase 15.5: Transfer frequently-used episodic edges to semantic store.
