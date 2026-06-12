@@ -599,6 +599,8 @@ class CognitiveChatEngine:
         self._expected_strength: float = 0.25
         self._episodic_edges: Dict[Tuple[int, int], Any] = {}
         self._semantic_edges: Dict[Tuple[int, int], Any] = {}
+        # Phase 15.4: Pre-built index for O(1) dual-store lookup
+        self._dual_seen_srcs: Dict[int, Set[int]] = {}
         self._cerebellar_ngram: Dict[str, Dict[str, float]] = {}
         self._cerebellar_depth: Dict[str, float] = {}
         self._concept_confidence: Dict[str, float] = {}
@@ -2907,6 +2909,34 @@ class CognitiveChatEngine:
                 if sn.label.lower() in chain_labels:
                     continue  # cycle detected within this chain
                 candidates.append((edge.weight * edge.confidence, sn.label, edge, "in"))
+            # Phase 15.4: Blend candidates from episodic + semantic dual stores
+            # Build dedup set from main graph candidates already gathered
+            _main_concepts = {c[1].lower() for c in candidates}
+            # Semantic edges (stable knowledge) - base weight, no decay
+            for (dsrc, dtgt), dedge in self._semantic_edges.items():
+                if dsrc == cur_nid and dtgt not in self._dual_seen_srcs.get(dsrc, set()):
+                    dnode = self.graph.nodes.get(dtgt)
+                    if dnode is None or dnode.label is None or dnode.label.lower() in seen or dnode.label.lower() in chain_labels or dnode.label.lower() in _main_concepts:
+                        continue
+                    candidates.append((dedge.weight * dedge.confidence * 1.0, dnode.label, dedge, "out"))
+                elif dtgt == cur_nid:
+                    dnode = self.graph.nodes.get(dsrc)
+                    if dnode is None or dnode.label is None or dnode.label.lower() in seen or dnode.label.lower() in chain_labels or dnode.label.lower() in _main_concepts:
+                        continue
+                    candidates.append((dedge.weight * dedge.confidence * 1.0, dnode.label, dedge, "in"))
+            # Episodic edges (conversation memory) - decay-modulated, 0.7x dampened
+            for (dsrc, dtgt), dedge in self._episodic_edges.items():
+                decay_mod = dedge.weight / 0.3 if dedge.weight > 0 else 1.0
+                if dsrc == cur_nid and dtgt not in self._dual_seen_srcs.get(dsrc, set()):
+                    dnode = self.graph.nodes.get(dtgt)
+                    if dnode is None or dnode.label is None or dnode.label.lower() in seen or dnode.label.lower() in chain_labels or dnode.label.lower() in _main_concepts:
+                        continue
+                    candidates.append((dedge.weight * dedge.confidence * 0.7 * decay_mod, dnode.label, dedge, "out"))
+                elif dtgt == cur_nid:
+                    dnode = self.graph.nodes.get(dsrc)
+                    if dnode is None or dnode.label is None or dnode.label.lower() in seen or dnode.label.lower() in chain_labels or dnode.label.lower() in _main_concepts:
+                        continue
+                    candidates.append((dedge.weight * dedge.confidence * 0.7 * decay_mod, dnode.label, dedge, "in"))
             if not candidates:
                 break
             # Fix 2: Boost dormant edge confidence if endpoints co-occur in user model
@@ -2958,6 +2988,26 @@ class CognitiveChatEngine:
                     boost = activation_boost.get(tgt_lbl.lower(), 1.0)
                     boosted.append((sig * boost, tgt_lbl, edge, d))
                 candidates = boosted
+            # ── Edge Repetition Penalty (Phase 13.2) ──
+            if self._recent_traversals:
+                recent_set = set(self._recent_traversals[-10:])
+                penalized = []
+                for sig, tgt_lbl, edge, d in candidates:
+                    pair = (cur_nid, edge.target) if d == "out" else (edge.source, cur_nid)
+                    if pair in recent_set:
+                        recency_penalty = 1.0
+                        for i, (rs, rt) in enumerate(reversed(self._recent_traversals[-30:])):
+                            if (rs, rt) == pair:
+                                if i < 10:
+                                    recency_penalty = 0.3
+                                elif i < 20:
+                                    recency_penalty = 0.6
+                                else:
+                                    recency_penalty = 0.8
+                                break
+                        sig *= recency_penalty
+                    penalized.append((sig, tgt_lbl, edge, d))
+                candidates = penalized
             # ── VAD Edge Preference ──
             if getattr(self, 'use_vad', True):
                 valence = self.emotion.state.valence
@@ -2977,6 +3027,22 @@ class CognitiveChatEngine:
                         adj *= (0.6 + 0.4 * edge.weight / max_w)
                     vad_boosted.append((adj, tgt_lbl, edge, d))
                 candidates = vad_boosted
+            # ── Context-Dependent Vector Modulation (Phase 11.2) ──
+            if self._current_context_vector is not None and not np.all(self._current_context_vector == 0):
+                modulated_boosted = []
+                for sig, tgt_lbl, edge, d in candidates:
+                    tgt_nids_m = self._concept_keywords.get(tgt_lbl.lower(), [])
+                    if tgt_nids_m:
+                        mod_vec = self._modulate_vector(tgt_nids_m[0])
+                        if mod_vec is not None:
+                            ctx_sim = float(np.dot(mod_vec, self._current_context_vector))
+                            mod_boost = 1.0 + 0.1 * max(0.0, ctx_sim)
+                            modulated_boosted.append((sig * mod_boost, tgt_lbl, edge, d))
+                        else:
+                            modulated_boosted.append((sig, tgt_lbl, edge, d))
+                    else:
+                        modulated_boosted.append((sig, tgt_lbl, edge, d))
+                candidates = modulated_boosted
             # ── Subject Proximity Bonus (Phase 4.2) ──
             # Bias toward concepts that are vector-similar to the original subject
             if subject_proximity is not None:
@@ -3002,6 +3068,8 @@ class CognitiveChatEngine:
             if getattr(self, '_pfc_gating_enabled', True) and self._prefrontal_buffer:
                 gate_subject = subject_proximity if subject_proximity else label
                 candidates = self._prefrontal_gate_candidates(candidates, gate_subject)
+            # ── Thalamic Gate (Phase 16.1) ──
+            candidates = self._thalamic_gate(candidates)
             # ── RLMv2 Confidence Modulation ──
             rlm_data = {}  # tgt_label -> confidence for trace logging
             if getattr(self, 'use_rlm', True):
@@ -3079,6 +3147,11 @@ class CognitiveChatEngine:
             # Phase 14.1: TD learning on traversed edge
             if _hop_pe > 0:
                 self._td_learn(cur_label, best_label, best_edge, _hop_pe)
+            # Phase 14.2: Update dopamine tone from recent TD errors
+            self._update_dopamine_tone()
+            # Phase 17.1: Update per-concept confidence (only when PE computed)
+            if _hop_pe > 0:
+                self._update_concept_confidence(best_label, _hop_pe)
             # Phase 13.1: Activation fatigue for traversed nodes
             for _nid in [cur_nid, best_edge.source, best_edge.target]:
                 if _nid is not None and _nid >= 0:
@@ -3101,6 +3174,8 @@ class CognitiveChatEngine:
             if connector:
                 chain_labels.add(connector.lower())
             seen.add(best_label.lower())
+            # Phase 13.3/16.1: Track visited concepts for novelty scoring
+            self._visited_concepts.add(best_label.lower())
             # Record belief assertion BEFORE ChainHop creation (contradiction_detail needed for trace)
             self._belief_assertions.append((cur_label, best_edge.relation_type, best_label))
             contradiction_detail: str = ""
@@ -3368,6 +3443,14 @@ class CognitiveChatEngine:
             if chain1:
                 sentences.append(self._format_sentence(chain1, subject, connector_counts, 0))
                 chain1_concepts = [p for p in chain1.split() if p.lower() not in self._CONNECTOR_SET]
+                # Phase 15.1: Track episodic edges from chain traversal
+                for ci in range(len(chain1_concepts) - 1):
+                    c1a = chain1_concepts[ci].lower()
+                    c1b = chain1_concepts[ci + 1].lower()
+                    c1a_ids = self._concept_keywords.get(c1a, [])
+                    c1b_ids = self._concept_keywords.get(c1b, [])
+                    if c1a_ids and c1b_ids:
+                        self._add_episodic_edge(c1a_ids[0], c1b_ids[0])
                 if getattr(self, '_pfc_gating_enabled', True):
                     self._prefrontal_maintain_buffer(subject, chain1_concepts)
                 # Phase 10.3: Update sentence schema after sentence
@@ -3384,6 +3467,14 @@ class CognitiveChatEngine:
             if chain2:
                 sentences.append(self._format_sentence(chain2, subject, connector_counts, 1))
                 chain2_concepts = [p for p in chain2.split() if p.lower() not in self._CONNECTOR_SET]
+                # Phase 15.1: Track episodic edges from chain traversal
+                for ci in range(len(chain2_concepts) - 1):
+                    c2a = chain2_concepts[ci].lower()
+                    c2b = chain2_concepts[ci + 1].lower()
+                    c2a_ids = self._concept_keywords.get(c2a, [])
+                    c2b_ids = self._concept_keywords.get(c2b, [])
+                    if c2a_ids and c2b_ids:
+                        self._add_episodic_edge(c2a_ids[0], c2b_ids[0])
                 if getattr(self, '_pfc_gating_enabled', True):
                     self._prefrontal_maintain_buffer(subject, chain2_concepts)
                 # Phase 10.3: Update sentence schema after sentence
@@ -3400,6 +3491,14 @@ class CognitiveChatEngine:
             if chain3:
                 sentences.append(self._format_sentence(chain3, subject, connector_counts, 2))
                 chain3_concepts = [p for p in chain3.split() if p.lower() not in self._CONNECTOR_SET]
+                # Phase 15.1: Track episodic edges from chain traversal
+                for ci in range(len(chain3_concepts) - 1):
+                    c3a = chain3_concepts[ci].lower()
+                    c3b = chain3_concepts[ci + 1].lower()
+                    c3a_ids = self._concept_keywords.get(c3a, [])
+                    c3b_ids = self._concept_keywords.get(c3b, [])
+                    if c3a_ids and c3b_ids:
+                        self._add_episodic_edge(c3a_ids[0], c3b_ids[0])
                 if getattr(self, '_pfc_gating_enabled', True):
                     self._prefrontal_maintain_buffer(subject, chain3_concepts)
                 # Phase 10.3: Update sentence schema after sentence
@@ -3888,6 +3987,32 @@ class CognitiveChatEngine:
         if issues and hasattr(self, '_trace_enabled') and self._trace_enabled:
             print(f"  [meta]   review: {', '.join(issues)}")
 
+    def _should_consolidate(self, src: int, tgt: int, epi_weight: float) -> bool:
+        """Phase 15.6: Only consolidate if it aids generalization.
+        
+        An episodic edge consolidates if its weight is not too surprising
+        compared to existing semantic edges from the same source.
+        """
+        sem_weights = []
+        for (s, t), e in self._semantic_edges.items():
+            if s == src and hasattr(e, "weight"):
+                sem_weights.append(e.weight)
+        if not sem_weights:
+            return True  # No existing pattern, consolidate as new knowledge
+        pred_weight = np.mean(sem_weights)
+        delta = abs(epi_weight - pred_weight)
+        return delta < 0.3  # Only consolidate if not too surprising
+
+    def _decay_episodic_edges(self):
+        """Phase 15.2: Decay episodic edges - they weaken quickly without rehearsal."""
+        to_remove = []
+        for (src, tgt), edge in self._episodic_edges.items():
+            edge.weight *= 0.90  # 10% decay per turn
+            if edge.weight < 0.05:
+                to_remove.append((src, tgt))
+        for key in to_remove:
+            del self._episodic_edges[key]
+
     def _sleep_consolidate(self):
         """Run a mini sleep cycle to strengthen useful patterns and weaken noise.
 
@@ -3897,6 +4022,9 @@ class CognitiveChatEngine:
         """
         if len(self.graph.edges) < 3:
             return
+
+        # Phase 15.2: Decay episodic edges (fast forgetting without rehearsal)
+        self._decay_episodic_edges()
 
         # Phase 9b: Prediction-error-driven sleep consolidation
         # Instead of blind +0.02 increments, use prediction error to guide updates.
@@ -3916,6 +4044,11 @@ class CognitiveChatEngine:
                                 and tgt_node and tgt_node.vector is not None):
                             error = self._update_edge_from_error(
                                 edge, src_node.vector, tgt_node.vector, learning_rate=0.08)
+
+        # Phase 15.5: Consolidate frequently-used episodic edges to semantic store
+        consolidated = self._consolidate_to_semantic()
+        if consolidated > 0 and self._trace_enabled:
+            print(f"  [trace]   sleep: consolidated {consolidated} edges to semantic")
 
         # Phase 2: Synaptic pruning (neuroscience-inspired: prune weak, unused connections)
         edges_to_prune = []
