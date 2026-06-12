@@ -5080,8 +5080,9 @@ class CognitiveChatEngine:
         after_ant = parts[1].strip().strip(",")
 
         if getattr(self, 'reasoning_mode', 'stochastic') == 'deterministic':
-            return f"{starter.capitalize()}, {before_ant} {ant} but they shape how we understand."
+            return f"{starter.capitalize()}, {before_ant.strip()} {ant} but they shape how we understand."
 
+        fallback_idea = "ideas"
         # Stochastic: variety of contrastive structures
         templates = [
             f"{starter.capitalize()}, {before_ant.strip()} {ant} — yet together they shape understanding.",
