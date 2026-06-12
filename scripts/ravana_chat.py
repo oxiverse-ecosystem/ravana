@@ -3822,8 +3822,15 @@ class CognitiveChatEngine:
                 phrase = _get_phrase(dominant_rel)
                 other = concepts[1] if concepts[1].lower() != subject.lower() else concepts[0]
                 # Variety: sometimes add a natural tail, sometimes end cleanly
-                if self.rng.random() < 0.4:
-                    tails = [" among other things", " and more", " and related ideas"]
+                # Phase G: Dopamine-modulated tail probability
+                tail_prob = max(0.15, min(0.65, 0.35 + (self._dopamine_tone - 0.5) * 0.5))
+                if self.rng.random() < tail_prob:
+                    if self._dopamine_tone > 0.6 and self.rng.random() < 0.3:
+                        tails = [" among other things", " and more", " and related ideas",
+                                 " which connects to many things", " that shape how we think",
+                                 " and everything that follows from that"]
+                    else:
+                        tails = [" among other things", " and more", " and related ideas"]
                     tail = self.rng.choice(tails)
                 else:
                     tail = ""
@@ -3852,16 +3859,13 @@ class CognitiveChatEngine:
         # Sentence 1+: re-anchor to subject with natural starter
         starter = _get_starter(dominant_rel)
 
-        # 25% chance of i-perspective (teen self-reference)
+        # Phase C+G: Confidence-aware epistemic hedging with dopamine modulation
         if sentence_idx >= 2:
-            if getattr(self, 'reasoning_mode', 'stochastic') == 'deterministic':
-                perspective = 'i think'
-            elif self.rng.random() < 0.25:
-                perspective = self.rng.choice(['i think', 'i feel', 'i know'])
-            else:
-                perspective = None
-            if perspective:
-                return f"{starter.capitalize()}, {perspective} {core}."
+            hedge = self._get_epistemic_hedge(subject)
+            if hedge:
+                if self._dopamine_tone > 0.6 and self.rng.random() < 0.3:
+                    return f"{hedge.capitalize()}, {starter} {core}."
+                return f"{starter.capitalize()}, {hedge} {core}."
 
         # Natural sentence with subject as anchor
         if not has_subject:
@@ -4950,6 +4954,40 @@ class CognitiveChatEngine:
         if not confidences:
             return 0.0
         return sum(confidences) / len(confidences)
+
+    # Phase C: Epistemic hedging - produce hedges based on concept confidence and prediction error
+    def _get_epistemic_hedge(self, subject: str) -> Optional[str]:
+        """Return an epistemic hedge based on concept confidence and prediction error.
+
+        Neuroscience basis (PFC confidence calibration):
+        - Low confidence (<0.3) -> strong hedges like 'maybe', 'perhaps', 'it seems like'
+        - Medium confidence (0.3-0.6) -> soft hedges like 'i think', 'probably'
+        - High confidence (>0.6) -> no hedge, or assertive 'i know'
+        - High prediction error boosts hedging probability across all bands
+        """
+        conf = self._get_concept_confidence(subject)
+        stored_conf = self._concept_confidence.get(subject.lower(), conf)
+        effective_conf = max(conf, stored_conf) if conf > 0 else stored_conf
+
+        pe_factor = min(0.3, self._mean_prediction_error * 0.5)
+
+        if getattr(self, 'reasoning_mode', 'stochastic') == 'deterministic':
+            if effective_conf < 0.3:
+                return 'perhaps'
+            return None
+
+        if effective_conf < 0.3:
+            if self.rng.random() < 0.7 + pe_factor:
+                return self.rng.choice(['maybe', 'perhaps', 'i think', 'it seems like', 'i wonder if'])
+            return None
+        elif effective_conf < 0.6:
+            if self.rng.random() < 0.35 + pe_factor:
+                return self.rng.choice(['i think', 'i feel', 'probably', 'maybe'])
+            return None
+        else:
+            if self.rng.random() < 0.1 + pe_factor:
+                return self.rng.choice(['i know', 'indeed', 'of course'])
+            return None
 
     def _compute_dormant_edge_ratio(self) -> Dict[str, float]:
         """Compute dormant edge ratio per concept.
