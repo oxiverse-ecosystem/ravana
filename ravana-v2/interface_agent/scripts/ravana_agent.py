@@ -189,6 +189,7 @@ class RavanaAgent:
                     "news": grounding_cycle.get('news_items', []),
                     "alignment_check": reality_result,
                     "summary": grounding_cycle.get('summary', ''),
+                    "workspace_bids": grounding_cycle.get('workspace_bids', []),
                 },
             )
         

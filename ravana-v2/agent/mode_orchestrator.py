@@ -155,6 +155,8 @@ class ModeOrchestrator:
             events = cycle.get('news_items', [])
             scenarios = cycle.get('scenarios', [])
             alignment = cycle.get('alignment', {})
+            workspace_bids = cycle.get('workspace_bids', [])
+            top_workspace_bid = workspace_bids[0] if workspace_bids else {}
             top_pressure = float(cycle.get('max_pressure', 0.0) or 0.0)
             cycle_summary = cycle.get('summary', '')
             sources = [topic for topic, _ in getattr(rg, 'rss_feeds', [])]
@@ -162,6 +164,8 @@ class ModeOrchestrator:
             events = rg.fetch_all()
             scenarios = []
             alignment = {}
+            workspace_bids = []
+            top_workspace_bid = {}
             top_pressure = 0.0
             cycle_summary = f'{len(events)} events collected'
             sources = getattr(rg, 'sources', [])
@@ -175,6 +179,9 @@ class ModeOrchestrator:
             'top_pressure': top_pressure,
             'top_action': top_action,
             'alignment_verdict': alignment_verdict,
+            'workspace_bid_count': len(workspace_bids),
+            'top_workspace_bid_source': str(top_workspace_bid.get('source', '')),
+            'top_workspace_bid_urgency': float(top_workspace_bid.get('urgency', 0.0) or 0.0),
             'sources': sources,
             'findings': [],
             'cycle_summary': cycle_summary,
@@ -189,6 +196,8 @@ class ModeOrchestrator:
                 queue_reason += f" | pressure={top_pressure:.2f}"
             if alignment_verdict and alignment_verdict != 'no_evidence':
                 queue_reason += f" | alignment={alignment_verdict}"
+            if top_workspace_bid:
+                queue_reason += f" | bid={top_workspace_bid.get('source', '')}:{float(top_workspace_bid.get('urgency', 0.0) or 0.0):.2f}"
             self.vm.queue_improvement(
                 description=queue_reason,
                 source='news',
@@ -418,6 +427,10 @@ class ModeOrchestrator:
                 f"Top pressure: {notes.get('top_pressure', 0.0):.2f}",
                 f"Alignment: {notes.get('alignment_verdict', 'no_evidence')}",
             ])
+            if notes.get('workspace_bid_count', 0):
+                lines.append(
+                    f"Top bid: {notes.get('top_workspace_bid_source', 'n/a')} @ {notes.get('top_workspace_bid_urgency', 0.0):.2f}"
+                )
             if notes.get('cycle_summary'):
                 lines.append(f"Cycle: {notes['cycle_summary']}")
         elif report['mode'] == 'learn':

@@ -250,12 +250,15 @@ class TelegramReporter:
     
     def _format_grounding_report(self, data: dict) -> str:
         news_items = data.get('news', [])[:5]
+        workspace_bids = data.get('workspace_bids', [])[:5]
+        top_bid = workspace_bids[0] if workspace_bids else None
         
         lines = [
             "🌍 Reality Grounding Report",
             "─" * 30,
             f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M UTC')}",
             f"Articles analyzed: {len(news_items)}",
+            f"Workspace bids: {len(workspace_bids)}",
             "",
             "TOP STORIES:",
         ]
@@ -263,12 +266,26 @@ class TelegramReporter:
         for i, item in enumerate(news_items, 1):
             lines.append(f"{i}. {item.get('title', 'No title')[:80]}")
             lines.append(f"   {item.get('summary', '')[:100]}...")
+
+        if workspace_bids:
+            lines.append("")
+            lines.append("TOP WORKSPACE BIDS:")
+            for i, bid in enumerate(workspace_bids, 1):
+                payload = bid.get('payload', {})
+                title = payload.get('title') or payload.get('topic') or 'No title'
+                lines.append(
+                    f"{i}. {bid.get('source', 'unknown')} | urgency {bid.get('urgency', 0):.2f} | {title[:70]}"
+                )
+                if i >= 3:
+                    break
         
         alignment = data.get('alignment_check', {})
         if alignment:
             lines.append("")
             lines.append(f"Alignment: {alignment.get('verdict', 'unknown').upper()}")
             lines.append(f"Score: {alignment.get('alignment_score', 0):.2f}")
+        if top_bid:
+            lines.append(f"Top bid: {top_bid.get('source', 'unknown')} @ {top_bid.get('urgency', 0):.2f}")
         
         msg = "\n".join(lines)
         

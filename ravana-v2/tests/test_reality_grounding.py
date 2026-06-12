@@ -63,9 +63,15 @@ def test_ingest_news_pipeline():
     assert "alignment" in cycle
     assert "events" in cycle
     assert "event_cards" in cycle
+    assert "workspace_bids" in cycle
     assert isinstance(cycle["events"], list)
     assert isinstance(cycle["event_cards"], list)
+    assert isinstance(cycle["workspace_bids"], list)
     assert isinstance(cycle["max_pressure"], float)
+    if cycle["workspace_bids"]:
+        urgencies = [bid["urgency"] for bid in cycle["workspace_bids"]]
+        assert urgencies == sorted(urgencies, reverse=True)
+        assert "source" in cycle["workspace_bids"][0]
     if cycle["scenarios"]:
         scenario = cycle["scenarios"][0]
         assert scenario.pressure >= 0.0
