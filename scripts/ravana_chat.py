@@ -43,6 +43,37 @@ SEARCH_API = "https://api.oxiverse.com/search?q="
 
 
 # ─── Teen Vocabulary: what a teenager knows (~180 words) ───
+DOMAIN_CONCEPTS = {
+    "oxiverse": {
+        "keywords": "oxiverse privacy-first source-available ecosystem alternative big-tech",
+        "relations": [
+            ("oxiverse", "ecosystem", "is_a", 0.7),
+            ("oxiverse", "privacy", "causal", 0.65),
+            ("oxiverse", "big tech", "contrastive", 0.55),
+        ],
+        "stability": 0.9,
+    },
+    "intentforge": {
+        "keywords": "intentforge intent-driven semantic search engine discovery",
+        "relations": [
+            ("intentforge", "search engine", "is_a", 0.7),
+            ("intentforge", "discovery", "causal", 0.6),
+            ("intentforge", "oxiverse", "part_of", 0.65),
+        ],
+        "stability": 0.9,
+    },
+    "ravana": {
+        "keywords": "ravana cognitive architecture backprop-free hebbian reasoning",
+        "relations": [
+            ("ravana", "cognitive architecture", "is_a", 0.7),
+            ("ravana", "hebbian learning", "causal", 0.6),
+            ("ravana", "analogical reasoning", "causal", 0.55),
+            ("ravana", "oxiverse", "part_of", 0.5),
+        ],
+        "stability": 0.9,
+    },
+}
+
 TEEN_CONCEPTS = [
     # ── Social & Identity ──
     ("hello", "hi hey greeting sup"),
@@ -631,26 +662,37 @@ class CognitiveChatEngine:
         # Phase 18b: User priming - track recent user topics for curiosity boosting
         self._user_query_topics: List[str] = []  # last 10 topics user asked about
         self._user_last_topic: str = ""  # most recent user topic
+        # Solution #2: Reasoning mode (stochastic / deterministic / exploratory)
+        self.reasoning_mode: str = "stochastic"
+
+        # Consistency tracking for deterministic mode: (subject_hash, tuple(seen)) -> path
+        self._consistency_paths: Dict[int, List[str]] = {}
+        self._consistency_trace: List[str] = []
         # Phase 18c: Multi-source consensus tracking for hallucination guard
         self._concept_sources: Dict[str, Set[str]] = {}  # concept -> set of source URLs
+        # Phase 18d: Explored contradiction pairs (prevent re-queuing "good vs bad debate")
+        self._explored_contradictions: Set[Tuple[str, str]] = set()
 
 
         if os.path.exists(self._save_path):
             loaded = self._load()
             if loaded:
+                self._bootstrap_domain_concepts()
                 print(f"  [Loaded] Remembered {len(self.graph.nodes)} words from before!")
                 return
 
         # Seed teen concepts from scratch
         self._init_glove()
         self._seed_concepts()
+        self._bootstrap_domain_concepts()
         print(f"  [Teen] Knows {len(self.graph.nodes)} words, ready to learn!")
 
     # ─── Teen Graph Seeding ───
 
     def _seed_concepts(self):
         """Seed the graph with teenager-level vocabulary and typed relationships."""
-        all_labels = []
+        self._concept_labels = set()
+        all_labels = {label.lower() for label, _ in TEEN_CONCEPTS}
         for label, keywords in TEEN_CONCEPTS:
             # GloVe vector if available, else hash-based random
             vec = self._glove_vector(label)
@@ -666,12 +708,13 @@ class CognitiveChatEngine:
                 if norm > 0:
                     vec /= norm
             node = self.graph.add_node(vector=vec, label=label)
-            all_labels.append(label)
             self._concept_labels.add(label.lower())
 
-            # Map keywords
+            # Map keywords, skipping those that shadow another concept's label
             for kw in keywords.split():
                 kl = kw.lower()
+                if kl in all_labels:
+                    continue
                 self._concept_keywords.setdefault(kl, []).append(node.id)
             self._concept_keywords.setdefault(label, []).append(node.id)
             if "_" in label:
@@ -816,7 +859,7 @@ class CognitiveChatEngine:
             if ni is None or ni.vector is None:
                 continue
             for j in range(i + 1, len(nids)):
-                if self.graph.get_edge(nids[i], nids[j]) is not None:
+                if self.graph.get_edge(nids[i], nids[j]) is not None or self.graph.get_edge(nids[j], nids[i]) is not None:
                     continue
                 nj = self.graph.get_node(nids[j])
                 if nj is None or nj.vector is None:
@@ -824,14 +867,67 @@ class CognitiveChatEngine:
                 sim = float(np.dot(ni.vector, nj.vector))
                 if sim > 0.6:
                     weight = min(0.5, sim * 0.5)
-                    edge = self.graph.add_edge(nids[i], nids[j], weight=weight, relation_type="semantic")
+                    # Infer proper relation type instead of always "semantic"
+                    inf_type, _ = self._infer_relation_type(ni.label, nj.label, "semantic")
+                    edge = self.graph.add_edge(nids[i], nids[j], weight=weight, relation_type=inf_type)
                     edge.confidence = 0.001  # dormant: invisible until visited
                     self._dormant_edges.add((nids[i], nids[j]))
                     auto_count += 1
 
         self._all_labels = label_to_id
         self._build_contradiction_map(contrastive_edges)
-        print(f"  [Teen] Seeded {len(self.graph.nodes)} concepts, {len(self.graph.edges)} connections ({auto_count} auto-wired) across 5 relation types")
+        # Fix seeded edge types using relation inference
+        migrated = self._correct_relation_types()
+        extra = f", {migrated} reclassified" if migrated else ""
+        print(f"  [Teen] Seeded {len(self.graph.nodes)} concepts, {len(self.graph.edges)} connections ({auto_count} auto-wired) across 5 relation types{extra}")
+
+    def _bootstrap_domain_concepts(self):
+        """Seed domain-specific concepts (oxiverse, intentforge, ravana) with rich structure."""
+        domain_relation_type_map = {
+            "is_a": "semantic",
+            "causal": "causal",
+            "contrastive": "contrastive",
+            "part_of": "contextual",
+        }
+
+        def _ensure_concept(label):
+            for n in self.graph.nodes.values():
+                if n.label == label:
+                    return n.id
+            vec = self._glove_vector(label)
+            if vec is None:
+                h = hash(label) % 50000
+                vr = np.random.RandomState(h + 100)
+                vec = vr.randn(self.dim).astype(np.float32) * 0.1
+                norm = np.linalg.norm(vec)
+                if norm > 0:
+                    vec /= norm
+            n = self.graph.add_node(vector=vec, label=label)
+            n.stability = 0.8
+            self._concept_labels.add(label.lower())
+            self._concept_keywords.setdefault(label, []).append(n.id)
+            for part in label.split():
+                if len(part) >= 3 and part not in self._concept_labels:
+                    self._concept_keywords.setdefault(part, []).append(n.id)
+            return n.id
+
+        created = []
+        for concept_name, meta in DOMAIN_CONCEPTS.items():
+            if any(node.label == concept_name for node in self.graph.nodes.values()):
+                continue
+            node_id = _ensure_concept(concept_name)
+            for kw in meta["keywords"].split():
+                if kw not in self._concept_labels:
+                    self._concept_keywords.setdefault(kw, []).append(node_id)
+            for (src, tgt, rel_type, weight) in meta["relations"]:
+                src_id = node_id if src == concept_name else _ensure_concept(src)
+                tgt_id = node_id if tgt == concept_name else _ensure_concept(tgt)
+                mapped_rel = domain_relation_type_map.get(rel_type, "semantic")
+                if self.graph.get_edge(src_id, tgt_id) is None:
+                    self.graph.add_edge(src_id, tgt_id, weight=weight, confidence=0.9, relation_type=mapped_rel)
+            created.append(concept_name)
+        if created:
+            print(f"  [Domain] Bootstrapped {len(created)} domain concepts: {', '.join(created)}")
 
     # ─── GloVe Semantic Vectors ───
 
@@ -1030,15 +1126,22 @@ class CognitiveChatEngine:
                     other_nid = int(nid_array[idx])
                     if sim > 0.4 and self.graph.get_edge(nid, other_nid) is None:
                         weight = min(0.6, sim * 0.6)
-                        self.graph.add_edge(nid, other_nid, weight=weight, relation_type="semantic")
+                        other_node = self.graph.get_node(other_nid)
+                        other_label = other_node.label if other_node else word
+                        inf_type, _ = self._infer_relation_type(word, other_label, "semantic")
+                        self.graph.add_edge(nid, other_nid, weight=weight, relation_type=inf_type)
                         wired_11 += 1
 
             # Phase 1.2 + 9b: Auto-wire to ALL existing concepts where sim > 0.5
             for idx in range(len(similarities)):
                 sim = float(sim_array[idx])
-                if sim > 0.5 and self.graph.get_edge(nid, int(nid_array[idx])) is None:
+                other_nid = int(nid_array[idx])
+                if sim > 0.5 and self.graph.get_edge(nid, other_nid) is None:
                     weight = min(0.6, sim * 0.6)
-                    self.graph.add_edge(nid, int(nid_array[idx]), weight=weight, relation_type="semantic")
+                    other_node = self.graph.get_node(other_nid)
+                    other_label = other_node.label if other_node else word
+                    inf_type, _ = self._infer_relation_type(word, other_label, "semantic")
+                    self.graph.add_edge(nid, other_nid, weight=weight, relation_type=inf_type)
 
         return new_count
 
@@ -1390,13 +1493,15 @@ class CognitiveChatEngine:
                     if sim > 0.3:
                         if self.graph.get_edge(nid, existing_nid) is None:
                             weight = max(0.25, min(0.5, sim * 0.5))
+                            inf_type, _ = self._infer_relation_type(word, existing_node.label, "semantic")
                             self.graph.add_edge(nid, existing_nid, weight=weight,
-                                                relation_type="semantic")
+                                                relation_type=inf_type)
                             edge_count += 1
             # Guarantee at least one connection for the topic word
             if edge_count == 0 and word == important_words[0]:
                 best_sim = 0.0
                 best_nid = None
+                best_label = None
                 for existing_nid, existing_node in self.graph.nodes.items():
                     if existing_nid == nid or existing_node.label in important_words:
                         continue
@@ -1405,9 +1510,11 @@ class CognitiveChatEngine:
                         if sim > best_sim:
                             best_sim = sim
                             best_nid = existing_nid
-                if best_nid is not None:
+                            best_label = existing_node.label
+                if best_nid is not None and best_label is not None:
                     weight = max(0.25, min(0.4, best_sim * 0.5))
-                    self.graph.add_edge(nid, best_nid, weight=weight, relation_type="semantic")
+                    inf_type, _ = self._infer_relation_type(word, best_label, "semantic")
+                    self.graph.add_edge(nid, best_nid, weight=weight, relation_type=inf_type)
         return new_count
 
     def _learn_from_snippets(self, query: str, snippets: List[str]) -> str:
@@ -1425,6 +1532,14 @@ class CognitiveChatEngine:
         self.turn_count += 1
         self._learned_this_turn = False
         self._cascade_for_quality = False
+
+        # ── Solution #6: Turn-scoped context isolation ──
+        # Reset context vector to prevent cross-turn contamination
+        self._current_context_vector = None
+        self._modulated_vectors.clear()
+        if hasattr(self, '_prefrontal_buffer'):
+            self._prefrontal_buffer = [self._prefrontal_buffer[-1]] if self._prefrontal_buffer else []
+
         # Signal background thread that user is active
         self.notify_user_active()
         # Phase 15.2: Inter-turn episodic edge decay (forgetting between turns)
@@ -1502,8 +1617,16 @@ class CognitiveChatEngine:
                         self.user_model.edge_reactivations[key] = \
                             self.user_model.edge_reactivations.get(key, 0) + 1
 
-        # Step 2: Extract topic
+        # Step 2: Extract topic with multi-strategy grounding
         subject, obj = self._extract_topic(user_input, activated)
+        # Run grounding again to get confidence for auto-web-learning
+        _grounded_subj, _gconf, _gmethod = self._ground_query(user_input)
+        self._last_grounding_conf = _gconf
+        self._last_grounding_method = _gmethod
+        # Auto-trigger web learning for low-confidence multi-word queries
+        if _gconf < 0.5 and _gmethod == "all_unknown" and _grounded_subj and self.baby_mode:
+            if _grounded_subj not in self._pending_learning_queue:
+                self._pending_learning_queue.append(_grounded_subj)
         relation = "is"
 
         # Step 2b: Primary IDs — only these concepts spread activation
@@ -1685,6 +1808,10 @@ class CognitiveChatEngine:
 
         self.notify_user_idle()  # wake background thread after response
 
+        # Post-turn context decay to prevent cross-turn bleeding
+        if self._current_context_vector is not None:
+            self._current_context_vector *= 0.3
+
         return response
 
     def _extract_learning_query(self, text: str, activated_ids: List[int]) -> Optional[str]:
@@ -1807,6 +1934,93 @@ class CognitiveChatEngine:
                         "point", "way", "thing", "stuff",
                         "and", "so"}
 
+    def _compute_phrase_embedding(self, phrase: str) -> Optional[np.ndarray]:
+        """Compute a phrase embedding as the mean of its word vectors.
+        Returns unit vector or None if no words have embeddings."""
+        words = re.findall(r"[a-zA-Z']{2,}", phrase.lower())
+        vecs = []
+        for w in words:
+            v = self._glove_vector(w)
+            if v is not None:
+                vecs.append(v)
+        if not vecs:
+            return None
+        mean_vec = np.mean(vecs, axis=0).astype(np.float32)
+        norm = np.linalg.norm(mean_vec)
+        if norm > 0:
+            mean_vec /= norm
+        return mean_vec
+
+    QUERY_PATTERNS = [
+        (r"(?:what|who)'?s?\s+(?:is\s+|are\s+)?(.+)", 1),       # what is X / who are X
+        (r"(?:tell|show)\s+me\s+about\s+(.+)", 1),              # tell me about X
+        (r"(?:explain|describe)\s+(.+)", 1),                     # explain X / describe X
+        (r"(?:what|which)\s+(.+)\s+(?:is|are|mean)", 1),         # what X is / what X means
+        (r"(?:do you know|have you heard of)\s+(.+)", 1),        # do you know X
+    ]
+
+    def _ground_query(self, text: str) -> Tuple[str, float, str]:
+        """Multi-strategy query grounding. Returns (subject, confidence, method).
+
+        Strategies (tried in order):
+        a) Exact phrase match — the full phrase after 'what is' matches a concept label
+        b) Phrase embedding similarity — mean word vec → nearest concept (cosine > 0.7)
+        c) Compositional — split phrase, count known vs unknown words; use best known word
+        d) Best single word fallback — last meaningful non-stop word
+        """
+        # Detect query patterns and extract the semantic payload
+        text_lower = text.lower().strip(" ?!.")
+        query_phrase = ""
+        for pattern, group_idx in self.QUERY_PATTERNS:
+            m = re.match(pattern, text_lower)
+            if m:
+                query_phrase = m.group(group_idx).strip()
+                break
+
+        if not query_phrase:
+            return ("", 0.0, "no_pattern")
+
+        # Strategy A: Exact multi-word phrase match (domain concepts, seeded multi-word)
+        phrase_clean = query_phrase.strip(".,!?")
+        if phrase_clean in self._concept_labels:
+            return (phrase_clean, 0.95, "exact_label")
+        if phrase_clean in self._concept_keywords:
+            return (phrase_clean, 0.90, "exact_keyword")
+
+        # Strategy B: Phrase embedding similarity search
+        phrase_vec = self._compute_phrase_embedding(query_phrase)
+        if phrase_vec is not None:
+            best_sim = 0.0
+            best_label = None
+            for nid, node in self.graph.nodes.items():
+                if node.label and node.vector is not None:
+                    sim = float(np.dot(phrase_vec, node.vector))
+                    if sim > best_sim:
+                        best_sim = sim
+                        best_label = node.label
+            if best_label and best_sim > 0.7:
+                return (best_label, best_sim, f"phrase_sim_{best_sim:.2f}")
+
+        # Strategy C: Compositional — score words by known/unknown ratio
+        words = [w.strip(".,!?") for w in query_phrase.split()
+                 if len(w.strip(".,!?")) > 2
+                 and w.strip(".,!?") not in self.QUESTION_WORDS
+                 and w.strip(".,!?") not in self.TOPIC_SKIP_WORDS
+                 and w.strip(".,!?") not in STOP_WORDS]
+        if words:
+            known_words = [w for w in words if w in self._concept_labels or w in self._concept_keywords]
+            unknown_words = [w for w in words if w not in known_words]
+            if known_words:
+                ratio = len(known_words) / len(words)
+                # Prefer last known word (most specific in English)
+                topic = known_words[-1]
+                return (topic, min(0.85, 0.5 + ratio * 0.4), f"compositional_{ratio:.2f}")
+            # All unknown — will trigger web learning
+            if words:
+                return (words[-1], 0.2, "all_unknown")
+
+        return ("", 0.0, "no_match")
+
     def _extract_topic(self, text: str, activated: List[int]) -> Tuple[str, str]:
         """Extract the main topic from input. Uses graph-activated concepts
         first, then falls back to pattern detection.
@@ -1815,38 +2029,12 @@ class CognitiveChatEngine:
         For 'you know i was thinking about trust' -> 'trust' (skips 'you', 'i')
         For 'does learning change your brain' -> 'learning'
         """
-        # Check for "what is X" / "what's X" patterns first
-        m = re.match(r"what'?s?\s+(?:is\s+|are\s+)?(.+)", text.lower().strip(" ?!."))
-        if m:
-            phrase = m.group(1).strip()
-            words = phrase.split()
-            # Prefer concepts that exist in the graph, fall back to last meaningful word
-            for w in reversed(words):
-                wc = w.strip(".,!?")
-                if (len(wc) > 2 and wc not in self.QUESTION_WORDS
-                        and wc not in self.TOPIC_SKIP_WORDS
-                        and wc not in STOP_WORDS):
-                    if wc in self._concept_labels:
-                        return (wc, text)
-            # Try keyword-matched concepts
-            for w in reversed(words):
-                wc = w.strip(".,!?")
-                if (len(wc) > 2 and wc not in self.QUESTION_WORDS
-                        and wc not in self.TOPIC_SKIP_WORDS
-                        and wc not in STOP_WORDS
-                        and wc in self._concept_keywords):
-                    return (wc, text)
-            # No graph concept found — return last meaningful word
-            for w in reversed(words):
-                wc = w.strip(".,!?")
-                if (len(wc) > 2 and wc not in self.QUESTION_WORDS
-                        and wc not in self.TOPIC_SKIP_WORDS
-                        and wc not in STOP_WORDS):
-                    return (wc, text)
-            if words:
-                return (words[-1].strip(".,!?"), text)
+        # Use the multi-strategy query grounder
+        topic, confidence, method = self._ground_query(text)
+        if topic and confidence >= 0.5:
+            return (topic, text)
 
-        # Use best activated concept (skip question, topic-skip, and short words)
+        # Fallback: best activated concept (skip question, topic-skip, and short words)
         if activated:
             best_real = None
             for nid in activated:
@@ -2170,6 +2358,99 @@ class CognitiveChatEngine:
         "temporal": "then",
     }
 
+    # ── Solution #5: Relation Type Inference ──
+    # Known label-pair patterns for heuristic relation type assignment.
+    # All pairs stored as sorted tuples for consistent lookup.
+    CONTRASTIVE_PAIRS = {
+        tuple(sorted(["good", "bad"])), tuple(sorted(["love", "hate"])),
+        tuple(sorted(["life", "death"])), tuple(sorted(["truth", "lie"])),
+        tuple(sorted(["freedom", "oppression"])), tuple(sorted(["courage", "fear"])),
+        tuple(sorted(["hope", "despair"])), tuple(sorted(["knowledge", "ignorance"])),
+        tuple(sorted(["justice", "injustice"])), tuple(sorted(["create", "destroy"])),
+        tuple(sorted(["accept", "reject"])), tuple(sorted(["always", "never"])),
+        tuple(sorted(["happy", "sad"])), tuple(sorted(["joy", "grief"])),
+        tuple(sorted(["excited", "bored"])), tuple(sorted(["big", "small"])),
+        tuple(sorted(["hot", "cold"])), tuple(sorted(["up", "down"])),
+        tuple(sorted(["in", "out"])), tuple(sorted(["here", "there"])),
+        tuple(sorted(["now", "later"])), tuple(sorted(["yes", "no"])),
+        tuple(sorted(["more", "less"])), tuple(sorted(["possible", "impossible"])),
+        tuple(sorted(["trust", "hypocrisy"])), tuple(sorted(["freedom", "control"])),
+    }
+    CAUSAL_PAIRS = {
+        tuple(sorted(["learn", "knowledge"])), tuple(sorted(["study", "understanding"])),
+        tuple(sorted(["practice", "skill"])), tuple(sorted(["challenge", "struggle"])),
+        tuple(sorted(["struggle", "growth"])), tuple(sorted(["question", "curiosity"])),
+        tuple(sorted(["explore", "discovery"])), tuple(sorted(["trust", "friendship"])),
+        tuple(sorted(["hypocrisy", "distrust"])), tuple(sorted(["grief", "sadness"])),
+        tuple(sorted(["hope", "motivation"])), tuple(sorted(["rejection", "loneliness"])),
+        tuple(sorted(["acceptance", "belonging"])), tuple(sorted(["anger", "conflict"])),
+        tuple(sorted(["empathy", "understanding"])), tuple(sorted(["criticism", "growth"])),
+        tuple(sorted(["failure", "learning"])), tuple(sorted(["change", "growth"])),
+        tuple(sorted(["knowledge", "wisdom"])), tuple(sorted(["experience", "wisdom"])),
+        tuple(sorted(["art", "expression"])), tuple(sorted(["science", "progress"])),
+        tuple(sorted(["imagination", "invention"])), tuple(sorted(["experiment", "knowledge"])),
+        tuple(sorted(["sleep", "tired"])), tuple(sorted(["play", "happy"])),
+        tuple(sorted(["cause", "change"])), tuple(sorted(["sun", "hot"])),
+        tuple(sorted(["sun", "light"])), tuple(sorted(["eat", "food"])),
+        tuple(sorted(["drink", "water"])),
+    }
+    IS_A_PAIRS = {
+        tuple(sorted(["dog", "animal"])), tuple(sorted(["cat", "animal"])),
+        tuple(sorted(["bird", "animal"])), tuple(sorted(["rose", "flower"])),
+        tuple(sorted(["oak", "tree"])), tuple(sorted(["oxiverse", "ecosystem"])),
+        tuple(sorted(["intentforge", "search engine"])),
+        tuple(sorted(["ravana", "cognitive architecture"])),
+    }
+
+    def _infer_relation_type(self, src_label: str, tgt_label: str,
+                              current_type: str = "semantic") -> Tuple[str, float]:
+        """Infer the correct relation type for a concept pair.
+        Returns (inferred_type, confidence).
+        Uses label-pair heuristics first, then vector-based ranking."""
+        sl = src_label.lower()
+        tl = tgt_label.lower()
+        pair = tuple(sorted([sl, tl]))
+        # Heuristic: known contrastive pairs
+        if pair in self.CONTRASTIVE_PAIRS:
+            return ("contrastive", 0.85)
+        if pair in self.CAUSAL_PAIRS:
+            return ("causal", 0.80)
+        if pair in self.IS_A_PAIRS:
+            return ("semantic", 0.80)
+        # Vector-based ranking
+        ranked = self._rank_relations(src_label, tgt_label, current_type)
+        if ranked:
+            best_type, best_score = ranked[0]
+            # Only reclassify if clearly a different type
+            if len(ranked) > 1:
+                second_score = ranked[1][1]
+                margin = best_score - second_score
+                if margin > 0.10 and best_type != current_type:
+                    return (best_type, min(0.75, best_score))
+            return (current_type, max(0.3, best_score))
+        return (current_type, 0.3)
+
+    def _correct_relation_types(self) -> int:
+        """Iterate edges and reclassify mis-typed relations.
+        Returns number of edges migrated."""
+        migrated = 0
+        for (sid, tid), edge in list(self.graph.edges.items()):
+            src_node = self.graph.get_node(sid)
+            tgt_node = self.graph.get_node(tid)
+            if src_node is None or tgt_node is None or not src_node.label or not tgt_node.label:
+                continue
+            # Skip high-confidence edges (manually seeded or user-confirmed)
+            if edge.confidence >= 0.8:
+                continue
+            inferred_type, inferred_conf = self._infer_relation_type(
+                src_node.label, tgt_node.label, edge.relation_type)
+            if inferred_type != edge.relation_type:
+                old_type = edge.relation_type
+                edge.relation_type = inferred_type
+                edge.confidence = max(edge.confidence, inferred_conf * 0.8)
+                migrated += 1
+        return migrated
+
     def _get_edge_info(self, src_label: str, tgt_label: str) -> Optional[Dict]:
         """Get edge information between two concept labels from the graph."""
         src_ids = self._concept_keywords.get(src_label.lower(), [])
@@ -2460,7 +2741,7 @@ class CognitiveChatEngine:
                     if arousal < 0.25 and valence < -0.10 and len(options) > 1:
                         return options[-1]
                 # Standard temperature-driven choice
-                if temperature < 0.2:
+                if temperature < 0.2 or getattr(self, 'reasoning_mode', 'stochastic') == 'deterministic':
                     return options[0]
                 return self.rng.choice(options)
         return tiers[-1][1][0]
@@ -2962,6 +3243,9 @@ class CognitiveChatEngine:
         first hop, falling through to all edge types if none exist.
 
         Records detailed hop info in self._chain_traces when self._trace_enabled."""
+        if getattr(self, 'reasoning_mode', 'stochastic') == 'deterministic':
+            self._consistency_trace = [label]
+
         nids = self._concept_keywords.get(label.lower(), [])
         if not nids:
             return None
@@ -3167,7 +3451,23 @@ class CognitiveChatEngine:
                     belief_boosted.append((adj, tgt_lbl, edge, d))
                 candidates = belief_boosted
             # Temperature-weighted selection
-            if temperature > 0 and len(candidates) > 1:
+            if getattr(self, 'reasoning_mode', 'stochastic') == 'deterministic':
+                # Greedy: always pick highest-scoring candidate (reproducible)
+                idx = max(range(len(candidates)), key=lambda i: candidates[i][0])
+                # Enforce consistency: if we've seen this (subject, hop) before, reuse same path
+                if self._consistency_paths:
+                    path_key = hash((label.lower(), tuple(sorted([c[1].lower() for c in candidates]))))
+                    expected = self._consistency_paths.get(path_key)
+                    if expected is not None and hops < len(expected):
+                        # Find the expected candidate
+                        expected_label = expected[hops]
+                        for ci, (_, cl, _, _) in enumerate(candidates):
+                            if cl.lower() == expected_label.lower():
+                                idx = ci
+                                break
+                    else:
+                        self._consistency_paths[path_key] = self._consistency_trace + [candidates[idx][1]]
+            elif temperature > 0 and len(candidates) > 1:
                 sigs = np.array([c[0] for c in candidates])
                 # Clamp to avoid numerical issues with near-zero sigs
                 sigs = np.clip(sigs, 1e-10, None)
@@ -3270,6 +3570,8 @@ class CognitiveChatEngine:
                     rlm_confidence=rlm_hop_conf,
                     contradiction=contradiction_detail))
             local_hops.append((cur_label, best_label))
+            if getattr(self, 'reasoning_mode', 'stochastic') == 'deterministic':
+                self._consistency_trace.append(best_label)
             cur_label = best_label
             cur_nid = self._concept_keywords.get(best_label.lower(), [None])[0]
             if cur_nid is None:
@@ -3459,10 +3761,14 @@ class CognitiveChatEngine:
 
         def _get_phrase(rel: str) -> str:
             phrases = self._NATURAL_PHRASES.get(rel, self._NATURAL_PHRASES['semantic'])
+            if getattr(self, 'reasoning_mode', 'stochastic') == 'deterministic':
+                return phrases[0]
             return self.rng.choice(phrases)
 
         def _get_starter(rel: str) -> str:
             starters = self._NATURAL_STARTERS.get(rel, self._NATURAL_STARTERS['semantic'])
+            if getattr(self, 'reasoning_mode', 'stochastic') == 'deterministic':
+                return starters[0]
             return self.rng.choice(starters)
 
         # Determine the dominant relation type from the chain
@@ -3509,9 +3815,15 @@ class CognitiveChatEngine:
         starter = _get_starter(dominant_rel)
 
         # 25% chance of i-perspective (teen self-reference)
-        if sentence_idx >= 2 and self.rng.random() < 0.25:
-            perspective = self.rng.choice(['i think', 'i feel', 'i know'])
-            return f"{starter.capitalize()}, {perspective} {core}."
+        if sentence_idx >= 2:
+            if getattr(self, 'reasoning_mode', 'stochastic') == 'deterministic':
+                perspective = 'i think'
+            elif self.rng.random() < 0.25:
+                perspective = self.rng.choice(['i think', 'i feel', 'i know'])
+            else:
+                perspective = None
+            if perspective:
+                return f"{starter.capitalize()}, {perspective} {core}."
 
         # Natural sentence with subject as anchor
         if not has_subject:
@@ -4150,32 +4462,6 @@ class CognitiveChatEngine:
         if issues and hasattr(self, '_trace_enabled') and self._trace_enabled:
             print(f"  [meta]   review: {', '.join(issues)}")
 
-    def _should_consolidate(self, src: int, tgt: int, epi_weight: float) -> bool:
-        """Phase 15.6: Only consolidate if it aids generalization.
-        
-        An episodic edge consolidates if its weight is not too surprising
-        compared to existing semantic edges from the same source.
-        """
-        sem_weights = []
-        for (s, t), e in self._semantic_edges.items():
-            if s == src and hasattr(e, "weight"):
-                sem_weights.append(e.weight)
-        if not sem_weights:
-            return True  # No existing pattern, consolidate as new knowledge
-        pred_weight = np.mean(sem_weights)
-        delta = abs(epi_weight - pred_weight)
-        return delta < 0.3  # Only consolidate if not too surprising
-
-    def _decay_episodic_edges(self):
-        """Phase 15.2: Decay episodic edges - they weaken quickly without rehearsal."""
-        to_remove = []
-        for (src, tgt), edge in self._episodic_edges.items():
-            edge.weight *= 0.90  # 10% decay per turn
-            if edge.weight < 0.05:
-                to_remove.append((src, tgt))
-        for key in to_remove:
-            del self._episodic_edges[key]
-
     def _sleep_consolidate(self):
         """Run a mini sleep cycle to strengthen useful patterns and weaken noise.
 
@@ -4289,6 +4575,13 @@ class CognitiveChatEngine:
             if after > before and getattr(self, '_trace_enabled', False):
                 print(f"  [trace]   sleep belief: reconciled {len(resolved)} contradictions")
 
+        # Solution #5: Correct mis-typed relations during sleep
+        if self.turn_count > 0 and self.turn_count % 50 == 0:
+            migrated = self._correct_relation_types()
+            if migrated > 0:
+                if getattr(self, '_trace_enabled', False):
+                    print(f"  [trace]   sleep relation: reclassified {migrated} edges")
+
     def print_traces(self, label: str = ""):
         """Print all chain walk traces from the last response."""
         if not self._chain_traces:
@@ -4359,8 +4652,9 @@ class CognitiveChatEngine:
     def _bg_learn_loop(self):
         """Background learning thread: processes pending queue and related searches when idle."""
         while self._bg_learning_active:
-            # Wait until the user sends a message (idle event cleared = user active)
-            self._bg_idle_event.wait()  # wake every 30s to check queue
+            # Wake periodically (30s timeout) — event is set when user goes idle
+            self._bg_idle_event.wait(timeout=30)
+            self._bg_idle_event.clear()
             if not self._bg_learning_active:
                 break
             # Process pending queue items in background
@@ -4379,25 +4673,28 @@ class CognitiveChatEngine:
                 if self._curiosity_cycles_this_session < 3:
                     self._curiosity_cycles_this_session += 1
                     self._bg_idle_search_count = 0
-                    print(f'  [bg] idle cycle {self._curiosity_cycles_this_session}/3 - selecting curiosity topics...')
+                    if self._trace_enabled:
+                        print(f'  [bg] idle cycle {self._curiosity_cycles_this_session}/3 - selecting curiosity topics...')
                     self._auto_select_curiosity_topics(max_topics=2)
                     with self._bg_lock:
                         all_queries = list(self._bg_learning_queue)
                         self._bg_learning_queue.clear()
-                else:
+                elif self._trace_enabled:
                     print('  [bg] idle: waiting for more user input (curiosity budget used)')
             try:
                 for query in all_queries:
                     if not self._bg_learning_active:
                         break
                     self._bg_idle_search_count += 1
-                    print(f'  [bg] ({self._bg_idle_search_count}) researching: {query}')
+                    if self._trace_enabled:
+                        print(f'  [bg] ({self._bg_idle_search_count}) researching: {query}')
                     self._bg_multi_search(query)
                 # Save periodically after learning
                 if all_queries:
                     try:
                         path = self.save()
-                        print(f'  [bg] saved to {os.path.basename(path)}')
+                        if self._trace_enabled:
+                            print(f'  [bg] saved to {os.path.basename(path)}')
                     except Exception:
                         pass
             except Exception:
@@ -4416,9 +4713,11 @@ class CognitiveChatEngine:
         try:
             result_summary = self.learn_from_web(query)
             self._bg_search_count += 1
-            print(f'  [bg]   + {result_summary}')
+            if self._trace_enabled:
+                print(f'  [bg]   + {result_summary}')
         except Exception:
-            print(f'  [bg]   ! failed to research: {query}')
+            if self._trace_enabled:
+                print(f'  [bg]   ! failed to research: {query}')
             return
         # Step 2: Extract related search terms from the query itself
         related = self._extract_related_queries(query)
@@ -4430,7 +4729,8 @@ class CognitiveChatEngine:
             try:
                 result_summary = self.learn_from_web(related_query)
                 self._bg_search_count += 1
-                print(f'  [bg]   + {result_summary}')
+                if self._trace_enabled:
+                    print(f'  [bg]   + {result_summary}')
             except Exception:
                 continue
 
@@ -4706,18 +5006,23 @@ class CognitiveChatEngine:
             seen_topics.add(label)
 
         # Generate targeted queries for top contradiction candidates
+        # Skip already-explored pairs to prevent "good vs bad debate" repetition
         contradiction_queries = []
         for topic, _ in candidates:
             if topic in self._contradiction_map:
                 for ant in self._contradiction_map[topic]:
+                    pair = (topic, ant) if topic < ant else (ant, topic)
+                    if pair in self._explored_contradictions:
+                        continue
                     targeted = self._generate_curiosity_query(
                         topic, source_type="contradiction", antonym=ant)
                     if targeted != topic:
-                        contradiction_queries.append(targeted)
+                        contradiction_queries.append((targeted, pair))
         # Queue contradiction-specific queries directly
-        for cq in contradiction_queries[:2]:
+        for cq, pair in contradiction_queries[:2]:
             if self._bg_learning_active and cq not in self._bg_learning_queue:
                 self.queue_background_search(cq)
+                self._explored_contradictions.add(pair)
 
         # Source 5: Random graph walk from high-degree hubs (serendipity)
         if len(self.graph.nodes) > 0:
@@ -4822,6 +5127,7 @@ class CognitiveChatEngine:
             'user_query_topics': self._user_query_topics,
             'user_last_topic': self._user_last_topic,
             'concept_sources': {k: list(v) for k, v in self._concept_sources.items()},
+            'explored_contradictions': [list(p) for p in self._explored_contradictions],
             # Dual stores
             'episodic_edges': dict(self._episodic_edges),
             'semantic_edges': dict(self._semantic_edges),
@@ -4945,6 +5251,8 @@ class CognitiveChatEngine:
             self._user_last_topic = state.get('user_last_topic', '')
             raw_sources = state.get('concept_sources', {})
             self._concept_sources = {k: set(v) for k, v in raw_sources.items()}
+            raw_contra = state.get('explored_contradictions', [])
+            self._explored_contradictions = {tuple(p) for p in raw_contra}
             # Restore dual stores
             epi_state = state.get('episodic_edges', {})
             if epi_state:
@@ -4999,6 +5307,8 @@ def main():
     parser.add_argument("--no-rlm", action="store_true", help="Disable RLMv2 triple verification")
     parser.add_argument("--no-beliefs", action="store_true", help="Disable belief store")
     parser.add_argument("--no-curiosity", action="store_true", help="Disable autonomous curiosity-driven learning")
+    parser.add_argument("--mode", type=str, default="stochastic", choices=["stochastic", "deterministic", "exploratory"],
+                        help="Reasoning mode: stochastic (default), deterministic (reproducible), exploratory (high-temp)")
 
     parser.add_argument("--user", type=str, default=None,
                         help="User name for multi-user isolation (creates user-specific save files)")
@@ -5015,10 +5325,8 @@ def main():
     args = parser.parse_args()
 
     # Handle --reset
-    if args.user:
-        save_path = os.path.join(_proj_root, f"ravana_weights{args.user}.pkl")
-    else:
-        save_path = os.path.join(_proj_root, "ravana_weightsNone.pkl")
+    reset_suffix = args.user or ""
+    save_path = os.path.join(_proj_root, f"ravana_weights{reset_suffix}.pkl")
     if args.reset:
         if os.path.exists(save_path):
             os.remove(save_path)
@@ -5027,7 +5335,7 @@ def main():
             print(f"  [Reset] No saved weights found, starting fresh!")
 
     data_dir = args.data_dir
-    user_suffix = args.user if args.user else None
+    user_suffix = args.user or ""
     engine = CognitiveChatEngine(dim=args.dim, seed=args.seed, baby_mode=True, data_dir=data_dir, user_suffix=user_suffix)
     engine.start_background_learning()
     if args.trace:
@@ -5044,6 +5352,11 @@ def main():
     if args.no_curiosity:
         engine._curiosity_drive_enabled = False
         print('  [Curiosity] Autonomous learning disabled')
+
+    # Solution #2: Apply reasoning mode
+    if args.mode != "stochastic":
+        engine.reasoning_mode = args.mode
+        print(f"  [Mode] Reasoning mode set to '{args.mode}'")
 
 
     # ── BATCH MODE (--chat) ──

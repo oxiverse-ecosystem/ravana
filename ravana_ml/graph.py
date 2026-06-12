@@ -116,11 +116,12 @@ class ConceptNode:
 class ConceptEdge:
     def __init__(self, source: int, target: int, weight: float = 0.5,
                  shortcut: bool = False, edge_type: str = "excitatory",
-                 relation_type: str = "semantic", relation_dim: int = 16):
+                 relation_type: str = "semantic", relation_dim: int = 16,
+                 confidence: float = 0.5):
         self.source = source
         self.target = target
         self._weight = max(0.0, min(1.0, weight))
-        self._confidence = 0.1
+        self._confidence = confidence
         self.prediction_free_energy = 0.0
         self.stability = 0.3
         self.timestamp = time.time()
@@ -1237,7 +1238,8 @@ class ConceptGraph:
 
     def add_edge(self, source: int, target: int, weight: float = 0.5,
                  shortcut: bool = False, edge_type: str = "excitatory",
-                 relation_type: str = "semantic") -> ConceptEdge:
+                 relation_type: str = "semantic",
+                 confidence: Optional[float] = None) -> ConceptEdge:
         key = (source, target)
         if key in self.edges:
             edge = self.edges[key]
@@ -1249,10 +1251,14 @@ class ConceptGraph:
                 edge.edge_type = "inhibitory"
             if relation_type != "semantic":
                 edge.relation_type = relation_type
+            if confidence is not None:
+                edge.confidence = confidence
             return edge
+        if confidence is None:
+            confidence = 0.5
         edge = ConceptEdge(source, target, weight, shortcut=shortcut,
                           edge_type=edge_type, relation_type=relation_type,
-                          relation_dim=self._relation_dim)
+                          relation_dim=self._relation_dim, confidence=confidence)
         edge.parent_graph = self
         # Ablation: randomize relation vector if type-anchoring is disabled
         if not self._anchor_relation_vectors:

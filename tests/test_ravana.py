@@ -172,9 +172,9 @@ def test_rlm_convergence():
         src, tgt = train_seq[i], train_seq[i + 1]
         src_e = rlm.token_embed(StateTensor(np.array([src]))).data[0]
         tgt_e = rlm.token_embed(StateTensor(np.array([tgt]))).data[0]
-        src_c = rlm._nearest_concept(src_e)
-        tgt_c = rlm._nearest_concept(tgt_e)
-        if rlm.graph.get_edge(src_c, tgt_c):
+        src_cid = rlm._nearest_concept(src_e)[0]  # (cid, sim) tuple
+        tgt_cid = rlm._nearest_concept(tgt_e)[0]  # (cid, sim) tuple
+        if rlm.graph.get_edge(src_cid, tgt_cid):
             edges_found += 1
 
     total = len(train_seq) - 1
