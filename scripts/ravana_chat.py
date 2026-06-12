@@ -1389,6 +1389,7 @@ class CognitiveChatEngine:
         """Process input and generate a response, auto-learning when needed."""
         self.turn_count += 1
         self._learned_this_turn = False
+        self._cascade_for_quality = False
         # Signal background thread that user is active
         self.notify_user_active()
         # Phase 15.2: Inter-turn episodic edge decay (forgetting between turns)
@@ -4287,6 +4288,7 @@ class CognitiveChatEngine:
     def stop_background_learning(self):
         """Stop the background learning thread gracefully.""" 
         self._bg_learning_active = False
+        self._cascade_for_quality = False
         self._bg_idle_event.set()  # wake up the thread so it can exit
         if self._bg_learning_thread and self._bg_learning_thread.is_alive():
             self._bg_learning_thread.join(timeout=5)
@@ -4297,7 +4299,7 @@ class CognitiveChatEngine:
         """Background learning thread: processes pending queue and related searches when idle."""
         while self._bg_learning_active:
             # Wait until the user sends a message (idle event cleared = user active)
-            self._bg_idle_event.wait()  # wake every 30s to check queue
+            self._bg_idle_event.wait(timeout=60)  # wake every 30s to check queue
             if not self._bg_learning_active:
                 break
             # Process pending queue items in background
