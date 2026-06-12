@@ -617,6 +617,7 @@ class CognitiveChatEngine:
         self._bg_idle_event = threading.Event()  # set when user sends a message
         self._bg_search_count: int = 0  # total background searches performed
         self._bg_multi_search_max: int = 3  # related searches to expand per query
+        self._bg_idle_search_count: int = 0  # searches done in current idle period
 
         # Phase 18: Curiosity Drive - autonomous topic selection for background learning
         self._curiosity_drive_enabled: bool = True  # can be disabled via --no-curiosity
@@ -4377,19 +4378,26 @@ class CognitiveChatEngine:
                 # Limit autonomous cycles to 3 per idle session to prevent runaway web searches
                 if self._curiosity_cycles_this_session < 3:
                     self._curiosity_cycles_this_session += 1
+                    self._bg_idle_search_count = 0
+                    print(f'  [bg] idle cycle {self._curiosity_cycles_this_session}/3 - selecting curiosity topics...')
                     self._auto_select_curiosity_topics(max_topics=2)
                     with self._bg_lock:
                         all_queries = list(self._bg_learning_queue)
                         self._bg_learning_queue.clear()
+                else:
+                    print('  [bg] idle: waiting for more user input (curiosity budget used)')
             try:
                 for query in all_queries:
                     if not self._bg_learning_active:
                         break
+                    self._bg_idle_search_count += 1
+                    print(f'  [bg] ({self._bg_idle_search_count}) researching: {query}')
                     self._bg_multi_search(query)
                 # Save periodically after learning
                 if all_queries:
                     try:
-                        self.save()
+                        path = self.save()
+                        print(f'  [bg] saved to {os.path.basename(path)}')
                     except Exception:
                         pass
             except Exception:
@@ -4408,9 +4416,9 @@ class CognitiveChatEngine:
         try:
             result_summary = self.learn_from_web(query)
             self._bg_search_count += 1
-            if self._trace_enabled:
-                print(f'  [bg] search {self._bg_search_count}: {query} -> {result_summary}')
+            print(f'  [bg]   + {result_summary}')
         except Exception:
+            print(f'  [bg]   ! failed to research: {query}')
             return
         # Step 2: Extract related search terms from the query itself
         related = self._extract_related_queries(query)
@@ -4422,8 +4430,7 @@ class CognitiveChatEngine:
             try:
                 result_summary = self.learn_from_web(related_query)
                 self._bg_search_count += 1
-                if self._trace_enabled:
-                    print(f'  [bg] search {self._bg_search_count}: {related_query} -> {result_summary}')
+                print(f'  [bg]   + {result_summary}')
             except Exception:
                 continue
 
@@ -4488,13 +4495,13 @@ class CognitiveChatEngine:
         self._bg_idle_event.set()  # Wake the background thread
 
     def notify_user_active(self):
-        self._curiosity_cycles_this_session = 0
         """Signal that the user is actively chatting (pause background learning)."""
         self._bg_idle_event.clear()  # thread will block on wait
 
     def notify_user_idle(self):
         """Signal that the user is idle (resume background learning)."""
         self._bg_idle_event.set()  # thread will wake up and process
+        self._curiosity_cycles_this_session = 0  # fresh curiosity budget per idle period
 
     # --- Phase 18: Curiosity Drive - Autonomous Topic Selection ---
     # Based on: Berlyne epistemic curiosity, Loewenstein information-gap theory,
