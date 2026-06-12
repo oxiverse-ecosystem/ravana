@@ -3347,6 +3347,33 @@ class CognitiveChatEngine:
 
     # ─── Phase 8: Sentence Formatting & Prefrontal Coherence ───
 
+    def _is_low_quality_response(self, sentences: list) -> bool:
+        """Detect circular/repetitive/low-quality responses.""" 
+        if not sentences:
+            return True
+        full = ' '.join(sentences).lower()
+        # Check for circular patterns: subject appears multiple times as both src and tgt
+        words = full.split()
+        if len(words) < 3:
+            return True
+        # Check repetitiveness: same concept appears 3+ times
+        from collections import Counter
+        word_counts = Counter(w for w in words if len(w) > 3)
+        if any(c >= 3 for c in word_counts.values()):
+            return True
+        # Check for circular A->B then B->A patterns
+        sentences_lower = [s.lower() for s in sentences]
+        if len(sentences_lower) >= 2:
+            for i, s1 in enumerate(sentences_lower):
+                for s2 in sentences_lower[i+1:]:
+                    # Check if concepts in s1 appear reversed in s2
+                    words1 = set(w for w in s1.split() if len(w) > 3)
+                    words2 = set(w for w in s2.split() if len(w) > 3)
+                    if len(words1) >= 2 and len(words2) >= 2:
+                        if words1 == words2:
+                            return True
+        return False
+
     def _format_sentence(self, chain_str: str, subject: str,
                           connector_counts: Dict[str, int],
                           sentence_idx: int) -> str:
@@ -3621,7 +3648,8 @@ class CognitiveChatEngine:
 
         # Phase 7.2: Check if response is weak (no substantive path found)
         # Store which strategy was used for impossible query tracking
-        if len(sentences) < 2 or all(len(s.strip(".").split()) < 3 for s in sentences):
+        self._cascade_for_quality = sentences and self._is_low_quality_response(sentences)
+        if len(sentences) < 2 or all(len(s.strip(".").split()) < 3 for s in sentences) or self._cascade_for_quality:
             # Build fallback seen set from all sentences so far
             fallback_seen = {subject.lower()}
             for s in sentences:
@@ -3672,12 +3700,17 @@ class CognitiveChatEngine:
                     strategies_tried.append("E_decompose")
 
             # Strategy F: Web Research Mode (if network available)
-            if strategy_result is None and getattr(self, '_network_available', True) is not False:
+            # Also trigger when response quality is circular/repetitive
+            _should_web = (strategy_result is None) or (getattr(self, "_cascade_for_quality", False) and strategy_result)
+            if _should_web and getattr(self, '_network_available', True) is not False:
                 search_result = getattr(self, 'learn_from_web', None)
                 if search_result and subject:
                     try:
                         self.learn_from_web(subject)
                         strategies_tried.append("F_web_research")
+                        # Queue subject for background learning and related searches
+                        if self._bg_learning_active:
+                            self.queue_background_search(subject)
                         # Retry A-E with expanded graph
                         retry = self._walk_chain(subject, seen, max_hops=2,
                                                   temperature=temps[1],
@@ -3705,7 +3738,7 @@ class CognitiveChatEngine:
                 self._last_strategy_used = "G_uncertainty"
 
         # Phase 7: Record impossible query if confidence was low
-        if len(sentences) < 2:
+        if len(sentences) < 2 or getattr(self, "_cascade_for_quality", False):
             activated_labels = [a[0] for a in assocs[:5]]
             failed = FailedQuery(
                 query=ctx.raw_input, subject=subject,
@@ -3718,6 +3751,9 @@ class CognitiveChatEngine:
             self._impossible_queries.append(failed)
             if len(self._impossible_queries) > 50:
                 self._impossible_queries = self._impossible_queries[-50:]
+                # Queue subject for background web learning
+                if subject and self._bg_learning_active:
+                    self.queue_background_search(subject)
 
         # Phase 4.1: Force chain re-anchoring for each sentence
         # Check if final concept of each sentence connects back to subject
