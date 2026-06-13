@@ -840,8 +840,8 @@ class CognitiveChatEngine:
         self.neural_decoder = NeuralDecoder(
             vocab_size=vocab_size,
             embed_dim=self.dim,
-            hidden_dim=128,
-            n_attention_heads=2,
+            hidden_dim=256,
+            n_attention_heads=4,
         )
 
         # Initialize decoder word embeddings from our built vectors
@@ -851,13 +851,24 @@ class CognitiveChatEngine:
                     self._decoder_word_to_embed[word]
         self.neural_decoder.rebuild_vocab_cache()
         self._decoder_vocab_built = True
-        self._train_decoder_from_graph()
-        # Seed corpus training is slow (hippocampal replay for 1255 words).
-        # Skip during init for fast startup. Can be triggered manually later.
-        # seed_n = self._train_decoder_on_seed_corpus()
+        # Train on seed corpus FIRST (real English patterns)
+        try:
+            self._train_decoder_on_seed_corpus(max_sentences=1000)
+            if self._trace_enabled and self._decoder_seed_training_count > 0:
+                print(f"  [init] Seed corpus training: {self._decoder_seed_training_count} sentences")
+        except Exception as e:
+            if self._trace_enabled:
+                print(f"  [init] Seed corpus training error: {e}")
 
-    def _train_decoder_from_graph(self):
-        """Train neural decoder on synthetic sentences from graph relationships."""
+        # Minimal synthetic training - just a few templates for structure
+        self._train_decoder_from_graph(min_synthetic=500)
+
+    def _train_decoder_from_graph(self, min_synthetic: int = 2000):
+        """Train neural decoder on synthetic sentences from graph relationships.
+        
+        Args:
+            min_synthetic: Maximum number of synthetic sentences to generate (default 2000, reduced from ~8000)
+        """
         if self.neural_decoder is None or not self._decoder_vocab_built:
             return
         templates = [
@@ -947,12 +958,14 @@ class CognitiveChatEngine:
                     sentences.append(sent)
 
         # Train with moderate learning to avoid overfitting to frequent words
+        # Limit synthetic training to avoid overwhelming real English patterns
+        sentences = sentences[:min_synthetic]
         total_trained = 0
         for sent in sentences:
             words = sent.split()
             err = self.neural_decoder.train_on_sentence(
                 words, self._decoder_word_to_embed, self._decoder_word_to_idx)
-        total_trained += len(sentences)
+            total_trained += 1
         self.neural_decoder.sleep_cycle()
         self._decoder_training_count = total_trained + self._decoder_web_training_count
         print(f"  [Decoder] Trained on {total_trained} synthetic graph sentences"
@@ -981,14 +994,15 @@ class CognitiveChatEngine:
         new_for_vocab = [w for w in words_in_corpus if w not in self._decoder_word_to_idx]
         if new_for_vocab:
             self._expand_decoder_vocab(new_for_vocab)
-        # Train decoder on the corpus text, multiple passes for
-        # Hebbian consolidation (no backprop).
+        # Train decoder on the corpus text, MANY passes for
+        # Hebbian consolidation (no backprop). Seed corpus is the primary
+        # source of real English syntax - train extensively.
         total_err = 0.0
         passes = 0
-        for _ in range(2):
+        for _ in range(20):  # 20 passes instead of 2
             err, n = self.neural_decoder.train_on_text(
                 text, self._decoder_word_to_embed, self._decoder_word_to_idx,
-                min_sentence_len=3)
+                min_sentence_len=3, max_sentences=200)  # More sentences per pass
             total_err += err
             passes += n
         if hasattr(self, "cerebellar_ngram") and self.cerebellar_ngram is not None:
@@ -1237,7 +1251,7 @@ class CognitiveChatEngine:
         # preferences yet and falls through to softmax anyway. Skip it
         # until the decoder has meaningful web training.
         bg_gate = getattr(self, 'basal_ganglia', None) if self._decoder_web_training_count >= 200 else None
-        temp = 0.7 if self._decoder_training_count < 5000 else 0.8
+        temp = 0.9 if self._decoder_training_count < 5000 else 1.0
         generated_indices = self.neural_decoder.generate(
             conditioning_embs=conditioning_embs,
             max_steps=18,
@@ -1258,7 +1272,7 @@ class CognitiveChatEngine:
                     max_steps=18,
                     bos_idx=bos_idx,
                     eos_idx=eos_idx,
-                    temperature=min(1.0, temp + 0.2),
+                    temperature=min(1.1, temp + 0.3),
                     cerebellar_ngram=None,
                     idx_to_word=self._decoder_idx_to_word,
                     basal_ganglia=None,
@@ -1993,7 +2007,7 @@ class CognitiveChatEngine:
                     try:
                         article_text = self._fetch_article_text(url)
                         if article_text and len(article_text) > len(text):
-                            text = article_text[:3000]
+                            text = article_text[:5000]
                     except Exception:
                         pass
                 return text
@@ -2221,8 +2235,9 @@ class CognitiveChatEngine:
             if trained > 0:
                 self._decoder_web_training_count += trained
             # Multiple passes per article to strengthen Hebbian traces
+            # More passes for web articles (10 instead of 4)
             if trained > 0:
-                for _ in range(4):
+                for _ in range(10):
                     err2, trained2 = self.neural_decoder.train_on_text(
                         text, self._decoder_word_to_embed, self._decoder_word_to_idx,
                         conditioning_embs=cond_embs)
@@ -4462,52 +4477,6 @@ class CognitiveChatEngine:
                                 subject_proximity=subject)
 
     # Natural sentence templates for LLM-like output
-    _NATURAL_PHRASES = {
-        'semantic': ['is closely tied to', 'connects with', 'relates to', 'links to', 'goes hand in hand with'],
-        'causal': ['leads to', 'creates', 'causes', 'brings about', 'influences'],
-        'contrastive': ['contrasts with', 'differs from', 'stands against', 'challenges'],
-        'analogical': ['is like', 'resembles', 'mirrors', 'echoes'],
-        'temporal': ['comes before', 'follows', 'leads into', 'precedes'],
-        'episodic': ['connects to', 'links with', 'relates to'],
-    }
-    _NATURAL_STARTERS = {
-        'semantic': ['and', 'also', 'moreover', 'furthermore'],
-        'causal': ['because', 'since', 'so', 'therefore'],
-        'contrastive': ['but', 'however', 'yet', 'although'],
-        'analogical': ['like', 'similar to', 'just as'],
-        'temporal': ['then', 'next', 'afterwards', 'following that'],
-        'episodic': ['and', 'also', 'plus'],
-    }
-
-    def _compose_uncertainty_response(self, query: str, subject: str,
-                                       activated_concepts: List[str],
-                                       strategies_tried: List[str]) -> str:
-        """Strategy G: Express uncertainty using graph labels only.
-        Pattern: '[subject] connect [c1] [c2]. curious learn more.'
-        All words must be existing graph labels."""
-        c1 = ""
-        c2 = ""
-        if activated_concepts:
-            c1 = activated_concepts[0]
-            if len(activated_concepts) > 1:
-                c2 = activated_concepts[1]
-        if not c1 or c1.lower() == subject.lower():
-            # Use the subject's vector neighbor
-            neighbor = self._find_vector_neighbor(subject)
-            if neighbor and neighbor.lower() != subject.lower():
-                c1 = neighbor
-        if not c2 or c2.lower() == subject.lower() or c2.lower() == c1.lower():
-            other = self._find_vector_neighbor(c1 if c1 else subject)
-            if other and other.lower() != subject.lower() and other.lower() != c1.lower():
-                c2 = other
-        parts = []
-        if c1 and c1.lower() != subject.lower():
-            parts.append(f"{subject} connect {c1}")
-        if c2 and c2.lower() != c1.lower() and c2.lower() != subject.lower():
-            parts.append(f"{c1} connect {c2}") if c1 and c1.lower() != subject.lower() else parts.append(f"{subject} connect {c2}")
-        if not parts:
-            parts.append(f"{subject} connect ...")
-        parts.append("curious learn more")
         return " ".join(parts) + "."
 
     # ─── Phase 8: Sentence Formatting & Prefrontal Coherence ───
@@ -4542,253 +4511,35 @@ class CognitiveChatEngine:
 
     # ─── Phase E+F+G: Syntactic assembly + Surface realization pipeline ───
 
-    def _build_sentence_from_chain(self, chain_str: str, subject: str,
-                                    relation: str,
-                                    intent=None,
-                                    dopamine_tone: float = 0.5,
-                                    sentence_idx: int = 0) -> str:
-        """Build a sentence using the SyntacticCellAssembly + SurfaceRealizer pipeline.
 
-        This replaces _format_sentence's random template approach with:
-        1. Parse the chain into concepts and connectors
-        2. Build a SyntacticFrame using Hebbian-weighted role assignment
-        3. Realize the frame using rule-governed English morphology
-        4. Apply dopamine-modulated variation
-
-        Falls back to _format_sentence if the pipeline is not available.
-        """
-        if not hasattr(self, 'syntactic_assembly') or not hasattr(self, 'surface_realizer'):
-            return self._format_sentence(chain_str, subject, {},
-                                         sentence_idx)
-
-        parts = chain_str.split()
-        concepts = [p for p in parts if p.lower() not in getattr(self, '_CONNECTOR_SET', set())]
-        connectors = [p for p in parts if p.lower() in getattr(self, '_CONNECTOR_SET', set())]
-
-        if not concepts:
-            return self._format_sentence(chain_str, subject, {},
-                                         sentence_idx)
-
-        # Determine relation type from connectors or intent
-        rel_type = 'semantic'
-        if intent and hasattr(intent, 'primary_relation') and intent.primary_relation:
-            rel_type = intent.primary_relation
-        elif connectors:
-            edge_info = self._get_edge_info(concepts[0], concepts[-1]) if len(concepts) >= 2 else None
-            if edge_info:
-                rel_type = edge_info.get('relation_type', 'semantic')
-
-        # The target concept is the last concept that's not the subject
-        target = concepts[-1] if concepts[-1].lower() != subject.lower() else (concepts[0] if concepts else subject)
-
-        # Build syntactic frame
-        frame = self.syntactic_assembly.bind_to_sentence(
-            subject=subject,
-            relation=rel_type,
-            target=target,
-            pos_map=getattr(self, '_concept_pos', {}),
-            chain_concepts=concepts,
-            chain_connectors=connectors,
-            depth=len(concepts),
-        )
-
-        # Determine discourse type and marker from intent
-        discourse_type = intent.type if intent and hasattr(intent, 'type') else 'explain'
-        discourse_marker = intent.discourse_marker if intent and hasattr(intent, 'discourse_marker') else ''
-
-        # Build discourse context
-        ctx = DiscourseState(
-            sentence_index=sentence_idx,
-            discourse_type=discourse_type,
-            total_sentences=3,
-        )
-
-        # Realize the surface form with dopamine modulation
-        dopamine = getattr(self, '_dopamine_tone', 0.5)
-        sentence = self.surface_realizer.realize(
-            frame=frame,
-            discourse_context=ctx,
-            dopamine_tone=dopamine,
-            cerebellar_ngram=getattr(self, 'cerebellar_ngram', None),
-        )
-
-        return sentence
-
-    def _format_sentence(self, chain_str: str, subject: str,
-                          connector_counts: Dict[str, int],
-                          sentence_idx: int) -> str:
-        """Format a chain into a sentence that stays on-topic.
-
-        Uses three strategies for sentence variety while keeping subject prominent:
-        0: raw chain (first sentence, establishes topic)
-        1: starter + subject + chain_tail (re-anchor to subject)
-        2: starter + i-perspective + subject + chain_tail (self-reference, 25% chance)
-           or starter + subject + chain_tail (75% chance)
-
-        All words are graph-native labels.
-        """
-        # Phase D: Select discourse format from cerebellar n-gram model
-        discourse = self._get_cerebellar_discourse(subject, sentence_idx)
-
-        # Phase E: Detect if chain contains contrastive edges
-        has_contrast = self._has_contrastive_connector(chain_str)
-
-        # Parse chain into concepts and connectors
-        parts = chain_str.split()
-        concepts = [p for p in parts if p.lower() not in self._CONNECTOR_SET]
-        chain_conns = [p for p in parts if p.lower() in self._CONNECTOR_SET]
-
-        if not concepts:
-            return chain_str + "."
-
-        def _get_phrase(rel: str) -> str:
-            phrases = self._NATURAL_PHRASES.get(rel, self._NATURAL_PHRASES['semantic'])
-            if getattr(self, 'reasoning_mode', 'stochastic') == 'deterministic':
-                return phrases[0]
-            return self.rng.choice(phrases)
-
-        def _get_starter(rel: str) -> str:
-            starters = self._NATURAL_STARTERS.get(rel, self._NATURAL_STARTERS['semantic'])
-            if getattr(self, 'reasoning_mode', 'stochastic') == 'deterministic':
-                return starters[0]
-            return self.rng.choice(starters)
-
-        # Determine the dominant relation type from the chain
-        dominant_rel = 'semantic'
-        # Prefer relation type from actual edge between subject and first concept
-        if concepts:
-            edge_info = self._get_edge_info(subject, concepts[0])
-            if edge_info and edge_info['relation_type'] != 'semantic':
-                dominant_rel = edge_info['relation_type']
-            elif chain_conns:
-                for c in chain_conns:
-                    for rel_type, glabel in self._EDGE_TO_GRAPH_LABEL.items():
-                        if glabel == c.lower():
-                            dominant_rel = rel_type
-                            break
-
-        # Build natural sentence
-        if sentence_idx <= 0:
-            # First sentence: establish topic naturally
-            if len(concepts) >= 2:
-                phrase = _get_phrase(dominant_rel)
-                other = concepts[1] if concepts[1].lower() != subject.lower() else concepts[0]
-                # Variety: sometimes add a natural tail, sometimes end cleanly
-                # Phase D+G: Cerebellar discourse + dopamine-modulated tail probability
-                # Use cerebellar depth to determine tail richness (familiar topics get richer tails)
-                cereb_depth = self._cerebellar_depth.get(subject.lower(), 0.0)
-                depth_boost = min(0.3, cereb_depth * 0.05)
-                tail_prob = max(0.15, min(0.65, 0.35 + depth_boost + (self._dopamine_tone - 0.5) * 0.4))
-                if self.rng.random() < tail_prob:
-                    if discourse == "exploratory" or (self._dopamine_tone > 0.6 and self.rng.random() < 0.3):
-                        tails = [" among other things", " and more", " and related ideas",
-                                 " which connects to many things", " that shape how we think",
-                                 " and everything that follows from that", " and so much more"]
-                    else:
-                        tails = [" among other things", " and more", " and related ideas"]
-                    tail = self.rng.choice(tails)
-                else:
-                    tail = ""
-                return f"{subject.capitalize()} {phrase} {other}{tail}."
-            elif len(concepts) == 1:
-                # Single concept (subject only) - use vector neighbor for variety
-                neighbor = self._find_vector_neighbor(subject)
-                if neighbor and neighbor.lower() != subject.lower():
-                    phrase = _get_phrase(dominant_rel)
-                    return f"{subject.capitalize()} {phrase} {neighbor}."
-            return f"{subject.capitalize()} is an interesting concept to explore."
-
-        # Check if subject already in chain
-        subj_lower = subject.lower()
-        has_subject = any(subj_lower == c.lower() for c in concepts)
-
-        # Get concepts that aren't the subject
-        other_concepts = [c for c in concepts if c.lower() != subj_lower and c.lower() not in self.QUESTION_WORDS and c.lower() not in self.TOPIC_SKIP_WORDS and c.lower() not in STOP_WORDS]
-        if not other_concepts:
-            other_concepts = concepts[:2]
-
-        # Build the core content phrase
-        if len(other_concepts) >= 2:
-            phrase = _get_phrase(dominant_rel)
-            core = f"{other_concepts[0]} {phrase} {other_concepts[1]}"
-        elif other_concepts:
-            phrase = _get_phrase(dominant_rel)
-            core = f"{other_concepts[0]} {phrase} {subject}"
-        else:
-            core = chain_str
-
-        # Sentence 1+: re-anchor to subject with natural starter
-        starter = _get_starter(dominant_rel)
-
-        # Phase E: Contrastive discourse pivot — when chain has contrastive relation
-        if has_contrast and sentence_idx >= 1:
-            contrast_phrase = self._format_contrastive(core, starter, subject, sentence_idx)
-            if contrast_phrase:
-                return contrast_phrase
-
-        # Phase F: Recall grounding — when responding from hippocampal recall
-        if self._recall_mode and sentence_idx >= 1:
-            recall_starter = self._get_recall_grounding(subject)
-            if recall_starter:
-                starter = recall_starter
-
-        # Phase C+G: Confidence-aware epistemic hedging with dopamine modulation
-        if sentence_idx >= 2:
-            hedge = self._get_epistemic_hedge(subject)
-            if hedge:
-                # Hedge replaces starter for more natural flow
-                if self._dopamine_tone > 0.6 and self.rng.random() < 0.3:
-                    return f"{hedge.capitalize()} {core}."
-                return f"{hedge.capitalize()} {core}."
-
-        # Natural sentence with subject as anchor
-        if not has_subject:
-            return f"{starter.capitalize()}, {subject} {phrase} {', '.join(other_concepts[:2])}."
-        return f"{starter.capitalize()}, {core}."
     def _generate_response(self, ctx: CognitiveResponseContext) -> Tuple[str, str]:
-        """Walk progressive chains, each anchored to the subject for coherence.
+        """Generate response using neural decoder as primary, with reasoning loop for web search.
 
-        Phase 8: Prefrontal-guided coherence — every sentence walks from the
-        subject (not from the previous sentence's tail), keeping the response
-        on-topic. Lower temperatures reduce random drift. Occasional "i think"
-        or "i feel" self-reference mimics teenage speech patterns.
-
-        Phase 4: Anchor-based coherence:
-        - 4.1: Re-anchor to subject if final concept drifts
-        - 4.2: Subject-proximity bonus biases each hop toward the original topic
-        - 4.3: Track used concepts across sentences for diversity
-        - 4.4: Minimize monotonic "connect" chains
+        The decoder generates fluent text conditioned on graph walk embeddings.
+        For unknown topics, we trigger a reasoning loop that:
+        1. Decomposes the query into search sub-questions
+        2. Searches web for each sub-question
+        3. Learns from articles (trains decoder on full text)
+        4. Generates final response with decoder
         """
         subject = ctx.subject
         assocs = ctx.associated_concepts
 
-        # Try neural decoder — ONLY after substantial web-text training.
-        # Seed corpus + synthetic training produces gibberish. Require web training.
-        _have_web = self._decoder_web_training_count >= 200
+        # Try neural decoder first — require substantial web training for coherence
+        _have_web = self._decoder_web_training_count >= 1500
         _total = self._decoder_training_count
-        if _have_web and _total >= 500:
+        if _have_web and _total >= 3000:
             try:
                 decoder_response = self._generate_with_decoder(ctx)
                 if decoder_response and len(decoder_response) > 10:
                     resp_words = decoder_response.lower().strip(".").split()
-                    # Quality check 1: first word must be a meaningful subject, not a function word
                     first_word = resp_words[0] if resp_words else ""
                     function_starts = {"of", "to", "and", "in", "with", "the", "a", "an",
                                        "for", "from", "by", "at", "this", "that", "these",
                                        "those", "it", "its", "they", "them", "we", "you",
                                        "he", "she", "him", "her", "his", "i", "me", "my"}
-                    # Quality check 2: prefer the decoder only when the
-                    # output has both on-topic content (>= 30% of
-                    # content words are known graph concepts) and a
-                    # non-degenerate shape (at least 6 content words
-                    # and a small ratio of unique tokens, so we do
-                    # not return bag-of-words). The decoder is great
-                    # at vocabulary selection but not yet at syntax,
-                    # so most of the time the template path is better.
                     content_words = [w for w in resp_words if len(w) > 2 and w not in STOP_WORDS]
-                    if not content_words:
-                        pass
-                    else:
+                    if content_words:
                         in_concepts = sum(1 for w in content_words if w in self._concept_keywords)
                         concept_ratio = in_concepts / max(1, len(content_words))
                         uniq_ratio = len(set(content_words)) / max(1, len(content_words))
@@ -4801,16 +4552,23 @@ class CognitiveChatEngine:
             except Exception:
                 pass
 
+        # If decoder not ready or quality check failed, run reasoning loop
+        # which can search web, learn, then generate
+        try:
+            return self._reasoning_loop(ctx)
+        except Exception as e:
+            if self._trace_enabled:
+                print(f"  [trace] reasoning loop error: {e}")
+
+        # Final fallback: simple graph-based response
         act_boost = getattr(self, '_activation_boost', None)
         self._last_hops = []
 
         if not assocs:
             if subject:
-                # Check if subject is a domain concept with known properties
                 subj_lower = subject.lower()
                 if subj_lower in DOMAIN_CONCEPTS:
                     meta = DOMAIN_CONCEPTS[subj_lower]
-                    props = []
                     rel_labels = []
                     for src, tgt, rel_type, weight in meta["relations"]:
                         if src == subj_lower or tgt == subj_lower:
@@ -4819,13 +4577,11 @@ class CognitiveChatEngine:
                     if rel_labels:
                         props_str = ", ".join(rel_labels[:3])
                         return (f"{subject.capitalize()} is a {meta['keywords'].split()[1] if len(meta['keywords'].split()) > 1 else 'concept'} related to {props_str}.", "definition")
-                # Check if subject is actually in the graph
                 subj_in_graph = subj_lower in self._concept_labels or subj_lower in self._concept_keywords
                 if subj_in_graph:
                     neighbor = self._find_vector_neighbor(subject)
                     if neighbor and neighbor.lower() != subject.lower():
                         return (f"{subject} connect {neighbor}.", "associative")
-                    # Known subject but no connections — use top-level fallback
                     if subj_lower in self._concept_pos:
                         pos = self._concept_pos[subj_lower]
                         if pos == "verb":
@@ -4835,365 +4591,301 @@ class CognitiveChatEngine:
                         else:
                             return (f"{subject.capitalize()} is something I think about.", "associative")
                     return (f"{subject} is interesting.", "associative")
-                # Subject isn't in the graph at all — acknowledge uncertainty
-                return (f"I dont know about {subject} yet.", "unknown_subject")
+                return (f"I don't know about {subject} yet.", "unknown_subject")
             return ("...", "associative")
 
-        # Phase D: Prefrontal discourse planning — plan before generating
-        sentences = []
-        connector_counts: Dict[str, int] = {}
-        
-        # Plan discourse using PFC workspace
-        plan = self.pfc_workspace.plan_discourse(
-            user_input=ctx.raw_input,
-            subject=subject,
-            concept_pos=self._concept_pos,
-            associations=assocs,
-            past_topics=ctx.past_topics if hasattr(ctx, 'past_topics') else None,
-            is_follow_up=self._is_follow_up(ctx.raw_input) if hasattr(self, '_is_follow_up') else False,
-        )
-        
-        # Phase 9: Initialize prefrontal buffer with subject
-        if getattr(self, '_pfc_gating_enabled', True):
-            self._prefrontal_buffer = [subject.lower()]
-        
-        # Phase 8: Walk chains according to discourse plan
+        # Walk graph for associations as fallback
         temps = [self._get_temperature(0), self._get_temperature(1), self._get_temperature(2)]
-        connector_counts: Dict[str, int] = {}
+        sentences = []
+        seen = {subject.lower()}
 
-        # Hot-cognition: high arousal → shorter sentences (teens speak less coherently when excited)
-        # Sentence 1 uses 1 hop to establish topic, sentences 2-3 use 2 hops for exploration.
-        # This prevents exhausting the graph in sentence 1.
-        arousal = self.emotion.state.arousal if getattr(self, 'use_vad', True) else 0.3
-        if arousal > 0.6:
-            s_hops = [1, 1, 1]
-        elif arousal > 0.4:
-            s_hops = [1, 2, 2]
-        else:
-            s_hops = [2, 2, 2]
-
-        # Fix 1: Recall mode — re-traverse episodic memory first, then extend
-        if ctx.recall_mode:
-            # Sentence 1: walk episodic edges from subject (re-trace conversation)
-            s1_seen = {subject.lower()}
-            s1_subj = plan.intents[0].subject if len(plan.intents) > 0 else subject
-            chain1 = self._walk_chain(s1_subj, s1_seen, max_hops=s_hops[0], temperature=temps[0],
-                                      activation_boost=act_boost,
-                                      subject_proximity=subject, episodic_first=True)
-            if not chain1:
-                chain1 = self._walk_chain(subject, s1_seen, max_hops=s_hops[0], temperature=temps[0],
-                                           activation_boost=act_boost,
-                                           subject_proximity=subject)
-            if chain1:
-                marker1 = plan.intents[0].discourse_marker if len(plan.intents) > 0 and len(sentences) > 0 else ''
-                marker1 = marker1.capitalize() + ' ' if marker1 else ''
-                sentences.append(self._build_sentence_from_chain(chain1, s1_subj, plan.intents[0].primary_relation if len(plan.intents) > 0 else 'semantic', intent=plan.intents[0] if len(plan.intents) > 0 else None, sentence_idx=0))
-                chain1_concepts = [p for p in chain1.split() if p.lower() not in self._CONNECTOR_SET]
-                # Phase 15.1: Track episodic edges from chain traversal
-                for ci in range(len(chain1_concepts) - 1):
-                    c1a = chain1_concepts[ci].lower()
-                    c1b = chain1_concepts[ci + 1].lower()
-                    c1a_ids = self._concept_keywords.get(c1a, [])
-                    c1b_ids = self._concept_keywords.get(c1b, [])
-                    if c1a_ids and c1b_ids:
-                        self._add_episodic_edge(c1a_ids[0], c1b_ids[0])
-                if getattr(self, '_pfc_gating_enabled', True):
-                    self._prefrontal_maintain_buffer(subject, chain1_concepts)
-                # Phase 10.3: Update sentence schema after sentence
-                self._update_sentence_schema(subject, [c for c in chain1_concepts if len(c) >= 3][:5])
-                for word in chain1.split():
-                    if word.lower() in self._CONNECTOR_SET:
-                        connector_counts[word.lower()] = connector_counts.get(word.lower(), 0) + 1
-
-            # Sentence 2: extend semantically from subject (explore beyond episodic)
-            s2_seen = {subject.lower()}
-            s2_subj = plan.intents[1].subject if len(plan.intents) > 1 else subject
-            chain2 = self._walk_chain(s2_subj, s2_seen, max_hops=s_hops[1], temperature=temps[1],
-                                      activation_boost=act_boost,
-                                      subject_proximity=subject)
-            if chain2:
-                sentences.append(self._build_sentence_from_chain(chain2, s2_subj, plan.intents[1].primary_relation if len(plan.intents) > 1 else 'semantic', intent=plan.intents[1] if len(plan.intents) > 1 else None, sentence_idx=1))
-                chain2_concepts = [p for p in chain2.split() if p.lower() not in self._CONNECTOR_SET]
-                # Phase 15.1: Track episodic edges from chain traversal
-                for ci in range(len(chain2_concepts) - 1):
-                    c2a = chain2_concepts[ci].lower()
-                    c2b = chain2_concepts[ci + 1].lower()
-                    c2a_ids = self._concept_keywords.get(c2a, [])
-                    c2b_ids = self._concept_keywords.get(c2b, [])
-                    if c2a_ids and c2b_ids:
-                        self._add_episodic_edge(c2a_ids[0], c2b_ids[0])
-                if getattr(self, '_pfc_gating_enabled', True):
-                    self._prefrontal_maintain_buffer(subject, chain2_concepts)
-                # Phase 10.3: Update sentence schema after sentence
-                self._update_sentence_schema(subject, [c for c in chain2_concepts if len(c) >= 3][:5])
-                for word in chain2.split():
-                    if word.lower() in self._CONNECTOR_SET:
-                        connector_counts[word.lower()] = connector_counts.get(word.lower(), 0) + 1
-
-            # Sentence 3: summary perspective from subject
-            s3_seen = {subject.lower()}
-            s3_subj = plan.intents[2].subject if len(plan.intents) > 2 else subject
-            chain3 = self._walk_chain(s3_subj, s3_seen, max_hops=s_hops[2], temperature=temps[2],
-                                      activation_boost=act_boost,
-                                      subject_proximity=subject)
-            if chain3:
-                sentences.append(self._build_sentence_from_chain(chain3, s3_subj, plan.intents[2].primary_relation if len(plan.intents) > 2 else 'semantic', intent=plan.intents[2] if len(plan.intents) > 2 else None, sentence_idx=2))
-                chain3_concepts = [p for p in chain3.split() if p.lower() not in self._CONNECTOR_SET]
-                # Phase 15.1: Track episodic edges from chain traversal
-                for ci in range(len(chain3_concepts) - 1):
-                    c3a = chain3_concepts[ci].lower()
-                    c3b = chain3_concepts[ci + 1].lower()
-                    c3a_ids = self._concept_keywords.get(c3a, [])
-                    c3b_ids = self._concept_keywords.get(c3b, [])
-                    if c3a_ids and c3b_ids:
-                        self._add_episodic_edge(c3a_ids[0], c3b_ids[0])
-                if getattr(self, '_pfc_gating_enabled', True):
-                    self._prefrontal_maintain_buffer(subject, chain3_concepts)
-                # Phase 10.3: Update sentence schema after sentence
-                self._update_sentence_schema(subject, [c for c in chain3_concepts if len(c) >= 3][:5])
-                for word in chain3.split():
-                    if word.lower() in self._CONNECTOR_SET:
-                        connector_counts[word.lower()] = connector_counts.get(word.lower(), 0) + 1
-            if not sentences:
-                subj_in_graph = subject.lower() in self._concept_labels or subject.lower() in self._concept_keywords
-                if subj_in_graph:
-                    neighbor = self._find_vector_neighbor(subject)
-                    if neighbor and neighbor.lower() != subject.lower():
-                        return (f"{subject} connect {neighbor}.", "associative")
-                    return (f"{subject} is interesting.", "associative")
-                return (f"I dont know about {subject} yet.", "unknown_subject")
-        else:
-            # Sentence 1: walk from subject (own seen set)
-            s1_seen = {subject.lower()}
-            s1_subj = plan.intents[0].subject if len(plan.intents) > 0 else subject
-            # If subject is empty, use top association as fallback subject
-            if not s1_subj and assocs:
-                s1_subj = assocs[0][0]
-                subject = s1_subj  # update for downstream use
-            chain1 = self._walk_chain(s1_subj, s1_seen, max_hops=s_hops[0], temperature=temps[0],
-                                      activation_boost=act_boost,
-                                      subject_proximity=subject)
-            if not chain1:
-                subj_in_graph = subject.lower() in self._concept_labels or subject.lower() in self._concept_keywords
-                if subj_in_graph:
-                    neighbor = self._find_vector_neighbor(subject)
-                    if neighbor and neighbor.lower() != subject.lower():
-                        return (f"{subject} connect {neighbor}.", "associative")
-                    return (f"{subject} is interesting.", "associative")
-                return (f"I dont know about {subject} yet.", "unknown_subject")
-            sentences.append(self._format_sentence(chain1, s1_subj, connector_counts, 0))
-            chain1_concepts = [p for p in chain1.split() if p.lower() not in self._CONNECTOR_SET]
-            if getattr(self, '_pfc_gating_enabled', True):
-                self._prefrontal_maintain_buffer(subject, chain1_concepts)
-            for word in chain1.split():
-                if word.lower() in self._CONNECTOR_SET:
-                    connector_counts[word.lower()] = connector_counts.get(word.lower(), 0) + 1
-
-            # Sentence 2: walk from subject again with own seen set
-            s2_seen = {subject.lower()}
-            s2_subj = plan.intents[1].subject if len(plan.intents) > 1 else subject
-            chain2 = self._walk_chain(s2_subj, s2_seen, max_hops=s_hops[1], temperature=temps[1],
-                                      activation_boost=act_boost,
-                                      subject_proximity=subject)
-            if not chain2:
-                chain2 = self._walk_chain(subject, s2_seen, max_hops=1, temperature=temps[1],
-                                           activation_boost=act_boost, subject_proximity=subject)
-            if chain2:
-                sentences.append(self._format_sentence(chain2, s2_subj, connector_counts, 1))
-                chain2_concepts = [p for p in chain2.split() if p.lower() not in self._CONNECTOR_SET]
-                if getattr(self, '_pfc_gating_enabled', True):
-                    self._prefrontal_maintain_buffer(subject, chain2_concepts)
-                # Phase 10.3: Update sentence schema after sentence
-                self._update_sentence_schema(subject, [c for c in chain2_concepts if len(c) >= 3][:5])
-                for word in chain2.split():
-                    if word.lower() in self._CONNECTOR_SET:
-                        connector_counts[word.lower()] = connector_counts.get(word.lower(), 0) + 1
-
-            # Sentence 3: walk from subject again with own seen set
-            s3_subj = subject
-            s3_seen = {subject.lower()}
-            chain3 = self._walk_chain(subject, s3_seen, max_hops=s_hops[2], temperature=temps[2],
-                                      activation_boost=act_boost,
-                                      subject_proximity=subject)
-            if chain3:
-                sentences.append(self._format_sentence(chain3, s3_subj, connector_counts, 2))
-                chain3_concepts = [p for p in chain3.split() if p.lower() not in self._CONNECTOR_SET]
-                if getattr(self, '_pfc_gating_enabled', True):
-                    self._prefrontal_maintain_buffer(subject, chain3_concepts)
-                # Phase 10.3: Update sentence schema after sentence
-                self._update_sentence_schema(subject, [c for c in chain3_concepts if len(c) >= 3][:5])
-                for word in chain3.split():
-                    if word.lower() in self._CONNECTOR_SET:
-                        connector_counts[word.lower()] = connector_counts.get(word.lower(), 0) + 1
-
-        # Phase 7.2: Check if response is weak (no substantive path found)
-        # Store which strategy was used for impossible query tracking
-        self._cascade_for_quality = sentences and self._is_low_quality_response(sentences)
-        if len(sentences) < 2 or all(len(s.strip(".").split()) < 3 for s in sentences) or self._cascade_for_quality:
-            # Build fallback seen set from all sentences so far
-            fallback_seen = {subject.lower()}
-            for s in sentences:
-                for w in s.strip(".").split():
-                    wl = w.lower()
-                    if wl not in self._CONNECTOR_SET:
-                        fallback_seen.add(wl)
-            seen = fallback_seen
-            strategies_tried = ["A_direct_chain"]
-            strategy_result = None
-            strategy_sentence_idx = len(sentences)  # which sentence position to fill
-
-            # Strategy B: Bridge Prospecting
-            if strategy_result is None:
-                bridge_result = self._bridge_prospecting(
-                    getattr(self, '_last_activated_ids', []), subject, seen, temps[1])
-                if bridge_result:
-                    strategy_result = self._format_sentence(bridge_result, subject, connector_counts, strategy_sentence_idx)
-                    strategies_tried.append("B_bridge")
-
-            # Strategy C: Analogical Detour
-            if strategy_result is None:
-                analog_result = self._analogical_detour(subject, seen, temps[1])
-                if analog_result:
-                    strategy_result = self._format_sentence(analog_result, subject, connector_counts, strategy_sentence_idx)
-                    strategies_tried.append("C_analogical")
-
-            # Strategy D: Contrastive Flip
-            if strategy_result is None:
-                contrast_result = self._contrastive_flip(subject, seen, temps[1])
-                if contrast_result:
-                    strategy_result = self._format_sentence(contrast_result, subject, connector_counts, strategy_sentence_idx)
-                    strategies_tried.append("D_contrastive")
-
-            # Strategy E: Sub-Question Decomposition
-            if strategy_result is None:
-                decomp_result = self._sub_question_decompose(subject, ctx.raw_input, seen, temps[1])
-                if decomp_result:
-                    strategy_result = self._format_sentence(decomp_result, subject, connector_counts, strategy_sentence_idx)
-                    strategies_tried.append("E_decompose")
-
-            # Strategy F: Web Research Mode (if network available)
-            # Trigger when no strategy worked yet, or quality cascade needs web help
-            _should_web = (strategy_result is None) or (getattr(self, "_cascade_for_quality", False) and strategy_result is None)
-            if _should_web and getattr(self, '_network_available', True) is not False:
-                search_result = getattr(self, 'learn_from_web', None)
-                if search_result and subject:
+        for i, temp in enumerate(temps):
+            chain = self._walk_chain(subject, seen, max_hops=2 if i > 0 else 1,
+                                     temperature=temp, activation_boost=act_boost,
+                                     subject_proximity=subject)
+            if chain:
+                # Use decoder to format even fallback chains
+                if _have_web and _total >= 500:
                     try:
-                        self.learn_from_web(subject)  # synchronous for immediate retry
-                        strategies_tried.append("F_web_research")
-                        if self._bg_learning_active:
-                            self.queue_background_search(subject)
-                        # Retry direct chain with expanded graph
-                        retry = self._walk_chain(subject, seen, max_hops=2,
-                                                  temperature=temps[1],
-                                                  subject_proximity=subject)
-                        if retry:
-                            strategy_result = self._format_sentence(retry, subject, connector_counts, strategy_sentence_idx)
+                        decoder_out = self._generate_with_decoder(CognitiveResponseContext(
+                            subject=subject, relation="semantic", object="",
+                            raw_input=ctx.raw_input, associated_concepts=assocs,
+                            bridge_concept=self._find_bridge(assocs, subject),
+                            valence=ctx.valence, arousal=ctx.arousal,
+                            dominance=ctx.dominance, emotional_label=ctx.emotional_label,
+                            identity_strength=ctx.identity_strength, identity_trend=ctx.identity_trend,
+                            dissonance=ctx.dissonance, processing_route=ctx.processing_route,
+                            route_reason=ctx.route_reason, past_topics=ctx.past_topics,
+                            turn_count=self.turn_count, meaning_generated=ctx.meaning_generated,
+                            exploration_drive=ctx.exploration_drive, learned_recently=ctx.learned_recently,
+                            recall_mode=ctx.recall_mode
+                        ))
+                        if decoder_out:
+                            sentences.append(decoder_out)
+                            continue
                     except Exception:
                         pass
-
-            # Strategy G: Honest Uncertainty
-            if strategy_result is None:
-                activated_labels = [a[0] for a in assocs[:5]]
-                uncertainty = self._compose_uncertainty_response(
-                    ctx.raw_input, subject, activated_labels, strategies_tried)
-                strategy_result = uncertainty
-                strategies_tried.append("G_uncertainty")
-
-            if strategy_result:
-                # Replace last sentence if we have 3+, otherwise append
-                if len(sentences) >= 3:
-                    sentences[-1] = strategy_result
-                else:
-                    sentences.append(strategy_result)
-                self._last_strategy_used = strategies_tried[-1] if strategies_tried else "A"
-                if self._trace_enabled:
-                    print(f"  [trace]   strategy: {', '.join(strategies_tried)}")
-            else:
-                self._last_strategy_used = "G_uncertainty"
-
-        # Phase 7: Record impossible query if confidence was low
-        if len(sentences) < 2 or getattr(self, "_cascade_for_quality", False):
-            activated_labels = [a[0] for a in assocs[:5]]
-            failed = FailedQuery(
-                query=ctx.raw_input, subject=subject,
-                activated_concepts=activated_labels,
-                strategies_tried=getattr(self, '_last_strategy_used', 'A'),
-                best_guess_response=" ".join(sentences) if sentences else subject,
-                turn=self.turn_count,
-                free_energy_at_time=self._free_energy,
-            )
-            self._impossible_queries.append(failed)
-            if len(self._impossible_queries) > 50:
-                self._impossible_queries = self._impossible_queries[-50:]
-                # Queue subject for background web learning
-                if subject and self._bg_learning_active:
-                    self.queue_background_search(subject)
-
-        # Phase 4.1: Force chain re-anchoring for each sentence
-        # Check if final concept of each sentence connects back to subject
-        # If not, try to add a re-anchor hop or shorten the sentence
-        re_anchored = []
-        for sent in sentences:
-            words = sent.strip(".").split()
-            if len(words) >= 3:
-                last_concept = words[-1]
-                # Check if last concept has an edge connecting back to subject
-                lc_lower = last_concept.lower()
-                subj_lower = subject.lower()
-                if lc_lower != subj_lower and lc_lower not in self._CONNECTOR_SET:
-                    has_path = False
-                    lc_nids = self._concept_keywords.get(lc_lower, [])
-                    subj_nids = self._concept_keywords.get(subj_lower, [])
-                    if lc_nids and subj_nids:
-                        # Check direct edge
-                        for ln in lc_nids:
-                            for sn in subj_nids:
-                                if self.graph.get_edge(ln, sn) or self.graph.get_edge(sn, ln):
-                                    has_path = True
-                                    break
-                            if has_path:
-                                break
-                    if not has_path:
-                        # Try vector similarity — if threshold met, add re-anchor hop
-                        lc_node = self.graph.get_node(lc_nids[0]) if lc_nids else None
-                        subj_node = self.graph.get_node(subj_nids[0]) if subj_nids else None
-                        if lc_node and lc_node.vector is not None and subj_node and subj_node.vector is not None:
-                            cos = float(np.dot(lc_node.vector, subj_node.vector))
-                            if cos > 0.3:
-                                # Add re-anchor: subject is reachable via proximity
-                                re_anchored.append(sent)
-                            else:
-                                # No path back — end sentence early (drop last concept + connector)
-                                trimmed = " ".join(words[:-2]) if len(words) >= 3 else " ".join(words)
-                                re_anchored.append(trimmed + ".")
-                        else:
-                            # Can't check — keep as-is
-                            re_anchored.append(sent)
+                # Simple fallback formatting
+                concepts = [p for p in chain.split() if p.lower() not in self._CONNECTOR_SET]
+                if len(concepts) >= 2:
+                    sentences.append(f"{subject.capitalize()} connects with {concepts[1]}.")
+                elif concepts:
+                    neighbor = self._find_vector_neighbor(concepts[0])
+                    if neighbor:
+                        sentences.append(f"{concepts[0].capitalize()} relates to {neighbor}.")
                     else:
-                        re_anchored.append(sent)
-                else:
-                    re_anchored.append(sent)
-            else:
-                re_anchored.append(sent)
-        sentences = re_anchored
+                        sentences.append(f"{concepts[0].capitalize()} is interesting.")
+                for w in chain.split():
+                    if w.lower() in self._CONNECTOR_SET:
+                        seen.add(w.lower())
+                seen.update(p.lower() for p in concepts)
 
-        # Phase 4.3: Ensure sentence diversity — check that sentence 3 explores
-        # a different facet than sentence 1 (uses the temperature escalation)
-        # Already handled by increasing temperature from 0.15 to 0.40
+        if not sentences:
+            return (f"I don't know much about {subject} yet.", "associative")
 
-        self._log_assertions(sentences, subject)
+        return (" ".join(sentences), "graph_fallback")
 
-        # Observe all chain hops in the user model
-        for hops in self._last_hops:
-            self.user_model.observe_chain(hops, is_user_query=False)
-        # Phase 3.4: Save snapshot before clearing for response context
-        self._last_chain_hops = list(self._last_hops)
-        self._activation_boost = None
-        self._last_hops = []
-        _reported_strat = getattr(self, '_last_strategy_used', '')
-        if not _reported_strat or _reported_strat == 'associative':
-            _reported_strat = self._last_strategy if self._last_strategy else 'associative'
-        return (" ".join(sentences), _reported_strat)
+
+    def _reasoning_loop(self, ctx: CognitiveResponseContext) -> Tuple[str, str]:
+        """Multi-step reasoning with web search for complex queries.
+
+        This replaces the cascade strategies (B-G) with a unified loop:
+        1. Analyze query complexity
+        2. Decompose into sub-questions if needed
+        3. Search web for each sub-question
+        4. Learn from full articles (trains decoder continuously)
+        5. Synthesize and generate with decoder
+        """
+        subject = ctx.subject
+        query = ctx.raw_input
+        assocs = ctx.associated_concepts
+
+        if self._trace_enabled:
+            print(f"  [reasoning] Starting reasoning loop for: {subject}")
+
+        # Step 1: Check if we need web search
+        subj_lower = subject.lower()
+        subj_known = subj_lower in self._concept_keywords or subj_lower in self._concept_labels
+        assoc_known = len(assocs) > 0
+
+        # Complex query indicators
+        is_complex = any(w in query.lower() for w in
+                        ["how", "why", "create", "build", "design", "blueprint",
+                         "explain", "detail", "comprehensive", "step by step",
+                         "architecture", "implementation", "guide", "tutorial"])
+        is_unknown = not subj_known or not assoc_known
+
+        # Determine search queries
+        search_queries = []
+
+        if is_complex or is_unknown:
+            # Decompose into sub-questions
+            search_queries = self._decompose_for_search(query, subject, assocs)
+        elif self._decoder_training_count < 2000:
+            # Even for known topics, search to expand knowledge if decoder needs training
+            search_queries = [subject]
+
+        # Limit concurrent searches to prevent overload
+        search_queries = search_queries[:4]
+
+        if self._trace_enabled:
+            print(f"  [reasoning] Search queries: {search_queries}")
+
+        # Step 2: Search and learn from each query
+        all_learned_text = ""
+        for sq in search_queries:
+            if self._trace_enabled:
+                print(f"  [reasoning] Searching: {sq}")
+            try:
+                result = self.learn_from_web(sq)
+                if self._trace_enabled:
+                    print(f"  [reasoning]   Result: {result}")
+                # Also get the full article text for decoder training
+                article_text = self._fetch_full_article_text(sq)
+                if article_text:
+                    all_learned_text += " " + article_text
+            except Exception as e:
+                if self._trace_enabled:
+                    print(f"  [reasoning]   Search failed: {e}")
+
+        # Step 3: Train decoder on all gathered article text
+        if all_learned_text and self.neural_decoder is not None and self._decoder_vocab_built:
+            if self._trace_enabled:
+                print(f"  [reasoning] Training decoder on {len(all_learned_text)} chars of article text")
+            self._train_decoder_on_text(all_learned_text, subject)
+
+        # Step 4: Generate response with decoder (now trained on new content)
+        try:
+            decoder_response = self._generate_with_decoder(ctx)
+            if decoder_response and len(decoder_response) > 10:
+                return (decoder_response, "neural_decoder_reasoned")
+        except Exception as e:
+            if self._trace_enabled:
+                print(f"  [reasoning] Decoder generation failed: {e}")
+
+        # Fallback to graph walk
+        return self._graph_fallback_response(ctx)
+
+
+    def _decompose_for_search(self, query: str, subject: str, assocs: List[Tuple]) -> List[str]:
+        """Decompose a complex query into targeted search sub-questions."""
+        queries = [subject]  # Always include main subject
+
+        q_lower = query.lower()
+
+        # Add specific sub-questions based on query type
+        if "blueprint" in q_lower or "create" in q_lower or "build" in q_lower or "design" in q_lower:
+            queries.extend([
+                f"{subject} design principles",
+                f"{subject} components architecture",
+                f"how to build {subject}",
+                f"{subject} engineering guide"
+            ])
+        elif "how" in q_lower and "work" in q_lower:
+            queries.extend([
+                f"how does {subject} work",
+                f"{subject} mechanism explained",
+                f"{subject} operating principles"
+            ])
+        elif "why" in q_lower:
+            queries.extend([
+                f"why {subject} importance",
+                f"{subject} purpose explained"
+            ])
+        elif "explain" in q_lower or "detail" in q_lower or "comprehensive" in q_lower:
+            queries.extend([
+                f"{subject} explained in detail",
+                f"{subject} comprehensive overview",
+                f"{subject} deep dive"
+            ])
+
+        # Add associated concepts as searches
+        for label, _ in assocs[:3]:
+            if label.lower() != subject.lower():
+                queries.append(f"{subject} {label}")
+
+        # Deduplicate
+        seen = set()
+        unique = []
+        for q in queries:
+            ql = q.lower()
+            if ql not in seen:
+                seen.add(ql)
+                unique.append(q)
+
+        return unique
+
+
+    def _fetch_full_article_text(self, query: str) -> str:
+        """Fetch full article text from web search for decoder training."""
+        try:
+            query_clean = urllib.parse.quote(query)
+            search_url = f"{SEARCH_API}{query_clean}"
+            req = urllib.request.Request(search_url, headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) RAVANA-Baby/1.0'
+            })
+            resp = urllib.request.urlopen(req, timeout=5)
+            data = json.loads(resp.read().decode('utf-8'))
+            results = data.get('results', [])
+
+            full_texts = []
+            for r in results[:5]:  # Fetch more articles
+                url = r.get("url", "")
+                if url:
+                    try:
+                        article = self._fetch_article_text(url)
+                        if article and len(article) > 200:
+                            full_texts.append(article)
+                    except Exception:
+                        continue
+
+            return " ".join(full_texts)
+        except Exception:
+            return ""
+
+
+    def _train_decoder_on_text(self, text: str, topic: str):
+        """Train neural decoder on full article text with graph conditioning."""
+        if self.neural_decoder is None or not self._decoder_vocab_built:
+            return
+
+        # Build conditioning from topic and related concepts
+        cond_embs = self._build_conditioning_for_text(topic, re.findall(r"[a-zA-Z']{3,}", text.lower()))
+
+        # Expand vocab with new words from text
+        words_in_text = set(re.findall(r"[a-zA-Z']{3,}", text.lower()))
+        new_for_vocab = [w for w in words_in_text
+                         if w not in self._decoder_word_to_idx
+                         and w not in STOP_WORDS
+                         and len(w) >= 3]
+        if new_for_vocab:
+            self._expand_decoder_vocab(list(new_for_vocab)[:50])  # Limit expansion
+
+        # Train on text (multiple passes for Hebbian consolidation)
+        total_err = 0.0
+        total_trained = 0
+        for _ in range(3):  # More passes for article text
+            err, n = self.neural_decoder.train_on_text(
+                text, self._decoder_word_to_embed, self._decoder_word_to_idx,
+                min_sentence_len=3, conditioning_embs=cond_embs
+            )
+            total_err += err
+            total_trained += n
+
+        self._decoder_training_count += total_trained
+        self._decoder_web_training_count += total_trained
+
+        # Also train cerebellar n-gram
+        if hasattr(self, 'cerebellar_ngram') and self.cerebellar_ngram is not None:
+            self.cerebellar_ngram.learn_from_text(
+                text, decoder_prediction_error=min(0.6, total_err / max(1, total_trained))
+            )
+        self.neural_decoder.sleep_cycle()
+
+        if self._trace_enabled:
+            print(f"  [reasoning] Decoder trained on {total_trained} sentences from articles")
+
+
+    def _graph_fallback_response(self, ctx: CognitiveResponseContext) -> Tuple[str, str]:
+        """Simple graph-walk fallback when decoder isn't ready."""
+        subject = ctx.subject
+        assocs = ctx.associated_concepts
+
+        if not assocs:
+            if subject:
+                subj_lower = subject.lower()
+                if subj_lower in self._concept_keywords or subj_lower in self._concept_labels:
+                    neighbor = self._find_vector_neighbor(subject)
+                    if neighbor and neighbor.lower() != subject.lower():
+                        return (f"{subject} connects with {neighbor}.", "associative")
+                    return (f"{subject.capitalize()} is something I know about.", "associative")
+                return (f"I don't know about {subject} yet.", "unknown_subject")
+            return ("...", "associative")
+
+        temps = [self._get_temperature(0), self._get_temperature(1), self._get_temperature(2)]
+        sentences = []
+        seen = {subject.lower()}
+
+        for i, temp in enumerate(temps):
+            chain = self._walk_chain(subject, seen, max_hops=2 if i > 0 else 1,
+                                     temperature=temp, subject_proximity=subject)
+            if chain:
+                concepts = [p for p in chain.split() if p.lower() not in self._CONNECTOR_SET]
+                if len(concepts) >= 2:
+                    sentences.append(f"{subject.capitalize()} relates to {concepts[1]}.")
+                elif concepts:
+                    neighbor = self._find_vector_neighbor(concepts[0])
+                    if neighbor:
+                        sentences.append(f"{concepts[0].capitalize()} connects to {neighbor}.")
+                    else:
+                        sentences.append(f"{concepts[0].capitalize()} is interesting.")
+                seen.update(p.lower() for p in concepts)
+
+        if not sentences:
+            return (f"I don't know much about {subject} yet.", "associative")
+
+        return (" ".join(sentences), "graph_fallback")
+
 
 
     def _update_state(self, ctx: CognitiveResponseContext):
@@ -5916,161 +5608,28 @@ class CognitiveChatEngine:
         return sum(confidences) / len(confidences)
 
     # Phase C: Epistemic hedging - produce hedges based on concept confidence and prediction error
-    def _get_epistemic_hedge(self, subject: str) -> Optional[str]:
-        """Return an epistemic hedge based on concept confidence and prediction error.
 
-        Neuroscience basis (PFC confidence calibration):
-        - Low confidence (<0.3) -> strong hedges like 'maybe', 'perhaps', 'it seems like'
-        - Medium confidence (0.3-0.6) -> soft hedges like 'i think', 'probably'
-        - High confidence (>0.6) -> no hedge, or assertive 'i know'
-        - High prediction error boosts hedging probability across all bands
-        """
-        conf = self._get_concept_confidence(subject)
-        stored_conf = self._concept_confidence.get(subject.lower(), conf)
-        effective_conf = max(conf, stored_conf) if conf > 0 else stored_conf
 
-        pe_factor = min(0.3, self._mean_prediction_error * 0.5)
 
-        if getattr(self, 'reasoning_mode', 'stochastic') == 'deterministic':
-            if effective_conf < 0.3:
-                return 'perhaps'
-            return None
-
-        if effective_conf < 0.3:
-            if self.rng.random() < 0.7 + pe_factor:
-                return self.rng.choice(['maybe', 'perhaps', 'i think', 'it seems like', 'i wonder if'])
-            return None
-        elif effective_conf < 0.6:
-            if self.rng.random() < 0.35 + pe_factor:
-                return self.rng.choice(['i think', 'i feel', 'probably', 'maybe'])
-            return None
-        else:
-            if self.rng.random() < 0.1 + pe_factor:
-                return self.rng.choice(['i know', 'indeed', 'of course'])
-            return None
-
-    # ── Phase D: Cerebellar discourse format selection ──
-    # Neuroscience: Cerebellum proceduralizes practiced patterns into smooth, 
-    # automatic discourse. Familiar topics use richer, more structured sentences.
-
-    def _get_cerebellar_discourse(self, subject: str, sentence_idx: int) -> str:
-        """Select a discourse format based on cerebellar n-gram familiarity.
-
-        Returns one of:
-        - "concise": unfamiliar topic, short simple sentences
-        - "balanced": moderately familiar, standard sentence structure
-        - "exploratory": very familiar, richer sentence with multiple connectors
-        """
-        sl = subject.lower()
-        if sl not in self._cerebellar_ngram:
-            return "concise" if sentence_idx > 0 else "balanced"
-
-        # Count total transitions learned for this subject
-        total = sum(self._cerebellar_ngram[sl].values())
-        depth = self._cerebellar_depth.get(sl, 0.0)
-
-        # Familiar + deep = exploratory; unfamiliar + shallow = concise
-        if total > 5 and depth > 1.0:
-            return "exploratory"
-        elif total > 2 or depth > 0.5:
-            return "balanced"
-        else:
-            return "concise"
-
-    def _has_contrastive_connector(self, chain_str: str) -> bool:
-        """Check if a chain string contains contrastive connectors."""
-        for part in chain_str.split():
-            pl = part.lower()
-            # Check _EDGE_TO_GRAPH_LABEL for contrastive relation type
-            for rel_type, glabel in self._EDGE_TO_GRAPH_LABEL.items():
-                if glabel == pl and rel_type == "contrastive":
-                    return True
-        return False
-
-    # ── Phase E: Contrastive discourse pivots ──
-    # Neuroscience: Basal ganglia switches between competing action sequences.
-    # When contrastive edges are detected, the brain generates contrastive 
-    # discourse markers ("on one hand... but on the other hand...").
-
-    def _format_contrastive(self, core: str, starter: str, subject: str,
-                             sentence_idx: int) -> Optional[str]:
-        """Generate a contrastive discourse pivot sentence.
-
-        When the chain walk reveals contrasting concepts, structure the
-        response as a contrastive comparison rather than a flat chain.
-        """
-        sl = subject.lower()
-        antonyms = self._contradiction_map.get(sl, set())
-        if not antonyms:
-            return None
-
-        # Pick an antonym that appears in the core phrase
-        used_antonyms = [a for a in antonyms if a.lower() in core.lower()]
-        if not used_antonyms:
-            return None
-
-        ant = used_antonyms[0]
-        # Extract what comes before and after the antonym in the core
-        parts = core.lower().split(ant.lower(), 1)
-        if len(parts) < 2:
-            return None
-
-        before_ant = parts[0].strip().strip(",")
-        after_ant = parts[1].strip().strip(",")
-
-        if getattr(self, 'reasoning_mode', 'stochastic') == 'deterministic':
-            return f"{starter.capitalize()}, {before_ant.strip()} {ant} but they shape how we understand."
-
-        fallback_idea = "ideas"
-        # Stochastic: variety of contrastive structures
-        templates = []
-        if before_ant.strip():
-            templates.append(
-                f"{starter.capitalize()}, {before_ant.strip()} {ant} — yet together they shape understanding."
-            )
-            templates.append(
-                f"On one hand {before_ant.strip()}, but on the other {ant} {after_ant}."
-            )
-            templates.append(
-                f"{subject.capitalize()} and {ant} are opposites, yet both connect to {before_ant.split()[-1] if before_ant.split() else fallback_idea}."
-            )
-            templates.append(
-                f"{starter.capitalize()} {before_ant.strip()} {ant} — a contrast that deepens the picture."
-            )
-        else:
-            # No before_ant content - simpler contrastive
-            templates.append(
-                f"{subject.capitalize()} contrasts with {ant}."
-            )
-            templates.append(
-                f"Unlike {ant}, {subject} is different."
-            )
-            templates.append(
-                f"{starter.capitalize()} {ant} is the opposite of {subject}."
-            )
-        return self.rng.choice(templates)
-
-    # ── Phase F: Recall grounding ──
-    # Neuroscience: Hippocampal indexing replays past episodes during recall.
-    # When _recall_mode is active, responses should reference past conversations.
-
-    def _get_recall_grounding(self, subject: str) -> str:
-        """Generate a recall-grounded starter phrase.
-
-        Returns a starter like "as we talked about before" or "I remember that"
-        when responding from hippocampal recall.
-        """
-        if getattr(self, 'reasoning_mode', 'stochastic') == 'deterministic':
-            return "as we discussed"
-
-        stems = [
-            f"as we talked about before",
-            f"i remember that",
-            f"as i recall",
-            f"we discussed earlier how",
-            f"thinking back to what we said",
-        ]
-        return self.rng.choice(stems)
+        for nid, node in self.graph.nodes.items():
+            if not node.label:
+                continue
+            total = 0
+            dormant = 0
+            for tid, edge in self.graph.get_outgoing(nid):
+                total += 1
+                if (nid, tid) in self._dormant_edges:
+                    dormant += 1
+            for src, edge in self.graph.get_incoming(nid):
+                if src == nid:
+                    continue
+                pair = (src, nid)
+                total += 1
+                if pair in self._dormant_edges:
+                    dormant += 1
+            if total > 0:
+                ratios[node.label.lower()] = dormant / total
+        return ratios
 
     def _compute_dormant_edge_ratio(self) -> Dict[str, float]:
         """Compute dormant edge ratio per concept.
@@ -6098,6 +5657,7 @@ class CognitiveChatEngine:
             if total > 0:
                 ratios[node.label.lower()] = dormant / total
         return ratios
+
 
     def _auto_select_curiosity_topics(self, max_topics: int = 3) -> List[str]:
         """Autonomously select topics for background research based on curiosity signals.
