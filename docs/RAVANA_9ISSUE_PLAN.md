@@ -14,7 +14,7 @@ Three parallel subagents investigated all 9 issues. Here's the consolidated find
 | 5 | Shared currencies incomplete | LARGELY RESOLVED | LOW | CognitiveCurrency + CognitiveCurrencies created; some legacy names remain |
 | 6 | No REM vs SWS | RESOLVED | — | Implemented with proper phase separation |
 | 7 | Graph optimization Phase 3 | PARTIALLY RESOLVED | LOW | compute_curvature now uses sampling (max_sample=500); still dict adjacency |
-| 8 | News-to-MDP pipeline | TODO | MEDIUM | reality_grounding.py exists but no pipeline code |
+| 8 | News-to-MDP pipeline | RESOLVED | MEDIUM | reality_grounding.py now builds scenarios, learning batches, and primary grounding records; ravana_agent wires them into MemoryLearner |
 | 9 | Semantic drift defense | PARTIALLY RESOLVED | LOW | Inline defense exists but limited scope |
 
 ---
@@ -108,7 +108,7 @@ Zero code exists. Proposed architecture:
 3. RLM.ingest_news() method
 4. Periodic feed loop script
 
-**Status: TODO.** reality_grounding.py exists but no structured pipeline.
+**Status: RESOLVED.** reality_grounding.py now builds scenarios, learning batches, and primary grounding records; ravana_agent wires them into MemoryLearner.
 
 ### ISSUE 9: Semantic Drift Defense
 
@@ -170,7 +170,7 @@ FIX: Expand to scan all concepts periodically. Add core_vector→genesis_vector 
 
 8. **News-to-MDP pipeline (Issue 8)**
    - Full new module, lowest priority
-   - **TODO**
+   - **DONE**
 
 ---
 

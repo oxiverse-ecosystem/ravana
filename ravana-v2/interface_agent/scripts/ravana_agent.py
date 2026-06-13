@@ -171,6 +171,7 @@ class RavanaAgent:
         
         # 4. Reality grounding (every N episodes)
         reality_result = None
+        grounding_cycle = None
         if self.episode_count % self.grounding_interval == 0:
             grounding_cycle = self.grounding.ingest_news(
                 query=interpretation.get('interpretation', message),
@@ -199,6 +200,9 @@ class RavanaAgent:
             reality_result=reality_result,
             user_feedback=message,
         )
+        if grounding_cycle:
+            grounding_lessons = self.learner.learn_from_grounding_cycle(grounding_cycle)
+            print(f"  [Learn] Added {len(grounding_lessons)} grounding lessons")
         print(f"  [Learn] Lesson: {lesson.lesson[:80]}...")
         
         # 6. Send episode summary

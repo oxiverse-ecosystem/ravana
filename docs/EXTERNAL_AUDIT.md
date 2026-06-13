@@ -27,7 +27,7 @@ Source: LLM collaborator review of RAVANA_STATUS.md
 
 3. ~~**Benchmark eval just fixed**~~ → **RESOLVED.** Fair evaluation protocol established (eval_fair.py). 100/100 + 11/11 + 11/11 = 122 core tests all passing.
 
-4. **News-to-MDP pipeline** — Still unimplemented. `reality_grounding.py` exists but no structured cognitive event pipeline. No ingestion → MDP mapping code.
+4. **News-to-MDP pipeline** — **PARTIALLY RESOLVED.** `reality_grounding.py` now builds structured news-derived scenarios, event cards, workspace bids, a primary scenario, and a `learning_batch` for downstream learners. `ravana_agent.py` wires the batch into `MemoryLearner`, so news grounding now produces reusable lessons. Broader evaluation and long-run validation still needed.
 
 5. **Scaling limits** — Still deferred. eval_comprehensive.py shows 10% train accuracy, 0% test accuracy on fair evaluation. Graph optimization (HNSW/sparse) deferred until 10K+ nodes (currently ~384). Step time optimized to 70ms (6.5x speedup).
 

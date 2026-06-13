@@ -256,6 +256,26 @@ class NewsToMDPPipeline:
 
         return scenarios
 
+    def build_learning_batch(self, scenarios: List[NewsMDPScenario]) -> List[Dict[str, Any]]:
+        """Convert scenarios into compact training examples for downstream learners."""
+        batch: List[Dict[str, Any]] = []
+        for scenario in scenarios:
+            batch.append(
+                {
+                    "topic": scenario.topic,
+                    "state": scenario.state,
+                    "action": scenario.action,
+                    "reward": round(scenario.reward, 3),
+                    "next_state": scenario.next_state,
+                    "pressure": round(scenario.pressure, 3),
+                    "confidence": round(scenario.confidence, 3),
+                    "rationale": scenario.rationale,
+                    "source_url": scenario.source_url,
+                    "learning_card": scenario.to_learning_card(),
+                }
+            )
+        return batch
+
     def build_event_stream(
         self,
         news_items: List[NewsItem],
@@ -347,6 +367,8 @@ class NewsToMDPPipeline:
         limit = max(1, max_items * max(1, len(topics)))
         news_items = news_items[:limit]
         scenarios = self.build_scenarios(news_items, ravana_state=ravana_state, max_scenarios=max_scenarios)
+        learning_batch = self.build_learning_batch(scenarios)
+        primary_scenario = scenarios[0].to_event_record() if scenarios else None
 
         alignment_belief = query or topics[0]
         alignment_action = scenarios[0].action if scenarios else "hold position"
@@ -366,6 +388,8 @@ class NewsToMDPPipeline:
             "topics": topics,
             "news_items": news_items,
             "scenarios": scenarios,
+            "primary_scenario": primary_scenario,
+            "learning_batch": learning_batch,
             "events": events,
             "event_cards": event_cards,
             "workspace_bids": workspace_bids,
