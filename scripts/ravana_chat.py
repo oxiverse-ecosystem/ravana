@@ -721,9 +721,13 @@ class CognitiveChatEngine:
         self._decoder_web_training_count: int = 0
         self._saved_decoder_state: dict = {}
 
+        # Always init GloVe first (cheap if cache exists) so graph vectors
+        # are real semantic vectors, not hash-random fallbacks.
+        self._init_glove()
         if os.path.exists(self._save_path):
             loaded = self._load()
             if loaded:
+                self._revector_existing_nodes()
                 self._bootstrap_domain_concepts()
                 self._build_decoder_vocab()
                 if self._saved_decoder_state and self.neural_decoder is not None:
@@ -736,8 +740,7 @@ class CognitiveChatEngine:
                 print(f"  [Loaded] Remembered {len(self.graph.nodes)} words from before!")
                 return
 
-        # Seed teen concepts from scratch
-        self._init_glove()
+        # Cold start (no saved weights): seed everything from scratch.
         self._seed_concepts()
         self._bootstrap_domain_concepts()
         self._build_decoder_vocab()
@@ -1563,6 +1566,35 @@ class CognitiveChatEngine:
         except Exception as e:
             print(f"  [GloVe] Warning: could not save cache: {e}")
 
+    def _revector_existing_nodes(self) -> int:
+        # Re-project any graph node whose vector was hash-random by
+        # replacing it with a GloVe projection when a matching word is
+        # available. Safe to call repeatedly: it is a no-op when a node
+        # already matches its GloVe vector.
+        if self._glove_vecs is None:
+            return 0
+        updated = 0
+        for nid, node in list(self.graph.nodes.items()):
+            if not node.label:
+                continue
+            if node.vector is None or node.vector.shape[0] != self.dim:
+                continue
+            gv = self._glove_vector(node.label)
+            if gv is None:
+                continue
+            diff = float(((node.vector - gv) ** 2).sum())
+            if diff < 1e-4:
+                continue
+            node.vector = gv.astype(np.float32)
+            updated += 1
+        if updated:
+            self.graph._vectors_dirty = True
+            try:
+                self.graph._rebuild_vector_matrix()
+            except Exception:
+                pass
+        return updated
+
     def _glove_vector(self, label: str) -> Optional[np.ndarray]:
         """Look up a label in GloVe, project to self.dim, return unit vector.
 
@@ -1986,6 +2018,7 @@ class CognitiveChatEngine:
                 existing_labels.add(node.label.lower())
 
         new_count = 0
+        existing_labels_before = existing_labels.copy()
         label_to_id = {}
         for nid, node in self.graph.nodes.items():
             if node.label:
@@ -2026,9 +2059,7 @@ class CognitiveChatEngine:
             new_count += 1
             # Phase 18c: Track source for new concepts
             self._concept_sources[word] = {source_id}
-            # New concepts from single source start with low confidence
-            for tid, edge in self.graph.get_outgoing(node.id):
-                edge.confidence = min(edge.confidence, 0.2)  # cap at 0.2 until reinforced
+            # New concepts tracked by source (confidence set naturally by prediction error)
 
         # Form connections between co-occurring important words
         # Words that appear together in the article get edges
@@ -2054,7 +2085,7 @@ class CognitiveChatEngine:
         # Connect new words to existing related concepts via vector similarity
         # Only do this for the topic word and first 2 important words (others
         # rely on co-occurrence edges, which are more topically coherent)
-        for word in important_words[:3]:
+        for word in important_words[:10]:
             nid = label_to_id.get(word)
             if nid is None:
                 continue
@@ -2135,8 +2166,17 @@ class CognitiveChatEngine:
                     self.cerebellar_ngram.learn_from_text(
                         text, decoder_prediction_error=min(0.8, err))
 
+        # Train neural decoder on real article text
+        if self.neural_decoder is not None and self._decoder_vocab_built and len(text) > 20:
+            new_labels = [w for w in important_words if w not in existing_labels_before]
+            if new_labels:
+                self._expand_decoder_vocab(new_labels)
+            err, n_trained = self.neural_decoder.train_on_text(
+                text, self._decoder_word_to_embed, self._decoder_word_to_idx
+            )
+            self._decoder_web_training_count += n_trained
+            self._decoder_training_count += n_trained
         return new_count
-
     def _learn_from_snippets(self, query: str, snippets: List[str]) -> str:
         """Learn from search snippet text when article fetch fails."""
         combined = f"{query} " + " ".join(snippets[:3])
