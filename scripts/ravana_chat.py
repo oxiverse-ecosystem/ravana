@@ -1298,6 +1298,108 @@ class CognitiveChatEngine:
 
     # ─── Teen Graph Seeding ───
 
+    def _generate_with_decoder_and_syntax(self, ctx: CognitiveResponseContext) -> Optional[str]:
+        """Generate response using decoder for concept selection + syntactic pipeline for grammar.
+        
+        The decoder selects relevant concepts from the graph walk, then the
+        SyntacticCellAssembly + SurfaceRealizer builds grammatical sentences.
+        This avoids template frase while ensuring proper English syntax.
+        """
+        if self.neural_decoder is None or not self._decoder_vocab_built:
+            return None
+        if not hasattr(self, 'syntactic_assembly') or not hasattr(self, 'surface_realizer'):
+            return None
+        
+        subject = ctx.subject
+        assocs = ctx.associated_concepts
+        
+        # Build conditioning embeddings
+        concept_embs = []
+        seen_labels = set()
+        subj_nids = self._concept_keywords.get(subject.lower(), [])
+        if subj_nids:
+            subj_node = self.graph.get_node(subj_nids[0])
+            if subj_node and subj_node.vector is not None:
+                concept_embs.append(subj_node.vector.copy())
+                seen_labels.add(subject.lower())
+        
+        for assoc_label, _ in assocs[:5]:
+            al = assoc_label.lower()
+            if al not in seen_labels:
+                assoc_nids = self._concept_keywords.get(al, [])
+                if assoc_nids:
+                    a_node = self.graph.get_node(assoc_nids[0])
+                    if a_node and a_node.vector is not None:
+                        concept_embs.append(a_node.vector.copy())
+                        seen_labels.add(al)
+        
+        if len(concept_embs) < 2:
+            return None
+        
+        conditioning_embs = np.stack(concept_embs, axis=0)
+        
+        # Generate concept sequence with decoder
+        bos_idx = self._decoder_word_to_idx.get("<bos>", 0)
+        eos_idx = self._decoder_word_to_idx.get("<eos>", 3)
+        
+        generated_indices = self.neural_decoder.generate(
+            conditioning_embs=conditioning_embs,
+            max_steps=15,
+            bos_idx=bos_idx,
+            eos_idx=eos_idx,
+            temperature=0.8,
+            cerebellar_ngram=getattr(self, 'cerebellar_ngram', None),
+            idx_to_word=self._decoder_idx_to_word,
+            basal_ganglia=None,
+        )
+        
+        # Convert to concept labels (filter to graph concepts)
+        if not generated_indices:
+            return None
+        
+        generated_words = []
+        for idx in generated_indices:
+            word = self._decoder_idx_to_word.get(idx, "")
+            if word and word in self._concept_keywords and word not in STOP_WORDS:
+                generated_words.append(word)
+        
+        if len(generated_words) < 2:
+            return None
+        
+        # Use syntactic pipeline for grammatical realization
+        # Take subject + top generated concepts
+        target = generated_words[0] if generated_words[0].lower() != subject.lower() else (generated_words[1] if len(generated_words) > 1 else generated_words[0])
+        
+        try:
+            frame = self.syntactic_assembly.bind_to_sentence(
+                subject=subject,
+                relation="semantic",
+                target=target,
+                pos_map=getattr(self, '_concept_pos', {}),
+                chain_concepts=[subject] + generated_words[:3],
+                chain_connectors=[],
+                depth=len(generated_words[:3]) + 1,
+            )
+            
+            from ravana.language.surface_realizer import DiscourseState
+            discourse_ctx = DiscourseState(
+                sentence_index=0,
+                discourse_type='explain',
+                total_sentences=3,
+            )
+            
+            dopamine = getattr(self, '_dopamine_tone', 0.5)
+            sentence = self.surface_realizer.realize(
+                frame=frame,
+                discourse_context=discourse_ctx,
+                dopamine_tone=dopamine,
+                cerebellar_ngram=getattr(self, 'cerebellar_ngram', None),
+            )
+            
+            return sentence
+        except Exception:
+            return None
+
     def _seed_concepts(self):
         """Seed the graph with teenager-level vocabulary and typed relationships."""
         self._concept_labels = set()
@@ -4525,12 +4627,14 @@ class CognitiveChatEngine:
         subject = ctx.subject
         assocs = ctx.associated_concepts
 
-        # Try neural decoder first — require substantial web training for coherence
-        _have_web = self._decoder_web_training_count >= 1500
+        # Try neural decoder + syntactic pipeline for grammatical output
+        _have_web = self._decoder_web_training_count >= 500
         _total = self._decoder_training_count
-        if _have_web and _total >= 3000:
+        if _have_web and _total >= 1000:
             try:
-                decoder_response = self._generate_with_decoder(ctx)
+                # Prevent vocab expansion during generation
+                old_expand = self._decoder_vocab_built
+                decoder_response = self._generate_with_decoder_and_syntax(ctx)
                 if decoder_response and len(decoder_response) > 10:
                     resp_words = decoder_response.lower().strip(".").split()
                     first_word = resp_words[0] if resp_words else ""
@@ -4714,9 +4818,11 @@ class CognitiveChatEngine:
                 print(f"  [reasoning] Training decoder on {len(all_learned_text)} chars of article text")
             self._train_decoder_on_text(all_learned_text, subject)
 
-        # Step 4: Generate response with decoder (now trained on new content)
+        # Step 4: Generate response with decoder + syntactic pipeline
         try:
-            decoder_response = self._generate_with_decoder(ctx)
+            # Prevent vocab expansion during generation
+            self._decoder_vocab_built = True
+            decoder_response = self._generate_with_decoder_and_syntax(ctx)
             if decoder_response and len(decoder_response) > 10:
                 return (decoder_response, "neural_decoder_reasoned")
         except Exception as e:
