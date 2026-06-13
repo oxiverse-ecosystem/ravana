@@ -160,6 +160,13 @@ class ConceptEdge:
             'correction_history': [],
         }
 
+    def __getstate__(self):
+        """Lightweight pickle: exclude heavy unused fields (agent_weights, source_metadata)."""
+        state = self.__dict__.copy()
+        state.pop('agent_weights', None)
+        state.pop('source_metadata', None)
+        state.pop('parent_graph', None)
+        return state
 
     @property
     def weight(self):

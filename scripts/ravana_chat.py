@@ -19,8 +19,8 @@ from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional, Tuple, Set
 
 _proj_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, _proj_root)
 sys.path.insert(0, os.path.join(_proj_root, "ravana-v2"))
+sys.path.insert(0, _proj_root)
 
 from ravana_ml.graph import ConceptGraph, ConceptEdge
 from core.emotion import VADEmotionEngine, VADConfig
@@ -137,6 +137,9 @@ TEEN_CONCEPTS = [
     ("obvious", "clear apparent evident obvious"),
     ("subtle", "nuanced delicate faint indirect"),
     ("profound", "deep meaningful significant thoughtful"),
+    ("ignorance", "unawareness blindness obliviousness inexperience"),
+    ("injustice", "unfairness inequality oppression bias"),
+    ("oppression", "tyranny suppression persecution subjugation"),
 
     # ── Core Verbs (expanded) ──
     ("want", "wish desire need crave"),
@@ -239,9 +242,14 @@ TEEN_CONCEPTS = [
     ("fear", "terror dread panic horror"),
     ("joy", "delight happiness bliss pleasure"),
     ("grief", "sorrow loss mourning lament"),
+    ("sadness", "sorrow unhappiness melancholy grief"),
     ("surprise", "shock amazement astonishment wonder"),
     ("guilt", "remorse regret shame blame"),
     ("disappointment", "letdown regret dissatisfaction dismay"),
+    ("hate", "detest loathe despise abhor"),
+    ("despair", "hopelessness misery anguish desolation"),
+    ("distrust", "suspicion doubt mistrust wariness"),
+    ("motivation", "drive inspiration ambition determination"),
 
     # ── Imagination & Future ──
     ("future", "tomorrow ahead later coming"),
@@ -642,6 +650,8 @@ class CognitiveChatEngine:
         self._schema_mode: bool = False
         self._activation_fatigue: Dict[int, float] = {}
         self._recent_traversals: List[Tuple[int, int]] = []
+        # Opt 6: O(1) hashmap for repetition penalty
+        self._recent_traversal_map: Dict[Tuple[int, int], int] = {}
         self._visited_concepts: Set[str] = set()
         self._dopamine_tone: float = 0.5
         self._td_error_history: List[float] = []
@@ -708,12 +718,21 @@ class CognitiveChatEngine:
         self._decoder_word_to_embed: Dict[str, np.ndarray] = {}
         self._decoder_vocab_built: bool = False
         self._decoder_training_count: int = 0
+        self._decoder_web_training_count: int = 0
+        self._saved_decoder_state: dict = {}
 
         if os.path.exists(self._save_path):
             loaded = self._load()
             if loaded:
                 self._bootstrap_domain_concepts()
                 self._build_decoder_vocab()
+                if self._saved_decoder_state and self.neural_decoder is not None:
+                    try:
+                        self.neural_decoder.load_state_dict(self._saved_decoder_state)
+                        self._saved_decoder_state = {}
+                    except Exception:
+                        # State dict shape mismatch (e.g. after expand_vocab from different session)
+                        self._saved_decoder_state = {}
                 print(f"  [Loaded] Remembered {len(self.graph.nodes)} words from before!")
                 return
 
@@ -835,16 +854,71 @@ class CognitiveChatEngine:
         if self.neural_decoder is None or not self._decoder_vocab_built:
             return
         templates = [
-            "the {s} and the {o} are related",
-            "when you think of {s} you think of {o}",
-            "there is a link between {s} and {o}",
-            "people connect {s} with {o}",
-            "the idea of {s} leads to {o}",
-            "when we talk about {s} we mean {o}",
-            "both {s} and {o} are important concepts",
-            "the meaning of {s} connects to {o}",
-            "you can see {s} in the concept of {o}",
+            # Core relationships (semantic / associative)
+            "{s} is related to {o}",
+            "{s} connects with {o}",
+            "{s} links to {o}",
+
+            # Definitional / explanatory
+            "{s} refers to {o}",
+            "{s} can be described as {o}",
+            "the concept of {s} involves {o}",
+            "when people talk about {s} they often mention {o}",
+
+            # Causal
+            "{s} leads to {o}",
+            "{s} causes {o}",
+            "{o} is a result of {s}",
+            "{s} contributes to {o}",
+            "{s} influences {o}",
+
+            # Temporal / sequential
+            "{s} precedes {o}",
+            "{o} follows {s}",
+            "first comes {s} then {o}",
+
+            # Contrastive
+            "{s} contrasts with {o}",
+            "unlike {s} {o} is different",
+            "while {s} has one meaning {o} has another",
+
+            # Analogical
+            "{s} is like {o} in many ways",
+            "both {s} and {o} share similarities",
+            "the relationship between {s} and {o} is important",
+
+            # Hierarchical / compositional
+            "{s} is a part of {o}",
+            "{s} is a type of {o}",
+            "{o} includes {s}",
+            "{s} forms the basis of {o}",
+
+            # Functional / practical
+            "people use {s} to understand {o}",
+            "{s} helps explain {o}",
+            "understanding {s} requires knowing {o}",
+            "{o} depends on {s}",
+
+            # Speculative / exploratory
+            "maybe {s} connects to {o}",
+            "it seems like {s} relates to {o}",
+            "one way to think about {s} is through {o}",
+
+            # Abstract / philosophical
+            "the meaning of {s} goes beyond {o}",
+            "{s} represents something larger than {o}",
+            "thinking about {s} naturally leads to {o}",
+            "{s} and {o} are deeply connected",
         ]
+
+        # Add relation-type-specific templates based on actual edge types
+        relation_templates = {
+            "causal": ["{s} causes {o}", "{s} leads to {o}", "{o} results from {s}"],
+            "contrastive": ["{s} contrasts with {o}", "unlike {s} {o} is different"],
+            "analogical": ["{s} is like {o}", "{s} resembles {o} in many ways"],
+            "temporal": ["{s} comes before {o}", "{s} precedes {o}"],
+            "semantic": ["{s} relates to {o}", "{s} connects with {o}"],
+        }
         sentences = []
         seen = set()
         for (src_id, tgt_id), edge in self.graph.edges.items():
@@ -858,7 +932,10 @@ class CognitiveChatEngine:
                 key = (s_label, o_label)
                 if key not in seen:
                     seen.add(key)
-                    t = templates[len(sentences) % len(templates)]
+                    # Pick from relation-specific templates if available, else general
+                    rel = getattr(edge, 'relation_type', 'semantic') or 'semantic'
+                    rtemplates = relation_templates.get(rel, templates)
+                    t = rtemplates[len(sentences) % len(rtemplates)]
                     sent = t.format(s=s_label, o=o_label)
                     sentences.append(sent)
 
@@ -870,8 +947,9 @@ class CognitiveChatEngine:
                 words, self._decoder_word_to_embed, self._decoder_word_to_idx)
         total_trained += len(sentences)
         self.neural_decoder.sleep_cycle()
-        self._decoder_training_count += total_trained
-        print(f"  [Decoder] Trained on {total_trained} synthetic graph sentences")
+        self._decoder_training_count = total_trained + self._decoder_web_training_count
+        print(f"  [Decoder] Trained on {total_trained} synthetic graph sentences"
+              f"{' + ' + str(self._decoder_web_training_count) + ' from web' if self._decoder_web_training_count > 0 else ''}")
 
     def _expand_decoder_vocab(self, new_words: List[str]):
         """Add new words to the decoder vocabulary (hippocampal replay).
@@ -964,6 +1042,33 @@ class CognitiveChatEngine:
                 self._decoder_word_to_embed[wl] = blended
                 new_weight[idx] = blended
         self.neural_decoder.word_embedding.weight.data = new_weight
+
+        # Mini training pass on new words: train predictions involving new embeddings
+        # to integrate them into the decoder's learned transition patterns
+        for nw in new_words:
+            nwl = nw.lower().strip()
+            nidx = self._decoder_word_to_idx.get(nwl)
+            if nidx is None:
+                continue
+            nvec = self._decoder_word_to_embed.get(nwl)
+            if nvec is None:
+                continue
+            # Find nearest existing neighbors and create bridging sentences
+            neighbors = []
+            for ew, ei in self._decoder_word_to_idx.items():
+                if ew == nwl or ew.startswith('<') or ei == nidx:
+                    continue
+                ev = self._decoder_word_to_embed.get(ew)
+                if ev is not None:
+                    sim = float(np.dot(nvec, ev))
+                    if sim > 0.4:
+                        neighbors.append((ew, sim))
+            neighbors.sort(key=lambda x: -x[1])
+            for neighbor, _ in neighbors[:3]:
+                bridge = f"{nwl} and {neighbor} are related"
+                self.neural_decoder.train_on_sentence(
+                    bridge.split(), self._decoder_word_to_embed, self._decoder_word_to_idx)
+
         print(f"  [Decoder] Expanded vocab by {added} words (now {new_vocab_size})")
 
     def _build_conditioning_for_text(self, topic: str, text_words: List[str]) -> Optional[np.ndarray]:
@@ -1025,7 +1130,7 @@ class CognitiveChatEngine:
         """
         if self.neural_decoder is None or not self._decoder_vocab_built:
             return None
-        if self._decoder_training_count < 10:
+        if self._decoder_training_count < 500 or self._decoder_web_training_count < 50:
             return None
 
         subject = ctx.subject
@@ -1076,12 +1181,13 @@ class CognitiveChatEngine:
         eos_idx = self._decoder_word_to_idx.get("<eos>", 3)
 
         # Generate with cerebellar bias and basal ganglia gating
+        temp = 0.4 if self._decoder_training_count < 5000 else 0.55
         generated_indices = self.neural_decoder.generate(
             conditioning_embs=conditioning_embs,
             max_steps=15,
             bos_idx=bos_idx,
             eos_idx=eos_idx,
-            temperature=0.6,
+            temperature=temp,
             cerebellar_ngram=getattr(self, 'cerebellar_ngram', None),
             idx_to_word=self._decoder_idx_to_word,
             basal_ganglia=getattr(self, 'basal_ganglia', None),
@@ -1545,18 +1651,24 @@ class CognitiveChatEngine:
             if node is None or node.vector is None:
                 continue
 
-            # Compute cosine similarity against ALL existing concepts
+            # FAISS/vectorized: matrix multiply instead of per-node Python loop
             similarities = []
-            for other_nid, other_node in self.graph.nodes.items():
-                if other_nid == nid:
-                    continue
-                if other_node.label is None or other_node.vector is None:
-                    continue
-                if other_node.label.lower() in new_nodes:
-                    continue  # Skip other freshly-added concepts (they wire themselves)
-                sim = float(np.dot(node.vector, other_node.vector))
-                if sim > 0.3:
-                    similarities.append((other_nid, sim))
+            # Ensure vector matrix is rebuilt if dirty (nodes may have been recently added)
+            if self.graph._vectors_dirty or self.graph._vector_matrix_normed is None:
+                self.graph._rebuild_vector_matrix()
+            if self.graph._vector_matrix_normed is not None and len(self.graph._node_id_order) > 0:
+                vec_norm = node.vector / (np.linalg.norm(node.vector) + 1e-15)
+                all_sims = self.graph._vector_matrix_normed @ vec_norm.astype(np.float32)
+                for idx in np.where(all_sims > 0.3)[0]:
+                    other_nid = self.graph._node_id_order[idx]
+                    if other_nid == nid:
+                        continue
+                    other_node = self.graph.get_node(other_nid)
+                    if other_node is None or other_node.label is None or other_node.vector is None:
+                        continue
+                    if other_node.label.lower() in new_nodes:
+                        continue
+                    similarities.append((other_nid, float(all_sims[idx])))
 
             if not similarities:
                 continue
@@ -1735,6 +1847,13 @@ class CognitiveChatEngine:
             if self._network_retry_turn > 0 and self.turn_count >= self._network_retry_turn:
                 self._network_available = None  # try again
                 self._network_retry_turn = 0
+            elif self._network_retry_turn == 0:
+                # First time being offline — schedule a retry
+                self._network_retry_turn = self.turn_count + 20
+                known_count = self._learn_from_text(query + " " + query, query, source_url=query)
+                if known_count > 0:
+                    return f"learned {known_count} things about {query}"
+                return f"offline - already knew about {query}"
             else:
                 # Still try GloVe-only learning from the query text itself
                 known_count = self._learn_from_text(query + " " + query, query, source_url=query)
@@ -1764,13 +1883,12 @@ class CognitiveChatEngine:
             # Step 2: Get snippets and try to fetch article text
             snippets = []
 
-            for i, r in enumerate(results[:3]):  # Top 3 results
-                snippet = r.get('content', '') or ''
-                title = r.get('title', '') or ''
-                url = r.get('url', '') or ''
+            # Parallel article fetching (ThreadPoolExecutor)
+            def _fetch_single(r):
+                snippet = r.get("content", "") or ""
+                title = r.get("title", "") or ""
+                url = r.get("url", "") or ""
                 text = f"{title}. {snippet}"
-
-                # Try to fetch full article text
                 if url:
                     try:
                         article_text = self._fetch_article_text(url)
@@ -1778,8 +1896,11 @@ class CognitiveChatEngine:
                             text = article_text[:3000]
                     except Exception:
                         pass
-
-                snippets.append(text)
+                return text
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                futures = [executor.submit(_fetch_single, r) for r in results[:3]]
+                for future in as_completed(futures):
+                    snippets.append(future.result())
 
             # Step 3: Extract and learn concepts from all gathered text
             combined_text = " ".join(snippets)
@@ -1941,18 +2062,28 @@ class CognitiveChatEngine:
             if node is None:
                 continue
             edge_count = 0
-            for existing_nid, existing_node in self.graph.nodes.items():
-                if existing_nid == nid or (existing_node.label and existing_node.label in important_words):
-                    continue
-                if existing_node.vector is not None and node.vector is not None:
-                    sim = float(np.dot(node.vector, existing_node.vector))
-                    if sim > 0.3:
-                        if self.graph.get_edge(nid, existing_nid) is None:
-                            weight = max(0.25, min(0.5, sim * 0.5))
-                            inf_type, _ = self._infer_relation_type(word, existing_node.label, "semantic")
-                            self.graph.add_edge(nid, existing_nid, weight=weight,
-                                                relation_type=inf_type)
-                            edge_count += 1
+            # FAISS/vectorized: matrix multiply instead of per-node loop
+            if self.graph._vectors_dirty or self.graph._vector_matrix_normed is None:
+                self.graph._rebuild_vector_matrix()
+            if self.graph._vector_matrix_normed is not None and len(self.graph._node_id_order) > 0:
+                vec_norm = node.vector / (np.linalg.norm(node.vector) + 1e-15)
+                all_sims = self.graph._vector_matrix_normed @ vec_norm.astype(np.float32)
+                for idx in np.where(all_sims > 0.3)[0]:
+                    existing_nid = self.graph._node_id_order[idx]
+                    if existing_nid == nid or existing_nid not in self.graph.nodes:
+                        continue
+                    existing_node = self.graph.get_node(existing_nid)
+                    if existing_node is None or existing_node.vector is None:
+                        continue
+                    if existing_node.label and existing_node.label in important_words:
+                        continue
+                    sim = float(all_sims[idx])
+                    if self.graph.get_edge(nid, existing_nid) is None:
+                        weight = max(0.25, min(0.5, sim * 0.5))
+                        inf_type, _ = self._infer_relation_type(word, existing_node.label, "semantic")
+                        self.graph.add_edge(nid, existing_nid, weight=weight,
+                                            relation_type=inf_type)
+                        edge_count += 1
             # Guarantee at least one connection for the topic word
             if edge_count == 0 and word == important_words[0]:
                 best_sim = 0.0
@@ -1989,15 +2120,20 @@ class CognitiveChatEngine:
                 text, self._decoder_word_to_embed, self._decoder_word_to_idx,
                 conditioning_embs=cond_embs)
             if trained > 0:
-                self._decoder_training_count += trained
+                self._decoder_web_training_count += trained
             # Multiple passes per article to strengthen Hebbian traces
             if trained > 0:
                 for _ in range(4):
                     err2, trained2 = self.neural_decoder.train_on_text(
                         text, self._decoder_word_to_embed, self._decoder_word_to_idx,
                         conditioning_embs=cond_embs)
-                    self._decoder_training_count += trained2
+                    self._decoder_web_training_count += trained2
                 self.neural_decoder.sleep_cycle()
+
+                # Train CerebellarNgram on article text (climbing-fibre error modulated)
+                if hasattr(self, 'cerebellar_ngram'):
+                    self.cerebellar_ngram.learn_from_text(
+                        text, decoder_prediction_error=min(0.8, err))
 
         return new_count
 
@@ -2239,9 +2375,10 @@ class CognitiveChatEngine:
         # Step 11: Store episodic memory — link subject to its associations
         self._store_episodic(subject, associations)
 
-        self._last_responses.append(response)
-        if len(self._last_responses) > 10:
-            self._last_responses = self._last_responses[-10:]
+        if response is not None:
+            self._last_responses.append(response)
+            if len(self._last_responses) > 10:
+                self._last_responses = self._last_responses[-10:]
 
         # Phase 16.5: Update cerebellar n-gram model
         for hops_list in self._last_chain_hops:
@@ -3330,6 +3467,8 @@ class CognitiveChatEngine:
         # Recent response centroid
         recent_vecs = []
         for resp in self._last_responses[-3:]:
+            if resp is None:
+                continue
             for w in resp.split():
                 wn = self._concept_keywords.get(w.lower(), [])
                 if wn:
@@ -3861,16 +4000,14 @@ class CognitiveChatEngine:
                 for sig, tgt_lbl, edge, d in candidates:
                     pair = (cur_nid, edge.target) if d == "out" else (edge.source, cur_nid)
                     if pair in recent_set:
-                        recency_penalty = 1.0
-                        for i, (rs, rt) in enumerate(reversed(self._recent_traversals[-30:])):
-                            if (rs, rt) == pair:
-                                if i < 10:
-                                    recency_penalty = 0.3
-                                elif i < 20:
-                                    recency_penalty = 0.6
-                                else:
-                                    recency_penalty = 0.8
-                                break
+                        turn_idx = self._recent_traversal_map.get(pair, 0)
+                        i = len(self._recent_traversals) - turn_idx
+                        if i < 10:
+                            recency_penalty = 0.3
+                        elif i < 20:
+                            recency_penalty = 0.6
+                        else:
+                            recency_penalty = 0.8
                         sig *= recency_penalty
                     penalized.append((sig, tgt_lbl, edge, d))
                 candidates = penalized
@@ -4084,9 +4221,13 @@ class CognitiveChatEngine:
                     self._activation_fatigue[_nid] = self._activation_fatigue.get(_nid, 0.0) + 0.15
             # Phase 13.2: Track recent traversals
             if best_edge.source is not None and best_edge.target is not None:
-                self._recent_traversals.append((best_edge.source, best_edge.target))
+                pair = (best_edge.source, best_edge.target)
+                self._recent_traversals.append(pair)
                 if len(self._recent_traversals) > 30:
                     self._recent_traversals = self._recent_traversals[-30:]
+                # Rebuild map from pruned list (correct positions)
+                self._recent_traversal_map = {p: len(self._recent_traversals) - i
+                                               for i, p in enumerate(reversed(self._recent_traversals))}
             connector = self._pick_connector(best_edge.relation_type, best_edge.weight,
                                              best_edge.confidence, temperature)
             # Retry same hop if best neighbor IS the connector word
@@ -4516,12 +4657,26 @@ class CognitiveChatEngine:
         subject = ctx.subject
         assocs = ctx.associated_concepts
 
-        # Try neural decoder first if sufficiently trained
-        if self._decoder_training_count >= 20:
+        # Try neural decoder — only after substantial web-text training
+        # and only if quality checks pass. Synthetic-only training produces gibberish.
+        # Require at least 10% web-trained content to ensure real language patterns.
+        if self._decoder_training_count >= 5000 and self._decoder_web_training_count >= 100:
             try:
                 decoder_response = self._generate_with_decoder(ctx)
-                if decoder_response is not None and len(decoder_response) > 10:
-                    return (decoder_response, "neural_decoder")
+                if decoder_response and len(decoder_response) > 10:
+                    resp_words = decoder_response.lower().strip(".").split()
+                    # Quality check 1: first word must be a meaningful subject, not a function word
+                    first_word = resp_words[0] if resp_words else ""
+                    function_starts = {"of", "to", "and", "in", "with", "the", "a", "an",
+                                       "for", "from", "by", "at", "this", "that", "these",
+                                       "those", "it", "its", "they", "them", "we", "you",
+                                       "he", "she", "him", "her", "his", "i", "me", "my"}
+                    # Quality check 2: at least 50% content words should be known graph concepts
+                    content_words = [w for w in resp_words if len(w) > 2 and w not in STOP_WORDS]
+                    if (first_word not in function_starts
+                            and content_words
+                            and sum(1 for w in content_words if w in self._concept_keywords) / len(content_words) >= 0.5):
+                        return (decoder_response, "neural_decoder")
             except Exception:
                 pass
 
@@ -6026,6 +6181,7 @@ class CognitiveChatEngine:
             'visited_concepts': list(self._visited_concepts),
             'activation_fatigue': dict(self._activation_fatigue),
             'recent_traversals': list(self._recent_traversals[-30:]),
+            'recent_traversal_map': dict(self._recent_traversal_map),
             'cognitive_state': self._cognitive_state,
             'state_duration': self._state_duration,
             'prefrontal_buffer': self._prefrontal_buffer,
@@ -6034,6 +6190,7 @@ class CognitiveChatEngine:
             # Neural decoder
             'decoder_state_dict': self.neural_decoder.state_dict() if self.neural_decoder is not None else None,
             'decoder_training_count': self._decoder_training_count,
+            'decoder_web_training_count': self._decoder_web_training_count,
         }
         try:
             # Phase 6.1: Checkpoint rotation — save every 25 turns
@@ -6068,11 +6225,17 @@ class CognitiveChatEngine:
                 def find_class(self, module, name):
                     try:
                         return super().find_class(module, name)
-                    except ModuleNotFoundError:
+                    except (ModuleNotFoundError, AttributeError):
                         if module == 'ravana_chat':
                             return super().find_class('scripts.ravana_chat', name)
                         elif module == 'scripts.ravana_chat':
                             return super().find_class('ravana_chat', name)
+                        elif module == '__main__':
+                            # Saved from direct `python ravana_chat.py` run
+                            try:
+                                return super().find_class('scripts.ravana_chat', name)
+                            except (ModuleNotFoundError, AttributeError):
+                                return super().find_class('ravana_chat', name)
                         raise
             with open(self._save_path, 'rb') as f:
                 state = _RavanaUnpickler(f).load()
@@ -6084,7 +6247,7 @@ class CognitiveChatEngine:
             self._topic_list = state.get('topic_list', [])
             self._topic_store = state.get("topic_store", {})
             self._response_context = state.get("response_context", [])
-            self._last_responses = state['last_responses']
+            self._last_responses = [r for r in state['last_responses'] if r is not None]
             self._last_strategy = state['last_strategy']
             self._free_energy = state['free_energy']
             self._learning_count = state['learning_count']
@@ -6181,18 +6344,17 @@ class CognitiveChatEngine:
             self._visited_concepts = set(state.get('visited_concepts', []))
             self._activation_fatigue = state.get('activation_fatigue', {})
             self._recent_traversals = state.get('recent_traversals', [])
+            self._recent_traversal_map = state.get('recent_traversal_map', {})
             self._cognitive_state = state.get('cognitive_state', 'default')
             self._state_duration = state.get('state_duration', 0)
             self._impossible_queries = state.get('impossible_queries', [])
 
-            # Restore neural decoder state
+            # Stash decoder state dict to be loaded after _build_decoder_vocab()
+            # (neural decoder doesn't exist yet — created later in __init__)
             decoder_sd = state.get('decoder_state_dict', None)
-            if decoder_sd is not None and self.neural_decoder is not None:
-                try:
-                    self.neural_decoder.load_state_dict(decoder_sd)
-                except Exception:
-                    pass
+            self._saved_decoder_state = decoder_sd if decoder_sd is not None else {}
             self._decoder_training_count = state.get('decoder_training_count', 0)
+            self._decoder_web_training_count = state.get('decoder_web_training_count', 0)
 
             # Restart background learning
             self.start_background_learning()

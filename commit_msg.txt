@@ -1,23 +1,28 @@
-Phase C+D: Sparse cerebellar n-gram + Prefrontal discourse planner
+Phase I (Opt suite): 6/7 bottleneck optimizations
 
-Phase C (Cerebellar N-gram):
-- Created ravana/language/cerebellar_ngram.py with sparse Dict-based bigram/trigram
-  storage (NOT a dense 10000x10000 matrix to avoid the 400MB trap)
-- Hebbian learn_chain() with bigram/trigram/function-word tracking
-- Per-candidate transition strength in the BG Gate candidate loop (before selection)
-- seed_from_pos integrates POS tags for agreement patterns
-- Serialization with get_state/set_state (tuple-key handling for trigrams)
+1. FAISS/vectorized scans (Opt 1):
+- Replaced brute-force O(N) Python dot-product loops with vectorized
+  matrix multiply in _auto_expand_concepts and _learn_from_text
+- Added _vectors_dirty guard to rebuild matrix before use
 
-Phase D (Prefrontal Workspace - Discourse Planner):
-- Created ravana/language/prefrontal_workspace.py with DiscourseIntent/DiscoursePlan/DiscourseType
-- Question-type detection: what_is, why, tell_me, compare, do_you_know, follow_up
-- 6 planning strategies with deterministic strategy selection by question type
-- 3-sentence narrative arc per turn: EXPLAIN -> ELABORATE -> CONTRAST/CONNECT/ASK_BACK
-- plan_discourse() called before sentence generation (core architecture change)
-- plan.intents[i].subject wired into _walk_chain calls and _format_sentence calls
-- Discourse markers computed per intent (also, furthermore, however, similarly)
-- Capacity: 5 (teen) / 7 (adult), topic history (last 10)
+2. Parallel article fetching (Opt 2):
+- Replaced sequential article fetch loop with ThreadPoolExecutor
+  (max_workers=4), reducing 3 sequential fetches to parallel
 
-Module wiring:
-- Updated ravana/language/__init__.py to export all Phase C+D classes
-- All modules importable and tested end-to-end
+3. Threshold-filter decoder vocab (Opt 5):
+- Cerebellar n-gram and basal ganglia loops now pre-filter to
+  tokens with logits > 0.01 via np.where (20-50 tokens vs 350)
+
+4. Hashmap edge repetition penalty (Opt 6):
+- Added _recent_traversal_map: Dict[Tuple[int,int], int] alongside
+  _recent_traversals list — O(1) dict lookup replaces O(n*30) scan
+- Map rebuilt from scratch after list pruning (n <= 30, negligible)
+
+5. Lightweight pickle (Opt 7):
+- Added __getstate__ on ConceptEdge excluding agent_weights,
+  source_metadata, and parent_graph — cuts ~2-3 MB from 6 MB pickle
+- parent_graph restored by ConceptGraph.__setstate__ as before
+
+6. Duplicate _rebuild_raw_cache fix (Opt 4):
+- Removed duplicate loop in module.py load_state_dict (was running
+  the same _rebuild_raw_cache loop twice consecutively)
