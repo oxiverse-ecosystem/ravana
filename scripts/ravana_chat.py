@@ -3944,168 +3944,131 @@ class CognitiveChatEngine:
                     candidates.append((dedge.weight * dedge.confidence * 0.7 * decay_mod, dnode.label, dedge, "out"))
             if not candidates:
                 break
-            # Fix 2: Boost dormant edge confidence if endpoints co-occur in user model
-            if self._dormant_edges:
-                boosted = []
-                for sig, tgt_lbl, edge, d in candidates:
-                    edge_pair = (cur_nid, edge.target) if d == "out" else (edge.source, cur_nid)
-                    if edge_pair in self._dormant_edges:
-                        key = (cur_label.lower(), tgt_lbl.lower())
-                        visit_count = self.user_model.edge_reactivations.get(key, 0)
-                        if visit_count > 0 or edge.confidence > 0.15:
-                            # Awaken: enough contextual justification
-                            self._dormant_edges.discard(edge_pair)
-                            edge.confidence = 0.3
-                            sig = edge.weight * 0.3  # recompute signal with awakened confidence
-                    boosted.append((sig, tgt_lbl, edge, d))
-                candidates = boosted
-            if not candidates:
-                break
-            # Fix 1: Episodic-first mode (recall) — only episodic edges for this hop
-            if episodic_first:
-                episodic_cands = [(s, l, e, d) for (s, l, e, d) in candidates
-                                  if e.relation_type == "episodic"]
-                if episodic_cands:
-                    candidates = episodic_cands
-            if not candidates:
-                break
-            # Apply contradiction penalty (from _belief_assertions)
-            if contradiction_penalty > 0 and self._contradiction_map:
-                penalized = []
-                for sig, tgt_lbl, edge, d in candidates:
-                    if self._is_contradictory(cur_label, tgt_lbl, edge.relation_type):
-                        sig *= (1.0 - contradiction_penalty)
-                    penalized.append((sig, tgt_lbl, edge, d))
-                candidates = penalized
-            # Preference boost: continuous sigmoid from edge reactivation frequency
-            if self.user_model.edge_reactivations:
-                boosted = []
-                for sig, tgt_lbl, edge, d in candidates:
-                    key = (cur_label.lower(), tgt_lbl.lower())
-                    count = self.user_model.edge_reactivations.get(key, 0)
-                    boost = 1.0 + (count / (count + 1.0)) * 0.3
-                    boosted.append((sig * boost, tgt_lbl, edge, d))
-                candidates = boosted
-            # Activation boost from follow-up handler (targeted preference bias)
-            if activation_boost:
-                boosted = []
-                for sig, tgt_lbl, edge, d in candidates:
-                    boost = activation_boost.get(tgt_lbl.lower(), 1.0)
-                    boosted.append((sig * boost, tgt_lbl, edge, d))
-                candidates = boosted
-            # ── Edge Repetition Penalty (Phase 13.2) ──
-            if self._recent_traversals:
-                recent_set = set(self._recent_traversals[-10:])
-                penalized = []
-                for sig, tgt_lbl, edge, d in candidates:
-                    pair = (cur_nid, edge.target) if d == "out" else (edge.source, cur_nid)
-                    if pair in recent_set:
-                        turn_idx = self._recent_traversal_map.get(pair, 0)
-                        i = len(self._recent_traversals) - turn_idx
-                        if i < 10:
-                            recency_penalty = 0.3
-                        elif i < 20:
-                            recency_penalty = 0.6
-                        else:
-                            recency_penalty = 0.8
-                        sig *= recency_penalty
-                    penalized.append((sig, tgt_lbl, edge, d))
-                candidates = penalized
-            # ── VAD Edge Preference ──
-            if getattr(self, 'use_vad', True):
-                valence = self.emotion.state.valence
-                dominance = self.emotion.state.dominance
-                vad_boosted = []
-                max_w = max((c[0] for c in candidates), default=0.001)
-                for sig, tgt_lbl, edge, d in candidates:
-                    adj = sig
-                    # Positive mood: prefer stronger existing paths
-                    if valence > 0.10:
-                        adj *= (1.0 + 0.15 * (edge.weight / max_w))
-                    # Negative mood: slightly flatten all weights (exploration)
-                    elif valence < -0.10:
-                        adj *= 0.9
-                    # Low dominance: less assertive path selection
-                    if dominance < 0.35:
-                        adj *= (0.6 + 0.4 * edge.weight / max_w)
-                    vad_boosted.append((adj, tgt_lbl, edge, d))
-                candidates = vad_boosted
-            # ── Context-Dependent Vector Modulation (Phase 11.2) ──
-            if self._current_context_vector is not None and not np.all(self._current_context_vector == 0):
-                modulated_boosted = []
-                for sig, tgt_lbl, edge, d in candidates:
-                    tgt_nids_m = self._concept_keywords.get(tgt_lbl.lower(), [])
-                    if tgt_nids_m:
-                        mod_vec = self._modulate_vector(tgt_nids_m[0])
-                        if mod_vec is not None:
-                            ctx_sim = float(np.dot(mod_vec, self._current_context_vector))
-                            mod_boost = 1.0 + 0.1 * max(0.0, ctx_sim)
-                            modulated_boosted.append((sig * mod_boost, tgt_lbl, edge, d))
-                        else:
-                            modulated_boosted.append((sig, tgt_lbl, edge, d))
-                    else:
-                        modulated_boosted.append((sig, tgt_lbl, edge, d))
-                candidates = modulated_boosted
-            # ── Subject Proximity Bonus (Phase 4.2) ──
-            # Bias toward concepts that are vector-similar to the original subject
-            if subject_proximity is not None:
-                prox_nids = self._concept_keywords.get(subject_proximity.lower(), [])
-                prox_node = self.graph.get_node(prox_nids[0]) if prox_nids else None
-                if prox_node is not None and prox_node.vector is not None:
-                    prox_boosted = []
-                    for sig, tgt_lbl, edge, d in candidates:
-                        tgt_nids_cand = self._concept_keywords.get(tgt_lbl.lower(), [])
-                        if not tgt_nids_cand:
-                            prox_boosted.append((sig, tgt_lbl, edge, d))
-                            continue
-                        tgt_node_cand = self.graph.get_node(tgt_nids_cand[0])
-                        if tgt_node_cand is not None and tgt_node_cand.vector is not None:
-                            cos = float(np.dot(tgt_node_cand.vector, prox_node.vector))
-                            prox_boost = 1.0 + 0.15 * max(0.0, cos)
-                            prox_boosted.append((sig * prox_boost, tgt_lbl, edge, d))
-                        else:
-                            prox_boosted.append((sig, tgt_lbl, edge, d))
-                    candidates = prox_boosted
-            # ── Prefrontal Gating (Phase 9) ──
-            # Filter through working memory buffer — boosts on-topic, suppresses drift
-            if getattr(self, '_pfc_gating_enabled', True) and self._prefrontal_buffer:
-                gate_subject = subject_proximity if subject_proximity else label
-                candidates = self._prefrontal_gate_candidates(candidates, gate_subject)
-            # ── Thalamic Gate (Phase 16.1) ──
-            candidates = self._thalamic_gate(candidates)
-            # ── RLMv2 Confidence Modulation ──
-            rlm_data = {}  # tgt_label -> confidence for trace logging
-            if getattr(self, 'use_rlm', True):
-                rlm_boosted = []
-                for sig, tgt_lbl, edge, d in candidates:
-                    triple = self._classify_triple(cur_label, tgt_lbl, edge.relation_type)
-                    rlm_conf_local = triple['confidence']
-                    rlm_data[tgt_lbl.lower()] = rlm_conf_local
-                    adj = sig
-                    if rlm_conf_local < 0.4:
-                        adj *= 0.7
-                    elif rlm_conf_local > 0.75:
-                        adj *= 1.15
-                    if triple['is_analogical']:
-                        adj *= 0.85
-                    rlm_boosted.append((adj, tgt_lbl, edge, d))
-                candidates = rlm_boosted
-            # ── BeliefStore Confidence Weighting ──
-            if getattr(self, 'use_beliefs', True):
-                belief_boosted = []
-                for sig, tgt_lbl, edge, d in candidates:
-                    belief = self.belief_store.query_belief(cur_label, edge.relation_type)
-                    adj = sig
-                    if belief:
-                        value, bconf, turn = belief
-                        if value == tgt_lbl:
-                            adj *= (1.0 + 0.2 * bconf)
-                        else:
-                            adj *= (1.0 - 0.4 * bconf)
-                    belief_boosted.append((adj, tgt_lbl, edge, d))
-                candidates = belief_boosted
+                        # ── Fused score accumulation (12 modifier loops fused into 1 pass) ──
+            # Compute all multiplicative modifiers in a single O(candidates) iteration
+            # instead of 12 sequential list-building loops (O(stages * candidates)).
 
-            # Phase 13.3: Apply activation fatigue to penalize recently overused concepts
+            # Precompute global stats used by modifiers
+            _recent_set = set(self._recent_traversals[-10:]) if self._recent_traversals else set()
+            _use_vad = getattr(self, 'use_vad', True)
+            if _use_vad:
+                _valence = self.emotion.state.valence
+                _dominance = self.emotion.state.dominance
+            else:
+                _valence = 0.0; _dominance = 0.5
+            _max_w = max((c[0] for c in candidates), default=0.001)
+            _prox_nids = self._concept_keywords.get(subject_proximity.lower(), []) if subject_proximity is not None else []
+            _prox_node = self.graph.get_node(_prox_nids[0]) if _prox_nids else None
+            _prox_vec = _prox_node.vector if _prox_node and _prox_node.vector is not None else None
+            _ctx_mod_avail = self._current_context_vector is not None and not np.all(self._current_context_vector == 0)
+            rlm_data = {}
+
+            _fused = []
+            for _sig, _tgt_lbl, _edge, _d in candidates:
+                _pair = (cur_nid, _edge.target) if _d == "out" else (_edge.source, cur_nid)
+
+                # 1. Dormant edge boost (side effect: may wake edges)
+                if self._dormant_edges and _pair in self._dormant_edges:
+                    _key = (cur_label.lower(), _tgt_lbl.lower())
+                    _vc = self.user_model.edge_reactivations.get(_key, 0)
+                    if _vc > 0 or _edge.confidence > 0.15:
+                        self._dormant_edges.discard(_pair)
+                        _edge.confidence = 0.3
+                        _sig = _edge.weight * 0.3
+
+                # 2. Contradiction penalty
+                if contradiction_penalty > 0 and self._contradiction_map and                    self._is_contradictory(cur_label, _tgt_lbl, _edge.relation_type):
+                    _sig *= (1.0 - contradiction_penalty)
+
+                # 3. Preference boost (user model)
+                if self.user_model.edge_reactivations:
+                    _cnt = self.user_model.edge_reactivations.get((cur_label.lower(), _tgt_lbl.lower()), 0)
+                    if _cnt > 0:
+                        _sig *= (1.0 + (_cnt / (_cnt + 1.0)) * 0.3)
+
+                # 4. Activation boost
+                if activation_boost:
+                    _sig *= activation_boost.get(_tgt_lbl.lower(), 1.0)
+
+                # 5. Edge repetition penalty
+                if self._recent_traversals and _pair in _recent_set:
+                    _turn_idx = self._recent_traversal_map.get(_pair, 0)
+                    _dist = len(self._recent_traversals) - _turn_idx
+                    if _dist < 10:
+                        _sig *= 0.3
+                    elif _dist < 20:
+                        _sig *= 0.6
+                    else:
+                        _sig *= 0.8
+
+                # 6. VAD Edge Preference (uses raw edge.weight, not modified sig)
+                if _use_vad:
+                    if _valence > 0.10:
+                        _sig *= (1.0 + 0.15 * (_edge.weight / _max_w))
+                    elif _valence < -0.10:
+                        _sig *= 0.9
+                    if _dominance < 0.35:
+                        _sig *= (0.6 + 0.4 * _edge.weight / _max_w)
+
+                # 7. Context-Dependent Vector Modulation
+                if _ctx_mod_avail:
+                    _tgt_nids_m = self._concept_keywords.get(_tgt_lbl.lower(), [])
+                    if _tgt_nids_m:
+                        _mod_vec = self._modulate_vector(_tgt_nids_m[0])
+                        if _mod_vec is not None:
+                            _ctx_sim = float(np.dot(_mod_vec, self._current_context_vector))
+                            _sig *= (1.0 + 0.1 * max(0.0, _ctx_sim))
+
+                # 8. Subject Proximity Bonus
+                if _prox_vec is not None:
+                    _tgt_nids_c = self._concept_keywords.get(_tgt_lbl.lower(), [])
+                    if _tgt_nids_c:
+                        _tgt_node_c = self.graph.get_node(_tgt_nids_c[0])
+                        if _tgt_node_c is not None and _tgt_node_c.vector is not None:
+                            _cos = float(np.dot(_tgt_node_c.vector, _prox_vec))
+                            _sig *= (1.0 + 0.15 * max(0.0, _cos))
+
+                # 9. RLMv2 Confidence Modulation
+                if getattr(self, 'use_rlm', True):
+                    _triple = self._classify_triple(cur_label, _tgt_lbl, _edge.relation_type)
+                    _rlm_conf = _triple['confidence']
+                    rlm_data[_tgt_lbl.lower()] = _rlm_conf
+                    if _rlm_conf < 0.4:
+                        _sig *= 0.7
+                    elif _rlm_conf > 0.75:
+                        _sig *= 1.15
+                    if _triple['is_analogical']:
+                        _sig *= 0.85
+
+                # 10. BeliefStore Confidence Weighting
+                if getattr(self, 'use_beliefs', True):
+                    _belief = self.belief_store.query_belief(cur_label, _edge.relation_type)
+                    if _belief:
+                        _value, _bconf, _ = _belief
+                        if _value == _tgt_lbl:
+                            _sig *= (1.0 + 0.2 * _bconf)
+                        else:
+                            _sig *= (1.0 - 0.4 * _bconf)
+
+                _fused.append((_sig, _tgt_lbl, _edge, _d))
+            candidates = _fused
+            if not candidates:
+                break
+            # ── Filtering stages (keep separate — they remove candidates) ──
+            # Episodic-first mode (recall)
+            if episodic_first:
+                _episodic_cands = [(s, l, e, d) for (s, l, e, d) in candidates if e.relation_type == "episodic"]
+                if _episodic_cands:
+                    candidates = _episodic_cands
+            if not candidates:
+                break
+            # Prefrontal Gating
+            if getattr(self, '_pfc_gating_enabled', True) and self._prefrontal_buffer:
+                _gate_subject = subject_proximity if subject_proximity else label
+                candidates = self._prefrontal_gate_candidates(candidates, _gate_subject)
+            # Thalamic Gate
+            candidates = self._thalamic_gate(candidates)
+# Phase 13.3: Apply activation fatigue to penalize recently overused concepts
             if candidates and self._activation_fatigue:
                 candidates = self._apply_activation_fatigue(candidates)
 
