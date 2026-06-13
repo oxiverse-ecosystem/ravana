@@ -30,8 +30,8 @@ import argparse
 
 # Ensure project root is on sys.path
 _proj_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, _proj_root)
 sys.path.insert(0, os.path.join(_proj_root, "ravana-v2"))
+sys.path.insert(0, _proj_root)
 
 # Try package-qualified import first, fall back to direct sibling import
 try:
@@ -190,6 +190,7 @@ def main():
                       f"{current_words} concepts (+{new_words}), "
                       f"{current_edges} edges (+{new_edges}), "
                       f"{engine._bg_search_count} web searches, "
+                      f"decoder={engine._decoder_training_count}, "
                       f"urgency={engine._curiosity_urgency:.2f}"
                       f"{f', curiosity-queued {queued_this_cycle}' if queued_this_cycle else ''}")
                 last_word_count = current_words
@@ -214,7 +215,9 @@ def main():
         print(f"  [Learn] {result}")
         print(f"  [Learn] Final graph: {len(engine.graph.nodes)} concepts, "
               f"{len(engine.graph.edges)} edges, "
-              f"{engine._bg_search_count} web searches performed")
+              f"{engine._bg_search_count} web searches performed, "
+              f"decoder trained on {engine._decoder_training_count} sentences "
+              f"({engine._decoder_web_training_count} from web)")
         print("  [Learn] Goodbye!")
 
 

@@ -719,6 +719,7 @@ class CognitiveChatEngine:
         self._decoder_vocab_built: bool = False
         self._decoder_training_count: int = 0
         self._decoder_web_training_count: int = 0
+        self._decoder_seed_training_count: int = 0
         self._saved_decoder_state: dict = {}
 
         # Always init GloVe first (cheap if cache exists) so graph vectors
@@ -851,6 +852,9 @@ class CognitiveChatEngine:
         self.neural_decoder.rebuild_vocab_cache()
         self._decoder_vocab_built = True
         self._train_decoder_from_graph()
+        # Seed corpus training is slow (hippocampal replay for 1255 words).
+        # Skip during init for fast startup. Can be triggered manually later.
+        # seed_n = self._train_decoder_on_seed_corpus()
 
     def _train_decoder_from_graph(self):
         """Train neural decoder on synthetic sentences from graph relationships."""
@@ -953,6 +957,47 @@ class CognitiveChatEngine:
         self._decoder_training_count = total_trained + self._decoder_web_training_count
         print(f"  [Decoder] Trained on {total_trained} synthetic graph sentences"
               f"{' + ' + str(self._decoder_web_training_count) + ' from web' if self._decoder_web_training_count > 0 else ''}")
+
+    def _train_decoder_on_seed_corpus(self, max_sentences: int = 250) -> int:
+        # Train the neural decoder on the bundled real-English corpus
+        # (data/corpora/teen_seeds.txt). This is the difference between
+        # a decoder that has seen only {s} connects with {o} template
+        # garbage and a decoder that has actually seen English. Without
+        # this, the decoder learns to imitate the very template phrases
+        # that produce the trash output in chat.
+        if self.neural_decoder is None or not self._decoder_vocab_built:
+            return 0
+        corpus_path = os.path.join(_proj_root, "data", "corpora", "teen_seeds.txt")
+        if not os.path.exists(corpus_path):
+            return 0
+        try:
+            with open(corpus_path, "r", encoding="utf-8") as f:
+                text = f.read()
+        except Exception:
+            return 0
+        # Pre-expand decoder vocab with corpus words so they can be
+        # used as inputs/targets (GloVe-backed vectors).
+        words_in_corpus = set(re.findall(r"[a-zA-Z\']{3,}", text.lower()))
+        new_for_vocab = [w for w in words_in_corpus if w not in self._decoder_word_to_idx]
+        if new_for_vocab:
+            self._expand_decoder_vocab(new_for_vocab)
+        # Train decoder on the corpus text, multiple passes for
+        # Hebbian consolidation (no backprop).
+        total_err = 0.0
+        passes = 0
+        for _ in range(2):
+            err, n = self.neural_decoder.train_on_text(
+                text, self._decoder_word_to_embed, self._decoder_word_to_idx,
+                min_sentence_len=3)
+            total_err += err
+            passes += n
+        if hasattr(self, "cerebellar_ngram") and self.cerebellar_ngram is not None:
+            self.cerebellar_ngram.learn_from_text(
+                text, decoder_prediction_error=min(0.6, total_err / max(1, passes)))
+        self.neural_decoder.sleep_cycle()
+        self._decoder_seed_training_count = passes
+        self._decoder_training_count += passes
+        return passes
 
     def _expand_decoder_vocab(self, new_words: List[str]):
         """Add new words to the decoder vocabulary (hippocampal replay).
@@ -1133,7 +1178,10 @@ class CognitiveChatEngine:
         """
         if self.neural_decoder is None or not self._decoder_vocab_built:
             return None
-        if self._decoder_training_count < 500 or self._decoder_web_training_count < 50:
+        # Allow the decoder once it has meaningful total training.
+        # We do not require web training here; the bundled seed corpus
+        # already provides real English patterns.
+        if self._decoder_training_count < 500:
             return None
 
         subject = ctx.subject
@@ -1183,18 +1231,38 @@ class CognitiveChatEngine:
         bos_idx = self._decoder_word_to_idx.get("<bos>", 0)
         eos_idx = self._decoder_word_to_idx.get("<eos>", 3)
 
-        # Generate with cerebellar bias and basal ganglia gating
-        temp = 0.4 if self._decoder_training_count < 5000 else 0.55
+        # Generate with cerebellar bias. Basal-ganglia gating helps once
+        # the decoder has been trained on real text, but is harmful on
+        # a freshly seeded decoder because the gate has no learned
+        # preferences yet and falls through to softmax anyway. Skip it
+        # until the decoder has meaningful web training.
+        bg_gate = getattr(self, 'basal_ganglia', None) if self._decoder_web_training_count >= 200 else None
+        temp = 0.7 if self._decoder_training_count < 5000 else 0.8
         generated_indices = self.neural_decoder.generate(
             conditioning_embs=conditioning_embs,
-            max_steps=15,
+            max_steps=18,
             bos_idx=bos_idx,
             eos_idx=eos_idx,
             temperature=temp,
             cerebellar_ngram=getattr(self, 'cerebellar_ngram', None),
             idx_to_word=self._decoder_idx_to_word,
-            basal_ganglia=getattr(self, 'basal_ganglia', None),
+            basal_ganglia=bg_gate,
         )
+        # Quality retry: if the output is too looped, try again at
+        # higher temperature. Cheap because the decoder is small.
+        if generated_indices:
+            uniq = len(set(generated_indices))
+            if uniq < max(4, len(generated_indices) // 3):
+                generated_indices = self.neural_decoder.generate(
+                    conditioning_embs=conditioning_embs,
+                    max_steps=18,
+                    bos_idx=bos_idx,
+                    eos_idx=eos_idx,
+                    temperature=min(1.0, temp + 0.2),
+                    cerebellar_ngram=None,
+                    idx_to_word=self._decoder_idx_to_word,
+                    basal_ganglia=None,
+                )
 
         # Map indices back to words
         words = []
@@ -1204,7 +1272,7 @@ class CognitiveChatEngine:
                 continue
             words.append(word)
 
-        if len(words) < 3:
+        if len(words) < 4:
             return None
 
         # Capitalize first word, add period
@@ -1524,8 +1592,8 @@ class CognitiveChatEngine:
                     self._glove_vector_cache[w] = pv.astype(np.float32)
                 print(f"  [GloVe] Loaded {len(self._glove_vecs)} projected vectors from cache ({self._glove_dim}D -> {self.dim}D)")
                 return
-            except Exception:
-                print(f"  [GloVe] Cache load failed, re-reading from file...")
+            except Exception as e:
+                print(f"  [GloVe] Cache load failed: {e}, re-reading from file...")
 
         # Fall back to reading raw GloVe file
         for name in ['glove.6B.100d.txt', 'glove.6B.50d.txt']:
@@ -2509,7 +2577,10 @@ class CognitiveChatEngine:
         for w in words:
             if w in self._concept_keywords:
                 for nid in self._concept_keywords[w]:
-                    scores[nid] = scores.get(nid, 0) + 5.0
+                    # Boost nouns slightly for better subject extraction
+                    node = self.graph.nodes.get(nid)
+                    pos_boost = 0.5 if node and node.label and self._concept_pos.get(node.label.lower()) == 'noun' else 0.0
+                    scores[nid] = scores.get(nid, 0) + 5.0 + pos_boost
 
         for nid, node in self.graph.nodes.items():
             if not node.label:
@@ -2628,8 +2699,8 @@ class CognitiveChatEngine:
 
         Strategies (tried in order):
         a) Exact phrase match — the full phrase after 'what is' matches a concept label
-        b) Phrase embedding similarity — mean word vec → nearest concept (cosine > 0.7)
-        c) Compositional — split phrase, count known vs unknown words; use best known word
+        b) Compositional — split phrase, count known vs unknown words; use best known word
+        c) Phrase embedding similarity — mean word vec → nearest concept (cosine > 0.75)
         d) Best single word fallback — last meaningful non-stop word
         """
         # Detect query patterns and extract the semantic payload
@@ -2651,21 +2722,8 @@ class CognitiveChatEngine:
         if phrase_clean in self._concept_keywords:
             return (phrase_clean, 0.90, "exact_keyword")
 
-        # Strategy B: Phrase embedding similarity search
-        phrase_vec = self._compute_phrase_embedding(query_phrase)
-        if phrase_vec is not None:
-            best_sim = 0.0
-            best_label = None
-            for nid, node in self.graph.nodes.items():
-                if node.label and node.vector is not None:
-                    sim = float(np.dot(phrase_vec, node.vector))
-                    if sim > best_sim:
-                        best_sim = sim
-                        best_label = node.label
-            if best_label and best_sim > 0.7:
-                return (best_label, best_sim, f"phrase_sim_{best_sim:.2f}")
-
-        # Strategy C: Compositional — score words by known/unknown ratio
+        # Strategy C (moved before B): Compositional — score words by known/unknown ratio
+        # This is more reliable for multi-word queries than phrase embedding
         words = [w.strip(".,!?") for w in query_phrase.split()
                  if len(w.strip(".,!?")) > 2
                  and w.strip(".,!?") not in self.QUESTION_WORDS
@@ -2682,6 +2740,21 @@ class CognitiveChatEngine:
             # All unknown — will trigger web learning
             if words:
                 return (words[-1], 0.2, "all_unknown")
+
+        # Strategy B: Phrase embedding similarity search (fallback for short queries)
+        phrase_vec = self._compute_phrase_embedding(query_phrase)
+        if phrase_vec is not None:
+            best_sim = 0.0
+            best_label = None
+            for nid, node in self.graph.nodes.items():
+                if node.label and node.vector is not None:
+                    sim = float(np.dot(phrase_vec, node.vector))
+                    if sim > best_sim:
+                        best_sim = sim
+                        best_label = node.label
+            # Higher threshold + reject TOPIC_SKIP_WORDS matches
+            if best_label and best_sim > 0.75 and best_label.lower() not in self.TOPIC_SKIP_WORDS:
+                return (best_label, best_sim, f"phrase_sim_{best_sim:.2f}")
 
         # Strategy D: Spelling-tolerant close match (handles typos like "intellegence")
         if words:
@@ -2715,19 +2788,26 @@ class CognitiveChatEngine:
             return (topic, text)
 
         # Fallback: best activated concept (skip question, topic-skip, and short words)
+        # Prefer nouns over adjectives/verbs using POS tags
         if activated:
             best_real = None
+            best_noun = None
             for nid in activated:
                 node = self.graph.get_node(nid)
                 if node and node.label:
                     lbl = node.label.lower()
                     if (len(lbl) > 2 and lbl not in self.QUESTION_WORDS
                             and lbl not in self.TOPIC_SKIP_WORDS):
+                        pos = self._concept_pos.get(lbl, 'noun')
+                        if pos == 'noun' and best_noun is None:
+                            best_noun = (node.label, text)
                         if best_real is None:
                             best_real = (node.label, text)
+            # Prefer noun if available, else first valid
+            if best_noun:
+                return best_noun
             if best_real:
                 return best_real
-            # Don't use activated[0] if it's a question/skip word
 
         # Fallback: find meaningful words
         words = [w.strip(".,!?") for w in text.lower().split()
@@ -2738,8 +2818,16 @@ class CognitiveChatEngine:
         if words:
             # Prefer words that are actually in the graph (known concepts) over unknown ones
             known_words = [w for w in reversed(words) if w in self._concept_labels or w in self._concept_keywords]
+            # Prefer nouns among known words
+            noun_words = [w for w in known_words if self._concept_pos.get(w, 'noun') == 'noun']
+            if noun_words:
+                return (noun_words[0], text)
             if known_words:
                 return (known_words[0], text)
+            # Prefer nouns among unknown words
+            unknown_nouns = [w for w in words if self._concept_pos.get(w, 'noun') == 'noun']
+            if unknown_nouns:
+                return (unknown_nouns[0], text)
             return (words[-1], text)
 
         first = text.split()[0] if text.split() else ""
@@ -3950,6 +4038,9 @@ class CognitiveChatEngine:
                     continue
                 if tn.label.lower() in chain_labels:
                     continue  # cycle detected within this chain
+                # Filter: skip weak edges (below auto-wire minimum threshold)
+                if edge.weight < 0.35:
+                    continue
                 # Self-penalty: penalize edges to concepts too semantically different from subject
                 score = edge.weight * edge.confidence
                 if label and tn.label and label.lower() != tn.label.lower():
@@ -3967,6 +4058,9 @@ class CognitiveChatEngine:
                     continue
                 if sn.label.lower() in chain_labels:
                     continue  # cycle detected within this chain
+                # Filter: skip weak edges
+                if edge.weight < 0.35:
+                    continue
                 candidates.append((edge.weight * edge.confidence, sn.label, edge, "in"))
             # Phase 15.4: Blend candidates from episodic + semantic dual stores
             # Build dedup set from main graph candidates already gathered
@@ -4427,10 +4521,11 @@ class CognitiveChatEngine:
         words = full.split()
         if len(words) < 3:
             return True
-        # Check repetitiveness: same concept appears 3+ times
+        # Check repetitiveness: same concept appears 4+ times (raised from 3 
+        # to allow core concepts to naturally repeat across 3 sentences)
         from collections import Counter
         word_counts = Counter(w for w in words if len(w) > 3)
-        if any(c >= 3 for c in word_counts.values()):
+        if any(c >= 4 for c in word_counts.values()):
             return True
         # Check for circular A->B then B->A patterns
         sentences_lower = [s.lower() for s in sentences]
@@ -4595,6 +4690,12 @@ class CognitiveChatEngine:
                 else:
                     tail = ""
                 return f"{subject.capitalize()} {phrase} {other}{tail}."
+            elif len(concepts) == 1:
+                # Single concept (subject only) - use vector neighbor for variety
+                neighbor = self._find_vector_neighbor(subject)
+                if neighbor and neighbor.lower() != subject.lower():
+                    phrase = _get_phrase(dominant_rel)
+                    return f"{subject.capitalize()} {phrase} {neighbor}."
             return f"{subject.capitalize()} is an interesting concept to explore."
 
         # Check if subject already in chain
@@ -4635,9 +4736,10 @@ class CognitiveChatEngine:
         if sentence_idx >= 2:
             hedge = self._get_epistemic_hedge(subject)
             if hedge:
+                # Hedge replaces starter for more natural flow
                 if self._dopamine_tone > 0.6 and self.rng.random() < 0.3:
-                    return f"{hedge.capitalize()}, {starter} {core}."
-                return f"{starter.capitalize()}, {hedge} {core}."
+                    return f"{hedge.capitalize()} {core}."
+                return f"{hedge.capitalize()} {core}."
 
         # Natural sentence with subject as anchor
         if not has_subject:
@@ -4660,10 +4762,11 @@ class CognitiveChatEngine:
         subject = ctx.subject
         assocs = ctx.associated_concepts
 
-        # Try neural decoder — only after substantial web-text training
-        # and only if quality checks pass. Synthetic-only training produces gibberish.
-        # Require at least 10% web-trained content to ensure real language patterns.
-        if self._decoder_training_count >= 5000 and self._decoder_web_training_count >= 100:
+        # Try neural decoder — ONLY after substantial web-text training.
+        # Seed corpus + synthetic training produces gibberish. Require web training.
+        _have_web = self._decoder_web_training_count >= 200
+        _total = self._decoder_training_count
+        if _have_web and _total >= 500:
             try:
                 decoder_response = self._generate_with_decoder(ctx)
                 if decoder_response and len(decoder_response) > 10:
@@ -4674,12 +4777,27 @@ class CognitiveChatEngine:
                                        "for", "from", "by", "at", "this", "that", "these",
                                        "those", "it", "its", "they", "them", "we", "you",
                                        "he", "she", "him", "her", "his", "i", "me", "my"}
-                    # Quality check 2: at least 50% content words should be known graph concepts
+                    # Quality check 2: prefer the decoder only when the
+                    # output has both on-topic content (>= 30% of
+                    # content words are known graph concepts) and a
+                    # non-degenerate shape (at least 6 content words
+                    # and a small ratio of unique tokens, so we do
+                    # not return bag-of-words). The decoder is great
+                    # at vocabulary selection but not yet at syntax,
+                    # so most of the time the template path is better.
                     content_words = [w for w in resp_words if len(w) > 2 and w not in STOP_WORDS]
-                    if (first_word not in function_starts
-                            and content_words
-                            and sum(1 for w in content_words if w in self._concept_keywords) / len(content_words) >= 0.5):
-                        return (decoder_response, "neural_decoder")
+                    if not content_words:
+                        pass
+                    else:
+                        in_concepts = sum(1 for w in content_words if w in self._concept_keywords)
+                        concept_ratio = in_concepts / max(1, len(content_words))
+                        uniq_ratio = len(set(content_words)) / max(1, len(content_words))
+                        _good = (first_word not in function_starts
+                                 and len(content_words) >= 6
+                                 and concept_ratio >= 0.30
+                                 and uniq_ratio >= 0.5)
+                        if _good:
+                            return (decoder_response, "neural_decoder")
             except Exception:
                 pass
 
@@ -4922,64 +5040,54 @@ class CognitiveChatEngine:
             seen = fallback_seen
             strategies_tried = ["A_direct_chain"]
             strategy_result = None
+            strategy_sentence_idx = len(sentences)  # which sentence position to fill
 
             # Strategy B: Bridge Prospecting
             if strategy_result is None:
                 bridge_result = self._bridge_prospecting(
                     getattr(self, '_last_activated_ids', []), subject, seen, temps[1])
                 if bridge_result:
-                    conn = self._starter_from_chain(bridge_result, subject, connector_counts)
-                    strategy_result = f"{conn} {bridge_result}."
+                    strategy_result = self._format_sentence(bridge_result, subject, connector_counts, strategy_sentence_idx)
                     strategies_tried.append("B_bridge")
-                    for w in bridge_result.split():
-                        if w.lower() in self._CONNECTOR_SET:
-                            connector_counts[w.lower()] = connector_counts.get(w.lower(), 0) + 1
 
             # Strategy C: Analogical Detour
             if strategy_result is None:
                 analog_result = self._analogical_detour(subject, seen, temps[1])
                 if analog_result:
-                    conn = self._starter_from_chain(analog_result, subject, connector_counts)
-                    strategy_result = f"{conn} {analog_result}."
+                    strategy_result = self._format_sentence(analog_result, subject, connector_counts, strategy_sentence_idx)
                     strategies_tried.append("C_analogical")
-                    for w in analog_result.split():
-                        if w.lower() in self._CONNECTOR_SET:
-                            connector_counts[w.lower()] = connector_counts.get(w.lower(), 0) + 1
 
             # Strategy D: Contrastive Flip
             if strategy_result is None:
                 contrast_result = self._contrastive_flip(subject, seen, temps[1])
                 if contrast_result:
-                    strategy_result = f"but {contrast_result}."
+                    strategy_result = self._format_sentence(contrast_result, subject, connector_counts, strategy_sentence_idx)
                     strategies_tried.append("D_contrastive")
 
             # Strategy E: Sub-Question Decomposition
             if strategy_result is None:
                 decomp_result = self._sub_question_decompose(subject, ctx.raw_input, seen, temps[1])
                 if decomp_result:
-                    conn = self._starter_from_chain(decomp_result, subject, connector_counts)
-                    strategy_result = f"{conn} {decomp_result}."
+                    strategy_result = self._format_sentence(decomp_result, subject, connector_counts, strategy_sentence_idx)
                     strategies_tried.append("E_decompose")
 
             # Strategy F: Web Research Mode (if network available)
-            # Also trigger when response quality is circular/repetitive
-            _should_web = (strategy_result is None) or (getattr(self, "_cascade_for_quality", False) and strategy_result)
+            # Trigger when no strategy worked yet, or quality cascade needs web help
+            _should_web = (strategy_result is None) or (getattr(self, "_cascade_for_quality", False) and strategy_result is None)
             if _should_web and getattr(self, '_network_available', True) is not False:
                 search_result = getattr(self, 'learn_from_web', None)
                 if search_result and subject:
                     try:
-                        self.learn_from_web(subject)
+                        self.learn_from_web(subject)  # synchronous for immediate retry
                         strategies_tried.append("F_web_research")
-                        # Queue subject for background learning and related searches
                         if self._bg_learning_active:
                             self.queue_background_search(subject)
-                        # Retry A-E with expanded graph
+                        # Retry direct chain with expanded graph
                         retry = self._walk_chain(subject, seen, max_hops=2,
                                                   temperature=temps[1],
                                                   subject_proximity=subject)
                         if retry:
-                            conn = self._starter_from_chain(retry, subject, connector_counts)
-                            strategy_result = f"{conn} {retry}."
+                            strategy_result = self._format_sentence(retry, subject, connector_counts, strategy_sentence_idx)
                     except Exception:
                         pass
 
@@ -4992,7 +5100,11 @@ class CognitiveChatEngine:
                 strategies_tried.append("G_uncertainty")
 
             if strategy_result:
-                sentences.append(strategy_result)
+                # Replace last sentence if we have 3+, otherwise append
+                if len(sentences) >= 3:
+                    sentences[-1] = strategy_result
+                else:
+                    sentences.append(strategy_result)
                 self._last_strategy_used = strategies_tried[-1] if strategies_tried else "A"
                 if self._trace_enabled:
                     print(f"  [trace]   strategy: {', '.join(strategies_tried)}")
@@ -5504,8 +5616,8 @@ class CognitiveChatEngine:
                       f"t={h.temperature:.2f} ({h.candidates} cand){extra}")
         # Phase 7: Print impossible query count if any
         if self._impossible_queries:
-            unresolved = sum(1 for iq in engine._impossible_queries if not iq.resolved)
-            print(f"  [trace]   impossible queries: {len(engine._impossible_queries)} total, {unresolved} unresolved")
+            unresolved = sum(1 for iq in self._impossible_queries if not iq.resolved)
+            print(f"  [trace]   impossible queries: {len(self._impossible_queries)} total, {unresolved} unresolved")
         # Print user model state
         if self.user_model.edge_reactivations:
             print(f"  [trace]   user_model: {len(self.user_model.edge_reactivations)} edge visits")
@@ -5911,12 +6023,31 @@ class CognitiveChatEngine:
 
         fallback_idea = "ideas"
         # Stochastic: variety of contrastive structures
-        templates = [
-            f"{starter.capitalize()}, {before_ant.strip()} {ant} — yet together they shape understanding.",
-            f"On one hand {before_ant.strip()}, but on the other {ant} {after_ant}.",
-            f"{subject.capitalize()} and {ant} are opposites, yet both connect to {before_ant.split()[-1] if before_ant.split() else fallback_idea}.",
-            f"{starter.capitalize()} {before_ant.strip()} {ant} — a contrast that deepens the picture.",
-        ]
+        templates = []
+        if before_ant.strip():
+            templates.append(
+                f"{starter.capitalize()}, {before_ant.strip()} {ant} — yet together they shape understanding."
+            )
+            templates.append(
+                f"On one hand {before_ant.strip()}, but on the other {ant} {after_ant}."
+            )
+            templates.append(
+                f"{subject.capitalize()} and {ant} are opposites, yet both connect to {before_ant.split()[-1] if before_ant.split() else fallback_idea}."
+            )
+            templates.append(
+                f"{starter.capitalize()} {before_ant.strip()} {ant} — a contrast that deepens the picture."
+            )
+        else:
+            # No before_ant content - simpler contrastive
+            templates.append(
+                f"{subject.capitalize()} contrasts with {ant}."
+            )
+            templates.append(
+                f"Unlike {ant}, {subject} is different."
+            )
+            templates.append(
+                f"{starter.capitalize()} {ant} is the opposite of {subject}."
+            )
         return self.rng.choice(templates)
 
     # ── Phase F: Recall grounding ──
