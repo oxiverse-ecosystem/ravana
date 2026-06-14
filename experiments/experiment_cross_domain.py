@@ -29,7 +29,59 @@ from dataclasses import dataclass, field, asdict
 
 from ravana_ml.nn.rlm_v2 import RLMv2
 from ravana_ml.tokenizer import WordTokenizer
-from experiments.archive.old_experiments.experiment_baselines import SimpleMLP
+# Inline SimpleMLP (was in experiments/archive/old_experiments/experiment_baselines.py)
+class SimpleMLP:
+    """Simple MLP baseline for cross-domain comparison."""
+    def __init__(self, vocab_size: int, embed_dim: int = 64, hidden_dim: int = 128, lr: float = 0.01):
+        self.vocab_size = vocab_size
+        self.embed_dim = embed_dim
+        self.hidden_dim = hidden_dim
+        self.lr = lr
+        # Embedding layer
+        self.W_embed = np.random.randn(vocab_size, embed_dim).astype(np.float32) * 0.1
+        # Hidden layer
+        self.W1 = np.random.randn(embed_dim, hidden_dim).astype(np.float32) * 0.1
+        self.b1 = np.zeros(hidden_dim, dtype=np.float32)
+        # Output layer
+        self.W2 = np.random.randn(hidden_dim, vocab_size).astype(np.float32) * 0.1
+        self.b2 = np.zeros(vocab_size, dtype=np.float32)
+
+    def train_step(self, input_ids, target_ids):
+        """Single training step."""
+        # Embed input (mean of embeddings for multi-word input)
+        x = np.mean(self.W_embed[input_ids], axis=0)
+        # Hidden layer
+        h = np.maximum(0, x @ self.W1 + self.b1)  # ReLU
+        # Output
+        logits = h @ self.W2 + self.b2
+        # Softmax + cross-entropy
+        exp_logits = np.exp(logits - np.max(logits))
+        probs = exp_logits / np.sum(exp_logits)
+        loss = -np.log(probs[target_ids[0]] + 1e-10)
+        # Backprop
+        grad = probs.copy()
+        grad[target_ids[0]] -= 1.0
+        # Output layer grads
+        self.W2 -= self.lr * np.outer(h, grad)
+        self.b2 -= self.lr * grad
+        # Hidden layer grads
+        grad_h = grad @ self.W2.T
+        grad_h[h <= 0] = 0  # ReLU derivative
+        self.W1 -= self.lr * np.outer(x, grad_h)
+        self.b1 -= self.lr * grad_h
+        # Embedding grad
+        for idx in input_ids:
+            self.W_embed[idx] -= self.lr * (grad_h @ self.W1.T) / len(input_ids)
+        return loss
+
+    def predict(self, input_ids):
+        """Predict logits for input."""
+        x = np.mean(self.W_embed[input_ids], axis=0)
+        h = np.maximum(0, x @ self.W1 + self.b1)
+        logits = h @ self.W2 + self.b2
+        return logits
+
+
 
 
 # ═══════════════════════════════════════════════════════════════════════════

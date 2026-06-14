@@ -8,11 +8,10 @@ import numpy as np
 import pytest
 from ravana_ml.nn.rlm_v2 import RLMv2
 from ravana_ml.tokenizer import WordTokenizer
-from experiments.archive.old_experiments.experiment_cross_domain import (
+from experiments.experiment_cross_domain import (
     build_domain_a_science, build_domain_b_social,
     train_rlm_on_domain, evaluate_rlm,
 )
-from experiments.archive.old_experiments.experiment_cross_domain import test_structural_transfer as _run_structural_transfer
 
 
 def test_cross_domain_structural_transfer():
@@ -80,7 +79,7 @@ def test_cross_domain_structural_transfer():
     print("\n============================================================")
     print("STRUCTURAL TRANSFER ON TRAINED FACTS (Verb Swapping)")
     print("============================================================")
-    transfer_train = _run_structural_transfer(model, tokenizer, domain_a["train"], domain_b["train"])
+    transfer_train = test_structural_transfer(model, tokenizer, domain_a["train"], domain_b["train"])
     for r in transfer_train['probes']:
         status = "PASS" if r['correct'] else ("T10" if r['in_top10'] else "FAIL")
         print(f"  {status:>4}  {r['input']:<28} expected={r['expected']:<14} got={r['predicted']:<14}")
@@ -90,7 +89,7 @@ def test_cross_domain_structural_transfer():
     print("\n============================================================")
     print("STRUCTURAL TRANSFER ON HELD-OUT TEST FACTS")
     print("============================================================")
-    transfer_test = _run_structural_transfer(model, tokenizer, domain_a["test"], domain_b["test"])
+    transfer_test = test_structural_transfer(model, tokenizer, domain_a["test"], domain_b["test"])
     for r in transfer_test['probes']:
         status = "PASS" if r['correct'] else ("T10" if r['in_top10'] else "FAIL")
         print(f"  {status:>4}  {r['input']:<28} expected={r['expected']:<14} got={r['predicted']:<14}")
