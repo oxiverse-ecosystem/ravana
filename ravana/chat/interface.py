@@ -17,7 +17,7 @@ from collections import deque
 import hashlib
 
 # Import all refactored modules
-from ravana.core import (VADEmotionEngine, VADConfig, IdentityEngine, IdentityState,
+from ravana.core import (VADEmotionEngine, VADConfig, IdentityEngine, IdentityState, IdentityConfig,
                           MeaningEngine, MeaningConfig, DualProcessController, DualProcessConfig, Route,
                           GlobalWorkspace, GWConfig, MetaCognition, MetaCognitiveConfig, EpistemicMode,
                           SleepConsolidation, SleepConfig, BeliefStore, UserBeliefProfile, BeliefConfig)

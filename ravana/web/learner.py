@@ -755,3 +755,13 @@ class WebLearner:
     _concept_confidence = {}
     emotion = None
     identity = None
+
+    def _seed_from_graph_curiosity(self, max_topics: int = 8) -> int:
+        """Seed background learning queue from graph's curiosity signals."""
+        if not self._curiosity_drive_enabled:
+            return 0
+        selected = self._auto_select_curiosity_topics(max_topics=max_topics)
+        if self._trace_enabled:
+            print(f"  [seed] Seeded {len(selected)} topics from curiosity: {selected}")
+        return len(selected)
+    identity = None

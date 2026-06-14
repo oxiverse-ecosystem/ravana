@@ -41,6 +41,19 @@ python experiments/experiment_cross_domain.py 2>&1 | tee results/cross_domain_$(
 
 ## Experiment Categories
 
+### Modular Package Experiments (NEW — `ravana/`)
+
+| Category | Location | Purpose |
+|----------|----------|---------|
+| **Ablation Study** | `scripts/run_ablation.py` | Systematic config ablation (VAD, RLM, Beliefs, Curiosity, Modes) |
+| **Per-Triple Evaluation** | `scripts/triple_eval.py` | Detailed per-triple diagnostics (PE, confidence, source, edge health) |
+| **Chat Quality** | `experiments/experiment_chat_quality.py` | Dialogue coherence (modular) |
+| **Background Learner** | `experiments/experiment_background_learner.py` | Continuous web learning |
+| **Curiosity** | `experiments/experiment_curiosity.py` | Intrinsic motivation (Phase 18) |
+| **Chat Ablation** | `scripts/run_ablation.py --quick` | Fast baseline + single flag removals |
+
+### GRACE / ML Framework Experiments
+
 | Category | Location | Purpose |
 |----------|----------|---------|
 | **Cross-Domain** | `experiments/experiment_cross_domain.py` | Zero-shot generalization across domains |
@@ -54,12 +67,107 @@ python experiments/experiment_cross_domain.py 2>&1 | tee results/cross_domain_$(
 | **Persistence** | `experiments/experiment_persistence.py` | Save/load, checkpoint integrity |
 | **Scaling Laws** | `experiments/experiment_scaling_laws.py` | Performance vs model size |
 | **Ablation** | `experiments/experiment_ablation.py` | Component necessity |
-| **Curiosity** | `experiments/experiment_curiosity.py` | Intrinsic motivation |
 | **Sleep/Memory** | `experiments/experiment_sleep_memory.py` | Consolidation effects |
 | **Longitudinal** | `experiments/experiment_longitudinal.py` | Long-term training dynamics |
-| **Background Learner** | `experiments/experiment_background_learner.py` | Continuous learning |
-| **Chat Quality** | `experiments/experiment_chat_quality.py` | Dialogue coherence |
 | **Cross-Domain (v2)** | `experiments/experiment_cross_domain.py` | Cognitive core transfer |
+
+---
+
+## Modular Package Experiments (NEW — `ravana/`)
+
+### Ablation Study — `scripts/run_ablation.py`
+
+Systematically runs all combinations of ablation flags and compares results.
+
+```bash
+# Full factorial (4 flags × 3 modes = 48 configs, 3 runs each)
+python scripts/run_ablation.py --queries "hello|what is trust|explain oxiverse|bye" --runs 3
+
+# Quick mode (baseline + 4 single removals + 2 mode variants = 7 configs)
+python scripts/run_ablation.py --quick --modes
+
+# Custom queries
+python scripts/run_ablation.py --queries "what causes rain|how does learning work|tell me about sleep" --runs 2
+```
+
+**Ablation flags tested:**
+
+| Flag | Component | What it removes |
+|------|-----------|-----------------|
+| `--no-vad` | VADEmotionEngine | VAD emotion modulation of inference |
+| `--no-rlm` | RLMv2 (RelationPredictor + PropagationEngine) | Triple verification pathway |
+| `--no-beliefs` | BeliefStore | Multi-user belief tracking & merging |
+| `--no-curiosity` | WebLearner curiosity drive | Autonomous background learning |
+
+**Mode variants:** `stochastic` (default) | `deterministic` | `exploratory`
+
+**Output:** `ablation_results.json` + markdown comparison table with:
+- Success rate per config
+- Average latency per query
+- Total time
+- Error modes
+
+### Per-Triple Evaluation Harness — `scripts/triple_eval.py`
+
+Provides detailed per-triple diagnostics instead of averaged metrics.
+
+```bash
+# Default 10 triples (semantic, causal, contrastive) against trained engine
+python scripts/triple_eval.py --data-dir ./data --output triple_eval_report.json
+
+# Custom triples file
+python scripts/triple_eval.py --triples-file my_triples.json --output report.json
+```
+
+**Per-triple metrics:**
+
+| Metric | Description |
+|--------|-------------|
+| `relation_type` | semantic / causal / contrastive / possessive / temporal / analogical |
+| `prediction_error` | How well the model predicts the object (1 - prob) |
+| `confidence` | Model's confidence in the prediction |
+| `top1_accuracy` | Exact match (rank = 1) |
+| `top5_accuracy` | In top 5 predictions |
+| `rank` | Position of correct object in predictions |
+| `edge_weight` | Graph edge weight (if exists) |
+| `edge_confidence` | Graph edge confidence |
+| `edge_type` | Graph edge relation type |
+| `edge_prediction_free_energy` | Edge-level free energy (if available) |
+| `source` | Where learned: `seed` \| `web` \| `user` \| `sleep` \| `inference` \| `unknown` |
+| `learned_turn` | Turn number when concept was learned |
+| `predicted_object` | Model's top-1 prediction |
+| `predicted_prob` | Probability of top-1 prediction |
+| `all_candidates` | Top-5 (token, prob) pairs |
+
+**Aggregated diagnostics generated:**
+- **Overall**: top-1, top-5, avg PE, avg confidence, avg rank
+- **By relation type**: per-type counts, accuracies, PE, confidence, edge stats
+- **By source**: per-source counts, accuracies, PE
+- **Edge health**: avg weight, confidence, PE, type distribution
+
+**Example output:**
+```
+========================================
+PER-TRIPLE EVALUATION REPORT
+========================================
+Timestamp: 2026-06-14T15:05:12.137630
+Total triples evaluated: 10
+
+OVERALL METRICS:
+  Top-1 Accuracy:    0.0%
+  Top-5 Accuracy:    0.0%
+  Avg Prediction PE: 0.0000
+  Avg Confidence:    0.0000
+  Avg Rank:          0.0
+
+BY RELATION TYPE:
+  semantic          : n=  5  Top1=  0.0%  Top5=  0.0%  PE=0.0000  Conf=0.0000  EdgeW=0.000
+  causal            : n=  4  Top1=  0.0%  Top5=  0.0%  PE=0.0000  Conf=0.0000  EdgeW=0.000
+  contrastive       : n=  1  Top1=  0.0%  Top5=  0.0%  PE=0.0000  Conf=0.0000  EdgeW=0.000
+
+BY SOURCE:
+  unknown           : n= 10  Top1=  0.0%  PE=0.0000
+```
 
 ---
 
