@@ -234,6 +234,7 @@ def build_domain_b_social():
 
     Structurally parallel to Domain A but semantically distinct.
     Uses stratified holdout: every target appears in training at least once.
+    Extended to 100+ facts for stable held-out evaluation.
     """
     facts = [
         # Causal facts
