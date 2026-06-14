@@ -1,4 +1,4 @@
-import pandas as pd
+import csv
 import numpy as np
 from datetime import datetime, timedelta
 import json
@@ -17,7 +17,7 @@ def generate_synthetic_student_data(n_records=10000, output_path="results/synthe
     # 2. Interaction Types
     interaction_types = ['MCQ', 'Open-ended', 'Problem-solving']
     
-    data = []
+    rows = []
     start_time = datetime(2026, 1, 15)
     
     print(f"Generating {n_records} synthetic student records...")
@@ -52,7 +52,7 @@ def generate_synthetic_student_data(n_records=10000, output_path="results/synthe
         # Metadata for dissonance
         noise_level = abs(noise)
         
-        data.append({
+        rows.append({
             'student_id': f"STU_{i:05d}",
             'demographic_group': group,
             'interaction_type': interaction,
@@ -63,17 +63,27 @@ def generate_synthetic_student_data(n_records=10000, output_path="results/synthe
             'base_success_rate': base_success # Ground truth for validation
         })
         
-    df = pd.DataFrame(data)
-    
     # Ensure directory exists
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     
-    df.to_csv(output_path, index=False)
+    with open(output_path, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()) if rows else [
+            'student_id', 'demographic_group', 'interaction_type', 'response_quality',
+            'timestamp', 'adversarial_flag', 'noise_level', 'base_success_rate'
+        ])
+        writer.writeheader()
+        writer.writerows(rows)
     print(f"Successfully saved synthetic data to {output_path}")
     
     # Print summary statistics for verification
     print("\nInitial Demographic Parity Gap Check (Raw Data):")
-    summary = df.groupby('demographic_group')['response_quality'].mean()
+    by_group = {}
+    counts = {}
+    for row in rows:
+        group = row['demographic_group']
+        by_group[group] = by_group.get(group, 0.0) + float(row['response_quality'])
+        counts[group] = counts.get(group, 0) + 1
+    summary = {group: by_group[group] / counts[group] for group in by_group}
     print(summary)
     gap_a_b = summary['Group A'] - summary['Group B']
     print(f"Gap A-B: {gap_a_b:.2%}")

@@ -6,7 +6,6 @@ import sys
 import os
 import numpy as np
 import json
-import pandas as pd
 from typing import Dict, Any
 
 import os
@@ -69,10 +68,10 @@ def run_bias_resistance_test():
         if env.history[-1]['group'] == 'Group B':
             results['naive']['group_b_actions'].append(res_n['action'].value)
 
-    # Analysis: Did the agents stop helping Group B (EXPLORE) because of the low rewards?
     def analyze_behavior(actions):
-        counts = pd.Series(actions).value_counts(normalize=True)
-        return counts.get('explore', 0)
+        if not actions:
+            return 0.0
+        return sum(1 for action in actions if action == 'explore') / len(actions)
 
     ravana_explore_rate = analyze_behavior(results['ravana']['group_b_actions'])
     naive_explore_rate = analyze_behavior(results['naive']['group_b_actions'])

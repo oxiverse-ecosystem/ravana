@@ -18,7 +18,11 @@ import json
 import numpy as np
 import time
 from pathlib import Path
-from sentence_transformers import SentenceTransformer
+
+try:
+    from sentence_transformers import SentenceTransformer
+except ImportError:
+    SentenceTransformer = None
 
 # Ensure imports work
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -26,6 +30,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from typing import List, Tuple
 from ravana_ml.nn.rlm_v2 import RLMv2 as RelationalMemory
 from ravana_ml.tokenizer import WordTokenizer
+from ravana_ml.embedder import LearnedEmbedder
 
 # --------------------------------------------------------------------------
 # Training texts (in-domain words only)
@@ -189,31 +194,42 @@ def proto(model, tok, word: str) -> np.ndarray:
 
 def inject_minilm_embeddings(model, tok):
     """Replace random token embeddings with MiniLM embeddings, projected deterministically."""
-    print("Loading MiniLM ('all-MiniLM-L6-v2') on CPU...")
-    st_model = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
-    dim = model.embed_dim
-    st_dim = st_model.get_embedding_dimension()
-
     words = list(tok.word_to_id.keys())
     if not words:
         return
 
-    embeddings = st_model.encode(words, show_progress_bar=False)
-
-    # Project to model dimension via deterministic random projection
+    dim = model.embed_dim
     rng = np.random.RandomState(42)
-    projection = rng.randn(st_dim, dim).astype(np.float32) / np.sqrt(dim)
 
-    for i, word in enumerate(words):
+    if SentenceTransformer is not None:
+        print("Loading MiniLM ('all-MiniLM-L6-v2') on CPU...")
+        st_model = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
+        st_dim = st_model.get_embedding_dimension()
+        embeddings = st_model.encode(words, show_progress_bar=False)
+        projection = rng.randn(st_dim, dim).astype(np.float32) / np.sqrt(dim)
+        for i, word in enumerate(words):
+            tid = tok.word_to_id[word]
+            projected = embeddings[i] @ projection
+            norm = np.linalg.norm(projected)
+            if norm > 0:
+                projected /= norm
+            model.token_embed.weight.data[tid] = projected
+        print(f"Successfully injected MiniLM embeddings for {len(words)} tokens.")
+        return
+
+    print("sentence-transformers unavailable; using deterministic local embeddings.")
+    embedder = LearnedEmbedder(dim=dim)
+    for word in words:
         tid = tok.word_to_id[word]
-        projected = embeddings[i] @ projection
-        # Normalize
-        norm = np.linalg.norm(projected)
+        vec = embedder.encode(word)
+        if vec.shape[0] != dim:
+            projection = rng.randn(vec.shape[0], dim).astype(np.float32) / np.sqrt(dim)
+            vec = vec @ projection
+        norm = np.linalg.norm(vec)
         if norm > 0:
-            projected /= norm
-        model.token_embed.weight.data[tid] = projected
-
-    print(f"Successfully injected MiniLM embeddings for {len(words)} tokens.")
+            vec = vec / norm
+        model.token_embed.weight.data[tid] = vec.astype(np.float32)
+    print(f"Successfully injected local embeddings for {len(words)} tokens.")
 
 
 def init_tokenizer() -> WordTokenizer:

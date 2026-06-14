@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 
 # Add RAVANA v2 to path
-RAVANA_PATH = "/home/workspace/Projects/ravana-v2"
+RAVANA_PATH = str(Path(__file__).resolve().parents[2])
 sys.path.insert(0, RAVANA_PATH)
 
 from core.governor import Governor, GovernorConfig, RegulationMode

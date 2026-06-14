@@ -171,19 +171,28 @@ class RavanaAgent:
         
         # 4. Reality grounding (every N episodes)
         reality_result = None
+        grounding_cycle = None
         if self.episode_count % self.grounding_interval == 0:
-            news = self.grounding.fetch_rss_feeds()
-            if news:
-                # Find relevant articles
-                relevant = news[:5]
-                belief = interpretation.get('interpretation', message)
-                reality_result = self.grounding.evaluate_belief_alignment(
-                    belief=belief,
-                    action=message,
-                    news_items=relevant,
-                )
-                print(f"  [Ground] Alignment: {reality_result['verdict']} "
-                      f"(score: {reality_result['alignment_score']:.2f})")
+            grounding_cycle = self.grounding.ingest_news(
+                query=interpretation.get('interpretation', message),
+                ravana_state=current_state,
+                max_items=5,
+                max_scenarios=3,
+            )
+            reality_result = grounding_cycle.get('alignment')
+            print(
+                f"  [Ground] Alignment: {reality_result['verdict']} "
+                f"(score: {reality_result['alignment_score']:.2f})"
+            )
+            self.reporter.send_report(
+                "grounding",
+                {
+                    "news": grounding_cycle.get('news_items', []),
+                    "alignment_check": reality_result,
+                    "summary": grounding_cycle.get('summary', ''),
+                    "workspace_bids": grounding_cycle.get('workspace_bids', []),
+                },
+            )
         
         # 5. Learn from episode
         lesson = self.learner.learn_from_episode(
@@ -191,6 +200,9 @@ class RavanaAgent:
             reality_result=reality_result,
             user_feedback=message,
         )
+        if grounding_cycle:
+            grounding_lessons = self.learner.learn_from_grounding_cycle(grounding_cycle)
+            print(f"  [Learn] Added {len(grounding_lessons)} grounding lessons")
         print(f"  [Learn] Lesson: {lesson.lesson[:80]}...")
         
         # 6. Send episode summary

@@ -44,8 +44,42 @@ def test_build_news_mdp():
     assert 0.0 <= scenarios[0]["next_state"]["dissonance"] <= 1.0
     assert 0.0 <= scenarios[1]["next_state"]["identity"] <= 1.0
     assert "rationale" in scenarios[0]
+    assert scenarios[0]["learning_card"]["source"] == "news-mdp"
+    assert "correctness" in scenarios[0]["learning_card"]
+
+
+def test_ingest_news_pipeline():
+    rg = RealityGrounding(rss_feeds=[], max_items_per_source=2)
+    cycle = rg.ingest_news(
+        query="AI safety",
+        ravana_state={"dissonance": 0.62, "identity": 0.44},
+        topics=["AI safety", "AI ethics"],
+        max_items=2,
+        max_scenarios=2,
+    )
+
+    assert "summary" in cycle
+    assert "scenarios" in cycle
+    assert "alignment" in cycle
+    assert "events" in cycle
+    assert "event_cards" in cycle
+    assert "workspace_bids" in cycle
+    assert isinstance(cycle["events"], list)
+    assert isinstance(cycle["event_cards"], list)
+    assert isinstance(cycle["workspace_bids"], list)
+    assert isinstance(cycle["max_pressure"], float)
+    if cycle["workspace_bids"]:
+        urgencies = [bid["urgency"] for bid in cycle["workspace_bids"]]
+        assert urgencies == sorted(urgencies, reverse=True)
+        assert "source" in cycle["workspace_bids"][0]
+    if cycle["scenarios"]:
+        scenario = cycle["scenarios"][0]
+        assert scenario.pressure >= 0.0
+        assert isinstance(scenario.entities, list)
+        assert isinstance(scenario.source_url, str)
 
 
 if __name__ == "__main__":
     test_build_news_mdp()
+    test_ingest_news_pipeline()
     print("reality grounding smoke test passed")

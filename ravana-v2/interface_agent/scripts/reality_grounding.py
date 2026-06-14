@@ -9,7 +9,7 @@ import time
 import hashlib
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import requests
 
 # Try importing newspaper3k for article extraction
@@ -31,6 +31,27 @@ class NewsItem:
     topic: str
     relevance_score: float  # 0.0-1.0 relevance to current context
     published_epoch: float  # For sorting
+    entities: List[str] = field(default_factory=list)
+    dissonance_pressure: float = 0.0
+    scenario_action: str = ""
+    scenario_priority: float = 0.0
+
+    def to_event_record(self) -> Dict[str, Any]:
+        return {
+            "kind": "news",
+            "title": self.title,
+            "source": self.source,
+            "url": self.url,
+            "topic": self.topic,
+            "published": self.published,
+            "published_epoch": self.published_epoch,
+            "summary": self.summary,
+            "relevance_score": round(self.relevance_score, 3),
+            "entities": list(self.entities),
+            "dissonance_pressure": round(self.dissonance_pressure, 3),
+            "scenario_action": self.scenario_action,
+            "scenario_priority": round(self.scenario_priority, 3),
+        }
 
 
 @dataclass
@@ -42,6 +63,340 @@ class NewsMDPScenario:
     reward: float
     next_state: Dict[str, Any]
     rationale: str
+    entities: List[str] = field(default_factory=list)
+    pressure: float = 0.0
+    confidence: float = 0.0
+    source_url: str = ""
+    published_epoch: float = 0.0
+
+    def to_learning_card(self) -> Dict[str, Any]:
+        action = self.action.lower()
+        if action in {"increase scrutiny", "escalate attention"}:
+            correctness = False
+        elif action in {"update beliefs", "monitor impact"}:
+            correctness = True
+        else:
+            correctness = self.reward >= 0.2
+
+        return {
+            "correctness": correctness,
+            "difficulty": max(0.1, min(0.9, self.pressure)),
+            "domain": self.topic,
+            "source": "news-mdp",
+            "pressure": round(self.pressure, 3),
+            "confidence": round(self.confidence, 3),
+            "reward": round(self.reward, 3),
+            "rationale": self.rationale,
+        }
+
+    def to_event_record(self) -> Dict[str, Any]:
+        return {
+            "kind": "scenario",
+            "topic": self.topic,
+            "action": self.action,
+            "reward": round(self.reward, 3),
+            "pressure": round(self.pressure, 3),
+            "confidence": round(self.confidence, 3),
+            "source_url": self.source_url,
+            "published_epoch": self.published_epoch,
+            "entities": list(self.entities),
+            "state": self.state,
+            "next_state": self.next_state,
+            "rationale": self.rationale,
+            "learning_card": self.to_learning_card(),
+        }
+
+
+class NewsToMDPPipeline:
+    """Convert news items into a structured grounding cycle."""
+
+    def __init__(self, grounding: "RealityGrounding"):
+        self.grounding = grounding
+
+    def select_topics(self, ravana_state: Optional[dict] = None) -> List[str]:
+        if not ravana_state:
+            return self.grounding.DEFAULT_TOPICS[:3]
+
+        dissonance = float(ravana_state.get("dissonance", 0.5))
+        identity = float(ravana_state.get("identity", 0.5))
+
+        if dissonance >= 0.7:
+            return ["AI safety", "AI ethics", "cognitive science"]
+        if identity <= 0.35:
+            return ["AI ethics", "behavioral economics", "AI safety"]
+        if dissonance >= 0.45:
+            return ["machine learning", "AGI development", "AI ethics"]
+        return self.grounding.DEFAULT_TOPICS[:3]
+
+    def extract_entities(self, text: str) -> List[str]:
+        import re
+
+        tokens = re.findall(r"\b(?:[A-Z]{2,}|[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})\b", text)
+        stopwords = {
+            "The", "A", "An", "And", "Or", "But", "For", "With", "From", "Into", "Over", "Under",
+            "This", "That", "These", "Those", "In", "On", "At", "By", "To", "Of",
+        }
+        seen = set()
+        entities: List[str] = []
+        for token in tokens:
+            token = token.strip()
+            if not token or token in stopwords:
+                continue
+            key = token.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            entities.append(token)
+        return entities[:8]
+
+    def score_pressure(self, item: NewsItem, ravana_state: Optional[dict] = None) -> float:
+        text = f"{item.title} {item.summary}".lower()
+        pressure = item.relevance_score * 0.45
+
+        if any(k in text for k in ["warning", "risk", "danger", "critical", "ban", "attack", "breach"]):
+            pressure += 0.22
+        if any(k in text for k in ["study", "research", "paper", "finds", "shows", "analysis"]):
+            pressure += 0.10
+        if any(k in text for k in ["launch", "release", "announces", "introduces", "rolls out"]):
+            pressure += 0.08
+        if any(k in text for k in ["policy", "regulation", "court", "lawsuit", "probe"]):
+            pressure += 0.15
+
+        if ravana_state:
+            dissonance = float(ravana_state.get("dissonance", 0.5))
+            identity = float(ravana_state.get("identity", 0.5))
+            pressure += max(0.0, dissonance - 0.4) * 0.15
+            if identity < 0.4:
+                pressure += 0.05
+
+        return round(min(1.0, pressure), 3)
+
+    def _dedupe_items(self, news_items: List[NewsItem]) -> List[NewsItem]:
+        seen = set()
+        deduped: List[NewsItem] = []
+        for item in news_items:
+            key = (item.url or item.title).strip().lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(item)
+        return deduped
+
+    def build_scenarios(
+        self,
+        news_items: List[NewsItem],
+        ravana_state: Optional[dict] = None,
+        max_scenarios: int = 5,
+    ) -> List[NewsMDPScenario]:
+        current_dissonance = float((ravana_state or {}).get("dissonance", 0.5))
+        current_identity = float((ravana_state or {}).get("identity", 0.5))
+        scenarios: List[NewsMDPScenario] = []
+
+        for item in self._dedupe_items(news_items)[:max_scenarios]:
+            text = f"{item.title} {item.summary}".lower()
+            entities = self.extract_entities(f"{item.title} {item.summary}")
+            pressure = self.score_pressure(item, ravana_state)
+
+            if any(k in text for k in ["warning", "risk", "danger", "critical", "ban", "attack", "breach"]):
+                action = "increase scrutiny"
+                reward = 0.2 + pressure * 0.6
+                delta_d = 0.08 + pressure * 0.18
+                rationale = "High-risk language should push the agent toward caution."
+            elif any(k in text for k in ["study", "research", "paper", "finds", "shows", "analysis"]):
+                action = "update beliefs"
+                reward = 0.25 + pressure * 0.45
+                delta_d = -0.04 + pressure * 0.04
+                rationale = "Research-style news should revise beliefs, not just confirm them."
+            elif any(k in text for k in ["launch", "release", "announces", "introduces", "rolls out"]):
+                action = "monitor impact"
+                reward = 0.15 + pressure * 0.25
+                delta_d = 0.01 + pressure * 0.07
+                rationale = "Launches are best treated as monitoring events unless evidence says otherwise."
+            elif any(k in text for k in ["policy", "regulation", "court", "lawsuit", "probe"]):
+                action = "escalate attention"
+                reward = 0.18 + pressure * 0.5
+                delta_d = 0.06 + pressure * 0.15
+                rationale = "Policy and legal news should raise attention and verification pressure."
+            else:
+                action = "hold position"
+                reward = 0.05 + pressure * 0.2
+                delta_d = 0.0
+                rationale = "Unclear news should not trigger overconfident updates."
+
+            next_dissonance = max(0.0, min(1.0, current_dissonance + delta_d - (current_identity * 0.03)))
+            next_identity = max(0.0, min(1.0, current_identity + max(0.0, reward - 0.25) * 0.05))
+            confidence = max(0.1, min(1.0, 1.0 - pressure * 0.5))
+
+            scenarios.append(
+                NewsMDPScenario(
+                    topic=item.topic,
+                    state={
+                        "dissonance": round(current_dissonance, 3),
+                        "identity": round(current_identity, 3),
+                        "relevance": round(item.relevance_score, 3),
+                        "pressure": pressure,
+                    },
+                    action=action,
+                    reward=round(reward, 3),
+                    next_state={
+                        "dissonance": round(next_dissonance, 3),
+                        "identity": round(next_identity, 3),
+                    },
+                    rationale=rationale,
+                    entities=entities,
+                    pressure=pressure,
+                    confidence=round(confidence, 3),
+                    source_url=item.url,
+                    published_epoch=item.published_epoch,
+                )
+            )
+
+            current_dissonance = next_dissonance
+            current_identity = next_identity
+
+        return scenarios
+
+    def build_learning_batch(self, scenarios: List[NewsMDPScenario]) -> List[Dict[str, Any]]:
+        """Convert scenarios into compact training examples for downstream learners."""
+        batch: List[Dict[str, Any]] = []
+        for scenario in scenarios:
+            batch.append(
+                {
+                    "topic": scenario.topic,
+                    "state": scenario.state,
+                    "action": scenario.action,
+                    "reward": round(scenario.reward, 3),
+                    "next_state": scenario.next_state,
+                    "pressure": round(scenario.pressure, 3),
+                    "confidence": round(scenario.confidence, 3),
+                    "rationale": scenario.rationale,
+                    "source_url": scenario.source_url,
+                    "learning_card": scenario.to_learning_card(),
+                }
+            )
+        return batch
+
+    def build_event_stream(
+        self,
+        news_items: List[NewsItem],
+        scenarios: List[NewsMDPScenario],
+    ) -> List[Dict[str, Any]]:
+        events = [item.to_event_record() for item in self._dedupe_items(news_items)]
+        events.extend(scenario.to_event_record() for scenario in scenarios)
+        events.sort(
+            key=lambda event: (
+                float(event.get("published_epoch", 0.0) or 0.0),
+                float(event.get("pressure", 0.0) or 0.0),
+                float(event.get("relevance_score", 0.0) or 0.0),
+            ),
+            reverse=True,
+        )
+        return events
+
+    def build_workspace_bids(
+        self,
+        news_items: List[NewsItem],
+        scenarios: List[NewsMDPScenario],
+    ) -> List[Dict[str, Any]]:
+        bids: List[Dict[str, Any]] = []
+
+        for item in self._dedupe_items(news_items):
+            urgency = min(1.0, max(0.05, 0.18 + item.relevance_score * 0.6))
+            bids.append(
+                {
+                    "source": f"news:{item.topic}",
+                    "urgency": round(urgency, 3),
+                    "valence": 0.05 if item.relevance_score >= 0.5 else -0.05,
+                    "payload": item.to_event_record(),
+                }
+            )
+
+        for scenario in scenarios:
+            urgency = min(1.0, max(0.08, 0.25 + scenario.pressure * 0.7))
+            bids.append(
+                {
+                    "source": f"news-mdp:{scenario.topic}",
+                    "urgency": round(urgency, 3),
+                    "valence": 0.1 if scenario.reward >= 0 else -0.1,
+                    "payload": scenario.to_event_record(),
+                }
+            )
+
+        bids.sort(
+            key=lambda bid: (
+                float(bid.get("urgency", 0.0) or 0.0),
+                float(bid.get("payload", {}).get("pressure", 0.0) or 0.0),
+            ),
+            reverse=True,
+        )
+        return bids
+
+    def summarize_cycle(
+        self,
+        news_items: List[NewsItem],
+        scenarios: List[NewsMDPScenario],
+        alignment: Dict[str, Any],
+    ) -> str:
+        if not news_items:
+            return "No recent news available."
+
+        parts = [f"{len(news_items)} articles ingested", f"{len(scenarios)} scenarios built"]
+        if scenarios:
+            top = scenarios[0]
+            parts.append(f"top action={top.action} pressure={top.pressure:.2f}")
+        if alignment:
+            parts.append(f"alignment={alignment.get('verdict', 'no_evidence')} ({alignment.get('alignment_score', 0.5):.2f})")
+        return " | ".join(parts)
+
+    def run_cycle(
+        self,
+        query: Optional[str] = None,
+        ravana_state: Optional[dict] = None,
+        topics: Optional[List[str]] = None,
+        max_items: int = 5,
+        max_scenarios: int = 5,
+    ) -> Dict[str, Any]:
+        topics = topics or self.select_topics(ravana_state)
+        news_items = self.grounding.fetch_rss_feeds(topics=topics)
+
+        if query:
+            news_items = self._dedupe_items(self.grounding.search_news(query, num_results=max_items) + news_items)
+        else:
+            news_items = self._dedupe_items(news_items)
+
+        limit = max(1, max_items * max(1, len(topics)))
+        news_items = news_items[:limit]
+        scenarios = self.build_scenarios(news_items, ravana_state=ravana_state, max_scenarios=max_scenarios)
+        learning_batch = self.build_learning_batch(scenarios)
+        primary_scenario = scenarios[0].to_event_record() if scenarios else None
+
+        alignment_belief = query or topics[0]
+        alignment_action = scenarios[0].action if scenarios else "hold position"
+        alignment_news = news_items[: max(1, min(5, len(news_items)))]
+        alignment = self.grounding.evaluate_belief_alignment(
+            belief=alignment_belief,
+            action=alignment_action,
+            news_items=alignment_news,
+        )
+        summary = self.summarize_cycle(news_items, scenarios, alignment)
+        events = self.build_event_stream(news_items, scenarios)
+        event_cards = [scenario.to_learning_card() for scenario in scenarios]
+        workspace_bids = self.build_workspace_bids(news_items, scenarios)
+
+        return {
+            "query": query,
+            "topics": topics,
+            "news_items": news_items,
+            "scenarios": scenarios,
+            "primary_scenario": primary_scenario,
+            "learning_batch": learning_batch,
+            "events": events,
+            "event_cards": event_cards,
+            "workspace_bids": workspace_bids,
+            "alignment": alignment,
+            "max_pressure": max((scenario.pressure for scenario in scenarios), default=0.0),
+            "summary": summary,
+        }
 
 
 class RealityGrounding:
@@ -81,6 +436,7 @@ class RealityGrounding:
         self.cache_ttl = cache_ttl_seconds
         self.max_items = max_items_per_source
         self._cache: Dict[str, tuple[float, List[NewsItem]]] = {}
+        self.pipeline = NewsToMDPPipeline(self)
 
     def fetch_rss_feeds(self, topics: List[str] = None) -> List[NewsItem]:
         """
@@ -107,6 +463,23 @@ class RealityGrounding:
         all_items.sort(key=lambda x: (x.published_epoch, x.relevance_score), reverse=True)
         return all_items[:self.max_items * len(self.rss_feeds)]
 
+    def ingest_news(
+        self,
+        query: Optional[str] = None,
+        ravana_state: Optional[dict] = None,
+        topics: Optional[List[str]] = None,
+        max_items: int = 5,
+        max_scenarios: int = 5,
+    ) -> Dict[str, Any]:
+        """Run the full news-to-MDP grounding cycle."""
+        return self.pipeline.run_cycle(
+            query=query,
+            ravana_state=ravana_state,
+            topics=topics,
+            max_items=max_items,
+            max_scenarios=max_scenarios,
+        )
+
     def build_news_mdp(self, news_items: List[NewsItem], ravana_state: Optional[dict] = None,
                        max_scenarios: int = 5) -> List[Dict[str, Any]]:
         """Convert news items into toy MDP scenarios for grounding.
@@ -115,60 +488,13 @@ class RealityGrounding:
         event loop (state → action → reward → next_state) without pretending
         that news is a clean reinforcement-learning environment.
         """
-        if not news_items:
-            return []
-
-        current_dissonance = float((ravana_state or {}).get("dissonance", 0.5))
-        current_identity = float((ravana_state or {}).get("identity", 0.5))
-        scenarios: List[Dict[str, Any]] = []
-
-        for item in news_items[:max_scenarios]:
-            text = f"{item.title} {item.summary}".lower()
-            urgency = min(1.0, 0.3 + item.relevance_score * 0.7)
-
-            if any(k in text for k in ["warning", "risk", "danger", "ban", "critical"]):
-                action = "increase scrutiny"
-                reward = 0.2 + urgency * 0.5
-                delta_d = 0.1 + urgency * 0.2
-                rationale = "High-risk language should push the agent toward caution."
-            elif any(k in text for k in ["study", "research", "paper", "finds", "shows"]):
-                action = "update beliefs"
-                reward = 0.3 + item.relevance_score * 0.4
-                delta_d = -0.05 + urgency * 0.05
-                rationale = "Research-style news should revise beliefs, not just confirm them."
-            elif any(k in text for k in ["launch", "release", "announces", "introduces"]):
-                action = "monitor impact"
-                reward = 0.1 + item.relevance_score * 0.3
-                delta_d = 0.02 + urgency * 0.08
-                rationale = "Product/news launches are better treated as monitoring events."
-            else:
-                action = "hold position"
-                reward = 0.05 + item.relevance_score * 0.2
-                delta_d = 0.0
-                rationale = "Unclear news should not trigger overconfident updates."
-
-            next_dissonance = max(0.0, min(1.0, current_dissonance + delta_d - (current_identity * 0.03)))
-            next_identity = max(0.0, min(1.0, current_identity + max(0.0, reward - 0.25) * 0.05))
-
-            scenarios.append({
-                "topic": item.topic,
-                "title": item.title,
-                "state": {
-                    "dissonance": round(current_dissonance, 3),
-                    "identity": round(current_identity, 3),
-                    "relevance": round(item.relevance_score, 3),
-                    "urgency": round(urgency, 3),
-                },
-                "action": action,
-                "reward": round(reward, 3),
-                "next_state": {
-                    "dissonance": round(next_dissonance, 3),
-                    "identity": round(next_identity, 3),
-                },
-                "rationale": rationale,
-            })
-
-        return scenarios
+        scenarios = self.pipeline.build_scenarios(news_items, ravana_state=ravana_state, max_scenarios=max_scenarios)
+        structured = []
+        for scenario in scenarios:
+            payload = scenario.__dict__.copy()
+            payload["learning_card"] = scenario.to_learning_card()
+            structured.append(payload)
+        return structured
 
     def search_news(self, query: str, num_results: int = 5) -> List[NewsItem]:
         """
@@ -278,25 +604,34 @@ class RealityGrounding:
         Returns:
             Human-readable grounding report
         """
-        news = self.fetch_rss_feeds()
-
+        topics_to_check = None
         if ravana_state.get('dissonance', 0) > 0.6:
             topics_to_check = ["AI safety", "cognitive science", "AI ethics"]
         else:
             topics_to_check = ["machine learning", "AGI development"]
 
-        relevant_news = [n for n in news if n.topic in topics_to_check]
+        query = None
+        if recent_actions:
+            query = recent_actions[-1].get('belief') or recent_actions[-1].get('action')
 
-        if not relevant_news:
-            relevant_news = news[:5]
+        cycle = self.ingest_news(
+            query=query,
+            ravana_state=ravana_state,
+            topics=topics_to_check,
+            max_items=5,
+            max_scenarios=3,
+        )
 
-        mdp_scenarios = self.build_news_mdp(relevant_news, ravana_state=ravana_state, max_scenarios=3)
+        news = cycle["news_items"]
+        relevant_news = news[:5] if news else []
+        mdp_scenarios = cycle["scenarios"]
 
         lines = [
             "=== REALITY GROUNDING REPORT ===",
             f"Timestamp: {datetime.now().isoformat()}",
             f"News sources checked: {len(self.rss_feeds)}",
             f"Relevant articles found: {len(relevant_news)}",
+            f"Cycle summary: {cycle['summary']}",
             "",
             "TOP STORIES:",
         ]
@@ -310,17 +645,17 @@ class RealityGrounding:
             lines.append("")
             lines.append("NEWS→MDP SCENARIOS:")
             for i, scenario in enumerate(mdp_scenarios, 1):
-                state = scenario["state"]
-                next_state = scenario["next_state"]
+                state = scenario.state
+                next_state = scenario.next_state
                 lines.append(
-                    f"  {i}. {scenario['topic']} → {scenario['action']} "
-                    f"(reward: {scenario['reward']:+.2f})"
+                    f"  {i}. {scenario.topic} → {scenario.action} "
+                    f"(reward: {scenario.reward:+.2f}, pressure: {scenario.pressure:.2f})"
                 )
                 lines.append(
                     f"     D: {state['dissonance']:.2f} → {next_state['dissonance']:.2f} | "
                     f"I: {state['identity']:.2f} → {next_state['identity']:.2f}"
                 )
-                lines.append(f"     {scenario['rationale']}")
+                lines.append(f"     {scenario.rationale}")
 
         if recent_actions:
             lines.append("")
@@ -501,23 +836,26 @@ if __name__ == "__main__":
 
     print("=== Reality Grounding Test ===")
 
+    print("\nRunning structured news-to-MDP cycle...")
+    cycle = rg.ingest_news(ravana_state={"dissonance": 0.55, "identity": 0.52}, max_items=3, max_scenarios=3)
+    print(cycle["summary"])
+
     print("\nFetching RSS feeds...")
-    news = rg.fetch_rss_feeds()
+    news = cycle["news_items"]
     print(f"Fetched {len(news)} items")
     for item in news[:3]:
         print(f"  - [{item.topic}] {item.title}")
         print(f"    {item.summary[:100]}...")
 
-    print("\nSearching news for 'AI safety'...")
-    results = rg.search_news("AI safety cognitive architecture")
-    for item in results[:3]:
-        print(f"  - {item.title}")
+    print("\nNews→MDP scenarios:")
+    for scenario in cycle["scenarios"][:3]:
+        print(f"  - {scenario.topic}: {scenario.action} (pressure={scenario.pressure:.2f})")
 
     print("\nEvaluating belief alignment...")
     result = rg.evaluate_belief_alignment(
         "lying causes more harm than good",
         "tell the truth even if uncomfortable",
-        news
+        news,
     )
     print(f"  Verdict: {result['verdict']}")
     print(f"  Score: {result['alignment_score']:.2f}")

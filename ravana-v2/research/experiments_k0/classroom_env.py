@@ -2,8 +2,8 @@
 RAVANA K0: Classroom Data Environment
 Validates fairness and adaptation using synthetic student interaction patterns.
 """
+import csv
 import numpy as np
-import pandas as pd
 from typing import Dict, Any, Optional
 import os
 import sys
@@ -28,8 +28,10 @@ class ClassroomEnv:
         if not os.path.exists(data_path):
             raise FileNotFoundError(f"Synthetic data not found at {data_path}. Run generate_student_data.py first.")
             
-        self.df = pd.read_csv(data_path)
-        self.total_records = len(self.df)
+        with open(data_path, newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            self.rows = [row for row in reader]
+        self.total_records = len(self.rows)
         self.current_idx = 0
         
         # State tracking
@@ -44,18 +46,21 @@ class ClassroomEnv:
             'Group C': {'success': 0, 'total': 0}
         }
         
+    def _record(self):
+        return self.rows[self.current_idx]
+
     def _generate_observation(self) -> Dict[str, Any]:
         """Expose student features as observations."""
-        record = self.df.iloc[self.current_idx]
+        record = self._record()
         
         return {
             'energy_obs': self.true_energy,
-            'student_quality': record['response_quality'],
+            'student_quality': float(record['response_quality']),
             'demographic_group': record['demographic_group'],
             'interaction_type': record['interaction_type'],
-            'adversarial': bool(record['adversarial_flag']),
-            'noise': record['noise_level'],
-            'observation_quality': 1.0 - record['noise_level']
+            'adversarial': bool(int(record['adversarial_flag'])),
+            'noise': float(record['noise_level']),
+            'observation_quality': 1.0 - float(record['noise_level'])
         }
         
     def execute_action(self, action: AgentAction) -> Dict[str, Any]:
@@ -67,9 +72,9 @@ class ClassroomEnv:
         - EXPLOIT: Standard instruction (Medium risk/reward)
         - CONSERVE: Minimal intervention (Low risk/reward)
         """
-        record = self.df.iloc[self.current_idx]
+        record = self._record()
         group = record['demographic_group']
-        quality = record['response_quality']
+        quality = float(record['response_quality'])
         
         # Logic: Action success depends on student quality + agent effort
         if action == AgentAction.EXPLORE:
@@ -108,8 +113,8 @@ class ClassroomEnv:
             'utility': utility,
             'alive': self.true_energy > 0.1,
             'true_energy': self.true_energy,
-            'adversarial_hit': record['adversarial_flag'] and not success,
-            'dissonance_trigger': record['noise_level'] > 0.15
+            'adversarial_hit': bool(int(record['adversarial_flag'])) and not success,
+            'dissonance_trigger': float(record['noise_level']) > 0.15
         }
         
         self.history.append(result)

@@ -191,6 +191,81 @@ class MemoryLearner:
         
         return lesson
     
+    def learn_from_grounding_cycle(self, grounding_cycle: dict) -> List[LearnedLesson]:
+        """Store a batch of news-derived grounding examples as lessons."""
+        batch = grounding_cycle.get("learning_batch", []) or []
+        learned: List[LearnedLesson] = []
+
+        for idx, example in enumerate(batch, start=1):
+            topic = str(example.get("topic", "news")).strip() or "news"
+            action = str(example.get("action", "hold position")).strip()
+            reward = float(example.get("reward", 0.0) or 0.0)
+            pressure = float(example.get("pressure", 0.0) or 0.0)
+            confidence = float(example.get("confidence", 0.5) or 0.5)
+            rationale = str(example.get("rationale", "")).strip()
+            state = example.get("state", {}) if isinstance(example.get("state", {}), dict) else {}
+            next_state = example.get("next_state", {}) if isinstance(example.get("next_state", {}), dict) else {}
+
+            if reward >= 0.25:
+                outcome = "grounding_reward_positive"
+            elif reward <= 0.0:
+                outcome = "grounding_reward_negative"
+            else:
+                outcome = "grounding_reward_mixed"
+
+            if pressure >= 0.7:
+                situation = f"news_high_pressure_{topic.replace(' ', '_').lower()}"
+            elif pressure >= 0.35:
+                situation = f"news_medium_pressure_{topic.replace(' ', '_').lower()}"
+            else:
+                situation = f"news_low_pressure_{topic.replace(' ', '_').lower()}"
+
+            lesson_text = (
+                f"News grounding: {action} for {topic} "
+                f"(reward={reward:+.2f}, pressure={pressure:.2f}, confidence={confidence:.2f})"
+            )
+            if rationale:
+                lesson_text += f" — {rationale}"
+
+            lesson = LearnedLesson(
+                episode=int(example.get("episode", len(self.lessons) + idx)),
+                situation=situation,
+                action_taken=action,
+                outcome=outcome,
+                reality_check=str(example.get("source_url", "news-mdp")),
+                lesson=lesson_text,
+                confidence=min(0.95, max(0.2, confidence)),
+                timestamp=datetime.now().isoformat(),
+                tags=["news", "grounding", "mdp", topic.replace(" ", "_").lower()],
+            )
+
+            self.lessons.append(lesson)
+            self._update_index(lesson)
+            if self._use_human_memory:
+                self._store_in_human_memory(lesson)
+
+            if isinstance(state, dict) and isinstance(next_state, dict):
+                procedure = self.compound_procedure(
+                    episode_data={
+                        "episode": lesson.episode,
+                        "dissonance": float(state.get("dissonance", 0.5) or 0.5),
+                        "identity": float(state.get("identity", 0.5) or 0.5),
+                        "mode": "grounding",
+                    },
+                    action_sequence=[action, rationale] if rationale else [action],
+                    reward=reward,
+                )
+                if procedure is not None:
+                    self.record_state_visit(
+                        state_signature=f"news:{topic}:{action}",
+                        episode=lesson.episode,
+                        reward=reward,
+                    )
+
+            learned.append(lesson)
+
+        return learned
+    
     def get_relevant_lessons(self, situation: str, limit: int = 3) -> List[LearnedLesson]:
         """
         Get lessons relevant to the current situation.
