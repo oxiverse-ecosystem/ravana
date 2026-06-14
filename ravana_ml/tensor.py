@@ -38,6 +38,10 @@ def tensor(data: Any, dtype=None, device=None, requires_grad=False):
 class RawTensor:
     __slots__ = ('data',)
 
+    @property
+    def device(self):
+        from ravana_ml import device
+        return device
     def __init__(self, data, dtype=None):
         if isinstance(data, RawTensor):
             data = data.data

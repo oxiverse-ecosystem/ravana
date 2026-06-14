@@ -67,7 +67,7 @@ for epoch in range(50):
         target_ids = np.array(tokenizer.encode(tgt), dtype=np.int64)
         model.set_domain(domain)
         model.forward(input_ids)  # to populate cache
-        model._rp_backward(int(target_ids[0]), loss_type="contrastive")
+        model._rp_backward(int(target_ids[0]), )
     if epoch % 10 == 0:
         print(f"  Epoch {epoch}: loss={total_loss/len(facts):.6f}")
 
