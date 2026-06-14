@@ -235,19 +235,64 @@ def run_pxc_text_benchmarks(config: BenchmarkConfig, args=None) -> List[PCXTaskR
         vocab_size=vocab_size, embed_dim=64, concept_dim=64,
         n_concepts=vocab_size, sleep_interval=300,
         freeze_token_embeds_in_rp=True,
+        latent_dim=64,  # Match embed_dim for W_rel compatibility
     )
     model_rlm._tokenizer = tokenizer
+    # Enable cross-domain alignment flags (matching experiment_cross_domain.py)
+    model_rlm.use_cross_domain_alignment = True
+    model_rlm.use_shared_relation_embeds = False
+    # Increase alignment learning rate for faster convergence
+    model_rlm.alignment_lr = 0.05
     inject_minilm_embeddings(model_rlm, tokenizer)
+    # Fix relation classification: add missing causal verbs to module-level _KEYWORD_MAP
+    from ravana_ml.nn import rlm_v2 as rlm_v2_module
+    rlm_v2_module._KEYWORD_MAP['causal'].extend(['enables', 'enable', 'shapes', 'shape'])
     if args.quick:
         model_rlm._pretrain_encoder_autoencoder(epochs=10, lr=0.01)  # Reduced for quick mode
     else:
         model_rlm._pretrain_encoder_autoencoder(epochs=50, lr=0.01)
     
+    # Measure alignment quality BEFORE training
+    if hasattr(model_rlm, 'measure_cross_domain_alignment'):
+        print("  [Align] Pre-training alignment quality:")
+        try:
+            pre_align = model_rlm.measure_cross_domain_alignment()
+            print(f"    {pre_align}")
+        except Exception as e:
+            print(f"    Error: {e}")
+    
     # Train on both domains
     train_rlm_on_domain(model_rlm, train_a, tokenizer, n_repeats=config.pcx_n_repeats, domain_tag="science")
     model_rlm.sleep_cycle()
+    # Cross-domain W_rel alignment after Science domain consolidation
+    if hasattr(model_rlm, '_cross_domain_relation_alignment'):
+        print("  [Align] Cross-domain relation alignment (post-Science)...")
+        for _ in range(30):
+            model_rlm._cross_domain_relation_alignment()
+        # Measure alignment quality
+        if hasattr(model_rlm, 'measure_cross_domain_alignment'):
+            print("  [Align] Post-Science alignment quality:")
+            try:
+                post_align = model_rlm.measure_cross_domain_alignment()
+                print(f"    {post_align}")
+            except Exception as e:
+                print(f"    Error: {e}")
+    
     train_rlm_on_domain(model_rlm, train_b, tokenizer, n_repeats=config.pcx_n_repeats, domain_tag="social")
     model_rlm.sleep_cycle()
+    # Cross-domain W_rel alignment after Social domain consolidation
+    if hasattr(model_rlm, '_cross_domain_relation_alignment'):
+        print("  [Align] Cross-domain relation alignment (post-Social)...")
+        for _ in range(30):
+            model_rlm._cross_domain_relation_alignment()
+        # Measure alignment quality
+        if hasattr(model_rlm, 'measure_cross_domain_alignment'):
+            print("  [Align] Post-Social alignment quality:")
+            try:
+                post_align = model_rlm.measure_cross_domain_alignment()
+                print(f"    {post_align}")
+            except Exception as e:
+                print(f"    Error: {e}")
     
     # Evaluate on test sets (held-out subjects = true generalization)
     for name, test_facts in [("science_heldout", test_a), ("social_heldout", test_b), 
