@@ -15,8 +15,10 @@
 ### Install
 
 ```bash
-# Clone the repository
-git clone https://github.com/your-org/ravana.git
+# Primary (Codeberg)
+git clone https://codeberg.org/oxiverse/ravana.git
+# Mirror (GitHub)
+git clone https://github.com/oxiverse-ecosystem/ravana.git
 cd ravana
 
 # Install unified package (NumPy only)

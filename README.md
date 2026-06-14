@@ -103,7 +103,10 @@ New inference path: `offset(verb) = avg(target - subject)` over training pairs. 
 ### Installation
 
 ```bash
-git clone https://github.com/your-org/ravana.git
+# Primary (Codeberg)
+git clone https://codeberg.org/oxiverse/ravana.git
+# Mirror (GitHub)
+git clone https://github.com/oxiverse-ecosystem/ravana.git
 cd ravana
 pip install -e ravana/          # NumPy only (modular package)
 pip install tiktoken            # Optional: BPE tokenizer
@@ -170,21 +173,9 @@ logits = model.forward(inp)
 
 ---
 
-## Benchmarks
+## Benchmarks (External)
 
-| Benchmark | Result | Status |
-|-----------|--------|--------|
-| Within-domain top-1 accuracy | **100%** (was 0%) | ✅ |
-| RLMv2 triple benchmark (47 triples, 500 epochs) | **80.9% overall top-10** | ✅ |
-| RLMv2 cross-domain causal top-10 | **75%** | ✅ |
-| Cross-domain probes (optimized) | **95% top-1 / 100% top-10** | ✅ |
-| Cross-domain probes (neutral, zero-shot) | **10% top-10** | ⚠️ |
-| RP-only verb-offset cross-domain top-10 | **6.7%** (was 3.3%) | ✅ Improved |
-| Lifelong retention (15k, replay+EWC+Bayesian) | **47.6% with 0% forgetting** | ✅ |
-| Catastrophic forgetting eliminated | **12% → 0%** | ✅ Solved |
-| Memory replay: Domain A retention | **0% → 100% top-10** | ✅ |
-| Graph-aware encoder alignment | **33.3% → 100% traversal** | ✅ |
-| Sleep cycle optimization | **656ms → 255ms (2.6×)** | ✅ |
+All benchmarks are run via external benchmarking infrastructure. See [`docs/EXPERIMENTS.md`](docs/EXPERIMENTS.md) for reproduction instructions and expected results.
 
 ---
 
@@ -424,7 +415,7 @@ If you use RAVANA in research, please cite:
   title={RAVANA: Pressure-Driven Self-Organization for Cognitive Machine Learning},
   author={RAVANA Research Team},
   year={2026},
-  url={https://github.com/your-org/ravana}
+  url={https://codeberg.org/oxiverse/ravana}
 }
 ```
 
@@ -433,7 +424,4 @@ If you use RAVANA in research, please cite:
 ## Links
 
 - **Documentation**: [`docs/`](docs/)
-- **Architecture Paper**: [`docs/RAVANA_REPORT.md`](docs/RAVANA_REPORT.md)
-- **Academic Draft**: [`docs/PAPER_DRAFT.md`](docs/PAPER_DRAFT.md)
-- **Gap Analysis**: [`docs/ANALYSIS_RLM_vs_LLM.md`](docs/ANALYSIS_RLM_vs_LLM.md)
 - **External Audit**: [`docs/EXTERNAL_AUDIT.md`](docs/EXTERNAL_AUDIT.md)
