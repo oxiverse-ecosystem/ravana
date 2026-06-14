@@ -45,7 +45,162 @@ try:
 except ImportError:
     HAS_BS4 = False
 
-SEARCH_API = "https://api.oxiverse.com/search?q="
+
+class SearchEngine:
+    """
+    Multi-API search engine with circuit breaker fallback.
+    
+    Tries multiple search APIs in order:
+    1. Oxiverse API (primary)
+    2. DuckDuckGo HTML scrape (fallback)
+    3. Bing API (optional, requires key)
+    4. Google Custom Search (optional, requires key)
+    
+    Circuit breaker tracks consecutive failures per API and skips
+    failed APIs for a cooldown period.
+    """
+    
+    def __init__(self):
+        # API configurations: (name, url_template, timeout, max_results)
+        self.apis = [
+            ("oxiverse", "https://api.oxiverse.com/search?q={}", 3, 10),
+            ("duckduckgo", "https://html.duckduckgo.com/html/?q={}", 5, 10),
+            # Bing and Google would need API keys - placeholders for future
+            # ("bing", "https://api.bing.microsoft.com/v7.0/search?q={}", 5, 10),
+            # ("google", "https://www.googleapis.com/customsearch/v1?q={}&key={}&cx={}", 5, 10),
+        ]
+        
+        # Circuit breaker state per API
+        self._api_failure_counts = {name: 0 for name, _, _, _ in self.apis}
+        self._api_last_failure_time = {name: 0 for name, _, _, _ in self.apis}
+        self._api_cooldown = 60  # seconds before retrying failed API
+        self._max_failures_before_break = 3
+        
+        # Headers for requests
+        self._headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 RAVANA/1.0'
+        }
+    
+    def _is_api_available(self, api_name: str) -> bool:
+        """Check if API is available (not in circuit breaker cooldown)."""
+        if self._api_failure_counts[api_name] < self._max_failures_before_break:
+            return True
+        elapsed = time.time() - self._api_last_failure_time[api_name]
+        if elapsed > self._api_cooldown:
+            # Reset after cooldown
+            self._api_failure_counts[api_name] = 0
+            return True
+        return False
+    
+    def _record_success(self, api_name: str):
+        """Record successful API call."""
+        self._api_failure_counts[api_name] = 0
+    
+    def _record_failure(self, api_name: str):
+        """Record failed API call."""
+        self._api_failure_counts[api_name] += 1
+        self._api_last_failure_time[api_name] = time.time()
+    
+    def search(self, query: str, max_results: int = 10) -> List[Dict[str, Any]]:
+        """
+        Search with automatic fallback across APIs.
+        
+        Returns normalized results: list of dicts with keys:
+        - title, url, content (snippet)
+        """
+        query_encoded = quote(query)
+        errors = []
+        
+        for api_name, url_template, timeout, api_max_results in self.apis:
+            if not self._is_api_available(api_name):
+                continue
+                
+            try:
+                url = url_template.format(query_encoded)
+                results = self._call_api(api_name, url, timeout, max_results)
+                if results:
+                    self._record_success(api_name)
+                    return results[:max_results]
+            except Exception as e:
+                self._record_failure(api_name)
+                errors.append(f"{api_name}: {e}")
+                continue
+        
+        # All APIs failed
+        raise SearchError(f"All search APIs failed: {'; '.join(errors)}")
+    
+    def _call_api(self, api_name: str, url: str, timeout: int, max_results: int) -> List[Dict[str, Any]]:
+        """Call specific API and parse results."""
+        req = urllib.request.Request(url, headers=self._headers)
+        resp = urllib.request.urlopen(req, timeout=timeout)
+        content = resp.read().decode('utf-8', errors='replace')
+        
+        if api_name == "oxiverse":
+            data = json.loads(content)
+            results = data.get('results', [])
+            return [
+                {
+                    'title': r.get('title', ''),
+                    'url': r.get('url', ''),
+                    'content': r.get('content', r.get('snippet', ''))
+                }
+                for r in results if r.get('url')
+            ]
+        
+        elif api_name == "duckduckgo":
+            # Parse HTML results from DuckDuckGo
+            return self._parse_duckduckgo_html(content, max_results)
+        
+        return []
+    
+    def _parse_duckduckgo_html(self, html: str, max_results: int) -> List[Dict[str, Any]]:
+        """Parse DuckDuckGo HTML results."""
+        results = []
+        if HAS_BS4:
+            soup = BeautifulSoup(html, 'html.parser')
+            # DuckDuckGo result selectors
+            for result in soup.select('.result__snippet, .result__title, a.result__url')[:max_results * 3]:
+                # Try to extract title, url, snippet from result containers
+                container = result.find_parent('div', class_='result')
+                if container:
+                    title_elem = container.select_one('.result__title a, h2 a')
+                    url_elem = container.select_one('.result__url, a.result__url')
+                    snippet_elem = container.select_one('.result__snippet')
+                    
+                    title = title_elem.get_text(strip=True) if title_elem else ''
+                    url = title_elem.get('href', '') if title_elem else (url_elem.get_text(strip=True) if url_elem else '')
+                    snippet = snippet_elem.get_text(strip=True) if snippet_elem else title
+                    
+                    if url and not url.startswith('/'):
+                        results.append({'title': title, 'url': url, 'content': snippet})
+                    
+                    if len(results) >= max_results:
+                        break
+        else:
+            # Regex fallback if BeautifulSoup not available
+            import re
+            # Basic pattern for DDG results
+            snippets = re.findall(r'<a[^>]*class="result__snippet"[^>]*>([^<]+)</a>', html)
+            titles = re.findall(r'<a[^>]*class="result__title"[^>]*>([^<]+)</a>', html)
+            urls = re.findall(r'<a[^>]*class="result__url"[^>]*>([^<]+)</a>', html)
+            
+            for i in range(min(len(snippets), len(titles), len(urls), max_results)):
+                results.append({
+                    'title': titles[i],
+                    'url': urls[i],
+                    'content': snippets[i]
+                })
+        
+        return results
+
+
+class SearchError(Exception):
+    """Raised when all search APIs fail."""
+    pass
+
+
+# Global search engine instance
+SEARCH_ENGINE = SearchEngine()
 
 
 # ─── Teen Vocabulary: what a teenager knows (~180 words) ───
@@ -634,6 +789,17 @@ class CognitiveChatEngine:
         ))
         self._sleep_pressure = 0.0
         self._last_sleep_episode = 0
+        self._sleep_metrics: Dict[str, Any] = {
+            "edges_strengthened": 0,
+            "edges_pruned": 0,
+            "episodic_consolidated": 0,
+            "impossible_queries_resolved": 0,
+            "total_sleep_cycles": 0,
+            "last_sleep_turn": 0,
+            "last_sleep_metrics": {},
+        }
+        self._sleep_schedule_turns: int = 20  # Run sleep every N turns regardless of pressure
+        self._sleep_schedule_time: int = 300  # Run sleep every N seconds (5 min) if no turns
 
         # Concept-emotion tags
         self._concept_vad: Dict[int, Tuple[float, float, float]] = {}
@@ -842,6 +1008,8 @@ class CognitiveChatEngine:
             embed_dim=self.dim,
             hidden_dim=256,
             n_attention_heads=4,
+            contrastive_weight=0.3,
+            contrastive_negatives=5,
         )
 
         # Initialize decoder word embeddings from our built vectors
@@ -1305,6 +1473,9 @@ class CognitiveChatEngine:
         SyntacticCellAssembly + SurfaceRealizer builds grammatical sentences.
         This avoids template frase while ensuring proper English syntax.
         """
+        # HARD FREEZE: decoder vocab must be fully built before generation starts.
+        # NeuralDecoder has fixed vocab_size set at construction; no expansion allowed mid-generation.
+        assert self._decoder_vocab_built, "Decoder vocab not built - generation unsafe"
         if self.neural_decoder is None or not self._decoder_vocab_built:
             return None
         if not hasattr(self, 'syntactic_assembly') or not hasattr(self, 'surface_realizer'):
@@ -1678,6 +1849,77 @@ class CognitiveChatEngine:
         if created:
             print(f"  [Domain] Bootstrapped {len(created)} domain concepts: {', '.join(created)}")
 
+    def _get_curiosity_scores(self, max_topics: int = 10) -> List[Tuple[str, float]]:
+        """
+        Compute curiosity scores for graph concepts using prediction free energy.
+        
+        Combines:
+        1. Node-level prediction_free_energy (from active inference)
+        2. Edge-level prediction_free_energy (from edge prediction errors)
+        3. Contradiction involvement (cognitive dissonance)
+        4. Dormant edges (unexplored connections)
+        5. Low visit count (novelty)
+        
+        Returns list of (concept_label, score) sorted by curiosity descending.
+        """
+        scores = {}
+        seen = set()
+        
+        # Source 1: Node-level prediction free energy (Active Inference: surprise drives learning)
+        for nid, node in self.graph.nodes.items():
+            if node.label:
+                pe = getattr(node, 'prediction_free_energy', 0.0)
+                if pe > 0.1:
+                    label = node.label.lower()
+                    if label not in seen and len(label) >= 3:
+                        scores[label] = scores.get(label, 0.0) + pe * 2.0  # weight node PE higher
+                        seen.add(label)
+        
+        # Source 2: Edge-level prediction free energy (edges with high prediction error)
+        for (src, tgt), edge in self.graph.edges.items():
+            edge_pe = getattr(edge, 'prediction_free_energy', 0.0)
+            if edge_pe > 0.05:
+                sn = self.graph.nodes.get(src)
+                tn = self.graph.nodes.get(tgt)
+                for node in (sn, tn):
+                    if node and node.label:
+                        label = node.label.lower()
+                        if len(label) >= 3:
+                            scores[label] = scores.get(label, 0.0) + edge_pe * 1.5
+        
+        # Source 3: Contradiction-involved concepts (cognitive dissonance)
+        for label in self._contradiction_map:
+            l = label.lower()
+            if len(l) >= 3:
+                scores[l] = scores.get(l, 0.0) + 1.0
+        
+        # Source 4: Concepts with dormant (unexplored) edges
+        if hasattr(self, '_dormant_edges') and self._dormant_edges:
+            dormant_counts = {}
+            for src, tgt in self._dormant_edges:
+                sn = self.graph.nodes.get(src)
+                tn = self.graph.nodes.get(tgt)
+                if sn and sn.label:
+                    dormant_counts[sn.label.lower()] = dormant_counts.get(sn.label.lower(), 0) + 1
+                if tn and tn.label:
+                    dormant_counts[tn.label.lower()] = dormant_counts.get(tn.label.lower(), 0) + 1
+            for label, count in dormant_counts.items():
+                if len(label) >= 3:
+                    scores[label] = scores.get(label, 0.0) + min(count * 0.5, 2.0)
+        
+        # Source 5: Novelty - least visited concepts
+        if hasattr(self, '_concept_visit_count'):
+            visit_counts = [(lbl, cnt) for lbl, cnt in self._concept_visit_count.items() if len(lbl) >= 3]
+            if visit_counts:
+                max_visits = max(cnt for _, cnt in visit_counts)
+                for label, count in visit_counts:
+                    novelty = 1.0 - (count / max(max_visits, 1))
+                    scores[label] = scores.get(label, 0.0) + novelty * 0.5
+        
+        # Sort by score descending
+        sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+        return sorted_scores[:max_topics]
+
     # ─── GloVe Semantic Vectors ───
 
     def _init_glove(self):
@@ -1692,34 +1934,48 @@ class CognitiveChatEngine:
             try:
                 data = np.load(self._glove_cache_path, allow_pickle=True)
                 words = data['words'].tolist()
-                vecs = data['vecs']
+                vecs = data['vecs']  # shape (n_words, glove_dim) - RAW vectors
                 proj = data['proj']
                 self._glove_dim = int(data['glove_dim'])
                 self._glove_proj = proj
-                self._glove_vecs = {}
-                for i, w in enumerate(words):
-                    self._glove_vecs[w] = vecs[i]
-                # Pre-populate vector cache with PROJECTED (not raw) vectors
-                for w, raw_vec in self._glove_vecs.items():
-                    pv = self._glove_proj @ raw_vec
-                    norm = np.linalg.norm(pv)
-                    if norm > 0:
-                        pv /= norm
-                    self._glove_vector_cache[w] = pv.astype(np.float32)
+                
+                # Vectorized batch projection: (dim, glove_dim) @ (glove_dim, n_words) -> (dim, n_words)
+                projected = self._glove_proj @ vecs.T  # shape (dim, n_words)
+                # Normalize all projected vectors in batch
+                norms = np.linalg.norm(projected, axis=0)
+                norms[norms == 0] = 1.0  # avoid division by zero
+                projected = (projected / norms).astype(np.float32)  # shape (dim, n_words)
+                
+                # Populate dicts
+                self._glove_vecs = {words[i]: vecs[i] for i in range(len(words))}
+                self._glove_vector_cache = {words[i]: projected[:, i] for i in range(len(words))}
+                
                 print(f"  [GloVe] Loaded {len(self._glove_vecs)} projected vectors from cache ({self._glove_dim}D -> {self.dim}D)")
                 return
             except Exception as e:
                 print(f"  [GloVe] Cache load failed: {e}, re-reading from file...")
 
         # Fall back to reading raw GloVe file
+        glove_dir = os.path.join(_proj_root, 'data', 'glove')
         for name in ['glove.6B.100d.txt', 'glove.6B.50d.txt']:
-            path = os.path.join(_proj_root, 'data', 'glove', name)
+            path = os.path.join(glove_dir, name)
             if os.path.exists(path):
                 self._glove_dim = 100 if '100d' in name else 50
                 break
         else:
-            return
-        glove_path = os.path.join(_proj_root, 'data', 'glove', f'glove.6B.{self._glove_dim}d.txt')
+            # No local GloVe file — attempt auto-download
+            print("  [GloVe] No local GloVe file found. Attempting auto-download...")
+            if self._download_glove(glove_dir):
+                # Retry finding the file after download
+                for name in ['glove.6B.100d.txt', 'glove.6B.50d.txt']:
+                    path = os.path.join(glove_dir, name)
+                    if os.path.exists(path):
+                        self._glove_dim = 100 if '100d' in name else 50
+                        break
+            else:
+                print("  [GloVe] Auto-download failed. Running without GloVe vectors.")
+                return
+        glove_path = os.path.join(glove_dir, f'glove.6B.{self._glove_dim}d.txt')
         self._glove_vecs = {}
         with open(glove_path, 'r', encoding='utf-8') as f:
             for line in f:
@@ -1749,6 +2005,76 @@ class CognitiveChatEngine:
             print(f"  [GloVe] Saved projected cache ({len(words_list)} words)")
         except Exception as e:
             print(f"  [GloVe] Warning: could not save cache: {e}")
+
+    def _download_glove(self, glove_dir: str) -> bool:
+        """Download GloVe 6B vectors from Stanford NLP.
+        
+        Downloads glove.6B.zip (~822 MB), extracts glove.6B.100d.txt and glove.6B.50d.txt.
+        Uses streaming download with progress indicator.
+        
+        Returns True on success, False on failure.
+        """
+        import zipfile
+        import io
+        
+        glove_url = "http://nlp.stanford.edu/data/glove.6B.zip"
+        zip_path = os.path.join(glove_dir, "glove.6B.zip")
+        
+        try:
+            os.makedirs(glove_dir, exist_ok=True)
+            
+            print(f"  [GloVe] Downloading from {glove_url}...")
+            req = urllib.request.Request(glove_url, headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) RAVANA/1.0'
+            })
+            
+            # Stream download with progress
+            with urllib.request.urlopen(req, timeout=300) as resp:
+                total_size = int(resp.headers.get('Content-Length', 0))
+                downloaded = 0
+                chunk_size = 8192
+                
+                with open(zip_path, 'wb') as f:
+                    while True:
+                        chunk = resp.read(chunk_size)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        if total_size > 0 and downloaded % (50 * 1024 * 1024) < chunk_size:
+                            pct = downloaded / total_size * 100
+                            print(f"  [GloVe] Download progress: {pct:.1f}% ({downloaded / 1024 / 1024:.0f} MB)")
+                
+                if total_size > 0:
+                    pct = downloaded / total_size * 100
+                    print(f"  [GloVe] Download complete: {pct:.1f}% ({downloaded / 1024 / 1024:.0f} MB)")
+            
+            # Extract the needed files
+            print("  [GloVe] Extracting glove.6B.100d.txt and glove.6B.50d.txt...")
+            with zipfile.ZipFile(zip_path, 'r') as zf:
+                for target in ['glove.6B.100d.txt', 'glove.6B.50d.txt']:
+                    if target in zf.namelist():
+                        zf.extract(target, glove_dir)
+                        print(f"  [GloVe] Extracted {target}")
+            
+            # Clean up zip file to save space
+            try:
+                os.remove(zip_path)
+                print("  [GloVe] Cleaned up zip archive")
+            except Exception:
+                pass
+            
+            return True
+            
+        except Exception as e:
+            print(f"  [GloVe] Download failed: {e}")
+            # Clean up partial download
+            try:
+                if os.path.exists(zip_path):
+                    os.remove(zip_path)
+            except Exception:
+                pass
+            return False
 
     def _revector_existing_nodes(self) -> int:
         # Re-project any graph node whose vector was hash-random by
@@ -1966,9 +2292,14 @@ class CognitiveChatEngine:
         edge.weight = np.clip(edge.weight, 0.01, 0.99)
         # Confidence: inverse of error (squashed to 0-1)
         edge.confidence = max(0.05, 1.0 - np.tanh(error * 3.0))
+        # Track edge-level prediction free energy (for curiosity drive)
+        # Exponential moving average of prediction error on this edge
+        alpha = 0.1
+        edge.prediction_free_energy = (1 - alpha) * edge.prediction_free_energy + alpha * error
+        edge.prediction_count += 1
         # Track running mean prediction error (surprise signal)
-        alpha = 0.05
-        self._mean_prediction_error = (1 - alpha) * self._mean_prediction_error + alpha * error
+        alpha_global = 0.05
+        self._mean_prediction_error = (1 - alpha_global) * self._mean_prediction_error + alpha_global * error
         self._prediction_error_count += 1
         return error
 
@@ -2080,18 +2411,14 @@ class CognitiveChatEngine:
         query_clean = quote(query)
 
         try:
-            # Step 1: Search (Phase 5: shorter 3s timeout for faster fallback)
-            search_url = f"{SEARCH_API}{query_clean}"
-            req = urllib.request.Request(search_url, headers={
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) RAVANA-Baby/1.0'
-            })
-            resp = urllib.request.urlopen(req, timeout=3)
-            data = json.loads(resp.read().decode('utf-8'))
-            results = data.get('results', [])
-
-            # Network worked — mark as available
-            if self._network_available is None:
-                self._network_available = True
+            # Step 1: Search with fallback engines (circuit breaker)
+            try:
+                results = SEARCH_ENGINE.search(query, max_results=10)
+                if self._network_available is None:
+                    self._network_available = True
+            except SearchError:
+                # All search engines failed
+                raise URLError("All search APIs failed")
 
             if not results:
                 return self._learn_from_snippets(query, [])
@@ -2533,13 +2860,22 @@ class CognitiveChatEngine:
         else:
             epistemic_mode = self.meta_cog.current_mode
 
-        # Step 6c: Sleep pressure accumulation
+        # Step 6c: Sleep pressure accumulation + scheduled sleep
         self._sleep_pressure += 0.02 + 0.01 * (1.0 - confidence)
-        if self._sleep_pressure > 0.3 and (self.turn_count - self._last_sleep_episode) > 8:
+        
+        # Check for sleep triggers: pressure-based OR scheduled (turn-based)
+        pressure_triggered = (self._sleep_pressure > 0.3 and (self.turn_count - self._last_sleep_episode) > 8)
+        schedule_triggered = (self.turn_count - self._last_sleep_episode) >= self._sleep_schedule_turns
+        
+        if pressure_triggered or schedule_triggered:
             # Run a mini sleep cycle: consolidate knowledge
-            self._sleep_consolidate()
+            metrics = self._sleep_consolidate()
             self._last_sleep_episode = self.turn_count
             self._sleep_pressure = 0.0
+            if self._trace_enabled and metrics:
+                print(f"  [sleep] Cycle #{self._sleep_metrics['total_sleep_cycles']}: "
+                      f"{metrics.get('edges_strengthened', 0)} edges strengthened, "
+                      f"{metrics.get('edges_pruned', 0)} edges pruned")
 
         # Step 7: Past topics
         past = self._recall_past(subject, obj)
@@ -4885,14 +5221,10 @@ class CognitiveChatEngine:
     def _fetch_full_article_text(self, query: str) -> str:
         """Fetch full article text from web search for decoder training."""
         try:
-            query_clean = urllib.parse.quote(query)
-            search_url = f"{SEARCH_API}{query_clean}"
-            req = urllib.request.Request(search_url, headers={
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) RAVANA-Baby/1.0'
-            })
-            resp = urllib.request.urlopen(req, timeout=5)
-            data = json.loads(resp.read().decode('utf-8'))
-            results = data.get('results', [])
+            try:
+                results = SEARCH_ENGINE.search(query, max_results=10)
+            except SearchError:
+                return ""
 
             full_texts = []
             for r in results[:5]:  # Fetch more articles
@@ -5275,15 +5607,22 @@ class CognitiveChatEngine:
         if issues and hasattr(self, '_trace_enabled') and self._trace_enabled:
             print(f"  [meta]   review: {', '.join(issues)}")
 
-    def _sleep_consolidate(self):
+    def _sleep_consolidate(self) -> Dict[str, int]:
         """Run a mini sleep cycle to strengthen useful patterns and weaken noise.
 
         Teenagers' brains consolidate learning during sleep! This mimics that
         by replaying recent topics through the graph and applying Hebbian
         strengthening to co-activated concepts.
+        
+        Returns:
+            Dict with sleep metrics: edges_strengthened, edges_pruned, etc.
         """
         if len(self.graph.edges) < 3:
-            return
+            return {"edges_strengthened": 0, "edges_pruned": 0, "episodic_consolidated": 0}
+
+        edges_strengthened = 0
+        edges_pruned = 0
+        episodic_consolidated = 0
 
         # Phase 15.2: Episodic decay already runs per-turn in process_turn; skip double-decay here
 
@@ -5305,11 +5644,14 @@ class CognitiveChatEngine:
                                 and tgt_node and tgt_node.vector is not None):
                             error = self._update_edge_from_error(
                                 edge, src_node.vector, tgt_node.vector, learning_rate=0.08)
+                            edges_strengthened += 1
 
         # Phase 15.5: Consolidate frequently-used episodic edges to semantic store
         consolidated = self._consolidate_to_semantic()
-        if consolidated > 0 and self._trace_enabled:
-            print(f"  [trace]   sleep: consolidated {consolidated} edges to semantic")
+        if consolidated > 0:
+            episodic_consolidated = consolidated
+            if self._trace_enabled:
+                print(f"  [trace]   sleep: consolidated {consolidated} edges to semantic")
 
         # Phase 2: Synaptic pruning (neuroscience-inspired: prune weak, unused connections)
         edges_to_prune = []
@@ -5318,6 +5660,7 @@ class CognitiveChatEngine:
                 edges_to_prune.append((src, tgt))
         for src, tgt in edges_to_prune:
             self.graph.remove_edge(src, tgt)
+        edges_pruned = len(edges_to_prune)
 
         # Phase 3: Identity consolidation
         self.identity.state.strength = min(1.0, self.identity.state.strength + 0.02)
@@ -5372,7 +5715,57 @@ class CognitiveChatEngine:
                                     if new_edge:
                                         self._update_edge_from_error(
                                             new_edge, subj_node.vector, other_node.vector,
-                                            learning_rate=0.1)
+                                            learning_rate=0.08)
+
+        # Update sleep metrics
+        self._sleep_metrics["edges_strengthened"] += edges_strengthened
+        self._sleep_metrics["edges_pruned"] += edges_pruned
+        self._sleep_metrics["episodic_consolidated"] += episodic_consolidated
+        self._sleep_metrics["total_sleep_cycles"] += 1
+        self._sleep_metrics["last_sleep_turn"] = self.turn_count
+        self._sleep_metrics["last_sleep_metrics"] = {
+            "edges_strengthened": edges_strengthened,
+            "edges_pruned": edges_pruned,
+            "episodic_consolidated": episodic_consolidated,
+            "sleep_cycle": self._sleep_metrics["total_sleep_cycles"],
+            "turn": self.turn_count,
+        }
+
+        return {
+            "edges_strengthened": edges_strengthened,
+            "edges_pruned": edges_pruned,
+            "episodic_consolidated": episodic_consolidated,
+        }
+
+        # Phase 7.6: Sleep-replay impossible queries
+        replayed = 0
+        for iq in self._impossible_queries:
+            if iq.resolved:
+                continue
+            subj_nids = self._concept_keywords.get(iq.subject.lower(), [])
+            if subj_nids:
+                subj_node = self.graph.get_node(subj_nids[0])
+                if subj_node and subj_node.vector is not None:
+                    # Try to auto-wire to all existing concepts with high similarity
+                    new_edges = 0
+                    for other_nid, other_node in self.graph.nodes.items():
+                        if other_nid == subj_nids[0]:
+                            continue
+                        if other_node.vector is not None and other_node.label:
+                            sim = float(np.dot(subj_node.vector, other_node.vector))
+                            if sim > 0.5 and self.graph.get_edge(subj_nids[0], other_nid) is None:
+                                weight = min(0.6, sim * 0.6)
+                                ne = self.graph.add_edge(subj_nids[0], other_nid, weight=weight,
+                                                     relation_type="semantic")
+                                ne.confidence = 0.001  # dormant
+                                self._dormant_edges.add((subj_nids[0], other_nid))
+                                # Run prediction error correction for accuracy
+                                if other_node.vector is not None:
+                                    new_edge = self.graph.get_edge(subj_nids[0], other_nid)
+                                    if new_edge:
+                                        self._update_edge_from_error(
+                                            new_edge, subj_node.vector, other_node.vector,
+                                            learning_rate=0.08)
                                 new_edges += 1
                     if new_edges > 0:
                         iq.resolved = True
@@ -6266,8 +6659,10 @@ def main():
             for node_data in data.get("nodes", []):
                 nid = node_data.get("id")
                 label = node_data.get("label", "")
-                if nid is not None and label:
-                    g.add_node(nid, label=label)
+                if label:
+                    # Use GloVe vector if available, otherwise let graph create random vector
+                    vec = engine._glove_vector(label) if engine._glove_vecs is not None else None
+                    added_node = g.add_node(vector=vec, label=label)
                     count += 1
             for edge_data in data.get("edges", []):
                 src = edge_data.get("source")

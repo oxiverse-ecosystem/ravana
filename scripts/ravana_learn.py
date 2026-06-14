@@ -46,50 +46,19 @@ def _seed_from_graph_curiosity(engine, max_topics: int = 5):
     Picks concepts with the highest autonomous curiosity scores:
     high prediction error, contradiction involvement, low visit count,
     or dormant edges. This replaces hardcoded seed topics.
+    
+    Now uses engine._get_curiosity_scores() which also includes edge-level
+    prediction free energy for curiosity drive.
     """
     if not engine._curiosity_drive_enabled:
         return 0
 
-    candidates = []
-    seen = set()
-
-    # Source 1: High prediction error concepts (Active Inference: surprise drives learning)
-    high_pe = []
-    for nid, node in engine.graph.nodes.items():
-        if node.label:
-            pe = getattr(node, 'prediction_free_energy', 0.0)
-            if pe > 0.2:
-                label = node.label.lower()
-                if label not in seen and len(label) >= 3:
-                    high_pe.append((label, pe))
-                    seen.add(label)
-    high_pe.sort(key=lambda x: x[1], reverse=True)
-    for label, pe in high_pe[:max_topics]:
-        candidates.append(label)
-
-    # Source 2: Contradiction-involved concepts (cognitive dissonance)
-    for label in engine._contradiction_map:
-        if label not in seen and len(label) >= 3:
-            candidates.append(label)
-            seen.add(label)
-
-    # Source 3: Concepts with dormant (unexplored) edges
-    if hasattr(engine, '_dormant_edges') and engine._dormant_edges:
-        dormant_counts = {}
-        for src, tgt in engine._dormant_edges:
-            sn = engine.graph.nodes.get(src)
-            tn = engine.graph.nodes.get(tgt)
-            if sn and sn.label:
-                dormant_counts[sn.label.lower()] = dormant_counts.get(sn.label.lower(), 0) + 1
-            if tn and tn.label:
-                dormant_counts[tn.label.lower()] = dormant_counts.get(tn.label.lower(), 0) + 1
-        dormant_sorted = sorted(dormant_counts.items(), key=lambda x: x[1], reverse=True)
-        for label, count in dormant_sorted:
-            if label not in seen and len(label) >= 3:
-                candidates.append(label)
-                seen.add(label)
-
-    # Source 4: Random high-degree hubs (serendipity)
+    # Use the engine's unified curiosity scoring (includes edge-level PE)
+    curiosity_scores = engine._get_curiosity_scores(max_topics=max_topics * 2)
+    
+    candidates = [label for label, score in curiosity_scores if score > 0.1]
+    
+    # Add high-degree hubs for serendipity (not covered by curiosity scores)
     if len(engine.graph.nodes) > 0:
         degrees = {}
         for nid in engine.graph.nodes:
@@ -100,9 +69,8 @@ def _seed_from_graph_curiosity(engine, max_topics: int = 5):
             node = engine.graph.get_node(nid)
             if node and node.label:
                 label = node.label.lower()
-                if label not in seen and len(label) >= 3:
+                if len(label) >= 3 and label not in candidates:
                     candidates.append(label)
-                    seen.add(label)
 
     # Queue the candidates
     queued = 0

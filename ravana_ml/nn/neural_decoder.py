@@ -86,11 +86,15 @@ class NeuralDecoder(Module):
     """
 
     def __init__(self, vocab_size: int, embed_dim: int = 64,
-                 hidden_dim: int = 128, n_attention_heads: int = 2):
+                 hidden_dim: int = 128, n_attention_heads: int = 2,
+                 contrastive_weight: float = 0.3,
+                 contrastive_negatives: int = 5):
         super().__init__()
         self.vocab_size = vocab_size
         self.embed_dim = embed_dim
         self.hidden_dim = hidden_dim
+        self.contrastive_weight = contrastive_weight
+        self.contrastive_negatives = contrastive_negatives
 
         # Word embedding (output vocabulary) — maps word indices to embeddings
         self.word_embedding = Embedding(vocab_size, embed_dim)
@@ -410,7 +414,7 @@ class NeuralDecoder(Module):
 
             logit_t = logits_t[0]
 
-            # Compute softmax and error
+            # Compute softmax and predictive coding error
             logit_stable = logit_t - np.max(logit_t)
             exp_logits = np.exp(np.clip(logit_stable, -50, 50))
             probs = exp_logits / (np.sum(exp_logits) + 1e-10)
@@ -422,6 +426,39 @@ class NeuralDecoder(Module):
                 target_one_hot[target_idx] = 1.0
 
             error_output = (target_one_hot - probs).astype(np.float32)
+            error_output = np.clip(error_output, -1.0, 1.0)
+
+            # ─── Contrastive Next-Token Loss ───
+            # Sample negative tokens and add contrastive gradient to error_output.
+            # This provides stronger signal than pure predictive coding (Hebbian only),
+            # preventing repetitive/looped output by explicitly suppressing common negatives.
+            if self.contrastive_weight > 0 and self.contrastive_negatives > 0:
+                # Top-k sampling for negatives (avoidunks, target, special tokens)
+                special = {0, 1, 2, 3}  # pad, unk, bos, eos
+                # Exclude target and special tokens from negative candidates
+                candidate_mask = np.ones(vocab_size_actual, dtype=bool)
+                candidate_mask[list(special)] = False
+                if target_idx < vocab_size_actual:
+                    candidate_mask[target_idx] = False
+                candidate_indices = np.where(candidate_mask)[0]
+                if len(candidate_indices) > 0:
+                    k = min(self.contrastive_negatives, len(candidate_indices))
+                    # Prefer negatives with higher current probability (hard negatives)
+                    prob_neg = probs[candidate_indices]
+                    neg_top = np.argsort(prob_neg)[-k:] if k < len(prob_neg) else np.arange(len(prob_neg))
+                    neg_indices = candidate_indices[neg_top]
+                    
+                    # Contrastive gradients: push positive up, negatives down
+                    # Using InfoNCE-style gradients: sigmoid(pos) up, sigmoid(neg) down
+                    pos_margin = 0.9 - probs[target_idx] if target_idx < vocab_size_actual else 0.5
+                    # Positive contrastive push
+                    if target_idx < vocab_size_actual:
+                        error_output[target_idx] += self.contrastive_weight * pos_margin
+                    # Negative contrastive push (suppress probable negatives)
+                    for neg_idx in neg_indices:
+                        neg_force = -self.contrastive_weight * probs[neg_idx] * 0.5
+                        error_output[neg_idx] += neg_force
+
             error_output = np.clip(error_output, -1.0, 1.0)
 
             # Output projection Hebbian update (trace_x was set during forward)

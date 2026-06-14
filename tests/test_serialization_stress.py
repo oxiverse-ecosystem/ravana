@@ -179,12 +179,17 @@ def test_relation_predictor_preservation():
     m = _make_model()
     _learn_n(m, 30)
 
-    # Get pre-save RP values
+    # Get pre-save RP values (RLMv2 bilinear relation predictor)
     rp_W1_before = m._rp_W1.copy()
     rp_b1_before = m._rp_b1.copy()
     rp_W2_before = m._rp_W2.copy()
     rp_b2_before = m._rp_b2.copy()
-    rp_ce_before = m._rp_concept_embed.copy()
+    rp_mW1_before = m._rp_mW1.copy()
+    rp_mb1_before = m._rp_mb1.copy()
+    rp_mW2_before = m._rp_mW2.copy()
+    rp_mb2_before = m._rp_mb2.copy()
+    rp_rel_before = m._rp_rel_matrices.copy()
+    rp_mrel_before = m._rp_mrel_matrices.copy()
 
     with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as f:
         path = f.name
@@ -201,8 +206,18 @@ def test_relation_predictor_preservation():
                                       err_msg="rp_W2 changed after roundtrip")
         np.testing.assert_array_equal(loaded._rp_b2, rp_b2_before,
                                       err_msg="rp_b2 changed after roundtrip")
-        np.testing.assert_array_equal(loaded._rp_concept_embed, rp_ce_before,
-                                      err_msg="rp_concept_embed changed after roundtrip")
+        np.testing.assert_array_equal(loaded._rp_mW1, rp_mW1_before,
+                                      err_msg="rp_mW1 changed after roundtrip")
+        np.testing.assert_array_equal(loaded._rp_mb1, rp_mb1_before,
+                                      err_msg="rp_mb1 changed after roundtrip")
+        np.testing.assert_array_equal(loaded._rp_mW2, rp_mW2_before,
+                                      err_msg="rp_mW2 changed after roundtrip")
+        np.testing.assert_array_equal(loaded._rp_mb2, rp_mb2_before,
+                                      err_msg="rp_mb2 changed after roundtrip")
+        np.testing.assert_array_equal(loaded._rp_rel_matrices, rp_rel_before,
+                                      err_msg="rp_rel_matrices changed after roundtrip")
+        np.testing.assert_array_equal(loaded._rp_mrel_matrices, rp_mrel_before,
+                                      err_msg="rp_mrel_matrices changed after roundtrip")
 
         print("PASS: test_relation_predictor_preservation")
     finally:
