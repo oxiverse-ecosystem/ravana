@@ -339,6 +339,8 @@ class RLMv2(Module):
         self._rp_momentum = 0.9
         self._rp_cache = None
         self.use_rp_for_analogy = True
+        self._verb_bridge_cid = -1
+        self._verb_bridge_score = 0.0
 
         # ── Domain-Agnostic Bilinear Relation Predictor ──
         self.latent_dim = latent_dim
@@ -1303,6 +1305,8 @@ class RLMv2(Module):
         
         Returns logits over vocab, or None if verb is unknown.
         """
+        self._verb_bridge_cid = -1
+        self._verb_bridge_score = 0.0
         if not verb_word or not self.use_verb_offset:
             return None
         stem = self._verb_stem(verb_word)
@@ -1312,6 +1316,20 @@ class RLMv2(Module):
         source_embed = self.token_embed.weight.data[subject_tid]
         offset = self._verb_offsets[stem]
         predicted = source_embed + offset
+        bridge_cid, bridge_score = self._nearest_concept(predicted)
+        if bridge_cid >= 0 and bridge_score > 0.0:
+            self._verb_bridge_cid = int(bridge_cid)
+            self._verb_bridge_score = float(bridge_score)
+        elif len(self.graph.nodes) > 0:
+            node_ids, node_matrix, node_norms = self._get_node_matrix()
+            if len(node_ids) > 0:
+                pred_norm = np.linalg.norm(predicted)
+                if pred_norm > 0:
+                    sims = (node_matrix @ predicted) / (node_norms * pred_norm + 1e-15)
+                    best_idx = int(np.argmax(sims))
+                    if sims[best_idx] > 0:
+                        self._verb_bridge_cid = int(node_ids[best_idx])
+                        self._verb_bridge_score = float(sims[best_idx])
         
         # Cosine similarity against all token embeddings
         token_embeds = self.token_embed.weight.data  # (vocab_size, embed_dim)
@@ -1345,16 +1363,14 @@ class RLMv2(Module):
 
         # ── Verb-Stem Offset Path (primary) ──
         # When use_verb_offset is True and the verb is known, use offset arithmetic
-        # instead of bilinear W_rel. This enables same-subject different-target
-        # predictions (e.g., "cold causes" -> shivering, "cold freezes" -> water).
-        # It also enables cross-domain transfer via shared verb semantics.
+        # as an additional structured signal instead of replacing the bilinear path.
+        # This preserves the learned relation matrix while still giving same-subject
+        # different-verb generalization a direct semantic anchor.
+        verb_logits = None
         if verb_word:
             verb_logits = self._rp_forward_verb_offset(subject_tid, verb_word)
-            if verb_logits is not None:
-                self._rp_cache = None  # prevent stale cache from corrupting W_rel
-                return verb_logits
 
-        # ── Bilinear W_rel Path (fallback) ──
+        # ── Bilinear W_rel Path (fallback / structural backbone) ──
         # Use raw token embeddings directly (bypass collapsed encoder) unless the
         # relation predictor is configured to operate in latent space.
         source_embed = self.get_robust_embedding(subject_tid)  # (embed_dim,)
@@ -1372,16 +1388,23 @@ class RLMv2(Module):
 
         # Bilinear scoring: logits = source_latent @ W_rel @ target_latents.T
         projected = source_latent @ W_rel
-        logits = projected @ target_latents.T
+        bilinear_logits = projected @ target_latents.T
 
         # Cache for backprop
         self._rp_cache = (
             subject_tid, rel_type_idx,
             source_embed, source_latent,
             token_embeds, target_latents,
-            W_rel, logits
+            W_rel, bilinear_logits
         )
-        return logits
+
+        if verb_logits is not None:
+            # Blend verb-offset semantics with structural relation prediction.
+            # Verb offsets are strong when known, but the learned relation matrix
+            # still carries useful cross-domain structure.
+            return 0.65 * verb_logits + 0.35 * bilinear_logits
+
+        return bilinear_logits
 
     def _compute_contrastive_gradients(self):
         """Compute contrastive loss gradients w.r.t. encoder parameters."""
@@ -1650,20 +1673,34 @@ class RLMv2(Module):
             
             # Map top tokens to analogy targets
             top_tok_indices = np.argsort(probs)[::-1][:10]
-            for tok_id in top_tok_indices:
+            for rank, tok_id in enumerate(top_tok_indices):
                 if tok_id == subject_tid:
                     continue
                 prob = float(probs[tok_id])
                 if prob < 0.01:
                     continue
                 bindings = self.binding_map.get_concepts(tok_id, min_confidence=0.1)
-                for b in bindings:
-                    cid = b.concept_id
-                    score = prob * 8.0  # Boosted weight
+                if bindings:
+                    for b in bindings:
+                        cid = b.concept_id
+                        score = prob * 8.0  # Boosted weight
+                        if cid in analogy_targets:
+                            analogy_targets[cid] = max(analogy_targets[cid], score)
+                        else:
+                            analogy_targets[cid] = score
+                elif self.use_verb_offset and query_verb_word:
+                    tok_vec = self.token_embed.weight.data[tok_id]
+                    cid = self._get_or_create_concept(tok_id, tok_vec)
+                    score = prob * (6.0 if rank < 3 else 4.0)
                     if cid in analogy_targets:
                         analogy_targets[cid] = max(analogy_targets[cid], score)
                     else:
                         analogy_targets[cid] = score
+            if self.use_verb_offset and query_verb_word:
+                bridge_cid = getattr(self, '_verb_bridge_cid', -1)
+                bridge_score = float(getattr(self, '_verb_bridge_score', 0.0))
+                if bridge_cid >= 0 and bridge_score > 0.0:
+                    analogy_targets[bridge_cid] = max(analogy_targets.get(bridge_cid, 0.0), bridge_score * 4.0)
         else:
             # Cache avg relation vectors per type (expensive to recompute every forward)
             rel_version = (len(self.graph.edges), rel_type_name)
