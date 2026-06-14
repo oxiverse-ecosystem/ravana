@@ -30,6 +30,7 @@ from dataclasses import dataclass, field, asdict
 from ravana_ml.nn.rlm_v2 import RLMv2
 from ravana_ml.tokenizer import WordTokenizer
 from experiments.archive.old_experiments.experiment_baselines import SimpleMLP
+from experiments.archive.old_experiments.semantic_pairs import ALL_PAIRS
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -251,13 +252,69 @@ def build_domain_b_social():
     return _subject_holdout_split(facts, seed=42)
 
 
-
-
 def encode_fact(tokenizer, input_text: str, target_text: str):
     """Encode a (input, target) pair into token arrays."""
     input_ids = np.array(tokenizer.encode(input_text), dtype=np.int64)
     target_ids = np.array(tokenizer.encode(target_text), dtype=np.int64)
     return input_ids, target_ids
+
+
+def _bootstrap_embeddings_from_cooccurrence(model: RLMv2, tokenizer: WordTokenizer,
+                                             facts: List[Tuple[str, str, str]],
+                                             blend: float = 0.8) -> bool:
+    """Initialise token embeddings from fact co-occurrence when GloVe is unavailable.
+
+    The cross-domain experiment is very sensitive to the quality of the initial
+    semantic space. A tiny PPMI + SVD bootstrap gives the verb-offset predictor
+    a far better starting point than pure random noise.
+    """
+    word_to_id = getattr(tokenizer, "word_to_id", {})
+    vocab_size = min(tokenizer.vocab_size, model.token_embed.weight.data.shape[0])
+    if vocab_size <= 0 or not word_to_id:
+        return False
+
+    cooc = np.zeros((vocab_size, vocab_size), dtype=np.float32)
+    for input_text, target_text, _ in facts:
+        words = [w.lower().strip() for w in (input_text + " " + target_text).split() if w.strip()]
+        tids = [word_to_id.get(w) for w in words]
+        tids = [tid for tid in tids if tid is not None and tid < vocab_size]
+        for i, ti in enumerate(tids):
+            for tj in tids[i + 1 :]:
+                if ti == tj:
+                    continue
+                cooc[ti, tj] += 1.0
+                cooc[tj, ti] += 1.0
+
+    if not np.any(cooc):
+        return False
+
+    total = float(cooc.sum())
+    row = cooc.sum(axis=1, keepdims=True)
+    col = cooc.sum(axis=0, keepdims=True)
+    p_ij = cooc / total
+    p_i = row / total
+    p_j = col / total
+    denom = p_i @ p_j
+    ppmi = np.maximum(np.log((p_ij + 1e-8) / (denom + 1e-8)), 0.0)
+    np.fill_diagonal(ppmi, 0.0)
+
+    try:
+        u, s, _ = np.linalg.svd(ppmi, full_matrices=False)
+    except np.linalg.LinAlgError:
+        return False
+
+    dim = model.embed_dim
+    basis = u[:, :dim] * np.sqrt(s[:dim] + 1e-8)
+    basis_norms = np.linalg.norm(basis, axis=1, keepdims=True)
+    basis = basis / np.maximum(basis_norms, 1e-8)
+
+    current = model.token_embed.weight.data[:vocab_size].copy()
+    blended = (1.0 - blend) * current + blend * basis.astype(np.float32)
+    blended_norms = np.linalg.norm(blended, axis=1, keepdims=True)
+    blended = blended / np.maximum(blended_norms, 1e-8)
+    model.token_embed.weight.data[:vocab_size] = blended.astype(np.float32)
+    model._token_embed_norms = None
+    return True
 
 
 def train_rlm_on_domain(model: RLMv2, facts: List[Tuple[str, str, str]],
@@ -607,15 +664,22 @@ def run_cross_domain_experiment(config: CrossDomainConfig) -> Dict[str, Any]:
         hidden_dim=config.hidden_dim,
         use_shared_relation_embeds=False,  # Domain-specific, aligned via cross-domain loss
     )
-    model._tokenizer = tokenizer  # Attach tokenizer for relation classification
+    model._tokenizer = tokenizer  # triggers embed init + autoencoder pre-training
+    model.semantic_pairs = ALL_PAIRS
     model.use_cross_domain_alignment = True  # Enable explicit relation alignment
     model.use_rp_contrastive = False  # Disable RP contrastive (not the primary path)
-    model._tokenizer = tokenizer  # triggers embed init + autoencoder pre-training
+    
+    # Co-occurrence bootstrap after built-in initialisation gives a better semantic
+    # starting point when GloVe is unavailable.
+    _bootstrap_embeddings_from_cooccurrence(model, tokenizer, all_facts, blend=0.6)
     
     # Spreading activation is primary; vector arithmetic is backup
     model.use_rp_hidden = True
     model.use_rp_contrastive = False
     model.use_cross_domain_alignment = True
+    model.use_bridge_alignment = True
+    model.use_reverse_edge_inheritance = True
+    model.use_subspace_projection = True
     
     # Use VECTOR ARITHMETIC mode (shared relation vectors) instead of learned RP
     # Brain-inspired: relation is a VECTOR OFFSET shared across all subjects
@@ -771,6 +835,8 @@ def run_cross_domain_experiment(config: CrossDomainConfig) -> Dict[str, Any]:
     # ── Phase 3: Cross-Domain Relation Alignment ──
     print("\n[Phase 3] Cross-domain relation alignment...")
     model.set_domain(0)
+    if getattr(model, "use_bridge_alignment", False):
+        model.align_encoder_to_graph(validation_queries=None)
     # Run alignment steps if method exists
     if hasattr(model, '_cross_domain_relation_alignment'):
         for align_step in range(30):
