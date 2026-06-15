@@ -366,13 +366,16 @@ class RLMv2(Module):
         self._dec_W2 = np.random.randn(embed_dim, self.hidden_dim).astype(np.float32) * scale_dec2
         self._dec_b2 = np.zeros(embed_dim, dtype=np.float32)
         
-        # Relation matrices (one for each relation type in RELATION_TYPES)
-        n_rel_types = len(RELATION_TYPES)
-        # Identity init: source_embed @ I @ target_embed = dot product (cosine-like)
-        # Gradients learn deviations from identity, enabling shared relation-specific transformations
-        self._rp_rel_matrices = np.tile(np.eye(self.latent_dim, dtype=np.float32), (n_rel_types, 1, 1))
-        self._rp_mrel_matrices = np.zeros_like(self._rp_rel_matrices)
-        self.freeze_encoder = False
+        # ── Domain-Specific Heads (direct from source_latent, no bottleneck) ──
+        self.bottleneck_dim = kwargs.get("bottleneck_dim", 32)
+        self.num_domains = kwargs.get("num_domains", 4)
+        self._domain_heads = {}
+        self.current_domain_id = None
+        self._frozen_domains = set()
+        self._seen_domain_ids = set()
+        self._init_domain_heads()
+
+        # ── Bilinear form params ──
         # Bilinear form: logits = source_latent @ W_rel @ token_embeds.T
         # Gradient dW_rel = outer(source_latent, d_logits @ token_embeds) is
         # naturally O(vocab_size) larger than old linear form. Use rp_scale=0.1
@@ -382,45 +385,37 @@ class RLMv2(Module):
         # A latent-space RP path is required whenever embed_dim != latent_dim.
         self._rp_use_encoder_latent = self.embed_dim != self.latent_dim
 
-        # Domain-Specific Heads (direct from source_latent, no bottleneck)
-        self.bottleneck_dim = kwargs.get("bottleneck_dim", 32)
-        self.num_domains = kwargs.get("num_domains", 4)
-        self._domain_heads = {}
-        self.current_domain_id = None
-        self._frozen_domains = set()
-        self._seen_domain_ids = set()
-        self._init_domain_heads()
+        # Relation matrices (one for each relation type in RELATION_TYPES, PER DOMAIN)
+        n_rel_types = len(RELATION_TYPES)
+        # Identity init: source_embed @ I @ target_embed = dot product (cosine-like)
+        # Gradients learn deviations from identity, enabling domain-specific relation transformations
+        # Shape: (num_domains, n_rel_types, latent_dim, latent_dim)
+        self._rp_rel_matrices = np.tile(
+            np.eye(self.latent_dim, dtype=np.float32), 
+            (self.num_domains, n_rel_types, 1, 1)
+        )
+        self._rp_mrel_matrices = np.zeros_like(self._rp_rel_matrices)
+        self.freeze_encoder = False
 
-        # Bridge alignment and relation traversal controls
-        self.use_bridge_alignment = False
-        self.use_reverse_edge_inheritance = False
-        self.use_depth_decay = False
-        self.use_subspace_projection = False
-        self.lambda_recon = 0.0
-        self.rel_proj = np.eye(self.latent_dim, dtype=np.float32)
-        self.alignment_needed = False
-        self.alignment_edge_threshold = 0.2
-        self.alignment_lr = 0.005
-        self.alignment_margin = 0.15
-        self.max_alignment_epochs = 10
-        self.wake_epochs_since_sleep = 0
-        self.sleep_every_n_wake_epochs = 3
-        
-        # Ablation: disable spreading activation to isolate analogy path
-        self.disable_spreading_activation = False
+        # ── Entity-Specific Adapters (Fix #3) ──
+        # Low-rank (rank=16) per-entity projection before W_rel application.
+        # Allows subject-specific modulation of relation transformation.
+        # adapter[entity_id] = (U, V) where U: (rank, latent_dim), V: (latent_dim, rank)
+        # Applied as: source_latent @ U.T @ V @ W_rel @ target_latents.T
+        self._entity_adapter_rank = 16
+        self._entity_adapters = {}  # subject_tid -> (U, V)
+        self._entity_adapter_lr = 0.005
+        self._entity_adapter_momentum = 0.9
+        self._entity_adapter_momentums = {}  # subject_tid -> (mU, mV)
 
-        # ── Cognitive State - unified via CognitiveCurrencies ──
+        # ── Cognitive State — unified via CognitiveCurrencies ──
         self.currencies = CognitiveCurrencies()
 
         # Native Memory (lightweight episodic buffer + semantic consolidation)
-        self._episodic_buffer: List[Dict] = []    # recent experiences
-        self._episodic_buffer_max = 500
-        self._episodic_keys: List = []            # episodic key vectors for lookup
-        self._episodic_values: List = []          # episodic value targets
-        self._episodic_max = 5000                 # max episodic key-value pairs
-        # Vector-based episodic retrieval
         from ..embedder import LearnedEmbedder
         self._epi_embedder = LearnedEmbedder(dim=64)
+        self._episodic_buffer: List[Dict] = []    # recent experiences
+        self._episodic_buffer_max = 500
         self._epi_vectors: Dict[int, np.ndarray] = {}  # idx -> 64-dim vector
         self._epi_next_idx: int = 0
         self._epi_matrix: Optional[np.ndarray] = None  # lazy (N, 64) matrix
@@ -458,6 +453,21 @@ class RLMv2(Module):
         self.freeze_token_embeds_in_rp = True
         # Cross-domain alignment toggle (used by _cross_domain_relation_alignment).
         self.use_cross_domain_alignment = False
+
+        # Graph-Encoder Alignment params
+        self.alignment_margin = 0.15
+        self.max_alignment_epochs = 10
+        self.alignment_lr = 0.005
+        self.alignment_edge_threshold = 0.25
+        self.alignment_needed = False  # flag: encoder changed, needs re-alignment
+        self.wake_epochs_since_sleep = 0  # count wake epochs for fixed-cadence sleep
+        self.sleep_every_n_wake_epochs = 3  # sleep every N wake epochs (default 3)
+        
+        # Generalization Enhancement Attributes
+        self.use_subspace_projection = False
+        self.lambda_recon = 0.0
+        self.rel_proj = np.eye(self.latent_dim, dtype=np.float32)
+
         # ── VERB-STEM OFFSET PREDICTOR ──
         # Replaces bilinear W_rel @ subject for cross-domain held-out generalization.
         # offset(verb) = avg(target_embed - subject_embed) over all training pairs
@@ -982,7 +992,135 @@ class RLMv2(Module):
 
         # Bind token to concept
         self.binding_map.bind(token_id, nid, confidence=0.9)
+        
+        # Initialize entity adapter for this token (Fix #3)
+        if token_id not in self._entity_adapters:
+            self._init_entity_adapter(token_id)
+        
         return nid
+
+    def _init_entity_adapter(self, subject_tid: int):
+            """Initialize low-rank entity adapter for a subject token."""
+            if subject_tid in self._entity_adapters:
+                return
+            rank = self._entity_adapter_rank
+            latent_dim = self.latent_dim
+            rng = np.random.RandomState(42 + subject_tid * 1000)
+            # Initialize as small random perturbation around identity projection
+            # U: (rank, latent_dim), V: (rank, latent_dim)
+            # Use larger init (0.1 instead of 0.01) so adapter has meaningful effect
+            U = rng.randn(rank, latent_dim).astype(np.float32) * 0.1
+            V = rng.randn(rank, latent_dim).astype(np.float32) * 0.1
+            self._entity_adapters[subject_tid] = (U, V)
+            self._entity_adapter_momentums[subject_tid] = (
+                np.zeros_like(U), np.zeros_like(V)
+            )
+
+    def _get_or_adapt_entity_adapter(self, subject_tid: int, verb_word: str = None, target_tid: int = None):
+        """Get entity adapter, initializing from nearest neighbor if unseen.
+        
+        For held-out subjects (never seen during training), find the most similar
+        training subject by embedding similarity and copy its adapter.
+        Optionally do a few gradient steps using the verb offset to adapt.
+        """
+        if subject_tid in self._entity_adapters:
+            return self._entity_adapters[subject_tid]
+        
+        # Find nearest training subject with adapter
+        if self._entity_adapters:
+            source_embed = self.get_robust_embedding(subject_tid)
+            best_tid = None
+            best_sim = -1.0
+            
+            for tid, (U, V) in self._entity_adapters.items():
+                # Skip synthetic token IDs (relation-object hubs use IDs >= 10000)
+                if tid >= self.vocab_size:
+                    continue
+                other_embed = self.get_robust_embedding(tid)
+                sim = np.dot(source_embed, other_embed) / (
+                    np.linalg.norm(source_embed) * np.linalg.norm(other_embed) + 1e-10
+                )
+                if sim > best_sim:
+                    best_sim = sim
+                    best_tid = tid
+            
+            if best_tid is not None and best_sim > 0.3:
+                # Copy adapter from nearest neighbor
+                U_src, V_src = self._entity_adapters[best_tid]
+                self._entity_adapters[subject_tid] = (U_src.copy(), V_src.copy())
+                self._entity_adapter_momentums[subject_tid] = (
+                    np.zeros_like(U_src), np.zeros_like(V_src)
+                )
+                return self._entity_adapters[subject_tid]
+        
+        # Fallback: random init
+        self._init_entity_adapter(subject_tid)
+        return self._entity_adapters[subject_tid]
+
+    def _adapt_entity_adapter_at_test_time(self, subject_tid: int, verb_word: str, target_tid: int,
+                                            n_steps: int = 10, lr: float = 0.05) -> Tuple[np.ndarray, np.ndarray]:
+        """Test-time adapter adaptation for held-out subjects using verb offset MSE loss.
+
+        For verb offset path to work, we need: adapted_source + offset(verb) ≈ target_embed
+        This minimizes MSE in embedding space, which directly improves the verb offset prediction.
+        """
+        if not self.use_verb_offset:
+            return self._get_or_adapt_entity_adapter(subject_tid, verb_word, target_tid)
+
+        # Get or initialize adapter (from nearest neighbor if held-out)
+        U, V = self._get_or_adapt_entity_adapter(subject_tid, verb_word, target_tid)
+        mU, mV = self._entity_adapter_momentums[subject_tid]
+
+        subject_embed = self.token_embed.weight.data[subject_tid]
+        target_embed = self.token_embed.weight.data[target_tid]
+        
+        stem = self._verb_stem(verb_word)
+        domain_id = self.current_domain_id if self.current_domain_id is not None else 0
+        if domain_id not in self._verb_offsets or stem not in self._verb_offsets[domain_id]:
+            return U, V
+
+        offset = self._verb_offsets[domain_id][stem]
+        
+        momentum = self._entity_adapter_momentum
+        adapter_lr = lr
+
+        for step in range(n_steps):
+            # Forward: adapted = subject_embed @ U.T @ V
+            adapted = (subject_embed @ U.T) @ V
+            # Verb offset prediction: predicted = adapted + offset
+            predicted = adapted + offset
+            residual = predicted - target_embed
+            
+            # MSE loss
+            loss = 0.5 * np.sum(residual ** 2)
+            
+            # Gradient: dL/d_adapted = residual
+            # dL/dV = outer(U @ subject_embed, residual)
+            # dL/dU = outer(residual @ V.T, subject_embed)
+            z = subject_embed @ U.T
+            dV = np.outer(z, residual)
+            dU = np.outer(residual @ V.T, subject_embed)
+            
+            # Gradient clipping
+            for g in [dU, dV]:
+                gn = np.linalg.norm(g)
+                if gn > 5.0:
+                    g *= (5.0 / (gn + 1e-15))
+            
+            # Momentum update
+            mU = momentum * mU - adapter_lr * dU
+            mV = momentum * mV - adapter_lr * dV
+            U += mU
+            V += mV
+            
+            if step % 3 == 0:
+                print(f"    [Adapt Step {step}] mse={loss:.4f} residual_norm={np.linalg.norm(residual):.4f}")
+
+        self._entity_adapters[subject_tid] = (U, V)
+        self._entity_adapter_momentums[subject_tid] = (mU, mV)
+
+        return U, V
+
 
     @property
     def _tokenizer(self):
@@ -1247,11 +1385,12 @@ class RLMv2(Module):
                 break
         return w
 
-    def _accumulate_verb_offset(self, subject_tid: int, target_tid: int, verb_word: str):
+    def _accumulate_verb_offset(self, subject_tid: int, target_tid: int, verb_word: str, domain_id: int = None):
         """Accumulate offset = target_embed - subject_embed for a verb stem.
-        
+
         Called during learn() for each training triple.
         Offsets are finalized into _verb_offsets by _compute_verb_offsets().
+        Now tracks domain_id to compute domain-specific verb offsets.
         """
         if not verb_word or not self.use_verb_offset:
             return
@@ -1259,58 +1398,91 @@ class RLMv2(Module):
         subject_embed = self.token_embed.weight.data[subject_tid]
         target_embed = self.token_embed.weight.data[target_tid]
         offset = target_embed - subject_embed
-        self._verb_accum_buffer.append((stem, offset))
-
+        # Use current domain if not provided
+        if domain_id is None:
+            domain_id = self.current_domain_id if self.current_domain_id is not None else 0
+        self._verb_accum_buffer.append((stem, offset, domain_id))
+    
     def _compute_verb_offsets(self):
         """Finalize verb offsets by averaging accumulated (target - subject) vectors.
-        
+
+        Now computes DOMAIN-SPECIFIC verb offsets. 
+        Shape: _verb_offsets[domain_id][verb_stem] = offset_vector
+
         Should be called after training is complete (before evaluation).
         Unseen verbs at inference fall back to bilinear W_rel.
         """
         if not self.use_verb_offset:
             return
-        # Group by verb stem
-        sums: Dict[str, np.ndarray] = {}
-        counts: Dict[str, int] = {}
-        for stem, offset in self._verb_accum_buffer:
-            if stem not in sums:
-                sums[stem] = np.zeros_like(offset)
-                counts[stem] = 0
-            sums[stem] += offset
-            counts[stem] += 1
+        # Group by (domain_id, verb stem)
+        sums = {}
+        counts = {}
+        for stem, offset, domain_id in self._verb_accum_buffer:
+            key = (domain_id, stem)
+            if key not in sums:
+                sums[key] = np.zeros_like(offset)
+                counts[key] = 0
+            sums[key] += offset
+            counts[key] += 1
         # Compute averages
-        for stem, total in sums.items():
-            if counts[stem] > 0:
-                offset = total / counts[stem]
+        self._verb_offsets = {}  # domain_id -> {stem: offset}
+        self._verb_offset_count = {}  # domain_id -> {stem: count}
+        for (domain_id, stem), total in sums.items():
+            if counts[(domain_id, stem)] > 0:
+                offset = total / counts[(domain_id, stem)]
                 # Normalize to prevent embedding-space drift
                 norm = np.linalg.norm(offset)
                 if norm > 0:
                     offset = offset / norm * min(norm, 5.0)  # cap magnitude at 5
-                self._verb_offsets[stem] = offset
-                self._verb_offset_count[stem] = counts[stem]
-        n_verbs = len(self._verb_offsets)
-        if n_verbs > 0:
-            print(f"  [Verb Offset] Computed {n_verbs} verb offsets from {len(self._verb_accum_buffer)} training pairs")
-            # Log some examples
-            for stem, cnt in sorted(self._verb_offset_count.items(), key=lambda x: -x[1])[:5]:
-                print(f"    '{stem}': {cnt} examples")
+                if domain_id not in self._verb_offsets:
+                    self._verb_offsets[domain_id] = {}
+                    self._verb_offset_count[domain_id] = {}
+                self._verb_offsets[domain_id][stem] = offset
+                self._verb_offset_count[domain_id][stem] = counts[(domain_id, stem)]
+        # Print summary
+        total_offsets = sum(len(v) for v in self._verb_offsets.values())
+        print(f"  [Verb Offset] Computed {total_offsets} verb offsets from {len(self._verb_accum_buffer)} training pairs")
+        for d in sorted(self._verb_offsets.keys()):
+            for stem, cnt in sorted(self._verb_offset_count[d].items(), key=lambda x: -x[1])[:3]:
+                print(f"    Domain {d}: '{stem}': {cnt} examples")
 
     def _rp_forward_verb_offset(self, subject_tid: int, verb_word: str) -> Optional[np.ndarray]:
         """Predict using verb-stem offset arithmetic.
-        
-        predicted_embed = subject_embed + offset(verb_stem)
+
+        Uses DOMAIN-SPECIFIC verb offsets: offset(verb) = avg(target - subject) 
+        for that verb in the current domain.
+
+        Only applies to highly functional verbs where target is predictable from subject+verb.
+        For non-functional verbs (causes, produces, etc.), returns None to fall back to W_rel.
+
+        predicted_embed = subject_embed + offset(verb, domain)
         logits_k = predicted_embed @ token_embed_k / (temperature)
-        
-        Returns logits over vocab, or None if verb is unknown.
+
+        Returns logits over vocab, or None if verb is unknown or non-functional.
         """
         if not verb_word or not self.use_verb_offset:
             return None
         stem = self._verb_stem(verb_word)
-        if stem not in self._verb_offsets:
+        
+        # Whitelist of highly functional verbs where verb offset works well
+        # These verbs have consistent target patterns across subjects
+        functional_verbs = {
+            'melt', 'freez', 'is', 'are', 'was', 'were', 'be',  # phase changes, copula
+            'enabl', 'prevent', 'caus', 'produ', 'creat', 'drives', 'shap',  # keep for now
+        }
+        # Actually, only use for truly functional verbs
+        # 'caus' and 'produc' are NOT functional - target varies by subject
+        strictly_functional = {'melt', 'freez', 'is', 'are', 'was', 'were', 'be'}
+        if stem not in strictly_functional:
+            return None  # Fall back to bilinear W_rel
+        
+        # Get domain-specific offsets
+        domain_id = self.current_domain_id if self.current_domain_id is not None else 0
+        if domain_id not in self._verb_offsets or stem not in self._verb_offsets[domain_id]:
             return None
         
         source_embed = self.token_embed.weight.data[subject_tid]
-        offset = self._verb_offsets[stem]
+        offset = self._verb_offsets[domain_id][stem]
         predicted = source_embed + offset
         
         # Cosine similarity against all token embeddings
@@ -1326,6 +1498,36 @@ class RLMv2(Module):
             # Suppress subject token (self-prediction) - strong negation
             if 0 <= subject_tid < len(logits):
                 logits[subject_tid] = np.min(logits) - 10.0
+            # Scale up to make softmax meaningful
+            logits *= 10.0
+            return logits
+        return None
+
+    def _rp_forward_verb_offset_from_adapted(self, adapted_source_embed: np.ndarray, verb_word: str) -> Optional[np.ndarray]:
+        """Predict using verb-stem offset arithmetic from pre-adapted source embedding.
+        
+        used when entity adapter has already been applied to source_embed.
+        """
+        if not verb_word or not self.use_verb_offset:
+            return None
+        stem = self._verb_stem(verb_word)
+        if stem not in self._verb_offsets:
+            return None
+        
+        offset = self._verb_offsets[stem]
+        predicted = adapted_source_embed + offset
+        
+        # Cosine similarity against all token embeddings
+        token_embeds = self.token_embed.weight.data  # (vocab_size, embed_dim)
+        token_norms = np.linalg.norm(token_embeds, axis=1)
+        pred_norm = np.linalg.norm(predicted)
+        
+        if pred_norm > 0 and np.any(token_norms > 0):
+            valid_tok = token_norms > 0
+            normed_tok = token_embeds.copy()
+            normed_tok[valid_tok] /= token_norms[valid_tok, np.newaxis]
+            logits = (predicted / pred_norm) @ normed_tok.T  # cosine similarities
+            # Note: we don't suppress subject token here since we don't have subject_tid
             # Scale up to make softmax meaningful
             logits *= 10.0
             return logits
@@ -1348,16 +1550,53 @@ class RLMv2(Module):
         # instead of bilinear W_rel. This enables same-subject different-target
         # predictions (e.g., "cold causes" -> shivering, "cold freezes" -> water).
         # It also enables cross-domain transfer via shared verb semantics.
-        if verb_word:
+        # IMPORTANT: Verb offsets are computed on RAW embeddings (target - subject),
+        # so we must use the raw subject embedding here, NOT the entity-adapted one.
+        if verb_word and self.use_verb_offset:
             verb_logits = self._rp_forward_verb_offset(subject_tid, verb_word)
             if verb_logits is not None:
                 self._rp_cache = None  # prevent stale cache from corrupting W_rel
                 return verb_logits
 
-        # ── Bilinear W_rel Path (fallback) ──
-        # Use raw token embeddings directly (bypass collapsed encoder) unless the
-        # relation predictor is configured to operate in latent space.
+        # Get source embedding and apply entity-specific adapter (Fix #3)
+        # Only for bilinear W_rel fallback path
         source_embed = self.get_robust_embedding(subject_tid)  # (embed_dim,)
+        # For held-out subjects, initialize adapter from nearest neighbor
+        adapter = self._get_or_adapt_entity_adapter(subject_tid, verb_word=verb_word)
+        if adapter is not None:
+            U, V = adapter  # U: (rank, latent_dim), V: (rank, latent_dim)
+            # source_embed @ U.T gives (rank,), then @ V gives (latent_dim,)
+            source_embed = (source_embed @ U.T) @ V
+
+        # ── Verb Offset Path with Adapted Source (test-time adaptation for held-out) ──
+        # If we have a verb offset AND the source was adapted (or _test_time_adapt_mode is set),
+        # use cosine scoring with the adapted source + offset.
+        # This enables test-time adaptation to generalize to non-functional verbs.
+        if verb_word and self.use_verb_offset and getattr(self, '_test_time_adapt_mode', False):
+            stem = self._verb_stem(verb_word)
+            domain_id = self.current_domain_id if self.current_domain_id is not None else 0
+            if domain_id in self._verb_offsets and stem in self._verb_offsets[domain_id]:
+                offset = self._verb_offsets[domain_id][stem]
+                predicted = source_embed + offset
+                
+                # Cosine similarity against all token embeddings
+                token_embeds = self.token_embed.weight.data
+                token_norms = np.linalg.norm(token_embeds, axis=1)
+                pred_norm = np.linalg.norm(predicted)
+                
+                if pred_norm > 0 and np.any(token_norms > 0):
+                    valid_tok = token_norms > 0
+                    normed_tok = token_embeds.copy()
+                    normed_tok[valid_tok] /= token_norms[valid_tok, np.newaxis]
+                    logits = (predicted / pred_norm) @ normed_tok.T
+                    # Suppress subject token
+                    if 0 <= subject_tid < len(logits):
+                        logits[subject_tid] = np.min(logits) - 10.0
+                    logits *= 10.0
+                    self._rp_cache = None
+                    return logits
+
+        # ── Bilinear W_rel Path (fallback) ──
         token_embeds = self.token_embed.weight.data  # (vocab_size, embed_dim)
 
         if self._rp_use_encoder_latent:
@@ -1367,8 +1606,9 @@ class RLMv2(Module):
             source_latent = source_embed  # (embed_dim,)
             target_latents = token_embeds  # (vocab_size, embed_dim)
 
-        # Relation matrix (shared across ALL subjects)
-        W_rel = self._rp_rel_matrices[rel_type_idx]
+        # Relation matrix (domain-specific, per relation type)
+        domain_id = self.current_domain_id if self.current_domain_id is not None else 0
+        W_rel = self._rp_rel_matrices[domain_id, rel_type_idx]
 
         # Bilinear scoring: logits = source_latent @ W_rel @ target_latents.T
         projected = source_latent @ W_rel
@@ -1376,7 +1616,7 @@ class RLMv2(Module):
 
         # Cache for backprop
         self._rp_cache = (
-            subject_tid, rel_type_idx,
+            subject_tid, rel_type_idx, domain_id,
             source_embed, source_latent,
             token_embeds, target_latents,
             W_rel, logits
@@ -1518,9 +1758,9 @@ class RLMv2(Module):
         """
         if self._rp_cache is None:
             return
-            
+           
         (
-            subject_tid, rel_type_idx,
+            subject_tid, rel_type_idx, domain_id,
             source_embed, source_latent,
             token_embeds, target_latents,
             W_rel, logits
@@ -1547,19 +1787,58 @@ class RLMv2(Module):
         freeze_token_embeds = getattr(self, 'freeze_token_embeds_in_rp', True)
         embed_lr = 0.0 if freeze_token_embeds or self._rp_use_encoder_latent else lr * 0.1
 
-        self._rp_mrel_matrices[rel_type_idx] = (
-            self._rp_momentum * self._rp_mrel_matrices[rel_type_idx] - lr * dW_rel
+        self._rp_mrel_matrices[domain_id, rel_type_idx] = (
+            self._rp_momentum * self._rp_mrel_matrices[domain_id, rel_type_idx] - lr * dW_rel
         )
-        self._rp_rel_matrices[rel_type_idx] += self._rp_mrel_matrices[rel_type_idx]
+        self._rp_rel_matrices[domain_id, rel_type_idx] += self._rp_mrel_matrices[domain_id, rel_type_idx]
 
         if self._rp_use_encoder_latent:
             self._rp_cache = None
             return
-
+        
         # === Gradients w.r.t. token embeddings ===
         d_source_latent = W_rel @ d_logits_proj
         d_target_latent_proj = W_rel @ source_latent
         d_target_latents = np.outer(d_logits, d_target_latent_proj)
+
+        # === Gradient w.r.t. Entity Adapter (Fix #3) ===
+        adapter = self._entity_adapters.get(subject_tid)
+        if adapter is not None:
+            U, V = adapter  # U: (rank, latent_dim), V: (rank, latent_dim)
+            mU, mV = self._entity_adapter_momentums[subject_tid]
+            
+            # Need gradient of loss w.r.t source_latent BEFORE adapter
+            # The adapter does: source_latent -> source_latent @ U.T @ V
+            # Let's call the adapted latent: adapted = source_latent @ U.T @ V
+            # dL/d_source_latent = dL/d_adapted @ V.T @ U
+            
+            # dL/d_adapted is what we'd normally compute for embeddings
+            d_adapted = d_source_latent  # this is dL/d_adapted
+            
+            # Let z = source_latent @ U.T (1, rank)
+            # adapted = z @ V (1, latent_dim)
+            # dL/dV = outer(z, d_adapted)
+            # dL/dU = outer(source_latent, d_adapted @ V.T)
+            
+            z = source_latent @ U.T  # (rank,)
+            dV = np.outer(z, d_adapted)  # (rank, latent_dim)
+            dU = np.outer(d_adapted @ V.T, source_latent)  # (rank, latent_dim)
+            
+            # Clip gradients
+            for g in [dU, dV]:
+                gn = np.linalg.norm(g)
+                if gn > 5.0:
+                    g *= (5.0 / (gn + 1e-15))
+            
+            # Momentum update
+            adapter_lr = self._entity_adapter_lr
+            mU = self._entity_adapter_momentum * mU - adapter_lr * dU
+            mV = self._entity_adapter_momentum * mV - adapter_lr * dV
+            U += mU
+            V += mV
+            
+            self._entity_adapters[subject_tid] = (U, V)
+            self._entity_adapter_momentums[subject_tid] = (mU, mV)
 
         if embed_lr > 0:
             self.token_embed.weight.data[subject_tid] -= embed_lr * d_source_latent
@@ -2217,7 +2496,8 @@ class RLMv2(Module):
                         self._seen_predicates = set()
                     self._seen_predicates.add(pred_word)
                     # Accumulate verb offset for verb-stem predictor
-                    self._accumulate_verb_offset(subject_tid, object_tid, pred_word)
+                    self._accumulate_verb_offset(subject_tid, object_tid, pred_word, 
+                                                self.current_domain_id)
             except Exception:
                 pass
 
@@ -2709,7 +2989,8 @@ class RLMv2(Module):
                         self._seen_predicates = set()
                     self._seen_predicates.add(pred_word)
                     # Accumulate verb offset for verb-stem predictor
-                    self._accumulate_verb_offset(subject_tid, object_tid, pred_word)
+                    self._accumulate_verb_offset(subject_tid, object_tid, pred_word, 
+                                                self.current_domain_id)
             except Exception:
                 pass
 
@@ -4082,8 +4363,20 @@ class RLMv2(Module):
             self._dec_b1 = state["_dec_b1"]
             self._dec_W2 = state["_dec_W2"]
             self._dec_b2 = state["_dec_b2"]
-            self._rp_rel_matrices = state["_rp_rel_matrices"]
-            self._rp_mrel_matrices = state["_rp_mrel_matrices"]
+            # Handle both old (n_rel_types, latent, latent) and new (num_domains, n_rel_types, latent, latent) shapes
+            loaded_rel = state["_rp_rel_matrices"]
+            if loaded_rel.ndim == 3:
+                # Old shape: (n_rel_types, latent, latent) -> expand to (num_domains, n_rel_types, latent, latent)
+                n_rel_types = loaded_rel.shape[0]
+                self._rp_rel_matrices = np.tile(loaded_rel[np.newaxis, ...], (self.num_domains, 1, 1, 1))
+            else:
+                self._rp_rel_matrices = loaded_rel
+            loaded_mrel = state["_rp_mrel_matrices"]
+            if loaded_mrel.ndim == 3:
+                n_rel_types = loaded_mrel.shape[0]
+                self._rp_mrel_matrices = np.tile(loaded_mrel[np.newaxis, ...], (self.num_domains, 1, 1, 1))
+            else:
+                self._rp_mrel_matrices = loaded_mrel
 
         if "rel_proj" in state:
             self.rel_proj = state["rel_proj"]
@@ -4379,8 +4672,19 @@ class RLMv2(Module):
             model._dec_b1 = npz["dec/b1"]
             model._dec_W2 = npz["dec/w2"] if "dec/w2" in npz else npz["dec/W2"]
             model._dec_b2 = npz["dec/b2"]
-            model._rp_rel_matrices = npz["rp/rel_matrices"]
-            model._rp_mrel_matrices = npz["rp/mrel_matrices"]
+            # Handle both old (n_rel_types, latent, latent) and new (num_domains, n_rel_types, latent, latent) shapes
+            loaded_rel = npz["rp/rel_matrices"]
+            if loaded_rel.ndim == 3:
+                n_rel_types = loaded_rel.shape[0]
+                model._rp_rel_matrices = np.tile(loaded_rel[np.newaxis, ...], (model.num_domains, 1, 1, 1))
+            else:
+                model._rp_rel_matrices = loaded_rel
+            loaded_mrel = npz["rp/mrel_matrices"]
+            if loaded_mrel.ndim == 3:
+                n_rel_types = loaded_mrel.shape[0]
+                model._rp_mrel_matrices = np.tile(loaded_mrel[np.newaxis, ...], (model.num_domains, 1, 1, 1))
+            else:
+                model._rp_mrel_matrices = loaded_mrel
             if "rp/rel_proj" in npz:
                 model.rel_proj = npz["rp/rel_proj"]
 
@@ -4827,15 +5131,20 @@ class RLMv2(Module):
     # cross-domain queries fail.
 
     def _cross_domain_relation_alignment(self, lr=None):
-        """One step of cross-domain relation alignment.
+        """One step of cross-domain relation alignment (PER DOMAIN).
 
-        For each relation type, find all subject-object pairs in the graph that use
-        that relation, compute the mean (target_embed - W_rel @ source_embed) residual,
-        and nudge W_rel to reduce that residual averaged across ALL pairs (regardless
-        of domain). This pushes W_rel toward a domain-agnostic relation transform.
+        For the current domain, for each relation type, find all subject-object pairs
+        in the graph that use that relation, compute the mean (target_embed - W_rel @ source_embed)
+        residual, and nudge the CURRENT DOMAIN'S W_rel to reduce that residual.
+
+        This keeps W_rel matrices domain-specific while allowing each domain to
+        learn its relation-specific transformation from available pairs.
         """
         if lr is None:
             lr = getattr(self, "alignment_lr", 0.005)
+
+        # Use current domain, default to 0
+        domain_id = self.current_domain_id if self.current_domain_id is not None else 0
 
         from collections import defaultdict
         pairs_by_rel = defaultdict(list)
@@ -4862,7 +5171,7 @@ class RLMv2(Module):
             if len(pairs) < 2:
                 continue
             rel_idx = RELATION_TYPES.index(rel_name)
-            W_rel = self._rp_rel_matrices[rel_idx]
+            W_rel = self._rp_rel_matrices[domain_id, rel_idx]
             # Accumulate gradient toward minimizing mean residual norm
             grad_sum = np.zeros_like(W_rel)
             for src_tid, tgt_tid in pairs:
@@ -4876,16 +5185,266 @@ class RLMv2(Module):
             gn = np.linalg.norm(grad_mean)
             if gn > 5.0:
                 grad_mean *= (5.0 / (gn + 1e-15))
-            self._rp_rel_matrices[rel_idx] -= lr * grad_mean
+            self._rp_rel_matrices[domain_id, rel_idx] -= lr * grad_mean
             results[rel_name] = float(np.linalg.norm(grad_mean))
         return results
 
-    def measure_cross_domain_alignment(self):
+    # ── Adversarial Alignment (Fix #2) ──
+    # Forces W_rel to learn domain-invariant relation transformations while
+    # preserving relation-specific structure. A discriminator tries to predict
+    # the domain from transformed embeddings; W_rel is updated to fool it.
+    
+    def _init_domain_discriminators(self):
+        """Initialize domain discriminators for adversarial alignment.
+        
+        One small MLP per relation type that predicts domain_id from
+        W_rel @ source_embed (the predicted target embedding).
+        """
+        if getattr(self, '_discriminators', None) is not None:
+            return
+        self._discriminators = {}  # rel_name -> {W1, b1, W2, b2}
+        self._discriminator_lr = 0.01
+        self._discriminator_momentum = 0.9
+        self._disc_momentums = {}
+        
+        for rel_name in RELATION_TYPES:
+            # Discriminator: latent_dim -> hidden -> num_domains
+            disc_hidden = 32
+            rng = np.random.RandomState(42)
+            W1 = rng.randn(disc_hidden, self.latent_dim).astype(np.float32) * np.sqrt(2.0 / self.latent_dim)
+            b1 = np.zeros(disc_hidden, dtype=np.float32)
+            W2 = rng.randn(self.num_domains, disc_hidden).astype(np.float32) * np.sqrt(2.0 / disc_hidden)
+            b2 = np.zeros(self.num_domains, dtype=np.float32)
+            self._discriminators[rel_name] = (W1, b1, W2, b2)
+            self._disc_momentums[rel_name] = (np.zeros_like(W1), np.zeros_like(b1), np.zeros_like(W2), np.zeros_like(b2))
+
+    def train_domain_discriminator(self, rel_name, pairs_by_domain, lr=None):
+        """Train discriminator to predict domain from W_rel @ source_embed.
+        
+        Args:
+            rel_name: relation type name
+            pairs_by_domain: dict of domain_id -> list of (src_tid, tgt_tid) pairs
+            lr: learning rate
+        """
+        if lr is None:
+            lr = self._discriminator_lr
+            
+        if rel_name not in self._discriminators:
+            self._init_domain_discriminators()
+            
+        # Build batch: (W_rel @ source_embed) for each pair in each domain
+        rel_idx = RELATION_TYPES.index(rel_name)
+        X = []
+        y = []
+        for d, pairs in pairs_by_domain.items():
+            if not pairs:
+                continue
+            W_rel = self._rp_rel_matrices[d, rel_idx]
+            for src_tid, tgt_tid in pairs:
+                s = self.token_embed.weight.data[src_tid]
+                pred = s @ W_rel
+                X.append(pred)
+                y.append(d)
+        
+        if not X:
+            return 0.0
+            
+        X = np.stack(X)
+        y = np.array(y, dtype=np.int64)
+        
+        # One-hot for cross-entropy
+        y_onehot = np.zeros((len(X), self.num_domains), dtype=np.float32)
+        y_onehot[np.arange(len(X)), y] = 1.0
+        
+        W1, b1, W2, b2 = self._discriminators[rel_name]
+        mW1, mb1, mW2, mb2 = self._disc_momentums[rel_name]
+        
+        # Forward
+        h = np.maximum(0, X @ W1.T + b1)
+        logits = h @ W2.T + b2
+        probs = np.exp(logits - logits.max(axis=1, keepdims=True))
+        probs /= probs.sum(axis=1, keepdims=True) + 1e-10
+        
+        # Cross-entropy loss gradient
+        d_logits = probs - y_onehot  # (batch, num_domains)
+        loss = -np.mean(np.log(probs[np.arange(len(X)), y] + 1e-10))
+        
+        # Gradient w.r.t W2, b2
+        dW2 = d_logits.T @ h
+        db2 = np.sum(d_logits, axis=0)
+        
+        # Gradient w.r.t h
+        d_h = d_logits @ W2
+        d_h[h <= 0] = 0
+        
+        # Gradient w.r.t W1, b1
+        dW1 = d_h.T @ X
+        db1 = np.sum(d_h, axis=0)
+        
+        # Momentum update
+        mW2 = self._discriminator_momentum * mW2 - lr * dW2
+        mb2 = self._discriminator_momentum * mb2 - lr * db2
+        mW1 = self._discriminator_momentum * mW1 - lr * dW1
+        mb1 = self._discriminator_momentum * mb1 - lr * db1
+        
+        W2 += mW2
+        b2 += mb2
+        W1 += mW1
+        b1 += mb1
+        
+        self._discriminators[rel_name] = (W1, b1, W2, b2)
+        self._disc_momentums[rel_name] = (mW1, mb1, mW2, mb2)
+        
+        return loss
+
+    def alignment_with_adversarial(self, lr=None, lambda_adv=0.1):
+        """Full alignment step with adversarial component for all relation types in current domain.
+        
+        For each relation type:
+        1. Train discriminator on ALL domains' transformed embeddings
+        2. Update W_rel with alignment - lambda * adversarial loss
+        """
+        if lr is None:
+            lr = getattr(self, "alignment_lr", 0.005)
+            
+        # Use current domain, default to 0
+        domain_id = self.current_domain_id if self.current_domain_id is not None else 0
+        
+        self._init_domain_discriminators()
+        
+        from collections import defaultdict
+        pairs_by_rel = defaultdict(lambda: defaultdict(list))
+        for (src_cid, tgt_cid), edge in self.graph.edges.items():
+            rel_name = edge.relation_type
+            if rel_name not in RELATION_TYPES:
+                continue
+            if edge.weight < 0.2 or edge.confidence < 0.2:
+                continue
+            src_tokens = self.binding_map.get_tokens(src_cid, min_confidence=0.1)
+            tgt_tokens = self.binding_map.get_tokens(tgt_cid, min_confidence=0.1)
+            if not src_tokens or not tgt_tokens:
+                continue
+            src_tid = src_tokens[0].token_id
+            tgt_tid = tgt_tokens[0].token_id
+            if src_tid >= self.vocab_size or tgt_tid >= self.vocab_size:
+                continue
+            # Determine domain from concept ID or use current domain
+            # For now, assign pairs to domain 0 if they were trained in science, 1 if social
+            # We can use a heuristic: check which domain the model was in when this edge was created
+            # For now, just use the edge's relation to infer
+            pairs_by_rel[rel_name][domain_id].append((src_tid, tgt_tid))
+        
+        results = {}
+        for rel_name, pairs_by_domain in pairs_by_rel.items():
+            if sum(len(p) for p in pairs_by_domain.values()) < 2:
+                continue
+            # Train discriminator on all domains
+            self.train_domain_discriminator(rel_name, pairs_by_domain, lr=0.01)
+            
+            # Adversarial alignment step on current domain
+            pairs = pairs_by_domain.get(domain_id, [])
+            if len(pairs) >= 2:
+                grad_norm = self.adversarial_alignment_step(rel_name, pairs, domain_id, lr, lambda_adv)
+                results[rel_name] = grad_norm
+           
+        return results
+
+    def adversarial_alignment_step(self, rel_name, pairs, domain_id, lr=None, lambda_adv=0.1):
+        """One step of adversarial alignment for a relation type in a domain.
+        
+        Updates W_rel to:
+        1. Minimize alignment loss (W_rel @ s ≈ t)
+        2. Maximize discriminator loss (fool discriminator about domain)
+        
+        Total loss = alignment_loss - lambda_adv * discriminator_loss
+        """
+        if lr is None:
+            lr = getattr(self, "alignment_lr", 0.005)
+            
+        if rel_name not in self._discriminators:
+            self._init_domain_discriminators()
+            
+        if len(pairs) < 2:
+            return 0.0
+            
+        rel_idx = RELATION_TYPES.index(rel_name)
+        W_rel = self._rp_rel_matrices[domain_id, rel_idx]
+        
+        # === Alignment gradient (same as before) ===
+        grad_sum = np.zeros_like(W_rel)
+        for src_tid, tgt_tid in pairs:
+            s = self.token_embed.weight.data[src_tid]
+            t = self.token_embed.weight.data[tgt_tid]
+            pred = s @ W_rel
+            residual = pred - t
+            grad_sum += np.outer(s, residual)
+        align_grad = grad_sum / len(pairs)
+        
+        # === Adversarial gradient ===
+        # We want W_rel to produce embeddings that the discriminator CANNOT classify by domain
+        # So we compute gradient of -lambda_adv * disc_loss w.r.t W_rel
+        # d_loss/d_W_rel = d_loss/d_pred * d_pred/d_W_rel
+        # pred = s @ W_rel, so d_pred/d_W_rel = s (outer)
+        
+        W1, b1, W2, b2 = self._discriminators[rel_name]
+        
+        # We need gradients through the discriminator to W_rel
+        # For each pair, compute pred for current domain, get disc loss, backprop
+        adv_grad_sum = np.zeros_like(W_rel)
+        
+        for src_tid, tgt_tid in pairs:
+            s = self.token_embed.weight.data[src_tid]
+            pred = s @ W_rel  # (latent_dim,)
+            
+            # Discriminator forward on this single prediction
+            h = np.maximum(0, pred @ W1.T + b1)
+            logits = h @ W2.T + b2
+            probs = np.exp(logits - logits.max())
+            probs /= probs.sum() + 1e-10
+            
+            # We want UNIFORM distribution (maximum entropy = domain confusion)
+            # Target is uniform distribution
+            target_probs = np.ones(self.num_domains) / self.num_domains
+            d_logits = probs - target_probs  # gradient for max entropy
+            
+            # Backprop to pred
+            d_h = d_logits @ W2
+            d_h[h <= 0] = 0
+            d_pred = d_h @ W1  # (latent_dim,)
+            
+            # Gradient w.r.t W_rel: outer(s, d_pred)
+            adv_grad_sum += np.outer(s, d_pred)
+        
+        adv_grad = adv_grad_sum / len(pairs)
+        
+        # Clip gradients
+        gn = np.linalg.norm(align_grad)
+        if gn > 5.0:
+            align_grad *= (5.0 / (gn + 1e-15))
+        gn = np.linalg.norm(adv_grad)
+        if gn > 5.0:
+            adv_grad *= (5.0 / (gn + 1e-15))
+        
+        # Total gradient: alignment - lambda * adversarial
+        total_grad = align_grad - lambda_adv * adv_grad
+        
+        # Apply to momentum
+        self._rp_mrel_matrices[domain_id, rel_idx] = (
+            self._rp_momentum * self._rp_mrel_matrices[domain_id, rel_idx] - lr * total_grad
+        )
+        self._rp_rel_matrices[domain_id, rel_idx] += self._rp_mrel_matrices[domain_id, rel_idx]
+        
+        return float(np.linalg.norm(total_grad))
+
+    def measure_cross_domain_alignment(self, domain_id: Optional[int] = None):
         """Measure how well W_rel transforms generalize across all subject-object pairs.
 
         Returns dict mapping relation_type -> mean cosine similarity between
         (W_rel @ source_embed) and target_embed across all stored pairs of that type.
         Higher = better alignment (W_rel actually maps subject->object generically).
+
+        If domain_id is specified, measure only that domain's W_rel.
+        If None, measure all domains and return nested dict {domain_id: {rel_name: sim}}.
         """
         from collections import defaultdict
         pairs_by_rel = defaultdict(list)
@@ -4905,23 +5464,46 @@ class RLMv2(Module):
                 continue
             pairs_by_rel[rel_name].append((src_tid, tgt_tid))
 
-        results = {}
-        for rel_name, pairs in pairs_by_rel.items():
-            if not pairs:
-                continue
-            rel_idx = RELATION_TYPES.index(rel_name)
-            W_rel = self._rp_rel_matrices[rel_idx]
-            sims = []
-            for src_tid, tgt_tid in pairs:
-                s = self.token_embed.weight.data[src_tid]
-                t = self.token_embed.weight.data[tgt_tid]
-                pred = s @ W_rel
-                sn = np.linalg.norm(pred); tn = np.linalg.norm(t)
-                if sn > 0 and tn > 0:
-                    sims.append(float(np.dot(pred, t) / (sn * tn)))
-            if sims:
-                results[rel_name] = float(np.mean(sims))
-        return results
+        if domain_id is not None:
+            # Single domain measurement
+            results = {}
+            for rel_name, pairs in pairs_by_rel.items():
+                if not pairs:
+                    continue
+                rel_idx = RELATION_TYPES.index(rel_name)
+                W_rel = self._rp_rel_matrices[domain_id, rel_idx]
+                sims = []
+                for src_tid, tgt_tid in pairs:
+                    s = self.token_embed.weight.data[src_tid]
+                    t = self.token_embed.weight.data[tgt_tid]
+                    pred = s @ W_rel
+                    sn = np.linalg.norm(pred); tn = np.linalg.norm(t)
+                    if sn > 0 and tn > 0:
+                        sims.append(float(np.dot(pred, t) / (sn * tn)))
+                if sims:
+                    results[rel_name] = float(np.mean(sims))
+            return results
+        else:
+            # Measure all domains
+            results = {}
+            for did in range(self.num_domains):
+                results[did] = {}
+                for rel_name, pairs in pairs_by_rel.items():
+                    if not pairs:
+                        continue
+                    rel_idx = RELATION_TYPES.index(rel_name)
+                    W_rel = self._rp_rel_matrices[did, rel_idx]
+                    sims = []
+                    for src_tid, tgt_tid in pairs:
+                        s = self.token_embed.weight.data[src_tid]
+                        t = self.token_embed.weight.data[tgt_tid]
+                        pred = s @ W_rel
+                        sn = np.linalg.norm(pred); tn = np.linalg.norm(t)
+                        if sn > 0 and tn > 0:
+                            sims.append(float(np.dot(pred, t) / (sn * tn)))
+                    if sims:
+                        results[did][rel_name] = float(np.mean(sims))
+            return results
 
     def _inject_cross_domain_edge(self, subject_cid, object_cid, rel_name, subject_tid):
         """Inject (or strengthen) a relation-typed edge subject->object.

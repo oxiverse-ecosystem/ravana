@@ -158,54 +158,89 @@ def _subject_holdout_split(facts, seed=42, holdout_ratio=0.2):
 def build_domain_a_science():
     """Domain A: Science -- causal relationships between physical concepts.
 
+    Expanded to 50+ facts per domain with:
+    - Repeated verbs across multiple subjects (e.g., "X causes Y" for 10+ X per verb)
+    - Cross-verb coverage (causes, produces, enables, creates, drives, shapes, melts, freezes, etc.)
+    - Balanced relation types (causal, semantic, temporal)
+
     Returns dict with 'train' and 'test' splits using stratified holdout:
     every target appears in training at least once.
     """
     facts = [
-        # Causal facts
+        # Causal facts - "causes" verb (10+ subjects)
         ("heat causes ", "expansion", "causal"),
-        ("friction produces ", "heat", "causal"),
-        ("light enables ", "vision", "causal"),
-        ("gravity pulls ", "objects", "causal"),
-        ("rain causes ", "growth", "causal"),
+        ("cold causes ", "contraction", "causal"),
+        ("friction causes ", "wear", "causal"),
+        ("pressure causes ", "phase_change", "causal"),
+        ("radiation causes ", "mutation", "causal"),
+        ("gravity causes ", "acceleration", "causal"),
+        ("voltage causes ", "current_flow", "causal"),
+        ("lightning causes ", "fire", "causal"),
+        ("oxidation causes ", "rust", "causal"),
+        ("corrosion causes ", "weakening", "causal"),
+        ("earthquake causes ", "destruction", "causal"),
+        ("volcano causes ", "lava_flow", "causal"),
+        ("metabolism causes ", "energy", "causal"),
+
+        # Causal facts - "produces" verb (8+ subjects)
         ("fire produces ", "warmth", "causal"),
-        ("cold causes ", "shivering", "causal"),
-        ("wind causes ", "erosion", "causal"),
-        ("water causes ", "rust", "causal"),
-        ("sunlight causes ", "warmth", "causal"),
-        ("ice makes ", "slippery", "causal"),
-        ("pressure creates ", "diamonds", "causal"),
+        ("photosynthesis produces ", "oxygen", "causal"),
+        ("friction produces ", "heat", "causal"),
+        ("combustion produces ", "energy", "causal"),
+        ("fermentation produces ", "alcohol", "causal"),
+        ("respiration produces ", "co2", "causal"),
+        ("nuclear_fission produces ", "radiation", "causal"),
+        ("decomposition produces ", "nutrients", "causal"),
+        ("condensation produces ", "dew", "causal"),
+        ("transpiration produces ", "humidity", "causal"),
+
+        # Causal facts - "enables" verb (6+ subjects)
         ("oxygen enables ", "combustion", "causal"),
-        ("drought causes ", "famine", "causal"),
-        ("flood causes ", "destruction", "causal"),
+        ("light enables ", "vision", "causal"),
+        ("catalyst enables ", "reaction", "causal"),
+        ("enzyme enables ", "metabolism", "causal"),
+        ("chlorophyll enables ", "photosynthesis", "causal"),
+        ("membrane enables ", "osmosis", "causal"),
+
+        # Causal facts - "creates" verb (6+ subjects)
+        ("pressure creates ", "diamonds", "causal"),
+        ("fusion creates ", "elements", "causal"),
+        ("sedimentation creates ", "rock_layers", "causal"),
+        ("crystallization creates ", "crystals", "causal"),
+        ("volcanic_activity creates ", "islands", "causal"),
+        ("erosion creates ", "canyons", "causal"),
+
+        # Causal facts - "drives" verb (6+ subjects)
+        ("voltage drives ", "current", "causal"),
+        ("gravity drives ", "tides", "causal"),
+        ("pressure_difference drives ", "wind", "causal"),
+        ("concentration_gradient drives ", "diffusion", "causal"),
+        ("temperature_difference drives ", "convection", "causal"),
+        ("electric_field drives ", "ion_motion", "causal"),
+
+        # Causal facts - "shapes" verb (4+ subjects)
+        ("gravity shapes ", "orbits", "causal"),
+        ("wind shapes ", "dunes", "causal"),
+        ("water shapes ", "riverbeds", "causal"),
+        ("glaciers shape ", "valleys", "causal"),
+
+        # Additional causal verbs for coverage
         ("heat melts ", "ice", "causal"),
         ("cold freezes ", "water", "causal"),
-        ("voltage drives ", "current", "causal"),
-        ("friction slows ", "motion", "causal"),
-        ("gravity shapes ", "orbits", "causal"),
-        ("radiation damages ", "dna", "causal"),
-        ("magnetism deflects ", "compasses", "causal"),
-        ("evaporation cools ", "surfaces", "causal"),
-        ("condensation forms ", "clouds", "causal"),
-        ("sedimentation builds ", "layers", "causal"),
-        ("oxidation causes ", "tarnish", "causal"),
-        ("nuclear force binds ", "protons", "causal"),
-        ("tides shift ", "sediment", "causal"),
-        ("lightning ignites ", "fires", "causal"),
-        ("corrosion weakens ", "metals", "causal"),
-        ("centrifugal force pushes ", "outward", "causal"),
-        ("capillary action draws ", "liquid", "causal"),
+        ("rain erodes ", "soil", "causal"),
+        ("acid dissolves ", "metal", "causal"),
+        ("magnetism attracts ", "iron", "causal"),
+        ("centrifugal_force pushes ", "outward", "causal"),
+        ("capillary_action draws ", "liquid", "causal"),
         ("resonance shatters ", "glass", "causal"),
         ("diffusion spreads ", "particles", "causal"),
-        ("combustion releases ", "energy", "causal"),
         ("osmosis transfers ", "water", "causal"),
-        ("photosynthesis produces ", "oxygen", "causal"),
-        ("friction generates ", "static", "causal"),
         ("decompression causes ", "cooling", "causal"),
-        ("fermentation produces ", "alcohol", "causal"),
-        # Semantic facts (is-a / properties)
+
+        # Semantic facts (is-a / properties) - expanded
         ("water is ", "liquid", "semantic"),
         ("ice is ", "solid", "semantic"),
+        ("steam is ", "gas", "semantic"),
         ("fire is ", "hot", "semantic"),
         ("steel is ", "strong", "semantic"),
         ("glass is ", "fragile", "semantic"),
@@ -224,6 +259,18 @@ def build_domain_a_science():
         ("neon is ", "noble", "semantic"),
         ("sulfur is ", "pungent", "semantic"),
         ("aluminum is ", "lightweight", "semantic"),
+        ("gold is ", "malleable", "semantic"),
+        ("platinum is ", "catalytic", "semantic"),
+        ("titanium is ", "strong", "semantic"),
+        ("graphite is ", "lubricating", "semantic"),
+
+        # Temporal facts
+        ("sunrise then ", "daylight", "temporal"),
+        ("winter after ", "autumn", "temporal"),
+        ("seedling then ", "plant", "temporal"),
+        ("reaction then ", "product", "temporal"),
+        ("evaporation then ", "condensation", "temporal"),
+        ("fertilization then ", "embryo", "temporal"),
     ]
 
     return _subject_holdout_split(facts, seed=42)
@@ -232,53 +279,107 @@ def build_domain_a_science():
 def build_domain_b_social():
     """Domain B: Social -- relationships and emotions between people.
 
+    Expanded to 50+ facts per domain with:
+    - Repeated verbs across multiple subjects (e.g., "X causes Y" for 10+ X per verb)
+    - Cross-verb coverage (causes, produces, enables, creates, drives, shapes, leads to, etc.)
+    - Balanced relation types (causal, semantic, temporal)
+
     Structurally parallel to Domain A but semantically distinct.
-    Uses stratified holdout: every target appears in training at least once.
-    Extended to 100+ facts for stable held-out evaluation.
+    Returns dict with 'train' and 'test' splits using stratified holdout.
     """
     facts = [
-        # Causal facts
-        ("kindness leads to ", "trust", "causal"),
+        # Causal facts - "causes" verb (10+ subjects)
         ("anger causes ", "conflict", "causal"),
-        ("sharing builds ", "friendship", "causal"),
-        ("lying destroys ", "trust", "causal"),
-        ("patience creates ", "understanding", "causal"),
-        ("honesty builds ", "respect", "causal"),
-        ("empathy creates ", "connection", "causal"),
         ("greed causes ", "loneliness", "causal"),
         ("jealousy causes ", "resentment", "causal"),
-        ("generosity creates ", "gratitude", "causal"),
         ("rudeness causes ", "offense", "causal"),
-        ("listening builds ", "rapport", "causal"),
-        ("teaching builds ", "knowledge", "causal"),
         ("neglect causes ", "distance", "causal"),
-        ("celebration builds ", "bonds", "causal"),
-        ("criticism causes ", "defensiveness", "causal"),
-        ("forgiveness heals ", "wounds", "causal"),
-        ("praise boosts ", "confidence", "causal"),
         ("isolation causes ", "sadness", "causal"),
-        ("teamwork creates ", "success", "causal"),
-        ("gossip spreads ", "mistrust", "causal"),
-        ("mentorship builds ", "skills", "causal"),
         ("bullying causes ", "trauma", "causal"),
-        ("collaboration produces ", "innovation", "causal"),
         ("rejection causes ", "withdrawal", "causal"),
-        ("inclusion builds ", "belonging", "causal"),
-        ("betrayal destroys ", "loyalty", "causal"),
-        ("gratitude strengthens ", "relationships", "causal"),
-        ("boredom triggers ", "exploration", "causal"),
-        ("competition drives ", "excellence", "causal"),
-        ("compassion reduces ", "suffering", "causal"),
-        ("sarcasm creates ", "tension", "causal"),
+        ("betrayal causes ", "betrayal_trauma", "causal"),
+        ("stress causes ", "anxiety", "causal"),
+        ("trauma causes ", "hypervigilance", "causal"),
+        ("criticism causes ", "defensiveness", "causal"),
+        ("deception causes ", "mistrust", "causal"),
+
+        # Causal facts - "produces" verb (8+ subjects)
+        ("collaboration produces ", "innovation", "causal"),
+        ("teamwork produces ", "success", "causal"),
+        ("mentorship produces ", "growth", "causal"),
+        ("practice produces ", "mastery", "causal"),
+        ("reflection produces ", "wisdom", "causal"),
+        ("communication produces ", "understanding", "causal"),
+        ("trust produces ", "intimacy", "causal"),
+        ("kindness produces ", "goodwill", "causal"),
+        ("effort produces ", "results", "causal"),
+        ("creativity produces ", "expression", "causal"),
+
+        # Causal facts - "enables" verb (6+ subjects)
         ("trust enables ", "vulnerability", "causal"),
-        ("leadership inspires ", "action", "causal"),
-        ("apology restores ", "harmony", "causal"),
-        ("neglect weakens ", "bonds", "causal"),
-        ("humor defuses ", "conflict", "causal"),
-        ("rivalry spurs ", "growth", "causal"),
-        ("grief deepens ", "empathy", "causal"),
+        ("listening enables ", "rapport", "causal"),
+        ("honesty enables ", "authenticity", "causal"),
+        ("empathy enables ", "connection", "causal"),
+        ("patience enables ", "understanding", "causal"),
+        ("forgiveness enables ", "healing", "causal"),
+
+        # Causal facts - "creates" verb (6+ subjects)
+        ("kindness creates ", "belonging", "causal"),
+        ("sharing creates ", "community", "causal"),
+        ("celebration creates ", "bonds", "causal"),
+        ("inclusion creates ", "belonging", "causal"),
+        ("gratitude creates ", "abundance", "causal"),
+        ("love creates ", "connection", "causal"),
+
+        # Causal facts - "drives" verb (6+ subjects)
+        ("ambition drives ", "achievement", "causal"),
+        ("curiosity drives ", "discovery", "causal"),
+        ("passion drives ", "excellence", "causal"),
+        ("competition drives ", "improvement", "causal"),
+        ("purpose drives ", "meaning", "causal"),
+        ("fear drives ", "avoidance", "causal"),
+
+        # Causal facts - "shapes" verb (4+ subjects)
+        ("culture shapes ", "values", "causal"),
+        ("upbringing shapes ", "character", "causal"),
+        ("experience shapes ", "wisdom", "causal"),
+        ("trauma shapes ", "resilience", "causal"),
+
+        # Additional causal verbs for coverage - "leads to"
+        ("kindness leads to ", "trust", "causal"),
+        ("honesty leads to ", "respect", "causal"),
+        ("patience leads to ", "peace", "causal"),
+        ("generosity leads to ", "gratitude", "causal"),
+        ("empathy leads to ", "compassion", "causal"),
+        ("forgiveness leads to ", "freedom", "causal"),
+
+        # Additional causal verbs - "builds"
+        ("sharing builds ", "friendship", "causal"),
+        ("honesty builds ", "trust", "causal"),
+        ("listening builds ", "rapport", "causal"),
+        ("teamwork builds ", "trust", "causal"),
+        ("mentorship builds ", "skills", "causal"),
+        ("consistency builds ", "reliability", "causal"),
+        ("communication builds ", "understanding", "causal"),
+        ("vulnerability builds ", "intimacy", "causal"),
+
+        # Additional causal verbs - "triggers", "sparks", "ignites"
+        ("boredom triggers ", "exploration", "causal"),
         ("curiosity sparks ", "discovery", "causal"),
-        # Semantic facts
+        ("insult triggers ", "anger", "causal"),
+        ("praise ignites ", "confidence", "causal"),
+        ("injustice sparks ", "activism", "causal"),
+        ("failure triggers ", "learning", "causal"),
+
+        # Additional causal verbs - "fosters", "nurtures", "cultivates"
+        ("kindness fosters ", "trust", "causal"),
+        ("mentorship nurtures ", "potential", "causal"),
+        ("patience cultivates ", "understanding", "causal"),
+        ("support fosters ", "growth", "causal"),
+        ("encouragement nurtures ", "confidence", "causal"),
+        ("love cultivates ", "connection", "causal"),
+
+        # Semantic facts (is-a / properties) - expanded
         ("friendship is ", "valuable", "semantic"),
         ("family is ", "important", "semantic"),
         ("trust is ", "fragile", "semantic"),
@@ -299,6 +400,27 @@ def build_domain_b_social():
         ("hope is ", "resilient", "semantic"),
         ("pride is ", "dangerous", "semantic"),
         ("grace is ", "inspiring", "semantic"),
+        ("compassion is ", "healing", "semantic"),
+        ("integrity is ", "steadfast", "semantic"),
+        ("forgiveness is ", "liberating", "semantic"),
+        ("gratitude is ", "transformative", "semantic"),
+        ("humility is ", "grounding", "semantic"),
+        ("curiosity is ", "expansive", "semantic"),
+        ("resilience is ", "enduring", "semantic"),
+        ("presence is ", "powerful", "semantic"),
+        ("authenticity is ", "magnetic", "semantic"),
+        ("vulnerability is ", "courageous", "semantic"),
+        ("empathy is ", "bridging", "semantic"),
+        ("acceptance is ", "peaceful", "semantic"),
+        ("boundaries are ", "healthy", "semantic"),
+
+        # Temporal facts
+        ("meeting then ", "friendship", "temporal"),
+        ("conflict then ", "resolution", "temporal"),
+        ("trust then ", "intimacy", "temporal"),
+        ("grief then ", "healing", "temporal"),
+        ("learning then ", "mastery", "temporal"),
+        ("apology then ", "forgiveness", "temporal"),
     ]
 
     return _subject_holdout_split(facts, seed=42)
@@ -324,6 +446,15 @@ def train_rlm_on_domain(model: RLMv2, facts: List[Tuple[str, str, str]],
     If replay_facts is provided, interleave replay of those facts at 20% rate
     to prevent catastrophic forgetting of shared relation embeddings.
     """
+    # Set domain based on domain_tag
+    domain_map = {'science': 0, 'social': 1, 'math': 2, 'history': 3}
+    if domain_tag is not None and domain_tag in domain_map:
+        model.set_domain(domain_map[domain_tag])
+    elif domain_tag is not None:
+        # Unknown tag - use hash for consistency
+        domain_id = hash(domain_tag) % model.num_domains
+        model.set_domain(domain_id)
+    
     acc_history = []
     errors = []
 
