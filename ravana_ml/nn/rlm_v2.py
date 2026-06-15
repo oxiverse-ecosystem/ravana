@@ -460,6 +460,9 @@ class RLMv2(Module):
         self.freeze_token_embeds_in_rp = True
         # Cross-domain alignment toggle (used by _cross_domain_relation_alignment).
         self.use_cross_domain_alignment = False
+        # If enabled, run relation alignment during sleep consolidation.
+        self.cross_domain_alignment_on_sleep = False
+        self.cross_domain_alignment_steps = 5
         # ── VERB-STEM OFFSET PREDICTOR ──
         # Replaces bilinear W_rel @ subject for cross-domain held-out generalization.
         # offset(verb) = avg(target_embed - subject_embed) over all training pairs
@@ -3398,6 +3401,14 @@ class RLMv2(Module):
             if self.alignment_needed or force_alignment or graph_version > last_aligned:
                 self.align_encoder_to_graph(validation_queries=validation_queries)
                 self.alignment_needed = False  # reset flag after alignment
+
+            # ── Cross-domain relation alignment ──
+            # Optional extra consolidation for relation transforms.
+            # This is disabled by default and only runs when experiments opt in.
+            if self.use_cross_domain_alignment and self.cross_domain_alignment_on_sleep:
+                n_steps = max(1, int(getattr(self, 'cross_domain_alignment_steps', 5)))
+                for _ in range(n_steps):
+                    self._cross_domain_relation_alignment()
 
             # ── Drift defense ──
             # Pull concept vectors back toward their core vectors if they've drifted too far.

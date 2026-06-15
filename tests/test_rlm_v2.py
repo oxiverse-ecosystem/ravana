@@ -334,6 +334,34 @@ def test_relation_vector_separation():
         return False
 
 
+def test_sleep_cycle_cross_domain_alignment_toggle():
+    """Test that optional cross-domain alignment runs during sleep when enabled."""
+    tok = WordTokenizer()
+    tok.encode("heat causes expansion")
+
+    model = RLMv2(vocab_size=100, embed_dim=16, concept_dim=16, n_concepts=10,
+                  sleep_interval=10)
+    model._tokenizer = tok
+    model.use_cross_domain_alignment = True
+    model.cross_domain_alignment_on_sleep = True
+    model.cross_domain_alignment_steps = 3
+
+    calls = []
+
+    def fake_alignment(lr=None):
+        calls.append(lr)
+        return {"causal": 0.0}
+
+    model._cross_domain_relation_alignment = fake_alignment
+
+    ids = tok.encode("heat causes expansion")
+    model.learn(np.array(ids[:-1], dtype=np.int64), np.array([ids[-1]], dtype=np.int64))
+    model.sleep_cycle()
+
+    assert len(calls) == 3, f"Expected 3 alignment calls during sleep, got {len(calls)}"
+    print("  ✓ test_sleep_cycle_cross_domain_alignment_toggle")
+
+
 if __name__ == "__main__":
     print("=" * 50)
     print("RLMv2 Test Suite")
@@ -352,6 +380,7 @@ if __name__ == "__main__":
         test_sleep_cycle,
         test_save_load,
         test_relation_vector_separation,
+        test_sleep_cycle_cross_domain_alignment_toggle,
     ]
 
     passed = 0
