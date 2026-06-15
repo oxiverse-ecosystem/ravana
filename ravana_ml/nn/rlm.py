@@ -1071,6 +1071,9 @@ class RLM(Module):
                     if subj_node.activation < target_act:
                         self.graph.activate(subject_cid, target_act - subj_node.activation)
 
+        if input_rel_type != "semantic":
+            self.graph.spread_activation(steps=1, k_active=7, decay=0.35, relation_type=input_rel_type)
+
         # Concept attention: active concepts attend to each other (global context)
         active_concepts = [n for n in self.graph.nodes.values() if n.activation > 0.01]
         active_concepts.sort(key=lambda n: n.activation, reverse=True)

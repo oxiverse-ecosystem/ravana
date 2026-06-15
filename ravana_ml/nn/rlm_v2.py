@@ -1808,6 +1808,9 @@ class RLMv2(Module):
                 # Phase 1: General spreading (3 steps, decay 0.3)
                 self.graph.spread_activation(steps=3, k_active=10, decay=0.3)
 
+                # Phase 1b: Relation-aware refinement (uses learned relation vectors)
+                self.graph.spread_activation(steps=1, k_active=10, decay=0.35, relation_type=rel_type_name)
+
                 # Phase 2: Relation-aware spreading (2 extra steps along matching edges)
                 # This preferentially spreads activation along edges that match the query
                 # relation type, enabling deeper cross-domain paths.
