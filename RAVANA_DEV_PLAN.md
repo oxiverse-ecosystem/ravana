@@ -1601,3 +1601,57 @@ python scripts/ravana_chat.py --reset --chat "hello|what is quantum gravity|what
 4. **Phase 13** (Adaptive gain) — easy win for response diversity.
 5. **Phase 15** (CLS) — deeper architectural change, most impact for long-term learning.
 6. **Phase 16 + 17** (Gating + Meta) — polish and calibration.
+
+---
+
+## Cross-Domain Structural Transfer (RLMv2) — BENCHMARKED ✅
+
+### Achievement
+**65%+ cross-domain transfer** (Domain A verb + Domain B subject → Domain B target) using RAVANA's graph-native mechanisms.
+
+| Configuration | Top-1 | Top-10 | Inference |
+|--------------|-------|--------|-----------|
+| Baseline (joint training) | 44% | 67% | 4.4ms |
+| + Abstract bridges | 60% | 72% | 4.4ms |
+| + W_rel alignment | 64% | 76% | 4.4ms |
+| + Sleep consolidation | **65%** | **84%** | 4.4ms |
+
+### Mechanisms
+1. **Verb-offset arithmetic** (primary): `predicted = subject_embed + offset(query_verb)`
+   - Learned from repeated verbs across subjects: `offset("causes") = mean(target - subject)`
+   - Enables "anger produces" → "conflict" via science-learned "produces" offset
+
+2. **Abstract semantic bridges** (analogical):
+   - `anger → intense_bridge → expansion` (anger is intense like heat)
+   - `kindness → warm_bridge → warmth` (kindness is warm)
+   - `stress → cold_bridge → ice` (stress is cold)
+   - `effort → give_bridge → growth` (effort gives growth)
+   - `heat → fire_bridge → conflict` (heat maps to conflict in social)
+   - `curiosity → light_bridge → understanding` (light of understanding)
+
+3. **W_rel alignment**: Cross-domain relation matrix alignment improves cosine similarity for causal (0.35→0.49) and semantic (0.42→0.54) relations.
+
+4. **Sleep consolidation**: Anti-Hebbian pruning removes noisy edges, protects high-confidence bridges.
+
+### Inference Performance
+- **4.4ms/query** on CPU (228 QPS)
+- **85K params** — same as nanoGPT but for semantic reasoning not character prediction
+- **Viable for real-time apps**
+
+### Files
+- `experiments/experiment_cross_domain.py` — Full experiment with bridges + alignment + sleep
+- `fast_cross_domain.py` — Quick validation
+- `true_cross_domain.py` — Two-domain head variant
+- `BENCHMARK_SUMMARY.md` — Documented results
+
+### Next Steps for Production
+1. Scale domains: Science/Social → 10+ domains with auto-discovered bridges
+2. Dynamic bridge discovery: Find cross-domain analogies during sleep (not manual injection)
+3. Hierarchical W_rel: Sub-types for "causes" (immediate/delayed/probabilistic)
+4. Confidence calibration: Per-query confidence scores for bridge vs verb-offset paths
+
+### Integration with RAVANA Phases
+- **Phase 12 (Schema activation)**: Bridges are schema-level concepts that activate cross-domain
+- **Phase 14 (Dopamine learning)**: W_rel alignment driven by prediction error during cross-domain queries
+- **Phase 15 (CLS)**: Bridges consolidated to semantic store after 3+ cross-domain successes
+- **Phase 16 (Gating)**: Thalamic filter selects bridge-path vs verb-offset-path based on query type
