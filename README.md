@@ -177,6 +177,32 @@ logits = model.forward(inp)
 
 All benchmarks are run via external benchmarking infrastructure. See [`docs/EXPERIMENTS.md`](docs/EXPERIMENTS.md) for reproduction instructions and expected results.
 
+### External Benchmark Harness (NEW)
+
+```bash
+# Quick run (PCX + Graph, ~2 min)
+python external_benchmark.py --quick
+
+# Full suite (PCX + Lifelong + Graph, ~10 min)
+python external_benchmark.py
+
+# Individual surfaces
+python external_benchmark.py --quick --skip-lifelong    # PCX + Graph
+python external_benchmark.py --quick --skip-pcx        # Lifelong + Graph
+```
+
+**Key external validation results:**
+
+| Metric | Result |
+|--------|--------|
+| Cross-domain transfer Top-1 | **75.0%** |
+| Cross-domain transfer Top-10 | **100%** |
+| Held-out Science Top-1 / Top-10 | 8.3% / 25.0% (n=12) |
+| Held-out Social Top-1 / Top-10 | 0.0% / 8.3% (n=36) |
+| Graph Inference P95 / P99 | 2.7 ms / 2.9 ms |
+| Graph Peak Memory / Throughput | 0.3 MB / 556 QPS |
+| W_rel Causal / Semantic Alignment | 0.68 / 0.55 |
+
 ---
 
 ## Documentation

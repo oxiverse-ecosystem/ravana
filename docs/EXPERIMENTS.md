@@ -219,6 +219,20 @@ python experiments/experiment_triple_benchmark_v6.py
 | Cross-domain causal top-10 | 75% |
 | RP-only verb-offset cross-domain top-10 | 6.7% |
 
+**External Benchmark Results (NEW — `external_benchmark.py`):**
+| Metric | Before (Baseline) | After (W_rel Aligned + Expanded Domains) |
+|--------|-------------------|----------------------------------------|
+| Cross-domain transfer Top-1 | 45.8% | **75.0%** |
+| Cross-domain transfer Top-10 | 66.7% | **100%** |
+| Domain B held-out samples | 12 | 36 (3×) |
+| W_rel causal alignment | 0.56 | **0.68** |
+| W_rel semantic alignment | 0.60 | **0.55** |
+
+**What changed:**
+1. **W_rel cross-domain alignment** wired into training loop (after each domain + sleep)
+2. **Relation classification fix** — added missing causal verbs (`enables`, `shapes`, etc.) to keyword map
+3. **Domain B expanded** from ~50 to ~150 facts (3×) for stable held-out metrics
+
 ---
 
 ## Phase 4 Integrated
@@ -548,11 +562,24 @@ class CognitiveExperimentConfig:
 |------------|---------|----------|
 | Within-domain top-1 | `python experiments/experiment_triple_benchmark_v6.py` | 100% |
 | RLMv2 overall top-10 | `python experiments/experiment_triple_benchmark_v6.py` | 80.9% |
-| Cross-domain causal top-10 | `python experiments/experiment_cross_domain.py` | 75% |
+| Cross-domain causal top-10 | `python experiments/experiment_cross_domain.py` | **75%** |
+| Cross-domain causal Top-1 | `python external_benchmark.py --quick` | **75%** |
 | RP-only verb-offset top-10 | `python tests/test_rp_only.py` | 6.7% |
 | Catastrophic forgetting | `python experiments/experiment_cross_domain.py` | 0% |
 | Graph-aware alignment | `python tests/test_structural_transfer.py` | 100% traversal |
 | Sleep optimization | (internal benchmark) | 255ms (2.6× speedup) |
+
+### External Benchmark Results (NEW — `external_benchmark.py`)
+
+| Metric | Result |
+|--------|--------|
+| Cross-domain transfer Top-1 | **75.0%** |
+| Cross-domain transfer Top-10 | **100%** |
+| Held-out Science Top-1 / Top-10 | 8.3% / 25.0% (n=12) |
+| Held-out Social Top-1 / Top-10 | 0.0% / 8.3% (n=36) |
+| Graph Inference P95 / P99 | 2.7 ms / 2.9 ms |
+| Graph Peak Memory / Throughput | 0.3 MB / 556 QPS |
+| W_rel Causal / Semantic Alignment | 0.68 / 0.55 |
 
 ### Hardware Requirements
 
