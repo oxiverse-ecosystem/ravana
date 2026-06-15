@@ -1,663 +1,574 @@
-# RAVANA — Cognitive Architecture & ML Framework
+# RAVANA Architecture Reference
 
-> **A self-stabilizing, self-expanding epistemic system.**
-> CPU-native cognitive ML framework — no GPU required.
->
-> **Date**: 2026-06-08
-> **Status**: Active Development (v2 GRACE + Cognitive Modules + RLMv2 + Phase 2 NN Bridge + GloVe embeddings + Verb-Stem Offset Predictor)
-> **Author**: Likhith + Zo Agent
+> **Complete technical reference for the RAVANA cognitive architecture.** This document covers all three layers of the system, their interactions, and the theoretical foundations.
 
 ---
 
-## What RAVANA Is
+## Table of Contents
 
-RAVANA is a **self-consistent learning paradigm** built on pressure-driven self-organization rather than loss function optimization. Unlike PyTorch/TensorFlow which minimize objective functions via gradient descent, RAVANA learns through **cognitive dissonance minimization**: prediction errors create internal pressure, and the system self-organizes to reduce that pressure.
-
-Think: differentiable physics engine for cognition, not a differentiable function approximator.
-
----
-
-## Version Lineage
-
-| Version | Status | Core Innovation | Location |
-|---------|--------|----------------|----------|
-| v1 | Concept | Initial cognitive architecture | N/A |
-| v2 | **Active** | GRACE + VAD Emotion + Sleep + Dual-Process + Meaning | `ravana-v2/core/` |
-| v4 | Reference | Sensorimotor + Pressure Physics + Sleep cognition | `ARCHITECTURE.md` (prior) |
-
-> v2 is the active codebase with integrated cognitive modules. v4 is a reference design document for future evolution.
+1. [Overview](#overview)
+2. [Three-Layer Architecture](#three-layer-architecture)
+3. [Layer 1: `ravana_ml/` — ML Framework](#layer-1-ravana_ml--ml-framework)
+4. [Layer 2: `ravana-v2/` — GRACE Cognitive Core](#layer-2-ravana-v2--grace-cognitive-core)
+5. [Layer 3: `ravana/` — Unified Package](#layer-3-ravana--unified-package)
+5. [Data Flow & Integration](#data-flow--integration)
+6. [Key Algorithms](#key-algorithms)
+7. [Configuration Reference](#configuration-reference)
 
 ---
 
-## Core Design Philosophy
+## Overview
 
-### Learning Through Physics, Not Optimization
-
-Transformers/PyTorch minimize loss functions. RAVANA is a dynamical self-stabilizing system.
+RAVANA implements **pressure-driven self-organization** as an alternative to gradient-based learning. The core thesis:
 
 ```
-Traditional ML:         loss = f(prediction, target) → gradient → update weights
-RAVANA:                 prediction error → pressure → self-organization → equilibrium
+Traditional ML:  Loss → Gradient → Weight Update
+RAVANA:          Prediction Error → Pressure (Free Energy) → Self-Organization → Equilibrium
 ```
 
-### Hybrid Discrete + Continuous
+### Design Principles
 
-- **Discrete**: Symbolic concept IDs, prediction edges, mode selections
-- **Continuous**: State vectors, pressure fields, identity momentum
-
-### Key Primitives
-
-1. **Pressure** = learning signal (replaces loss function)
-2. **Coherence** = objective metric (replaces accuracy)
-3. **Governor** = optimizer (replaces gradient descent)
-4. **Identity** = parameter regularization (replaces weight decay)
-5. **Sleep** = consolidation phase (replaces batch normalization)
-6. **VAD Emotion** = affective state (adds valence/arousal/dominance to every concept)
-7. **Meaning** = intrinsic motivation (coherence gain × effort cost)
+| Principle | Implementation |
+|-----------|---------------|
+| **No backpropagation** | Hebbian/anti-Hebbian plasticity + structural plasticity |
+| **CPU-native, NumPy-only** | Single dependency: `numpy>=1.20` |
+| **Concept-first representation** | ConceptGraph with typed edges, not dense matrices |
+| **Sleep as consolidation** | SWS + REM cycles with dream sabotage |
+| **Cognition as regulation** | GRACE Governor with hard constraints |
+| **Emotion as compute** | VAD (Valence/Arousal/Dominance) differential equations |
 
 ---
 
-## Theoretical Foundations
-
-RAVANA integrates multiple cognitive science frameworks into a unified pressure-driven system:
-
-### Kahneman's Dual-Process Theory (System 1 / System 2)
-
-| System | Characteristics | RAVANA Implementation |
-|--------|----------------|----------------------|
-| System 1 | Fast, automatic, intuitive | Concept activation spread, Hebbian completion |
-| System 2 | Slow, deliberate, analytical | MCTS planning, belief reasoning, argument construction |
-
-**Override logic**: System 2 engages when System 1 confidence is low, novelty is high, or stakes are high.
-Cognitive cycles (~200-300ms each) form the atomic unit of processing.
-
-### Mayer-Salovey Four-Branch Emotional Intelligence
-
-| Branch | Function | RAVANA Implementation |
-|--------|----------|----------------------|
-| Perception | Identify emotions in self/others | VAD state tracking + Gaussian Process empathy |
-| Use | Harness emotion for thinking | Emotion-scaled GW bidding, empathetic action bonuses |
-| Understanding | Comprehend emotional nuance | Causal emotion models, differentiation calibration |
-| Regulation | Manage emotional responses | Reappraisal-focused regulation (reframing, not suppression) |
-
-### Festinger's Cognitive Dissonance (Lehr et al. 2025 extension)
-
-Dissonance is computed as belief-action distance, not just scalar error:
+## Three-Layer Architecture
 
 ```
-D = Σ|belief_i - action_j| × confidence_i × VAD_weight_k
-    + identity_violation_penalty × commitment_strength
+┌─────────────────────────────────────────────────────────────────┐
+│                        LAYER 3: ravana/                          │
+│                  Unified pip-installable package                 │
+│  ┌─────────────┐  ┌─────────────┐  ┌────────────────────────┐   │
+│  │   nn/       │  │ cognitive/  │  │ graph/ propagation/    │   │
+│  │  (RLM)      │  │Framework +  │  │ world/ lab/            │   │
+│  │             │  │ 23+ modules │  │                        │   │
+│  └──────┬──────┘  └──────┬──────┘  └──────────┬─────────────┘   │
+└─────────│───────────────│─────────────────────│──────────────────┘
+          │               │                     │
+          ▼               ▼                     ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  LAYER 1: ravana_ml/ (5,200+ lines)    LAYER 2: ravana-v2/ (19,500+ lines) │
+│  ┌────────────────────────────┐      ┌────────────────────────────────┐    │
+│  │ • graph.py (ConceptGraph)  │      │ • GRACE Phase A–O (27 modules) │    │
+│  │ • nn/rlm.py (RLM v1)       │      │ • CognitiveCycle orchestration │    │
+│  │ • nn/rlm_v2.py (RLM v2)    │      │ • Persistent human memory      │    │
+│  │ • nn/module.py             │      │ • Sleep/dream consolidation    │    │
+│  │ • tensor.py                │      │ • VAD emotion engine           │    │
+│  │ • free_energy.py           │      │ • Global workspace             │    │
+│  │ • plasticity.py            │      │ • Meta-cognition & belief      │    │
+│  │ • propagation.py           │      │ • Social epistemology          │    │
+│  │ • tokenizer.py             │      │ • Meaning/intrinsic motivation │    │
+│  │ • currencies.py            │      │ • Planning & world model       │    │
+│  └────────────────────────────┘      └────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
-
-High dissonance forces: reappraisal, behavioral correction, belief change, or commitment decay.
-The system cannot maintain indefinite dissonance — forced into coherence.
-
-### Behavioral Economics & Bias Mitigation
-
-| Bias | RAVANA Mitigation |
-|------|-------------------|
-| Confirmation bias | 20% counterfactual reversals in dreams |
-| Overconfidence | Dual-confidence system (mean + volatility decay) |
-| Status quo bias | Commitment Identity Link requires verification |
-| Anchoring | Explicit priors with adaptation tracking |
-| Sunk cost | Forward-looking planning ignores past costs |
-
-### Four Pressures for Emergence
-
-1. **Global Falsification** — prediction error lowers confidence, raises volatility, deprioritizes weak beliefs
-2. **Dissonance-Driven Self-Correction** — belief-action mismatch forces coherence
-3. **Structured Dream Sabotage** — 20% counterfactual reversals prevent overfitting
-4. **Meaning as Staked Coherence** — costly coherence gain drives genuine growth
-
-Wisdom emerges not from programming, but from optimization under coherence pressures.
 
 ---
 
-## GRACE Architecture (v2 Codebase)
+## Layer 1: `ravana_ml/` — ML Framework
 
-The `ravana-v2/core/` directory implements the GRACE architecture across ordered development phases:
+The ML framework provides a PyTorch-compatible API built entirely on NumPy.
 
+### Core Modules
+
+#### `graph.py` — ConceptGraph (3,678 lines)
+
+The central knowledge representation. A heterogeneous graph with:
+
+**Nodes (ConceptNode):**
+- `vector` — active vector (fast-adapting, plastic)
+- `core_vector` — identity anchor (slow, drift-resistant)
+- `genesis_vector` — original vector for drift tracking
+- `activation` — current spreading activation level
+- `salience`, `prediction_free_energy`, `stability`, `confidence`
+- Hierarchical fields: `level`, `parent`, `children`, `abstraction_degree`
+- Temporal fields: `last_activated`, `activation_history`, `temporal_context`
+
+**Edges (ConceptEdge):**
+- Typed: `semantic`, `causal`, `temporal`, `analogical`, `contextual`, `inferred`, `inhibitory`
+- Weight ∈ [0, 1] with sign (inhibitory = negative)
+- `confidence`, `stability`, `prediction_free_energy`
+- `forward_pred_count` / `backward_pred_count` for bidirectional tracking
+- `predicate_token_id` — verb-level discrimination
+- `relation_vector` — learned relational embedding
+- EWC & Bayesian posterior: `fisher_importance`, `posterior_alpha/beta`
+- Multi-agent weights: `agent_weights`, `source_metadata`
+
+**Key Operations:**
+```python
+graph = ConceptGraph(dim=64, max_nodes=10000)
+nid = graph.add_node(vector, label="heat")
+graph.add_edge(source, target, weight=0.5, relation_type="causal")
+graph.activate(nid, amount=1.0)
+graph.spread_activation(steps=3, k_active=5, decay=0.3)
+similar = graph.find_similar(vector, k=10)
+graph.hebbian_update(source, target, coactivation, lr=0.03)
+graph.homeostatic_downscale(protection_threshold=0.8)
+graph.reconcile_contradictions()
 ```
-Governance      → Governor, ClampDiagnostics         (Phase A)
-Reflection      → ResolutionEngine, IdentityEngine    (Phase A)
-Adaptation      → PolicyTweakLayer                    (Phase B)
-Constraint      → GovernorConfig, ClampEvents         (Phase A)
-Exploration     → StrategyLayer, StrategyLearning     (Phase C)
-```
 
-### Phase A: Core Regulation (`governor.py`, `resolution.py`, `identity.py`, `state.py`)
+#### `nn/module.py` — Neural Modules (473 lines)
 
-**The Central Governor** — all state changes must pass through it.
+PyTorch-like module hierarchy without autograd:
 
 ```python
-# No state modification without governor passage
-regulated = governor.regulate(current_dissonance, current_identity, signals)
+class Module:
+    def __call__(self, *args, **kwargs): return self.forward(*args, **kwargs)
+    def parameters(self): ...
+    def state_dict(self): ...
+    def load_state_dict(self, sd): ...
+    def register_module(self, name, module): ...
+
+class Linear(Module):          # weight: (out, in), no bias by default
+class Embedding(Module):       # token → vector
+class LayerNorm(Module):       # mean/var normalization
+class GRUCell(Module):         # gated recurrent unit
+class ConceptAttentionHead(Module):  # multi-head QKV over concepts
 ```
 
-Three-layer regulation:
-1. **Hard Constraints**: Absolute ceilings/floors (e.g., `max_dissonance=0.95`)
-2. **Soft Boundary**: Sigmoid pressure curve near limits (air, not brick wall)
-3. **Center-Seeking**: Homeostatic pull toward target dissonance
+All params are `Parameter` (wraps `StateTensor` with `salience`, `free_energy`, `stability`, `decay`).
 
-**The Identity Engine** — momentum-based self-concept with recovery bias:
-- Identity grows from successful resolution, decays from stagnation
-- Failure penalty is structural (-0.08 per failed prediction)
-- Resolution bonus matches penalty (+0.08 per success)
-- Streak multiplier rewards sustained correctness
+#### `nn/rlm.py` — RLM v1 (3,931 lines)
 
-**The Resolution Engine** — continuous partial credit accumulation:
-- Not binary success/failure — accumulated partial credit toward wisdom
-- Threshold crossing generates wisdom events
-- Difficulty-based scaling on credit
+Recursive Learning Model with predictive coding:
 
-### Phase B: Adaptation (`adaptation.py`)
+- **Token embedding** → positional encoding → **GRU** → hidden layers → **concept predictor**
+- **5-path logit blend**: concept attention, context logits, RP analogy, sparse concept, direct latent
+- **Settling loop**: 5 iterations of predictive coding state updates
+- **Free energy**: 5-channel accumulator (semantic, linguistic, episodic, contradiction, abstraction)
+- **Sleep**: interleaved replay (domain-tagged), contrastive hidden states, BP-trained RP
+- **Cognitive state**: unified via `CognitiveCurrencies`
 
-Lightweight policy learning from clamp events:
-- Simple 5D state → 2D output linear policy
-- Learns to avoid needing correction (not just stay in bounds)
-- Reward = exploration bonus - clamp_penalty * correction_magnitude
-- Momentum-based gradient updates
+#### `nn/rlm_v2.py` — RLM v2 (5,013 lines)
 
-### Phase C: Strategy Learning (`strategy.py`, `strategy_learning.py`)
+Triple decomposition architecture:
 
-Four deliberate exploration modes selected via soft sigmoid scoring:
+```
+Input: "heat causes expansion"
+       ↓ decompose
+(subject="heat", relation="causes", object="expansion")
+       ↓ classify relation
+"causes" → CAUSAL type embedding
+       ↓ spread activation
+subject_node → (filter by CAUSAL) → activated target nodes
+       ↓ score against vocab
+Logits over vocabulary
+```
 
-| Mode | When | Behavior |
-|------|------|----------|
-| EXPLORE_AGGRESSIVE | Low D, room to grow | High delta, high noise |
-| EXPLORE_SAFE | Near boundary, not crisis | Moderate delta, low noise |
-| STABILIZE | High identity, low variance | Low delta, preserve gains |
-| RECOVER | Crisis detected | Force D reduction |
+Key differences from v1:
+- No character-level GRU
+- Spreading activation as **sole** inference mechanism
+- Learned relation type embeddings (not keyword-based)
+- Hebbian learning on `(subject @ relation_type) → object`
+- Verb-stem offset predictor for cross-domain generalization
 
-Strategy learning evaluates mode effectiveness over time and shifts preferences.
+#### `free_energy.py` — FreeEnergyAccumulator (90 lines)
 
-### Phase D: Intent & Planning (`intent.py`, `planning.py`)
-
-Dynamic objectives that evolve based on outcomes:
-- Four system objectives: EXPLORE, STABILIZE, OPTIMIZE_IDENTITY, MINIMIZE_CLAMPS
-- Objective weights self-adjust based on satisfaction trends
-- Micro-planner simulates forward trajectories before mode selection
-
-### Phase E: Non-Stationary Environment (`environment.py`)
-
-A world that changes in ways RAVANA must discover:
-- Boundary shifts, noise drift, goal flips, hidden difficulty cycles
-- RAVANA is NOT told when changes happen — must detect through consequences
-
-### Phase F: Learned Predictive World Model (`predictive_world.py`)
-
-Simple neural network that predicts next state:
-- Input: `[D, I, clamp_rate, trend, stability, mode]`
-- Hidden: 12 units, Output: 3 (predicts D, I, clamp)
-- Adaptive surprise threshold (2x baseline)
-- Belief inertia resists false world patterns
-
-### Phase F.5: Belief Reasoner (`belief_reasoner.py`)
-
-Multiple competing hypotheses about the world:
-- Not single belief, but distribution over hypotheses
-- Confidence decays without confirmation (built-in skepticism)
-- Structural consistency checks ("would past make sense?")
-- Hypothesis spawning when evidence contradicts all active beliefs
-
-### Phase G: Active Epistemology (`active_epistemology.py`)
-
-From passive reasoner to intentional discoverer:
-- Value of Information (VoI) calculation per action
-- Hypothesis-driven action selection
-- Intentionally probes to maximize hypothesis separation
-
-### Phase G.5: Surgical Probing (`surgical_probes.py`)
-
-KL-divergence driven probe selection:
-- Designs experiments that maximally separate competing hypotheses
-- Predicts outcomes under each hypothesis for each probe type
-- Selects probe with highest expected information gain
-
-### Phase H: Social Epistemology (`social_epistemology.py`)
-
-Multi-agent belief conflict resolution:
-- Trust scoring by epistemic reliability
-- Consensus formation via trust-weighted averaging
-- Adversarial testing (deliberate misleading agents)
-- Deception detection (low honesty over time)
-
-### Phase I: Meta-Cognition (`meta_cognition.py`)
-
-Self-awareness of the epistemic process:
-- Monitors probe effectiveness, confidence calibration, systematic bias
-- Recommends epistemic mode: CAUTIOUS, EXPLORATORY, RECOVERY, CONFIDENT
-- Prevents confident-fool, systematic-misinterpreter, frozen-thinker failure modes
-
-### Phase I+: Reality Friction (`reality_friction.py`)
-
-From laboratory epistemics to adversarial reality:
-- Partial observability (never fully visible state)
-- Delayed ground truth (feedback arrives late, partial, or never)
-- Noisy signals (observation = truth + adversarial noise)
-- Hidden variables (causal factors RAVANA cannot observe)
-
-### Phase I²: Meta²-Cognition (`meta2_cognition.py`, `meta2_integration.py`)
-
-The system questioning its own epistemic method:
-- Hypothesis space audits (is the true model in my space?)
-- Bias detection (am I structurally blind?)
-- Epistemic epiphanies (radical method revisions)
-- Auto-expands hypothesis space when systematic failure detected
-
-### Phase J: Hypothesis Generation (`hypothesis_generation.py`)
-
-Constraint-guided hypothesis generation when probing plateaus:
-- Incremental complexity: parametric → structural → causal
-- Occam penalty prevents overfitting
-- Lifecycle management: confidence, complexity, survival score, pruning
-
-### Phase J.1: Occam Layer (`occam_layer.py`)
-
-Explicit complexity penalties for epistemic discipline:
-- `score = explanatory_power - lambda * complexity * evidence_factor`
-- Penalty grows with evidence (prevent overfitting with more data)
-- Pruning of low-scoring hypotheses
-
-### Phase K: VAD Emotion Engine (`emotion.py`)
-
-3D affective state (Valence, Arousal, Dominance) with differential equation dynamics:
+Five independent channels tracking prediction errors:
 
 ```python
-dV/dt = ηv(stimulus_valence - V) - λv * V
-dA/dt = ηa(stimulus_arousal + 0.3 * uncertainty - A) - λa(A - baseline)
-dD/dt = ηd(stimulus_dominance - D) - λd * D
+class FreeEnergyAccumulator:
+    def accumulate_semantic(self, error, salience=1.0): ...
+    def accumulate_linguistic(self, error, salience=1.0): ...
+    def accumulate_episodic(self, error, salience=1.0): ...
+    def accumulate_contradiction(self, error, salience=1.0): ...
+    def accumulate_abstraction(self, error, salience=1.0): ...
+    def total(self) -> float: ...
+    def decay(self, rate=0.1): ...
 ```
 
-- Euler integration for real-time update
-- VAD tags on all concepts and memories
-- Emotion-cognition coupling (VAD affects mode selection, GW bidding)
-- Anticipation-driven emotion via MCTS forward simulation
-- Supports dissonance weighting (VAD_k scales belief-action gap)
+#### `plasticity.py` — Plasticity Rules (77 lines)
 
-### Phase K.5: Empathy Engine (`empathy.py`)
-
-Theory of Mind via Gaussian Process regression:
-- Infers others' VAD states from behavioral cues (text sentiment, speech rate, etc.)
-- Perspective-taking: simulates others' belief states under own model
-- Empathy-driven modulation: own decisions weighted by inferred other-state
-- Trust-weighted multi-agent emotion tracking
-
-### Phase L: Sleep & Dream Consolidation (`sleep.py`)
-
-Periodic consolidation phase triggered by accumulated pressure > threshold:
-
-**4-Stage Sleep:**
-1. **Topology Analysis** — Identify high-pressure zones, unstable prediction edges
-2. **Pattern Compression** — Find frequent concept clusters, strengthen intra-cluster edges
-3. **Contradiction Resolution** — For each active contradiction, rewire (not delete) weakest edge
-4. **Integration** — Merge consistent clusters, update confidence, rollback if coherence drops
-
-**Dream Sabotage** (anti-overfitting):
-- 20% counterfactual outcome reversals ("what if failure was success?")
-- 10% emotional valence flipping
-- 1.5x failure experience oversampling
-- Symbolic recombination of concept graph edges
-
-**Safeguards:**
-- Tier-0 identity protection (core self-concept never perturbed)
-- Abort-on-instability rollback (coherence drop > threshold → restore snapshot)
-- Controlled perturbation radius (≤2 hops from contradiction, max 0.05 per edge)
-
-### Phase L.5: Dual-Process Controller (`dual_process.py`)
-
-Explicit System 1 / System 2 architecture:
-
-```
-System 1 (fast):    Hebbian concept activation, pattern completion  →  1-2 GW cycles
-System 2 (slow):    MCTS planning, belief reasoning, argument construction  →  4-10 GW cycles
+```python
+class HebbianPlasticity:      # Δw = lr * pre * post
+class AntiHebbianPlasticity:  # Δw = -lr * pre * post (competition)
+class StructuralPlasticity:   # prune weak edges, form co-activation edges
 ```
 
-- **Override logic**: System 2 engages when confidence < threshold, novelty high, or stakes high
-- **Cognitive load tracking**: limits System 2 invocation under pressure
-- **Fluency heuristic**: skip System 2 when System 1 is fluent and confident
-- **Metacognitive control**: dual-process itself is subject to meta-cognition oversight
+#### `propagation.py` — PropagationEngine (78 lines)
 
-### Phase M: Meaning Engine (`meaning.py`)
+Spreading activation with typed edge filtering:
 
-Intrinsic motivation via costly coherence gain:
-
-```
-M = w1(-ΔD_future) + w2(Δidentity_coherence) + w3(Δpredictive_power)
-    × (1 + κ × effort_cost)
+```python
+engine = PropagationEngine(graph)
+engine.get_prediction(active_nids, top_k=5)  # traverse edges, filter by type
+engine.get_activation_vector(nids)           # weighted average of vectors
+engine.measure_coherence(active_nids)        # mean pairwise similarity
 ```
 
-- Meaning accumulates as tracked metric (parallel to wisdom)
-- Meaning-staking: committing to hypotheses imposes identity cost if wrong
-- Meaning-driven curiosity: pursue actions with high expected M
-- Meta-RL shaped by M learns: pursue coherence gains, resolve conflicts, value integrity
+#### `tokenizer.py` — Tokenizers
 
-### Phase N: Global Workspace Integration (`global_workspace.py`)
+- `WordTokenizer` — dynamic vocab, word-level (fastest for cognitive exps)
+- `BPETokenizer` — tiktoken/GPT-2 (requires `tiktoken`)
+- `SimpleTokenizer` — char-level fallback (256 vocab)
+- `PixelTokenizer` — image → token sequence (28×28 → 784 tokens)
 
-Soft attention bidding system for module coordination:
+#### `currencies.py` / `currency.py` — Cognitive Currencies
 
-```
-bid_i = emotion_intensity_i × novelty_i × goal_relevance_i
-        × mean_conf_i × exp(-α × volatility_conf_i)
-```
+Unified cognitive state management replacing scattered scalars.
 
-- All modules send signals with computed bids
-- Softmax(bids) → top-K (K=3-5) signals broadcast to all modules
-- Low-confidence or volatile signals naturally deprioritized
-- Winning signals influence all downstream processing
+#### `tensor.py` — Tensor Abstractions
 
-### Memory System (`memory.py`)
+- `RawTensor` — numpy wrapper with device API
+- `StateTensor` — adds cognitive metadata (salience, free_energy, stability, decay)
 
-Human-like memory architecture:
-- **Episodic**: Time-stamped traces, salience-weighted capacity management
-- **Semantic**: Bayesian knowledge graph for long-term norms
-- **Working**: Global workspace buffer (capacity-limited attention)
+#### `embedder.py` — LearnedEmbedder
+
+Character n-gram + random projection (64-dim) for OOV handling.
 
 ---
 
-## Training Loop
+## Layer 2: `ravana-v2/` — GRACE Cognitive Core
 
-The training pipeline (`training/pipeline.py`) orchestrates cognitive episodes:
+GRACE = **Governance, Reflection, Adaptation, Constraint, Exploration**
+
+### Phase Architecture
+
+| Phase | Module | Lines | Function |
+|-------|--------|-------|----------|
+| **A** | `governor.py` | 743 | Central regulation — hard constraints, predictive dampening, boundary pressure, center-seeking |
+| **A** | `identity.py` | — | Momentum-based self-concept with recovery bias |
+| **A** | `resolution.py` | — | Continuous partial credit toward wisdom events |
+| **B** | `adaptation.py` | — | Policy learning from clamp events |
+| **C** | `strategy.py` | — | 4 exploration modes: AGGRESSIVE, SAFE, STABILIZE, RECOVER |
+| **C** | `strategy_learning.py` | — | Meta-learning over mode outcomes |
+| **D** | `intent.py` | — | Dynamic objectives evolving from outcomes |
+| **D.5** | `planning.py` | — | Micro-planner with simulated futures |
+| **E** | `environment.py` | — | Non-stationary world (boundary shifts, noise drift, goal flips) |
+| **F** | `predictive_world.py` | — | Neural world model, adaptive surprise threshold |
+| **F.5** | `belief_reasoner.py` | — | Competing hypotheses with confidence decay |
+| **G** | `active_epistemology.py` | — | Value of Information (VoI) calculation |
+| **G.5** | `surgical_probes.py` | — | Targeted intervention experiments |
+| **J** | `hypothesis_generation.py` | — | Generate hypotheses from anomalies |
+| **J.1** | `occam_layer.py` | — | Hypothesis discipline / complexity penalization |
+| **K** | `emotion.py` | 234 | VAD differential equations |
+| **K.5** | `empathy.py` | — | Other-mind modeling |
+| **L** | `sleep.py` | 703 | 4-stage SWS + REM with dream sabotage |
+| **L.5** | `dual_process.py` | — | System 1 / System 2 routing |
+| **M** | `meaning.py` | 224 | Intrinsic motivation: M = w1(-D) + w2(I) + w3(pred) × (1 + κ×effort) |
+| **N** | `global_workspace.py` | — | Competitive broadcast, consciousness bottleneck |
+| **O** | `human_memory.py` | 2,321 | Persistent episodic/semantic memory, Ebbinghaus decay, interference |
+| **P** | `dialogue_context.py` | — | Conversation tracking, active subgraphs |
+| **P** | `conversational_repair.py` | — | Correction handling, repair events |
+
+### Governor — Central Regulation
 
 ```python
-for episode in range(total_episodes):
-    difficulty = compute_difficulty(episode)
-    correctness = simulate_outcome(difficulty)
-    
-    # Governor-gated cognitive step
-    step_record = manager.step(
-        correctness=correctness,
-        difficulty=difficulty
+from core.governor import Governor, GovernorConfig, RegulationMode
+
+config = GovernorConfig(
+    max_dissonance=0.95,
+    min_dissonance=0.15,
+    target_dissonance=0.30,
+    center_target=0.50,
+    boundary_k=12.0,
+    use_smoothed_dissonance=True,
+    smoothing_alpha=0.2,
+)
+
+gov = Governor(config)
+
+# Every state change MUST pass through governor
+signals = CognitiveSignals(
+    dissonance_delta=0.1,
+    identity_delta=0.05,
+    trend=0.02,              # dD/dt prediction
+    predicted_dissonance=0.35,
+)
+output = gov.regulate(
+    current_dissonance=0.3,
+    current_identity=0.7,
+    signals=signals,
+    episode=100
+)
+# output.dissonance_delta (regulated)
+# output.identity_delta (regulated)
+# output.mode (RegulationMode.NORMAL/EXPLORATION/RESOLUTION/RECOVERY/PLATEAU)
+```
+
+**Four regulatory layers:**
+1. **Hard constraints** — absolute ceilings/floors (non-negotiable)
+2. **Predictive dampening** — look-ahead regulation (slow before hitting wall)
+3. **Boundary pressure** — air resistance near limits
+4. **Center-seeking force** — homeostatic pull to target
+
+### Sleep Consolidation
+
+```python
+from core.sleep import SleepConsolidation, SleepConfig, SleepStage
+
+config = SleepConfig(
+    pressure_threshold=0.2,
+    counterfactual_rate=0.20,    # 20% memory reversal
+    emotional_flip_rate=0.10,    # 10% valence flip
+    failure_oversample_factor=1.5,
+)
+
+sleep = SleepConsolidation(config)
+sleep.accumulate_pressure(delta)
+
+if sleep.should_sleep():
+    record = sleep.execute_sleep_cycle(
+        episode=100,
+        state_snapshot=state.snapshot(),
+        episodic_memories=memories,
+        emotion_engine=emotion_engine,
+        coherence_fn=lambda s: 1.0 - s["dissonance"],
+        graph=concept_graph,
     )
-    
-    # All state changes pass through Governor
-    # Governor applies: hard constraints → predictive dampening
-    #   → boundary pressure → center-seeking → mode regulation → final clamp
 ```
 
-No backprop. No gradient descent. The Governor is the optimizer.
+**Four stages:**
+1. **Topology Analysis** — identify high-pressure zones
+2. **Pattern Compression** — strengthen consistent co-activation clusters
+3. **Contradiction Resolution** — rewire weakest edges in pressure zones
+4. **Integration** — merge, stabilize, rollback if coherence drops >5%
+
+**Dream sabotage (REM):**
+- Counterfactual reversal (20%)
+- Emotional valence flip (10%)
+- Failure oversampling (1.5×)
+
+### Human Memory Engine
+
+```python
+from core.human_memory import HumanMemoryEngine, HumanMemoryConfig
+
+memory = HumanMemoryEngine(config)
+
+# Store
+mem_id = memory.store(content="heat causes expansion", importance=0.8, tags="causal,physics")
+
+# Recall
+results = memory.recall(query="heat", limit=5, min_confidence=0.3)
+
+# Sleep operations
+memory.sleep_replay(state_snapshot)
+memory.apply_decay()          # Ebbinghaus forgetting curve
+memory.consolidate()          # episodic → semantic
+memory.bridge_to_graph(graph) # semantic memories → ConceptGraph edges
+```
 
 ---
 
-## Key Metrics
+## Layer 3: `ravana/` — Unified Package
 
-| Metric | Formula | Interpretation |
-|--------|---------|----------------|
-| Dissonance (D) | Current cognitive tension | 0.0 (none) - 1.0 (crisis) |
-| Identity (I) | Self-concept strength | 0.0 (fragile) - 1.0 (rigid) |
-| Wisdom | Accumulated partial credit threshold crossings | Epistemic growth |
-| Coherence | Weighted mean of confidence over active concepts | System health |
-| Meaning (M) | Coherence gain × effort cost | Intrinsic motivation |
-| Clamp Rate | Governor corrections / upstream suggestions | Constitutional alignment |
-| Prediction Accuracy | Successful / total predictions | World model quality |
-| Valence (V) | VAD emotional valence | -1.0 (negative) - 1.0 (positive) |
-| Arousal (A) | VAD emotional arousal | 0.0 (calm) - 1.0 (excited) |
-| Dominance (Dm) | VAD emotional dominance | 0.0 (submissive) - 1.0 (dominant) |
-| Dream Pressure | Accumulated consolidation need | Triggers sleep when > threshold |
-
----
-
-## Quick Start
+Single pip-installable package re-exporting both codebases:
 
 ```bash
-# Run unit tests (recommended first step)
-python -m pytest ravana-v2/core/ -v
+pip install -e ravana/   # numpy only
+```
 
-# Run cognitive architecture experiments
-python experiments/runner.py
+```python
+import ravana as torch          # PyTorch-compatible API
+from ravana.nn import RLM       # RLMv2 (triple decomposition)
+from ravana.cognitive import CognitiveFramework  # Full cognitive system
+from ravana.graph import ConceptGraph
+from ravana.propagation import PropagationEngine
+```
 
-# Run RLMv2 unit tests
-python -m pytest tests/ -v
+**Structure:**
+```
+ravana/
+├── __init__.py          # import ravana as torch
+├── nn/
+│   └── __init__.py      # from ravana_ml.nn import RLMv2 as RLM
+├── cognitive/
+│   └── framework.py     # CognitiveFramework (wires L1 + L2)
+├── graph/               # re-exports ravana_ml.graph
+├── propagation/         # re-exports ravana_ml.propagation
+├── world/               # simulation environments
+├── lab/                 # analysis tools
+└── pyproject.toml       # numpy>=1.20
 ```
 
 ---
 
-## What RAVANA Is NOT
+## Data Flow & Integration
 
-- Not an LLM — no transformer, no token prediction
-- Not symbolic AI — no logic rules, no truth tables
-- Not a reward-based RL — no external reward signal
-- Not a neural network trainer — no gradient descent, no backprop, no GPU needed
-- Not PyTorch/TensorFlow — no loss functions, no optimizers, no autograd
+### Cognitive Cycle (Framework API)
 
-## What RAVANA IS
+```python
+from ravana.cognitive import CognitiveFramework
 
-- A pressure-driven self-organizing cognitive system
-- A CPU-native ML framework where learning emerges from prediction failures
-- Where memory IS the model (semantic weights = parameters)
-- Where sleep is thermodynamic necessity (consolidation phase)
-- Where identity is structural, not programmed (self-concept as regularizer)
-- Where emotions (VAD) shape cognition and learning
-- Where dual-process (System 1 / System 2) enables both fast intuition and slow deliberation
-- Where dreams prevent dogmatism through structured sabotage
-- Where meaning emerges from costly coherence gain
+fw = CognitiveFramework()
+state = fw.initialize()
 
----
+for episode, (input_vec, target_vec) in enumerate(dataset):
+    # 1. PERCEIVE: input → active concepts
+    concepts = fw.perceive(state, input_vec)
+    
+    # 2. PREDICT: spreading activation → predicted vector
+    predictions = fw.predict(state, concepts)
+    
+    # 3. LEARN: pressure → governor → identity → emotion → meaning
+    state = fw.learn(state, predictions, target_vec, episode)
+    
+    # 4. SLEEP (periodic): consolidation + memory replay
+    if episode % 100 == 0:
+        state = fw.sleep(state)
 
-## RLMv2 — Triple Decomposition Architecture
-
-A clean-room rewrite replacing character-level GRU with brain-inspired triple decomposition. Input text is decomposed into (subject, relation_type, object) triples, which activate concepts via spreading activation over the concept graph. 1,247 lines. 11/11 unit tests passing.
-
-**Key innovation**: Instead of character-level sequence modeling, RLMv2 parses knowledge into structured triples and performs graph-based reasoning — closer to how biological neural circuits encode relational knowledge.
-
-**Current RLMv2 v6 benchmark**: 80.9% top-10 on 47-triple benchmark (500 epochs, standard config). Relation vector separation: 0.551.
-
----
-
-## Phase 2: NN Bridge + Composed Reasoning
-
-Pre-trained sentence transformer (MiniLM-L6-v2, 384-dim) provides semantic embeddings for novel term bridging. Unknown terms are mapped to nearest known concepts via cosine similarity (no dimensionality projection needed).
-
-**Composed Reasoning Pipeline:**
-- Independent traversals per candidate concept
-- Depth decay factor (0.7x per hop)
-- Reverse edge inheritance (if A→B, infer B can relate back to A)
-- Bridge-as-candidate (bridged concepts compete with direct matches)
-
-**Best Results** (experiment_reverse_inheritance.py / experiment_final_bridge.py, verified 2026-06-03):
-
-| Metric | Value |
-|--------|-------|
-| Bridge accuracy | 67% (8/12 terms) |
-| Query success | 95% (21/22) |
-| Object hit rate | 94% (29/31) |
-
-Only failure: matcha (MiniLM embedding similarity 0.32 — below threshold).
-
-**Progression over iterations:**
-```
-42% bridge / 45% query → 67% bridge / 59% query → 67% bridge / 68% query → 67% bridge / 95% query
+# Inference (no state change)
+result = fw.infer(state, test_input_vec)
 ```
 
----
+### RLMv2 Standalone Usage
 
-## New Modules
-## New Modules
-| Module | Lines | Purpose |
-|--------|-------|---------|
-| `episode_injector.py` | 276 | Synthetic Episode Injector for structured knowledge injection |
-| `relation_ontology.py` | 231 | Multi-level relation hierarchy (Family > Sub-family > Predicate) |
-| `word_tokenizer.py` | 46 | Word-level tokenizer for RLMv2 |
-| `ravana-v2/core/embedder.py` | 188 | LearnedEmbedder (character n-gram + random projection) |
+```python
+from ravana.nn import RLM
+from ravana_ml.tokenizer import WordTokenizer
+import numpy as np
 
----
+tokenizer = WordTokenizer()
+tokenizer.encode("heat causes expansion")
 
-## GloVe Semantic Embeddings (NEW — 2026-06-07)
+model = RLM(
+    vocab_size=tokenizer.vocab_size,
+    embed_dim=64,
+    concept_dim=64,
+    n_concepts=100,
+    sleep_interval=50,
+)
 
-Token embeddings are now initialized from pre-trained GloVe vectors (100D) projected to the model's embedding dimension via a random orthogonal projection. This replaces the previous character n-gram LearnedEmbedder which could not capture genuine semantic relationships.
+# Learn
+input_ids = np.array(tokenizer.encode("heat causes"), dtype=np.int64)
+target_ids = np.array(tokenizer.encode("expansion"), dtype=np.int64)
+model.learn(input_ids, target_ids)
 
-**`_build_glove_embedding_matrix()`** loads `glove.6B.100d.txt` from `data/glove/`, projects 100D → target_dim via QR-based orthogonal projection, and caches the projected matrix as a `.npy` file for fast re-runs. Falls back to 50D if 100D unavailable, or random orthogonal init if GloVe is not present.
+# Sleep consolidation
+model.sleep_cycle()
 
-**Coverage**: ~60-80% of vocabulary tokens receive genuine GloVe vectors. Missing tokens get random orthogonal vectors seeded deterministically.
-
-**Why GloVe matters**: The verb-stem offset predictor (`predicted_embed = subject_embed + offset(verb)`) requires token embeddings that encode genuine semantic relationships. GloVe vectors satisfy `vec("king") - vec("man") + vec("woman") ≈ vec("queen")` — and similarly `offset("causes") = avg(expansion - heat, conflict - anger, ...)`. Character n-gram embeddings cannot capture this.
-
----
-
-## Verb-Stem Offset Predictor (NEW — 2026-06-07)
-
-A new inference path that replaces bilinear `W_rel @ subject` with verb-conditioned vector arithmetic for cross-domain held-out generalization.
-
-### Architecture
-
-```
-offset(verb) = avg(target_embed - subject_embed) over all training pairs using that verb
-
-predicted_embed = subject_embed + offset(query_verb)
-logits_k = predicted_embed @ token_embed_k  (cosine similarity)
+# Generate
+logits = model.forward(input_ids)
 ```
 
-Each verb has its own offset vector, enabling **same-subject different-verb predictions**:
-- `cold causes` → `offset("causes")` → shivering
-- `cold freezes` → `offset("freezes")` → water
+---
 
-### Key Methods
+## Key Algorithms
 
-| Method | Purpose |
-|--------|---------|
-| `_verb_stem(word)` | Strips suffixes (ing/ed/es/s) for verb normalization |
-| `_accumulate_verb_offset(subject_tid, target_tid, verb_word)` | Accumulates `target - subject` during `learn()` |
-| `_compute_verb_offsets()` | Averages accumulated offsets per verb stem after training |
-| `_rp_forward_verb_offset(subject_tid, verb_word)` | Predicts using offset arithmetic, falling back to bilinear W_rel if verb unknown |
+### Spreading Activation (PropagationEngine)
 
-### Why This Works
+```python
+def spread_activation(graph, active_nids, steps=3, k_active=5, decay=0.3):
+    for _ in range(steps):
+        # 1. Collect activation from neighbors via edges
+        for (src, tgt), edge in graph.edges.items():
+            if src in active_nids and edge.edge_type == "excitatory":
+                graph.nodes[tgt].activation += graph.nodes[src].activation * edge.weight * decay
+            elif src in active_nids and edge.edge_type == "inhibitory":
+                graph.nodes[tgt].activation -= graph.nodes[src].activation * edge.weight * decay
+        
+        # 2. Top-k competition (k_active most active survive)
+        active_nids = top_k_active_nodes(graph, k_active)
+        
+        # 3. Decay all activations
+        for nid in active_nids:
+            graph.nodes[nid].activation *= (1 - decay)
+```
 
-The bilinear form `source_latent @ W_rel @ target_latent` is mathematically incapable of mapping the same (subject, relation) to two different targets — W_rel is shared across all subjects. The verb-stem offset solves this by making the offset **verb-specific**, not just relation-type-specific.
+### Hebbian Learning with Relation Vectors
 
-**Cross-domain transfer**: A verb like "causes" appears in both Domain A (heat→expansion) and Domain B (anger→conflict). Its offset vector `avg(expansion - heat, conflict - anger, trust - kindness, ...)` averages to a generic causal direction. At inference, `subject_embed + offset("causes")` produces a predicted embedding that cosine-matches any domain's causal targets — the definition of cross-domain generalization.
+```python
+def hebbian_update(graph, source, target, coactivation, lr=0.01):
+    edge = graph.get_edge(source, target)
+    if edge:
+        # Strengthen weight
+        edge.weight = min(1.0, edge.weight + lr * coactivation)
+        edge.confidence = min(1.0, edge.confidence + lr * 0.1)
+        
+        # Update relation vector toward (target_vec - source_vec)
+        rel_vec = graph.nodes[target].vector - graph.nodes[source].vector
+        edge.relation_vector = 0.9 * edge.relation_vector + 0.1 * rel_vec
+        edge.relation_vector /= (np.linalg.norm(edge.relation_vector) + 1e-15)
+```
 
-### Results
+### Verb-Stem Offset Predictor (RLMv2)
 
-- RP-only (verb-offset) cross-domain accuracy: **6.7% top-10** (was 3.3% with bilinear W_rel)
-- Successfully predicts for held-out subjects using only shared verb offsets
-- Falls back to bilinear W_rel for unseen verbs
+```python
+def verb_offset_predict(query_concept, verb_token, graph):
+    """subject_embed + offset(query_verb) ≈ target_embed"""
+    # offset(verb) = avg(target - subject) over all training pairs with this verb
+    offset = graph.global_relation_priors.get(verb_token)
+    if offset is not None:
+        predicted = query_concept + offset
+        return graph.find_similar(predicted, k=10)
+    return []
+```
+
+### VAD Emotion Dynamics
+
+```python
+# Differential equations (Euler integration, dt=1):
+# dV/dt = -γ_v * V + β_v * (reward - punishment)
+# dA/dt = -γ_a * A + β_a * |prediction_error|
+# dD/dt = -γ_d * D + β_d * (control - helplessness)
+
+# Modulation of inference:
+if A > 0.7:  # high arousal → exploration
+    exploration_bonus += 0.2
+if V > 0.5:  # positive valence → trust predictions
+    prediction_confidence *= 1.2
+if D > 0.6:  # high dominance → stronger concepts
+    concept_activation *= 1.15
+```
 
 ---
 
-## Subject-Holdout Split (NEW — 2026-06-07)
+## Configuration Reference
 
-Replaced the old stratified domain split (which grouped by target/relation-type) with `_subject_holdout_split()` that holds out **entire subjects** from training. This tests TRUE generalization: can the model predict targets for entirely unseen subjects using only the shared verb offset?
+### FrameworkConfig (CognitiveFramework)
 
-The old stratified split guaranteed 0% held-out because the bilinear W_rel @ subject is mathematically incapable of mapping the same (subject, relation) to two different targets. The subject-holdout split plus verb-stem offset predictor finally makes this test meaningful.
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `concept_dim` | 64 | Concept vector dimensionality |
+| `max_concepts` | 10000 | Maximum concept nodes |
+| `k_active` | 5 | Top-k active concepts |
+| `hebbian_lr` | 0.03 | Hebbian learning rate |
+| `anti_hebbian_lr` | 0.02 | Anti-Hebbian learning rate |
+| `propagation_steps` | 3 | Activation spread iterations |
+| `propagation_decay` | 0.5 | Per-step decay |
+| `initial_identity` | 0.5 | Initial identity strength |
 
----
+### GovernorConfig
 
-## Scoring Balance & RP Fixes (NEW — 2026-06-08)
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `max_dissonance` | 0.95 | Hard ceiling |
+| `min_dissonance` | 0.15 | Hard floor |
+| `target_dissonance` | 0.30 | Homeostatic target |
+| `center_target` | 0.50 | Identity target |
+| `boundary_k` | 12.0 | Boundary pressure steepness |
+| `use_smoothed_dissonance` | True | EMA smoothing |
+| `smoothing_alpha` | 0.2 | EMA alpha |
 
-Three root causes closed the gap between raw verb-offset (37.9%) and forward() (6.7%):
+### SleepConfig
 
-1. **Residual activation bleed**: Concept nodes retained training activations. The `disable_spreading` branch skipped activation reset. Fixed by adding explicit `node.activation = 0.0` before subject activation.
-
-2. **Concept capacity exhaustion**: `_max_concepts` was too small (100 for a 76-token vocab), causing 'mercury' to map to nearest concept ('harmful') instead of getting its own node. Fixed to `max(n_concepts*2, vocab_size+50, 150)`.
-
-3. **OOD path used random encoder weights**: Was using `get_robust_embedding()` with random char-CNN weights (cosine similarity with raw embeddings ~0.02). Switched to raw `token_embed.weight.data` for both OOD similarity and verb-offset accumulation/inference.
-
-**Additional fixes**:
-- Subject suppression order fixed (apply AFTER logits × 10.0, not before)
-- GloVe cache check moved after vocab_size computation
-- NPY caching added for projected GloVe matrix
-
----
-
-## Phase 4: RLMv2 Architecture Enhancements (2026-06-06)
-
-Three major architectural enhancements were implemented to solve the held-out generalization bottleneck and graph structure issues:
-
-### 1. Graph Structure Repair
-- **Edge Validation After Learn**: `_validate_edge_bindings()` checks if edges created during training match current binding map. If predicate tokens have changed, updates them and reduces confidence.
-- **Anti-Hebbian Pruning**: `_anti_hebbian_prune_polluted_edges()` identifies edges with high `prediction_count` but low `forward_pred_count` ratio (consistently wrong predictions) and weakens/removes them. Called during sleep cycle with logging: `[Sleep] Anti-Hebbian pruned N polluted edges`.
-- **Direct Edge Injection**: `_inject_direct_edges_if_needed()` creates strong subject→object edges (weight=0.7) when binding map shows 1-to-1 but graph edges are missing/weak, bypassing Hebbian noise for cross-domain causal.
-
-### 2. Hard-Boost Sampling
-- **`hard_boost_sample()` method**: Evaluates all triplet pairs, identifies hard examples (gap ≤ margin), and samples only **10-20 random hard examples** per epoch instead of all 39×300.
-- Applies **300x intensity** (lr=0.01 × 300) to sampled hard examples only.
-- Returns detailed per-triple diagnostics including sampled indices, total hard count, and boosted results.
-- Replaces full triplet margin loop in training, dramatically reducing compute while maintaining signal intensity.
-
-### 3. Per-Triple Diagnostics
-- **JSON emission at every epoch checkpoint** (every 2 sleep cycles) and final evaluation for each configuration.
-- Each JSON contains validation and held-out gaps with `s_pos`, `s_neg`, `gap`, `satisfied` status per triple.
-- Files saved to `experiments/experiment_results/per_triple_diagnostics_*.json`.
-- Enables asymmetric gradient flow analysis (e.g., `cold→contraction` flat while others climb).
-
-### 4. Alignment Completeness
-- **`semantic_pairs` saved in checkpoint** (`state_dict()`) and restored in `_load_state()`.
-- Bridge Alignment validation scripts re-inject cross-domain pairs from checkpoint.
-- Without this, Hard/OOD cases don't fix after reload.
-
-### 5. Proto() Measurement Fix
-- **`_proto_latent()` method** uses `_encoder_forward_full()` latent vectors (not `subject_proj()` concept-space projections) for gap metrics.
-- Used by both `hard_boost_sample()` and `evaluate_per_triple()` for consistent latent-space measurement.
-- Supports `use_subspace_projection` flag with `rel_proj` matrix.
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `pressure_threshold` | 0.2 | Sleep trigger |
+| `counterfactual_rate` | 0.20 | Dream: reversal rate |
+| `emotional_flip_rate` | 0.10 | Dream: valence flip |
+| `failure_oversample_factor` | 1.5 | Dream: failure replay |
+| `coherence_drop_threshold` | 0.05 | Rollback threshold |
 
 ---
 
-## Phase 4: Challenger Review Fixes (2026-06-06)
+## See Also
 
-Following the Challenger Review audit, five priority fixes (P0–P4) were implemented and validated in `experiment_phase4_integrated.py` (30 epochs):
-
-**P0 — Training Data Gap Fixed:** Added 5 `cold→contraction` training facts (was 1) to `TRAIN_TEXTS`. The **Proposed (Graph, Bi)** configuration now achieves **+0.373 gap on `cold→contraction` held-out** — the **only config passing the gate**. Previously ALL configs had negative `cold→contraction` gaps.
-
-**P1 — Manifold Reg Still Harmful:** Reduced `lambda_recon=0.02` (down from 0.08). Manifold regularization still collapses `cold→contraction` geometry (−0.009 gap). The encoder autoencoder loss fights triplet-margin updates.
-
-**P2 — Stratified Hard-Boost Sampling:** Implemented per-relation-type sampling in `hard_boost_sample()` to ensure balanced gradient pressure across causal/semantic/temporal relations.
-
-**P3 — Ablation Confirmed Graph Path Hurts Held-Out:**
-| Configuration | Held-Out Avg | Held-Out Sat |
-|--------------|--------------|--------------|
-| Full (Graph + Analogy) | **−0.213** | 0/3 |
-| Analogy Only (No Spread) | **+0.404** | 2/3 |
-
-The spreading activation path actively degrades held-out generalization. **Disable spreading activation for best cross-domain transfer.**
-
-**P4 — Gate Checks Working:** Each config now validates against `cold→contraction` improvement before being considered progress.
-
-### Benchmark Study Results (30 Epochs — Challenger Review)
-
-| Configuration | Val Sat | Val Gap Avg | Held-Out Sat | Held-Out Gap Avg | cold→contraction |
-|---------------|---------|-------------|--------------|------------------|-------------------|
-| Baseline (No Graph, Uni) | 5/5 | +0.258 | 0/3 | −0.051 | −0.040 |
-| **Proposed (Graph, Bi)** | **5/5** | **+0.202** | **2/3** | **−0.025** | **−0.028** |
-| Proposed + Pre-trained (MiniLM) | 5/5 | +0.250 | **2/3** | **+0.146** | **+0.276** ✅ |
-| Proposed + Pre-trained + Manifold Reg | 5/5 | +0.289 | 1/3 | +0.032 | +0.000 |
-| Subspace Proj + Pre-trained | 5/5 | +0.802 | 0/3 | −0.028 | −0.240 |
-
-### Ablation Test Results (30 Epochs)
-
-| Configuration | Val Satisfied | Val Gap Avg | Held-Out Satisfied | Held-Out Gap Avg |
-|---------------|---------------|-------------|---------------------|------------------|
-| Full (Graph + Analogy) | 5/5 | +0.505 | 0/3 | −0.084 |
-| **Analogy Only (No Spread)** | **5/5** | **+0.536** | **1/3** | **+0.022** |
-
-**Actionable Conclusion:** For held-out generalization, use **Proposed (Graph, Bi) with `disable_spreading_activation=True`** — the vector arithmetic/analogy path (dominant at 85.1% benchmark) is the primary driver of cross-domain transfer; the graph spreading activation path introduces noise for novel analogies.
-
----
-
-## Updated Line Counts (2026-06-08)
-
-| Component | Lines | Files |
-|-----------|-------|-------|
-| `ravana_ml/` | 5,200+ | 18 |
-| `ravana-v2/core/` | 10,162 | 27 |
-| `ravana/` package | 855 | 10 |
-| **Source total** | **~16,200** | **55** |
-| **Full project (all Python)** | **~51,700** | **225** |
-
----
-
-## Reference: v4 Sensorimotor Design (Future Direction)
-
-The v4 architecture (documented in prior `ARCHITECTURE.md`) extends these principles to sensorimotor grounding: a 2D organism in a 10x10 grid world with food, heat, walls — learning through physics-based pressure accumulation, sleep-triggered topology reorganization, and coherence recovery.
-
-Key v4 concepts for future evolution:
-- **Concept Nodes** as tiny dynamical systems with state vectors, attractor fields
-- **4-Stage Sleep**: Episodic Replay → Pattern Compression → Contradiction Simulation → Topology Stabilization
-- **Identity Anchors**: Very-low-plasticity attractors preserving self-continuity
-- **Pressure Physics**: The core primitive — contradiction → pressure → sleep → reorganization → coherence improvement
-
----
-
-> *"Cognition as pressure-driven self-organization."*
-> *"The model learns through physics, not optimization."*
->
-> This is the center of gravity. Everything else is implementation detail.
+- [Getting Started](GETTING_STARTED.md) — Quickstart tutorial
+- [ML Framework](ML_FRAMEWORK.md) — ravana_ml deep dive
+- [Cognitive Core](COGNITIVE_CORE.md) — ravana-v2 module reference
+- [Unified Package](UNIFIED_PACKAGE.md) — ravana/ API
+- [Core Concepts](CONCEPTS.md) — Theory & foundations
+- [API Reference](API_REFERENCE.md) — Complete function/class reference
+- [Experiments](EXPERIMENTS.md) — Running benchmarks
+- [Advanced Topics](ADVANCED_TOPICS.md) — Customization & extension
+- [Tutorials](TUTORIALS.md) — Step-by-step guides
+- [Developer Guide](DEVELOPER_GUIDE.md) — Contributing

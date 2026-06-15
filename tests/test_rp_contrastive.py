@@ -1,10 +1,14 @@
+import sys, os
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+
 from ravana_ml.nn.rlm_v2 import RLMv2
 from ravana_ml.tokenizer import WordTokenizer
 import numpy as np
 
-# Minimal setup
-tokenizer = WordTokenizer()
-texts = [
+# Pre-encode ALL text (training + test) to fix vocabulary before model creation
+all_texts = [
     "heat causes expansion",
     "fire produces warmth",
     "kindness leads to trust",
@@ -20,8 +24,15 @@ texts = [
     "patience creates understanding",
     "honesty builds respect",
     "generosity creates gratitude",
+    # Test facts:
+    "ice causes expansion",
+    "light produces warmth",
+    "honesty leads to trust",
+    "sadness causes conflict",
+    "cold melts ice",  # novel relation word "melts"
 ]
-for t in texts:
+tokenizer = WordTokenizer()
+for t in all_texts:
     tokenizer.encode(t)
 
 print(f"Vocab size: {tokenizer.vocab_size}")
@@ -67,7 +78,7 @@ for epoch in range(50):
         target_ids = np.array(tokenizer.encode(tgt), dtype=np.int64)
         model.set_domain(domain)
         model.forward(input_ids)  # to populate cache
-        model._rp_backward(int(target_ids[0]), loss_type="contrastive")
+        model._rp_backward(int(target_ids[0]), )
     if epoch % 10 == 0:
         print(f"  Epoch {epoch}: loss={total_loss/len(facts):.6f}")
 

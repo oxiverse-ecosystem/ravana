@@ -354,30 +354,1053 @@ class SleepConsolidation:
                     "vectors_updated": 0, "memories_replayed": 0}
 
         # Sort by importance * predictive_utility
+        def _get_mem_attr(mem, key, default=None):
+            if hasattr(mem, 'content') and isinstance(mem.content, dict):
+                return mem.content.get(key, default)
+            if hasattr(mem, 'get'):
+                return mem.get(key, default)
+            return getattr(mem, key, default)
         memories.sort(
-            key=lambda m: float(m.get("importance", 0.5)) * float(m.get("predictive_utility", 0.5)),
+            key=lambda m: float(_get_mem_attr(m, "importance", 0.5)) * float(_get_mem_attr(m, "predictive_utility", 0.5)),
             reverse=True
         )
 
         for mem in memories[:20]:
-            # Find matching concepts via vector similarity
             mem_vec = None
             if memory_engine and hasattr(memory_engine, 'vector_index'):
-                mid = mem.get("id")
+                mid = _get_mem_attr(mem, "id")
                 if mid is not None:
                     mem_vec = memory_engine.vector_index.get_vector(mid)
 
             if mem_vec is not None:
-                # Vector-based concept activation
                 try:
                     matched = graph.find_similar(mem_vec, k=5)
                     matched_nids = [nid for nid, sim in matched if sim > 0.2]
                 except (AttributeError, Exception):
                     matched_nids = []
             else:
-                # Fallback: keyword matching
-                content = str(mem.get("content", "")).lower()
-                tags = str(mem.get("tags", "")).lower()
+                content = str(_get_mem_attr(mem, "content", "")).lower()
+                tags = str(_get_mem_attr(mem, "tags", "")).lower()
+                keywords = set(w for w in content.split() if len(w) > 3)
+                keywords.update(t.strip() for t in tags.split(",") if t.strip())
+                matched_nids = [
+                    nid for nid, node in graph.nodes.items()
+                    if any(kw in (node.label or "").lower() for kw in keywords)
+                ]
+        # Sort by importance * predictive_utility
+        def _get_mem_attr(mem, key, default=None):
+            if hasattr(mem, 'content') and isinstance(mem.content, dict):
+                return mem.content.get(key, default)
+            if hasattr(mem, 'get'):
+                return mem.get(key, default)
+            return getattr(mem, key, default)
+        memories.sort(
+            key=lambda m: float(_get_mem_attr(m, "importance", 0.5)) * float(_get_mem_attr(m, "predictive_utility", 0.5)),
+            reverse=True
+        )
+
+        for mem in memories[:20]:
+            mem_vec = None
+            if memory_engine and hasattr(memory_engine, 'vector_index'):
+                mid = _get_mem_attr(mem, "id")
+                if mid is not None:
+                    mem_vec = memory_engine.vector_index.get_vector(mid)
+
+            if mem_vec is not None:
+                try:
+                    matched = graph.find_similar(mem_vec, k=5)
+                    matched_nids = [nid for nid, sim in matched if sim > 0.2]
+                except (AttributeError, Exception):
+                    matched_nids = []
+            else:
+                content = str(_get_mem_attr(mem, "content", "")).lower()
+                tags = str(_get_mem_attr(mem, "tags", "")).lower()
+                keywords = set(w for w in content.split() if len(w) > 3)
+                keywords.update(t.strip() for t in tags.split(",") if t.strip())
+                matched_nids = [
+                    nid for nid, node in graph.nodes.items()
+                    if any(kw in (node.label or "").lower() for kw in keywords)
+                ]
+        # Sort by importance * predictive_utility
+        def _get_mem_attr(mem, key, default=None):
+            if hasattr(mem, 'content') and isinstance(mem.content, dict):
+                return mem.content.get(key, default)
+            if hasattr(mem, 'get'):
+                return mem.get(key, default)
+            return getattr(mem, key, default)
+        memories.sort(
+            key=lambda m: float(_get_mem_attr(m, "importance", 0.5)) * float(_get_mem_attr(m, "predictive_utility", 0.5)),
+            reverse=True
+        )
+
+        for mem in memories[:20]:
+            mem_vec = None
+            if memory_engine and hasattr(memory_engine, 'vector_index'):
+                mid = _get_mem_attr(mem, "id")
+                if mid is not None:
+                    mem_vec = memory_engine.vector_index.get_vector(mid)
+
+            if mem_vec is not None:
+                try:
+                    matched = graph.find_similar(mem_vec, k=5)
+                    matched_nids = [nid for nid, sim in matched if sim > 0.2]
+                except (AttributeError, Exception):
+                    matched_nids = []
+            else:
+                content = str(_get_mem_attr(mem, "content", "")).lower()
+                tags = str(_get_mem_attr(mem, "tags", "")).lower()
+                keywords = set(w for w in content.split() if len(w) > 3)
+                keywords.update(t.strip() for t in tags.split(",") if t.strip())
+                matched_nids = [
+                    nid for nid, node in graph.nodes.items()
+                    if any(kw in (node.label or "").lower() for kw in keywords)
+                ]
+        # Sort by importance * predictive_utility
+        def _get_mem_attr(mem, key, default=None):
+            if hasattr(mem, 'content') and isinstance(mem.content, dict):
+                return mem.content.get(key, default)
+            if hasattr(mem, 'get'):
+                return mem.get(key, default)
+            return getattr(mem, key, default)
+        memories.sort(
+            key=lambda m: float(_get_mem_attr(m, "importance", 0.5)) * float(_get_mem_attr(m, "predictive_utility", 0.5)),
+            reverse=True
+        )
+
+        for mem in memories[:20]:
+            mem_vec = None
+            if memory_engine and hasattr(memory_engine, 'vector_index'):
+                mid = _get_mem_attr(mem, "id")
+                if mid is not None:
+                    mem_vec = memory_engine.vector_index.get_vector(mid)
+
+            if mem_vec is not None:
+                try:
+                    matched = graph.find_similar(mem_vec, k=5)
+                    matched_nids = [nid for nid, sim in matched if sim > 0.2]
+                except (AttributeError, Exception):
+                    matched_nids = []
+            else:
+                content = str(_get_mem_attr(mem, "content", "")).lower()
+                tags = str(_get_mem_attr(mem, "tags", "")).lower()
+                keywords = set(w for w in content.split() if len(w) > 3)
+                keywords.update(t.strip() for t in tags.split(",") if t.strip())
+                matched_nids = [
+                    nid for nid, node in graph.nodes.items()
+                    if any(kw in (node.label or "").lower() for kw in keywords)
+                ]
+        # Sort by importance * predictive_utility
+        def _get_mem_attr(mem, key, default=None):
+            if hasattr(mem, 'content') and isinstance(mem.content, dict):
+                return mem.content.get(key, default)
+            if hasattr(mem, 'get'):
+                return mem.get(key, default)
+            return getattr(mem, key, default)
+        memories.sort(
+            key=lambda m: float(_get_mem_attr(m, "importance", 0.5)) * float(_get_mem_attr(m, "predictive_utility", 0.5)),
+            reverse=True
+        )
+
+        for mem in memories[:20]:
+            mem_vec = None
+            if memory_engine and hasattr(memory_engine, 'vector_index'):
+                mid = _get_mem_attr(mem, "id")
+                if mid is not None:
+                    mem_vec = memory_engine.vector_index.get_vector(mid)
+
+            if mem_vec is not None:
+                try:
+                    matched = graph.find_similar(mem_vec, k=5)
+                    matched_nids = [nid for nid, sim in matched if sim > 0.2]
+                except (AttributeError, Exception):
+                    matched_nids = []
+            else:
+                content = str(_get_mem_attr(mem, "content", "")).lower()
+                tags = str(_get_mem_attr(mem, "tags", "")).lower()
+                keywords = set(w for w in content.split() if len(w) > 3)
+                keywords.update(t.strip() for t in tags.split(",") if t.strip())
+                matched_nids = [
+                    nid for nid, node in graph.nodes.items()
+                    if any(kw in (node.label or "").lower() for kw in keywords)
+                ]
+        # Sort by importance * predictive_utility
+        def _get_mem_attr(mem, key, default=None):
+            if hasattr(mem, 'content') and isinstance(mem.content, dict):
+                return mem.content.get(key, default)
+            if hasattr(mem, 'get'):
+                return mem.get(key, default)
+            return getattr(mem, key, default)
+        memories.sort(
+            key=lambda m: float(_get_mem_attr(m, "importance", 0.5)) * float(_get_mem_attr(m, "predictive_utility", 0.5)),
+            reverse=True
+        )
+
+        for mem in memories[:20]:
+            mem_vec = None
+            if memory_engine and hasattr(memory_engine, 'vector_index'):
+                mid = _get_mem_attr(mem, "id")
+                if mid is not None:
+                    mem_vec = memory_engine.vector_index.get_vector(mid)
+
+            if mem_vec is not None:
+                try:
+                    matched = graph.find_similar(mem_vec, k=5)
+                    matched_nids = [nid for nid, sim in matched if sim > 0.2]
+                except (AttributeError, Exception):
+                    matched_nids = []
+            else:
+                content = str(_get_mem_attr(mem, "content", "")).lower()
+                tags = str(_get_mem_attr(mem, "tags", "")).lower()
+                keywords = set(w for w in content.split() if len(w) > 3)
+                keywords.update(t.strip() for t in tags.split(",") if t.strip())
+                matched_nids = [
+                    nid for nid, node in graph.nodes.items()
+                    if any(kw in (node.label or "").lower() for kw in keywords)
+                ]
+        # Sort by importance * predictive_utility
+        def _get_mem_attr(mem, key, default=None):
+            if hasattr(mem, 'content') and isinstance(mem.content, dict):
+                return mem.content.get(key, default)
+            if hasattr(mem, 'get'):
+                return mem.get(key, default)
+            return getattr(mem, key, default)
+        memories.sort(
+            key=lambda m: float(_get_mem_attr(m, "importance", 0.5)) * float(_get_mem_attr(m, "predictive_utility", 0.5)),
+            reverse=True
+        )
+
+        for mem in memories[:20]:
+            mem_vec = None
+            if memory_engine and hasattr(memory_engine, 'vector_index'):
+                mid = _get_mem_attr(mem, "id")
+                if mid is not None:
+                    mem_vec = memory_engine.vector_index.get_vector(mid)
+
+            if mem_vec is not None:
+                try:
+                    matched = graph.find_similar(mem_vec, k=5)
+                    matched_nids = [nid for nid, sim in matched if sim > 0.2]
+                except (AttributeError, Exception):
+                    matched_nids = []
+            else:
+                content = str(_get_mem_attr(mem, "content", "")).lower()
+                tags = str(_get_mem_attr(mem, "tags", "")).lower()
+                keywords = set(w for w in content.split() if len(w) > 3)
+                keywords.update(t.strip() for t in tags.split(",") if t.strip())
+                matched_nids = [
+                    nid for nid, node in graph.nodes.items()
+                    if any(kw in (node.label or "").lower() for kw in keywords)
+                ]
+        # Sort by importance * predictive_utility
+        def _get_mem_attr(mem, key, default=None):
+            if hasattr(mem, 'content') and isinstance(mem.content, dict):
+                return mem.content.get(key, default)
+            if hasattr(mem, 'get'):
+                return mem.get(key, default)
+            return getattr(mem, key, default)
+        memories.sort(
+            key=lambda m: float(_get_mem_attr(m, "importance", 0.5)) * float(_get_mem_attr(m, "predictive_utility", 0.5)),
+            reverse=True
+        )
+
+        for mem in memories[:20]:
+            mem_vec = None
+            if memory_engine and hasattr(memory_engine, 'vector_index'):
+                mid = _get_mem_attr(mem, "id")
+                if mid is not None:
+                    mem_vec = memory_engine.vector_index.get_vector(mid)
+
+            if mem_vec is not None:
+                try:
+                    matched = graph.find_similar(mem_vec, k=5)
+                    matched_nids = [nid for nid, sim in matched if sim > 0.2]
+                except (AttributeError, Exception):
+                    matched_nids = []
+            else:
+                content = str(_get_mem_attr(mem, "content", "")).lower()
+                tags = str(_get_mem_attr(mem, "tags", "")).lower()
+                keywords = set(w for w in content.split() if len(w) > 3)
+                keywords.update(t.strip() for t in tags.split(",") if t.strip())
+                matched_nids = [
+                    nid for nid, node in graph.nodes.items()
+                    if any(kw in (node.label or "").lower() for kw in keywords)
+                ]
+        # Sort by importance * predictive_utility
+        def _get_mem_attr(mem, key, default=None):
+            if hasattr(mem, 'content') and isinstance(mem.content, dict):
+                return mem.content.get(key, default)
+            if hasattr(mem, 'get'):
+                return mem.get(key, default)
+            return getattr(mem, key, default)
+        memories.sort(
+            key=lambda m: float(_get_mem_attr(m, "importance", 0.5)) * float(_get_mem_attr(m, "predictive_utility", 0.5)),
+            reverse=True
+        )
+
+        for mem in memories[:20]:
+            mem_vec = None
+            if memory_engine and hasattr(memory_engine, 'vector_index'):
+                mid = _get_mem_attr(mem, "id")
+                if mid is not None:
+                    mem_vec = memory_engine.vector_index.get_vector(mid)
+
+            if mem_vec is not None:
+                try:
+                    matched = graph.find_similar(mem_vec, k=5)
+                    matched_nids = [nid for nid, sim in matched if sim > 0.2]
+                except (AttributeError, Exception):
+                    matched_nids = []
+            else:
+                content = str(_get_mem_attr(mem, "content", "")).lower()
+                tags = str(_get_mem_attr(mem, "tags", "")).lower()
+                keywords = set(w for w in content.split() if len(w) > 3)
+                keywords.update(t.strip() for t in tags.split(",") if t.strip())
+                matched_nids = [
+                    nid for nid, node in graph.nodes.items()
+                    if any(kw in (node.label or "").lower() for kw in keywords)
+                ]
+        # Sort by importance * predictive_utility
+        def _get_mem_attr(mem, key, default=None):
+            if hasattr(mem, 'content') and isinstance(mem.content, dict):
+                return mem.content.get(key, default)
+            if hasattr(mem, 'get'):
+                return mem.get(key, default)
+            return getattr(mem, key, default)
+        memories.sort(
+            key=lambda m: float(_get_mem_attr(m, "importance", 0.5)) * float(_get_mem_attr(m, "predictive_utility", 0.5)),
+            reverse=True
+        )
+
+        for mem in memories[:20]:
+            mem_vec = None
+            if memory_engine and hasattr(memory_engine, 'vector_index'):
+                mid = _get_mem_attr(mem, "id")
+                if mid is not None:
+                    mem_vec = memory_engine.vector_index.get_vector(mid)
+
+            if mem_vec is not None:
+                try:
+                    matched = graph.find_similar(mem_vec, k=5)
+                    matched_nids = [nid for nid, sim in matched if sim > 0.2]
+                except (AttributeError, Exception):
+                    matched_nids = []
+            else:
+                content = str(_get_mem_attr(mem, "content", "")).lower()
+                tags = str(_get_mem_attr(mem, "tags", "")).lower()
+                keywords = set(w for w in content.split() if len(w) > 3)
+                keywords.update(t.strip() for t in tags.split(",") if t.strip())
+                matched_nids = [
+                    nid for nid, node in graph.nodes.items()
+                    if any(kw in (node.label or "").lower() for kw in keywords)
+                ]
+        # Sort by importance * predictive_utility
+        def _get_mem_attr(mem, key, default=None):
+            if hasattr(mem, 'content') and isinstance(mem.content, dict):
+                return mem.content.get(key, default)
+            if hasattr(mem, 'get'):
+                return mem.get(key, default)
+            return getattr(mem, key, default)
+        memories.sort(
+            key=lambda m: float(_get_mem_attr(m, "importance", 0.5)) * float(_get_mem_attr(m, "predictive_utility", 0.5)),
+            reverse=True
+        )
+
+        for mem in memories[:20]:
+            mem_vec = None
+            if memory_engine and hasattr(memory_engine, 'vector_index'):
+                mid = _get_mem_attr(mem, "id")
+                if mid is not None:
+                    mem_vec = memory_engine.vector_index.get_vector(mid)
+
+            if mem_vec is not None:
+                try:
+                    matched = graph.find_similar(mem_vec, k=5)
+                    matched_nids = [nid for nid, sim in matched if sim > 0.2]
+                except (AttributeError, Exception):
+                    matched_nids = []
+            else:
+                content = str(_get_mem_attr(mem, "content", "")).lower()
+                tags = str(_get_mem_attr(mem, "tags", "")).lower()
+                keywords = set(w for w in content.split() if len(w) > 3)
+                keywords.update(t.strip() for t in tags.split(",") if t.strip())
+                matched_nids = [
+                    nid for nid, node in graph.nodes.items()
+                    if any(kw in (node.label or "").lower() for kw in keywords)
+                ]
+        # Sort by importance * predictive_utility
+        def _get_mem_attr(mem, key, default=None):
+            if hasattr(mem, 'content') and isinstance(mem.content, dict):
+                return mem.content.get(key, default)
+            if hasattr(mem, 'get'):
+                return mem.get(key, default)
+            return getattr(mem, key, default)
+        memories.sort(
+            key=lambda m: float(_get_mem_attr(m, "importance", 0.5)) * float(_get_mem_attr(m, "predictive_utility", 0.5)),
+            reverse=True
+        )
+
+        for mem in memories[:20]:
+            mem_vec = None
+            if memory_engine and hasattr(memory_engine, 'vector_index'):
+                mid = _get_mem_attr(mem, "id")
+                if mid is not None:
+                    mem_vec = memory_engine.vector_index.get_vector(mid)
+
+            if mem_vec is not None:
+                try:
+                    matched = graph.find_similar(mem_vec, k=5)
+                    matched_nids = [nid for nid, sim in matched if sim > 0.2]
+                except (AttributeError, Exception):
+                    matched_nids = []
+            else:
+                content = str(_get_mem_attr(mem, "content", "")).lower()
+                tags = str(_get_mem_attr(mem, "tags", "")).lower()
+                keywords = set(w for w in content.split() if len(w) > 3)
+                keywords.update(t.strip() for t in tags.split(",") if t.strip())
+                matched_nids = [
+                    nid for nid, node in graph.nodes.items()
+                    if any(kw in (node.label or "").lower() for kw in keywords)
+                ]
+        # Sort by importance * predictive_utility
+        def _get_mem_attr(mem, key, default=None):
+            if hasattr(mem, 'content') and isinstance(mem.content, dict):
+                return mem.content.get(key, default)
+            if hasattr(mem, 'get'):
+                return mem.get(key, default)
+            return getattr(mem, key, default)
+        memories.sort(
+            key=lambda m: float(_get_mem_attr(m, "importance", 0.5)) * float(_get_mem_attr(m, "predictive_utility", 0.5)),
+            reverse=True
+        )
+
+        for mem in memories[:20]:
+            mem_vec = None
+            if memory_engine and hasattr(memory_engine, 'vector_index'):
+                mid = _get_mem_attr(mem, "id")
+                if mid is not None:
+                    mem_vec = memory_engine.vector_index.get_vector(mid)
+
+            if mem_vec is not None:
+                try:
+                    matched = graph.find_similar(mem_vec, k=5)
+                    matched_nids = [nid for nid, sim in matched if sim > 0.2]
+                except (AttributeError, Exception):
+                    matched_nids = []
+            else:
+                content = str(_get_mem_attr(mem, "content", "")).lower()
+                tags = str(_get_mem_attr(mem, "tags", "")).lower()
+                keywords = set(w for w in content.split() if len(w) > 3)
+                keywords.update(t.strip() for t in tags.split(",") if t.strip())
+                matched_nids = [
+                    nid for nid, node in graph.nodes.items()
+                    if any(kw in (node.label or "").lower() for kw in keywords)
+                ]
+        # Sort by importance * predictive_utility
+        def _get_mem_attr(mem, key, default=None):
+            if hasattr(mem, 'content') and isinstance(mem.content, dict):
+                return mem.content.get(key, default)
+            if hasattr(mem, 'get'):
+                return mem.get(key, default)
+            return getattr(mem, key, default)
+        memories.sort(
+            key=lambda m: float(_get_mem_attr(m, "importance", 0.5)) * float(_get_mem_attr(m, "predictive_utility", 0.5)),
+            reverse=True
+        )
+
+        for mem in memories[:20]:
+            mem_vec = None
+            if memory_engine and hasattr(memory_engine, 'vector_index'):
+                mid = _get_mem_attr(mem, "id")
+                if mid is not None:
+                    mem_vec = memory_engine.vector_index.get_vector(mid)
+
+            if mem_vec is not None:
+                try:
+                    matched = graph.find_similar(mem_vec, k=5)
+                    matched_nids = [nid for nid, sim in matched if sim > 0.2]
+                except (AttributeError, Exception):
+                    matched_nids = []
+            else:
+                content = str(_get_mem_attr(mem, "content", "")).lower()
+                tags = str(_get_mem_attr(mem, "tags", "")).lower()
+                keywords = set(w for w in content.split() if len(w) > 3)
+                keywords.update(t.strip() for t in tags.split(",") if t.strip())
+                matched_nids = [
+                    nid for nid, node in graph.nodes.items()
+                    if any(kw in (node.label or "").lower() for kw in keywords)
+                ]
+        # Sort by importance * predictive_utility
+        def _get_mem_attr(mem, key, default=None):
+            if hasattr(mem, 'content') and isinstance(mem.content, dict):
+                return mem.content.get(key, default)
+            if hasattr(mem, 'get'):
+                return mem.get(key, default)
+            return getattr(mem, key, default)
+        memories.sort(
+            key=lambda m: float(_get_mem_attr(m, "importance", 0.5)) * float(_get_mem_attr(m, "predictive_utility", 0.5)),
+            reverse=True
+        )
+
+        for mem in memories[:20]:
+            mem_vec = None
+            if memory_engine and hasattr(memory_engine, 'vector_index'):
+                mid = _get_mem_attr(mem, "id")
+                if mid is not None:
+                    mem_vec = memory_engine.vector_index.get_vector(mid)
+
+            if mem_vec is not None:
+                try:
+                    matched = graph.find_similar(mem_vec, k=5)
+                    matched_nids = [nid for nid, sim in matched if sim > 0.2]
+                except (AttributeError, Exception):
+                    matched_nids = []
+            else:
+                content = str(_get_mem_attr(mem, "content", "")).lower()
+                tags = str(_get_mem_attr(mem, "tags", "")).lower()
+                keywords = set(w for w in content.split() if len(w) > 3)
+                keywords.update(t.strip() for t in tags.split(",") if t.strip())
+                matched_nids = [
+                    nid for nid, node in graph.nodes.items()
+                    if any(kw in (node.label or "").lower() for kw in keywords)
+                ]
+        # Sort by importance * predictive_utility
+        def _get_mem_attr(mem, key, default=None):
+            if hasattr(mem, 'content') and isinstance(mem.content, dict):
+                return mem.content.get(key, default)
+            if hasattr(mem, 'get'):
+                return mem.get(key, default)
+            return getattr(mem, key, default)
+        memories.sort(
+            key=lambda m: float(_get_mem_attr(m, "importance", 0.5)) * float(_get_mem_attr(m, "predictive_utility", 0.5)),
+            reverse=True
+        )
+
+        for mem in memories[:20]:
+            mem_vec = None
+            if memory_engine and hasattr(memory_engine, 'vector_index'):
+                mid = _get_mem_attr(mem, "id")
+                if mid is not None:
+                    mem_vec = memory_engine.vector_index.get_vector(mid)
+
+            if mem_vec is not None:
+                try:
+                    matched = graph.find_similar(mem_vec, k=5)
+                    matched_nids = [nid for nid, sim in matched if sim > 0.2]
+                except (AttributeError, Exception):
+                    matched_nids = []
+            else:
+                content = str(_get_mem_attr(mem, "content", "")).lower()
+                tags = str(_get_mem_attr(mem, "tags", "")).lower()
+                keywords = set(w for w in content.split() if len(w) > 3)
+                keywords.update(t.strip() for t in tags.split(",") if t.strip())
+                matched_nids = [
+                    nid for nid, node in graph.nodes.items()
+                    if any(kw in (node.label or "").lower() for kw in keywords)
+                ]
+        # Sort by importance * predictive_utility
+        def _get_mem_attr(mem, key, default=None):
+            if hasattr(mem, 'content') and isinstance(mem.content, dict):
+                return mem.content.get(key, default)
+            if hasattr(mem, 'get'):
+                return mem.get(key, default)
+            return getattr(mem, key, default)
+        memories.sort(
+            key=lambda m: float(_get_mem_attr(m, "importance", 0.5)) * float(_get_mem_attr(m, "predictive_utility", 0.5)),
+            reverse=True
+        )
+
+        for mem in memories[:20]:
+            mem_vec = None
+            if memory_engine and hasattr(memory_engine, 'vector_index'):
+                mid = _get_mem_attr(mem, "id")
+                if mid is not None:
+                    mem_vec = memory_engine.vector_index.get_vector(mid)
+
+            if mem_vec is not None:
+                try:
+                    matched = graph.find_similar(mem_vec, k=5)
+                    matched_nids = [nid for nid, sim in matched if sim > 0.2]
+                except (AttributeError, Exception):
+                    matched_nids = []
+            else:
+                content = str(_get_mem_attr(mem, "content", "")).lower()
+                tags = str(_get_mem_attr(mem, "tags", "")).lower()
+                keywords = set(w for w in content.split() if len(w) > 3)
+                keywords.update(t.strip() for t in tags.split(",") if t.strip())
+                matched_nids = [
+                    nid for nid, node in graph.nodes.items()
+                    if any(kw in (node.label or "").lower() for kw in keywords)
+                ]
+        # Sort by importance * predictive_utility
+        def _get_mem_attr(mem, key, default=None):
+            if hasattr(mem, 'content') and isinstance(mem.content, dict):
+                return mem.content.get(key, default)
+            if hasattr(mem, 'get'):
+                return mem.get(key, default)
+            return getattr(mem, key, default)
+        memories.sort(
+            key=lambda m: float(_get_mem_attr(m, "importance", 0.5)) * float(_get_mem_attr(m, "predictive_utility", 0.5)),
+            reverse=True
+        )
+
+        for mem in memories[:20]:
+            mem_vec = None
+            if memory_engine and hasattr(memory_engine, 'vector_index'):
+                mid = _get_mem_attr(mem, "id")
+                if mid is not None:
+                    mem_vec = memory_engine.vector_index.get_vector(mid)
+
+            if mem_vec is not None:
+                try:
+                    matched = graph.find_similar(mem_vec, k=5)
+                    matched_nids = [nid for nid, sim in matched if sim > 0.2]
+                except (AttributeError, Exception):
+                    matched_nids = []
+            else:
+                content = str(_get_mem_attr(mem, "content", "")).lower()
+                tags = str(_get_mem_attr(mem, "tags", "")).lower()
+                keywords = set(w for w in content.split() if len(w) > 3)
+                keywords.update(t.strip() for t in tags.split(",") if t.strip())
+                matched_nids = [
+                    nid for nid, node in graph.nodes.items()
+                    if any(kw in (node.label or "").lower() for kw in keywords)
+                ]
+        # Sort by importance * predictive_utility
+        def _get_mem_attr(mem, key, default=None):
+            if hasattr(mem, 'content') and isinstance(mem.content, dict):
+                return mem.content.get(key, default)
+            if hasattr(mem, 'get'):
+                return mem.get(key, default)
+            return getattr(mem, key, default)
+        memories.sort(
+            key=lambda m: float(_get_mem_attr(m, "importance", 0.5)) * float(_get_mem_attr(m, "predictive_utility", 0.5)),
+            reverse=True
+        )
+
+        for mem in memories[:20]:
+            mem_vec = None
+            if memory_engine and hasattr(memory_engine, 'vector_index'):
+                mid = _get_mem_attr(mem, "id")
+                if mid is not None:
+                    mem_vec = memory_engine.vector_index.get_vector(mid)
+
+            if mem_vec is not None:
+                try:
+                    matched = graph.find_similar(mem_vec, k=5)
+                    matched_nids = [nid for nid, sim in matched if sim > 0.2]
+                except (AttributeError, Exception):
+                    matched_nids = []
+            else:
+                content = str(_get_mem_attr(mem, "content", "")).lower()
+                tags = str(_get_mem_attr(mem, "tags", "")).lower()
+                keywords = set(w for w in content.split() if len(w) > 3)
+                keywords.update(t.strip() for t in tags.split(",") if t.strip())
+                matched_nids = [
+                    nid for nid, node in graph.nodes.items()
+                    if any(kw in (node.label or "").lower() for kw in keywords)
+                ]
+        # Sort by importance * predictive_utility
+        def _get_mem_attr(mem, key, default=None):
+            if hasattr(mem, 'content') and isinstance(mem.content, dict):
+                return mem.content.get(key, default)
+            if hasattr(mem, 'get'):
+                return mem.get(key, default)
+            return getattr(mem, key, default)
+        memories.sort(
+            key=lambda m: float(_get_mem_attr(m, "importance", 0.5)) * float(_get_mem_attr(m, "predictive_utility", 0.5)),
+            reverse=True
+        )
+
+        for mem in memories[:20]:
+            mem_vec = None
+            if memory_engine and hasattr(memory_engine, 'vector_index'):
+                mid = _get_mem_attr(mem, "id")
+                if mid is not None:
+                    mem_vec = memory_engine.vector_index.get_vector(mid)
+
+            if mem_vec is not None:
+                try:
+                    matched = graph.find_similar(mem_vec, k=5)
+                    matched_nids = [nid for nid, sim in matched if sim > 0.2]
+                except (AttributeError, Exception):
+                    matched_nids = []
+            else:
+                content = str(_get_mem_attr(mem, "content", "")).lower()
+                tags = str(_get_mem_attr(mem, "tags", "")).lower()
+                keywords = set(w for w in content.split() if len(w) > 3)
+                keywords.update(t.strip() for t in tags.split(",") if t.strip())
+                matched_nids = [
+                    nid for nid, node in graph.nodes.items()
+                    if any(kw in (node.label or "").lower() for kw in keywords)
+                ]
+        # Sort by importance * predictive_utility
+        def _get_mem_attr(mem, key, default=None):
+            if hasattr(mem, 'content') and isinstance(mem.content, dict):
+                return mem.content.get(key, default)
+            if hasattr(mem, 'get'):
+                return mem.get(key, default)
+            return getattr(mem, key, default)
+        memories.sort(
+            key=lambda m: float(_get_mem_attr(m, "importance", 0.5)) * float(_get_mem_attr(m, "predictive_utility", 0.5)),
+            reverse=True
+        )
+
+        for mem in memories[:20]:
+            mem_vec = None
+            if memory_engine and hasattr(memory_engine, 'vector_index'):
+                mid = _get_mem_attr(mem, "id")
+                if mid is not None:
+                    mem_vec = memory_engine.vector_index.get_vector(mid)
+
+            if mem_vec is not None:
+                try:
+                    matched = graph.find_similar(mem_vec, k=5)
+                    matched_nids = [nid for nid, sim in matched if sim > 0.2]
+                except (AttributeError, Exception):
+                    matched_nids = []
+            else:
+                content = str(_get_mem_attr(mem, "content", "")).lower()
+                tags = str(_get_mem_attr(mem, "tags", "")).lower()
+                keywords = set(w for w in content.split() if len(w) > 3)
+                keywords.update(t.strip() for t in tags.split(",") if t.strip())
+                matched_nids = [
+                    nid for nid, node in graph.nodes.items()
+                    if any(kw in (node.label or "").lower() for kw in keywords)
+                ]
+        # Sort by importance * predictive_utility
+        def _get_mem_attr(mem, key, default=None):
+            if hasattr(mem, 'content') and isinstance(mem.content, dict):
+                return mem.content.get(key, default)
+            if hasattr(mem, 'get'):
+                return mem.get(key, default)
+            return getattr(mem, key, default)
+        memories.sort(
+            key=lambda m: float(_get_mem_attr(m, "importance", 0.5)) * float(_get_mem_attr(m, "predictive_utility", 0.5)),
+            reverse=True
+        )
+
+        for mem in memories[:20]:
+            mem_vec = None
+            if memory_engine and hasattr(memory_engine, 'vector_index'):
+                mid = _get_mem_attr(mem, "id")
+                if mid is not None:
+                    mem_vec = memory_engine.vector_index.get_vector(mid)
+
+            if mem_vec is not None:
+                try:
+                    matched = graph.find_similar(mem_vec, k=5)
+                    matched_nids = [nid for nid, sim in matched if sim > 0.2]
+                except (AttributeError, Exception):
+                    matched_nids = []
+            else:
+                content = str(_get_mem_attr(mem, "content", "")).lower()
+                tags = str(_get_mem_attr(mem, "tags", "")).lower()
+                keywords = set(w for w in content.split() if len(w) > 3)
+                keywords.update(t.strip() for t in tags.split(",") if t.strip())
+                matched_nids = [
+                    nid for nid, node in graph.nodes.items()
+                    if any(kw in (node.label or "").lower() for kw in keywords)
+                ]
+        # Sort by importance * predictive_utility
+        def _get_mem_attr(mem, key, default=None):
+            if hasattr(mem, 'content') and isinstance(mem.content, dict):
+                return mem.content.get(key, default)
+            if hasattr(mem, 'get'):
+                return mem.get(key, default)
+            return getattr(mem, key, default)
+        memories.sort(
+            key=lambda m: float(_get_mem_attr(m, "importance", 0.5)) * float(_get_mem_attr(m, "predictive_utility", 0.5)),
+            reverse=True
+        )
+
+        for mem in memories[:20]:
+            mem_vec = None
+            if memory_engine and hasattr(memory_engine, 'vector_index'):
+                mid = _get_mem_attr(mem, "id")
+                if mid is not None:
+                    mem_vec = memory_engine.vector_index.get_vector(mid)
+
+            if mem_vec is not None:
+                try:
+                    matched = graph.find_similar(mem_vec, k=5)
+                    matched_nids = [nid for nid, sim in matched if sim > 0.2]
+                except (AttributeError, Exception):
+                    matched_nids = []
+            else:
+                content = str(_get_mem_attr(mem, "content", "")).lower()
+                tags = str(_get_mem_attr(mem, "tags", "")).lower()
+                keywords = set(w for w in content.split() if len(w) > 3)
+                keywords.update(t.strip() for t in tags.split(",") if t.strip())
+                matched_nids = [
+                    nid for nid, node in graph.nodes.items()
+                    if any(kw in (node.label or "").lower() for kw in keywords)
+                ]
+        # Sort by importance * predictive_utility
+        def _get_mem_attr(mem, key, default=None):
+            if hasattr(mem, 'content') and isinstance(mem.content, dict):
+                return mem.content.get(key, default)
+            if hasattr(mem, 'get'):
+                return mem.get(key, default)
+            return getattr(mem, key, default)
+        memories.sort(
+            key=lambda m: float(_get_mem_attr(m, "importance", 0.5)) * float(_get_mem_attr(m, "predictive_utility", 0.5)),
+            reverse=True
+        )
+
+        for mem in memories[:20]:
+            mem_vec = None
+            if memory_engine and hasattr(memory_engine, 'vector_index'):
+                mid = _get_mem_attr(mem, "id")
+                if mid is not None:
+                    mem_vec = memory_engine.vector_index.get_vector(mid)
+
+            if mem_vec is not None:
+                try:
+                    matched = graph.find_similar(mem_vec, k=5)
+                    matched_nids = [nid for nid, sim in matched if sim > 0.2]
+                except (AttributeError, Exception):
+                    matched_nids = []
+            else:
+                content = str(_get_mem_attr(mem, "content", "")).lower()
+                tags = str(_get_mem_attr(mem, "tags", "")).lower()
+                keywords = set(w for w in content.split() if len(w) > 3)
+                keywords.update(t.strip() for t in tags.split(",") if t.strip())
+                matched_nids = [
+                    nid for nid, node in graph.nodes.items()
+                    if any(kw in (node.label or "").lower() for kw in keywords)
+                ]
+        # Sort by importance * predictive_utility
+        def _get_mem_attr(mem, key, default=None):
+            if hasattr(mem, 'content') and isinstance(mem.content, dict):
+                return mem.content.get(key, default)
+            if hasattr(mem, 'get'):
+                return mem.get(key, default)
+            return getattr(mem, key, default)
+        memories.sort(
+            key=lambda m: float(_get_mem_attr(m, "importance", 0.5)) * float(_get_mem_attr(m, "predictive_utility", 0.5)),
+            reverse=True
+        )
+
+        for mem in memories[:20]:
+            mem_vec = None
+            if memory_engine and hasattr(memory_engine, 'vector_index'):
+                mid = _get_mem_attr(mem, "id")
+                if mid is not None:
+                    mem_vec = memory_engine.vector_index.get_vector(mid)
+
+            if mem_vec is not None:
+                try:
+                    matched = graph.find_similar(mem_vec, k=5)
+                    matched_nids = [nid for nid, sim in matched if sim > 0.2]
+                except (AttributeError, Exception):
+                    matched_nids = []
+            else:
+                content = str(_get_mem_attr(mem, "content", "")).lower()
+                tags = str(_get_mem_attr(mem, "tags", "")).lower()
+                keywords = set(w for w in content.split() if len(w) > 3)
+                keywords.update(t.strip() for t in tags.split(",") if t.strip())
+                matched_nids = [
+                    nid for nid, node in graph.nodes.items()
+                    if any(kw in (node.label or "").lower() for kw in keywords)
+                ]
+        # Sort by importance * predictive_utility
+        def _get_mem_attr(mem, key, default=None):
+            if hasattr(mem, 'content') and isinstance(mem.content, dict):
+                return mem.content.get(key, default)
+            if hasattr(mem, 'get'):
+                return mem.get(key, default)
+            return getattr(mem, key, default)
+        memories.sort(
+            key=lambda m: float(_get_mem_attr(m, "importance", 0.5)) * float(_get_mem_attr(m, "predictive_utility", 0.5)),
+            reverse=True
+        )
+
+        for mem in memories[:20]:
+            mem_vec = None
+            if memory_engine and hasattr(memory_engine, 'vector_index'):
+                mid = _get_mem_attr(mem, "id")
+                if mid is not None:
+                    mem_vec = memory_engine.vector_index.get_vector(mid)
+
+            if mem_vec is not None:
+                try:
+                    matched = graph.find_similar(mem_vec, k=5)
+                    matched_nids = [nid for nid, sim in matched if sim > 0.2]
+                except (AttributeError, Exception):
+                    matched_nids = []
+            else:
+                content = str(_get_mem_attr(mem, "content", "")).lower()
+                tags = str(_get_mem_attr(mem, "tags", "")).lower()
+                keywords = set(w for w in content.split() if len(w) > 3)
+                keywords.update(t.strip() for t in tags.split(",") if t.strip())
+                matched_nids = [
+                    nid for nid, node in graph.nodes.items()
+                    if any(kw in (node.label or "").lower() for kw in keywords)
+                ]
+        # Sort by importance * predictive_utility
+        def _get_mem_attr(mem, key, default=None):
+            if hasattr(mem, 'content') and isinstance(mem.content, dict):
+                return mem.content.get(key, default)
+            if hasattr(mem, 'get'):
+                return mem.get(key, default)
+            return getattr(mem, key, default)
+        memories.sort(
+            key=lambda m: float(_get_mem_attr(m, "importance", 0.5)) * float(_get_mem_attr(m, "predictive_utility", 0.5)),
+            reverse=True
+        )
+
+        for mem in memories[:20]:
+            mem_vec = None
+            if memory_engine and hasattr(memory_engine, 'vector_index'):
+                mid = _get_mem_attr(mem, "id")
+                if mid is not None:
+                    mem_vec = memory_engine.vector_index.get_vector(mid)
+
+            if mem_vec is not None:
+                try:
+                    matched = graph.find_similar(mem_vec, k=5)
+                    matched_nids = [nid for nid, sim in matched if sim > 0.2]
+                except (AttributeError, Exception):
+                    matched_nids = []
+            else:
+                content = str(_get_mem_attr(mem, "content", "")).lower()
+                tags = str(_get_mem_attr(mem, "tags", "")).lower()
+                keywords = set(w for w in content.split() if len(w) > 3)
+                keywords.update(t.strip() for t in tags.split(",") if t.strip())
+                matched_nids = [
+                    nid for nid, node in graph.nodes.items()
+                    if any(kw in (node.label or "").lower() for kw in keywords)
+                ]
+        # Sort by importance * predictive_utility
+        def _get_mem_attr(mem, key, default=None):
+            if hasattr(mem, 'content') and isinstance(mem.content, dict):
+                return mem.content.get(key, default)
+            if hasattr(mem, 'get'):
+                return mem.get(key, default)
+            return getattr(mem, key, default)
+        memories.sort(
+            key=lambda m: float(_get_mem_attr(m, "importance", 0.5)) * float(_get_mem_attr(m, "predictive_utility", 0.5)),
+            reverse=True
+        )
+
+        for mem in memories[:20]:
+            mem_vec = None
+            if memory_engine and hasattr(memory_engine, 'vector_index'):
+                mid = _get_mem_attr(mem, "id")
+                if mid is not None:
+                    mem_vec = memory_engine.vector_index.get_vector(mid)
+
+            if mem_vec is not None:
+                try:
+                    matched = graph.find_similar(mem_vec, k=5)
+                    matched_nids = [nid for nid, sim in matched if sim > 0.2]
+                except (AttributeError, Exception):
+                    matched_nids = []
+            else:
+                content = str(_get_mem_attr(mem, "content", "")).lower()
+                tags = str(_get_mem_attr(mem, "tags", "")).lower()
+                keywords = set(w for w in content.split() if len(w) > 3)
+                keywords.update(t.strip() for t in tags.split(",") if t.strip())
+                matched_nids = [
+                    nid for nid, node in graph.nodes.items()
+                    if any(kw in (node.label or "").lower() for kw in keywords)
+                ]
+        # Sort by importance * predictive_utility
+        def _get_mem_attr(mem, key, default=None):
+            if hasattr(mem, 'content') and isinstance(mem.content, dict):
+                return mem.content.get(key, default)
+            if hasattr(mem, 'get'):
+                return mem.get(key, default)
+            return getattr(mem, key, default)
+        memories.sort(
+            key=lambda m: float(_get_mem_attr(m, "importance", 0.5)) * float(_get_mem_attr(m, "predictive_utility", 0.5)),
+            reverse=True
+        )
+
+        for mem in memories[:20]:
+            mem_vec = None
+            if memory_engine and hasattr(memory_engine, 'vector_index'):
+                mid = _get_mem_attr(mem, "id")
+                if mid is not None:
+                    mem_vec = memory_engine.vector_index.get_vector(mid)
+
+            if mem_vec is not None:
+                try:
+                    matched = graph.find_similar(mem_vec, k=5)
+                    matched_nids = [nid for nid, sim in matched if sim > 0.2]
+                except (AttributeError, Exception):
+                    matched_nids = []
+            else:
+                content = str(_get_mem_attr(mem, "content", "")).lower()
+                tags = str(_get_mem_attr(mem, "tags", "")).lower()
+                keywords = set(w for w in content.split() if len(w) > 3)
+                keywords.update(t.strip() for t in tags.split(",") if t.strip())
+                matched_nids = [
+                    nid for nid, node in graph.nodes.items()
+                    if any(kw in (node.label or "").lower() for kw in keywords)
+                ]
+        # Sort by importance * predictive_utility
+        def _get_mem_attr(mem, key, default=None):
+            if hasattr(mem, 'content') and isinstance(mem.content, dict):
+                return mem.content.get(key, default)
+            if hasattr(mem, 'get'):
+                return mem.get(key, default)
+            return getattr(mem, key, default)
+        memories.sort(
+            key=lambda m: float(_get_mem_attr(m, "importance", 0.5)) * float(_get_mem_attr(m, "predictive_utility", 0.5)),
+            reverse=True
+        )
+
+        for mem in memories[:20]:
+            mem_vec = None
+            if memory_engine and hasattr(memory_engine, 'vector_index'):
+                mid = _get_mem_attr(mem, "id")
+                if mid is not None:
+                    mem_vec = memory_engine.vector_index.get_vector(mid)
+
+            if mem_vec is not None:
+                try:
+                    matched = graph.find_similar(mem_vec, k=5)
+                    matched_nids = [nid for nid, sim in matched if sim > 0.2]
+                except (AttributeError, Exception):
+                    matched_nids = []
+            else:
+                content = str(_get_mem_attr(mem, "content", "")).lower()
+                tags = str(_get_mem_attr(mem, "tags", "")).lower()
+                keywords = set(w for w in content.split() if len(w) > 3)
+                keywords.update(t.strip() for t in tags.split(",") if t.strip())
+                matched_nids = [
+                    nid for nid, node in graph.nodes.items()
+                    if any(kw in (node.label or "").lower() for kw in keywords)
+                ]
+        # Sort by importance * predictive_utility
+        def _get_mem_attr(mem, key, default=None):
+            if hasattr(mem, 'content') and isinstance(mem.content, dict):
+                return mem.content.get(key, default)
+            if hasattr(mem, 'get'):
+                return mem.get(key, default)
+            return getattr(mem, key, default)
+        memories.sort(
+            key=lambda m: float(_get_mem_attr(m, "importance", 0.5)) * float(_get_mem_attr(m, "predictive_utility", 0.5)),
+            reverse=True
+        )
+
+        for mem in memories[:20]:
+            mem_vec = None
+            if memory_engine and hasattr(memory_engine, 'vector_index'):
+                mid = _get_mem_attr(mem, "id")
+                if mid is not None:
+                    mem_vec = memory_engine.vector_index.get_vector(mid)
+
+            if mem_vec is not None:
+                try:
+                    matched = graph.find_similar(mem_vec, k=5)
+                    matched_nids = [nid for nid, sim in matched if sim > 0.2]
+                except (AttributeError, Exception):
+                    matched_nids = []
+            else:
+                content = str(_get_mem_attr(mem, "content", "")).lower()
+                tags = str(_get_mem_attr(mem, "tags", "")).lower()
                 keywords = set(w for w in content.split() if len(w) > 3)
                 keywords.update(t.strip() for t in tags.split(",") if t.strip())
                 matched_nids = [

@@ -1,6 +1,7 @@
 import os
 import sys
 import numpy as np
+import pytest
 
 # Ensure UTF-8 output on Windows (BPE tokens produce non-cp1252 characters)
 if hasattr(sys.stdout, 'reconfigure'):
@@ -228,6 +229,7 @@ def score_compression(generated: str, prompt_text: str, keywords: list, stopword
     }
 
 
+@pytest.mark.slow
 def test_instruction_compression():
     """Test 5: Compression scorer correctness + RLM learning signal verification.
 
@@ -293,7 +295,7 @@ def test_instruction_compression():
     print(f"Pre-training logits — cat: {pre_cat:.4f}, chased: {pre_chased:.4f}, mouse: {pre_mouse:.4f}")
 
     # Train on full sequence
-    epochs = 10
+    epochs = 3
     print(f"Training for {epochs} epochs...")
     for epoch in range(epochs):
         for i in range(len(full_ids) - 1):

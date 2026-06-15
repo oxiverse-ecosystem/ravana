@@ -116,11 +116,12 @@ class ConceptNode:
 class ConceptEdge:
     def __init__(self, source: int, target: int, weight: float = 0.5,
                  shortcut: bool = False, edge_type: str = "excitatory",
-                 relation_type: str = "semantic", relation_dim: int = 16):
+                 relation_type: str = "semantic", relation_dim: int = 16,
+                 confidence: float = 0.5):
         self.source = source
         self.target = target
         self._weight = max(0.0, min(1.0, weight))
-        self._confidence = 0.1
+        self._confidence = confidence
         self.prediction_free_energy = 0.0
         self.stability = 0.3
         self.timestamp = time.time()
@@ -148,6 +149,24 @@ class ConceptEdge:
         # Cached norm for relation_vector (invalidated when RV changes)
         self._rv_norm_cache: Optional[float] = None
         self.parent_graph = None
+        # Multi-Agent Edge Weights (dialogue system)
+        self.agent_weights: Dict[str, float] = {}
+        self.source_metadata: Dict[str, Any] = {
+            'source_agent': 'system',
+            'epistemic_status': 'fact',
+            'is_user_statement': False,
+            'is_user_experience': False,
+            'is_inferred': False,
+            'correction_history': [],
+        }
+
+    def __getstate__(self):
+        """Lightweight pickle: exclude heavy unused fields (agent_weights, source_metadata)."""
+        state = self.__dict__.copy()
+        state.pop('agent_weights', None)
+        state.pop('source_metadata', None)
+        state.pop('parent_graph', None)
+        return state
 
     @property
     def weight(self):
@@ -242,6 +261,36 @@ class ConceptEdge:
     def posterior_mean(self) -> float:
         """Bayesian posterior mean E[w] = alpha / (alpha + beta)."""
         return self.posterior_alpha / (self.posterior_alpha + self.posterior_beta + 1e-10)
+
+    def get_weight_for_agent(self, agent_id: str) -> float:
+        """
+        Get the effective edge weight for a specific agent.
+        Hierarchy: agent-specific > global.
+        Args:
+            agent_id: Agent identifier (e.g., 'user_likhith' or 'global')
+        Returns:
+            Effective weight for this agent
+        """
+        if not hasattr(self, 'agent_weights'):
+            return self.weight
+        if agent_id in self.agent_weights:
+            return self.agent_weights[agent_id]
+        return self.weight
+
+    def update_weight_for_agent(self, agent_id: str, delta: float):
+        """
+        Update the edge weight for a specific agent.
+        Only modifies user-specific weight, not global weight.
+        Args:
+            agent_id: Agent identifier (e.g., 'user_likhith')
+            delta: Amount to add (negative = penalize, positive = boost)
+        """
+        if not hasattr(self, 'agent_weights'):
+            return
+        current = self.agent_weights.get(agent_id, self.weight)
+        new_weight = max(0.0, min(1.0, current + delta))
+        self.agent_weights[agent_id] = new_weight
+
 
     @property
     def posterior_uncertainty(self) -> float:
@@ -1196,7 +1245,8 @@ class ConceptGraph:
 
     def add_edge(self, source: int, target: int, weight: float = 0.5,
                  shortcut: bool = False, edge_type: str = "excitatory",
-                 relation_type: str = "semantic") -> ConceptEdge:
+                 relation_type: str = "semantic",
+                 confidence: Optional[float] = None) -> ConceptEdge:
         key = (source, target)
         if key in self.edges:
             edge = self.edges[key]
@@ -1208,10 +1258,14 @@ class ConceptGraph:
                 edge.edge_type = "inhibitory"
             if relation_type != "semantic":
                 edge.relation_type = relation_type
+            if confidence is not None:
+                edge.confidence = confidence
             return edge
+        if confidence is None:
+            confidence = 0.5
         edge = ConceptEdge(source, target, weight, shortcut=shortcut,
                           edge_type=edge_type, relation_type=relation_type,
-                          relation_dim=self._relation_dim)
+                          relation_dim=self._relation_dim, confidence=confidence)
         edge.parent_graph = self
         # Ablation: randomize relation vector if type-anchoring is disabled
         if not self._anchor_relation_vectors:
