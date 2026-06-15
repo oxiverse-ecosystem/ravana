@@ -116,13 +116,13 @@ class CrossDomainConfig:
 
 def _subject_holdout_split(facts, seed=42, holdout_ratio=0.2):
     """Split facts into train/test by holding out ENTIRE SUBJECTS.
-
-    Key design: Held-out subjects are never seen during training.
+    
+    Key design: Held-out subjects are never seen during training as EITHER subject or target.
     The model must generalize using verb-stem offset arithmetic:
       predicted_embed = subject_embed + offset(query_verb)
     This tests TRUE generalization: can the model predict targets for
     entirely unseen subjects using only the shared verb offset?
-
+    
     This replaces the old _stratified_domain_split which grouped by
     (target, relation_type) — that design guaranteed 0% held-out
     because the bilinear W_rel @ subject is mathematically incapable
@@ -150,7 +150,12 @@ def _subject_holdout_split(facts, seed=42, holdout_ratio=0.2):
         if subject in holdout_subjects:
             test.extend(entries)
         else:
-            train.extend(entries)
+            # Also filter out any fact where TARGET is a held-out subject
+            for entry in entries:
+                target = entry[1].lower()
+                if target not in holdout_subjects:
+                    train.append(entry)
+                # else: skip this fact entirely (target is held-out subject)
 
     return {"train": train, "test": test}
 
