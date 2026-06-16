@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ravana-cognitive"
+version = "0.1.0"
+description = "RAVANA -- Pressure-driven cognitive ML framework (unified package)"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+dependencies = [
+    "numpy>=1.20",
+]
+optional-dependencies = {dev = ["pytest>=7.0", "pytest-cov", "black", "ruff"], web = ["requests", "sentence-transformers"], viz = ["matplotlib", "networkx"], full = ["requests", "sentence-transformers", "matplotlib", "networkx", "tiktoken"]}
+
+[project.urls]
+Homepage = "https://codeberg.org/oxiverse/ravana"
+Repository = "https://codeberg.org/oxiverse/ravana"
+Documentation = "https://codeberg.org/oxiverse/ravana/src/branch/main/docs"
+Issues = "https://codeberg.org/oxiverse/ravana/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["ravana*", "ravana_ml*"]
+
+[tool.setuptools.package-dir]
+"ravana_v2" = "ravana-v2"
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "ravana-v2/tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+
+[tool.black]
+line-length = 100
+target-version = ['py39']
+include = '\.py$'
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+select = ["E", "F", "I", "UP", "B", "C4", "PTH"]
+ignore = ["E501", "B008"]

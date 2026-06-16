@@ -234,6 +234,8 @@ top_k = model.get_top_predictions(inp, k=5)
 | `latent_dim` | 96 | World model latent dim |
 | `hidden_dim` | 128 | World model hidden dim |
 
+**Note:** For the entity-specific adapter to work correctly (enables test-time adaptation for held-out subjects), `latent_dim` should equal `embed_dim`. If they differ, the model automatically projects embeddings to latent space before applying the adapter, but this adds computational overhead. For optimal performance and simplicity, set `latent_dim=embed_dim` (e.g., both 64).
+
 #### Key Attributes (Post-Training)
 
 ```python

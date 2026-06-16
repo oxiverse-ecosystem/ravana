@@ -1,20 +1,18 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "ravana"
+name = "ravana-chat"
 version = "0.1.0"
-description = "Recursive Learning Model — pressure-driven cognitive ML framework"
+description = "RAVANA modular package -- decoder-first chat with continuous web learning"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.9"
 dependencies = [
     "numpy>=1.20",
 ]
-
-[project.optional-dependencies]
-dev = ["pytest>=7.0"]
+optional-dependencies = {dev = ["pytest>=7.0"], web = ["requests", "sentence-transformers"], full = ["requests", "sentence-transformers", "tiktoken"]}
 
 [tool.setuptools.packages.find]
 include = ["ravana*"]

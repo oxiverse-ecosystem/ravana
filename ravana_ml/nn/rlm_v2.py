@@ -1561,6 +1561,11 @@ class RLMv2(Module):
         # Get source embedding and apply entity-specific adapter (Fix #3)
         # Only for bilinear W_rel fallback path
         source_embed = self.get_robust_embedding(subject_tid)  # (embed_dim,)
+        
+        # Project to latent space if needed before applying adapter
+        if self._rp_use_encoder_latent:
+            source_embed, _, _, _ = self._encoder_forward_full(source_embed)
+        
         # For held-out subjects, initialize adapter from nearest neighbor
         adapter = self._get_or_adapt_entity_adapter(subject_tid, verb_word=verb_word)
         if adapter is not None:
@@ -1600,7 +1605,11 @@ class RLMv2(Module):
         token_embeds = self.token_embed.weight.data  # (vocab_size, embed_dim)
 
         if self._rp_use_encoder_latent:
-            source_latent, _, _, _ = self._encoder_forward_full(source_embed)
+            # If we already projected source_embed (for adapter), it's already in latent space
+            if source_embed.shape[-1] == self.latent_dim:
+                source_latent = source_embed
+            else:
+                source_latent, _, _, _ = self._encoder_forward_full(source_embed)
             target_latents, _, _, _ = self._encoder_forward_full(token_embeds)
         else:
             source_latent = source_embed  # (embed_dim,)
