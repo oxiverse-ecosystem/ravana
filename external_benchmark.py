@@ -438,6 +438,7 @@ def run_lifelong_retention(config: BenchmarkConfig) -> List[LifelongRetentionRes
             vocab_size=vocab_size, embed_dim=64, concept_dim=64,
             n_concepts=vocab_size, sleep_interval=config.lifelong_sleep_interval,
             freeze_token_embeds_in_rp=True,
+            latent_dim=64,
         )
         model._tokenizer = tokenizer
         inject_minilm_embeddings(model, tokenizer)

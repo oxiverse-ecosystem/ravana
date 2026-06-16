@@ -276,6 +276,7 @@ def test_expanded_domains():
     model.use_shared_relation_embeds = False
     model.alignment_lr = 0.05
     model.use_rp_for_analogy = True
+    model.use_verb_offset = True  # Enable verb-stem offset for held-out generalization
     inject_minilm_embeddings(model, tokenizer)
     model._pretrain_encoder_autoencoder(epochs=5, lr=0.01)
     
@@ -288,6 +289,10 @@ def test_expanded_domains():
     model.sleep_cycle()
     train_rlm_on_domain(model, train_b, tokenizer, n_repeats=10, domain_tag='social')
     model.sleep_cycle()
+    
+    # Compute verb offsets after training
+    print("\n[Verb Offset] Computing verb offsets from training data...")
+    model._compute_verb_offsets()
     
     # Cross-domain alignment
     for _ in range(200):
