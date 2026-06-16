@@ -334,6 +334,29 @@ def test_relation_vector_separation():
         return False
 
 
+def test_bridge_alignment_targets():
+    """Test that opt-in bridge alignment promotes semantic-pair targets."""
+    tok = WordTokenizer()
+    for text in ["heat causes expansion", "heat", "expansion"]:
+        tok.encode(text)
+
+    model = RLMv2(vocab_size=100, embed_dim=16, concept_dim=16, n_concepts=10)
+    model._tokenizer = tok
+    model.use_bridge_alignment = True
+    model.semantic_pairs = [("heat", "expansion")]
+
+    subject_tid = tok.encode("heat")[0]
+    subject_cid = model._get_or_create_concept(subject_tid, model.token_embed.weight.data[subject_tid])
+
+    targets = model._bridge_alignment_targets(subject_tid, subject_cid, "causal", "causes")
+    expansion_tid = tok.encode("expansion")[0]
+    expansion_cid = model._get_or_create_concept(expansion_tid, model.token_embed.weight.data[expansion_tid])
+
+    assert expansion_cid in targets, "Bridge alignment should surface the paired target concept"
+    assert targets[expansion_cid] > 0.0, "Bridge target should receive a positive score"
+    print("  ✓ test_bridge_alignment_targets")
+
+
 def test_sleep_cycle_cross_domain_alignment_toggle():
     """Test that optional cross-domain alignment runs during sleep when enabled."""
     tok = WordTokenizer()

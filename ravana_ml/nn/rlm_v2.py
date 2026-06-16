@@ -802,6 +802,71 @@ class RLMv2(Module):
             self._norm_cache[cache_key] = val
         return val
 
+    def _bridge_alignment_targets(self, subject_tid: int, subject_cid: int,
+                                  rel_type_name: str,
+                                  query_verb_word: str = "") -> Dict[int, float]:
+        """Build opt-in bridge candidates from semantic pairs.
+
+        Bridge alignment is deliberately conservative: it only fires when the
+        current subject embedding is close to a known bridge anchor in
+        `semantic_pairs`. This lets held-out subjects inherit a weak semantic
+        path without turning the model into a lookup table.
+        """
+        if not getattr(self, "use_bridge_alignment", False):
+            return {}
+        tok = getattr(self, "_tokenizer", None)
+        pairs = getattr(self, "semantic_pairs", [])
+        if tok is None or not pairs:
+            return {}
+        if subject_tid < 0 or subject_tid >= self.vocab_size:
+            return {}
+
+        subject_embed = self.token_embed.weight.data[subject_tid]
+        subject_norm = float(np.linalg.norm(subject_embed))
+        if subject_norm <= 0:
+            return {}
+        subject_unit = subject_embed / subject_norm
+
+        bridge_targets: Dict[int, float] = {}
+        for pair in pairs:
+            if not pair or len(pair) < 2:
+                continue
+            anchor_word, positive_word = pair[:2]
+            anchor_tid = tok.word_to_id.get(anchor_word)
+            positive_tid = tok.word_to_id.get(positive_word)
+            if anchor_tid is None or positive_tid is None:
+                continue
+            if anchor_tid >= self.vocab_size or positive_tid >= self.vocab_size:
+                continue
+
+            anchor_embed = self.token_embed.weight.data[anchor_tid]
+            positive_embed = self.token_embed.weight.data[positive_tid]
+            anchor_norm = float(np.linalg.norm(anchor_embed))
+            if anchor_norm <= 0:
+                continue
+            anchor_unit = anchor_embed / anchor_norm
+            anchor_sim = float(np.dot(subject_unit, anchor_unit))
+            if anchor_sim < 0.22:
+                continue
+
+            anchor_cid = self._get_or_create_concept(anchor_tid, anchor_embed)
+            positive_cid = self._get_or_create_concept(positive_tid, positive_embed)
+
+            score = (max(0.0, anchor_sim) ** 1.5) * 6.0
+            if rel_type_name != "semantic":
+                score *= 1.1
+            if query_verb_word:
+                score *= 1.0
+
+            if getattr(self, "use_reverse_edge_inheritance", False):
+                reverse_edge = self.graph.get_edge(positive_cid, anchor_cid)
+                if reverse_edge is not None and reverse_edge.weight > 0.05:
+                    score *= 1.0 + 0.25 * reverse_edge.weight * reverse_edge.confidence
+
+            bridge_targets[positive_cid] = max(bridge_targets.get(positive_cid, 0.0), score)
+
+        return bridge_targets
+
     def _get_node_matrix(self):
         """Get cached (node_ids, vector_matrix, norms) for batch operations.
 
@@ -1735,6 +1800,12 @@ class RLMv2(Module):
                         for i in np.where(mask)[0]:
                             analogy_targets[node_ids[i]] = float(sims[i]) * 2.0
 
+        bridge_targets = self._bridge_alignment_targets(subject_tid, subject_cid, rel_type_name, query_verb_word)
+        for cid, score in bridge_targets.items():
+            if cid == subject_cid:
+                continue
+            analogy_targets[cid] = max(analogy_targets.get(cid, 0.0), score)
+
         # ── OOD Detection for Spreading Activation ──
         # Three signals for OOD:
         # 1. Unseen predicate (was never in training data)
@@ -1966,6 +2037,14 @@ class RLMv2(Module):
                         alignment = float(np.dot(rv[:min_len], node.vector[:min_len]) / (rv_norm * node_norm))
                         base_score *= (1.0 + 0.5 * max(0, alignment))
 
+                if self.use_reverse_edge_inheritance:
+                    reverse_edge = self.graph.get_edge(tgt_id, nid)
+                    if reverse_edge is not None and reverse_edge.weight > 0.05:
+                        reverse_bonus = 1.0 + 0.25 * reverse_edge.weight * reverse_edge.confidence
+                        if reverse_edge.relation_type == edge.relation_type:
+                            reverse_bonus += 0.1
+                        base_score *= reverse_bonus
+
                 if tgt_id in matching_targets:
                     matching_targets[tgt_id] = max(matching_targets[tgt_id], base_score)
                 else:
@@ -1987,6 +2066,10 @@ class RLMv2(Module):
                         continue  # Don't predict subject
                     # Score: activation × edge weight × confidence × 2.0 boost
                     cross_score = node.activation * edge.weight * edge.confidence * 2.0
+                    if self.use_reverse_edge_inheritance:
+                        reverse_edge = self.graph.get_edge(tgt_id, nid)
+                        if reverse_edge is not None and reverse_edge.weight > 0.05:
+                            cross_score *= 1.0 + 0.2 * reverse_edge.weight * reverse_edge.confidence
                     if tgt_id in matching_targets:
                         matching_targets[tgt_id] = max(matching_targets[tgt_id], cross_score)
                     else:
@@ -2025,6 +2108,11 @@ class RLMv2(Module):
                             pred_mult = 0.4
                 except Exception:
                     pass
+            
+            if self.use_reverse_edge_inheritance:
+                reverse_edge = self.graph.get_edge(mid_cid, subject_cid)
+                if reverse_edge is not None and reverse_edge.weight > 0.05:
+                    hop_score *= 1.0 + 0.25 * reverse_edge.weight * reverse_edge.confidence
             hop_score *= pred_mult
             
             bfs_queue.append((mid_cid, hop_score, 1, {subject_cid}))
@@ -2057,7 +2145,15 @@ class RLMv2(Module):
                 
                 edge_score = cum_score * tgt_edge.weight * tgt_edge.confidence * pred_mult
                 # Apply boost with per-hop decay
-                final_score = edge_score * _hop_base_boost * (_hop_decay ** (depth - 1))
+                if self.use_depth_decay:
+                    local_hop_decay = max(0.45, _hop_decay - 0.06 * max(0, depth - 1))
+                else:
+                    local_hop_decay = _hop_decay
+                final_score = edge_score * _hop_base_boost * (local_hop_decay ** (depth - 1))
+                if self.use_reverse_edge_inheritance:
+                    reverse_edge = self.graph.get_edge(tgt_cid, nid)
+                    if reverse_edge is not None and reverse_edge.weight > 0.05:
+                        final_score *= 1.0 + 0.2 * reverse_edge.weight * reverse_edge.confidence
                 if tgt_cid in matching_targets:
                     matching_targets[tgt_cid] = max(matching_targets[tgt_cid], final_score)
                 else:
@@ -2097,6 +2193,10 @@ class RLMv2(Module):
                 edge_score = node.activation * edge.weight * edge.confidence * 0.8
                 if edge.relation_type == rel_type_name:
                     edge_score *= 2.0  # boost matching relation type
+                if self.use_reverse_edge_inheritance:
+                    reverse_edge = self.graph.get_edge(tgt_id, nid)
+                    if reverse_edge is not None and reverse_edge.weight > 0.05:
+                        edge_score *= 1.0 + 0.15 * reverse_edge.weight * reverse_edge.confidence
                 if tgt_id in matching_targets:
                     matching_targets[tgt_id] = max(matching_targets[tgt_id], edge_score)
                 else:
