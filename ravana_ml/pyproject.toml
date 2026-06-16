@@ -4,14 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ravana-ml"
-version = "0.1.0"
+version = "0.1.1"
 description = "RAVANA ML Framework -- tensors, modules, ConceptGraph, RLMv1/RLMv2, plasticity, free energy"
 readme = "README.md"
-license = {text = "MIT"}
+license = "MIT"
 requires-python = ">=3.9"
 dependencies = [
     "numpy>=1.20",
 ]
 
 [tool.setuptools.packages.find]
+where = ["src"]
 include = ["ravana_ml*"]
