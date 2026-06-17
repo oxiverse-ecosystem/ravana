@@ -154,7 +154,7 @@ def test_rlm_convergence():
     n_repeats = 20
 
     rlm = nn.RLM(
-        vocab_size=64, embed_dim=32, concept_dim=32, n_concepts=128,
+        vocab_size=64, embed_dim=32, latent_dim=32, concept_dim=32, n_concepts=128,
         n_hidden=32, n_layers=1, max_seq_len=16,
         free_energy_threshold=5.0, sleep_interval=15,
     )

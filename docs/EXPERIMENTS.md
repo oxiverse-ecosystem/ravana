@@ -186,11 +186,12 @@ python experiments/experiment_cross_domain.py
 2. Test on Domain B (e.g., social: "kindness causes friendship") — zero-shot
 3. Measure top-1 / top-10 accuracy
 
-**Key Results (from paper):**
+**Key Results (from external benchmarks):**
 | Condition | Top-1 | Top-10 |
 |-----------|-------|--------|
-| Optimized config | 95% | 100% |
-| Neutral, zero-shot | 10% | — |
+| Full config (W_rel aligned + expanded domains) | **75%** | **100%** |
+| Baseline (before fixes) | 45.8% | 66.7% |
+| Neutral, zero-shot | ~10% | — |
 
 **Configurable:**
 ```python
@@ -212,16 +213,16 @@ RLMv2 triple decomposition benchmark (47 triples, 500 epochs).
 python experiments/experiment_triple_benchmark_v6.py
 ```
 
-**Results:**
+**Results (internal):**
 | Benchmark | Result |
 |-----------|--------|
 | Overall top-10 | 80.9% |
 | Cross-domain causal top-10 | 75% |
 | RP-only verb-offset cross-domain top-10 | 6.7% |
 
-**External Benchmark Results (NEW — `external_benchmark.py`):**
+**External Benchmark Results (`external_benchmark.py`):**
 | Metric | Before (Baseline) | After (W_rel Aligned + Expanded Domains) |
-|--------|-------------------|----------------------------------------|
+|--------|-------------------|------------------------------------------|
 | Cross-domain transfer Top-1 | 45.8% | **75.0%** |
 | Cross-domain transfer Top-10 | 66.7% | **100%** |
 | Domain B held-out samples | 12 | 36 (3×) |
@@ -409,6 +410,7 @@ model = RLM(
     concept_dim=64,
     n_concepts=200,
     sleep_interval=50,
+    latent_dim=64,  # Set equal to embed_dim for entity adapter compatibility
 )
 
 for premise, conclusion in facts:
@@ -425,6 +427,8 @@ for premise, _ in facts:
     top5 = np.argsort(logits)[-5:][::-1]
     print(f"{premise} → {[tok.decode([t]) for t in top5]}")
 ```
+
+**Note:** The `latent_dim` parameter controls the world model latent dimension. For the entity-specific adapter (enables test-time adaptation for held-out subjects) to work without additional projection overhead, set `latent_dim=embed_dim`. If they differ, the model automatically projects embeddings to latent space before applying the adapter.
 
 ---
 
@@ -445,14 +449,23 @@ results/
 
 | Metric | Meaning | Target |
 |--------|---------|--------|
-| `top1_accuracy` | Exact match rate | >80% within-domain |
+| `top1_accuracy` | Exact match rate | >90% within-domain |
 | `top10_accuracy` | In top 10 predictions | >95% within-domain |
-| `cross_domain_top10` | Zero-shot transfer | >70% |
-| `forgetting_rate` | Retention after domain switch | 0% (eliminated) |
+| `cross_domain_top1` | Zero-shot transfer Top-1 | **75%** (optimized) |
+| `cross_domain_top10` | Zero-shot transfer Top-10 | **100%** (optimized) |
+| `forgetting_rate` | Retention after domain switch | **0%** (eliminated by sleep) |
 | `sleep_cycle_time` | Consolidation speed | <300ms |
 | `coherence` | Graph activation coherence | >0.7 |
 | `dissonance` | Prediction error pressure | ~0.3 (target) |
 | `identity` | Self-concept stability | >0.7 |
+
+**Graph Inference Metrics (from external benchmarks):**
+| Metric | Value |
+|--------|-------|
+| Avg latency | 0.032 ms |
+| P95 latency | 0.081 ms |
+| Peak memory | 0.0006 MB |
+| Throughput | ~556 QPS |
 
 ### Analysis Tools
 

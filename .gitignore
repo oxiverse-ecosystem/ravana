@@ -1,3 +1,9 @@
+# Build artifacts
+build/
+dist/
+*.whl
+*.tar.gz
+
 __pycache__/
 *.pyc
 *.pyo

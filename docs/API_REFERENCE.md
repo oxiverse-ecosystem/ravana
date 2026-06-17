@@ -305,6 +305,8 @@ model.total_free_energy
 model._global_relation_priors  # {verb_token: offset_vector}
 ```
 
+**Important Configuration Note:** For optimal performance with the entity-specific adapter (enables test-time adaptation for held-out subjects), set `latent_dim=embed_dim`. If they differ, the model automatically projects embeddings to latent space before applying the adapter, adding slight computational overhead.
+
 ### `ravana_ml.graph`
 
 ```python
