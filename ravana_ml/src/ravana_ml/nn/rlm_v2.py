@@ -479,7 +479,24 @@ class RLMv2(Module):
         self._verb_offsets: Dict[str, np.ndarray] = {}          # verb_stem -> offset vector
         self._verb_offset_count: Dict[str, int] = {}             # verb_stem -> count
         self._verb_accum_buffer: List[Tuple[str, np.ndarray]] = []  # (verb_stem, offset_vec) pairs
-        self.use_verb_offset = False                              # enabled by experiment
+        self.use_verb_offset = True                              # ENABLED: expands to ALL verbs
+
+        # Track cross-domain edges injected analogically (subject_cid, object_cid).
+        self._cross_domain_edges_injected: Set[Tuple[int, int]] = set()
+
+        # ── Hierarchical Semantic Prototype System (P0 Fix B) ──
+        # Enables novel entities to inherit properties from semantic prototypes
+        self._prototype_hierarchy: Dict[str, List[int]] = {}      # prototype_label -> [concept_ids]
+        self._prototype_vectors: Dict[str, np.ndarray] = {}       # prototype_label -> centroid vector
+        self._prototype_hierarchy_parents: Dict[str, str] = {}    # prototype_label -> parent_prototype_label
+        self._prototype_children: Dict[str, List[str]] = {}       # prototype_label -> [child_prototype_labels]
+        self._prototype_levels: Dict[str, int] = {}              # prototype_label -> abstraction level (0=most specific)
+        self._prototype_similarity_threshold: float = 0.70       # min similarity for prototype inheritance
+        self.use_prototype_inheritance: bool = True              # ENABLED: novel entities inherit from prototypes
+
+        # Initialize Hierarchical Semantic Prototypes (P0 Fix B) - inline for simplicity
+        if self.use_prototype_inheritance:
+            self._init_default_prototypes()
 
         # Track cross-domain edges injected analogically (subject_cid, object_cid).
         self._cross_domain_edges_injected: Set[Tuple[int, int]] = set()
@@ -500,6 +517,80 @@ class RLMv2(Module):
 
     # ── Domain Isolation Methods ─────────────────────────────────────────
 
+    def _init_default_prototypes(self):
+        """Initialize default prototypes from the concept graph (inline P0 Fix B).
+
+        Builds prototypes for common semantic categories based on embedding
+        clusters in the concept space. Called once during initialization.
+        """
+        if len(self.graph.nodes) < 5:
+            return
+
+        # Cluster concepts by similarity and register as prototypes
+        from collections import defaultdict
+        node_ids = sorted(self.graph.nodes.keys())
+
+        # Use a simple greedy clustering approach
+        assigned = set()
+        for nid in node_ids[:50]:  # Process first 50 nodes
+            if nid in assigned:
+                continue
+            node = self.graph.get_node(nid)
+            if node is None or node.vector is None:
+                continue
+
+            # Find all similar nodes (cosine > 0.6)
+            cluster = [nid]
+            assigned.add(nid)
+            node_vec = node.vector
+            node_norm = np.linalg.norm(node_vec)
+            if node_norm == 0:
+                continue
+            node_vec = node_vec / node_norm
+
+            for other_id in node_ids:
+                if other_id in assigned or other_id == nid:
+                    continue
+                other = self.graph.get_node(other_id)
+                if other is None or other.vector is None:
+                    continue
+                other_norm = np.linalg.norm(other.vector)
+                if other_norm == 0:
+                    continue
+                sim = float(np.dot(node_vec, other.vector / other_norm))
+                if sim > 0.6:
+                    cluster.append(other_id)
+                    assigned.add(other_id)
+
+            if len(cluster) >= 2:
+                label = f"prototype_{len(self._prototype_hierarchy)}"
+                self._register_prototype(label, cluster)
+
+    def _register_prototype(self, label: str, concept_ids: List[int]):
+        """Register a prototype node by label and list of concept IDs."""
+        # Compute the prototype vector as the centroid of member concept vectors
+        vectors = []
+        for cid in concept_ids:
+            node = self.graph.get_node(cid)
+            if node is not None and node.vector is not None:
+                vectors.append(node.vector)
+        if not vectors:
+            return
+        centroid = np.mean(vectors, axis=0)
+        norm = np.linalg.norm(centroid)
+        if norm > 0:
+            centroid = centroid / norm
+            self._prototype_hierarchy[label] = concept_ids
+            self._prototype_vectors[label] = centroid
+            self._prototype_levels[label] = 0
+            self._prototype_children[label] = []
+            self._prototype_hierarchy_parents[label] = None
+
+    def _init_domain_heads(self):
+            self._prototype_vectors[label] = centroid
+            self._prototype_levels[label] = 0
+            self._prototype_children[label] = []
+
     def _init_domain_heads(self):
         """Compatibility hook for older domain-head routing code.
 
@@ -515,7 +606,68 @@ class RLMv2(Module):
             self._frozen_domains = set()
         return None
 
-    def set_domain(self, domain_id: Optional[int], freeze_others: bool = True):
+    def _find_nearest_prototype(self, embed_vec: np.ndarray) -> Tuple[Optional[str], float]:
+        """Find the nearest prototype for an embedding vector.
+
+        Returns (prototype_label, similarity) or (None, 0.0) if no prototypes exist.
+        """
+        if not self._prototype_vectors:
+            return None, 0.0
+
+        best_label = None
+        best_sim = -1.0
+        vec_norm = np.linalg.norm(embed_vec)
+        if vec_norm == 0:
+            return None, 0.0
+        embed_vec_norm = embed_vec / vec_norm
+
+        for label, proto_vec in self._prototype_vectors.items():
+            simil = float(np.dot(embed_vec_norm, proto_vec))
+            if simil > best_sim:
+                best_sim = simil
+                best_label = label
+
+        if best_label is not None and best_sim >= self._prototype_similarity_threshold:
+            return best_label, best_sim
+        return None, 0.0
+
+    def _inherit_from_prototype(self, new_concept_id: int, prototype_label: str, similarity: float):
+        """Inherit edges from a prototype to a novel entity concept.
+
+        Copies the most confident edges from the prototype's outgoing edges,
+        applying a confidence discount based on similarity.
+        """
+        proto_ids = self._prototype_hierarchy.get(prototype_label, [])
+        if not proto_ids:
+            return
+
+        # Find the prototype node (use first member as representative)
+        proto_nid = proto_ids[0]
+        proto_node = self.graph.get_node(proto_nid)
+        if proto_node is None:
+            return
+
+        # Copy outgoing edges from prototype to new concept
+        # with discounted confidence: confidence *= 0.5 * similarity
+        for target_id, edge in self.graph.get_outgoing(proto_nid):
+            # Skip low-confidence edges
+            if edge.confidence < 0.3:
+                continue
+
+            confidence_multiplier = 0.5 * similarity
+            inherited_confidence = min(0.8, edge.confidence * confidence_multiplier)
+            inherited_weight = edge.weight * confidence_multiplier
+
+            # Add edge from new concept to target
+            self.graph.add_edge(
+                new_concept_id,
+                target_id,
+                weight=inherited_weight,
+                relation_type=edge.relation_type,
+                confidence=inherited_confidence
+            )
+
+    def _init_structured_concepts(self):
         """Set active domain and optionally freeze all other domain heads.
         
         When domain_id is None: all heads are trainable (soft routing).
@@ -537,9 +689,70 @@ class RLMv2(Module):
         self._frozen_domains.discard(domain_id)
 
     def unfreeze_all_domains(self):
-        """Unfreeze all domain heads."""
-        self._frozen_domains.clear()
+        if not hasattr(self, '_frozen_domains'):
+            self._frozen_domains = set()
+        return None
 
+    def _find_nearest_prototype(self, embed_vec: np.ndarray) -> Tuple[Optional[str], float]:
+        """Find the nearest prototype for an embedding vector.
+
+        Returns (prototype_label, similarity) or (None, 0.0) if no prototypes exist.
+        """
+        if not self._prototype_vectors:
+            return None, 0.0
+
+        best_label = None
+        best_sim = -1.0
+        vec_norm = np.linalg.norm(embed_vec)
+        if vec_norm == 0:
+            return None, 0.0
+        embed_vec_norm = embed_vec / vec_norm
+
+        for label, proto_vec in self._prototype_vectors.items():
+            simil = float(np.dot(embed_vec_norm, proto_vec))
+            if simil > best_sim:
+                best_sim = simil
+                best_label = label
+
+        if best_label is not None and best_sim >= self._prototype_similarity_threshold:
+            return best_label, best_sim
+        return None, 0.0
+
+    def _inherit_from_prototype(self, new_concept_id: int, prototype_label: str, similarity: float):
+        """Inherit edges from a prototype to a novel entity concept.
+
+        Copies the most confident edges from the prototype's outgoing edges,
+        applying a confidence discount based on similarity.
+        """
+        proto_ids = self._prototype_hierarchy.get(prototype_label, [])
+        if not proto_ids:
+            return
+
+        # Find the prototype node (use first member as representative)
+        proto_nid = proto_ids[0]
+        proto_node = self.graph.get_node(proto_nid)
+        if proto_node is None:
+            return
+
+        # Copy outgoing edges from prototype to new concept
+        # with discounted confidence: confidence *= 0.5 * similarity
+        for target_id, edge in self.graph.get_outgoing(proto_nid):
+            # Skip low-confidence edges
+            if edge.confidence < 0.3:
+                continue
+
+            confidence_multiplier = 0.5 * similarity
+            inherited_confidence = min(0.8, edge.confidence * confidence_multiplier)
+            inherited_weight = edge.weight * confidence_multiplier
+
+            # Add edge from new concept to target
+            self.graph.add_edge(
+                new_concept_id,
+                target_id,
+                weight=inherited_weight,
+                relation_type=edge.relation_type,
+                confidence=inherited_confidence
+            )
 
     def _init_structured_concepts(self):
         """Create initial concept nodes distributed across the concept space."""
@@ -992,7 +1205,19 @@ class RLMv2(Module):
 
         # Bind token to concept
         self.binding_map.bind(token_id, nid, confidence=0.9)
-        
+
+        # P0 Fix B: Prototype inheritance for novel entities
+        if self.use_prototype_inheritance and self._prototype_vectors:
+            concept_vec = self._project_to_concept(embed_vec)
+            proto_label, proto_sim = self._find_nearest_prototype(concept_vec)
+            if proto_label is not None and proto_sim >= self._prototype_similarity_threshold:
+                # Inherit edges from prototype with discounted confidence
+                self._inherit_from_prototype(nid, proto_label, proto_sim)
+                # Track this novel entity
+                if not hasattr(self, '_novel_entity_concepts'):
+                    self._novel_entity_concepts = {}
+                self._novel_entity_concepts[nid] = proto_sim * 0.5  # discounted confidence
+
         # Initialize entity adapter for this token (Fix #3)
         if token_id not in self._entity_adapters:
             self._init_entity_adapter(token_id)
@@ -1446,40 +1671,27 @@ class RLMv2(Module):
             for stem, cnt in sorted(self._verb_offset_count[d].items(), key=lambda x: -x[1])[:3]:
                 print(f"    Domain {d}: '{stem}': {cnt} examples")
 
-    def _rp_forward_verb_offset(self, subject_tid: int, verb_word: str) -> Optional[np.ndarray]:
-        """Predict using verb-stem offset arithmetic.
-
-        Uses DOMAIN-SPECIFIC verb offsets: offset(verb) = avg(target - subject) 
-        for that verb in the current domain.
-
-        Only applies to highly functional verbs where target is predictable from subject+verb.
-        For non-functional verbs (causes, produces, etc.), returns None to fall back to W_rel.
-
-        predicted_embed = subject_embed + offset(verb, domain)
-        logits_k = predicted_embed @ token_embed_k / (temperature)
-
-        Returns logits over vocab, or None if verb is unknown or non-functional.
+    def _rp_forward_verb_offset(self, subject_tid: int, verb_word: str, return_count: bool = False):
+        """Predict target logits using verb-stem offset arithmetic.
+        
+        P0 Fix: Expanded from whitelist of 7 functional verbs to ALL verbs.
+        Uses verb frequency for confidence-weighted blending with W_rel.
+        
+        Returns (logits, count) if return_count=True, else just logits.
+        Returns None if verb is unknown.
         """
         if not verb_word or not self.use_verb_offset:
             return None
         stem = self._verb_stem(verb_word)
         
-        # Whitelist of highly functional verbs where verb offset works well
-        # These verbs have consistent target patterns across subjects
-        functional_verbs = {
-            'melt', 'freez', 'is', 'are', 'was', 'were', 'be',  # phase changes, copula
-            'enabl', 'prevent', 'caus', 'produ', 'creat', 'drives', 'shap',  # keep for now
-        }
-        # Actually, only use for truly functional verbs
-        # 'caus' and 'produc' are NOT functional - target varies by subject
-        strictly_functional = {'melt', 'freez', 'is', 'are', 'was', 'were', 'be'}
-        if stem not in strictly_functional:
-            return None  # Fall back to bilinear W_rel
-        
-        # Get domain-specific offsets
+        # P0 Fix: Remove whitelist - support ALL verbs (not just 'melt', 'freeze', 'is', 'are', etc.)
+        # Verb frequency determines confidence via blending in _rp_forward
         domain_id = self.current_domain_id if self.current_domain_id is not None else 0
         if domain_id not in self._verb_offsets or stem not in self._verb_offsets[domain_id]:
             return None
+        
+        # Get verb count for blending weight
+        verb_count = self._verb_offset_count[domain_id].get(stem, 0)
         
         source_embed = self.token_embed.weight.data[subject_tid]
         offset = self._verb_offsets[domain_id][stem]
@@ -1500,6 +1712,8 @@ class RLMv2(Module):
                 logits[subject_tid] = np.min(logits) - 10.0
             # Scale up to make softmax meaningful
             logits *= 10.0
+            if return_count:
+                return logits, verb_count
             return logits
         return None
 
@@ -1541,22 +1755,51 @@ class RLMv2(Module):
         just like standard KG completion (RESCAL).
 
         logits_k = source_embed @ W_rel @ target_embed_k
+
+        P0 Fix: Add verb_offset blending with W_rel fallback for held-out generalization.
         """
         subject_tid = int(subject_tid)
         rel_type_idx = int(rel_type_idx)
 
-        # ── Verb-Stem Offset Path (primary) ──
-        # When use_verb_offset is True and the verb is known, use offset arithmetic
-        # instead of bilinear W_rel. This enables same-subject different-target
-        # predictions (e.g., "cold causes" -> shivering, "cold freezes" -> water).
-        # It also enables cross-domain transfer via shared verb semantics.
-        # IMPORTANT: Verb offsets are computed on RAW embeddings (target - subject),
-        # so we must use the raw subject embedding here, NOT the entity-adapted one.
+        # ── Verb-Stem Offset Path with W_rel Blending (P0) ──
+        # When use_verb_offset is True and the verb is known, blend verb offset
+        # logits with bilinear W_rel logits based on verb frequency.
+        # For well-trained verbs (count >= 10), verb offset dominates.
+        # For rare verbs, fall back more heavily on W_rel.
         if verb_word and self.use_verb_offset:
-            verb_logits = self._rp_forward_verb_offset(subject_tid, verb_word)
-            if verb_logits is not None:
+            verb_result = self._rp_forward_verb_offset(subject_tid, verb_word, return_count=True)
+            if verb_result is not None and verb_result[0] is not None:
+                verb_logits, verb_count = verb_result
+                # Use smoother logistic blending: count / (count + 5.0)
+                # This gives a soft S-curve: count=1 -> 0.17, count=5 -> 0.5, count=10 -> 0.67, count=30 -> 0.86
+                verb_blend_weight = verb_count / (verb_count + 5.0)
+                
+                if verb_blend_weight > 0.95:
+                    # Fully confident in verb offset - return directly (no W_rel needed)
+                    self._rp_cache = None
+                    return verb_logits
+                
+                # Compute W_rel logits for blending
+                source_embed = self.get_robust_embedding(subject_tid)
+                if self._rp_use_encoder_latent:
+                    source_latent, _, _, _ = self._encoder_forward_full(source_embed)
+                else:
+                    source_latent = source_embed
+                
+                token_embeds = self.token_embed.weight.data
+                if self._rp_use_encoder_latent:
+                    target_latents, _, _, _ = self._encoder_forward_full(token_embeds)
+                else:
+                    target_latents = token_embeds
+                
+                domain_id = self.current_domain_id if self.current_domain_id is not None else 0
+                W_rel = self._rp_rel_matrices[domain_id, rel_type_idx]
+                w_rel_logits = (source_latent @ W_rel) @ target_latents.T
+                
+                # Blend: verb_offset dominates for high-count verbs, W_rel for rare verbs
+                blended_logits = verb_blend_weight * verb_logits + (1.0 - verb_blend_weight) * w_rel_logits
                 self._rp_cache = None  # prevent stale cache from corrupting W_rel
-                return verb_logits
+                return blended_logits
 
         # Get source embedding and apply entity-specific adapter (Fix #3)
         # Only for bilinear W_rel fallback path
