@@ -224,7 +224,12 @@ class SurfaceRealizer:
         if subject_lower in ('i', 'you', 'we', 'they', 'he', 'she', 'it'):
             return subject  # Already a pronoun
 
-        # Check if this subject was used before
+        # Check if this subject was used in the PREVIOUS sentence
+        if context.previous_subject and context.previous_subject.lower() == subject_lower:
+            pronoun = self.PRONOUNS.get(subject_lower, 'it')
+            return pronoun
+
+        # Check if this subject was used 2+ times total (not just previous)
         if subject_lower in self._used_subjects:
             pronoun = self.PRONOUNS.get(subject_lower, 'it')
             return pronoun
@@ -315,9 +320,21 @@ class SurfaceRealizer:
             is_plural = True
         # Words ending in 's' that are not pronouns
         if subject_lower.endswith('s') and subject_lower not in {'this', 'is', 'has', 'was', 'its'}:
-            # Check if it's a known plural-form concept
-            if subject_lower not in {'news', 'physics', 'mathematics', 'economics',
-                                       'politics', 'ethics'}:
+            # Check if it's a known plural-form concept (actually singular)
+            singular_ending_in_s = {
+                'news', 'physics', 'mathematics', 'economics',
+                'politics', 'ethics', 'linguistics', 'statistics',
+                'measles', 'mumps', 'rabies', 'diabetes',
+                'headquarters', 'series', 'species', 'means',
+                'photosynthesis', 'analysis', 'basis', 'crisis',
+                'diagnosis', 'ellipsis', 'emphasis', 'hypothesis',
+                'oasis', 'parenthesis', 'thesis', 'synopsis',
+                'genius', 'radius', 'focus', 'locus', 'nucleus',
+                'stimulus', 'cactus', 'alumnus', 'bacillus',
+                'bronchitis', 'hepatitis', 'meningitis', 'arthritis',
+                'gastritis', 'dermatitis', 'tonsillitis', 'appendicitis',
+            }
+            if subject_lower not in singular_ending_in_s:
                 is_plural = True
 
         if is_plural:

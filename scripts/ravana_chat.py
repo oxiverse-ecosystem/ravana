@@ -468,6 +468,18 @@ STOP_WORDS = {
     "between", "through", "during", "because", "while", "which",
     "who", "whom", "what", "when", "where", "why", "how", "all",
     "each", "every", "both", "few", "more", "most", "some", "any",
+    # Additional function/grammatical words that should not be concepts
+    "such", "one", "other", "same", "new", "call", "make", "get", "take",
+    "give", "find", "use", "go", "come", "see", "know", "think", "say",
+    "tell", "ask", "want", "need", "like", "love", "feel", "look",
+    "seem", "become", "turn", "start", "begin", "end", "stop", "keep",
+    "let", "put", "set", "run", "walk", "talk", "hear", "listen",
+    "show", "mean", "help", "work", "play", "try", "move", "change",
+    # Prepositions and contractions that slip through
+    "til", "until", "till", "upon", "within", "without", "across", "along",
+    "among", "around", "beneath", "beyond", "despite", "except", "inside",
+    "near", "since", "toward", "towards", "underneath", "versus", "via",
+    "whether", "once", "twice",
 }
 
 
@@ -502,12 +514,34 @@ class ChainTrace:
 
 @dataclass
 class UserModel:
-    """Tracks user interaction patterns via edge reactivation frequency.
+    """Tracks user interaction patterns and Theory of Mind.
+
+    Theory of Mind components:
+    - knowledge_model: What concepts the user appears to know (from their queries)
+    - learning_goals: Topics the user has asked about repeatedly (goals they pursue)
+    - emotional_rapport: User's emotional valence toward topics (positive/negative)
+    - cognitive_style: Inferred style — 'curious', 'skeptical', 'practical', 'balanced'
+    - engagement_level: How engaged the user is (0-1)
+    - conversation_depth: Average number of follow-ups per topic
 
     No hardcoded patterns — preferences emerge from graph traversal stats.
     """
     edge_reactivations: Dict[Tuple[str, str], int] = field(default_factory=dict)
     query_concepts: Set[str] = field(default_factory=set)
+    
+    # Theory of Mind state
+    knowledge_model: Dict[str, float] = field(default_factory=dict)      # concept -> confidence user knows it
+    learning_goals: Dict[str, int] = field(default_factory=dict)        # topic -> frequency of queries
+    emotional_rapport: Dict[str, float] = field(default_factory=dict)   # topic -> valence (-1 to 1)
+    cognitive_style: str = "balanced"                                     # 'curious', 'skeptical', 'practical', 'balanced'
+    engagement_level: float = 0.5                                         # 0-1
+    conversation_depth: float = 0.0                                       # avg follow-ups per topic
+    
+    # Interaction tracking
+    topic_interaction_count: Dict[str, int] = field(default_factory=dict)
+    topic_followup_count: Dict[str, int] = field(default_factory=dict)
+    last_topic: str = ""
+    turn_since_topic_change: int = 0
 
     def observe_chain(self, hops: List[Tuple[str, str]], is_user_query: bool = False):
         """Record which edges were traversed during a chain walk."""
@@ -518,6 +552,83 @@ class UserModel:
             for from_label, to_label in hops:
                 self.query_concepts.add(from_label.lower())
                 self.query_concepts.add(to_label.lower())
+                # User asking about from -> to means they know 'from' and want to learn 'to'
+                self.knowledge_model[from_label.lower()] = min(1.0, self.knowledge_model.get(from_label.lower(), 0.0) + 0.1)
+                self.learning_goals[to_label.lower()] = self.learning_goals.get(to_label.lower(), 0) + 1
+
+    def observe_user_query(self, query: str, subject: str, valence: float):
+        """Update Theory of Mind from a user query."""
+        subject_lower = subject.lower()
+        self.topic_interaction_count[subject_lower] = self.topic_interaction_count.get(subject_lower, 0) + 1
+        
+        # Track learning goals: repeated queries about same topic = learning goal
+        self.learning_goals[subject_lower] = self.learning_goals.get(subject_lower, 0) + 1
+        
+        # Track emotional rapport: user's valence toward topic
+        current_rapport = self.emotional_rapport.get(subject_lower, 0.0)
+        # Slowly adjust toward user's valence (rate 0.2)
+        self.emotional_rapport[subject_lower] = current_rapport + 0.2 * (valence - current_rapport)
+        
+        # Track cognitive style from query patterns
+        self._update_cognitive_style(query)
+        
+        # Track topic changes for engagement
+        if subject_lower != self.last_topic and self.last_topic:
+            self.topic_followup_count[self.last_topic] = max(0, self.topic_followup_count.get(self.last_topic, 0) - 1)
+            self.turn_since_topic_change = 0
+        else:
+            self.turn_since_topic_change += 1
+            if self.last_topic:
+                self.topic_followup_count[self.last_topic] = self.topic_followup_count.get(self.last_topic, 0) + 1
+        self.last_topic = subject_lower
+        
+        # Update engagement level: more follow-ups = higher engagement
+        total_interactions = sum(self.topic_interaction_count.values())
+        total_followups = sum(self.topic_followup_count.values())
+        self.conversation_depth = total_followups / max(1, len(self.topic_interaction_count))
+        self.engagement_level = min(1.0, 0.3 + 0.7 * (total_followups / max(1, total_interactions)))
+
+    def _update_cognitive_style(self, query: str):
+        """Infer cognitive style from query patterns."""
+        q_lower = query.lower()
+        style_scores = {
+            'curious': sum(1 for w in ['why', 'how', 'what', 'explain', 'understand', 'curious', 'wonder'] if w in q_lower),
+            'skeptical': sum(1 for w in ['really', 'actually', 'prove', 'evidence', 'doubt', 'sure', 'fake', 'lie'] if w in q_lower),
+            'practical': sum(1 for w in ['how to', 'build', 'make', 'create', 'step', 'guide', 'tutorial', 'implement'] if w in q_lower),
+        }
+        if style_scores:
+            top_style = max(style_scores, key=style_scores.get)
+            if style_scores[top_style] > 0:
+                self.cognitive_style = top_style
+
+    def infer_topic_interest(self, topic: str) -> float:
+        """Return interest level for a topic (0-1).
+        Combines learning goals, rapport, and interaction frequency."""
+        t = topic.lower()
+        goal_strength = min(1.0, self.learning_goals.get(t, 0) * 0.2)
+        rapport = (self.emotional_rapport.get(t, 0.0) + 1.0) / 2.0  # normalize -1..1 to 0..1
+        interaction = min(1.0, self.topic_interaction_count.get(t, 0) * 0.1)
+        return (goal_strength * 0.4 + rapport * 0.4 + interaction * 0.2)
+
+    def infer_user_knows(self, concept: str) -> float:
+        """Probability user knows this concept (0-1)."""
+        return self.knowledge_model.get(concept.lower(), 0.0)
+
+    def infer_user_wants_to_learn(self, concept: str) -> float:
+        """How much user wants to learn about this concept (0-1)."""
+        t = concept.lower()
+        goal = min(1.0, self.learning_goals.get(t, 0) * 0.15)
+        rapport = (self.emotional_rapport.get(t, 0.0) + 1.0) / 2.0
+        return max(0.0, goal * 0.6 + rapport * 0.4 - self.knowledge_model.get(t, 0.0) * 0.5)
+
+    def get_preferred_relation_types(self) -> List[str]:
+        """Infer preferred relation types from edge reactivations."""
+        rel_counts = {}
+        for (f, t), count in self.edge_reactivations.items():
+            # Infer relation from concept pair (simplified)
+            rel = 'semantic'  # default
+            rel_counts[rel] = rel_counts.get(rel, 0) + count
+        return sorted(rel_counts, key=rel_counts.get, reverse=True)[:3]
 
     def inferred_preferences(self, threshold: int = 2) -> Dict[Tuple[str, str], int]:
         """Return edges the user has reactivated >= threshold times.
@@ -537,6 +648,38 @@ class UserModel:
             if from_c == cl:
                 boost[to_c] = 1.0 + (count / (count + 1.0)) * 0.3
         return boost
+
+    def get_state(self) -> Dict:
+        """Return serializable state."""
+        return {
+            'edge_reactivations': {str(k): v for k, v in self.edge_reactivations.items()},
+            'query_concepts': list(self.query_concepts),
+            'knowledge_model': self.knowledge_model,
+            'learning_goals': self.learning_goals,
+            'emotional_rapport': self.emotional_rapport,
+            'cognitive_style': self.cognitive_style,
+            'engagement_level': self.engagement_level,
+            'conversation_depth': self.conversation_depth,
+            'topic_interaction_count': self.topic_interaction_count,
+            'topic_followup_count': self.topic_followup_count,
+            'last_topic': self.last_topic,
+            'turn_since_topic_change': self.turn_since_topic_change,
+        }
+
+    def set_state(self, state: Dict):
+        """Restore state from dict."""
+        self.edge_reactivations = {eval(k): v for k, v in state.get('edge_reactivations', {}).items()}
+        self.query_concepts = set(state.get('query_concepts', []))
+        self.knowledge_model = state.get('knowledge_model', {})
+        self.learning_goals = state.get('learning_goals', {})
+        self.emotional_rapport = state.get('emotional_rapport', {})
+        self.cognitive_style = state.get('cognitive_style', 'balanced')
+        self.engagement_level = state.get('engagement_level', 0.5)
+        self.conversation_depth = state.get('conversation_depth', 0.0)
+        self.topic_interaction_count = state.get('topic_interaction_count', {})
+        self.topic_followup_count = state.get('topic_followup_count', {})
+        self.last_topic = state.get('last_topic', '')
+        self.turn_since_topic_change = state.get('turn_since_topic_change', 0)
 
 @dataclass
 class CognitiveResponseContext:
@@ -778,6 +921,52 @@ class CognitiveChatEngine:
                     self._CONNECTOR_TO_REL[opt] = rel_type
         self._CONNECTOR_SET = set(self._CONNECTOR_TO_REL.keys())
 
+        # Concepts that are grammatical/function words - should never be frame targets
+        # Actual grammatical/function words that should never be frame targets
+        # (prepositions, pronouns, conjunctions, determiners, particles)
+        # NOT content words like "love", "time", "life", "take", "make", "certain", "impossible" 
+        # those are valid targets!
+        self._GRAMMATICAL_CONCEPTS = {
+            # Prepositions/particles
+            "out", "in", "on", "off", "up", "down", "over", "under", "above",
+            "below", "through", "across", "between", "among", "around", "about",
+            "after", "before", "since", "until", "during", "while", "when",
+            "where", "why", "how", "here", "there", "now", "then", "later",
+            "soon", "ago", "back", "away", "forward", "backward", "inside",
+            "outside", "near", "far", "high", "low", "deep", "shallow",
+            # Pronouns
+            "we", "they", "them", "their", "us", "our", "he", "she", "him", "her",
+            "i", "you", "me", "my", "mine", "your", "yours", "his", "hers",
+            "its", "ours", "theirs", "myself", "yourself", "himself", "herself",
+            "itself", "ourselves", "yourselves", "themselves",
+            # Determiners/quantifiers
+            "a", "an", "the", "this", "that", "these", "those",
+            "some", "any", "every", "each", "all", "both", "either", "neither",
+            "much", "many", "few", "little", "more", "most", "less", "least",
+            "enough", "several", "one", "two", "three", "first", "second", "last",
+            "other", "another",
+            # Determiner-like adjectives that make poor discourse targets
+            "such", "same", "different", "new", "certain", "whole", "own", "particular",
+            # Conjunctions
+            "and", "or", "but", "nor", "yet", "so", "for", "because", "since",
+            "although", "though", "if", "unless", "until", "while", "when",
+            "where", "whether", "than", "as", "like",
+            # Auxiliary/modal verbs (function words)
+            "be", "am", "is", "are", "was", "were", "been", "being",
+            "have", "has", "had", "do", "does", "did", "doing",
+            "can", "could", "will", "would", "shall", "should",
+            "may", "might", "must", "ought", "need", "dare",
+            # Particles/adverbs that are purely grammatical
+            "not", "no", "yes", "very", "too", "also", "just", "only",
+            "even", "still", "already", "yet", "again", "once", "twice",
+            "here", "there", "where", "why", "how", "when",
+            # Discourse markers / connectives
+            "instead", "introduced", "alternatively", "conversely", "likewise",
+            "similarly", "therefore", "however", "moreover", "furthermore",
+            "besides", "nevertheless", "nonetheless", "accordingly", "consequently",
+            "thus", "hence", "accordingly", "subsequently", "meanwhile",
+        }
+
         # Try loading saved weights first
         # Meta-cognition layer
         self.meta_cog = MetaCognition(MetaCognitiveConfig(
@@ -925,6 +1114,7 @@ class CognitiveChatEngine:
                 # Decoder loaded successfully - no deferred training needed
                 self._needs_seed_training = False
                 self._needs_synthetic_training = False
+                self._freeze_decoder_vocab = True  # Freeze decoder vocab during inference
                 print(f"  [Loaded] Remembered {len(self.graph.nodes)} words from before!")
                 return
 
@@ -1230,7 +1420,7 @@ class CognitiveChatEngine:
         return passes
 
     def _expand_decoder_vocab(self, new_words: List[str]):
-        """Add new words to the decoder vocabulary (hippocampal replay).
+        """Add new words to the decoder vocabulary (hippocampal replay).""
 
         New words get embeddings from GloVe (or random if unavailable).
         The decoder embedding table is resized and vocabulary caches rebuilt.
@@ -1238,6 +1428,11 @@ class CognitiveChatEngine:
         """
         if not new_words or self.neural_decoder is None:
             return
+        import sys
+        freeze = getattr(self, '_freeze_decoder_vocab', 'NOT_SET')
+        if getattr(self, '_freeze_decoder_vocab', False):
+            return
+
         added = 0
         for word in new_words:
             wl = word.lower().strip()
@@ -1399,209 +1594,11 @@ class CognitiveChatEngine:
     # ─── Neural Decoder Generation ───
 
     def _generate_with_decoder(self, ctx: CognitiveResponseContext) -> Optional[str]:
-        """Generate a response using the NeuralDecoder.
-
-        Takes the graph walk concept embeddings as conditioning context
-        and generates text autoregressively.
-
-        Returns None if decoder isn't ready or generation fails (falls back to templates).
-        """
-        if self.neural_decoder is None or not self._decoder_vocab_built:
-            return None
-        # Allow the decoder once it has meaningful total training.
-        # We do not require web training here; the bundled seed corpus
-        # already provides real English patterns.
-        if self._decoder_training_count < 500:
-            return None
-
-        subject = ctx.subject
-        if not subject or subject.lower() not in self._concept_keywords:
-            return None
-
-        # Build conditioning embeddings from the subject and its associations
-        concept_embs = []
-        seen_labels = set()
-
-        # Add subject embedding
-        subj_nids = self._concept_keywords.get(subject.lower(), [])
-        if subj_nids:
-            subj_node = self.graph.get_node(subj_nids[0])
-            if subj_node and subj_node.vector is not None:
-                concept_embs.append(subj_node.vector.copy())
-                seen_labels.add(subject.lower())
-
-        # Add top associations
-        if ctx.associated_concepts:
-            for assoc_label, _ in ctx.associated_concepts[:5]:
-                al = assoc_label.lower()
-                if al not in seen_labels:
-                    assoc_nids = self._concept_keywords.get(al, [])
-                    if assoc_nids:
-                        assoc_node = self.graph.get_node(assoc_nids[0])
-                        if assoc_node and assoc_node.vector is not None:
-                            concept_embs.append(assoc_node.vector.copy())
-                            seen_labels.add(al)
-
-        if len(concept_embs) < 2:
-            # Need at least 2 concepts for meaningful conditioning
-            neighbor = self._find_vector_neighbor(subject)
-            if neighbor and neighbor.lower() != subject.lower():
-                nid_n = self._concept_keywords.get(neighbor.lower(), [])
-                if nid_n:
-                    n_node = self.graph.get_node(nid_n[0])
-                    if n_node and n_node.vector is not None:
-                        concept_embs.append(n_node.vector.copy())
-
-        if not concept_embs:
-            return None
-
-        conditioning_embs = np.stack(concept_embs, axis=0)
-
-        # Get vocab indices
-        bos_idx = self._decoder_word_to_idx.get("<bos>", 0)
-        eos_idx = self._decoder_word_to_idx.get("<eos>", 3)
-
-        # Generate with cerebellar bias. Basal-ganglia gating helps once
-        # the decoder has been trained on real text, but is harmful on
-        # a freshly seeded decoder because the gate has no learned
-        # preferences yet and falls through to softmax anyway. Skip it
-        # until the decoder has meaningful web training.
-        bg_gate = getattr(self, 'basal_ganglia', None) if self._decoder_web_training_count >= 200 else None
-        temp = 0.9 if self._decoder_training_count < 5000 else 1.0
-        generated_indices = self.neural_decoder.generate(
-            conditioning_embs=conditioning_embs,
-            max_steps=18,
-            bos_idx=bos_idx,
-            eos_idx=eos_idx,
-            temperature=temp,
-            cerebellar_ngram=getattr(self, 'cerebellar_ngram', None),
-            idx_to_word=self._decoder_idx_to_word,
-            basal_ganglia=bg_gate,
-        )
-        # Quality retry: if the output is too looped, try again at
-        # higher temperature. Cheap because the decoder is small.
-        if generated_indices:
-            uniq = len(set(generated_indices))
-            if uniq < max(4, len(generated_indices) // 3):
-                generated_indices = self.neural_decoder.generate(
-                    conditioning_embs=conditioning_embs,
-                    max_steps=18,
-                    bos_idx=bos_idx,
-                    eos_idx=eos_idx,
-                    temperature=min(1.1, temp + 0.3),
-                    cerebellar_ngram=None,
-                    idx_to_word=self._decoder_idx_to_word,
-                    basal_ganglia=None,
-                )
-
-        # Map indices back to words
-        words = []
-        for idx in generated_indices:
-            word = self._decoder_idx_to_word.get(idx, "")
-            if not word or word in ("<pad>", "<unk>", "<bos>", "<eos>"):
-                continue
-            words.append(word)
-
-        if len(words) < 4:
-            return None
-
-        # Capitalize first word, add period
-        sentence = " ".join(words)
-        sentence = sentence[0].upper() + sentence[1:] if sentence else sentence
-        if not sentence.endswith("."):
-            sentence += "."
-        return sentence
-
-    # ─── Teen Graph Seeding ───
-
-    def _generate_with_decoder_and_syntax(self, ctx: CognitiveResponseContext) -> Optional[str]:
-        """Generate response using decoder for concept selection + syntactic pipeline for grammar.
-        
-        The decoder selects relevant concepts from the graph walk, then the
-        SyntacticCellAssembly + SurfaceRealizer builds grammatical sentences.
-        This avoids template frase while ensuring proper English syntax.
-        """
-        # HARD FREEZE: decoder vocab must be fully built before generation starts.
-        # NeuralDecoder has fixed vocab_size set at construction; no expansion allowed mid-generation.
-        assert self._decoder_vocab_built, "Decoder vocab not built - generation unsafe"
-        if self.neural_decoder is None or not self._decoder_vocab_built:
-            return None
-        if not hasattr(self, 'syntactic_assembly') or not hasattr(self, 'surface_realizer'):
-            return None
-        
-        subject = ctx.subject
-        assocs = ctx.associated_concepts
-        
-        # Build conditioning embeddings
-        concept_embs = []
-        seen_labels = set()
-        subj_nids = self._concept_keywords.get(subject.lower(), [])
-        if subj_nids:
-            subj_node = self.graph.get_node(subj_nids[0])
-            if subj_node and subj_node.vector is not None:
-                concept_embs.append(subj_node.vector.copy())
-                seen_labels.add(subject.lower())
-        
-        for assoc_label, _ in assocs[:5]:
-            al = assoc_label.lower()
-            if al not in seen_labels:
-                assoc_nids = self._concept_keywords.get(al, [])
-                if assoc_nids:
-                    a_node = self.graph.get_node(assoc_nids[0])
-                    if a_node and a_node.vector is not None:
-                        concept_embs.append(a_node.vector.copy())
-                        seen_labels.add(al)
-        
-        if len(concept_embs) < 2:
-            return None
-        
-        conditioning_embs = np.stack(concept_embs, axis=0)
-        
-        # Generate concept sequence with decoder
-        bos_idx = self._decoder_word_to_idx.get("<bos>", 0)
-        eos_idx = self._decoder_word_to_idx.get("<eos>", 3)
-        
-        generated_indices = self.neural_decoder.generate(
-            conditioning_embs=conditioning_embs,
-            max_steps=15,
-            bos_idx=bos_idx,
-            eos_idx=eos_idx,
-            temperature=1.0,
-            cerebellar_ngram=getattr(self, 'cerebellar_ngram', None),
-            idx_to_word=self._decoder_idx_to_word,
-            basal_ganglia=None,
-        )
-        
-        # Convert to concept labels (filter to graph concepts)
-        if not generated_indices:
-            return None
-        
-        generated_words = []
-        for idx in generated_indices:
-            word = self._decoder_idx_to_word.get(idx, "")
-            if word and word in self._concept_keywords and word not in STOP_WORDS:
-                generated_words.append(word)
-        
-        if len(generated_words) < 2:
-            return None
-
-        # MINIMAL POST-PROCESSING: Just clean up and capitalize
-        # Let the decoder's raw concept sequence flow naturally without rigid template
-        # Clean up repeated words (keep first occurrence)
-        seen = set()
-        unique_words = []
-        for w in generated_words[:8]:
-            if w not in seen:
-                seen.add(w)
-                unique_words.append(w)
-        
-        # Join as natural phrase, capitalize first letter
-        if unique_words:
-            sentence = ' '.join(unique_words[:10])
-            return sentence[0].upper() + sentence[1:] + '.'
-        
+        """Disabled - use syntactic generation instead."""
         return None
-
+    def _generate_with_decoder(self, ctx: CognitiveResponseContext) -> Optional[str]:
+        """Disabled - use syntactic generation instead."""
+        return None
     def _seed_concepts(self):
         """Seed the graph with teenager-level vocabulary and typed relationships."""
         self._concept_labels = set()
@@ -1818,18 +1815,20 @@ class CognitiveChatEngine:
                      'bored', 'proud', 'lonely', 'grateful', 'complex', 'significant',
                      'fundamental', 'inevitable', 'possible', 'obvious', 'subtle',
                      'profound'}
-        for label in self._concept_labels:
-            ll = label.lower()
-            if ll in known_verbs:
-                self._concept_pos[ll] = 'verb'
-            elif ll in known_adjs:
-                self._concept_pos[ll] = 'adj'
-            elif any(len(ll) > len(s) + 1 and ll.endswith(s) for s in verb_suffixes):
-                self._concept_pos[ll] = 'verb'
-            elif any(len(ll) > len(s) + 1 and ll.endswith(s) for s in adj_suffixes):
-                self._concept_pos[ll] = 'adj'
-            else:
-                self._concept_pos[ll] = 'noun'
+        # Iterate over all graph node labels, not just _concept_labels
+        for node in self.graph.nodes.values():
+            if node.label:
+                ll = node.label.lower()
+                if ll in known_verbs:
+                    self._concept_pos[ll] = 'verb'
+                elif ll in known_adjs:
+                    self._concept_pos[ll] = 'adj'
+                elif any(len(ll) > len(s) + 1 and ll.endswith(s) for s in verb_suffixes):
+                    self._concept_pos[ll] = 'verb'
+                elif any(len(ll) > len(s) + 1 and ll.endswith(s) for s in adj_suffixes):
+                    self._concept_pos[ll] = 'adj'
+                else:
+                    self._concept_pos[ll] = 'noun'
 
 
     def _bootstrap_domain_concepts(self):
@@ -2916,6 +2915,9 @@ class CognitiveChatEngine:
                 self.emotion.state.arousal,
                 self.emotion.state.dominance,
             )
+
+        # Step 5b: Update UserModel / Theory of Mind with this query
+        self.user_model.observe_user_query(user_input, subject, self.emotion.state.valence)
 
         # Step 6: Dual-process route
         confidence = self.identity.state.strength * 0.5 + 0.2
@@ -4534,6 +4536,7 @@ class CognitiveChatEngine:
                     activation_boost: Optional[Dict[str, float]] = None,
                     subject_proximity: Optional[str] = None,
                     episodic_first: bool = False) -> Optional[str]:
+        import sys
         """Walk a path through the graph from label, temperature-weighted.
         temperature=0 → greedy (always strongest), temperature=1 → near-uniform.
         Each hop adds `connector concept` to the chain. Returns None if no path.
@@ -5164,6 +5167,172 @@ class CognitiveChatEngine:
 
         return (" ".join(sentences), "graph_fallback")
 
+
+
+    def _generate_with_decoder_and_syntax(self, ctx: CognitiveResponseContext) -> Optional[str]:
+        """Generate response using full syntactic pipeline:
+        
+        1. PrefrontalWorkspace: Plan discourse (3-sentence intent arc)
+        2. SyntacticCellAssembly: Bind concepts to grammatical frames
+        3. SurfaceRealizer: Apply morphology, agreement, pronouns, articles
+        
+        Uses graph walk chain concepts directly - decoder produces garbage.
+        """
+        subject = ctx.subject
+        assocs = ctx.associated_concepts
+        if not subject or not assocs:
+            return None
+        
+        # ─── STEP 1: PrefrontalWorkspace — Discourse Planning ───
+        plan = self.pfc_workspace.plan_discourse(
+            user_input=ctx.raw_input,
+            subject=subject,
+            concept_pos=self._concept_pos,
+            associations=assocs[:10],
+            past_topics=ctx.past_topics,
+            is_follow_up=self._is_follow_up(ctx.raw_input),
+        )
+        
+        if self._trace_enabled:
+            print(f"  [trace] Discourse plan: {len(plan.intents)} intents")
+            for i, intent in enumerate(plan.intents):
+                print(f"    Intent {i}: type={intent.type}, subject={intent.subject}, target={intent.target_concept}, relation={intent.primary_relation}, marker={intent.discourse_marker}")
+        
+        # ─── STEP 2: For each discourse intent, generate a sentence ───
+        sentences = []
+        dopamine_tone = getattr(self, '_dopamine_tone', 0.5)
+        used_targets = {subject.lower()}  # Track used concepts across sentences
+        # Allow reuse after 2 sentences to prevent deadlock
+        target_reuse_window = 2
+        recent_targets = []  # Track recent targets for reuse window
+        
+        for sent_idx, intent in enumerate(plan.intents):
+            # Generate concept sequence for this intent
+            intent_subject = intent.subject
+            intent_target = intent.target_concept
+            intent_relation = intent.primary_relation
+            
+            # Filter out grammatical concepts from discourse plan target
+            if intent_target and intent_target.lower() in self._GRAMMATICAL_CONCEPTS:
+                intent_target = ""
+            
+            # Walk chain for this intent's relation type
+            seen = {intent_subject.lower()}
+            if intent_target:
+                seen.add(intent_target.lower())
+            
+            chain_result = self._walk_chain(
+                label=intent_subject,
+                seen=seen.copy(),  # Pass copy to avoid mutation by _walk_chain
+                max_hops=2,
+                temperature=0.25,
+                contradiction_penalty=0.6,
+                activation_boost=self._activation_boost,
+                subject_proximity=intent_subject,
+            )
+            
+            # Parse chain into concepts
+            chain_concepts = []
+            chain_connectors = []
+            if chain_result:
+                for token in chain_result.split():
+                    if token in self._CONNECTOR_SET:
+                        chain_connectors.append(token)
+                    else:
+                        # Filter out grammatical concepts early
+                        is_gram = token.lower() in self._GRAMMATICAL_CONCEPTS
+                        if not is_gram:
+                            chain_concepts.append(token)
+            
+            if self._trace_enabled:
+                print(f"  [trace] Sent {sent_idx}: intent_subject={intent_subject}, intent_target={intent_target}, chain_result={chain_result}")
+                print(f"    chain_concepts={chain_concepts}, chain_connectors={chain_connectors}")
+                print(f"    used_targets={used_targets}, recent_targets={recent_targets}")
+            
+            # Use discourse target if chain didn't produce it, else use chain's top concept
+            target_for_frame = intent_target
+            
+            # PRIORITY 1: Use valid chain concepts (most grounded in graph structure)
+            if not target_for_frame and chain_concepts:
+                for c in chain_concepts:
+                    cl = c.lower()
+                    if cl not in seen and cl not in self._GRAMMATICAL_CONCEPTS and cl not in used_targets:
+                        target_for_frame = c
+                        break
+            
+            # PRIORITY 2: Use discourse plan target if valid
+            if not target_for_frame and intent_target:
+                it_lower = intent_target.lower()
+                if it_lower not in seen and it_lower not in self._GRAMMATICAL_CONCEPTS and it_lower not in used_targets:
+                    target_for_frame = intent_target
+            
+            # PRIORITY 3: Vector neighbor as last resort
+            if not target_for_frame:
+                neighbor = self._find_vector_neighbor(intent_subject)
+                if self._trace_enabled:
+                    print(f"    _find_vector_neighbor({intent_subject}) = {neighbor}")
+                if neighbor:
+                    nb_lower = neighbor.lower()
+                    if nb_lower not in seen and nb_lower not in self._GRAMMATICAL_CONCEPTS and nb_lower not in used_targets:
+                        target_for_frame = neighbor
+            
+            # Allow target reuse if not used in last N sentences
+            target_reusable = False
+            if target_for_frame and target_for_frame.lower() in used_targets:
+                if target_for_frame.lower() not in [t.lower() for t in recent_targets[-target_reuse_window:]]:
+                    target_reusable = True
+            
+            if not target_for_frame or (target_for_frame.lower() in used_targets and not target_reusable) or target_for_frame.lower() in self._GRAMMATICAL_CONCEPTS:
+                if self._trace_enabled:
+                    print(f"    SKIPPING sentence {sent_idx}: target_for_frame={target_for_frame}")
+                continue
+            
+            if not target_reusable:
+                used_targets.add(target_for_frame.lower())
+            recent_targets.append(target_for_frame)
+            if len(recent_targets) > target_reuse_window:
+                recent_targets.pop(0)
+            
+            # ─── STEP 4: SyntacticCellAssembly — Bind to grammatical frame ───
+            frame = self.syntactic_assembly.bind_to_sentence(
+                subject=intent_subject,
+                relation=intent_relation,
+                target=target_for_frame,
+                pos_map=self._concept_pos,
+                chain_concepts=chain_concepts,
+                chain_connectors=chain_connectors,
+                depth=sent_idx,
+            )
+            
+            # Apply discourse marker from plan
+            discourse_marker = intent.discourse_marker
+            
+            # ─── STEP 5: SurfaceRealizer — Morphology, agreement, pronouns, articles ───
+            discourse_state = DiscourseState(
+                sentence_index=sent_idx,
+                previous_subject=sentences[-1].split()[0].lower() if sentences else None,
+                discourse_type=intent.type,
+                total_sentences=len(plan.intents),
+            )
+            
+            try:
+                sentence = self.surface_realizer.realize(
+                    frame=frame,
+                    discourse_context=discourse_state,
+                    dopamine_tone=dopamine_tone,
+                    cerebellar_ngram=getattr(self, 'cerebellar_ngram', None),
+                    discourse_marker=discourse_marker,
+                )
+                sentences.append(sentence)
+            except Exception as e:
+                if self._trace_enabled:
+                    print(f"  [trace] SurfaceRealizer error: {e}")
+                continue
+        
+        if not sentences:
+            return None
+        
+        return " ".join(sentences)
 
     def _reasoning_loop(self, ctx: CognitiveResponseContext) -> Tuple[str, str]:
         """Multi-step reasoning with web search for complex queries.
@@ -6602,6 +6771,8 @@ class CognitiveChatEngine:
             'cerebellar_ngram': dict(self._cerebellar_ngram),
             'cerebellar_ngram_state': self.cerebellar_ngram.get_state() if hasattr(self, 'cerebellar_ngram') else {},
             'cerebellar_depth': dict(self._cerebellar_depth),
+            'concept_pos': dict(self._concept_pos),
+            'concept_labels': list(self._concept_labels),
             'visited_concepts': list(self._visited_concepts),
             'activation_fatigue': dict(self._activation_fatigue),
             'recent_traversals': list(self._recent_traversals[-30:]),
@@ -6713,7 +6884,15 @@ class CognitiveChatEngine:
             # Restore contradiction map (may not exist in old saves)
             self._contradiction_map = state.get('contradiction_map', {})
             # Restore user model
-            self.user_model = state.get('user_model', UserModel())
+            loaded_user_model = state.get('user_model', UserModel())
+            # Upgrade old UserModel to new Theory of Mind version if needed
+            if not hasattr(loaded_user_model, 'topic_interaction_count'):
+                # Old UserModel - upgrade it
+                upgraded = UserModel()
+                upgraded.edge_reactivations = loaded_user_model.edge_reactivations
+                upgraded.query_concepts = loaded_user_model.query_concepts
+                loaded_user_model = upgraded
+            self.user_model = loaded_user_model
             # Restore belief store
             bs_state = state.get('belief_store_state', None)
             if bs_state:
@@ -6783,6 +6962,8 @@ class CognitiveChatEngine:
             self._cognitive_state = state.get('cognitive_state', 'default')
             self._state_duration = state.get('state_duration', 0)
             self._impossible_queries = state.get('impossible_queries', [])
+            self._concept_pos = state.get('concept_pos', {})
+            self._concept_labels = set(state.get('concept_labels', []))
 
             # Stash decoder state dict to be loaded after _build_decoder_vocab() 
             # (neural decoder doesn't exist yet — created later in __init__)
@@ -6811,6 +6992,8 @@ class CognitiveChatEngine:
             self._cognitive_state = state.get('cognitive_state', 'default')
             self._state_duration = state.get('state_duration', 0)
             self._impossible_queries = state.get('impossible_queries', [])
+            self._concept_pos = state.get('concept_pos', {})
+            self._concept_labels = set(state.get('concept_labels', []))
 
             # Stash decoder state dict to be loaded after _build_decoder_vocab()
             # (neural decoder doesn't exist yet — created later in __init__)
@@ -6822,6 +7005,15 @@ class CognitiveChatEngine:
             # Restart background learning
             self.start_background_learning()
 
+            # Rebuild POS tags if missing (old saves didn't include concept_pos)
+            if not self._concept_pos:
+                self._build_concept_pos()
+                # Re-seed dependent components
+                if hasattr(self, 'cerebellar_ngram'):
+                    self.cerebellar_ngram.seed_from_pos(self._concept_pos)
+                if hasattr(self, 'syntactic_assembly'):
+                    self.syntactic_assembly.seed_from_pos(self._concept_pos)
+            
             return True
         except Exception as e:
             print(f"  [Load error] {e}")

@@ -161,8 +161,14 @@ class SyntacticCellAssembly:
         Each concept gets initial role weights based on its POS tag.
         Hebbian plasticity will refine these over time.
         """
+        # Map full POS names to short codes used by POS_ROLE_PRIORS
+        pos_map = {
+            'noun': 'n', 'verb': 'v', 'adj': 'adj', 'adverb': 'adv',
+            'pron': 'pron', 'interj': 'interj', 'conj': 'conj', 'prep': 'prep', 'det': 'det', 'num': 'num'
+        }
         for concept, pos in concept_pos.items():
-            priors = self.POS_ROLE_PRIORS.get(pos, {})
+            short_pos = pos_map.get(pos, pos)  # fallback to original if not in map
+            priors = self.POS_ROLE_PRIORS.get(short_pos, {})
             cl = concept.lower()
             if priors.get('subject_role', 0) > 0:
                 self.subject_role[cl] = priors['subject_role']
@@ -210,10 +216,15 @@ class SyntacticCellAssembly:
         verb_phrase = self._pick_verb_phrase(relation)
 
         # Determine article for subject
-        subj_pos = pos_map.get(sl, 'n')
-        obj_pos = pos_map.get(tl, 'n')
-        art_subj = self._determine_article(subject, subj_pos, is_subject=True)
-        art_obj = self._determine_article(target, obj_pos, is_subject=False)
+        subj_pos = pos_map.get(sl, 'noun')
+        obj_pos = pos_map.get(tl, 'noun')
+        # Convert to short POS codes for article determination
+        pos_short = {'noun': 'n', 'verb': 'v', 'adj': 'adj', 'adverb': 'adv',
+                     'pron': 'pron', 'interj': 'interj', 'conj': 'conj', 'prep': 'prep', 'det': 'det', 'num': 'num'}
+        subj_pos_short = pos_short.get(subj_pos, subj_pos)
+        obj_pos_short = pos_short.get(obj_pos, obj_pos)
+        art_subj = self._determine_article(subject, subj_pos_short, is_subject=True)
+        art_obj = self._determine_article(target, obj_pos_short, is_subject=False)
 
         # Pronoun for subject (used in subsequent sentences)
         pronoun = self._pronoun_map.get(sl, '')
@@ -299,17 +310,21 @@ class SyntacticCellAssembly:
         - Uncountable nouns → no article
         - Proper nouns → no article (capitalized already)
         - Pronouns → no article
+        - Adjectives and verbs → no article (don't function as NPs alone)
         - Countable singular → "a"/"an" or "the"
         - First mention: "a/an", subsequent: "the"
         """
         cl = concept.lower()
-        if pos in ('pron', 'interj', 'conj', 'prep', 'det'):
+        if pos in ('pron', 'interj', 'conj', 'prep', 'det', 'adj', 'verb', 'v'):
             return ""
         if cl in self._abstract_nouns:
             return ""
         if cl in self._uncountable_nouns:
             return ""
         if len(cl) <= 2:
+            return ""
+        # Plural nouns (ending in s) don't take "a"/"an"
+        if cl.endswith('s') and cl not in {'news', 'physics', 'mathematics', 'economics', 'politics', 'ethics'}:
             return ""
         # Subject gets "the" for specificity, object is more flexible
         if is_subject:

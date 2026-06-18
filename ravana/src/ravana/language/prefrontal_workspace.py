@@ -401,12 +401,64 @@ class PrefrontalWorkspace:
                                 prefer_causal: bool = False,
                                 prefer_contrast: bool = False) -> str:
         """Pick the best association not already seen."""
+        # Grammatical concepts that should never be discourse targets
+        # Only true function words - NOT content words like "time", "life", "certain", etc.
+        GRAMMATICAL_CONCEPTS = {
+            # Prepositions/particles
+            "out", "in", "on", "off", "up", "down", "over", "under", "above",
+            "below", "through", "across", "between", "among", "around", "about",
+            "after", "before", "since", "until", "during", "while", "when",
+            "where", "why", "how", "here", "there", "now", "then", "later",
+            "soon", "ago", "back", "away", "forward", "backward", "inside",
+            "outside", "near", "far", "high", "low", "deep", "shallow",
+            # Pronouns
+            "we", "they", "them", "their", "us", "our", "he", "she", "him", "her",
+            "i", "you", "me", "my", "mine", "your", "yours", "his", "hers",
+            "its", "ours", "theirs", "myself", "yourself", "himself", "herself",
+            "itself", "ourselves", "yourselves", "themselves",
+            # Determiners/quantifiers
+            "a", "an", "the", "this", "that", "these", "those",
+            "some", "any", "every", "each", "all", "both", "either", "neither",
+            "much", "many", "few", "little", "more", "most", "less", "least",
+            "enough", "several", "one", "two", "three", "first", "second", "last",
+            "other", "another",
+            # Determiner-like adjectives that make poor discourse targets
+            "such", "same", "different", "new", "certain", "whole", "own", "particular",
+            # Conjunctions
+            "and", "or", "but", "nor", "yet", "so", "for", "because", "since",
+            "although", "though", "if", "unless", "until", "while", "when",
+            "where", "whether", "than", "as", "like",
+            # Auxiliary/modal verbs (function words)
+            "be", "am", "is", "are", "was", "were", "been", "being",
+            "have", "has", "had", "do", "does", "did", "doing",
+            "can", "could", "will", "would", "shall", "should",
+            "may", "might", "must", "ought", "need", "dare",
+            # Particles/adverbs that are purely grammatical
+            "not", "no", "yes", "very", "too", "also", "just", "only",
+            "even", "still", "already", "yet", "again", "once", "twice",
+            "here", "there", "where", "why", "how", "when",
+            # Discourse markers / connectives
+            "instead", "introduced", "alternatively", "conversely", "likewise",
+            "similarly", "therefore", "however", "moreover", "furthermore",
+            "besides", "nevertheless", "nonetheless", "accordingly", "consequently",
+            "thus", "hence", "accordingly", "subsequently", "meanwhile",
+        }
         for label, score in associations:
             ll = label.lower()
             if ll in seen:
                 continue
+            if ll in GRAMMATICAL_CONCEPTS:
+                continue
             if exclude_verbs:
-                continue  # Skip filtering for now; BG Gate will handle
+                verb_like = {'think', 'know', 'feel', 'want', 'need', 'like', 'love',
+                            'go', 'come', 'see', 'hear', 'eat', 'drink', 'sleep', 'play',
+                            'help', 'make', 'get', 'say', 'give', 'take', 'cause', 'change',
+                            'grow', 'learn', 'teach', 'create', 'destroy', 'protect', 'accept',
+                            'reject', 'invent', 'connect', 'influence', 'struggle', 'challenge',
+                            'analyze', 'conclude', 'reflect', 'question', 'explore', 'understand',
+                            'compare', 'criticize', 'assume', 'imagine'}
+                if ll in verb_like:
+                    continue
             return label
         return ""
 
