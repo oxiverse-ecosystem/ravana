@@ -35,9 +35,11 @@ cognitive_trace.md
 compression_trace.json
 compression_trace.md
 
+# ── Models & Checkpoints ──
+models/
+
 # ── Results & Experiments ──
-results/*.json
-results/*.txt
+results/
 */results/*.json
 */results/*.txt
 experiment_results/

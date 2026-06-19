@@ -2114,10 +2114,11 @@ class RLMv2(Module):
         if not verb_word or not self.use_verb_offset:
             return None
         stem = self._verb_stem(verb_word)
-        if stem not in self._verb_offsets:
+        domain_id = self.current_domain_id if self.current_domain_id is not None else 0
+        if domain_id not in self._verb_offsets or stem not in self._verb_offsets[domain_id]:
             return None
         
-        offset = self._verb_offsets[stem]
+        offset = self._verb_offsets[domain_id][stem]
         predicted = adapted_source_embed + offset
         
         # Cosine similarity against all token embeddings
@@ -2155,7 +2156,11 @@ class RLMv2(Module):
         # logits with bilinear W_rel logits based on verb frequency.
         # For well-trained verbs (count >= 10), verb offset dominates.
         # For rare verbs, fall back more heavily on W_rel.
-        if verb_word and self.use_verb_offset:
+        # 
+        # When _test_time_adapt_mode is True, skip Path A entirely and fall
+        # through to the entity adapter path (Path B) so that test-time
+        # adapted embeddings are used for the verb offset prediction.
+        if verb_word and self.use_verb_offset and not getattr(self, '_test_time_adapt_mode', False):
             verb_result = self._rp_forward_verb_offset(subject_tid, verb_word, return_count=True)
             if verb_result is not None and verb_result[0] is not None:
                 verb_logits, verb_count, verb_variance = verb_result

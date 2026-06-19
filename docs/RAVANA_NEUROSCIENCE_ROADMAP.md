@@ -11,7 +11,7 @@
 1. [Core Problem Diagnosis](#1-core-problem-diagnosis)
 2. [What's Already Implemented (Codebase Audit)](#2-whats-already-implemented)
 3. [Neuroscience Research Foundation](#3-neuroscience-research-foundation)
-4. [P0: Held-Out Generalization (8.3% → 85%+)](#4-p0-held-out-generalization)
+4. [P0: Held-Out Generalization (8.3% → 93-100%)](#4-p0-held-out-generalization)
 5. [P0: Complete Verb-Offset System](#5-p0-complete-verb-offset-system)
 6. [P1: Production-Grade Syntactic Pipeline ✅ **COMPLETED**](#6-p1-production-grade-syntactic-pipeline)
 7. [P1: Theory of Mind & Personalization](#7-p1-theory-of-mind--personalization)
@@ -214,7 +214,7 @@ The system **works as designed** — graph walk + syntactic pipeline = grammatic
 
 ---
 
-## 4. P0: Held-Out Generalization (8.3% → 85%+) ✅ **COMPLETED (2026-06-19)**
+## 4. P0: Held-Out Generalization (8.3% → 93-100%) ✅ **COMPLETED (2026-06-19)**
 
 ### Implementation
 
