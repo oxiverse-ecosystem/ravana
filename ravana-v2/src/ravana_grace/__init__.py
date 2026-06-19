@@ -11,7 +11,7 @@ from .core import (
 )
 from .dialogue import DialogueEngine
 
-__version__ = "0.1.1"
+__version__ = "0.2.0"
 __all__ = [
     "Governor",
     "Identity",
