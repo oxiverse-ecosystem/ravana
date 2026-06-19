@@ -1,0 +1,105 @@
+{
+  "cycle": 3,
+  "training_count": 22691,
+  "seed_training": 0,
+  "web_training": 121120,
+  "avg_quality": 0.17672068428647375,
+  "results": [
+    {
+      "template_count": 1,
+      "natural_count": 0,
+      "template_ratio": 1.0,
+      "natural_ratio": 0.0,
+      "words": 4,
+      "sentences": 1,
+      "diversity": 1.0,
+      "quality_score": 0.0,
+      "question": "what happens if time travel possible",
+      "response": "possible connects with possibility."
+    },
+    {
+      "template_count": 0,
+      "natural_count": 0,
+      "template_ratio": 0.0,
+      "natural_ratio": 0.0,
+      "words": 18,
+      "sentences": 3,
+      "diversity": 0.8888888888888888,
+      "quality_score": 0.0,
+      "question": "why not possible til now",
+      "response": "Possible brings about https. Besides, https bring about a com. Likewise, it is closely tied to a host."
+    },
+    {
+      "template_count": 2,
+      "natural_count": 0,
+      "template_ratio": 1.0,
+      "natural_ratio": 0.0,
+      "words": 13,
+      "sentences": 2,
+      "diversity": 1.0,
+      "quality_score": 0.0,
+      "question": "make time machine",
+      "response": "Besides, time is associated with good. On the other hand, it challenges life."
+    },
+    {
+      "template_count": 4,
+      "natural_count": 1,
+      "template_ratio": 0.8,
+      "natural_ratio": 0.2,
+      "words": 21,
+      "sentences": 3,
+      "diversity": 0.8095238095238095,
+      "quality_score": 0.1619047619047619,
+      "question": "switch to cybersecurity",
+      "response": "The switch is associated with an involved. Furthermore, it connects with change. On the other hand, it contrasts with a system."
+    },
+    {
+      "template_count": 0,
+      "natural_count": 0,
+      "template_ratio": 0.0,
+      "natural_ratio": 0.0,
+      "words": 10,
+      "sentences": 2,
+      "diversity": 0.9,
+      "quality_score": 0.0,
+      "question": "tell me about consciousness",
+      "response": "Consciousness are associated with a true. It connect with debate."
+    },
+    {
+      "template_count": 1,
+      "natural_count": 1,
+      "template_ratio": 0.5,
+      "natural_ratio": 0.5,
+      "words": 19,
+      "sentences": 3,
+      "diversity": 0.8421052631578947,
+      "quality_score": 0.42105263157894735,
+      "question": "how does memory work",
+      "response": "The work is closely tied to freedom. In addition, it links to a people. Yet, it challenges a water."
+    },
+    {
+      "template_count": 1,
+      "natural_count": 1,
+      "template_ratio": 0.5,
+      "natural_ratio": 0.5,
+      "words": 18,
+      "sentences": 3,
+      "diversity": 0.8888888888888888,
+      "quality_score": 0.4444444444444444,
+      "question": "what is the meaning of life",
+      "response": "Life goes hand in hand with official. Moreover, it links to an island. Yet, it challenges a beach."
+    },
+    {
+      "template_count": 1,
+      "natural_count": 1,
+      "template_ratio": 0.5,
+      "natural_ratio": 0.5,
+      "words": 22,
+      "sentences": 3,
+      "diversity": 0.7727272727272727,
+      "quality_score": 0.38636363636363635,
+      "question": "explain quantum mechanics",
+      "response": "Mechanics goes hand in hand with a var. Furthermore, it connect with a neuroscience. On the other hand, it contrast with fundamental."
+    }
+  ]
+}

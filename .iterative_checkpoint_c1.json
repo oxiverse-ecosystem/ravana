@@ -1,0 +1,105 @@
+{
+  "cycle": 1,
+  "training_count": 22085,
+  "seed_training": 0,
+  "web_training": 117148,
+  "avg_quality": 0.1626233552631579,
+  "results": [
+    {
+      "template_count": 1,
+      "natural_count": 0,
+      "template_ratio": 1.0,
+      "natural_ratio": 0.0,
+      "words": 4,
+      "sentences": 1,
+      "diversity": 1.0,
+      "quality_score": 0.0,
+      "question": "what happens if time travel possible",
+      "response": "possible connects with possibility."
+    },
+    {
+      "template_count": 2,
+      "natural_count": 0,
+      "template_ratio": 1.0,
+      "natural_ratio": 0.0,
+      "words": 15,
+      "sentences": 3,
+      "diversity": 1.0,
+      "quality_score": 0.0,
+      "question": "why not possible til now",
+      "response": "Possible leads to impossible. Also, impossible creates https. Correspondingly, it is associated with a response."
+    },
+    {
+      "template_count": 1,
+      "natural_count": 2,
+      "template_ratio": 0.3333333333333333,
+      "natural_ratio": 0.6666666666666666,
+      "words": 19,
+      "sentences": 3,
+      "diversity": 0.8421052631578947,
+      "quality_score": 0.5614035087719298,
+      "question": "make time machine",
+      "response": "Time is closely tied to a past. Furthermore, it relates to take. Although, it is the opposite of get."
+    },
+    {
+      "template_count": 2,
+      "natural_count": 0,
+      "template_ratio": 1.0,
+      "natural_ratio": 0.0,
+      "words": 20,
+      "sentences": 3,
+      "diversity": 0.8,
+      "quality_score": 0.0,
+      "question": "switch to cybersecurity",
+      "response": "The switch relates to a system. Besides, it links to an use. Yet, it is the opposite of a start."
+    },
+    {
+      "template_count": 1,
+      "natural_count": 0,
+      "template_ratio": 1.0,
+      "natural_ratio": 0.0,
+      "words": 9,
+      "sentences": 2,
+      "diversity": 0.8888888888888888,
+      "quality_score": 0.0,
+      "question": "tell me about consciousness",
+      "response": "Consciousness links to something. It relate to a way."
+    },
+    {
+      "template_count": 3,
+      "natural_count": 2,
+      "template_ratio": 0.6,
+      "natural_ratio": 0.4,
+      "words": 18,
+      "sentences": 3,
+      "diversity": 0.8333333333333334,
+      "quality_score": 0.33333333333333337,
+      "question": "how does memory work",
+      "response": "The work is associated with working. In addition, it connects with freedom. Although, it contrasts with a store."
+    },
+    {
+      "template_count": 1,
+      "natural_count": 0,
+      "template_ratio": 1.0,
+      "natural_ratio": 0.0,
+      "words": 22,
+      "sentences": 3,
+      "diversity": 0.8181818181818182,
+      "quality_score": 0.0,
+      "question": "what is the meaning of life",
+      "response": "Life is closely tied to a set. Also, it goes hand in hand with a regular. Yet, it contrasts with an unit."
+    },
+    {
+      "template_count": 1,
+      "natural_count": 1,
+      "template_ratio": 0.5,
+      "natural_ratio": 0.5,
+      "words": 16,
+      "sentences": 3,
+      "diversity": 0.8125,
+      "quality_score": 0.40625,
+      "question": "explain quantum mechanics",
+      "response": "Mechanics links to a quantum. Besides, it relate to a physics. Although, it contrast with fundamental."
+    }
+  ]
+}

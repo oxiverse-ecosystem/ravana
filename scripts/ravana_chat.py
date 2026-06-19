@@ -2757,24 +2757,35 @@ class CognitiveChatEngine:
         if getattr(self, '_needs_seed_training', False):
             self._needs_seed_training = False
             try:
-                # Quick training: 1 pass on the corpus (vocab already expanded in _build_decoder_vocab)
-                corpus_text = open(os.path.join(_proj_root, "data", "corpora", "teen_seeds.txt"), "r", encoding="utf-8").read()
-                err, n = self.neural_decoder.train_on_text(
-                    corpus_text,
-                    self._decoder_word_to_embed, self._decoder_word_to_idx
-                )
-                self.neural_decoder.sleep_cycle()
-                self._decoder_seed_training_count += n
-                self._decoder_training_count += n
-                if self._trace_enabled:
-                    print(f"  [init] Quick seed corpus training: {n} sentences")
+                # Full training: 20 passes on the corpus (real English syntax)
+                corpus_path = os.path.join(_proj_root, "data", "corpora", "teen_seeds.txt")
+                if os.path.exists(corpus_path):
+                    corpus_text = open(corpus_path, "r", encoding="utf-8").read()
+                    total_err = 0.0
+                    passes = 0
+                    for _ in range(20):  # 20 passes for Hebbian consolidation
+                        err, n = self.neural_decoder.train_on_text(
+                            corpus_text,
+                            self._decoder_word_to_embed, self._decoder_word_to_idx,
+                            min_sentence_len=3, max_sentences=200
+                        )
+                        total_err += err
+                        passes += n
+                    self.neural_decoder.sleep_cycle()
+                    self._decoder_seed_training_count = passes
+                    self._decoder_training_count += passes
+                    if self._trace_enabled:
+                        print(f"  [init] Seed corpus training: {passes} sentences ({total_err/passes:.3f} avg err)")
             except Exception as e:
                 if self._trace_enabled:
                     print(f"  [init] Seed corpus training error: {e}")
         if getattr(self, '_needs_synthetic_training', False):
             self._needs_synthetic_training = False
             try:
-                self._train_decoder_from_graph(min_synthetic=100)
+                # Freeze vocab to prevent template words from polluting embeddings
+                self._freeze_decoder_vocab = True
+                self._train_decoder_from_graph(min_synthetic=500)
+                self._freeze_decoder_vocab = False
             except Exception as e:
                 if self._trace_enabled:
                     print(f"  [init] Synthetic training error: {e}")
@@ -5051,26 +5062,7 @@ class CognitiveChatEngine:
                 old_expand = self._decoder_vocab_built
                 decoder_response = self._generate_with_decoder_and_syntax(ctx)
                 if decoder_response and len(decoder_response) > 10:
-                    # Strip punctuation from words
-                    resp_words = decoder_response.lower().strip(".").split()
-                    resp_words = [w.strip(".,!?;:") for w in resp_words if w.strip(".,!?;:")]
-                    first_word = resp_words[0] if resp_words else ""
-                    function_starts = {"of", "to", "and", "in", "with", "a", "an",
-                                       "for", "from", "by", "at", "this", "that", "these",
-                                       "those", "it", "its", "they", "them", "we", "you",
-                                       "he", "she", "him", "her", "his", "i", "me", "my"}
-                    content_words = [w for w in resp_words if len(w) > 2 and w not in STOP_WORDS]
-                    if content_words:
-                        in_concepts = sum(1 for w in content_words if w in self._concept_keywords)
-                        concept_ratio = in_concepts / max(1, len(content_words))
-                        uniq_ratio = len(set(content_words)) / max(1, len(content_words))
-                        # Relaxed thresholds for early training phase
-                        _good = (first_word not in function_starts
-                                 and len(content_words) >= 2
-                                 and concept_ratio >= 0.15
-                                 and uniq_ratio >= 0.25)
-                        if _good:
-                            return (decoder_response, "neural_decoder")
+                    return (decoder_response, "neural_decoder")
             except Exception:
                 pass
 
@@ -5180,9 +5172,16 @@ class CognitiveChatEngine:
         """
         subject = ctx.subject
         assocs = ctx.associated_concepts
-        if not subject or not assocs:
+        if not subject:
             return None
-        
+        # Provide fallback associations if empty - use subject and vector neighbors
+        if not assocs:
+            neighbor = self._find_vector_neighbor(subject)
+            if neighbor:
+                assocs = [(neighbor, 0.5)]
+            else:
+                assocs = [(subject, 1.0)]
+
         # ─── STEP 1: PrefrontalWorkspace — Discourse Planning ───
         plan = self.pfc_workspace.plan_discourse(
             user_input=ctx.raw_input,

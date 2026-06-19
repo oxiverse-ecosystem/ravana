@@ -48,7 +48,7 @@ class SurfaceRealizer:
     - Grammar rules are rule-based (not learned), providing baseline competence
     - Verb phrase selection is cerebellar-weighted (not random)
     - Pronoun resolution prevents repetition
-    - Dopamine tone modulates variety: high DA → more variety, low DA → conservative
+    - Dopamine tone modulates variety: high DA -> more variety, low DA -> conservative
     - Article insertion follows English rules (a/an/the, abstract noun exceptions)
     """
 
@@ -74,7 +74,7 @@ class SurfaceRealizer:
 
     # Pronouns for substitution (subject form)
     PRONOUNS = {
-        # Common nouns → pronoun
+        # Common nouns -> pronoun
         "person": "they", "people": "they", "friend": "they",
         "dog": "it", "cat": "it", "bird": "it", "tree": "it",
         "book": "it", "song": "it", "machine": "it", "world": "it",
@@ -83,7 +83,7 @@ class SurfaceRealizer:
         "history": "it", "knowledge": "it", "wisdom": "it",
         "truth": "it", "meaning": "it", "love": "it", "hope": "it",
         "fear": "it", "trust": "it", "justice": "it", "freedom": "it",
-        # Pronouns → themselves
+        # Pronouns -> themselves
         "i": "i", "you": "you", "we": "we", "they": "they",
         "he": "he", "she": "she", "it": "it",
     }
@@ -189,7 +189,7 @@ class SurfaceRealizer:
         verb = self._select_verb_phrase(verb_phrase, relation,
                                          dopamine_tone, cerebellar_ngram)
 
-        # Step 5: Apply subject-verb agreement (use resolved subject for agreement)
+        # Step 5: Apply subject-verb agreement
         verb = self._apply_agreement(verb, subject_phrase, display_subj.lower())
 
         # Step 6: Apply tense
@@ -230,9 +230,7 @@ class SurfaceRealizer:
 
     def _resolve_pronoun(self, subject: str, subject_lower: str,
                           context: DiscourseState) -> str:
-        """Replace subject with pronoun if it was used recently.
-        ...
-        """
+        """Replace subject with pronoun if it was used recently."""
         if subject_lower in ('i', 'you', 'we', 'they', 'he', 'she', 'it'):
             return subject  # Already a pronoun
 
@@ -257,15 +255,7 @@ class SurfaceRealizer:
 
     def _build_noun_phrase(self, concept: str, article: str,
                             is_subject: bool, dopamine_tone: float) -> str:
-        """Build a noun phrase with proper article insertion.
-
-        Rules:
-        - Abstract nouns → no article
-        - Uncountable nouns → no article
-        - Pronouns → no article
-        - Countable singular → "a"/"an" or "the"
-        - First mention: no article for abstract, "the" for specific
-        """
+        """Build a noun phrase with proper article insertion."""
         cl = concept.lower()
 
         # No article for pronouns
@@ -292,14 +282,7 @@ class SurfaceRealizer:
     def _select_verb_phrase(self, default_phrase: str, relation: str,
                              dopamine_tone: float,
                              cerebellar_ngram) -> str:
-        """Select verb phrase with cerebellar-weighted selection.
-
-        High dopamine → try less-used phrases (exploration)
-        Low dopamine → stick with well-known phrases (exploitation)
-
-        When cerebellar_ngram is available, query it for the best phrase
-        given (relation, subject_type, object_type).
-        """
+        """Select verb phrase with cerebellar-weighted selection."""
         import random
 
         # If we have cerebellar n-gram, try to use it for phrase selection
@@ -329,8 +312,8 @@ class SurfaceRealizer:
                           subject_lower: str) -> str:
         """Apply subject-verb agreement.
 
-        Plural subjects → plural verb forms
-        Singular subjects (default) → singular verb forms
+        Plural subjects -> plural verb forms
+        Singular subjects (default) -> singular verb forms
         """
         # Check if subject is plural
         is_plural = False
@@ -384,12 +367,7 @@ class SurfaceRealizer:
     def _select_discourse_marker(self, discourse_type: str,
                                   sentence_index: int,
                                   dopamine_tone: float) -> str:
-        """Select a discourse marker for the current sentence.
-
-        First sentence: no marker
-        Subsequent sentences: marker based on discourse type
-        High dopamine → more varied marker selection
-        """
+        """Select a discourse marker for the current sentence."""
         import random
         if sentence_index == 0:
             return ""
@@ -413,8 +391,6 @@ class SurfaceRealizer:
 
     def get_state(self) -> Dict:
         return {
+            'used_subjects': list(self._used_subjects),
             'verb_phrase_success': self._verb_phrase_success,
         }
-
-    def set_state(self, state: Dict):
-        self._verb_phrase_success = state.get('verb_phrase_success', {})

@@ -1,0 +1,105 @@
+{
+  "cycle": 4,
+  "training_count": 22948,
+  "seed_training": 0,
+  "web_training": 122554,
+  "avg_quality": 0.2524824084223061,
+  "results": [
+    {
+      "template_count": 1,
+      "natural_count": 0,
+      "template_ratio": 1.0,
+      "natural_ratio": 0.0,
+      "words": 4,
+      "sentences": 1,
+      "diversity": 1.0,
+      "quality_score": 0.0,
+      "question": "what happens if time travel possible",
+      "response": "possible connects with possibility."
+    },
+    {
+      "template_count": 2,
+      "natural_count": 1,
+      "template_ratio": 0.6666666666666666,
+      "natural_ratio": 0.3333333333333333,
+      "words": 18,
+      "sentences": 3,
+      "diversity": 0.9444444444444444,
+      "quality_score": 0.31481481481481477,
+      "question": "why not possible til now",
+      "response": "Possible causes https. In addition, https creates a com. In the same way, it links to an inlanguage."
+    },
+    {
+      "template_count": 1,
+      "natural_count": 2,
+      "template_ratio": 0.3333333333333333,
+      "natural_ratio": 0.6666666666666666,
+      "words": 17,
+      "sentences": 3,
+      "diversity": 0.8235294117647058,
+      "quality_score": 0.5490196078431372,
+      "question": "make time machine",
+      "response": "Time links to bad. In addition, it links to good. However, it is the opposite of life."
+    },
+    {
+      "template_count": 1,
+      "natural_count": 1,
+      "template_ratio": 0.5,
+      "natural_ratio": 0.5,
+      "words": 14,
+      "sentences": 2,
+      "diversity": 0.9285714285714286,
+      "quality_score": 0.4642857142857143,
+      "question": "switch to cybersecurity",
+      "response": "The switch goes hand in hand with change. However, it stands against a system."
+    },
+    {
+      "template_count": 0,
+      "natural_count": 0,
+      "template_ratio": 0.0,
+      "natural_ratio": 0.0,
+      "words": 11,
+      "sentences": 2,
+      "diversity": 0.9090909090909091,
+      "quality_score": 0.0,
+      "question": "tell me about consciousness",
+      "response": "Consciousness are associated with a true. It relate to a heart."
+    },
+    {
+      "template_count": 1,
+      "natural_count": 2,
+      "template_ratio": 0.3333333333333333,
+      "natural_ratio": 0.6666666666666666,
+      "words": 23,
+      "sentences": 3,
+      "diversity": 0.782608695652174,
+      "quality_score": 0.5217391304347826,
+      "question": "how does memory work",
+      "response": "The work goes hand in hand with a next. In addition, it links to working. Although, it is the opposite of a people."
+    },
+    {
+      "template_count": 4,
+      "natural_count": 1,
+      "template_ratio": 0.8,
+      "natural_ratio": 0.2,
+      "words": 20,
+      "sentences": 3,
+      "diversity": 0.85,
+      "quality_score": 0.17,
+      "question": "what is the meaning of life",
+      "response": "Life links to a beach. Moreover, it relates to an unit. On the other hand, it contrasts with a stay."
+    },
+    {
+      "template_count": 0,
+      "natural_count": 0,
+      "template_ratio": 0.0,
+      "natural_ratio": 0.0,
+      "words": 14,
+      "sentences": 2,
+      "diversity": 0.8571428571428571,
+      "quality_score": 0.0,
+      "question": "explain quantum mechanics",
+      "response": "Mechanics goes hand in hand with a var. Besides, it relate to a neuroscience."
+    }
+  ]
+}
