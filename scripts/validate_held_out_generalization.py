@@ -73,13 +73,14 @@ def test_verb_offset_all_verbs():
                 return_count=True
             )
             if result is not None and result[0] is not None:
-                logits, count = result
+                # Unpack 3 values now (logits, count, variance)
+                logits, count, _ = result
                 verbs_available.append((stem, count))
                 verbs_tested.append(stem)
                 # Score: should be informative (not uniform)
-                entropy = -np.sum(np.exp(logits - np.max(logits)) / 
-                                  np.sum(np.exp(logits - np.max(logits))) * 
-                                  np.log(np.exp(logits - np.max(logits)) / 
+                entropy = -np.sum(np.exp(logits - np.max(logits)) /
+                                  np.sum(np.exp(logits - np.max(logits))) *
+                                  np.log(np.exp(logits - np.max(logits)) /
                                          np.sum(np.exp(logits - np.max(logits))) + 1e-10))
                 max_entropy = np.log(len(logits))
                 norm_entropy = entropy / max_entropy

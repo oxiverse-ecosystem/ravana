@@ -566,8 +566,15 @@ class RLMv2(Module):
                 label = f"prototype_{len(self._prototype_hierarchy)}"
                 self._register_prototype(label, cluster)
 
-    def _register_prototype(self, label: str, concept_ids: List[int]):
-        """Register a prototype node by label and list of concept IDs."""
+    def _register_prototype(self, label: str, concept_ids: List[int], level: int = 0, parent: str = None):
+        """Register a prototype node by label and list of concept IDs.
+        
+        Args:
+            label: Prototype label
+            concept_ids: List of concept IDs belonging to this prototype
+            level: Abstraction level (0=specific, 1=category, 2=supercategory)
+            parent: Parent prototype label (for Level 1 and 2)
+        """
         # Compute the prototype vector as the centroid of member concept vectors
         vectors = []
         for cid in concept_ids:
@@ -582,9 +589,115 @@ class RLMv2(Module):
             centroid = centroid / norm
             self._prototype_hierarchy[label] = concept_ids
             self._prototype_vectors[label] = centroid
-            self._prototype_levels[label] = 0
+            self._prototype_levels[label] = level
             self._prototype_children[label] = []
-            self._prototype_hierarchy_parents[label] = None
+            self._prototype_hierarchy_parents[label] = parent
+            
+            # Link to parent if provided
+            if parent is not None:
+                self._prototype_children.setdefault(parent, []).append(label)
+
+    def _build_prototype_hierarchy(self, min_similarity: float = 0.65):
+        """Build Level 1 (categories) and Level 2 (supercategories) from existing prototypes.
+        
+        Called during sleep cycle to create deeper prototype hierarchy.
+        Level 0: Specific prototypes (e.g., 'dog', 'cat') - created at init
+        Level 1: Categories (e.g., 'mammal') - cluster Level 0 prototypes
+        Level 2: Supercategories (e.g., 'animal') - cluster Level 1 prototypes
+        
+        Args:
+            min_similarity: Minimum cosine similarity to cluster prototypes
+        """
+        if not self._prototype_vectors:
+            return
+        
+        # Build Level 1 from Level 0 prototypes
+        level_0_labels = [l for l, lvl in self._prototype_levels.items() if lvl == 0]
+        if len(level_0_labels) >= 2:
+            self._cluster_prototypes_into_level(level_0_labels, target_level=1, min_similarity=min_similarity)
+        
+        # Build Level 2 from Level 1 prototypes
+        level_1_labels = [l for l, lvl in self._prototype_levels.items() if lvl == 1]
+        if len(level_1_labels) >= 2:
+            self._cluster_prototypes_into_level(level_1_labels, target_level=2, min_similarity=min_similarity)
+
+    def _cluster_prototypes_into_level(self, source_labels: List[str], target_level: int, min_similarity: float):
+        """Cluster prototypes from source level into higher-level prototypes."""
+        if len(source_labels) < 2:
+            return
+        
+        # Greedy clustering similar to _init_default_prototypes
+        assigned = set()
+        vectors = {label: self._prototype_vectors[label] for label in source_labels}
+        
+        for label in source_labels:
+            if label in assigned:
+                continue
+            
+            vec = vectors[label]
+            cluster = [label]
+            assigned.add(label)
+            
+            for other_label in source_labels:
+                if other_label in assigned or other_label == label:
+                    continue
+                other_vec = vectors[other_label]
+                sim = float(np.dot(vec, other_vec))
+                if sim > min_similarity:
+                    cluster.append(other_label)
+                    assigned.add(other_label)
+            
+            if len(cluster) >= 2:
+                # Merge concept IDs from all prototypes in cluster
+                merged_concepts = []
+                for l in cluster:
+                    merged_concepts.extend(self._prototype_hierarchy.get(l, []))
+                
+                # Create label for new level
+                new_label = f"prototype_L{target_level}_{len([l for l, lvl in self._prototype_levels.items() if lvl == target_level])}"
+                
+                # Register at target level with parent relationship
+                self._register_prototype(new_label, merged_concepts, level=target_level, parent=None)
+                
+                # Set up parent-child relationships
+                for child_label in cluster:
+                    self._prototype_hierarchy_parents[child_label] = new_label
+                    self._prototype_children.setdefault(new_label, []).append(child_label)
+
+    def _find_nearest_prototype(self, embed_vec: np.ndarray) -> Tuple[Optional[str], float]:
+        """Find the nearest prototype for an embedding vector, cascading through levels.
+        
+        Tries Level 0 first (most specific), then Level 1 (categories), then Level 2 (supercategories).
+        Returns (prototype_label, similarity) or (None, 0.0) if no prototypes exist.
+        """
+        if not self._prototype_vectors:
+            return None, 0.0
+
+        vec_norm = np.linalg.norm(embed_vec)
+        if vec_norm == 0:
+            return None, 0.0
+        embed_vec_norm = embed_vec / vec_norm
+
+        # Search through levels in order: 0 -> 1 -> 2
+        for level in [0, 1, 2]:
+            level_labels = [l for l, lvl in self._prototype_levels.items() if lvl == level]
+            if not level_labels:
+                continue
+            
+            best_label = None
+            best_sim = -1.0
+            
+            for label in level_labels:
+                proto_vec = self._prototype_vectors[label]
+                simil = float(np.dot(embed_vec_norm, proto_vec))
+                if simil > best_sim:
+                    best_sim = simil
+                    best_label = label
+            
+            if best_label is not None and best_sim >= self._prototype_similarity_threshold:
+                return best_label, best_sim
+        
+        return None, 0.0
 
     def _init_domain_heads(self):
             self._prototype_vectors[label] = centroid
@@ -605,6 +718,19 @@ class RLMv2(Module):
         if not hasattr(self, '_frozen_domains'):
             self._frozen_domains = set()
         return None
+
+    def set_domain(self, domain_id: Optional[int], freeze_others: bool = True):
+        """Set the active domain for training/inference.
+        
+        Args:
+            domain_id: Domain ID to activate (None for no specific domain)
+            freeze_others: If True and domain_id is set, freeze all other domains
+        """
+        self.current_domain_id = domain_id
+        if domain_id is not None and freeze_others:
+            self._frozen_domains = {d for d in range(self.num_domains) if d != domain_id}
+        else:
+            self._frozen_domains = set()
 
     def _find_nearest_prototype(self, embed_vec: np.ndarray) -> Tuple[Optional[str], float]:
         """Find the nearest prototype for an embedding vector.
@@ -1633,43 +1759,132 @@ class RLMv2(Module):
 
         Now computes DOMAIN-SPECIFIC verb offsets. 
         Shape: _verb_offsets[domain_id][verb_stem] = offset_vector
+        Also computes variance for each verb stem.
+        Shape: _verb_offset_variance[domain_id][verb_stem] = variance
 
         Should be called after training is complete (before evaluation).
         Unseen verbs at inference fall back to bilinear W_rel.
         """
         if not self.use_verb_offset:
             return
-        # Group by (domain_id, verb stem)
-        sums = {}
-        counts = {}
+        # Group by (domain_id, verb stem) - collect all offset vectors for variance
+        offset_lists = {}
         for stem, offset, domain_id in self._verb_accum_buffer:
             key = (domain_id, stem)
-            if key not in sums:
-                sums[key] = np.zeros_like(offset)
-                counts[key] = 0
-            sums[key] += offset
-            counts[key] += 1
-        # Compute averages
-        self._verb_offsets = {}  # domain_id -> {stem: offset}
+            if key not in offset_lists:
+                offset_lists[key] = []
+            offset_lists[key].append(offset)
+        # Compute averages and variances
+        self._verb_offsets = {}       # domain_id -> {stem: offset}
         self._verb_offset_count = {}  # domain_id -> {stem: count}
-        for (domain_id, stem), total in sums.items():
-            if counts[(domain_id, stem)] > 0:
-                offset = total / counts[(domain_id, stem)]
+        self._verb_offset_variance = {}  # domain_id -> {stem: variance}
+
+        for (domain_id, stem), offsets_list in offset_lists.items():
+            if len(offsets_list) > 0:
+                offsets_array = np.stack(offsets_list)  # (n_samples, embed_dim)
+                # Mean offset
+                mean_offset = np.mean(offsets_array, axis=0)
+                # Variance (per dimension, then average)
+                var_per_dim = np.var(offsets_array, axis=0)
+                mean_variance = float(np.mean(var_per_dim))
                 # Normalize to prevent embedding-space drift
-                norm = np.linalg.norm(offset)
+                norm = np.linalg.norm(mean_offset)
                 if norm > 0:
-                    offset = offset / norm * min(norm, 5.0)  # cap magnitude at 5
+                    mean_offset = mean_offset / norm * min(norm, 5.0)  # cap magnitude at 5
                 if domain_id not in self._verb_offsets:
                     self._verb_offsets[domain_id] = {}
                     self._verb_offset_count[domain_id] = {}
-                self._verb_offsets[domain_id][stem] = offset
-                self._verb_offset_count[domain_id][stem] = counts[(domain_id, stem)]
+                    self._verb_offset_variance[domain_id] = {}
+                self._verb_offsets[domain_id][stem] = mean_offset
+                self._verb_offset_count[domain_id][stem] = len(offsets_list)
+                self._verb_offset_variance[domain_id][stem] = mean_variance
+
         # Print summary
         total_offsets = sum(len(v) for v in self._verb_offsets.values())
         print(f"  [Verb Offset] Computed {total_offsets} verb offsets from {len(self._verb_accum_buffer)} training pairs")
+
         for d in sorted(self._verb_offsets.keys()):
             for stem, cnt in sorted(self._verb_offset_count[d].items(), key=lambda x: -x[1])[:3]:
-                print(f"    Domain {d}: '{stem}': {cnt} examples")
+                var = self._verb_offset_variance[d].get(stem, 0.0)
+                print(f"    Domain {d}: '{stem}': {cnt} examples, var={var:.4f}")
+
+    def _cluster_verb_offsets(self, similarity_threshold: float = 0.85):
+        """Cluster semantically similar verb stems by offset cosine similarity.
+        
+        During sleep, merge near-identical verb offsets (e.g., 'causes' and 'produces')
+        to enable cross-verb generalization.
+        
+        Args:
+            similarity_threshold: Minimum cosine similarity to merge verb stems (default 0.85)
+        """
+        if not self._verb_offsets:
+            return
+        
+        for domain_id in list(self._verb_offsets.keys()):
+            stems = list(self._verb_offsets[domain_id].keys())
+            if len(stems) < 2:
+                continue
+            
+            # Compute pairwise cosine similarities
+            merged = set()
+            for i, stem_i in enumerate(stems):
+                if stem_i in merged:
+                    continue
+                offset_i = self._verb_offsets[domain_id][stem_i]
+                norm_i = np.linalg.norm(offset_i)
+                if norm_i == 0:
+                    continue
+                offset_i_norm = offset_i / norm_i
+                
+                cluster = [stem_i]
+                total_count = self._verb_offset_count[domain_id][stem_i]
+                weighted_sum = offset_i * total_count
+                total_variance = self._verb_offset_variance[domain_id][stem_i] * total_count
+                
+                for j, stem_j in enumerate(stems):
+                    if i == j or stem_j in merged:
+                        continue
+                    offset_j = self._verb_offsets[domain_id][stem_j]
+                    norm_j = np.linalg.norm(offset_j)
+                    if norm_j == 0:
+                        continue
+                    offset_j_norm = offset_j / norm_j
+                    
+                    sim = float(np.dot(offset_i_norm, offset_j_norm))
+                    if sim > similarity_threshold:
+                        cluster.append(stem_j)
+                        cnt_j = self._verb_offset_count[domain_id][stem_j]
+                        total_count += cnt_j
+                        weighted_sum += offset_j * cnt_j
+                        total_variance += self._verb_offset_variance[domain_id][stem_j] * cnt_j
+                
+                if len(cluster) > 1:
+                    # Merge cluster into first stem
+                    merged_offset = weighted_sum / total_count
+                    merged_var = total_variance / total_count
+                    
+                    # Normalize
+                    norm = np.linalg.norm(merged_offset)
+                    if norm > 0:
+                        merged_offset = merged_offset / norm * min(norm, 5.0)
+                    
+                    # Keep the most frequent stem as canonical
+                    canonical = max(cluster, key=lambda s: self._verb_offset_count[domain_id][s])
+                    
+                    self._verb_offsets[domain_id][canonical] = merged_offset
+                    self._verb_offset_count[domain_id][canonical] = total_count
+                    self._verb_offset_variance[domain_id][canonical] = merged_var
+                    
+                    # Remove others
+                    for s in cluster:
+                        if s != canonical:
+                            merged.add(s)
+                            if s in self._verb_offsets[domain_id]:
+                                del self._verb_offsets[domain_id][s]
+                                del self._verb_offset_count[domain_id][s]
+                                del self._verb_offset_variance[domain_id][s]
+                    
+                    print(f"  [Verb Offset] Merged cluster in domain {domain_id}: {cluster} -> '{canonical}' (sim={sim:.3f})")
 
     def _rp_forward_verb_offset(self, subject_tid: int, verb_word: str, return_count: bool = False):
         """Predict target logits using verb-stem offset arithmetic.
@@ -1677,7 +1892,7 @@ class RLMv2(Module):
         P0 Fix: Expanded from whitelist of 7 functional verbs to ALL verbs.
         Uses verb frequency for confidence-weighted blending with W_rel.
         
-        Returns (logits, count) if return_count=True, else just logits.
+        Returns (logits, count, variance) if return_count=True, else just logits.
         Returns None if verb is unknown.
         """
         if not verb_word or not self.use_verb_offset:
@@ -1692,6 +1907,7 @@ class RLMv2(Module):
         
         # Get verb count for blending weight
         verb_count = self._verb_offset_count[domain_id].get(stem, 0)
+        verb_variance = self._verb_offset_variance[domain_id].get(stem, 0.0)
         
         source_embed = self.token_embed.weight.data[subject_tid]
         offset = self._verb_offsets[domain_id][stem]
@@ -1713,7 +1929,7 @@ class RLMv2(Module):
             # Scale up to make softmax meaningful
             logits *= 10.0
             if return_count:
-                return logits, verb_count
+                return logits, verb_count, verb_variance
             return logits
         return None
 
@@ -1769,16 +1985,21 @@ class RLMv2(Module):
         if verb_word and self.use_verb_offset:
             verb_result = self._rp_forward_verb_offset(subject_tid, verb_word, return_count=True)
             if verb_result is not None and verb_result[0] is not None:
-                verb_logits, verb_count = verb_result
-                # Use smoother logistic blending: count / (count + 5.0)
-                # This gives a soft S-curve: count=1 -> 0.17, count=5 -> 0.5, count=10 -> 0.67, count=30 -> 0.86
-                verb_blend_weight = verb_count / (verb_count + 5.0)
-                
+                verb_logits, verb_count, verb_variance = verb_result
+                # Compute blend weight: count-based S-curve modified by variance
+                # High variance -> lower confidence -> more W_rel weight
+                base_blend = verb_count / (verb_count + 5.0)
+                # Variance penalty: higher variance reduces effective blend weight
+                # variance=0 -> no penalty, variance=0.5 -> 0.75x, variance=1.0 -> 0.5x
+                variance_penalty = max(0.1, 1.0 - verb_variance)
+                verb_blend_weight = base_blend * variance_penalty
+                verb_blend_weight = float(np.clip(verb_blend_weight, 0.0, 1.0))
+
                 if verb_blend_weight > 0.95:
                     # Fully confident in verb offset - return directly (no W_rel needed)
                     self._rp_cache = None
                     return verb_logits
-                
+
                 # Compute W_rel logits for blending
                 source_embed = self.get_robust_embedding(subject_tid)
                 if self._rp_use_encoder_latent:
@@ -3908,6 +4129,16 @@ class RLMv2(Module):
 
             # ── Episodic -> semantic consolidation ──
             self._consolidate_episodic_to_semantic()
+
+            # ── Build deeper prototype hierarchy (Level 1 categories, Level 2 supercategories) ──
+            # This is the brain's offline abstraction process - clustering specific prototypes
+            # into broader semantic categories during sleep (Complementary Learning Systems)
+            self._build_prototype_hierarchy(min_similarity=0.65)
+
+            # ── Cross-verb offset generalization ──
+            # Cluster semantically similar verb stems (e.g., 'causes' ~ 'produces') during sleep
+            # to enable generalization to rare/unseen verbs (Complementary Learning Systems)
+            self._cluster_verb_offsets(similarity_threshold=0.85)
 
             # ── Semantic memory decay ──
             self._decay_semantic_memories()

@@ -1,6 +1,8 @@
 # RAVANA — Research-Backed Roadmap to Human-Like Chat
 
 > Generated: 2026-06-19 | Based on full codebase audit + neuroscience literature review
+> 
+> **STATUS UPDATE (2026-06-19):** P1 Syntactic Pipeline ✅ COMPLETED — full pipeline wired, tested, published to PyPI (ravana-ml 0.3.1, ravana-grace 0.2.1, ravana-chat 0.3.1)
 
 ---
 
@@ -11,7 +13,7 @@
 3. [Neuroscience Research Foundation](#3-neuroscience-research-foundation)
 4. [P0: Held-Out Generalization (8.3% → 85%+)](#4-p0-held-out-generalization)
 5. [P0: Complete Verb-Offset System](#5-p0-complete-verb-offset-system)
-6. [P1: Production-Grade Syntactic Pipeline](#6-p1-production-grade-syntactic-pipeline)
+6. [P1: Production-Grade Syntactic Pipeline ✅ **COMPLETED**](#6-p1-production-grade-syntactic-pipeline)
 7. [P1: Theory of Mind & Personalization](#7-p1-theory-of-mind--personalization)
 8. [P2: Low-Rank W_rel & LSH Scoring](#8-p2-low-rank-w_rel--lsh-scoring)
 9. [P2: Emotional Mirroring & Relationship Depth](#9-p2-emotional-mirroring--relationship-depth)
@@ -102,6 +104,15 @@ The system **works as designed** — graph walk + syntactic pipeline = grammatic
 | SyntacticCellAssembly | `ravana/src/ravana/language/syntactic_cell_assembly.py` | Pulvermüller neural syntax |
 | PrefrontalWorkspace | `ravana/src/ravana/language/prefrontal_workspace.py` | Baddeley's working memory, discourse planning |
 | SurfaceRealizer | `ravana/src/ravana/language/surface_realizer.py` | SVA, articles, pronouns, tense rules |
+
+#### I. **P1: Production-Grade Syntactic Pipeline (COMPLETED 2026-06-19)**
+- **Wired full pipeline:** `_generate_with_decoder_and_syntax()` in `interface.py` now connects PFC → Assembly → BasalGanglia → CerebellarNgram → SurfaceRealizer
+- **Response generation updated:** `_generate_response()` tries syntactic pipeline FIRST (before decoder/reasoning loop/graph fallback)
+- **PrefrontalWorkspace fixes:** `exclude_subject` prevents self-loops; `_generate_follow_up_question()` produces real follow-up questions for ASK_BACK intent
+- **SyntacticCellAssembly fixes:** 30+ gerunds in `UNCOUNTABLE_NOUNS` — "bonding" not "a bonding"
+- **SurfaceRealizer fixes:** Handles `relation='interrogative'` for raw question output; gerund article handling synced
+- **Output example:** *"Trust is closely tied to respect. Furthermore, it connects with freedom. Similarly, it goes hand in hand with life."* (vs old: *"Trust relates to respect. Respect relates to freedom."*)
+- **Packages published:** `ravana-ml` 0.3.1, `ravana-grace` 0.2.1, `ravana-chat` 0.3.1 on PyPI
 
 ---
 
@@ -272,131 +283,54 @@ When variance is high (offset unreliable), suppress blending weight even if coun
 
 ---
 
-## 6. P1: Production-Grade Syntactic Pipeline
+## 6. P1: Production-Grade Syntactic Pipeline ✅ **COMPLETED (2026-06-19)**
 
-### Current State
+### What Was Implemented
 
-All 5 language modules exist in `ravana/src/ravana/language/` but `_generate_with_decoder_and_syntax()` in `interface.py` (line 1028) is a stub:
-
-```python
-def _generate_with_decoder_and_syntax(self, ctx):
-    return self.decoder_engine.generate(ctx, self.graph_engine) if hasattr(...) else None
-```
-
-The actual response falls through to `_graph_fallback_response()` which produces:
-> "Fire relates to heat. Heat relates to expansion. Expansion is interesting."
-
-### Full Pipeline Implementation
+All 5 language modules in `ravana/src/ravana/language/` are now fully wired:
 
 ```
 User Input
     │
     ▼
 [1] PrefrontalWorkspace ─────────────── Discourse Plan
-    │                                        │
-    │  Plans next 3-5 utterances            │
-    │  with discourse intents:              │
-    │  - EXPLAIN(heat→expansion)            │
-    │  - ELABORATE(expansion→pressure)      │
-    │  - CONTRAST(heat vs cold)             │
-    │                                        │
-    ▼                                        ▼
-[2] SyntacticCellAssembly ─────────── Sentence Frames
-    │                                        │
-    │  Builds: [SUBJ] [VERB] [OBJ]          │
-    │  With agreement: "heat causes"         │
-    │  (not "heat cause")                    │
-    │                                        │
-    ▼                                        ▼
-[3] BasalGangliaGate ──────────────── Candidate Selection
-    │                                        │
-    │  Go: SELECT frame 1 "heat causes"      │
-    │  NoGo: REJECT frame 2 "heat is cause"  │
-    │                                        │
-    ▼                                        ▼
-[4] CerebellarNgram ──────────────── Fluent Completion
-    │                                        │
-    │  "heat causes" → "expansion" (p=0.7)   │
-    │  "heat causes" → "melting" (p=0.2)     │
-    │                                        │
-    ▼                                        ▼
-[5] SurfaceRealizer ──────────────── Final Text
-    │                                        │
-    │  "Heat causes expansion."              │
-    │  (correct punctuation, capitalization) │
+    │  - Dynamic discourse from graph traversal
+    │  - exclude_subject prevents self-loops
+    │  - ASK_BACK generates follow-up questions
     ▼
-  Output: "Heat causes expansion, 
-           which increases pressure. 
-           Unlike cold, which contracts."
+[2] SyntacticCellAssembly ─────────── Sentence Frames
+    │  - Builds [SUBJ] [VERB] [OBJ] with agreement
+    │  - Gerund article handling (30+ uncountable)
+    ▼
+[3] BasalGangliaGate ──────────────── Candidate Selection
+    │  - Go/NoGo gating on frame candidates
+    ▼
+[4] CerebellarNgram ──────────────── Fluent Completion
+    │  - Bigram/trigram completion from learned transitions
+    ▼
+[5] SurfaceRealizer ──────────────── Final Text
+    │  - SVA, articles, pronouns, tense rules
+    │  - Interrogative relation → raw question output
+    ▼
+  Output: "Trust is closely tied to respect. 
+           Furthermore, it connects with freedom. 
+           Similarly, it goes hand in hand with life."
 ```
 
-### Implementation Plan
+### Changes Made
 
-#### Step 1: Wire Discourse Planner to Graph Output
-**File:** `ravana/src/ravana/language/prefrontal_workspace.py`
+| File | Change |
+|------|--------|
+| `ravana/src/ravana/chat/interface.py` | `_generate_with_decoder_and_syntax()` — full pipeline wired; `_generate_response()` tries pipeline first |
+| `ravana/src/ravana/language/prefrontal_workspace.py` | `exclude_subject` in `_pick_best_association()`; `_generate_follow_up_question()` for ASK_BACK |
+| `ravana/src/ravana/language/syntactic_cell_assembly.py` | 30+ gerunds added to `UNCOUNTABLE_NOUNS` |
+| `ravana/src/ravana/language/surface_realizer.py` | 30+ gerunds in `UNCOUNTABLE_NOUNS`; `relation='interrogative'` handling |
 
-Replace fixed 3-sentence discourse with dynamic discourse plans generated from graph traversal:
-
-```python
-def plan_discourse(self, subject_cid, graph, relation_type):
-    outgoing = graph.get_outgoing(subject_cid)
-    matching = [(t, e) for t, e in outgoing 
-                if e.relation_type == relation_type and e.weight > 0.3]
-    intents = []
-    for target, edge in matching[:3]:
-        intents.append(DiscourseIntent.EXPLAIN 
-                       if edge.relation_type == "causal"
-                       else DiscourseIntent.ELABORATE)
-    return DiscoursePlan(intents=intents, transitions=["first", "also", "finally"])
-```
-
-#### Step 2: Implement Syntactic Frame Generation
-**File:** `ravana/src/ravana/language/syntactic_cell_assembly.py`
-
-Build frames from the triple (subject, relation, object):
-```
-Input: (heat, causal, expansion)
-Frame: "heat causes expansion"
-- SUBJ: "heat" (noun, singular)
-- VERB: "cause" → "causes" (3rd person singular)
-- OBJ: "expansion" (noun, singular)
-```
-
-#### Step 3: Implement Go/NoGo Candidate Gating
-**File:** `ravana/src/ravana/language/basal_ganglia.py`
-
-Given multiple candidate frames, gate selection:
-- Go signal = edge weight × confidence × activation
-- NoGo signal = low probability or syntactic violation
-- Winner selected via softmax over Go-NoGo difference
-
-#### Step 4: Wire Surface Realizer
-**File:** `ravana/src/ravana/language/surface_realizer.py`
-
-Ensure proper morphology:
-- Subject-verb agreement ("physics is" not "physics are")
-- Article selection ("a/an" based on phonetics)
-- Tense consistency across sentences
-
-#### Step 5: Connect in `_generate_with_decoder_and_syntax()`
-**File:** `ravana/src/ravana/chat/interface.py` (line 1028)
-
-Replace stub with full pipeline call:
-```python
-def _generate_with_decoder_and_syntax(self, ctx):
-    discourse_plan = self.pfc_workspace.plan_discourse(
-        ctx.subject, self.graph_engine.graph, ctx.relation)
-    utterances = []
-    for intent in discourse_plan.intents:
-        frame = self.syntactic_assembly.build_frame(
-            ctx.subject, ctx.relation, ctx.associated_concepts)
-        if self.basal_ganglia.gate(frame):
-            candidates = self.cerebellar_ngram.complete(frame)
-            text = self.surface_realizer.realize(
-                candidates[0], self.emotion.state)
-            utterances.append(text)
-    return " ".join(utterances)
-```
+### Verification
+- ✅ `validate_held_out_generalization.py` — P0: 4/4 tests pass
+- ✅ `test_chat_end_to_end.py` — subsystem tests pass (PFC, Assembly, Realizer, full pipeline)
+- ✅ PyPI packages: `ravana-ml` 0.3.1, `ravana-grace` 0.2.1, `ravana-chat` 0.3.1
+- ✅ Clean install verification: `import ravana_chat` works correctly
 
 ---
 
@@ -643,7 +577,6 @@ def run_benchmark():
 | **P0** | Deeper prototype hierarchy (3+ levels) | 2 days | High | None | Novel entity recall@5 |
 | **P0** | Cross-verb offset generalization | 1 day | Medium | Verb offsets working | Held-out verb accuracy |
 | **P0** | Verb offset variance tracking | 1 day | Medium | Verb offsets working | Uncertainty calibration |
-| **P1** | Wire syntactic pipeline (full) | 5 days | Very High | All 5 language modules | User-rated naturalness |
 | **P1** | Complete Theory of Mind UserModel | 3 days | High | UserModel stub | Personalization score |
 | **P2** | Emotional mirroring loop | 2 days | High | VAD emotion engine | User engagement rating |
 | **P2** | Relationship memory + depth | 2 days | Medium | UserModel | Personalization score |
@@ -656,13 +589,13 @@ def run_benchmark():
 
 **Sprint 1 (Week 1):** P0 — Prototype hierarchy depth + cross-verb generalization + variance tracking
 
-**Sprint 2 (Week 2):** P1 — Wire full syntactic pipeline (wire BasalGanglia → CerebellarNgram → SurfaceRealizer → PrefrontalWorkspace)
+**Sprint 2 (Week 2):** P1 — Complete Theory of Mind UserModel
 
-**Sprint 3 (Week 3):** P1 — Complete Theory of Mind + P2 — Emotional mirroring loop
+**Sprint 3 (Week 3):** P2 — Emotional mirroring loop + Relationship memory
 
-**Sprint 4 (Week 4):** P2 — Relationship memory + Low-rank W_rel
+**Sprint 4 (Week 4):** P2 — Low-rank W_rel + P3 — LSH token scoring
 
-**Sprint 5 (Week 5):** P3 — Benchmark harness + LSH scoring
+**Sprint 5 (Week 5):** P3 — Benchmark harness + ConceptNet ontology bootstrap
 
 ---
 
@@ -692,10 +625,6 @@ def run_benchmark():
 | `rlm_v2.py` — `_inherit_from_prototype()` | Cascade through prototype levels | P0 |
 | `rlm_v2.py` — `_compute_verb_offsets()` | Add cross-verb merging | P0 |
 | `rlm_v2.py` — `_accumulate_verb_offset()` | Add variance tracking | P0 |
-| `prefrontal_workspace.py` | Dynamic discourse from graph traversal | P1 |
-| `syntactic_cell_assembly.py` | Frame generation from triples | P1 |
-| `basal_ganglia.py` | Go/NoGo candidate gating | P1 |
-| `interface.py` — `_generate_with_decoder_and_syntax()` | Wire full pipeline | P1 |
 | `interface.py` — `_update_user_model()` | Full Theory of Mind | P1 |
 | `rlm_v2.py` — `_rp_rel_matrices` shape | Low-rank decomposition | P2 |
 | `rlm_v2.py` — `_rp_forward()` | LSH scoring | P3 |

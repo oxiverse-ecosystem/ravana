@@ -269,13 +269,14 @@ class RPMixin:
 
             if verb_result is not None and verb_result[0] is not None:
 
-                verb_logits, verb_count = verb_result
+                verb_logits, verb_count, verb_variance = verb_result
 
-                # Use smoother logistic blending: count / (count + 5.0)
-
-                # This gives a soft S-curve: count=1 -> 0.17, count=5 -> 0.5, count=10 -> 0.67, count=30 -> 0.86
-
-                verb_blend_weight = verb_count / (verb_count + 5.0)
+                # Compute blend weight: count-based S-curve modified by variance
+                base_blend = verb_count / (verb_count + 5.0)
+                # Variance penalty: higher variance reduces effective blend weight
+                variance_penalty = max(0.1, 1.0 - verb_variance)
+                verb_blend_weight = base_blend * variance_penalty
+                verb_blend_weight = float(np.clip(verb_blend_weight, 0.0, 1.0))
 
                 verb_blend_logits = verb_logits
 
