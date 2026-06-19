@@ -12,7 +12,7 @@ from .core import (
 from .chat import ChatInterface
 from .web import WebLearner
 
-__version__ = "0.1.1"
+__version__ = "0.3.2"
 __all__ = [
     "VADEmotionEngine",
     "IdentityEngine",

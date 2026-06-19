@@ -8,7 +8,7 @@ Because PyPI package names must use underscores/hyphens and the directory `ravan
 |---------|-----------|-----------|---------|---------|
 | **ML Framework** | `ravana-ml` | `ravana_ml/` | 0.3.2 | Tensors, modules, ConceptGraph, RLMv1/RLMv2 |
 | **GRACE Core** | `ravana-grace` | `ravana-v2/` | 0.2.2 | 27-phase cognitive architecture |
-| **Modular Chat** | `ravana-chat` | `ravana/` | 0.1.1 | Decoder-first chat, web learning, CLI |
+| **Modular Chat** | `ravana-chat` | `ravana/` | 0.3.2 | Decoder-first chat, web learning, CLI |
 
 (Optional) Unified: `ravana-cognitive` (all three together)
 
