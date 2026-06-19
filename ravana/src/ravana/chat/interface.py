@@ -238,6 +238,7 @@ class ChatInterface:
         self._concept_visit_count: Dict[str, int] = {}
         self._concept_learning_progress: Dict[str, float] = {}
         self._concept_pe_delta: Dict[str, float] = {}
+        self._concept_vad: Dict[int, Tuple[float, float, float]] = {}
         self._curiosity_topics_queue: List[str] = []
         self._last_auto_learn_turn: int = 0
         self._curiosity_urgency: float = 0.0
@@ -298,9 +299,6 @@ class ChatInterface:
         self.web_learner.notify_user_active()
         if hasattr(self, 'surface_realizer'):
             self.surface_realizer.reset_turn()
-
-        # Episodic decay between turns
-        self.web_learner._decay_episodic_edges()
 
         # Decay activation fatigue
         for fk in list(self._activation_fatigue.keys()):
@@ -520,7 +518,7 @@ class ChatInterface:
 
     def _generate_response(self, ctx: CognitiveResponseContext) -> Tuple[str, str]:
         """Generate response using neural decoder with reasoning loop."""
-        # Try neural decoder + syntactic pipeline
+        # Try neural decoder + syntactic pipeline (when decoder is trained)
         _have_web = self.decoder_engine.web_training_count >= 500
         _total = self.decoder_engine.training_count
         if _have_web and _total >= 1000:
@@ -530,6 +528,16 @@ class ChatInterface:
                     return (decoder_response, "neural_decoder")
             except Exception:
                 pass
+
+        # Try syntactic pipeline (P1: Production-Grade Syntactic Pipeline)
+        # This works independently of neural decoder training
+        try:
+            syntax_response = self._generate_with_decoder_and_syntax(ctx)
+            if syntax_response and len(syntax_response) > 10:
+                return (syntax_response, "syntactic_pipeline")
+        except Exception as e:
+            if self._trace_enabled:
+                print(f"  [trace] syntactic pipeline error: {e}")
 
         # Reasoning loop
         try:
@@ -1026,10 +1034,127 @@ class ChatInterface:
         return " ".join(chain)
 
     def _generate_with_decoder_and_syntax(self, ctx: CognitiveResponseContext) -> Optional[str]:
-        """Generate using decoder + syntactic pipeline - placeholder."""
-        # This would integrate the full syntactic pipeline
-        # For now, use basic decoder generation
-        return self.decoder_engine.generate(ctx, self.graph_engine) if hasattr(self.decoder_engine, 'generate') else None
+        """Generate using full syntactic pipeline (P1: Production-Grade Syntactic Pipeline).
+
+        Pipeline:
+        1. PrefrontalWorkspace → Discourse Plan (structured intents from graph)
+        2. SyntacticCellAssembly → Syntactic Frames (bind concepts to grammatical roles)
+        3. BasalGangliaGate → Candidate Selection (Go/NoGo gating)
+        4. CerebellarNgram → Fluent Completion (learned transitions)
+        5. SurfaceRealizer → Final Text (morphology, agreement, punctuation)
+        """
+        if not ctx.subject:
+            return None
+
+        try:
+            # Step 0: Seed language modules with POS info if not already seeded
+            if not self.syntactic_assembly.subject_role and self._concept_pos:
+                self.syntactic_assembly.seed_from_pos(self._concept_pos)
+            if not self.cerebellar_ngram._pos_agreement and self._concept_pos:
+                self.cerebellar_ngram.seed_from_pos(self._concept_pos)
+
+            # Step 1: Discourse Planning
+            is_follow_up = self._is_follow_up(ctx.raw_input)
+            discourse_plan = self.pfc_workspace.plan_discourse(
+                user_input=ctx.raw_input,
+                subject=ctx.subject,
+                concept_pos=self._concept_pos,
+                associations=ctx.associated_concepts,
+                past_topics=ctx.past_topics,
+                is_follow_up=is_follow_up,
+            )
+
+            # Step 2-5: Build and realize each sentence from the discourse plan
+            utterances = []
+            discourse_context = DiscourseState(
+                sentence_index=0,
+                discourse_type=discourse_plan.question_type,
+                total_sentences=len(discourse_plan.intents),
+            )
+
+            for i, intent in enumerate(discourse_plan.intents):
+                if not intent.target_concept:
+                    continue
+
+                # Determine relation type from intent
+                relation = intent.primary_relation
+                if intent.type == DiscourseType.CAUSAL_EXPLAIN:
+                    relation = "causal"
+                elif intent.type == DiscourseType.CONTRAST:
+                    relation = "contrastive"
+
+                # Step 2: Syntactic Frame Generation
+                frame = self.syntactic_assembly.bind_to_sentence(
+                    subject=intent.subject,
+                    relation=relation,
+                    target=intent.target_concept,
+                    pos_map=self._concept_pos,
+                    chain_concepts=None,
+                    chain_connectors=None,
+                    depth=0,
+                )
+
+                # Step 3: Basal Ganglia Gating (Go/NoGo)
+                # Convert to candidate format for BG gate: (label, score, confidence, relation_type)
+                candidates = [(frame.subject_concept, 1.0, 1.0, relation)]
+                self.basal_ganglia.set_all_from_modulators({
+                    "arousal": ctx.arousal,
+                    "novelty": 0.3 if ctx.learned_recently else 0.1,
+                    "exploration_drive": ctx.exploration_drive,
+                    "prediction_error": 0.2,
+                    "identity_strength": ctx.identity_strength,
+                    "fatigue_level": 0.1,
+                    "prefrontal_boost": 0.5,
+                    "thalamic_salience": 0.7,
+                    "subject_proximity_bonus": 0.3,
+                    "contradiction_penalty": 0.3,
+                    "dopamine_tone": self._dopamine_tone,
+                })
+                selected_label, selected_rel, go_score = self.basal_ganglia.select_concept(candidates)
+
+                if not selected_label:
+                    continue
+
+                # Step 4: Cerebellar N-gram completion (for function word prediction)
+                # This helps the surface realizer pick better function words
+                if self.cerebellar_ngram.bigram:
+                    fw = self.cerebellar_ngram.predict_function_word(
+                        frame.subject_concept.lower(), frame.object_concept.lower()
+                    )
+                    if fw:
+                        # Could influence verb phrase selection, but surface_realizer handles this
+                        pass
+
+                # Step 5: Surface Realization
+                discourse_context.sentence_index = i
+                discourse_context.previous_subject = utterances[-1].split()[0] if utterances else None
+                discourse_context.discourse_type = intent.type
+
+                sentence = self.surface_realizer.realize(
+                    frame=frame,
+                    discourse_context=discourse_context,
+                    dopamine_tone=self._dopamine_tone,
+                    cerebellar_ngram=self.cerebellar_ngram,
+                    discourse_marker=intent.discourse_marker,
+                )
+
+                utterances.append(sentence)
+
+                # Learn from this chain for cerebellar n-gram
+                if len(utterances) > 0:
+                    chain_labels = [frame.subject_concept, frame.verb_phrase, frame.object_concept]
+                    self.cerebellar_ngram.learn_chain(chain_labels, successful=True)
+
+            if utterances:
+                return " ".join(utterances)
+
+        except Exception as e:
+            if self._trace_enabled:
+                import traceback
+                print(f"  [trace] syntactic pipeline error: {e}")
+                traceback.print_exc()
+
+        return None
 
     def save(self) -> str:
         state = {

@@ -105,6 +105,13 @@ class SurfaceRealizer:
         "trust", "justice", "freedom", "empathy", "respect",
         "hope", "fear", "anxiety", "joy", "grief",
         "power", "culture", "art", "science", "history",
+        # Gerunds (-ing forms used as uncountable nouns)
+        "bonding", "learning", "understanding", "thinking", "feeling",
+        "running", "walking", "swimming", "reading", "writing",
+        "speaking", "listening", "watching", "waiting", "working",
+        "living", "dying", "growing", "changing", "moving",
+        "being", "doing", "having", "making", "taking",
+        "giving", "getting", "seeing", "hearing", "knowing",
     }
 
     # Singular nouns ending in 's' (fields of study, diseases, etc.)
@@ -196,15 +203,23 @@ class SurfaceRealizer:
         verb = self._apply_tense(verb, frame.tense)
 
         # Step 7: Assemble core sentence
-        if relation == 'causal':
+        if relation == 'interrogative':
+            # ASK_BACK: the object_concept IS the pre-formed question
+            sentence = frame.object_concept
+            # Don't add period if already has punctuation
+            has_punct = sentence.endswith('.') or sentence.endswith('?') or sentence.endswith('!')
+        elif relation == 'causal':
             sentence = f"{subject_phrase} {verb} {object_phrase}"
+            has_punct = False
         elif relation == 'contrastive':
             sentence = f"{subject_phrase} {verb} {object_phrase}"
+            has_punct = False
         else:
             sentence = f"{subject_phrase} {verb} {object_phrase}"
+            has_punct = False
 
-        # Step 8: Add discourse marker
-        if discourse_marker:
+        # Step 8: Add discourse marker (skip for questions)
+        if discourse_marker and not has_punct:
             marker = discourse_marker
         else:
             marker = self._select_discourse_marker(
@@ -212,13 +227,14 @@ class SurfaceRealizer:
                 discourse_context.sentence_index,
                 dopamine_tone
             )
-        if marker:
+        if marker and not has_punct:
             sentence = f"{marker}, {sentence[0].lower() + sentence[1:]}"
 
         # Step 9: Capitalize and punctuate
-        sentence = sentence[0].upper() + sentence[1:]
-        if not sentence.endswith('.'):
-            sentence += '.'
+        if not has_punct:
+            sentence = sentence[0].upper() + sentence[1:]
+            if not sentence.endswith('.'):
+                sentence += '.'
 
         # Track subject usage
         self._used_subjects.add(sl)
