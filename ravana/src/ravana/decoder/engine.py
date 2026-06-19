@@ -458,9 +458,9 @@ class DecoderEngine:
         """Generate response using decoder + syntactic pipeline."""
         # This would integrate with SyntacticCellAssembly and SurfaceRealizer
         # For now, use the decoder directly
-        return self.generate(ctx)
+        return self.generate(ctx, graph_engine)
 
-    def generate(self, ctx) -> Optional[str]:
+    def generate(self, ctx, graph_engine) -> Optional[str]:
         """Generate a response using the NeuralDecoder."""
         if not self.is_ready:
             return None
@@ -473,7 +473,7 @@ class DecoderEngine:
         concept_embs = []
         seen_labels = set()
 
-        subj_nids = graph_engine._concept_keywords.get(subject.lower(), []) if 'graph_engine' in dir() else []
+        subj_nids = graph_engine._concept_keywords.get(subject.lower(), [])
         # This needs graph_engine passed in
         return None  # Placeholder - actual generation requires graph_engine
 

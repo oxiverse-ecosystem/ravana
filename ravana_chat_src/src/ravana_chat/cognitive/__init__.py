@@ -12,13 +12,13 @@ from pathlib import Path
 
 # ravana-v2 has a hyphen, so we can't import it directly.
 # Add its parent to sys.path so we can import 'core' as a package.
-_ravana_v2_root = str(Path(__file__).resolve().parent.parent.parent / "ravana-v2")
+_ravana_v2_root = str(Path(__file__).resolve().parent.parent.parent / "ravana-v2" / "src")
 if _ravana_v2_root not in sys.path:
     sys.path.insert(0, _ravana_v2_root)
 
 # Import the core package (uses relative imports internally, which work
 # because 'core' is a proper package directory with __init__.py)
-from core import (
+from ravana_grace.core import (
     # Phase A: Core Regulation
     Governor, GovernorConfig, RegulationMode, ClampDiagnostics,
     ResolutionEngine, ResolutionMemory,
@@ -86,7 +86,7 @@ from core import (
 )
 
 # Also make submodules accessible
-from core import (
+from ravana_grace.core import (
     memory,
     reality_friction,
     meta2_cognition,
@@ -95,7 +95,7 @@ from core import (
 )
 
 # Framework API — the top-level user interface
-from .cognitive.framework import CognitiveFramework, FrameworkConfig
+from .framework import CognitiveFramework, FrameworkConfig
 
 __all__ = [
     # Core regulation

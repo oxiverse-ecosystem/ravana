@@ -133,8 +133,10 @@ class ChatInterface:
             self._save_path = os.path.join(self.config.data_dir, f"ravana_weights{self.config.user_suffix}.pkl")
             self._glove_cache_path = os.path.join(self.config.data_dir, "ravana_glove_cache.npz")
         else:
-            self._save_path = os.path.join(self._proj_root, f"ravana_weights{self.config.user_suffix}.pkl")
-            self._glove_cache_path = os.path.join(self._proj_root, "ravana_glove_cache.npz")
+            os.makedirs(os.path.join(self._proj_root, "data"), exist_ok=True)
+            self._save_path = os.path.join(self._proj_root, "data", f"ravana_weights{self.config.user_suffix}.pkl")
+            os.makedirs(os.path.join(self._proj_root, "data"), exist_ok=True)
+            self._glove_cache_path = os.path.join(self._proj_root, "data", "ravana_glove_cache.npz")
 
         # Initialize components
         self._init_components()
@@ -266,6 +268,40 @@ class ChatInterface:
         self._explored_contradictions: Set[Tuple[str, str]] = set()
         self._cerebellar_ngram: Dict[str, Dict[str, float]] = {}
         self._cerebellar_depth: Dict[str, float] = {}
+
+        # Grammatical/function words that should never be frame targets
+        self._GRAMMATICAL_CONCEPTS = {
+            "out", "in", "on", "off", "up", "down", "over", "under", "above",
+            "below", "through", "across", "between", "among", "around", "about",
+            "after", "before", "since", "until", "during", "while", "when",
+            "where", "why", "how", "here", "there", "now", "then", "later",
+            "soon", "ago", "back", "away", "forward", "backward", "inside",
+            "outside", "near", "far", "high", "low", "deep", "shallow",
+            "we", "they", "them", "their", "us", "our", "he", "she", "him", "her",
+            "i", "you", "me", "my", "mine", "your", "yours", "his", "hers",
+            "its", "ours", "theirs", "myself", "yourself", "himself", "herself",
+            "itself", "ourselves", "yourselves", "themselves",
+            "a", "an", "the", "this", "that", "these", "those",
+            "some", "any", "every", "each", "all", "both", "either", "neither",
+            "much", "many", "few", "little", "more", "most", "less", "least",
+            "enough", "several", "one", "two", "three", "first", "second", "last",
+            "other", "another",
+            "such", "same", "different", "new", "certain", "whole", "own", "particular",
+            "and", "or", "but", "nor", "yet", "so", "for", "because", "since",
+            "although", "though", "if", "unless", "until", "while", "when",
+            "where", "whether", "than", "as", "like",
+            "be", "am", "is", "are", "was", "were", "been", "being",
+            "have", "has", "had", "do", "does", "did", "doing",
+            "can", "could", "will", "would", "shall", "should",
+            "may", "might", "must", "ought", "need", "dare",
+            "not", "no", "yes", "very", "too", "also", "just", "only",
+            "even", "still", "already", "yet", "again", "once", "twice",
+            "here", "there", "where", "why", "how", "when",
+            "instead", "introduced", "alternatively", "conversely", "likewise",
+            "similarly", "therefore", "however", "moreover", "furthermore",
+            "besides", "nevertheless", "nonetheless", "accordingly", "consequently",
+            "thus", "hence", "accordingly", "subsequently", "meanwhile",
+        }
 
         # Sleep metrics
         self._sleep_pressure = 0.0
@@ -1276,168 +1312,7 @@ class ChatInterface:
 
         return best_label
 
-    def _generate_with_decoder_and_syntax(self, ctx: CognitiveResponseContext) -> Optional[str]:
-        """Generate response using full syntactic pipeline:
-        
-        1. PrefrontalWorkspace: Plan discourse (3-sentence intent arc)
-        2. SyntacticCellAssembly: Bind concepts to grammatical frames
-        3. SurfaceRealizer: Apply morphology, agreement, pronouns, articles
-        
-        Uses graph walk chain concepts directly - decoder produces garbage.
-        """
-        subject = ctx.subject
-        assocs = ctx.associated_concepts
-        if not subject or not assocs:
-            return None
-        
-        # ─── STEP 1: PrefrontalWorkspace — Discourse Planning ───
-        plan = self.pfc_workspace.plan_discourse(
-            user_input=ctx.raw_input,
-            subject=subject,
-            concept_pos=self._concept_pos,
-            associations=assocs[:10],
-            past_topics=ctx.past_topics,
-            is_follow_up=self._is_follow_up(ctx.raw_input),
-        )
-        
-        if self._trace_enabled:
-            print(f"  [trace] Discourse plan: {len(plan.intents)} intents")
-            for i, intent in enumerate(plan.intents):
-                print(f"    Intent {i}: type={intent.type}, subject={intent.subject}, target={intent.target_concept}, relation={intent.primary_relation}, marker={intent.discourse_marker}")
-        
-        # ─── STEP 2: For each discourse intent, generate a sentence ───
-        sentences = []
-        dopamine_tone = getattr(self, '_dopamine_tone', 0.5)
-        used_targets = {subject.lower()}  # Track used concepts across sentences
-        # Allow reuse after 2 sentences to prevent deadlock
-        target_reuse_window = 2
-        recent_targets = []  # Track recent targets for reuse window
-        
-        for sent_idx, intent in enumerate(plan.intents):
-            # Generate concept sequence for this intent
-            intent_subject = intent.subject
-            intent_target = intent.target_concept
-            intent_relation = intent.primary_relation
-            
-            # Filter out grammatical concepts from discourse plan target
-            if intent_target and intent_target.lower() in self._GRAMMATICAL_CONCEPTS:
-                intent_target = ""
-            
-            # Walk chain for this intent's relation type
-            seen = {intent_subject.lower()}
-            if intent_target:
-                seen.add(intent_target.lower())
-            
-            chain_result = self._walk_chain_simple(
-                label=intent_subject,
-                seen=seen.copy(),
-                max_hops=2,
-                temperature=0.25,
-            )
-            
-            # Parse chain into concepts
-            chain_concepts = []
-            chain_connectors = []
-            if chain_result:
-                for token in chain_result.split():
-                    if token in self._CONNECTOR_SET:
-                        chain_connectors.append(token)
-                    else:
-                        # Filter out grammatical concepts early
-                        is_gram = token.lower() in self._GRAMMATICAL_CONCEPTS
-                        if not is_gram:
-                            chain_concepts.append(token)
-            
-            if self._trace_enabled:
-                print(f"  [trace] Sent {sent_idx}: intent_subject={intent_subject}, intent_target={intent_target}, chain_result={chain_result}")
-                print(f"    chain_concepts={chain_concepts}, chain_connectors={chain_connectors}")
-                print(f"    used_targets={used_targets}, recent_targets={recent_targets}")
-            
-            # Use discourse target if chain didn't produce it, else use chain's top concept
-            target_for_frame = intent_target
-            
-            # PRIORITY 1: Use valid chain concepts (most grounded in graph structure)
-            if not target_for_frame and chain_concepts:
-                for c in chain_concepts:
-                    cl = c.lower()
-                    if cl not in seen and cl not in self._GRAMMATICAL_CONCEPTS and cl not in used_targets:
-                        target_for_frame = c
-                        break
-            
-            # PRIORITY 2: Use discourse plan target if valid
-            if not target_for_frame and intent_target:
-                it_lower = intent_target.lower()
-                if it_lower not in seen and it_lower not in self._GRAMMATICAL_CONCEPTS and it_lower not in used_targets:
-                    target_for_frame = intent_target
-            
-            # PRIORITY 3: Vector neighbor as last resort
-            if not target_for_frame:
-                neighbor = self._find_vector_neighbor(intent_subject)
-                if self._trace_enabled:
-                    print(f"    _find_vector_neighbor({intent_subject}) = {neighbor}")
-                if neighbor:
-                    nb_lower = neighbor.lower()
-                    if nb_lower not in seen and nb_lower not in self._GRAMMATICAL_CONCEPTS and nb_lower not in used_targets:
-                        target_for_frame = neighbor
-            
-            # Allow target reuse if not used in last N sentences
-            target_reusable = False
-            if target_for_frame and target_for_frame.lower() in used_targets:
-                if target_for_frame.lower() not in [t.lower() for t in recent_targets[-target_reuse_window:]]:
-                    target_reusable = True
-            
-            if not target_for_frame or (target_for_frame.lower() in used_targets and not target_reusable) or target_for_frame.lower() in self._GRAMMATICAL_CONCEPTS:
-                if self._trace_enabled:
-                    print(f"    SKIPPING sentence {sent_idx}: target_for_frame={target_for_frame}")
-                continue
-            
-            if not target_reusable:
-                used_targets.add(target_for_frame.lower())
-            recent_targets.append(target_for_frame)
-            if len(recent_targets) > target_reuse_window:
-                recent_targets.pop(0)
-            
-            # ─── STEP 4: SyntacticCellAssembly — Bind to grammatical frame ───
-            frame = self.syntactic_assembly.bind_to_sentence(
-                subject=intent_subject,
-                relation=intent_relation,
-                target=target_for_frame,
-                pos_map=self._concept_pos,
-                chain_concepts=chain_concepts,
-                chain_connectors=chain_connectors,
-                depth=sent_idx,
-            )
-            
-            # Apply discourse marker from plan
-            discourse_marker = intent.discourse_marker
-            
-            # ─── STEP 5: SurfaceRealizer — Morphology, agreement, pronouns, articles ───
-            discourse_state = DiscourseState(
-                sentence_index=sent_idx,
-                previous_subject=sentences[-1].split()[0].lower() if sentences else None,
-                discourse_type=intent.type,
-                total_sentences=len(plan.intents),
-            )
-            
-            try:
-                sentence = self.surface_realizer.realize(
-                    frame=frame,
-                    discourse_context=discourse_state,
-                    dopamine_tone=dopamine_tone,
-                    cerebellar_ngram=getattr(self, 'cerebellar_ngram', None),
-                    discourse_marker=discourse_marker,
-                )
-                sentences.append(sentence)
-            except Exception as e:
-                if self._trace_enabled:
-                    print(f"  [trace] SurfaceRealizer error: {e}")
-                continue
-        
-        if not sentences:
-            return None
-        
-        return " ".join(sentences)
-
+    
     def save(self) -> str:
         state = {
             'graph': self.graph_engine.graph,

@@ -173,10 +173,11 @@ def main():
                 "results": results
             }
             
-            with open(f".iterative_checkpoint_c{cycle}.json", "w") as f:
+            os.makedirs("checkpoints", exist_ok=True)
+            with open(f"checkpoints/iterative_checkpoint_c{cycle}.json", "w") as f:
                 json.dump(checkpoint, f, indent=2)
             
-            print(f"\n  Checkpoint saved: .iterative_checkpoint_c{cycle}.json")
+            print(f"\n  Checkpoint saved: checkpoints/iterative_checkpoint_c{cycle}.json")
             
             if avg_quality > 0.5:
                 print(f"  *** QUALITY THRESHOLD REACHED ({avg_quality:.3f} > 0.5) ***")
@@ -186,7 +187,8 @@ def main():
     final_results = evaluate_model(engine)
     
     # Save final checkpoint
-    with open(".iterative_final.json", "w") as f:
+    os.makedirs("checkpoints", exist_ok=True)
+    with open("checkpoints/iterative_final.json", "w") as f:
         json.dump({
             "final_training_count": engine._decoder_training_count,
             "final_results": final_results

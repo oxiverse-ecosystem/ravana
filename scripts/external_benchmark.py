@@ -228,8 +228,6 @@ def run_pxc_text_benchmarks(config: BenchmarkConfig, args=None) -> List[PCXTaskR
     print("\n[1/3] Training RLMv2 (RAVANA)...")
     
     # In quick mode, use cached pretrained weights if available
-    if args.quick and False:  # TODO: implement cache
-        pass
     
     model_rlm = RLMv2(
         vocab_size=vocab_size, embed_dim=64, concept_dim=64,

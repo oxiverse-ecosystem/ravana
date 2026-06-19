@@ -501,6 +501,16 @@ class RLMv2(Module):
         # Track cross-domain edges injected analogically (subject_cid, object_cid).
         self._cross_domain_edges_injected: Set[Tuple[int, int]] = set()
 
+        # ── P0 ConceptNet/Ontology Bootstrap (§4B) ──
+        # Lightweight semantic ontology seeded at init with low confidence (0.2-0.3).
+        # Edges are reinforced through Hebbian updates during training.
+        self._ontology_edges: Dict[str, List[Tuple[str, str, float]]] = {}
+        self._init_ontology()
+
+        # ── P0 Novel Entity Promotion (§4C) ──
+        # Tracks access counts for novel entities; promotes high-access ones during sleep.
+        self._novel_entity_access: Dict[int, int] = {}  # concept_id -> access_count
+
         # Legacy sparse-concept predictor compatibility fields.
         # These are retained so older save/load paths and tests still work.
         self.use_sparse_concept_predictor = False
@@ -697,12 +707,6 @@ class RLMv2(Module):
             if best_label is not None and best_sim >= self._prototype_similarity_threshold:
                 return best_label, best_sim
         
-        return None, 0.0
-
-    def _init_domain_heads(self):
-            self._prototype_vectors[label] = centroid
-            self._prototype_levels[label] = 0
-            self._prototype_children[label] = []
 
     def _init_domain_heads(self):
         """Compatibility hook for older domain-head routing code.
@@ -889,6 +893,97 @@ class RLMv2(Module):
             if norm > 0:
                 vec /= norm
             self.graph.add_node(vector=vec, label=f"init_{i}")
+
+    # ── P0 ConceptNet/Ontology Bootstrap (§4B) ──
+
+    def _init_ontology(self):
+        """Seed the graph with lightweight semantic ontology edges at low confidence.
+
+        Called once during __init__. Injects ~50 curated (subject, relation, object)
+        triples covering common-sense relationships across 6 relation types.
+        Edges start at confidence 0.2-0.3 and are reinforced through Hebbian
+        updates during normal training — the model must verify them through use.
+
+        Neuroscience basis: Pre-structured semantic knowledge in semantic memory
+        (Patterson et al. 2007, Hub-and-Spoke model). Low initial confidence
+        mimics the difference between innate priors and learned experience.
+        """
+        self._ontology_edges = {
+            "causal": [
+                ("heat", "expansion"), ("cold", "contraction"),
+                ("fire", "smoke"), ("rain", "growth"),
+                ("sunlight", "photosynthesis"), ("exercise", "sweat"),
+                ("learning", "knowledge"), ("practice", "skill"),
+                ("stress", "disease"), ("sleep", "recovery"),
+                ("wind", "erosion"), ("volcano", "lava"),
+            ],
+            "semantic": [
+                ("oxygen", "gas"), ("water", "liquid"),
+                ("granite", "rock"), ("democracy", "government"),
+                ("photosynthesis", "process"), ("gravity", "force"),
+                ("triangle", "shape"), ("carbon", "element"),
+                ("trust", "emotion"), ("economics", "science"),
+            ],
+            "possessive": [
+                ("tree", "leaves"), ("car", "engine"),
+                ("book", "chapters"), ("house", "rooms"),
+                ("computer", "memory"), ("cell", "nucleus"),
+            ],
+            "temporal": [
+                ("dawn", "day"), ("dusk", "night"),
+                ("spring", "summer"), ("childhood", "adulthood"),
+                ("seedling", "tree"), ("caterpillar", "butterfly"),
+            ],
+            "analogical": [
+                ("brain", "computer"), ("heart", "pump"),
+                ("sun", "star"), ("river", "snake"),
+                ("eye", "camera"), ("society", "organism"),
+            ],
+            "contextual": [
+                ("fish", "water"), ("bird", "sky"),
+                ("plant", "soil"), ("ice", "arctic"),
+                ("coral", "reef"), ("cactus", "desert"),
+            ],
+        }
+
+        # Inject edges at low confidence — model must reinforce through Hebbian updates
+        confidence = 0.25
+        weight = 0.3
+        edges_injected = 0
+
+        # Helper: get or create a concept node for a label
+        def _get_or_create_ontology_concept(label: str) -> Optional[int]:
+            existing = [nid for nid, n in self.graph.nodes.items()
+                        if n.label and n.label.lower() == label]
+            if existing:
+                return existing[0]
+            # Create a new concept node with a random vector (will be refined through use)
+            if len(self.graph.nodes) < self._max_concepts:
+                # Use stable integer hash (Python hash() is salted per-process)
+                stable_seed = sum(ord(c) * (i + 1) for i, c in enumerate(label)) % (2**31)
+                vec = np.random.RandomState(stable_seed).randn(self.concept_dim).astype(np.float32)
+                norm = np.linalg.norm(vec)
+                if norm > 0:
+                    vec /= norm
+                node = self.graph.add_node(vector=vec * 0.3, label=label)
+                return node.id
+            return None
+
+        for rel_type, pairs in self._ontology_edges.items():
+            for subject_label, object_label in pairs:
+                subj_id = _get_or_create_ontology_concept(subject_label)
+                obj_id = _get_or_create_ontology_concept(object_label)
+                if subj_id is not None and obj_id is not None:
+                    existing = self.graph.get_edge(subj_id, obj_id)
+                    if existing is None:
+                        self.graph.add_edge(subj_id, obj_id,
+                                            weight=weight,
+                                            relation_type=rel_type,
+                                            confidence=confidence)
+                        edges_injected += 1
+
+        if edges_injected > 0:
+            print(f"  [Ontology] Injected {edges_injected} seed edges at confidence={confidence}")
 
     # ── Property aliases for backward compatibility with CognitiveCurrencies ──
 
@@ -1102,6 +1197,80 @@ class RLMv2(Module):
     def _regulate_cognitive_state(self):
         self.currencies.regulate()
 
+    # ── P0 Sleep-Based Novel Entity Promotion (§4C) ──
+
+    def _promote_novel_entities_during_sleep(self, access_threshold: int = 3):
+        """Promote frequently accessed novel entities; prune unaccessed ones.
+
+        During sleep, scan novel entities created via _get_or_create_concept():
+        - Entities with access_count >= access_threshold: merge with nearest
+          prototype, inherit all edges at full confidence, promote to full concept.
+        - Entities with access_count == 0: remove from graph (prune).
+        - Others: leave for next cycle.
+
+        Args:
+            access_threshold: Access count to qualify for promotion (default 3).
+
+        Returns:
+            Tuple[int, int]: (promoted_count, pruned_count)
+
+        Neuroscience basis: Complementary Learning Systems — novel items that
+        are repeatedly accessed during wake are consolidated into semantic
+        memory during sleep (McClelland et al. 1995). Unaccessed items decay.
+        """
+        if not hasattr(self, '_novel_entity_concepts') or not self._novel_entity_concepts:
+            return 0, 0
+
+        promoted = 0
+        pruned = 0
+
+        # Snapshot keys to allow dict mutation during iteration
+        novel_ids = list(self._novel_entity_concepts.keys())
+
+        for nid in novel_ids:
+            node = self.graph.get_node(nid)
+            if node is None:
+                # Node was already removed — clean up tracking
+                self._novel_entity_concepts.pop(nid, None)
+                self._novel_entity_access.pop(nid, None)
+                continue
+
+            access_count = self._novel_entity_access.get(nid, 0)
+
+            if access_count >= access_threshold:
+                # ── Promote: merge with nearest prototype ──
+                # Find best matching prototype to inherit full edges
+                proto_label, proto_sim = self._find_nearest_prototype(node.vector)
+                if proto_label is not None and proto_sim >= self._prototype_similarity_threshold:
+                    # Inherit edges from prototype with FULL confidence (not discounted)
+                    self._inherit_from_prototype(nid, proto_label, proto_sim)
+
+                    # Increase edge confidence for all existing edges
+                    for _, edge in self.graph.get_outgoing(nid):
+                        edge.confidence = min(1.0, edge.confidence + 0.2)
+
+                # Promote: increase node's stability and remove from novel tracking
+                if hasattr(node, 'stability'):
+                    node.stability = min(1.0, getattr(node, 'stability', 0.0) + 0.3)
+                promoted += 1
+                self._novel_entity_concepts.pop(nid, None)
+                self._novel_entity_access.pop(nid, None)
+
+            elif access_count < 2:
+                # ── Prune: low access, remove from graph ──
+                # The binding map's stale entries are harmless — _get_or_create_concept
+                # checks node existence before returning cached bindings.
+                self.graph.remove_node(nid)
+                pruned += 1
+                self._novel_entity_concepts.pop(nid, None)
+                self._novel_entity_access.pop(nid, None)
+
+        if promoted > 0 or pruned > 0:
+            print(f"  [Novel Entity] Promoted {promoted}, Pruned {pruned} "
+                  f"(from {len(novel_ids)} tracked)")
+
+        return promoted, pruned
+
     def buffer_experience(self, input_ids: np.ndarray, target_ids: np.ndarray,
                           domain: Optional[str] = None):
         entry = (input_ids.copy(), target_ids.copy())
@@ -1312,6 +1481,9 @@ class RLMv2(Module):
             # Validate that the node still exists in the graph
             # (binding may be stale if node was pruned)
             if self.graph.get_node(cid) is not None:
+                # Track access count for novel entity promotion (§4C)
+                if hasattr(self, '_novel_entity_access') and cid in self._novel_entity_access:
+                    self._novel_entity_access[cid] += 1
                 return cid
             # Stale binding - fall through to create a fresh concept
 
@@ -1343,6 +1515,7 @@ class RLMv2(Module):
                 if not hasattr(self, '_novel_entity_concepts'):
                     self._novel_entity_concepts = {}
                 self._novel_entity_concepts[nid] = proto_sim * 0.5  # discounted confidence
+                self._novel_entity_access[nid] = 1  # count the creation event as first access
 
         # Initialize entity adapter for this token (Fix #3)
         if token_id not in self._entity_adapters:
@@ -4105,6 +4278,10 @@ class RLMv2(Module):
             # and degree < 2 (isolated or single-edge artifacts from tokenizer expansion)
             self._prune_phantom_nodes(min_degree=2)
 
+            # ── P0 Sleep-Based Novel Entity Promotion (§4C) ──
+            # Promote novel entities with high access count; prune unaccessed ones.
+            self._promote_novel_entities_during_sleep(access_threshold=3)
+
             # ── Representation Alignment ──
             # Align encoder representations to graph topology if needed or forced or graph changed
             graph_version = getattr(self.graph, 'version', 0)
@@ -4190,7 +4367,7 @@ class RLMv2(Module):
             # Remove all edges connected to this node
             for _, edge in self.graph._outgoing.get(nid, []):
                 self.graph.remove_edge(nid, edge.target)
-            for edge, _ in self.graph._incoming.get(nid, []):
+            for _, edge in self.graph._incoming.get(nid, []):
                 self.graph.remove_edge(edge.source, nid)
             # Remove the node
             if nid in self.graph.nodes:

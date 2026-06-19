@@ -416,7 +416,7 @@ for criterion in {config.criteria}:
         r2 = df[(df.model_name==m2) & (df.criterion==criterion)]["rating"].values
         if len(r1) == len(r2) and len(r1) > 5:
             stat, p = wilcoxon(r1, r2)
-            print(f"  {{m1}} vs {{m2}}: W={{stat}}, p={{p:.4f}} {'*' if p<0.05/10 else ''}")
+            print(f"  {{m1}} vs {{m2}}: W={{stat}}, p={{p:.4f}}{{'*' if p<0.05/10 else ''}}")
 '''
 
 

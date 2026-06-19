@@ -133,8 +133,10 @@ class ChatInterface:
             self._save_path = os.path.join(self.config.data_dir, f"ravana_weights{self.config.user_suffix}.pkl")
             self._glove_cache_path = os.path.join(self.config.data_dir, "ravana_glove_cache.npz")
         else:
-            self._save_path = os.path.join(self._proj_root, f"ravana_weights{self.config.user_suffix}.pkl")
-            self._glove_cache_path = os.path.join(self._proj_root, "ravana_glove_cache.npz")
+            os.makedirs(os.path.join(self._proj_root, "data"), exist_ok=True)
+            self._save_path = os.path.join(self._proj_root, "data", f"ravana_weights{self.config.user_suffix}.pkl")
+            os.makedirs(os.path.join(self._proj_root, "data"), exist_ok=True)
+            self._glove_cache_path = os.path.join(self._proj_root, "data", "ravana_glove_cache.npz")
 
         # Initialize components
         self._init_components()

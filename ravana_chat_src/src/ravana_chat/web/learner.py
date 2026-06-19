@@ -15,6 +15,10 @@ from dataclasses import dataclass, field
 from collections import defaultdict
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import hashlib
+import numpy as np
+
+from ..graph import STOP_WORDS
 
 # Optional BeautifulSoup
 try:
@@ -157,7 +161,8 @@ class WebLearner:
         if data_dir:
             self._glove_cache_path = os.path.join(data_dir, "ravana_glove_cache.npz")
         else:
-            self._glove_cache_path = os.path.join(_proj_root, "ravana_glove_cache.npz")
+            os.makedirs(os.path.join(_proj_root, "data"), exist_ok=True)
+            self._glove_cache_path = os.path.join(_proj_root, "data", "ravana_glove_cache.npz")
 
         # Search engine
         self.search_engine = SearchEngine()

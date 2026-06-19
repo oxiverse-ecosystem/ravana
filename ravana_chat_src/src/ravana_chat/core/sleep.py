@@ -120,9 +120,9 @@ class SleepConsolidation:
                     episodic_consolidated += 1
 
         # 6. Belief reconciliation
-        if belief_store and belief_store.beliefs:
-            resolved = belief_store.reconcile()
-            # Metrics logged externally
+        _has_beliefs = belief_store is not None and getattr(belief_store, 'users', None)
+        if _has_beliefs and belief_store.reconcile():  # checks for any pending contradictions
+            pass
 
         # 7. Sleep-replay impossible queries
         for iq in impossible_queries:

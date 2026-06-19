@@ -263,23 +263,23 @@ Repeat
 
 ## RLMv2 Benchmarks
 
-### Diagnostic Tests (Moved to `tests/`)
+### Diagnostic Tests (Moved to `tests/unit/`)
 
 ```bash
 # RP-only (analogy path only, no spreading activation)
-python tests/test_rp_only.py
+python -m pytest tests/unit/test_rp_only.py -v
 
 # RP contrastive (with negative sampling)
-python tests/test_rp_contrastive.py
+python -m pytest tests/unit/test_rp_contrastive.py -v
 
 # Structural transfer (graph-aware encoder alignment)
-python tests/test_structural_transfer.py
+python -m pytest tests/unit/test_structural_transfer.py -v
 ```
 
 **What they test:**
-- `test_rp_only.py`: Pure verb-stem offset predictor accuracy
-- `test_rp_contrastive.py`: Contrastive regularization effect
-- `test_structural_transfer.py`: Graph-aware encoder alignment (33% → 100% traversal)
+- `tests/unit/test_rp_only.py`: Pure verb-stem offset predictor accuracy
+- `tests/unit/test_rp_contrastive.py`: Contrastive regularization effect
+- `tests/unit/test_structural_transfer.py`: Graph-aware encoder alignment (33% → 100% traversal)
 
 ---
 
@@ -324,16 +324,20 @@ PhaseConfig(
 
 ## Diagnostic Tests
 
-### Unit Tests (ML Framework)
+### Unit & Integration Tests (ML Framework)
 
 ```bash
+# Run all tests (unit + integration + CI)
 python -m pytest tests/ -v
 
-# Specific test files
-python -m pytest tests/test_ravana.py -v
-python -m pytest tests/test_rlm_v2.py -v
-python -m pytest tests/test_dialogue_engine_integration.py -v
-python -m pytest tests/test_dialogue_system.py -v
+# Unit tests only (fast — module-level correctness)
+python -m pytest tests/unit/ -v
+
+# Integration tests (cross-module pipelines)
+python -m pytest tests/integration/ -v
+
+# CI smoke tests
+python -m pytest tests/ci/ -v
 ```
 
 ### Cognitive Core Unit Tests
@@ -577,9 +581,9 @@ class CognitiveExperimentConfig:
 | RLMv2 overall top-10 | `python experiments/experiment_triple_benchmark_v6.py` | 80.9% |
 | Cross-domain causal top-10 | `python experiments/experiment_cross_domain.py` | **75%** |
 | Cross-domain causal Top-1 | `python external_benchmark.py --quick` | **75%** |
-| RP-only verb-offset top-10 | `python tests/test_rp_only.py` | 6.7% |
+| RP-only verb-offset top-10 | `python -m pytest tests/unit/test_rp_only.py -v` | 6.7% |
 | Catastrophic forgetting | `python experiments/experiment_cross_domain.py` | 0% |
-| Graph-aware alignment | `python tests/test_structural_transfer.py` | 100% traversal |
+| Graph-aware alignment | `python -m pytest tests/unit/test_structural_transfer.py -v` | 100% traversal |
 | Sleep optimization | (internal benchmark) | 255ms (2.6× speedup) |
 
 ### External Benchmark Results (NEW — `external_benchmark.py`)

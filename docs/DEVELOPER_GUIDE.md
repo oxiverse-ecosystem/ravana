@@ -236,9 +236,18 @@ for src, tgt in active_pairs:
 
 ```
 tests/                          # ML framework tests
-├── test_ravana.py              # Core tensor/module tests
-├── test_rlm_v2.py              # RLMv2 specific
-├── test_dialogue_engine_integration.py
+├── unit/                       #   Module-level unit tests (fast)
+│   ├── test_ravana_core.py
+│   ├── test_rlm_v2_*.py
+│   ├── test_rp_only.py
+│   └── ...
+├── integration/                #   Cross-module integration tests
+│   ├── test_ravana.py
+│   ├── test_dialogue_engine_integration.py
+│   ├── test_dialogue_system.py
+│   └── ...
+├── ci/                         #   CI smoke tests
+│   └── test_core.py
 └── ...
 
 ravana-v2/tests/               # Cognitive core tests
@@ -256,8 +265,17 @@ ravana-v2/tests/               # Cognitive core tests
 # All tests
 python -m pytest tests/ ravana-v2/tests/ -v
 
+# Unit tests only (fast)
+python -m pytest tests/unit/ -v
+
+# Integration tests
+python -m pytest tests/integration/ -v
+
+# CI smoke tests
+python -m pytest tests/ci/ -v
+
 # Specific module
-python -m pytest tests/test_rlm_v2.py -v
+python -m pytest tests/unit/test_rlm_v2.py -v
 python -m pytest ravana-v2/tests/test_governor.py -v
 
 # With coverage

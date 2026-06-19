@@ -35,8 +35,8 @@ from .embedder import LearnedEmbedder
 class HumanMemoryConfig:
     """Configuration for the human memory engine."""
     # Persistence
-    db_path: str = "human_memory.db"
-    graph_path: str = "human_memory_graph.pickle"
+    db_path: str = "data/human_memory.db"
+    graph_path: str = "data/human_memory_graph.pickle"
 
     # Ebbinghaus decay
     base_decay_rate: float = 0.01
