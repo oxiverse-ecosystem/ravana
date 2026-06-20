@@ -10,6 +10,7 @@ from ravana.core.sleep import SleepConsolidation, SleepConfig
 from ravana.core.meta_cognition import MetaCognition, MetaCognitiveConfig, EpistemicMode
 from ravana.core.global_workspace import GlobalWorkspace, GWConfig, WorkspaceItem
 from ravana.core.emotion import VADEmotionEngine, VADConfig, VADState
+from ravana.core.mirror import EmotionalMirrorEngine, MirrorConfig, MirrorState, UserEmotionDetector
 
 
 # ── BeliefStore Tests ──
@@ -291,3 +292,131 @@ class TestRavanaVADEmotion:
         for _ in range(50):
             vad.update()
         assert vad.state.arousal < initial
+
+
+class TestUserEmotionDetector:
+    """Tests for UserEmotionDetector — P2 Emotional Mirroring."""
+
+    def test_detect_positive_excitement(self):
+        detector = UserEmotionDetector()
+        v, a, d = detector.detect("I am feeling very excited about this!")
+        assert v > 0.3
+        assert a > 0.5
+
+    def test_detect_negative_frustration(self):
+        detector = UserEmotionDetector()
+        v, a, d = detector.detect("This is really frustrating and confusing")
+        assert v < -0.2
+        assert a > 0.4
+
+    def test_detect_fear_high_arousal(self):
+        detector = UserEmotionDetector()
+        v, a, d = detector.detect("I am absolutely terrified right now")
+        assert v < -0.5
+        assert a > 0.7
+
+    def test_detect_neutral_low_arousal(self):
+        detector = UserEmotionDetector()
+        v, a, d = detector.detect("The sky is blue and grass is green.")
+        assert abs(v) < 0.2
+        assert a < 0.5
+
+    def test_detect_empty_text(self):
+        detector = UserEmotionDetector()
+        v, a, d = detector.detect("")
+        assert v == 0.0
+        assert a == 0.3
+
+    def test_detect_negation_flips_valence(self):
+        detector = UserEmotionDetector()
+        v, a, d = detector.detect("I am not happy about this")
+        assert v < 0
+
+    def test_detect_intensifier_boost(self):
+        detector = UserEmotionDetector()
+        v1, a1, d1 = detector.detect("This is exciting")
+        v2, a2, d2 = detector.detect("This is extremely exciting")
+        assert abs(v2) >= abs(v1) or a2 >= a1
+
+    def test_detect_stem_fallback(self):
+        detector = UserEmotionDetector()
+        v, a, d = detector.detect("This is frustrating me")
+        assert v < 0
+
+    def test_detect_fallback_keywords(self):
+        detector = UserEmotionDetector()
+        v, a, d = detector.detect("This is really stupid and boring")
+        assert v < 0
+
+
+class TestEmotionalMirrorEngine:
+    """Tests for EmotionalMirrorEngine — P2 Mirror Neuron System."""
+
+    def test_mirror_increases_arousal_for_excitement(self):
+        vad = VADEmotionEngine()
+        mirror = EmotionalMirrorEngine(MirrorConfig(mirror_strength=0.5, contagion_rate=0.5))
+        init_arousal = vad.state.arousal
+        mirror.mirror(vad, "I am so excited about this!")
+        assert vad.state.arousal > init_arousal
+
+    def test_mirror_updates_valence_for_positive(self):
+        vad = VADEmotionEngine()
+        mirror = EmotionalMirrorEngine()
+        init_valence = vad.state.valence
+        mirror.mirror(vad, "This is absolutely amazing and wonderful!")
+        assert vad.state.valence > init_valence
+
+    def test_mirror_updates_valence_for_negative(self):
+        vad = VADEmotionEngine()
+        mirror = EmotionalMirrorEngine()
+        mirror.mirror(vad, "I am so angry and frustrated right now")
+        assert vad.state.valence < 0
+
+    def test_neutral_text_does_not_engage_mirror(self):
+        vad = VADEmotionEngine()
+        mirror = EmotionalMirrorEngine()
+        mirror.mirror(vad, "The sky is blue and grass is green.")
+        assert mirror.state.mirror_engagement < 0.1
+
+    def test_modulation_scales_with_arousal(self):
+        vad = VADEmotionEngine()
+        mirror = EmotionalMirrorEngine()
+        mirror.mirror(vad, "I am terrified!")
+        mod = mirror.get_modulation(vad.state)
+        assert mod['temperature_mult'] >= 0.5
+        assert mod['breadth_mult'] >= 0.5
+        assert mod['verbosity_mult'] >= 0.5
+
+    def test_modulation_defaults_when_not_engaged(self):
+        mirror = EmotionalMirrorEngine()
+        mod = mirror.get_modulation(VADEmotionEngine().state)
+        assert mod['temperature_mult'] == 1.0
+        assert mod['breadth_mult'] == 1.0
+        assert mod['verbosity_mult'] == 1.0
+
+    def test_detect_user_emotion_updates_state(self):
+        mirror = EmotionalMirrorEngine()
+        uv, ua, ud = mirror.detect_user_emotion("I am really excited!")
+        assert mirror.state.user_valence > 0.3
+        assert mirror.state.user_arousal > 0.5
+
+    def test_get_emotional_label(self):
+        mirror = EmotionalMirrorEngine()
+        mirror.detect_user_emotion("I am so excited!")
+        label = mirror.get_emotional_label()
+        assert isinstance(label, str) and len(label) > 0
+
+    def test_serialization_round_trip(self):
+        mirror = EmotionalMirrorEngine()
+        mirror.mirror(VADEmotionEngine(), "I am very happy")
+        state_dict = mirror.state.to_dict()
+        restored = MirrorState()
+        restored.set_state(state_dict)
+        assert abs(restored.user_valence - mirror.state.user_valence) < 0.001
+
+    def test_rapport_builds_over_time(self):
+        vad = VADEmotionEngine()
+        mirror = EmotionalMirrorEngine()
+        for _ in range(10):
+            mirror.mirror(vad, "This is great!")
+        assert mirror.state.rapport_level > 0.01

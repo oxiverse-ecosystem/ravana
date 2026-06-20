@@ -20,7 +20,8 @@ import hashlib
 from ..core import (VADEmotionEngine, VADConfig, IdentityEngine, IdentityState, IdentityConfig,
                           MeaningEngine, MeaningConfig, DualProcessController, DualProcessConfig, Route,
                           GlobalWorkspace, GWConfig, MetaCognition, MetaCognitiveConfig, EpistemicMode,
-                          SleepConsolidation, SleepConfig, BeliefStore, UserBeliefProfile, BeliefConfig)
+                          SleepConsolidation, SleepConfig, BeliefStore, UserBeliefProfile, BeliefConfig,
+                          EmotionalMirrorEngine, MirrorConfig)
 from ..graph import GraphEngine
 from ..decoder import DecoderEngine, DecoderConfig
 from ..web import WebLearner, SearchEngine, SearchConfig, SearchError
@@ -168,6 +169,7 @@ class ChatInterface:
 
         # Cognitive core
         self.emotion = VADEmotionEngine(VADConfig(eta_valence=0.3, eta_arousal=0.4, eta_dominance=0.25))
+        self.mirror_engine = EmotionalMirrorEngine(MirrorConfig(mirror_strength=0.55, contagion_rate=0.45))
         self.identity = IdentityEngine(IdentityConfig(initial_strength=0.25, momentum_factor=0.3, recovery_bias=0.15))
         self.meaning = MeaningEngine(MeaningConfig(w_dissonance_reduction=0.3, w_identity_coherence=0.3, w_predictive_power=0.4, effort_kappa=0.5))
         self.dual_process = DualProcessController(DualProcessConfig(system2_confidence_threshold=0.25, system2_novelty_threshold=0.4, max_consecutive_system2=5))
@@ -190,6 +192,7 @@ class ChatInterface:
 
         # State
         self.turn_count = 0
+        self._last_chain_hops: List[List[Tuple[str, str]]] = []
         self._topic_list: List[str] = []
         self._topic_store: Dict[str, Dict] = {}
         self._response_context: List[Dict] = []
@@ -378,8 +381,9 @@ class ChatInterface:
         if subject:
             self._current_context_vector = self._build_context_vector(subject)
 
-        # Emotional modulation
+        # Emotional modulation + mirroring
         self._update_emotion(user_input)
+        self.mirror_engine.mirror(self.emotion, user_input, self.turn_count)
         for nid in activated:
             self._concept_vad[nid] = (self.emotion.state.valence, self.emotion.state.arousal, self.emotion.state.dominance)
 
@@ -432,7 +436,7 @@ class ChatInterface:
             dissonance=self._free_energy,
             processing_route=route.route.value, route_reason=route.reason,
             past_topics=past, turn_count=self.turn_count,
-            meaning_generated=self.meaning.accumulated_meaning,
+            meaning_generated=self.meaning.state.accumulated_meaning,
             exploration_drive=0.3 * (1 - self.identity.state.strength) + 0.2 * self.emotion.state.arousal,
             learned_recently=self._learned_this_turn,
             recall_mode=self._recall_mode,
@@ -867,6 +871,9 @@ class ChatInterface:
         dt = getattr(self, '_dopamine_tone', 0.5)
         dt_factor = 0.7 + (dt - 0.5) * 1.0
         temp *= dt_factor
+        # Emotional mirroring modulation
+        mirror_mod = self.mirror_engine.get_modulation(self.emotion.state)
+        temp *= mirror_mod['temperature_mult']
         return temp
 
     def _sleep_consolidate(self) -> Dict[str, int]:
@@ -882,6 +889,38 @@ class ChatInterface:
             drift_defense_threshold=0.7,
             drift_pull=0.05
         )
+
+    def _update_state(self, ctx: CognitiveResponseContext):
+        """Update cognitive state post-response: free energy, meaning, identity, global workspace."""
+        self._free_energy = max(0.0, 0.3 + 0.2 * (1.0 - ctx.identity_strength) - 0.08 * len(ctx.associated_concepts))
+        self.meaning.compute_meaning(
+            episode=self.turn_count,
+            pre_dissonance=self._free_energy + 0.05,
+            post_dissonance=self._free_energy,
+            pre_identity=ctx.identity_strength - 0.02,
+            post_identity=ctx.identity_strength,
+            predictive_gain=0.3 if ctx.associated_concepts else 0.1,
+            effort=0.2,
+        )
+        correct = len(ctx.associated_concepts) > 0
+        new_s = self.identity.compute_update(
+            resolution_delta=abs(self._free_energy - 0.5) * 0.1,
+            resolution_success=correct,
+            regulated_identity_delta=0.03 if correct else -0.01,
+            current_dissonance=self._free_energy,
+            resolution_streak=sum(1 for r in self._last_responses if r is not None and len(r) > 20),
+            correctness=correct,
+        )
+        self.identity.apply_update(new_s)
+        if self.identity.state.strength > 1.0:
+            self.identity.state.strength = 1.0
+        if self.identity.state.strength < 0.0:
+            self.identity.state.strength = 0.0
+        self.gw.submit_bid(source="dialogue",
+            payload={"subject": ctx.subject, "turn": self.turn_count},
+            urgency=0.3 + 0.15 * min(len(ctx.associated_concepts), 4) / 4.0,
+            valence=self.emotion.state.valence, episode=self.turn_count)
+        self.gw.compete()
 
     def _reasoning_loop(self, ctx: CognitiveResponseContext) -> Tuple[str, str]:
         subject = ctx.subject
@@ -1057,14 +1096,33 @@ class ChatInterface:
 
             # Step 1: Discourse Planning
             is_follow_up = self._is_follow_up(ctx.raw_input)
+            # Emotional mirror modulation: adjust associations and verbosity
+            mirror_mod = self.mirror_engine.get_modulation(self.emotion.state)
+            bm = mirror_mod['breadth_mult']
+            max_assocs = max(2, min(10, int(round(5 * bm))))
+            reduced_assocs = ctx.associated_concepts[:max_assocs]
             discourse_plan = self.pfc_workspace.plan_discourse(
                 user_input=ctx.raw_input,
                 subject=ctx.subject,
                 concept_pos=self._concept_pos,
-                associations=ctx.associated_concepts,
+                associations=reduced_assocs,
                 past_topics=ctx.past_topics,
                 is_follow_up=is_follow_up,
             )
+
+            vm = mirror_mod['verbosity_mult']
+            target_verbosity = max(1, min(5, int(round(3 * vm))))
+            if target_verbosity < len(discourse_plan.intents):
+                discourse_plan.intents = discourse_plan.intents[:target_verbosity]
+            elif target_verbosity > len(discourse_plan.intents):
+                most_recent = self._topic_list[-1] if self._topic_list else ctx.subject
+                for _ in range(target_verbosity - len(discourse_plan.intents)):
+                    discourse_plan.intents.append(DiscourseIntent(
+                        type=DiscourseType.ELABORATE,
+                        subject=most_recent,
+                        primary_relation="semantic",
+                        seen_so_far=set(),
+                    ))
 
             # Step 2-5: Build and realize each sentence from the discourse plan
             utterances = []
@@ -1175,13 +1233,14 @@ class ChatInterface:
             'vad_valence': self.emotion.state.valence,
             'vad_arousal': self.emotion.state.arousal,
             'vad_dominance': self.emotion.state.dominance,
-            'meaning_accumulated': self.meaning.accumulated_meaning,
+            'meaning_accumulated': self.meaning.state.accumulated_meaning,
             'dim': self.config.dim,
             'rng_state': self.rng.get_state(),
             'sleep_pressure': self._sleep_pressure,
             'last_sleep_episode': self._last_sleep_episode,
             'sleep_cycles_completed': self.sleep_engine.metrics.get('total_sleep_cycles', 0),
             'concept_vad': self._concept_vad,
+            'mirror_state': self.mirror_engine.state.to_dict(),
             'meta_mode': self.meta_cog.current_mode.value,
             'contradiction_map': self.graph_engine._contradiction_map,
             'user_model': self._get_user_model(),
@@ -1264,12 +1323,15 @@ class ChatInterface:
             self.emotion.state.valence = state['vad_valence']
             self.emotion.state.arousal = state['vad_arousal']
             self.emotion.state.dominance = state['vad_dominance']
-            self.meaning.accumulated_meaning = state['meaning_accumulated']
+            self.meaning.state.accumulated_meaning = state['meaning_accumulated']
             self.rng.set_state(state['rng_state'])
             self._sleep_pressure = state.get('sleep_pressure', 0.0)
             self._last_sleep_episode = state.get('last_sleep_episode', 0)
             self.sleep_engine.metrics['total_sleep_cycles'] = state.get('sleep_cycles_completed', 0)
             self._concept_vad = state.get('concept_vad', {})
+            mirror_state = state.get('mirror_state', None)
+            if mirror_state:
+                self.mirror_engine.state.set_state(mirror_state)
             meta_mode_str = state.get('meta_mode', 'exploratory')
             try:
                 self.meta_cog.current_mode = EpistemicMode(meta_mode_str)

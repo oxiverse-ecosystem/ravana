@@ -7,7 +7,7 @@ name = "ravana-ml"
 version = "0.3.2"
 description = "RAVANA ML Framework -- tensors, modules, ConceptGraph, RLMv1/RLMv2, plasticity, free energy"
 readme = "README.md"
-license = "MIT"
+license = {text = "OCL-1.0"}
 requires-python = ">=3.9"
 dependencies = [
     "numpy>=1.20",

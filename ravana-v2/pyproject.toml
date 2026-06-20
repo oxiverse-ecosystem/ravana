@@ -7,7 +7,7 @@ name = "ravana-grace"
 version = "0.2.2"
 description = "RAVANA GRACE -- 27-phase cognitive architecture (Governor, Identity, Sleep, Emotion, World Model, Meaning, Human Memory, Dialogue)"
 readme = "README.md"
-license = "MIT"
+license = {text = "OCL-1.0"}
 requires-python = ">=3.9"
 dependencies = [
     "numpy>=1.20",
