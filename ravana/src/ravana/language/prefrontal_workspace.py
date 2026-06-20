@@ -221,7 +221,7 @@ class PrefrontalWorkspace:
             seen.add(target1.lower())
 
         # Sentence 2: ELABORATE on the target or pick another association
-        target2 = self._pick_best_association(associations, seen)
+        target2 = self._pick_best_association(associations, seen, exclude_subject=target1 if target1 else subject)
         if not target2:
             target2 = self._pick_random_relation(associations, seen)
         plan.intents.append(DiscourseIntent(
@@ -266,7 +266,7 @@ class PrefrontalWorkspace:
             seen.add(target1.lower())
 
         # Sentence 2: ELABORATE — what the subject causes
-        target2 = self._pick_best_association(associations, seen, prefer_causal=True)
+        target2 = self._pick_best_association(associations, seen, prefer_causal=True, exclude_subject=target1 if target1 else subject)
         plan.intents.append(DiscourseIntent(
             type=DiscourseType.ELABORATE,
             subject=target1 if target1 else subject,
@@ -296,7 +296,7 @@ class PrefrontalWorkspace:
         plan = DiscoursePlan(original_subject=subject, question_type=qtype)
 
         target1 = self._pick_best_association(associations, seen)
-        target2 = self._pick_best_association(associations, seen, prefer_contrast=True)
+        target2 = self._pick_best_association(associations, seen, prefer_contrast=True, exclude_subject=target1 if target1 else subject)
 
         plan.intents.append(DiscourseIntent(
             type=DiscourseType.EXPLAIN,
@@ -316,10 +316,14 @@ class PrefrontalWorkspace:
         if target2:
             seen.add(target2.lower())
 
+        # ASK_BACK: generate an actual question to the user
+        question = self._generate_follow_up_question(subject, target1)
         plan.intents.append(DiscourseIntent(
             type=DiscourseType.ASK_BACK,
             subject=subject,
+            target_concept=question,
             end_with_question=True,
+            primary_relation="interrogative",
             seen_so_far=seen.copy(),
         ))
 
@@ -365,24 +369,31 @@ class PrefrontalWorkspace:
         """Plan: [CONTINUE → ELABORATE → CONNECT] — for follow-ups"""
         plan = DiscoursePlan(original_subject=subject, question_type=qtype)
 
+        target1 = self._pick_best_association(associations, seen)
+
         plan.intents.append(DiscourseIntent(
             type=DiscourseType.CONTINUE,
             subject=subject,
-            target_concept=self._pick_best_association(associations, seen),
+            target_concept=target1,
             seen_so_far=seen.copy(),
         ))
+
+        if target1:
+            seen.add(target1.lower())
+
+        target2 = self._pick_best_association(associations, seen, exclude_subject=target1)
 
         plan.intents.append(DiscourseIntent(
             type=DiscourseType.ELABORATE,
             subject=subject,
-            target_concept=self._pick_best_association(associations, seen),
+            target_concept=target2,
             seen_so_far=seen.copy(),
         ))
 
         plan.intents.append(DiscourseIntent(
             type=DiscourseType.CONNECT,
             subject=subject,
-            target_concept=self._pick_best_association(associations, seen) or "people",
+            target_concept=self._pick_best_association(associations, seen, exclude_subject=target2 or "") or "people",
             seen_so_far=seen.copy(),
         ))
 
@@ -399,7 +410,8 @@ class PrefrontalWorkspace:
                                 seen: set,
                                 exclude_verbs: bool = False,
                                 prefer_causal: bool = False,
-                                prefer_contrast: bool = False) -> str:
+                                prefer_contrast: bool = False,
+                                exclude_subject: str = "") -> str:
         """Pick the best association not already seen."""
         # Grammatical concepts that should never be discourse targets
         # Only true function words - NOT content words like "time", "life", "certain", etc.
@@ -449,6 +461,8 @@ class PrefrontalWorkspace:
                 continue
             if ll in GRAMMATICAL_CONCEPTS:
                 continue
+            if exclude_subject and ll == exclude_subject.lower():
+                continue
             if exclude_verbs:
                 verb_like = {'think', 'know', 'feel', 'want', 'need', 'like', 'love',
                             'go', 'come', 'see', 'hear', 'eat', 'drink', 'sleep', 'play',
@@ -477,6 +491,26 @@ class PrefrontalWorkspace:
         if markers:
             return random.choice(markers)
         return ""
+
+    def _generate_follow_up_question(self, subject: str, last_target: str) -> str:
+        """Generate a natural follow-up question for ASK_BACK intent."""
+        import random
+        
+        question_templates = [
+            f"What do you think about {subject}?",
+            f"Have you experienced {subject} before?",
+            f"What aspects of {subject} interest you most?",
+            f"How does {subject} relate to your work?",
+            f"Would you like to know more about {subject}?",
+        ]
+        
+        if last_target:
+            question_templates.extend([
+                f"What about {last_target} — any thoughts?",
+                f"Should we explore {last_target} further?",
+            ])
+        
+        return random.choice(question_templates)
 
     # ─── State ───
 

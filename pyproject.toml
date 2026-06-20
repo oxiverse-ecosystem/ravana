@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ravana-cognitive"
-version = "0.1.1"
+version = "0.3.2"
 description = "RAVANA -- Pressure-driven cognitive ML framework (unified package)"
 readme = "README.md"
 license = {text = "MIT"}
@@ -28,11 +28,14 @@ include = ["ravana*", "ravana_ml*"]
 "ravana_v2" = "ravana-v2"
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "ravana-v2/tests"]
+testpaths = ["tests/unit", "tests/integration", "tests/ci", "ravana-v2/tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short"
+markers = [
+    "ci: CI-critical test — runs in the fast CI pipeline on every push.",
+]
 
 [tool.black]
 line-length = 100

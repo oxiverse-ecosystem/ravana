@@ -6,9 +6,9 @@ Because PyPI package names must use underscores/hyphens and the directory `ravan
 
 | Package | PyPI Name | Directory | Version | Purpose |
 |---------|-----------|-----------|---------|---------|
-| **ML Framework** | `ravana-ml` | `ravana_ml/` | 0.1.0 | Tensors, modules, ConceptGraph, RLMv1/RLMv2 |
-| **GRACE Core** | `ravana-grace` | `ravana-v2/` | 0.1.0 | 27-phase cognitive architecture |
-| **Modular Chat** | `ravana-chat` | `ravana/` | 0.1.0 | Decoder-first chat, web learning, CLI |
+| **ML Framework** | `ravana-ml` | `ravana_ml/` | 0.3.2 | Tensors, modules, ConceptGraph, RLMv1/RLMv2 |
+| **GRACE Core** | `ravana-grace` | `ravana-v2/` | 0.2.2 | 27-phase cognitive architecture |
+| **Modular Chat** | `ravana-chat` | `ravana/` | 0.3.2 | Decoder-first chat, web learning, CLI |
 
 (Optional) Unified: `ravana-cognitive` (all three together)
 
@@ -18,9 +18,9 @@ Because PyPI package names must use underscores/hyphens and the directory `ravan
 | Name | Status |
 |------|--------|
 | `ravana` | ❌ Taken (MIDI package) |
-| `ravana-ml` | ✅ Available |
-| `ravana-grace` | ✅ Available |
-| `ravana-chat` | ✅ Available |
+| `ravana-ml` | ✅ Published v0.3.2 |
+| `ravana-grace` | ✅ Published v0.2.2 |
+| `ravana-chat` | ✅ Published v0.1.1 |
 | `ravana-cognitive` | ✅ Available |
 
 ---

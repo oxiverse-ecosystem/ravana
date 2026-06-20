@@ -31,16 +31,16 @@ from ravana_ml.plasticity import HebbianPlasticity, AntiHebbianPlasticity, Struc
 from ravana_ml.free_energy import FreeEnergyAccumulator
 
 # ravana-v2/ cognitive core (imported via rlc.cognitive)
-from ..core.governor import Governor, GovernorConfig
-from ..core.identity import IdentityEngine
-from ..core.resolution import ResolutionEngine
-from ..core.state import StateManager, CognitiveState
-from ..core.emotion import VADEmotionEngine, VADConfig, VADState
-from ..core.sleep import SleepConsolidation, SleepConfig
-from ..core.meaning import MeaningEngine, MeaningConfig
-from ..core.dual_process import DualProcessController, DualProcessConfig
-from ..core.global_workspace import GlobalWorkspace, GWConfig
-from ..core.human_memory import HumanMemoryEngine, HumanMemoryConfig
+from ravana_grace.core.governor import Governor, GovernorConfig
+from ravana_grace.core.identity import IdentityEngine
+from ravana_grace.core.resolution import ResolutionEngine
+from ravana_grace.core.state import StateManager, CognitiveState
+from ravana_grace.core.emotion import VADEmotionEngine, VADConfig, VADState
+from ravana_grace.core.sleep import SleepConsolidation, SleepConfig
+from ravana_grace.core.meaning import MeaningEngine, MeaningConfig
+from ravana_grace.core.dual_process import DualProcessController, DualProcessConfig
+from ravana_grace.core.global_workspace import GlobalWorkspace, GWConfig
+from ravana_grace.core.human_memory import HumanMemoryEngine, HumanMemoryConfig
 
 
 @dataclass

@@ -3238,8 +3238,8 @@ class RLM(Module):
                  k_active_acf: int = 5, repetition_penalty: float = 1.5,
                  repetition_window: int = 10, fatigue_accumulation_rate: float = 0.3,
                  fatigue_decay_rate: float = 0.1, entropy_threshold: float = 0.6,
-                 trace_json_path: Optional[str] = "cognitive_trace.json",
-                 trace_md_path: Optional[str] = "cognitive_trace.md") -> str:
+                 trace_json_path: Optional[str] = "output/cognitive_trace.json",
+                 trace_md_path: Optional[str] = "output/cognitive_trace.md") -> str:
         """
         Autoregressively generate text from a prompt, stabilized with repetition penalties,
         saturating fatigue, and exploratory drive controls. Outputs JSON and MD tracing logs.

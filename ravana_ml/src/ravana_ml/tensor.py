@@ -290,7 +290,7 @@ class StateTensor(RawTensor):
         self.data += delta
         self._free_energy *= 0.5
         self._stability = min(1.0, self._stability + 0.01)
-        return delta.mean().item()
+        return delta
 
     # ── override arithmetic to return StateTensor ──
     def _op(self, other, fn):

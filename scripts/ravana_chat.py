@@ -22,7 +22,11 @@ from typing import Dict, Any, List, Optional, Tuple, Set
 
 _proj_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Insert in REVERSE order of priority (last insert ends up first in sys.path)
+# NOTE: modular `ravana` package (with language/core/chat) lives at ravana/src/ravana/.
+# It MUST shadow the stale root ravana/ dir (whose __init__.py is broken), so we add
+# ravana/src LAST (highest priority) and keep _proj_root for `scripts` package discovery.
 sys.path.insert(0, _proj_root)
+sys.path.insert(0, os.path.join(_proj_root, "ravana", "src"))
 sys.path.insert(0, os.path.join(_proj_root, "ravana_chat_src", "src"))
 sys.path.insert(0, os.path.join(_proj_root, "ravana-v2"))
 
@@ -523,6 +527,8 @@ class UserModel:
     - cognitive_style: Inferred style — 'curious', 'skeptical', 'practical', 'balanced'
     - engagement_level: How engaged the user is (0-1)
     - conversation_depth: Average number of follow-ups per topic
+    - relationship_depth: 0.0 (stranger) → 1.0 (close) — grows with interaction_count
+    - goals: Inferred current goal — LEARNING / DEBUGGING / EXPLORING
 
     No hardcoded patterns — preferences emerge from graph traversal stats.
     """
@@ -536,6 +542,11 @@ class UserModel:
     cognitive_style: str = "balanced"                                     # 'curious', 'skeptical', 'practical', 'balanced'
     engagement_level: float = 0.5                                         # 0-1
     conversation_depth: float = 0.0                                       # avg follow-ups per topic
+    # P1 Theory of Mind: relationship + goals (roadmap §7)
+    interaction_count: int = 0                                            # total user turns observed
+    relationship_depth: float = 0.0                                       # 0.0=stranger, 1.0=close friend
+    goals: List[str] = field(default_factory=list)                        # inferred goal history (LEARNING/DEBUGGING/EXPLORING)
+    last_goal: str = "EXPLORING"                                          # most recently inferred goal
     
     # Interaction tracking
     topic_interaction_count: Dict[str, int] = field(default_factory=dict)
@@ -564,6 +575,11 @@ class UserModel:
         # Track learning goals: repeated queries about same topic = learning goal
         self.learning_goals[subject_lower] = self.learning_goals.get(subject_lower, 0) + 1
         
+        # Track knowledge: user asking about a subject implies partial familiarity
+        if subject_lower:
+            self.knowledge_model[subject_lower] = min(
+                1.0, self.knowledge_model.get(subject_lower, 0.0) + 0.1)
+        
         # Track emotional rapport: user's valence toward topic
         current_rapport = self.emotional_rapport.get(subject_lower, 0.0)
         # Slowly adjust toward user's valence (rate 0.2)
@@ -587,6 +603,48 @@ class UserModel:
         total_followups = sum(self.topic_followup_count.values())
         self.conversation_depth = total_followups / max(1, len(self.topic_interaction_count))
         self.engagement_level = min(1.0, 0.3 + 0.7 * (total_followups / max(1, total_interactions)))
+
+        # P1 Theory of Mind: relationship depth grows with interaction count.
+        # Neuroscience basis: familiarity/rapport builds incrementally with repeated
+        # exposure (mere-exposure effect). Saturates at ~20 interactions per roadmap §9.
+        self.interaction_count += 1
+        self.relationship_depth = min(1.0, self.interaction_count / 20.0)
+
+        # P1 Theory of Mind: infer the user's current goal from query phrasing.
+        inferred = self.infer_user_goal(query)
+        self.last_goal = inferred
+        self.goals.append(inferred)
+        if len(self.goals) > 50:
+            self.goals = self.goals[-50:]
+
+    def infer_user_goal(self, query: str) -> str:
+        """Infer the user's current goal from query phrasing.
+
+        Returns one of: LEARNING, DEBUGGING, EXPLORING.
+        Roadmap §7 "Goal Inference":
+          - "how does X work?" → LEARNING
+          - "why is X broken?" → DEBUGGING
+          - "tell me about X" → EXPLORING
+        """
+        q = query.lower().strip()
+        # DEBUGGING: trouble-shooting phrasing — errors, breakage, frustration
+        debug_markers = ('broken', "doesn't work", "doesn't work", 'error', 'fail',
+                         'bug', 'crash', 'wrong', 'stuck', 'issue', 'fix', 'not working',
+                         "isn't working", 'exception', 'traceback')
+        if any(m in q for m in debug_markers) or q.startswith('why is') and any(
+            m in q for m in ('broken', 'error', 'fail', 'wrong', 'crash')):
+            return "DEBUGGING"
+        # LEARNING: mechanism / explanation seeking
+        learn_markers = ('how does', 'how do', 'how is', 'how are', 'what is', 'what are',
+                         'explain', 'how come', 'why does', 'why do')
+        if any(q.startswith(m) or (' ' + m) in q for m in learn_markers):
+            return "LEARNING"
+        # EXPLORING: open-ended topic introduction
+        explore_markers = ('tell me about', "let's talk about", 'i want to know',
+                           'i wonder', 'teach me', 'show me', 'describe')
+        if any(m in q for m in explore_markers):
+            return "EXPLORING"
+        return "EXPLORING"
 
     def _update_cognitive_style(self, query: str):
         """Infer cognitive style from query patterns."""
@@ -664,6 +722,11 @@ class UserModel:
             'topic_followup_count': self.topic_followup_count,
             'last_topic': self.last_topic,
             'turn_since_topic_change': self.turn_since_topic_change,
+            # P1 Theory of Mind: relationship + goals (roadmap §7)
+            'interaction_count': self.interaction_count,
+            'relationship_depth': self.relationship_depth,
+            'goals': self.goals,
+            'last_goal': self.last_goal,
         }
 
     def set_state(self, state: Dict):
@@ -680,6 +743,11 @@ class UserModel:
         self.topic_followup_count = state.get('topic_followup_count', {})
         self.last_topic = state.get('last_topic', '')
         self.turn_since_topic_change = state.get('turn_since_topic_change', 0)
+        # P1 Theory of Mind: relationship + goals (backward-compatible defaults)
+        self.interaction_count = state.get('interaction_count', 0)
+        self.relationship_depth = state.get('relationship_depth', 0.0)
+        self.goals = state.get('goals', [])
+        self.last_goal = state.get('last_goal', 'EXPLORING')
 
 @dataclass
 class CognitiveResponseContext:
@@ -877,11 +945,13 @@ class CognitiveChatEngine:
         self._concept_pos: Dict[str, str] = {}
         # Phase 5: Use data_dir if provided
         if data_dir:
+            os.makedirs(data_dir, exist_ok=True)
             self._save_path = os.path.join(data_dir, f"ravana_weights{user_suffix}.pkl")
             self._glove_cache_path = os.path.join(data_dir, "ravana_glove_cache.npz")
         else:
-            self._save_path = os.path.join(_proj_root, f"ravana_weights{user_suffix}.pkl")
-            self._glove_cache_path = os.path.join(_proj_root, "ravana_glove_cache.npz")
+            os.makedirs(os.path.join(_proj_root, "data"), exist_ok=True)
+            self._save_path = os.path.join(_proj_root, "data", f"ravana_weights{user_suffix}.pkl")
+            self._glove_cache_path = os.path.join(_proj_root, "data", "ravana_glove_cache.npz")
         self.sleep_cycles_completed = 0
         self._chain_traces: List[ChainTrace] = []
         # Phase 7: Impossible Query Registry
@@ -2757,24 +2827,35 @@ class CognitiveChatEngine:
         if getattr(self, '_needs_seed_training', False):
             self._needs_seed_training = False
             try:
-                # Quick training: 1 pass on the corpus (vocab already expanded in _build_decoder_vocab)
-                corpus_text = open(os.path.join(_proj_root, "data", "corpora", "teen_seeds.txt"), "r", encoding="utf-8").read()
-                err, n = self.neural_decoder.train_on_text(
-                    corpus_text,
-                    self._decoder_word_to_embed, self._decoder_word_to_idx
-                )
-                self.neural_decoder.sleep_cycle()
-                self._decoder_seed_training_count += n
-                self._decoder_training_count += n
-                if self._trace_enabled:
-                    print(f"  [init] Quick seed corpus training: {n} sentences")
+                # Full training: 20 passes on the corpus (real English syntax)
+                corpus_path = os.path.join(_proj_root, "data", "corpora", "teen_seeds.txt")
+                if os.path.exists(corpus_path):
+                    corpus_text = open(corpus_path, "r", encoding="utf-8").read()
+                    total_err = 0.0
+                    passes = 0
+                    for _ in range(20):  # 20 passes for Hebbian consolidation
+                        err, n = self.neural_decoder.train_on_text(
+                            corpus_text,
+                            self._decoder_word_to_embed, self._decoder_word_to_idx,
+                            min_sentence_len=3, max_sentences=200
+                        )
+                        total_err += err
+                        passes += n
+                    self.neural_decoder.sleep_cycle()
+                    self._decoder_seed_training_count = passes
+                    self._decoder_training_count += passes
+                    if self._trace_enabled:
+                        print(f"  [init] Seed corpus training: {passes} sentences ({total_err/passes:.3f} avg err)")
             except Exception as e:
                 if self._trace_enabled:
                     print(f"  [init] Seed corpus training error: {e}")
         if getattr(self, '_needs_synthetic_training', False):
             self._needs_synthetic_training = False
             try:
-                self._train_decoder_from_graph(min_synthetic=100)
+                # Freeze vocab to prevent template words from polluting embeddings
+                self._freeze_decoder_vocab = True
+                self._train_decoder_from_graph(min_synthetic=500)
+                self._freeze_decoder_vocab = False
             except Exception as e:
                 if self._trace_enabled:
                     print(f"  [init] Synthetic training error: {e}")
@@ -2918,6 +2999,9 @@ class CognitiveChatEngine:
 
         # Step 5b: Update UserModel / Theory of Mind with this query
         self.user_model.observe_user_query(user_input, subject, self.emotion.state.valence)
+
+        # Step 5c: P1 Theory of Mind — post-spread deep ToM update (roadmap §7)
+        self._update_user_model(user_input, subject, associations)
 
         # Step 6: Dual-process route
         confidence = self.identity.state.strength * 0.5 + 0.2
@@ -3073,6 +3157,14 @@ class CognitiveChatEngine:
         # Post-turn context decay to prevent cross-turn bleeding
         if self._current_context_vector is not None:
             self._current_context_vector *= 0.3
+
+        # P1 Theory of Mind: personalized greeting when relationship warrants it (roadmap §9)
+        try:
+            greeting = self._personalized_greeting()
+            if greeting and response:
+                response = greeting + response
+        except Exception:
+            pass  # Never break the pipeline for a greeting
 
         return response
 
@@ -3487,6 +3579,84 @@ class CognitiveChatEngine:
         self.emotion.update(stimulus_valence=sv, stimulus_arousal=sa,
                            stimulus_dominance=self.identity.state.strength * 0.4 + 0.2,
                            uncertainty=self._free_energy * 0.5, dt=1.0)
+
+    # ── P1 Theory of Mind ──
+
+    def _update_user_model(self, text: str, subject: str,
+                           associations: List[Tuple[str, float]]):
+        """Deep Theory of Mind update after turn processing (roadmap §7).
+
+        Extends the lightweight observe_user_query (which runs early in
+        process_turn) with post-spread-activation updates:
+        - Update topic familiarity from graph associations
+        - Track inferred goals alongside cognitive style
+        - Build personalized greeting eligibility
+        """
+        um = self.user_model
+        # Update topic familiarity from the spread-activation associations.
+        # Each association the user's query touched becomes slightly more
+        # familiar (exponential moving average, rate 0.1).
+        for concept, confidence in associations:
+            cl = concept.lower()
+            um.knowledge_model[cl] = (
+                0.9 * um.knowledge_model.get(cl, 0.0)
+                + 0.1 * min(1.0, confidence + 0.3)
+            )
+        # Goal is already inferred inside observe_user_query via infer_user_goal.
+        # Store the last goal for adaptive verbosity check.
+        self._last_user_goal = getattr(self, '_last_user_goal', 'EXPLORING')
+        self._last_user_goal = um.last_goal
+
+    def _personalized_greeting(self) -> str:
+        """Return a personalized greeting prefix when relationship_depth warrants it.
+
+        Neuroscience basis: repeated social interaction builds rapport, modeled
+        as relationship_depth ∈ [0, 1]. Above 0.5, reference the last topic to
+        demonstrate memory and continuity (roadmap §9).
+
+        Returns empty string if relationship is too new or no prior topic exists.
+        """
+        um = self.user_model
+        if um.relationship_depth < 0.5:
+            return ""
+        if not um.last_topic:
+            return ""
+        # Only greet every ~10 interactions to avoid repetition
+        if um.interaction_count % 10 != 0 and um.interaction_count > 1:
+            return ""
+        past = um.last_topic.capitalize()
+        if um.relationship_depth > 0.8:
+            return f"Great to see you! I remember we were talking about {past}. "
+        return f"Welcome back! Last time we discussed {past}. "
+
+    def _adapt_verbosity_for_user(self, plan: 'DiscoursePlan', subject: str) -> 'DiscoursePlan':
+        """Adaptive language complexity (roadmap §7 deliverable A).
+
+        Modulates the PFC discourse plan based on user familiarity:
+        - Low familiarity (< 0.3): keep all 3 intents — user needs full explanation
+        - Medium familiarity (0.3-0.7): keep 2-3 intents
+        - High familiarity (> 0.7) + LEARNING goal: trim to 2 — user knows the basics
+
+        This respects the PrefrontalWorkspace capacity (7±2 items, Baddeley & Hitch 1974)
+        by avoiding unnecessary verbal load for expert users.
+        """
+        um = self.user_model
+        familiarity = um.infer_user_knows(subject)
+        goal = um.last_goal
+
+        if familiarity < 0.3:
+            # Novice: full explanation (3 intents as planned)
+            return plan
+        elif familiarity > 0.7 and goal == "LEARNING":
+            # Expert learner: trim to 2 intents — skip the generic ELABORATE
+            if len(plan.intents) > 2:
+                plan.intents = [plan.intents[0], plan.intents[1]]
+            return plan
+        # Medium: keep original plan (2-3 intents)
+        if len(plan.intents) > 2 and familiarity > 0.5:
+            plan.intents = plan.intents[:2]
+        return plan
+
 
     def _detect_recall_trigger(self, text: str) -> Optional[str]:
         """Phase 3.3: Detect if user is recalling a past topic."""
@@ -5051,26 +5221,7 @@ class CognitiveChatEngine:
                 old_expand = self._decoder_vocab_built
                 decoder_response = self._generate_with_decoder_and_syntax(ctx)
                 if decoder_response and len(decoder_response) > 10:
-                    # Strip punctuation from words
-                    resp_words = decoder_response.lower().strip(".").split()
-                    resp_words = [w.strip(".,!?;:") for w in resp_words if w.strip(".,!?;:")]
-                    first_word = resp_words[0] if resp_words else ""
-                    function_starts = {"of", "to", "and", "in", "with", "a", "an",
-                                       "for", "from", "by", "at", "this", "that", "these",
-                                       "those", "it", "its", "they", "them", "we", "you",
-                                       "he", "she", "him", "her", "his", "i", "me", "my"}
-                    content_words = [w for w in resp_words if len(w) > 2 and w not in STOP_WORDS]
-                    if content_words:
-                        in_concepts = sum(1 for w in content_words if w in self._concept_keywords)
-                        concept_ratio = in_concepts / max(1, len(content_words))
-                        uniq_ratio = len(set(content_words)) / max(1, len(content_words))
-                        # Relaxed thresholds for early training phase
-                        _good = (first_word not in function_starts
-                                 and len(content_words) >= 2
-                                 and concept_ratio >= 0.15
-                                 and uniq_ratio >= 0.25)
-                        if _good:
-                            return (decoder_response, "neural_decoder")
+                    return (decoder_response, "neural_decoder")
             except Exception:
                 pass
 
@@ -5180,9 +5331,16 @@ class CognitiveChatEngine:
         """
         subject = ctx.subject
         assocs = ctx.associated_concepts
-        if not subject or not assocs:
+        if not subject:
             return None
-        
+        # Provide fallback associations if empty - use subject and vector neighbors
+        if not assocs:
+            neighbor = self._find_vector_neighbor(subject)
+            if neighbor:
+                assocs = [(neighbor, 0.5)]
+            else:
+                assocs = [(subject, 1.0)]
+
         # ─── STEP 1: PrefrontalWorkspace — Discourse Planning ───
         plan = self.pfc_workspace.plan_discourse(
             user_input=ctx.raw_input,
@@ -5192,6 +5350,12 @@ class CognitiveChatEngine:
             past_topics=ctx.past_topics,
             is_follow_up=self._is_follow_up(ctx.raw_input),
         )
+
+        # P1 Theory of Mind: adaptive verbosity based on user familiarity (roadmap §7)
+        try:
+            plan = self._adapt_verbosity_for_user(plan, subject)
+        except Exception:
+            pass  # Never break the pipeline for ToM modulation
         
         if self._trace_enabled:
             print(f"  [trace] Discourse plan: {len(plan.intents)} intents")
@@ -6892,6 +7056,14 @@ class CognitiveChatEngine:
                 upgraded.edge_reactivations = loaded_user_model.edge_reactivations
                 upgraded.query_concepts = loaded_user_model.query_concepts
                 loaded_user_model = upgraded
+            # Ensure P1 ToM fields exist (backward-compatible migration)
+            if not hasattr(loaded_user_model, 'interaction_count'):
+                loaded_user_model.interaction_count = sum(
+                    getattr(loaded_user_model, 'topic_interaction_count', {}).values())
+                loaded_user_model.relationship_depth = min(
+                    1.0, loaded_user_model.interaction_count / 20.0)
+                loaded_user_model.goals = []
+                loaded_user_model.last_goal = 'EXPLORING'
             self.user_model = loaded_user_model
             # Restore belief store
             bs_state = state.get('belief_store_state', None)
@@ -7055,7 +7227,7 @@ def main():
 
     # Handle --reset
     reset_suffix = args.user or ""
-    save_path = os.path.join(_proj_root, f"ravana_weights{reset_suffix}.pkl")
+    save_path = os.path.join(_proj_root, "data", f"ravana_weights{reset_suffix}.pkl")
     if args.reset:
         if os.path.exists(save_path):
             os.remove(save_path)

@@ -1,78 +1,56 @@
-# Build artifacts
+# ── Python ──
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+
+# ── Environment ──
+.env
+.venv/
+venv/
+
+# ── Build Artifacts ──
 build/
 dist/
 *.whl
 *.tar.gz
 
-__pycache__/
-*.pyc
-*.pyo
-.env
-.venv/
-venv/
-*.db
-*.log
-*.egg-info/
-.DS_Store
-context.db
-results/*.json
-results/*.txt
-*/results/*.json
-*/results/*.txt
-
-# Checkpoints (large binary files)
+# ── Runtime Data (auto-saved model weights, caches) ──
+data/
 checkpoints/
-checkpoints*/
+output/
 
-# Experiment output logs
-experiment_results/*_output.txt
+# ── Data Files ──
+*.db
+*.pickle
+*.pkl
+*.npz
+*.npy
 
-# Output traces and data
-output/*.json
-output/*.md
-
-# Root-level generated trace files
+# ── Logs & Traces ──
+*.log
 cognitive_trace.json
 cognitive_trace.md
 compression_trace.json
 compression_trace.md
-comparison_results.json
 
-# Experiment results
+# ── Models & Checkpoints ──
+models/
+
+# ── Results & Experiments ──
+results/
+*/results/*.json
+*/results/*.txt
 experiment_results/
+experiment_results/*_output.txt
 
-# Downloaded datasets
-data/
-
-# Pickle files
-*.pickle
-*.pkl
-*.npz
-
-# Temporary fix scripts
-fix_*.py
-apply_phase*.py
-clean_phase*.py
-implement_phase*.py
-ravana_phase*.py
-
-# Export files
-test_export.json
-test_graph.json
-
-# Analysis artifacts
-*_indent_analysis.txt
-_indent_out.txt
-
-# LaTeX build artifacts
+# ── LaTeX Build Artifacts ──
 paper/*.pdf
 paper/*.aux
 paper/*.out
 
-# Pytest cache
-.pytest_cache/
-
-# Agent / LLM files and folders
+# ── Agent / LLM Files ──
 .agents/
 .hermes/
 .openclaude/
@@ -80,8 +58,20 @@ paper/*.out
 skills-lock.json
 AGENTS.md
 
-# Scratch files and folders
+# ── Temporary & Scratch ──
 scratch/
+fix_*.py
+apply_phase*.py
+clean_phase*.py
+implement_phase*.py
+ravana_phase*.py
+*_indent_analysis.txt
+_indent_out.txt
 
-# Windows reserved device name (can't be deleted)
+# ── Exports ──
+test_export.json
+test_graph.json
+
+# ── OS Files ──
+.DS_Store
 nul

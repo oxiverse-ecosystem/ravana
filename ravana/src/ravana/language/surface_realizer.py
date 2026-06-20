@@ -105,6 +105,29 @@ class SurfaceRealizer:
         "trust", "justice", "freedom", "empathy", "respect",
         "hope", "fear", "anxiety", "joy", "grief",
         "power", "culture", "art", "science", "history",
+        # Gerunds (-ing forms used as uncountable nouns)
+        "bonding", "learning", "understanding", "thinking", "feeling",
+        "running", "walking", "swimming", "reading", "writing",
+        "speaking", "listening", "watching", "waiting", "working",
+        "living", "dying", "growing", "changing", "moving",
+        "being", "doing", "having", "making", "taking",
+        "giving", "getting", "seeing", "hearing", "knowing",
+    }
+
+    # Singular nouns ending in 's' (fields of study, diseases, etc.)
+    SINGULAR_ENDING_IN_S = {
+        "news", "physics", "mathematics", "economics",
+        "politics", "ethics", "linguistics", "statistics",
+        "measles", "mumps", "rabies", "diabetes",
+        "headquarters", "series", "species", "means",
+        "photosynthesis", "analysis", "basis", "crisis",
+        "diagnosis", "ellipsis", "emphasis", "hypothesis",
+        "oasis", "parenthesis", "thesis", "synopsis",
+        "genius", "radius", "focus", "locus", "nucleus",
+        "stimulus", "cactus", "alumnus", "bacillus",
+        "bronchitis", "hepatitis", "meningitis", "arthritis",
+        "gastritis", "dermatitis", "tonsillitis", "appendicitis",
+        "mechanics", "optics", "dynamics", "kinematics",
     }
 
     # Discourse markers (mapped from intent type)
@@ -173,22 +196,30 @@ class SurfaceRealizer:
         verb = self._select_verb_phrase(verb_phrase, relation,
                                          dopamine_tone, cerebellar_ngram)
 
-        # Step 5: Apply subject-verb agreement
-        verb = self._apply_agreement(verb, subject_phrase, sl)
+        # Step 5: Apply subject-verb agreement (use resolved subject for agreement)
+        verb = self._apply_agreement(verb, subject_phrase, display_subj.lower())
 
         # Step 6: Apply tense
         verb = self._apply_tense(verb, frame.tense)
 
         # Step 7: Assemble core sentence
-        if relation == 'causal':
+        if relation == 'interrogative':
+            # ASK_BACK: the object_concept IS the pre-formed question
+            sentence = frame.object_concept
+            # Don't add period if already has punctuation
+            has_punct = sentence.endswith('.') or sentence.endswith('?') or sentence.endswith('!')
+        elif relation == 'causal':
             sentence = f"{subject_phrase} {verb} {object_phrase}"
+            has_punct = False
         elif relation == 'contrastive':
             sentence = f"{subject_phrase} {verb} {object_phrase}"
+            has_punct = False
         else:
             sentence = f"{subject_phrase} {verb} {object_phrase}"
+            has_punct = False
 
-        # Step 8: Add discourse marker
-        if discourse_marker:
+        # Step 8: Add discourse marker (skip for questions)
+        if discourse_marker and not has_punct:
             marker = discourse_marker
         else:
             marker = self._select_discourse_marker(
@@ -196,13 +227,14 @@ class SurfaceRealizer:
                 discourse_context.sentence_index,
                 dopamine_tone
             )
-        if marker:
+        if marker and not has_punct:
             sentence = f"{marker}, {sentence[0].lower() + sentence[1:]}"
 
         # Step 9: Capitalize and punctuate
-        sentence = sentence[0].upper() + sentence[1:]
-        if not sentence.endswith('.'):
-            sentence += '.'
+        if not has_punct:
+            sentence = sentence[0].upper() + sentence[1:]
+            if not sentence.endswith('.'):
+                sentence += '.'
 
         # Track subject usage
         self._used_subjects.add(sl)
@@ -215,19 +247,22 @@ class SurfaceRealizer:
     def _resolve_pronoun(self, subject: str, subject_lower: str,
                           context: DiscourseState) -> str:
         """Replace subject with pronoun if it was used recently.
-
-        Pronoun substitution happens when:
-        - Same subject appeared in the previous sentence
-        - Subject has been used 2+ times total
-        - Subject is not already a pronoun
+        ...
         """
         if subject_lower in ('i', 'you', 'we', 'they', 'he', 'she', 'it'):
             return subject  # Already a pronoun
 
         # Check if this subject was used in the PREVIOUS sentence
-        if context.previous_subject and context.previous_subject.lower() == subject_lower:
-            pronoun = self.PRONOUNS.get(subject_lower, 'it')
-            return pronoun
+        if context.previous_subject:
+            prev_lower = context.previous_subject.lower()
+            # If previous subject was a pronoun, check if it maps to this subject
+            pronoun_for_subject = self.PRONOUNS.get(subject_lower)
+            if pronoun_for_subject and prev_lower == pronoun_for_subject:
+                return pronoun_for_subject
+            # Also check direct match (for explicit repetition)
+            if prev_lower == subject_lower:
+                pronoun = self.PRONOUNS.get(subject_lower, 'it')
+                return pronoun
 
         # Check if this subject was used 2+ times total (not just previous)
         if subject_lower in self._used_subjects:
@@ -321,20 +356,7 @@ class SurfaceRealizer:
         # Words ending in 's' that are not pronouns
         if subject_lower.endswith('s') and subject_lower not in {'this', 'is', 'has', 'was', 'its'}:
             # Check if it's a known plural-form concept (actually singular)
-            singular_ending_in_s = {
-                'news', 'physics', 'mathematics', 'economics',
-                'politics', 'ethics', 'linguistics', 'statistics',
-                'measles', 'mumps', 'rabies', 'diabetes',
-                'headquarters', 'series', 'species', 'means',
-                'photosynthesis', 'analysis', 'basis', 'crisis',
-                'diagnosis', 'ellipsis', 'emphasis', 'hypothesis',
-                'oasis', 'parenthesis', 'thesis', 'synopsis',
-                'genius', 'radius', 'focus', 'locus', 'nucleus',
-                'stimulus', 'cactus', 'alumnus', 'bacillus',
-                'bronchitis', 'hepatitis', 'meningitis', 'arthritis',
-                'gastritis', 'dermatitis', 'tonsillitis', 'appendicitis',
-            }
-            if subject_lower not in singular_ending_in_s:
+            if subject_lower not in self.SINGULAR_ENDING_IN_S:
                 is_plural = True
 
         if is_plural:
@@ -346,12 +368,21 @@ class SurfaceRealizer:
             # Remove trailing 's' from verbs
             for word in ['creates', 'leads', 'causes', 'connects', 'relates',
                           'contrasts', 'resembles', 'follows', 'brings', 'gives',
-                          'results']:
+                          'results', 'contrasts']:
                 verb_phrase = verb_phrase.replace(f' {word} ', f' {word[:-1]} ')
                 if verb_phrase.endswith(f' {word}'):
                     verb_phrase = verb_phrase[:-len(word)] + word[:-1]
                 if verb_phrase.startswith(f'{word} '):
                     verb_phrase = word[:-1] + verb_phrase[len(word):]
+        else:
+            # Singular: ensure "are" becomes "is"
+            # Handle "are" at start, middle, or end
+            if verb_phrase.startswith('are '):
+                verb_phrase = 'is ' + verb_phrase[4:]
+            elif ' are ' in verb_phrase:
+                verb_phrase = verb_phrase.replace(' are ', ' is ')
+            elif verb_phrase.endswith(' are'):
+                verb_phrase = verb_phrase[:-4] + ' is'
 
         return verb_phrase
 

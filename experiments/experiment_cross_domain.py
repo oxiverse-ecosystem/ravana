@@ -547,6 +547,60 @@ def evaluate_rlm(model: RLMv2, facts: List[Tuple[str, str, str]],
     }
 
 
+def evaluate_rlm_adapted(model: RLMv2, facts: List[Tuple[str, str, str]],
+                          tokenizer, adapt_steps: int = 10,
+                          adapt_lr: float = 0.05) -> Dict[str, Any]:
+    """Evaluate RLMv2 with test-time entity adapter adaptation for held-out facts.
+
+    For each held-out fact, runs test-time adapter adaptation on the subject entity
+    before forward pass, enabling the verb offset path to generalize to unseen subjects.
+    """
+    model._test_time_adapt_mode = True
+    correct_top1 = 0
+    correct_top10 = 0
+    total = 0
+
+    for input_text, target_text, rel_type in facts:
+        input_ids = np.array(tokenizer.encode(input_text), dtype=np.int64)
+        target_ids = np.array(tokenizer.encode(target_text), dtype=np.int64)
+        if len(input_ids) == 0 or len(target_ids) == 0:
+            continue
+
+        # Extract subject and verb for test-time adaptation
+        parts = input_text.split()
+        subject = parts[0]
+        verb_word = parts[1] if len(parts) > 1 else ""
+        subject_tid = tokenizer.encode(subject)[0]
+        target_tid = int(target_ids[0])
+
+        if model.use_verb_offset and verb_word:
+            model._adapt_entity_adapter_at_test_time(
+                subject_tid, verb_word, target_tid,
+                n_steps=adapt_steps, lr=adapt_lr
+            )
+
+        logits = model.forward(input_ids)
+        probs_data = logits.data.flatten()
+        target_id = target_tid
+
+        pred_id = int(np.argmax(probs_data))
+        if pred_id == target_id:
+            correct_top1 += 1
+
+        top10 = set(np.argsort(probs_data)[-10:])
+        if target_id in top10:
+            correct_top10 += 1
+
+        total += 1
+
+    model._test_time_adapt_mode = False
+    return {
+        "top1_accuracy": correct_top1 / max(1, total),
+        "top10_accuracy": correct_top10 / max(1, total),
+        "n_tested": total,
+    }
+
+
 def train_mlp_on_domain(model: SimpleMLP, facts: List[Tuple[str, str, str]],
                          tokenizer, n_repeats: int = 3):
     """Train SimpleMLP baseline on facts."""
@@ -938,6 +992,13 @@ def run_cross_domain_experiment(config: CrossDomainConfig) -> Dict[str, Any]:
     add_abstract_bridge(model, "fire_bridge", "heat", "conflict", "causal", weight=0.8)
     add_abstract_bridge(model, "insight_bridge", "light", "understanding", "causal", weight=0.8)
 
+    # ── Phase 1.9: Test-Time Adapted Evaluation (held-out generalization) ──
+    print("\n[Phase 1.9] Test-time adapted evaluation (held-out generalization)...")
+    adapted_a = evaluate_rlm_adapted(model, domain_a["test"], tokenizer, adapt_steps=10)
+    adapted_b = evaluate_rlm_adapted(model, domain_b["test"], tokenizer, adapt_steps=10)
+    print(f"  Domain A held-out (adapted): top1={adapted_a['top1_accuracy']:.1%}, top10={adapted_a['top10_accuracy']:.1%}")
+    print(f"  Domain B held-out (adapted): top1={adapted_b['top1_accuracy']:.1%}, top10={adapted_b['top10_accuracy']:.1%}")
+
     # ── Phase 2: Evaluation of cross-domain transfer ──
     print("\n[Phase 2] Cross-domain transfer evaluation...")
     transfer_probes = test_structural_transfer(
@@ -982,6 +1043,12 @@ def run_cross_domain_experiment(config: CrossDomainConfig) -> Dict[str, Any]:
         model, tokenizer, domain_a["test"], domain_b["test"])
     print(f"  Cross-domain top-1: {transfer_probes_aligned['top1_accuracy']:.1%}, top-10: {transfer_probes_aligned['top10_accuracy']:.1%}")
 
+    # Adapted re-evaluation after alignment
+    adapted_aligned_a = evaluate_rlm_adapted(model, domain_a["test"], tokenizer, adapt_steps=10)
+    adapted_aligned_b = evaluate_rlm_adapted(model, domain_b["test"], tokenizer, adapt_steps=10)
+    print(f"  Domain A held-out after alignment (adapted): top1={adapted_aligned_a['top1_accuracy']:.1%}, top10={adapted_aligned_a['top10_accuracy']:.1%}")
+    print(f"  Domain B held-out after alignment (adapted): top1={adapted_aligned_b['top1_accuracy']:.1%}, top10={adapted_aligned_b['top10_accuracy']:.1%}")
+
     # ── Phase 4: Sleep cycle and re-evaluate ──
     print("\n[Phase 4] After sleep cycle...")
     model.sleep_cycle()
@@ -1005,6 +1072,12 @@ def run_cross_domain_experiment(config: CrossDomainConfig) -> Dict[str, Any]:
     post_sleep_probes = test_structural_transfer(
         model, tokenizer, domain_a["test"], domain_b["test"])
     print(f"  Cross-domain probes after sleep+align: top1={post_sleep_probes['top1_accuracy']:.1%}, top10={post_sleep_probes['top10_accuracy']:.1%}")
+
+    # Adapted evaluation after sleep + alignment
+    adapted_sleep_a = evaluate_rlm_adapted(model, domain_a["test"], tokenizer, adapt_steps=10)
+    adapted_sleep_b = evaluate_rlm_adapted(model, domain_b["test"], tokenizer, adapt_steps=10)
+    print(f"  Domain A held-out after sleep+align (adapted): top1={adapted_sleep_a['top1_accuracy']:.1%}, top10={adapted_sleep_a['top10_accuracy']:.1%}")
+    print(f"  Domain B held-out after sleep+align (adapted): top1={adapted_sleep_b['top1_accuracy']:.1%}, top10={adapted_sleep_b['top10_accuracy']:.1%}")
     
     # Final alignment quality
     if hasattr(model, 'measure_cross_domain_alignment'):
@@ -1026,6 +1099,12 @@ def run_cross_domain_experiment(config: CrossDomainConfig) -> Dict[str, Any]:
         "transfer_probes": transfer_probes,
         "transfer_probes_aligned": transfer_probes_aligned,
         "post_sleep_probes": post_sleep_probes,
+        "adapted_a": adapted_a,
+        "adapted_b": adapted_b,
+        "adapted_aligned_a": adapted_aligned_a,
+        "adapted_aligned_b": adapted_aligned_b,
+        "adapted_sleep_a": adapted_sleep_a,
+        "adapted_sleep_b": adapted_sleep_b,
         "alignment_quality": alignment_quality if alignment_quality else {},
         "phase1_time": phase1_time,
         "sleep_cycles": model.sleep_cycles_completed if hasattr(model, 'sleep_cycles_completed') else 0,
@@ -1043,7 +1122,7 @@ def run_cross_domain_experiment(config: CrossDomainConfig) -> Dict[str, Any]:
         mlp = SimpleMLP(
             vocab_size=vocab_size,
             embed_dim=config.embed_dim,
-            n_hidden=config.n_hidden,
+            hidden_dim=config.n_hidden,
         )
 
         mlp_losses_a = []

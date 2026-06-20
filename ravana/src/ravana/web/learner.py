@@ -8,6 +8,7 @@ import os
 import time
 import json
 import re
+import hashlib
 import urllib.request
 from urllib.parse import quote
 from typing import Dict, List, Optional, Any, Set, Tuple
@@ -15,6 +16,34 @@ from dataclasses import dataclass, field
 from collections import defaultdict
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+
+# Standard English stop words used throughout the WebLearner
+STOP_WORDS: Set[str] = {
+    'a', 'an', 'the', 'and', 'or', 'but', 'if', 'because', 'as', 'until',
+    'while', 'of', 'at', 'by', 'for', 'with', 'about', 'against', 'between',
+    'into', 'through', 'during', 'before', 'after', 'above', 'below', 'to',
+    'from', 'up', 'down', 'in', 'out', 'on', 'off', 'over', 'under', 'again',
+    'further', 'then', 'once', 'here', 'there', 'when', 'where', 'why', 'how',
+    'all', 'each', 'every', 'both', 'few', 'more', 'most', 'other', 'some',
+    'such', 'only', 'own', 'same', 'so', 'than', 'too', 'very', 'just',
+    'also', 'not', 'no', 'nor', 'is', 'are', 'was', 'were', 'be', 'been',
+    'being', 'have', 'has', 'had', 'having', 'do', 'does', 'did', 'doing',
+    'will', 'would', 'can', 'could', 'shall', 'should', 'may', 'might',
+    'must', 'this', 'that', 'these', 'those', 'i', 'me', 'my', 'myself',
+    'we', 'our', 'ours', 'ourselves', 'you', 'your', 'yours', 'yourself',
+    'yourselves', 'he', 'him', 'his', 'himself', 'she', 'her', 'hers',
+    'herself', 'it', 'its', 'itself', 'they', 'them', 'their', 'theirs',
+    'themselves', 'what', 'which', 'who', 'whom', 'whose', 'any', 'some',
+    'many', 'much', 'one', 'two', 'three', 'get', 'got', 'make', 'made',
+    'take', 'took', 'say', 'said', 'know', 'knew', 'think', 'thought',
+    'see', 'saw', 'come', 'came', 'go', 'went', 'give', 'gave', 'find',
+    'found', 'tell', 'told', 'become', 'became', 'leave', 'left', 'feel',
+    'felt', 'put', 'set', 'bring', 'brought', 'begin', 'began', 'keep',
+    'kept', 'hold', 'held', 'write', 'wrote', 'stand', 'stood', 'hear',
+    'heard', 'let', 'mean', 'meant', 'run', 'ran', 'move', 'moved', 'live',
+    'lived', 'believe', 'believed', 'hold', 'held', 'bring', 'brought',
+}
 
 # Optional BeautifulSoup
 try:
@@ -155,7 +184,8 @@ class WebLearner:
         if data_dir:
             self._glove_cache_path = os.path.join(data_dir, "ravana_glove_cache.npz")
         else:
-            self._glove_cache_path = os.path.join(_proj_root, "ravana_glove_cache.npz")
+            os.makedirs(os.path.join(_proj_root, "data"), exist_ok=True)
+            self._glove_cache_path = os.path.join(_proj_root, "data", "ravana_glove_cache.npz")
 
         # Search engine
         self.search_engine = SearchEngine()

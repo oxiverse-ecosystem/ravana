@@ -137,6 +137,13 @@ class SyntacticCellAssembly:
             'hope', 'fear', 'anxiety', 'joy', 'grief',
             'power', 'responsibility', 'culture', 'art',
             'science', 'history', 'meaning', 'truth', 'beauty',
+            # Gerunds (-ing forms used as uncountable nouns)
+            'bonding', 'learning', 'understanding', 'thinking', 'feeling',
+            'running', 'walking', 'swimming', 'reading', 'writing',
+            'speaking', 'listening', 'watching', 'waiting', 'working',
+            'living', 'dying', 'growing', 'changing', 'moving',
+            'being', 'doing', 'having', 'making', 'taking',
+            'giving', 'getting', 'seeing', 'hearing', 'knowing',
         }
 
         # Pronouns for substitution
