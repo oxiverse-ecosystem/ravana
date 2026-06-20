@@ -2,13 +2,14 @@
 Smoke tests for the reality grounding module.
 """
 
-import sys
-from pathlib import Path
+try:
+    from .conftest import import_scripts
+except ImportError:
+    from conftest import import_scripts
 
-project_root = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(project_root / "interface_agent" / "scripts"))
-
-from reality_grounding import NewsItem, RealityGrounding
+# Dev:  from reality_grounding import NewsItem, RealityGrounding
+# Pkg:  from ravana_grace.interface_agent.scripts.reality_grounding import …
+NewsItem, RealityGrounding = import_scripts("reality_grounding", "NewsItem", "RealityGrounding")
 
 
 def test_build_news_mdp():

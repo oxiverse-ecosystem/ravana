@@ -11,11 +11,14 @@ from pathlib import Path
 RAVANA_PATH = str(Path(__file__).resolve().parents[2])
 sys.path.insert(0, RAVANA_PATH)
 
-from ..core.governor import Governor, GovernorConfig, RegulationMode
-from ..core.state import StateManager, CognitiveState
-from ..core.identity import IdentityEngine
-from ..core.resolution import ResolutionEngine
-from ..core.memory import RavanaMemorySystem
+# Use absolute imports since RAVANA_PATH is already on sys.path.
+# Relative imports (from ..core.xxx) fail when this module is imported
+# as a top-level module (e.g. from mode_orchestrator.py).
+from core.governor import Governor, GovernorConfig, RegulationMode
+from core.state import StateManager, CognitiveState
+from core.identity import IdentityEngine
+from core.resolution import ResolutionEngine
+from core.memory import RavanaMemorySystem
 
 
 class RavanaWrapper:

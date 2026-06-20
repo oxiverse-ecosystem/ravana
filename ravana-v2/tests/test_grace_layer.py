@@ -11,13 +11,21 @@ Verify control behavior upgrade:
 """
 
 import sys
-import os
-import sys
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from core.governor import Governor, GovernorConfig, RegulationMode, CognitiveSignals
-from core.state import CognitiveState
+try:
+    from .conftest import import_core
+except ImportError:
+    from conftest import import_core
+
+# Dev:  from core.governor import Governor, GovernorConfig, RegulationMode, CognitiveSignals
+# Pkg:  from ravana_grace.core.governor import …
+Governor, GovernorConfig, RegulationMode, CognitiveSignals = import_core(
+    "governor", "Governor", "GovernorConfig", "RegulationMode", "CognitiveSignals"
+)
+CognitiveState = import_core("state", "CognitiveState")
+
 import numpy as np
+
 
 def test_soft_boundary_function():
     """Test 1: Soft boundary creates resistance near limits"""

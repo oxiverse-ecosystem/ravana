@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ravana-grace"
-version = "0.2.4"
+version = "0.2.5"
 description = "RAVANA GRACE -- 27-phase cognitive architecture (Governor, Identity, Sleep, Emotion, World Model, Meaning, Human Memory, Dialogue)"
 readme = "README.md"
 license = {text = "OCL-1.0"}
@@ -14,6 +14,9 @@ dependencies = [
     "feedparser",
     "requests",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
