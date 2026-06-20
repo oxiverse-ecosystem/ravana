@@ -7,8 +7,8 @@ import sys
 import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
-from ..research.core_k0.agent_loop import MinimalAgent, K0Config, AgentAction
-from ..research.experiments_k0.resource_env import ResourceSurvivalEnv, HiddenRegime
+from ..core_k0.agent_loop import MinimalAgent, K0Config, AgentAction
+from ..experiments_k0.resource_env import ResourceSurvivalEnv, HiddenRegime
 
 
 def main():

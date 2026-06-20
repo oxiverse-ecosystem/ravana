@@ -7,8 +7,8 @@ import os
 import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
-from ..research.core_k0.agent_loop_k2 import K2_Agent
-from ..research.experiments_k0.resource_env import ResourceSurvivalEnv
+from ..core_k0.agent_loop_k2 import K2_Agent
+from ..experiments_k0.resource_env import ResourceSurvivalEnv
 
 def inspect_agent_state():
     env = ResourceSurvivalEnv(seed=42)

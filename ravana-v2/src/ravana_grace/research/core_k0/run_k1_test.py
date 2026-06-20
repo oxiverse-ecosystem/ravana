@@ -9,8 +9,8 @@ import os
 import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
-from ..research.core_k0.agent_loop_k1 import K1Agent, AgentAction, K1AgentConfig
-from ..research.experiments_k0.resource_env import ResourceSurvivalEnv
+from ..core_k0.agent_loop_k1 import K1Agent, AgentAction, K1AgentConfig
+from ..experiments_k0.resource_env import ResourceSurvivalEnv
 
 def main():
     print("="*70)

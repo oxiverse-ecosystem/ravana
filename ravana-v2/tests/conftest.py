@@ -101,3 +101,14 @@ def import_scripts(submodule: str, *names: str):
     pkg = _strip_dot(f"interface_agent.scripts.{submodule}")
     dev = submodule
     return _resolve(pkg, dev, names)
+
+
+def import_research(submodule: str, *names: str):
+    """Import from ``research.{submodule}``.
+
+    Dev:  ``from research.{submodule} import …``
+    Pkg:  ``from ravana_grace.research.{submodule} import …``
+    """
+    pkg = _strip_dot(f"research.{submodule}")
+    dev = _strip_dot(f"research.{submodule}")
+    return _resolve(pkg, dev, names)

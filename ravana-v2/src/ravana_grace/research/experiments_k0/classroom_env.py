@@ -10,7 +10,7 @@ import sys
 import os
 import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
-from ..research.core_k0.agent_loop_k2 import AgentAction
+from ..core_k0.agent_loop_k2 import AgentAction
 
 class ClassroomEnv:
     """

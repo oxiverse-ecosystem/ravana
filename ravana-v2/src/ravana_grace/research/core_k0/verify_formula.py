@@ -9,7 +9,7 @@ import os
 import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
-from ..research.core_k0.metrics import RavanaMetrics
+from ..core_k0.metrics import RavanaMetrics
 import numpy as np
 
 
