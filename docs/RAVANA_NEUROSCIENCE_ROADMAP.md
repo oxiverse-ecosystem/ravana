@@ -7,6 +7,8 @@
 > **STATUS UPDATE (2026-06-20):** **P2 Emotional State Tracking** ✅ COMPLETED — `UserModel.emotional_state` VAD field with `_infer_user_emotion()` using ANEW-based VAD lexicon (`UserEmotionDetector`), EMA blending for temporal coherence, `belief_state` and `interaction_history` fields, user emotion wired into `_get_temperature()` (arousal modulation), `_adapt_verbosity_for_user()` (arousal-based intent count), and concept breadth modulation in `_generate_with_decoder_and_syntax()`. 66/66 tests passing in `scripts/test_emotional_mirror.py`. Backward-compatible serialization with migration in `_load()`.
 > 
 > **STATUS UPDATE (2026-06-20):** **P2.5 Prototype Gating & Sleep Precision** ✅ COMPLETED — Prototype-gated similarity priming (Phase 0) prevents false-positive cross-domain activation. Topology-aware prototype clustering joins embedding + Jaccard neighbor similarity. Precision-gated sleep replay strengthens high-precision edges (>0.7), weakens noisy ones (<0.3). Prototype hierarchy reassigned every sleep cycle. Dynamic `__version__` via importlib.metadata in all packages. Graph scaling benchmark (`scripts/scaling_benchmark.py`). Memory scaling stress suite (`scripts/test_forgetting.py` — 11 tests). Published to PyPI: ravana-ml 0.3.4, ravana-grace 0.2.6, ravana-chat 0.3.4, ravana-cognitive 0.3.3.
+>
+> **STATUS UPDATE (2026-06-20):** **P3 LSH Token Scoring — Hardened** ✅ COMPLETED — Fixed four regressions in the original LSH implementation: (1) Multi-probe Hamming-1 neighbour buckets prevent 96% over-pruning; (2) Hard `min_candidates` recall floor guarantees a usable candidate set or clean fallback; (3) Training guard bypasses LSH so dense softmax loss gets the full-vocab distribution; (4) Embedding-drift version counter rebuilds the bucket map after `_rp_backward` updates. Int32 overflow guard rejects oversized configs. 24/24 unit tests + 7/7 CI-critical tests passing.
 
 ---
 
@@ -716,9 +718,9 @@ Full report saved to `revisions/discriminative_benchmark.md` and raw data at `re
 | **P2.5** | ~~Memory scaling stress suite (test_forgetting.py)~~ | ✅ **DONE** | Medium | — | 11/11 test phases |
 | **P2.5** | ~~Dynamic test imports via conftest.py~~ | ✅ **DONE** | Low | — | Test import reliability |
 | **P2.5** | ~~Research module import fixes (27 files)~~ | ✅ **DONE** | Low | — | — |
-| **P2** | Low-rank W_rel decomposition | 2 days | Low | None | Parameter count, speed |
+| **P2** | ~~Low-rank W_rel decomposition~~ | ✅ **DONE** | Low | None | Parameter count, speed |
 | **P3** | ~~Benchmark harness~~ | ✅ **DONE** | Medium | All P0/P1/P2.5 fixes | Comparison results |
-| **P3** | LSH token scoring | 3 days | Low | None | Forward pass speed |
+| **P3** | ~~LSH token scoring~~ | ✅ **DONE** | Low | None | Forward pass speed |
 | **P3** | ~~ConceptNet ontology bootstrap~~ | ✅ **DONE** | Medium | Prototype hierarchy | 420 triples injected |
 | **P3** | Verb offset for compounds | 1 day | Low | Verb offsets working | Compound verb handling |
 
@@ -736,7 +738,7 @@ Full report saved to `revisions/discriminative_benchmark.md` and raw data at `re
 
 **Sprint 6 (Week 6):** ✅ **P3 — Benchmark harness completed** (conversation quality metrics, catastrophic forgetting, cross-domain transfer, parameter efficiency comparison, markdown report)
 
-**Sprint 7 (Week 7):** P2 — Low-rank W_rel + P3 — LSH token scoring
+**Sprint 7 (Week 7):** ✅ **P2 Low-rank W_rel (delivered in P2.5) + P3 LSH token scoring (hardened Sprint 7)**
 
 **Sprint 8 (Week 8):** ✅ **P3 — ConceptNet ontology bootstrap completed** + Verb offset for compounds
 

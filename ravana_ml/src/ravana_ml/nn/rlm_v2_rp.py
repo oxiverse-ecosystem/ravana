@@ -8,56 +8,141 @@ from typing import Optional, List, Tuple, Dict, Set, Any
 
 
 class RPMixin:
-    # ── LSH Token Scoring (P3 Sprint 6) ──
-    def _lsh_init(self, n_buckets: int = 8, n_hashes: int = 3):
-        """Initialise LSH random projection hash for token scoring.
+    # ── LSH Token Scoring (P3 Sprint 6, hardened Sprint 7) ──
+    # Random-hyperplane (sign-projection) LSH over the latent space. Tokens that
+    # hash into the same bucket as the query are scored exactly; all others are
+    # masked to -inf so downstream argmax/softmax only consider candidates that
+    # are geometrically near the query. This trades a small recall risk for a
+    # large inference speedup (O(K·d) vs O(V·d) in the scoring matmul).
+    #
+    # Hardening (Sprint 7) fixes four problems in the original implementation:
+    #   1. Exact-bucket probing over-pruned: a single source hash yielded as few
+    #      as 1-2 surviving tokens (96%+ pruned) because near-neighbours one
+    #      bit-flip away were dropped. -> multi-probe + Hamming-1 neighbour
+    #      buckets, plus a minimum-recall floor.
+    #   2. No recall floor: with very few buckets the candidate set collapsed
+    #      below a usable size. -> enforce min_candidates, widening probes until
+    #      the floor is met, then fall back to full scoring if still too small.
+    #   3. Ran during training: dense softmax-loss gradients need the full
+    #      vocabulary distribution, but LSH masked most of it to -inf, corrupting
+    #      gradients and the verb-offset blend. -> LSH is inference-only; the
+    #      call site passes `training` and we short-circuit to full scoring.
+    #   4. Never invalidated: token embeddings drift during learning, so the
+    #      bucket map went stale and pointed queries at the wrong neighbours.
+    #      -> a version counter bumps on every RP backward; the bucket map is
+    #      rebuilt once it exceeds `_lsh_max_embedding_age`.
+    def _lsh_init(self, n_buckets: int = 8, n_hashes: int = 3,
+                  min_candidates: int = 32, max_candidates_frac: float = 0.5,
+                  max_embedding_age: int = 64):
+        """Initialise LSH random-projection hash for token scoring.
 
-        Hashes token embeddings into buckets using random projections (simhash).
-        h(x) = sign(R . x) where each row of R is a
-        random unit vector.  n_hashes such hash functions give a (n_hashes,
-        n_buckets)-sensitive LSH family.
+        h(x) = sign(R · x); each row of R is a random unit vector. ``n_hashes``
+        such functions are combined into a scalar bucket id via a mixed-radix
+        encoding, giving ``n_buckets ** n_hashes`` cells.
 
         Args:
-            n_buckets: Number of buckets per hash function (default 16).
-            n_hashes: Number of independent hash functions (default 4).
+            n_buckets: Radix per hash bit (cells = n_buckets**n_hashes).
+            n_hashes: Number of independent projection hashes.
+            min_candidates: Recall floor — always probe until at least this many
+                candidates survive, then fall back to full scoring if impossible.
+            max_candidates_frac: If a bucket holds more than this fraction of the
+                vocabulary, LSH is degenerate for this query; fall back.
+            max_embedding_age: Rebuild the bucket map after this many embedding
+                updates so it tracks drift during training.
         """
         rng = np.random.RandomState(42)
-        self._lsh_n_buckets = n_buckets
-        self._lsh_n_hashes = n_hashes
-        # Each hash uses a random projection matrix (latent_dim,)
-        self._lsh_projections = rng.randn(n_hashes, self.latent_dim).astype(np.float32)
-        for i in range(n_hashes):
+        self._lsh_n_buckets = max(2, int(n_buckets))
+        self._lsh_n_hashes = max(1, int(n_hashes))
+        # Bucket ids are int32 mixed-radix codes; guard against configs whose
+        # code space (n_buckets ** n_hashes) overflows int32 (~2.1e9). Such
+        # configs would also produce near-empty buckets, so reject up front with
+        # an actionable message rather than overflowing silently downstream.
+        bucket_space = self._lsh_n_buckets ** self._lsh_n_hashes
+        if bucket_space > 2_147_483_647:
+            raise ValueError(
+                f"LSH config too large: n_buckets={self._lsh_n_buckets} ** "
+                f"n_hashes={self._lsh_n_hashes} = {bucket_space} exceeds int32. "
+                f"Reduce n_hashes or n_buckets."
+            )
+        self._lsh_min_candidates = max(1, int(min_candidates))
+        self._lsh_max_candidates_frac = float(max_candidates_frac)
+        self._lsh_max_embedding_age = max(1, int(max_embedding_age))
+        # Each hash uses a random projection vector (latent_dim,).
+        self._lsh_projections = rng.randn(self._lsh_n_hashes, self.latent_dim).astype(np.float32)
+        for i in range(self._lsh_n_hashes):
             nrm = np.linalg.norm(self._lsh_projections[i])
             if nrm > 0:
                 self._lsh_projections[i] /= nrm
-        # Pre-computed bucket assignment for all tokens (built on first use)
+        # Precomputed bucket assignment for all tokens (built on first use).
         self._lsh_buckets: Optional[np.ndarray] = None
         self._lsh_bucket_map: Optional[Dict[int, List[int]]] = None
-        self._lsh_dirty: bool = True  # invalidated when token_embeds change
+        self._lsh_dirty: bool = True          # invalidated when token_embeds change
+        self._lsh_embedding_version: int = 0   # bumped by _rp_backward
+        self._lsh_bucket_version: int = -1     # version the map was built at
+
+    def _lsh_notify_embedding_update(self):
+        """Mark the bucket map as stale after token embeddings change.
+
+        Called from ``_rp_backward`` so that learning drifts the bucket map back
+        in sync with the embedding space rather than serving stale neighbours.
+        """
+        if hasattr(self, '_lsh_embedding_version'):
+            self._lsh_embedding_version += 1
 
     def _lsh_hash(self, embeddings: np.ndarray) -> np.ndarray:
-        """Hash embeddings into LSH buckets.
+        """Hash embeddings into scalar LSH bucket ids.
 
         Args:
             embeddings: (N, latent_dim) matrix.
 
         Returns:
-            bucket_ids: (N,) integer bucket IDs (0 .. n_buckets**n_hashes - 1).
+            bucket_ids: (N,) int32 in ``[0, n_buckets**n_hashes)``.
         """
         N = embeddings.shape[0]
-        # projections: (n_hashes, latent_dim)
-        # signs: (N, n_hashes)  {0, 1} after binarising
-        dots = embeddings @ self._lsh_projections.T  # (N, n_hashes)
+        # dots: (N, n_hashes); signs collapse each projection to a {0,1} bit.
+        dots = embeddings @ self._lsh_projections.T
         signs = (dots > 0).astype(np.int32)
-        # Combine into scalar bucket ID: bucket = sum(signs[h] * bucket_base^h)
+        # Mixed-radix encoding: bucket = sum(bit_h * radix**h).
         bucket_ids = np.zeros(N, dtype=np.int32)
         for h in range(self._lsh_n_hashes):
             bucket_ids += signs[:, h] * (self._lsh_n_buckets ** h)
         return bucket_ids
 
+    def _lsh_neighbour_bucket_ids(self, source_hash: int) -> List[int]:
+        """Return the source bucket plus all Hamming-1 neighbour bucket ids.
+
+        Each of the ``n_hashes`` bits can be flipped to one other value
+        (``n_buckets - 1`` alternatives per bit), so this yields up to
+        ``1 + n_hashes*(n_buckets-1)`` buckets for multi-probe recall.
+        """
+        bits = []
+        h = source_hash
+        radix = self._lsh_n_buckets
+        for _ in range(self._lsh_n_hashes):
+            bits.append(h % radix)
+            h //= radix
+        neighbours = [source_hash]
+        for pos in range(self._lsh_n_hashes):
+            base = source_hash - bits[pos] * (radix ** pos)
+            for alt in range(radix):
+                if alt == bits[pos]:
+                    continue
+                neighbours.append(base + alt * (radix ** pos))
+        return neighbours
+
     def _lsh_build_buckets(self):
-        """Build or refresh the LSH bucket -> token list map."""
-        if not self._lsh_dirty and self._lsh_bucket_map is not None:
+        """Build or refresh the LSH bucket -> token list map when stale.
+
+        Rebuilds when the map is missing, explicitly dirtied, or the embedding
+        version has drifted past ``_lsh_max_embedding_age`` since the last build.
+        """
+        stale = (
+            self._lsh_bucket_map is None
+            or self._lsh_dirty
+            or (self._lsh_embedding_version - self._lsh_bucket_version)
+            >= self._lsh_max_embedding_age
+        )
+        if not stale:
             return
         token_embeds = self.token_embed.weight.data
         if self._rp_use_encoder_latent:
@@ -68,43 +153,87 @@ class RPMixin:
         for tid, bid in enumerate(bucket_ids):
             bucket_map.setdefault(int(bid), []).append(tid)
         self._lsh_bucket_map = bucket_map
+        self._lsh_bucket_version = self._lsh_embedding_version
         self._lsh_dirty = False
 
     def _lsh_scoring(self, source_latent: np.ndarray, target_latents: np.ndarray,
-                     W_rel: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """Score only tokens in the same LSH bucket as the source.
+                     W_rel: np.ndarray, training: bool = False
+                     ) -> Tuple[Optional[np.ndarray], Optional[Tuple[int, int]]]:
+        """Score only tokens near the query in LSH space (inference-only).
 
-        Falls back to full scoring if LSH is not initialised or the source
-        bucket is too large.
+        Multi-probe: union the source bucket with its Hamming-1 neighbours, then
+        keep widening until ``_lsh_min_candidates`` survive. Non-candidates are
+        masked to ``-inf`` so downstream softmax/argmax ignore them.
+
+        Falls back to ``None`` (signalling the caller should do full scoring)
+        when running in training, when the bucket is degenerate (holds more than
+        ``max_candidates_frac`` of the vocab), or when even multi-probe cannot
+        gather ``min_candidates``.
 
         Args:
-            source_latent: (latent_dim,) source embedding.
-            target_latents: (vocab_size, latent_dim) target embeddings.
+            source_latent: (latent_dim,) query embedding.
+            target_latents: (vocab_size, latent_dim) candidate embeddings.
             W_rel: (latent_dim, latent_dim) composed relation matrix.
+            training: When True, always return None (full scoring needed for
+                dense loss gradients).
 
         Returns:
-            (logits, candidate_mask) where candidate_mask is boolean (vocab_size,).
+            (logits, (n_candidates, n_buckets_probed)) on success, or
+            (None, None) to request a full-scoring fallback.
         """
+        # Training needs the full vocabulary distribution for the softmax loss;
+        # LSH masking would corrupt gradients (and the verb-offset blend).
+        if training:
+            return None, None
+
         if not hasattr(self, '_lsh_n_hashes'):
-            # Lazy init on first use (P3 Sprint 6)
             self._lsh_init()
 
         self._lsh_build_buckets()
-        source_hash = self._lsh_hash(source_latent.reshape(1, -1))[0]
-        candidates = self._lsh_bucket_map.get(int(source_hash), [])
-        if not candidates or len(candidates) > len(target_latents) // 2:
-            return None, None  # Fallback: bucket too large or empty
+        V = len(target_latents)
+        max_candidates = max(self._lsh_min_candidates,
+                             int(V * self._lsh_max_candidates_frac))
 
-        projected = source_latent @ W_rel
-        cand_embeds = target_latents[candidates]
-        cand_logits = projected @ cand_embeds.T
+        source_hash = int(self._lsh_hash(source_latent.reshape(1, -1))[0])
+        # Tier 1: exact bucket only.
+        candidates = list(self._lsh_bucket_map.get(source_hash, []))
+        buckets_probed = 1
 
-        # Build full-size logits, fill candidates, leave others at -inf
-        logits = np.full(len(target_latents), -np.inf, dtype=np.float32)
-        for j, tid in enumerate(candidates):
-            logits[tid] = cand_logits[j]
+        # Tier 2: widen with Hamming-1 multi-probe until the recall floor is met.
+        if len(candidates) < self._lsh_min_candidates:
+            seen = {source_hash}
+            cand_set = set(candidates)
+            for nb in self._lsh_neighbour_bucket_ids(source_hash):
+                if nb in seen:
+                    continue
+                seen.add(nb)
+                for tid in self._lsh_bucket_map.get(nb, []):
+                    cand_set.add(tid)
+                buckets_probed += 1
+                if len(cand_set) >= self._lsh_min_candidates:
+                    break
+            candidates = list(cand_set)
 
-        return logits, (0, len(candidates))  # sparsity info
+        # Hard recall floor: if even Hamming-1 multi-probe cannot gather
+        # min_candidates (sparse bucket map / tiny vocab), LSH is unsuitable for
+        # this query — fall back to full scoring rather than serving a candidate
+        # set too small to be useful. This makes min_candidates a guarantee, not
+        # a best-effort target.
+        if len(candidates) < self._lsh_min_candidates:
+            return None, None
+
+        # Degenerate bucket (holds most of the vocab) -> LSH gives no speedup.
+        if len(candidates) > max_candidates:
+            return None, None
+
+        projected = source_latent @ W_rel             # (latent_dim,)
+        cand_embeds = target_latents[candidates]       # (K, latent_dim)
+        cand_logits = projected @ cand_embeds.T        # (K,)
+
+        # Mask non-candidates to -inf; downstream exp(-inf) -> 0 probability.
+        logits = np.full(V, -np.inf, dtype=np.float32)
+        logits[candidates] = cand_logits
+        return logits, (len(candidates), buckets_probed)
 
 
     """Mixin providing rlm_v2_rp methods for RLMv2."""
@@ -334,6 +463,9 @@ class RPMixin:
 
             self._token_embed_norms = None
 
+            # Token embeddings changed -> LSH bucket map is now stale.
+            self._lsh_notify_embedding_update()
+
 
 
         self._rp_cache = None
@@ -537,10 +669,15 @@ class RPMixin:
         V = self._rp_V_d[domain_id, rel_type_idx]        # (rank, latent_dim)
         W_rel = np.diag(w_vec).astype(np.float32) + U.T @ V  # (latent_dim, latent_dim)
 
-        # ── LSH-Accelerated Scoring (P3 Sprint 6) ──
-        # Hash source latent into LSH bucket and score only tokens sharing that bucket.
-        # Falls back to full O(V) bilinear scoring when LSH is not initialised.
-        lsh_result = self._lsh_scoring(source_latent, target_latents, W_rel)
+        # ── LSH-Accelerated Scoring (P3 Sprint 6, hardened Sprint 7) ──
+        # Inference-only: in training we need the full-vocabulary distribution
+        # for the softmax loss, so pass `training` to request a full-scoring
+        # fallback. `self.training` defaults to True; the chat/benchmark
+        # inference paths set it False before querying.
+        lsh_result = self._lsh_scoring(
+            source_latent, target_latents, W_rel,
+            training=getattr(self, 'training', True),
+        )
         if lsh_result[0] is not None:
             logits = lsh_result[0]
         else:
