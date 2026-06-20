@@ -11,7 +11,11 @@ from .core import (
 )
 from .dialogue import DialogueEngine
 
-__version__ = "0.2.0"
+try:
+    from importlib.metadata import version as _v
+    __version__ = _v("ravana-grace")
+except Exception:
+    __version__ = "0.0.0"
 __all__ = [
     "Governor",
     "Identity",

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ravana-cognitive"
-version = "0.3.2"
+version = "0.3.3"
 description = "RAVANA -- Pressure-driven cognitive ML framework (unified package)"
 readme = "README.md"
 license = {text = "OCL-1.0"}

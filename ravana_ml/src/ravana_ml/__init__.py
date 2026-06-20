@@ -97,7 +97,11 @@ def load(path_or_model, path=None):
         path_or_model.load_state_dict(sd)
         return path_or_model
 
-__version__ = "0.3.0"
+try:
+    from importlib.metadata import version as _v
+    __version__ = _v("ravana-ml")
+except Exception:
+    __version__ = "0.0.0"
 
 __all__ = [
     'RawTensor', 'StateTensor', 'Parameter', 'Tensor',

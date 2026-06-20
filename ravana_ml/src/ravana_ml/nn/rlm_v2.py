@@ -492,6 +492,7 @@ class RLMv2(Module):
         self._prototype_children: Dict[str, List[str]] = {}       # prototype_label -> [child_prototype_labels]
         self._prototype_levels: Dict[str, int] = {}              # prototype_label -> abstraction level (0=most specific)
         self._prototype_similarity_threshold: float = 0.70       # min similarity for prototype inheritance
+        self._prototype_cluster_threshold: float = 0.55          # threshold for clustering into prototypes
         self.use_prototype_inheritance: bool = True              # ENABLED: novel entities inherit from prototypes
 
         # Initialize Hierarchical Semantic Prototypes (P0 Fix B) - inline for simplicity
@@ -527,29 +528,57 @@ class RLMv2(Module):
 
     # ── Domain Isolation Methods ─────────────────────────────────────────
 
+    def _topology_similarity(self, cid_a: int, cid_b: int) -> float:
+        """Jaccard similarity of neighbor sets for topology-aware clustering.
+        
+        Two concepts that share many neighbors (incoming + outgoing) are likely
+        in the same semantic domain even if their embedding vectors diverged.
+        """
+        neighbors_a = set()
+        for tgt_id, _ in self.graph.get_outgoing(cid_a):
+            neighbors_a.add(tgt_id)
+        for src_id, _ in self.graph.get_incoming(cid_a):
+            neighbors_a.add(src_id)
+        
+        neighbors_b = set()
+        for tgt_id, _ in self.graph.get_outgoing(cid_b):
+            neighbors_b.add(tgt_id)
+        for src_id, _ in self.graph.get_incoming(cid_b):
+            neighbors_b.add(src_id)
+        
+        if not neighbors_a or not neighbors_b:
+            return 0.0
+        intersection = neighbors_a & neighbors_b
+        union = neighbors_a | neighbors_b
+        return len(intersection) / len(union)
+
     def _init_default_prototypes(self):
         """Initialize default prototypes from the concept graph (inline P0 Fix B).
 
         Builds prototypes for common semantic categories based on embedding
-        clusters in the concept space. Called once during initialization.
+        clusters in the concept space. Uses topology-aware similarity so
+        concepts that share neighbors (even if embedding drifted) still cluster.
         """
         if len(self.graph.nodes) < 5:
             return
 
-        # Cluster concepts by similarity and register as prototypes
-        from collections import defaultdict
         node_ids = sorted(self.graph.nodes.keys())
 
-        # Use a simple greedy clustering approach
+        # Auto-tune threshold: lower dimensions need lower threshold
+        base_threshold = self._prototype_cluster_threshold
+        if self.concept_dim <= 32:
+            base_threshold = min(base_threshold, 0.45)
+        elif self.concept_dim <= 64:
+            base_threshold = min(base_threshold, 0.50)
+
         assigned = set()
-        for nid in node_ids[:50]:  # Process first 50 nodes
+        for nid in node_ids[:50]:
             if nid in assigned:
                 continue
             node = self.graph.get_node(nid)
             if node is None or node.vector is None:
                 continue
 
-            # Find all similar nodes (cosine > 0.6)
             cluster = [nid]
             assigned.add(nid)
             node_vec = node.vector
@@ -567,8 +596,13 @@ class RLMv2(Module):
                 other_norm = np.linalg.norm(other.vector)
                 if other_norm == 0:
                     continue
-                sim = float(np.dot(node_vec, other.vector / other_norm))
-                if sim > 0.6:
+                # Embedding similarity
+                cos_sim = float(np.dot(node_vec, other.vector / other_norm))
+                # Topology similarity (Jaccard of neighbors)
+                topo_sim = self._topology_similarity(nid, other_id)
+                # Combined: favors concepts that are both embedded-close AND share neighbors
+                combined = 0.5 * cos_sim + 0.5 * topo_sim
+                if combined > base_threshold:
                     cluster.append(other_id)
                     assigned.add(other_id)
 
@@ -2693,10 +2727,25 @@ class RLMv2(Module):
                                 break
                         if subject_idx >= 0:
                             sims[subject_idx] = -1.0
-                        # Activate nodes above threshold
-                        mask = sims > 0.3
-                        for i in np.where(mask)[0]:
-                            self.graph.activate(node_ids[i], amount=float(sims[i]) * 0.3)
+                        # Build prototype membership map for similarity gating
+                    proto_members = set()
+                    if self._prototype_hierarchy:
+                        subj_proto_label = None
+                        for p_label, cids in self._prototype_hierarchy.items():
+                            if subject_cid in cids:
+                                subj_proto_label = p_label
+                                break
+                        if subj_proto_label is not None:
+                            proto_members = set(self._prototype_hierarchy.get(subj_proto_label, []))
+
+                    # Activate nodes above threshold
+                    # If subject has a prototype, only activate same-prototype concepts
+                    # (avoids false positive cross-domain activation in compressed space)
+                    mask = sims > 0.3
+                    for i in np.where(mask)[0]:
+                        if proto_members and node_ids[i] not in proto_members:
+                            continue
+                        self.graph.activate(node_ids[i], amount=float(sims[i]) * 0.3)
 
                 # Phase 1: General spreading (3 steps, decay 0.3)
                 self.graph.spread_activation(steps=3, k_active=10, decay=0.3)
@@ -2953,6 +3002,19 @@ class RLMv2(Module):
                 if depth < _max_hops:
                     new_visited = visited | {nid}
                     bfs_queue.append((tgt_cid, edge_score, depth + 1, new_visited))
+
+        # ── Prototype-domain gating: suppress cross-prototype false positives ──
+        if self._prototype_hierarchy and matching_targets:
+            cid_to_proto = {}
+            for p_label, cids in self._prototype_hierarchy.items():
+                for cid in cids:
+                    cid_to_proto[cid] = p_label
+            subj_proto = cid_to_proto.get(subject_cid)
+            if subj_proto is not None:
+                for cid in list(matching_targets.keys()):
+                    cid_proto = cid_to_proto.get(cid)
+                    if cid_proto is not None and cid_proto != subj_proto:
+                        matching_targets[cid] *= 0.2
 
         # Also include directly active concepts (for same-type queries)
         # Hub suppression: penalize low-activation high-in-degree noise nodes
@@ -4255,12 +4317,21 @@ class RLMv2(Module):
                     if edge is None:
                         continue
 
-                    # Strengthen edge through replay
-                    edge.weight = min(1.0, edge.weight + 0.02)
-                    edge.confidence = min(1.0, edge.confidence + 0.01)
-
-                    # Hebbian co-activation replay
-                    self.graph.hebbian_update(subj_cid, obj_cid, coactivation=0.5, lr=0.005)
+                    # Precision-gated replay
+                    # Use forward_pred_count / prediction_count to decide:
+                    #   High precision (>=0.7): strengthen (reliable knowledge)
+                    #   Low precision (<0.3): weaken (false positive generators)
+                    #   Medium: maintain with slight decay
+                    precision = edge.forward_pred_count / max(1, edge.prediction_count)
+                    if precision >= 0.7:
+                        boost = 0.02 * (1.0 + precision)
+                        edge.weight = min(1.0, edge.weight + boost)
+                        edge.confidence = min(1.0, edge.confidence + boost * 0.5)
+                        self.graph.hebbian_update(subj_cid, obj_cid, coactivation=0.5, lr=0.005)
+                    elif precision < 0.3 and edge.prediction_count >= 5:
+                        edge.weight = max(0.0, edge.weight - 0.02)
+                        edge.confidence = max(0.0, edge.confidence - 0.01)
+                    # Medium precision edges: no change (preserve but don't amplify)
 
             # ── Homeostatic downscaling ──
             # Normalize edge weights to prevent runaway strengthening
@@ -4308,6 +4379,16 @@ class RLMv2(Module):
                     norm = np.linalg.norm(node.vector)
                     if norm > 0:
                         node.vector /= norm
+
+            # ── Prototype reassignment from trained concepts ──
+            # Rebuild level-0 prototypes from current graph state.
+            # Training drifts concept vectors; re-clustering captures post-training
+            # domain structure. Clear and rebuild so stale clusters are replaced.
+            if len(self.graph.nodes) >= 5:
+                self._prototype_hierarchy.clear()
+                self._prototype_vectors.clear()
+                self._prototype_levels.clear()
+                self._init_default_prototypes()
 
             # ── Episodic -> semantic consolidation ──
             self._consolidate_episodic_to_semantic()
