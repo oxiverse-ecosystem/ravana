@@ -1,0 +1,163 @@
+{
+  "timestamp": "2026-06-20 19:21:43",
+  "results": [
+    {
+      "model_name": "RLMv2 (RAVANA)",
+      "timestamp": "2026-06-20 19:18:26",
+      "train_accuracy": 0.0,
+      "test_accuracy": 0.0,
+      "held_out_accuracy": 0.0,
+      "cross_domain_accuracy": 0.6666666666666666,
+      "generalization_gap": 0.0,
+      "per_relation_test": {
+        "causal": 0.0,
+        "semantic": 0.0,
+        "temporal": 0.0,
+        "possessive": 0.0,
+        "analogical": 0.0,
+        "contextual": 0.0
+      },
+      "forgetting_curves": {
+        "science": [
+          0.8,
+          0.9333333333333333,
+          0.9333333333333333
+        ],
+        "cooking": [
+          0.0,
+          1.0,
+          1.0
+        ],
+        "music": [
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "forgetting_rate": -0.7111111111111111,
+      "coherence_score": 0.8247568023066763,
+      "diversity_score": 0.6458333333333333,
+      "repetition_rate": 0.20454545454545453,
+      "avg_response_length": 12.0,
+      "parameters": 153218,
+      "mean_latency_ms": 0.6092629999875498,
+      "params_per_accuracy": 0.0,
+      "speed_score": 0.0
+    },
+    {
+      "model_name": "Linear Baseline",
+      "timestamp": "2026-06-20 19:18:42",
+      "train_accuracy": 0.0,
+      "test_accuracy": 0.009999999776482582,
+      "held_out_accuracy": 0.0,
+      "cross_domain_accuracy": 0.0,
+      "generalization_gap": 0.0,
+      "per_relation_test": {},
+      "forgetting_curves": {},
+      "forgetting_rate": 0.0,
+      "coherence_score": 0.0,
+      "diversity_score": 0.0,
+      "repetition_rate": 0.0,
+      "avg_response_length": 0.0,
+      "parameters": 3296,
+      "mean_latency_ms": 0.0,
+      "params_per_accuracy": 0.0,
+      "speed_score": 0.0
+    },
+    {
+      "model_name": "MLP Baseline (2-layer)",
+      "timestamp": "2026-06-20 19:18:42",
+      "train_accuracy": 0.0,
+      "test_accuracy": 0.0,
+      "held_out_accuracy": 0.0,
+      "cross_domain_accuracy": 0.0,
+      "generalization_gap": 0.0,
+      "per_relation_test": {},
+      "forgetting_curves": {},
+      "forgetting_rate": 0.0,
+      "coherence_score": 0.0,
+      "diversity_score": 0.0,
+      "repetition_rate": 0.0,
+      "avg_response_length": 0.0,
+      "parameters": 10308,
+      "mean_latency_ms": 0.0,
+      "params_per_accuracy": 0.0,
+      "speed_score": 0.0
+    },
+    {
+      "model_name": "DistilGPT-2",
+      "timestamp": "2026-06-20 19:21:43",
+      "train_accuracy": 0.0,
+      "test_accuracy": 0.0,
+      "held_out_accuracy": 0.0,
+      "cross_domain_accuracy": 0.0,
+      "generalization_gap": 0.0,
+      "per_relation_test": {},
+      "forgetting_curves": {},
+      "forgetting_rate": 0.0,
+      "coherence_score": 0.0,
+      "diversity_score": 0.0,
+      "repetition_rate": 0.0,
+      "avg_response_length": 0.0,
+      "parameters": 81912576,
+      "mean_latency_ms": 0.0,
+      "params_per_accuracy": 0.0,
+      "speed_score": 0.0
+    }
+  ],
+  "forgetting": {
+    "curves": {
+      "science": [
+        0.8,
+        0.9333333333333333,
+        0.9333333333333333
+      ],
+      "cooking": [
+        0.0,
+        1.0,
+        1.0
+      ],
+      "music": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    "forgetting_rates": {
+      "science": -0.1333333333333333,
+      "cooking": -1.0,
+      "music": -1.0
+    },
+    "avg_forgetting": -0.7111111111111111
+  },
+  "cross_domain": {
+    "science_accuracy": 0.6666666666666666,
+    "social_accuracy": 0.4166666666666667,
+    "held_out_accuracy": 0.0,
+    "cross_domain_gap": 0.6666666666666666,
+    "per_relation": {
+      "causes": 0.0,
+      "produces": 0.0
+    }
+  },
+  "conversation_quality": {
+    "RLMv2 (RAVANA)": {
+      "coherence": 0.8247568023066763,
+      "diversity": 0.6458333333333333,
+      "bigram_diversity": 0.7954545454545455,
+      "trigram_diversity": 0.975,
+      "repetition": 0.20454545454545453,
+      "avg_length": 12.0
+    }
+  },
+  "baseline_sizes": {
+    "RAVANA RLMv2 (current)": null,
+    "Linear Baseline": null,
+    "MLP Baseline (2-layer)": null,
+    "DistilGPT-2": 82000000,
+    "Tiny Transformer (4-layer)": 10000000,
+    "Tiny LLaMA (1.1B)": 1100000000,
+    "GPT-2 Small (124M)": 124000000,
+    "GPT-2 Medium (355M)": 355000000
+  }
+}
