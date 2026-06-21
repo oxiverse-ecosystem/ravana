@@ -120,7 +120,7 @@ class SleepConsolidation:
                     episodic_consolidated += 1
 
         # 6. Belief reconciliation
-        if belief_store and belief_store.beliefs:
+        if belief_store and belief_store.users:
             resolved = belief_store.reconcile()
             # Metrics logged externally
 

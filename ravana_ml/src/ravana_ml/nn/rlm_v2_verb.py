@@ -284,12 +284,13 @@ class VerbMixin:
 
             return None
         stem = self._verb_stem(verb_word)
-        if stem not in self._verb_offsets:
+        domain_id = self.current_domain_id if self.current_domain_id is not None else 0
+        if domain_id not in self._verb_offsets or stem not in self._verb_offsets[domain_id]:
 
             return None
         
 
-        offset = self._verb_offsets[stem]
+        offset = self._verb_offsets[domain_id][stem]
         predicted = adapted_source_embed + offset
         
 
@@ -323,8 +324,18 @@ class VerbMixin:
     def _verb_stem(word: str) -> str:
 
         """Extract verb stem by stripping common suffixes.
-        
 
+        Handles compound verbs (underscore/hyphen) as unified lexical chunks:
+        'contributes_to' -> 'contribut_to', 'leads_to' -> 'lead_to',
+        'associated_with' -> 'associated_with', 'is_a' -> 'is_a'
+
+        Neuroscience basis: Cappelle et al. (2010) MEG evidence shows phrasal
+        verbs ("rise up", "heat up") are processed as single lexical units in
+        the brain (MMN lexical enhancement pattern, not syntactic reduction),
+        not as syntactically assembled verb+particle sequences. Pulvermüller
+        et al. (2013) confirm unified cortical memory circuits for phrasal verbs.
+        Lee et al. (2021) fMRI shows left inferior frontal gyrus (BA 45)
+        handles compound word processing with semantic transparency effects.
 
         'causes' -> 'caus', 'freezes' -> 'freez', 'produces' -> 'produc',
         'makes' -> 'make', 'melts' -> 'melt', 'is' -> 'is'
@@ -338,7 +349,32 @@ class VerbMixin:
         if len(w) <= 3:
 
             return w
-        # Strip common suffixes
+
+        # Compound verb handling (phrasal verbs as unified lexical chunks):
+        # Split on underscore or hyphen, stem only the verb part.
+        # The particle/preposition is preserved to keep compound semantics:
+        # 'contributes_to' != 'contributes'  (different offset vectors)
+        if '_' in w:
+            parts = w.split('_')
+            if len(parts) >= 2:
+                verb_part = parts[0]
+                for suffix in ['ing', 'ed', 'es', 's', 'd']:
+                    if verb_part.endswith(suffix) and len(verb_part) > len(suffix) + 1:
+                        verb_part = verb_part[:-len(suffix)]
+                        break
+                return verb_part + '_' + '_'.join(parts[1:])
+
+        if '-' in w:
+            parts = w.split('-')
+            if len(parts) >= 2:
+                verb_part = parts[0]
+                for suffix in ['ing', 'ed', 'es', 's', 'd']:
+                    if verb_part.endswith(suffix) and len(verb_part) > len(suffix) + 1:
+                        verb_part = verb_part[:-len(suffix)]
+                        break
+                return verb_part + '_' + '_'.join(parts[1:])
+
+        # Single-word: strip common suffixes
 
         for suffix in ['ing', 'ed', 'es', 's', 'd']:
 

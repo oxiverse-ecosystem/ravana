@@ -5171,6 +5171,13 @@ class RLMv2(Module):
         if state["relation_classifier_bias"] is not None:
             self.relation_classifier.bias.data = state["relation_classifier_bias"]
 
+        self.graph.nodes.clear()
+        self.graph.edges.clear()
+        self.graph._outgoing.clear()
+        self.graph._incoming.clear()
+        self.graph._edges_by_relation_type.clear()
+        self.graph.next_id = 0
+
         for nid, ndata in state["graph_nodes"].items():
             node = ConceptNode(nid, ndata["vector"], ndata["label"])
             node.core_vector = ndata["core_vector"]
@@ -5257,20 +5264,14 @@ class RLMv2(Module):
             self._dec_b1 = state["_dec_b1"]
             self._dec_W2 = state["_dec_W2"]
             self._dec_b2 = state["_dec_b2"]
-            # Handle both old (n_rel_types, latent, latent) and new (num_domains, n_rel_types, latent, latent) shapes
-            loaded_rel = state["_rp_rel_matrices"]
-            if loaded_rel.ndim == 3:
-                # Old shape: (n_rel_types, latent, latent) -> expand to (num_domains, n_rel_types, latent, latent)
-                n_rel_types = loaded_rel.shape[0]
-                self._rp_rel_matrices = np.tile(loaded_rel[np.newaxis, ...], (self.num_domains, 1, 1, 1))
-            else:
-                self._rp_rel_matrices = loaded_rel
-            loaded_mrel = state["_rp_mrel_matrices"]
-            if loaded_mrel.ndim == 3:
-                n_rel_types = loaded_mrel.shape[0]
-                self._rp_mrel_matrices = np.tile(loaded_mrel[np.newaxis, ...], (self.num_domains, 1, 1, 1))
-            else:
-                self._rp_mrel_matrices = loaded_mrel
+            # Load low-rank W_rel decomposition (post P2 refactor)
+            if "_rp_W_base" in state:
+                self._rp_W_base = state["_rp_W_base"].copy()
+                self._rp_U_d = state["_rp_U_d"].copy()
+                self._rp_V_d = state["_rp_V_d"].copy()
+                self._rp_mW_base = state["_rp_mW_base"].copy()
+                self._rp_mU_d = state["_rp_mU_d"].copy()
+                self._rp_mV_d = state["_rp_mV_d"].copy()
 
         if "rel_proj" in state:
             self.rel_proj = state["rel_proj"]
@@ -5570,19 +5571,14 @@ class RLMv2(Module):
             model._dec_b1 = npz["dec/b1"]
             model._dec_W2 = npz["dec/w2"] if "dec/w2" in npz else npz["dec/W2"]
             model._dec_b2 = npz["dec/b2"]
-            # Handle both old (n_rel_types, latent, latent) and new (num_domains, n_rel_types, latent, latent) shapes
-            loaded_rel = npz["rp/rel_matrices"]
-            if loaded_rel.ndim == 3:
-                n_rel_types = loaded_rel.shape[0]
-                model._rp_rel_matrices = np.tile(loaded_rel[np.newaxis, ...], (model.num_domains, 1, 1, 1))
-            else:
-                model._rp_rel_matrices = loaded_rel
-            loaded_mrel = npz["rp/mrel_matrices"]
-            if loaded_mrel.ndim == 3:
-                n_rel_types = loaded_mrel.shape[0]
-                model._rp_mrel_matrices = np.tile(loaded_mrel[np.newaxis, ...], (model.num_domains, 1, 1, 1))
-            else:
-                model._rp_mrel_matrices = loaded_mrel
+            # Load low-rank W_rel decomposition (post P2 refactor)
+            if "rp/W_base" in npz:
+                model._rp_W_base = npz["rp/W_base"].copy()
+                model._rp_U_d = npz["rp/U_d"].copy()
+                model._rp_V_d = npz["rp/V_d"].copy()
+                model._rp_mW_base = npz["rp/mW_base"].copy()
+                model._rp_mU_d = npz["rp/mU_d"].copy()
+                model._rp_mV_d = npz["rp/mV_d"].copy()
             if "rp/rel_proj" in npz:
                 model.rel_proj = npz["rp/rel_proj"]
 

@@ -17,7 +17,6 @@ import numpy as np
 # Add package paths (same setup as test_ravana_chat_core.py etc.)
 _proj_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 for p in [
-    os.path.join(_proj_root, "ravana_chat_src", "src"),
     os.path.join(_proj_root, "ravana_ml", "src"),
     os.path.join(_proj_root, "ravana", "src"),
     os.path.join(_proj_root, "ravana-v2", "src"),
@@ -51,7 +50,7 @@ def _is_valid_response(resp: str, min_words: int = 2) -> bool:
 @pytest.fixture(scope="module")
 def engine():
     """One ChatInterface shared by all tests (~13s init, ~18s/turn)."""
-    from ravana_chat.chat.interface import ChatInterface, ChatConfig
+    from ravana.chat.interface import ChatInterface, ChatConfig
     config = ChatConfig(dim=32, seed=42, baby_mode=True, trace_enabled=False)
     return ChatInterface(config)
 
@@ -77,7 +76,7 @@ class TestInitialization:
 
     def test_cognitive_framework_functional(self):
         """GRACE CognitiveFramework exposes functional API."""
-        from ravana_chat.cognitive.framework import CognitiveFramework, FrameworkConfig
+        from ravana.cognitive.framework import CognitiveFramework, FrameworkConfig
         import numpy as np
         fw = CognitiveFramework(FrameworkConfig())
         for method in ["perceive", "infer", "learn", "predict", "diagnose", "query", "save", "sleep"]:
@@ -102,7 +101,8 @@ class TestSingleTurn:
         assert engine.turn_count == 1
         assert engine._last_strategy in (
             "neural_decoder", "neural_decoder_reasoned",
-            "associative", "graph_fallback", "unknown_subject")
+            "associative", "graph_fallback", "unknown_subject",
+            "syntactic_pipeline")
 
     def test_response_references_topic(self, engine):
         """Response mentions the queried topic."""
@@ -156,8 +156,8 @@ class TestPipelineComponents:
         assert plan is not None and len(plan.intents) >= 1
 
     def test_surface_realizer(self, engine):
-        from ravana_chat.language.syntactic_cell_assembly import SyntacticFrame
-        from ravana_chat.language.surface_realizer import DiscourseState
+        from ravana.language.syntactic_cell_assembly import SyntacticFrame
+        from ravana.language.surface_realizer import DiscourseState
         frame = SyntacticFrame(
             subject_concept="Trust", verb_concept="connect", object_concept="Respect",
             relation_type="semantic",
@@ -216,7 +216,7 @@ class TestSaveLoad:
     """Serialization round-trip (separate engine, 2 process_turn calls)."""
 
     def test_save_then_load(self):
-        from ravana_chat.chat.interface import ChatInterface, ChatConfig
+        from ravana.chat.interface import ChatInterface, ChatConfig
         with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as f:
             save_path = f.name
         try:

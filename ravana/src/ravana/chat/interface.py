@@ -171,6 +171,8 @@ class ChatInterface:
         self.emotion = VADEmotionEngine(VADConfig(eta_valence=0.3, eta_arousal=0.4, eta_dominance=0.25))
         self.mirror_engine = EmotionalMirrorEngine(MirrorConfig(mirror_strength=0.55, contagion_rate=0.45))
         self.identity = IdentityEngine(IdentityConfig(initial_strength=0.25, momentum_factor=0.3, recovery_bias=0.15))
+        self.web_learner.emotion = self.emotion
+        self.web_learner.identity = self.identity
         self.meaning = MeaningEngine(MeaningConfig(w_dissonance_reduction=0.3, w_identity_coherence=0.3, w_predictive_power=0.4, effort_kappa=0.5))
         self.dual_process = DualProcessController(DualProcessConfig(system2_confidence_threshold=0.25, system2_novelty_threshold=0.4, max_consecutive_system2=5))
         self.gw = GlobalWorkspace(GWConfig(capacity=7, broadcast_threshold=0.3, decay_rate=0.1))
@@ -1010,7 +1012,7 @@ class ChatInterface:
         for i, temp in enumerate(temps):
             chain = self._walk_chain_simple(subject, seen, max_hops=2 if i > 0 else 1, temperature=temp)
             if chain:
-                concepts = [p for p in chain.split() if p.lower() not in self._CONNECTOR_SET]
+                concepts = [p for p in chain.split() if p.lower() not in self.graph_engine._CONNECTOR_SET]
                 if len(concepts) >= 2:
                     sentences.append(f"{subject.capitalize()} relates to {concepts[1]}.")
                 elif concepts:
@@ -1054,7 +1056,7 @@ class ChatInterface:
                 break
             # Simple selection
             best_sig, best_label, best_edge, direction = max(candidates, key=lambda x: x[0])
-            connector = self._EDGE_CONNECTORS.get(best_edge.relation_type, [("", [])])[0][1][0] if best_edge.relation_type in self._EDGE_CONNECTORS else ""
+            connector = self.graph_engine._EDGE_CONNECTORS.get(best_edge.relation_type, [("", [])])[0][1][0] if best_edge.relation_type in self.graph_engine._EDGE_CONNECTORS else ""
             if best_label.lower() == connector.lower():
                 seen.add(best_label.lower())
                 continue
