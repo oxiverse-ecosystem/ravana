@@ -17,6 +17,8 @@ from collections import defaultdict
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+import numpy as np
+
 
 # Standard English stop words used throughout the WebLearner
 STOP_WORDS: Set[str] = {
