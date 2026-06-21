@@ -8,6 +8,105 @@ from typing import Optional, List, Tuple, Dict, Set, Any
 
 
 class RPMixin:
+    # ── LSH Token Scoring (P3 Sprint 6) ──
+    def _lsh_init(self, n_buckets: int = 8, n_hashes: int = 3):
+        """Initialise LSH random projection hash for token scoring.
+
+        Hashes token embeddings into buckets using random projections (simhash).
+        h(x) = sign(R . x) where each row of R is a
+        random unit vector.  n_hashes such hash functions give a (n_hashes,
+        n_buckets)-sensitive LSH family.
+
+        Args:
+            n_buckets: Number of buckets per hash function (default 16).
+            n_hashes: Number of independent hash functions (default 4).
+        """
+        rng = np.random.RandomState(42)
+        self._lsh_n_buckets = n_buckets
+        self._lsh_n_hashes = n_hashes
+        # Each hash uses a random projection matrix (latent_dim,)
+        self._lsh_projections = rng.randn(n_hashes, self.latent_dim).astype(np.float32)
+        for i in range(n_hashes):
+            nrm = np.linalg.norm(self._lsh_projections[i])
+            if nrm > 0:
+                self._lsh_projections[i] /= nrm
+        # Pre-computed bucket assignment for all tokens (built on first use)
+        self._lsh_buckets: Optional[np.ndarray] = None
+        self._lsh_bucket_map: Optional[Dict[int, List[int]]] = None
+        self._lsh_dirty: bool = True  # invalidated when token_embeds change
+
+    def _lsh_hash(self, embeddings: np.ndarray) -> np.ndarray:
+        """Hash embeddings into LSH buckets.
+
+        Args:
+            embeddings: (N, latent_dim) matrix.
+
+        Returns:
+            bucket_ids: (N,) integer bucket IDs (0 .. n_buckets**n_hashes - 1).
+        """
+        N = embeddings.shape[0]
+        # projections: (n_hashes, latent_dim)
+        # signs: (N, n_hashes)  {0, 1} after binarising
+        dots = embeddings @ self._lsh_projections.T  # (N, n_hashes)
+        signs = (dots > 0).astype(np.int32)
+        # Combine into scalar bucket ID: bucket = sum(signs[h] * bucket_base^h)
+        bucket_ids = np.zeros(N, dtype=np.int32)
+        for h in range(self._lsh_n_hashes):
+            bucket_ids += signs[:, h] * (self._lsh_n_buckets ** h)
+        return bucket_ids
+
+    def _lsh_build_buckets(self):
+        """Build or refresh the LSH bucket -> token list map."""
+        if not self._lsh_dirty and self._lsh_bucket_map is not None:
+            return
+        token_embeds = self.token_embed.weight.data
+        if self._rp_use_encoder_latent:
+            token_embeds, _, _, _ = self._encoder_forward_full(token_embeds)
+        bucket_ids = self._lsh_hash(token_embeds)
+        self._lsh_buckets = bucket_ids
+        bucket_map: Dict[int, List[int]] = {}
+        for tid, bid in enumerate(bucket_ids):
+            bucket_map.setdefault(int(bid), []).append(tid)
+        self._lsh_bucket_map = bucket_map
+        self._lsh_dirty = False
+
+    def _lsh_scoring(self, source_latent: np.ndarray, target_latents: np.ndarray,
+                     W_rel: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """Score only tokens in the same LSH bucket as the source.
+
+        Falls back to full scoring if LSH is not initialised or the source
+        bucket is too large.
+
+        Args:
+            source_latent: (latent_dim,) source embedding.
+            target_latents: (vocab_size, latent_dim) target embeddings.
+            W_rel: (latent_dim, latent_dim) composed relation matrix.
+
+        Returns:
+            (logits, candidate_mask) where candidate_mask is boolean (vocab_size,).
+        """
+        if not hasattr(self, '_lsh_n_hashes'):
+            # Lazy init on first use (P3 Sprint 6)
+            self._lsh_init()
+
+        self._lsh_build_buckets()
+        source_hash = self._lsh_hash(source_latent.reshape(1, -1))[0]
+        candidates = self._lsh_bucket_map.get(int(source_hash), [])
+        if not candidates or len(candidates) > len(target_latents) // 2:
+            return None, None  # Fallback: bucket too large or empty
+
+        projected = source_latent @ W_rel
+        cand_embeds = target_latents[candidates]
+        cand_logits = projected @ cand_embeds.T
+
+        # Build full-size logits, fill candidates, leave others at -inf
+        logits = np.full(len(target_latents), -np.inf, dtype=np.float32)
+        for j, tid in enumerate(candidates):
+            logits[tid] = cand_logits[j]
+
+        return logits, (0, len(candidates))  # sparsity info
+
+
     """Mixin providing rlm_v2_rp methods for RLMv2."""
 
 
@@ -70,7 +169,7 @@ class RPMixin:
 
 
 
-        # === Gradient w.r.t. W_rel ===
+        # === Gradient w.r.t. Low-Rank W_rel factors (P2 Sprint 5) ===
 
         d_logits_proj = d_logits @ target_latents
 
@@ -96,13 +195,38 @@ class RPMixin:
 
 
 
-        self._rp_mrel_matrices[domain_id, rel_type_idx] = (
+        # Low-rank gradient routing:
+        # W_rel = diag(W_base[type]) + U_d[domain,type].T @ V_d[domain,type]
+        # dL/dW_base[type] = diag(dW_rel)
+        # dL/dU = V @ dW_rel.T  (shape: rank, latent_dim)
+        # dL/dV = U @ dW_rel   (shape: rank, latent_dim)
+        U = self._rp_U_d[domain_id, rel_type_idx]
+        V = self._rp_V_d[domain_id, rel_type_idx]
 
-            self._rp_momentum * self._rp_mrel_matrices[domain_id, rel_type_idx] - lr * dW_rel
+        d_w = np.diag(dW_rel)
+        dU = V @ dW_rel.T
+        dV = U @ dW_rel
 
+        # Gradient clipping for low-rank factors (separate from full dW_rel)
+        for g in [dU, dV]:
+            gn = np.linalg.norm(g)
+            if gn > 10.0:
+                g *= (10.0 / (gn + 1e-15))
+
+        # Momentum updates
+        self._rp_mW_base[rel_type_idx] = (
+            self._rp_momentum * self._rp_mW_base[rel_type_idx] - lr * d_w
+        )
+        self._rp_mU_d[domain_id, rel_type_idx] = (
+            self._rp_momentum * self._rp_mU_d[domain_id, rel_type_idx] - lr * dU
+        )
+        self._rp_mV_d[domain_id, rel_type_idx] = (
+            self._rp_momentum * self._rp_mV_d[domain_id, rel_type_idx] - lr * dV
         )
 
-        self._rp_rel_matrices[domain_id, rel_type_idx] += self._rp_mrel_matrices[domain_id, rel_type_idx]
+        self._rp_W_base[rel_type_idx] += self._rp_mW_base[rel_type_idx]
+        self._rp_U_d[domain_id, rel_type_idx] += self._rp_mU_d[domain_id, rel_type_idx]
+        self._rp_V_d[domain_id, rel_type_idx] += self._rp_mV_d[domain_id, rel_type_idx]
 
 
 
@@ -404,19 +528,25 @@ class RPMixin:
 
 
 
-        # Relation matrix (domain-specific, per relation type)
-
+        # ── Low-Rank W_rel Composition (P2 Sprint 5) ──
+        # W_rel[domain, type] = diag(W_base[type]) + U_d[domain,type].T @ V_d[domain,type]
         domain_id = self.current_domain_id if self.current_domain_id is not None else 0
 
-        W_rel = self._rp_rel_matrices[domain_id, rel_type_idx]
+        w_vec = self._rp_W_base[rel_type_idx]           # (latent_dim,)
+        U = self._rp_U_d[domain_id, rel_type_idx]        # (rank, latent_dim)
+        V = self._rp_V_d[domain_id, rel_type_idx]        # (rank, latent_dim)
+        W_rel = np.diag(w_vec).astype(np.float32) + U.T @ V  # (latent_dim, latent_dim)
 
-
-
-        # Bilinear scoring: logits = source_latent @ W_rel @ target_latents.T
-
-        projected = source_latent @ W_rel
-
-        logits = projected @ target_latents.T
+        # ── LSH-Accelerated Scoring (P3 Sprint 6) ──
+        # Hash source latent into LSH bucket and score only tokens sharing that bucket.
+        # Falls back to full O(V) bilinear scoring when LSH is not initialised.
+        lsh_result = self._lsh_scoring(source_latent, target_latents, W_rel)
+        if lsh_result[0] is not None:
+            logits = lsh_result[0]
+        else:
+            # Fallback: full bilinear scoring
+            projected = source_latent @ W_rel
+            logits = projected @ target_latents.T
 
 
 

@@ -5,13 +5,13 @@ import os
 import subprocess
 import argparse
 
-PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 PACKAGES = [
     ("ravana-ml", "ravana_ml"),
-    ("ravana-cognitive", "ravana"),
     ("ravana-grace", "ravana-v2"),
-    ("ravana-chat", "ravana_chat_src"),
+    ("ravana-chat", "ravana"),
+    ("ravana-cognitive", "."),
 ]
 
 def build_all():

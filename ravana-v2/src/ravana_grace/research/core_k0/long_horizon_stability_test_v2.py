@@ -15,11 +15,11 @@ import os
 import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
-from ..research.core_k0.agent_loop_k2 import K2_Agent
-from ..research.core_k0.metrics import RavanaMetrics
-from ..research.core_k0.checkpoint import CheckpointManager
-from ..research.core_k0.env_scheduler import EnvironmentScheduler
-from ..research.experiments_k0.resource_env import ResourceSurvivalEnv, AgentAction
+from ..core_k0.agent_loop_k2 import K2_Agent
+from ..core_k0.metrics import RavanaMetrics
+from ..core_k0.checkpoint import CheckpointManager
+from ..core_k0.env_scheduler import EnvironmentScheduler
+from ..experiments_k0.resource_env import ResourceSurvivalEnv, AgentAction
 import numpy as np
 import json
 import argparse

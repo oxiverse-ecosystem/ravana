@@ -44,6 +44,7 @@ from ravana.language.prefrontal_workspace import PrefrontalWorkspace, DiscourseI
 from ravana.language.syntactic_cell_assembly import SyntacticCellAssembly, SyntacticFrame
 from ravana.language.surface_realizer import SurfaceRealizer, DiscourseState
 from ravana_ml.nn.neural_decoder import NeuralDecoder
+from ravana.core import UserEmotionDetector
 
 
 # Try importing beautifulsoup4 for HTML parsing (optional but recommended)
@@ -548,6 +549,14 @@ class UserModel:
     goals: List[str] = field(default_factory=list)                        # inferred goal history (LEARNING/DEBUGGING/EXPLORING)
     last_goal: str = "EXPLORING"                                          # most recently inferred goal
     
+    # P2 Emotional State Tracking (roadmap §7)
+    emotional_state: Dict[str, float] = field(default_factory=lambda: {
+        'valence': 0.0, 'arousal': 0.3, 'dominance': 0.5,
+    })
+    belief_state: Dict[str, Dict] = field(default_factory=dict)
+    interaction_history: List[Dict] = field(default_factory=list)
+    _emotion_detector: Any = None  # Lazy-initialized UserEmotionDetector
+
     # Interaction tracking
     topic_interaction_count: Dict[str, int] = field(default_factory=dict)
     topic_followup_count: Dict[str, int] = field(default_factory=dict)
@@ -616,6 +625,51 @@ class UserModel:
         self.goals.append(inferred)
         if len(self.goals) > 50:
             self.goals = self.goals[-50:]
+
+        # P2 Emotional State Tracking: infer user emotion from query text.
+        emotion_vad = self._infer_user_emotion(query)
+        self._record_interaction(query, subject, emotion_vad)
+
+    def _ensure_emotion_detector(self):
+        """Lazy-init the emotion detector to avoid import-order issues."""
+        if self._emotion_detector is None:
+            self._emotion_detector = UserEmotionDetector()
+
+    def _infer_user_emotion(self, text: str) -> Tuple[float, float, float]:
+        """Detect user emotional state from query text using VAD lexicon.
+
+        Uses UserEmotionDetector with ANEW-based VAD lexicon + intensifier/
+        negation modulation. Updates self.emotional_state with EMA blending.
+
+        Returns (valence, arousal, dominance) tuple.
+        Neuroscience basis: Barsalou (1999) semantic grounding of emotion
+        concepts; Warriner et al. (2013) affective norms.
+        """
+        self._ensure_emotion_detector()
+        v, a, d = self._emotion_detector.detect(text)
+        # EMA blend with previous state for temporal coherence
+        rate = 0.35
+        prev = self.emotional_state
+        self.emotional_state = {
+            'valence': prev['valence'] + rate * (v - prev['valence']),
+            'arousal': prev['arousal'] + rate * (a - prev['arousal']),
+            'dominance': prev['dominance'] + rate * (d - prev['dominance']),
+        }
+        return (v, a, d)
+
+    def _record_interaction(self, text: str, subject: str,
+                            emotion_vad: Tuple[float, float, float]):
+        """Record this interaction in history for belief/personality modeling."""
+        self.interaction_history.append({
+            'text': text[:200],
+            'subject': subject,
+            'valence': emotion_vad[0],
+            'arousal': emotion_vad[1],
+            'dominance': emotion_vad[2],
+            'turn': len(self.interaction_history),
+        })
+        if len(self.interaction_history) > 100:
+            self.interaction_history = self.interaction_history[-100:]
 
     def infer_user_goal(self, query: str) -> str:
         """Infer the user's current goal from query phrasing.
@@ -727,6 +781,10 @@ class UserModel:
             'relationship_depth': self.relationship_depth,
             'goals': self.goals,
             'last_goal': self.last_goal,
+            # P2 Emotional State Tracking (roadmap §7)
+            'emotional_state': self.emotional_state,
+            'belief_state': self.belief_state,
+            'interaction_history': self.interaction_history,
         }
 
     def set_state(self, state: Dict):
@@ -748,6 +806,11 @@ class UserModel:
         self.relationship_depth = state.get('relationship_depth', 0.0)
         self.goals = state.get('goals', [])
         self.last_goal = state.get('last_goal', 'EXPLORING')
+        # P2 Emotional State Tracking (backward-compatible defaults)
+        self.emotional_state = state.get('emotional_state',
+            {'valence': 0.0, 'arousal': 0.3, 'dominance': 0.5})
+        self.belief_state = state.get('belief_state', {})
+        self.interaction_history = state.get('interaction_history', [])
 
 @dataclass
 class CognitiveResponseContext:
@@ -3637,6 +3700,9 @@ class CognitiveChatEngine:
         - Medium familiarity (0.3-0.7): keep 2-3 intents
         - High familiarity (> 0.7) + LEARNING goal: trim to 2 — user knows the basics
 
+        P2 Emotional Mirroring: user arousal also modulates verbosity — excited users
+        get slightly longer, more engaged responses; calm users get more concise ones.
+
         This respects the PrefrontalWorkspace capacity (7±2 items, Baddeley & Hitch 1974)
         by avoiding unnecessary verbal load for expert users.
         """
@@ -3644,17 +3710,27 @@ class CognitiveChatEngine:
         familiarity = um.infer_user_knows(subject)
         goal = um.last_goal
 
+        # P2: User arousal modulates base verbosity (mirroring loop)
+        user_arousal = um.emotional_state.get('arousal', 0.3)
+        target_intents = 3
+        if user_arousal < 0.25:
+            target_intents = 2  # calm user → concise
+        elif user_arousal > 0.6:
+            target_intents = 4  # excited user → more engagement
+
         if familiarity < 0.3:
-            # Novice: full explanation (3 intents as planned)
+            # Novice: full explanation
+            if len(plan.intents) > target_intents:
+                plan.intents = plan.intents[:target_intents]
             return plan
         elif familiarity > 0.7 and goal == "LEARNING":
-            # Expert learner: trim to 2 intents — skip the generic ELABORATE
+            # Expert learner: trim — skip the generic ELABORATE
             if len(plan.intents) > 2:
                 plan.intents = [plan.intents[0], plan.intents[1]]
             return plan
-        # Medium: keep original plan (2-3 intents)
-        if len(plan.intents) > 2 and familiarity > 0.5:
-            plan.intents = plan.intents[:2]
+        # Medium: keep original plan, but cap at target
+        if len(plan.intents) > target_intents:
+            plan.intents = plan.intents[:target_intents]
         return plan
 
 
@@ -3987,6 +4063,9 @@ class CognitiveChatEngine:
 
         High arousal → more exploration (higher temp).
         Low arousal → more focused (lower temp).
+
+        P2 Emotional Mirroring: also mirrors user's arousal — when the user
+        is excited, RAVANA's language becomes more varied too.
         """
         if not getattr(self, 'use_vad', True):
             base = (base_temps or [0.08, 0.15, 0.25])[min(sentence_idx, 2)]
@@ -4006,6 +4085,12 @@ class CognitiveChatEngine:
         dt = getattr(self, '_dopamine_tone', 0.5)
         dt_factor = 0.7 + (dt - 0.5) * 1.0  # [0.7, 1.1] at [0.1, 0.9]
         temp *= dt_factor
+        # P2 Emotional Mirroring: mirror user's arousal into temperature
+        if hasattr(self, 'user_model') and self.user_model is not None:
+            user_arousal = self.user_model.emotional_state.get('arousal', 0.3)
+            # User arousal modulates temp by ±20%: calm user → tighter, excited user → looser
+            user_arousal_factor = 0.8 + (user_arousal * 0.4)  # [0.8, 1.2]
+            temp *= user_arousal_factor
         return temp
 
     def _vad_decay(self, rate: float = 0.95):
@@ -5341,12 +5426,18 @@ class CognitiveChatEngine:
             else:
                 assocs = [(subject, 1.0)]
 
+        # ─── P2 Emotional Mirroring: concept breadth modulation ───
+        # User arousal broadens concept exploration; low arousal narrows it.
+        user_arousal = self.user_model.emotional_state.get('arousal', 0.3)
+        breadth_mult = 0.5 + user_arousal  # [0.5, 1.5]
+        max_assocs = max(3, min(15, int(round(8 * breadth_mult))))
+
         # ─── STEP 1: PrefrontalWorkspace — Discourse Planning ───
         plan = self.pfc_workspace.plan_discourse(
             user_input=ctx.raw_input,
             subject=subject,
             concept_pos=self._concept_pos,
-            associations=assocs[:10],
+            associations=assocs[:max_assocs],
             past_topics=ctx.past_topics,
             is_follow_up=self._is_follow_up(ctx.raw_input),
         )
@@ -7064,6 +7155,13 @@ class CognitiveChatEngine:
                     1.0, loaded_user_model.interaction_count / 20.0)
                 loaded_user_model.goals = []
                 loaded_user_model.last_goal = 'EXPLORING'
+            # Ensure P2 Emotional State Tracking fields exist (backward-compatible)
+            if not hasattr(loaded_user_model, 'emotional_state'):
+                loaded_user_model.emotional_state = {
+                    'valence': 0.0, 'arousal': 0.3, 'dominance': 0.5,
+                }
+                loaded_user_model.belief_state = {}
+                loaded_user_model.interaction_history = []
             self.user_model = loaded_user_model
             # Restore belief store
             bs_state = state.get('belief_store_state', None)

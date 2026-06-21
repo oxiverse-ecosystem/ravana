@@ -4,7 +4,7 @@
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue)](https://python.org)
 [![NumPy](https://img.shields.io/badge/NumPy-1.20%2B-orange)](https://numpy.org)
-[![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
+[![License](https://img.shields.io/badge/License-OCL%201.0-purple)](LICENSE)
 [![Status](https://img.shields.io/badge/Status-Research%20Prototype-yellow)]()
 
 ---
@@ -430,9 +430,33 @@ python scripts/triple_eval.py --triples-file my_triples.json --output report.jso
 
 ---
 
+## How to Use This Project
+
+RAVANA is released under the **Oxiverse Community License (OCL) v1.0** — source-available, non-commercial, privacy-by-design.
+
+### Permitted (Non-Commercial Use)
+- **Use**: Run RAVANA for personal, academic, or research purposes.
+- **Modify**: Fork, change, and adapt the code.
+- **Distribute**: Share copies of the original or modified code, as long as this license is included.
+- **Commercial (Open-Source Path)**: Monetize your project if you keep all derivatives under OCL v1.0, publish complete source code, and comply with the Privacy-by-Design requirement (Section 5).
+
+### Not Permitted Without a Commercial License
+- **Closed-source commercial use** (SaaS, paid APIs, proprietary products, consulting built directly on RAVANA).
+- **Removing or obscuring** the copyright and license notice.
+- **Privacy violations**: Adding tracking, telemetry, or data collection without explicit opt-in consent.
+
+### Commercial Licensing
+- **Open-Source Commercial License (Free)**: Distribute under OCL v1.0 with full source code — no fee required.
+- **Proprietary Commercial License (Paid)**: Closed-source deployment, white-labeling, or SLA — contact likhith@oxiverse.com.
+
+### Why OCL?
+OCL protects the open research nature of RAVANA while allowing sustainable commercial adoption. The Privacy-by-Design requirement ensures user data remains under user control.
+
+---
+
 ## License
 
-MIT — Built for the RAVANA-AGI-Research initiative.
+OCL v1.0 (Oxiverse Community License) — Source-Available, Non-Commercial, Privacy-by-Design. See [LICENSE](LICENSE) for the full text.
 
 ---
 

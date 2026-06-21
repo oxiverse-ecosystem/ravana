@@ -4,16 +4,20 @@ Tests robustness against reward hacking and malformed inputs.
 """
 import sys
 import os
-import numpy as np
 import json
 from typing import Dict, Any
+import numpy as np
 
-import os
-import sys
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+try:
+    from ..conftest import import_research
+except ImportError:
+    try:
+        from .conftest import import_research
+    except ImportError:
+        from conftest import import_research
 
-from research.core_k0.agent_loop_k2 import K2_Agent, AgentAction
-from research.experiments_k0.classroom_env import ClassroomEnv
+K2_Agent, AgentAction = import_research("core_k0.agent_loop_k2", "K2_Agent", "AgentAction")
+ClassroomEnv = import_research("experiments_k0.classroom_env", "ClassroomEnv")
 
 class AdversarialClassroomEnv(ClassroomEnv):
     """Modified environment to inject bad-faith scenarios."""

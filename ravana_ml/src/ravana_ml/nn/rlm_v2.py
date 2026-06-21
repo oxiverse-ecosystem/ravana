@@ -385,16 +385,29 @@ class RLMv2(Module):
         # A latent-space RP path is required whenever embed_dim != latent_dim.
         self._rp_use_encoder_latent = self.embed_dim != self.latent_dim
 
-        # Relation matrices (one for each relation type in RELATION_TYPES, PER DOMAIN)
+        # ── Low-Rank W_rel Decomposition (P2 Sprint 5) ──
+        # Replace dense (num_domains, n_rel_types, latent_dim, latent_dim) = 221,184 params
+        # with: W_base[type] (diagonal) + U_d[d,t] @ V_d[d,t] (rank=8 adapters)
+        # Total: 96*6 + 4*6*2*96*8 = 576 + 36,864 = 37,440 params (5.9x reduction)
+        #
+        # W_rel[domain, type] = diag(W_base[type]) + U_d[domain, type].T @ V_d[domain, type]
         n_rel_types = len(RELATION_TYPES)
-        # Identity init: source_embed @ I @ target_embed = dot product (cosine-like)
-        # Gradients learn deviations from identity, enabling domain-specific relation transformations
-        # Shape: (num_domains, n_rel_types, latent_dim, latent_dim)
-        self._rp_rel_matrices = np.tile(
-            np.eye(self.latent_dim, dtype=np.float32), 
-            (self.num_domains, n_rel_types, 1, 1)
-        )
-        self._rp_mrel_matrices = np.zeros_like(self._rp_rel_matrices)
+        rank = kwargs.get("low_rank_rank", 8)
+        self._rp_low_rank_rank = rank
+        # W_base[type]: diagonal base matrix stored as vector (identity init)
+        self._rp_W_base = np.ones((n_rel_types, self.latent_dim), dtype=np.float32)
+        # U_d, V_d: low-rank factors per (domain, type)
+        rng_rp = np.random.RandomState(42)
+        scale = np.sqrt(2.0 / self.latent_dim) * 0.1
+        self._rp_U_d = (rng_rp.randn(self.num_domains, n_rel_types, rank, self.latent_dim).astype(np.float32) * scale)
+        self._rp_V_d = (rng_rp.randn(self.num_domains, n_rel_types, rank, self.latent_dim).astype(np.float32) * scale)
+        # Momentum buffers
+        self._rp_mW_base = np.zeros_like(self._rp_W_base)
+        self._rp_mU_d = np.zeros_like(self._rp_U_d)
+        self._rp_mV_d = np.zeros_like(self._rp_V_d)
+        # Keep old dense attributes for migration compat
+        self._rp_rel_matrices = None
+        self._rp_mrel_matrices = None
         self.freeze_encoder = False
 
         # ── Entity-Specific Adapters (Fix #3) ──
@@ -492,6 +505,7 @@ class RLMv2(Module):
         self._prototype_children: Dict[str, List[str]] = {}       # prototype_label -> [child_prototype_labels]
         self._prototype_levels: Dict[str, int] = {}              # prototype_label -> abstraction level (0=most specific)
         self._prototype_similarity_threshold: float = 0.70       # min similarity for prototype inheritance
+        self._prototype_cluster_threshold: float = 0.55          # threshold for clustering into prototypes
         self.use_prototype_inheritance: bool = True              # ENABLED: novel entities inherit from prototypes
 
         # Initialize Hierarchical Semantic Prototypes (P0 Fix B) - inline for simplicity
@@ -527,29 +541,57 @@ class RLMv2(Module):
 
     # ── Domain Isolation Methods ─────────────────────────────────────────
 
+    def _topology_similarity(self, cid_a: int, cid_b: int) -> float:
+        """Jaccard similarity of neighbor sets for topology-aware clustering.
+        
+        Two concepts that share many neighbors (incoming + outgoing) are likely
+        in the same semantic domain even if their embedding vectors diverged.
+        """
+        neighbors_a = set()
+        for tgt_id, _ in self.graph.get_outgoing(cid_a):
+            neighbors_a.add(tgt_id)
+        for src_id, _ in self.graph.get_incoming(cid_a):
+            neighbors_a.add(src_id)
+        
+        neighbors_b = set()
+        for tgt_id, _ in self.graph.get_outgoing(cid_b):
+            neighbors_b.add(tgt_id)
+        for src_id, _ in self.graph.get_incoming(cid_b):
+            neighbors_b.add(src_id)
+        
+        if not neighbors_a or not neighbors_b:
+            return 0.0
+        intersection = neighbors_a & neighbors_b
+        union = neighbors_a | neighbors_b
+        return len(intersection) / len(union)
+
     def _init_default_prototypes(self):
         """Initialize default prototypes from the concept graph (inline P0 Fix B).
 
         Builds prototypes for common semantic categories based on embedding
-        clusters in the concept space. Called once during initialization.
+        clusters in the concept space. Uses topology-aware similarity so
+        concepts that share neighbors (even if embedding drifted) still cluster.
         """
         if len(self.graph.nodes) < 5:
             return
 
-        # Cluster concepts by similarity and register as prototypes
-        from collections import defaultdict
         node_ids = sorted(self.graph.nodes.keys())
 
-        # Use a simple greedy clustering approach
+        # Auto-tune threshold: lower dimensions need lower threshold
+        base_threshold = self._prototype_cluster_threshold
+        if self.concept_dim <= 32:
+            base_threshold = min(base_threshold, 0.45)
+        elif self.concept_dim <= 64:
+            base_threshold = min(base_threshold, 0.50)
+
         assigned = set()
-        for nid in node_ids[:50]:  # Process first 50 nodes
+        for nid in node_ids[:50]:
             if nid in assigned:
                 continue
             node = self.graph.get_node(nid)
             if node is None or node.vector is None:
                 continue
 
-            # Find all similar nodes (cosine > 0.6)
             cluster = [nid]
             assigned.add(nid)
             node_vec = node.vector
@@ -567,8 +609,13 @@ class RLMv2(Module):
                 other_norm = np.linalg.norm(other.vector)
                 if other_norm == 0:
                     continue
-                sim = float(np.dot(node_vec, other.vector / other_norm))
-                if sim > 0.6:
+                # Embedding similarity
+                cos_sim = float(np.dot(node_vec, other.vector / other_norm))
+                # Topology similarity (Jaccard of neighbors)
+                topo_sim = self._topology_similarity(nid, other_id)
+                # Combined: favors concepts that are both embedded-close AND share neighbors
+                combined = 0.5 * cos_sim + 0.5 * topo_sim
+                if combined > base_threshold:
                     cluster.append(other_id)
                     assigned.add(other_id)
 
@@ -916,6 +963,16 @@ class RLMv2(Module):
                 ("learning", "knowledge"), ("practice", "skill"),
                 ("stress", "disease"), ("sleep", "recovery"),
                 ("wind", "erosion"), ("volcano", "lava"),
+                # Expanded (P3 Sprint 6) — ConceptNet-inspired seed triples
+                ("electricity", "light"), ("friction", "heat"),
+                ("gravity", "acceleration"), ("magnetism", "attraction"),
+                ("combustion", "energy"), ("evaporation", "cooling"),
+                ("infection", "fever"), ("meditation", "calm"),
+                ("exercise", "strength"), ("nutrition", "health"),
+                ("pollution", "warming"), ("deforestation", "erosion"),
+                ("training", "expertise"), ("curiosity", "discovery"),
+                ("vaccination", "immunity"), ("algorithm", "computation"),
+                ("photosynthesis", "oxygen"), ("digestion", "nutrients"),
             ],
             "semantic": [
                 ("oxygen", "gas"), ("water", "liquid"),
@@ -923,26 +980,58 @@ class RLMv2(Module):
                 ("photosynthesis", "process"), ("gravity", "force"),
                 ("triangle", "shape"), ("carbon", "element"),
                 ("trust", "emotion"), ("economics", "science"),
+                # Expanded (P3 Sprint 6)
+                ("algorithm", "procedure"), ("neuron", "cell"),
+                ("galaxy", "system"), ("genome", "blueprint"),
+                ("photosynthesis", "anabolism"), ("respiration", "catabolism"),
+                ("ethics", "philosophy"), ("entropy", "thermodynamics"),
+                ("symmetry", "mathematics"), ("fractal", "geometry"),
+                ("consciousness", "phenomenon"), ("language", "communication"),
+                ("culture", "society"), ("species", "taxonomy"),
             ],
             "possessive": [
                 ("tree", "leaves"), ("car", "engine"),
                 ("book", "chapters"), ("house", "rooms"),
                 ("computer", "memory"), ("cell", "nucleus"),
+                # Expanded (P3 Sprint 6)
+                ("planet", "atmosphere"), ("solar_system", "planets"),
+                ("ecosystem", "species"), ("document", "paragraphs"),
+                ("program", "functions"), ("network", "nodes"),
+                ("organism", "organs"), ("sentence", "words"),
+                ("painting", "pigments"), ("symphony", "movements"),
             ],
             "temporal": [
                 ("dawn", "day"), ("dusk", "night"),
                 ("spring", "summer"), ("childhood", "adulthood"),
                 ("seedling", "tree"), ("caterpillar", "butterfly"),
+                # Expanded (P3 Sprint 6)
+                ("ignition", "combustion"), ("conception", "birth"),
+                ("enrollment", "graduation"), ("dawn", "sunrise"),
+                ("construction", "completion"), ("planning", "execution"),
+                ("cause", "effect"), ("stimulus", "response"),
             ],
             "analogical": [
                 ("brain", "computer"), ("heart", "pump"),
                 ("sun", "star"), ("river", "snake"),
                 ("eye", "camera"), ("society", "organism"),
+                # Expanded (P3 Sprint 6)
+                ("neuron", "transistor"), ("memory", "storage"),
+                ("learning", "optimization"), ("evolution", "search"),
+                ("cell", "factory"), ("ecosystem", "economy"),
+                ("language", "protocol"), ("knowledge", "database"),
+                ("mind", "software"), ("DNA", "code"),
+                ("immune_system", "security"), ("transport", "circulation"),
             ],
             "contextual": [
                 ("fish", "water"), ("bird", "sky"),
                 ("plant", "soil"), ("ice", "arctic"),
                 ("coral", "reef"), ("cactus", "desert"),
+                # Expanded (P3 Sprint 6)
+                ("bacteria", "host"), ("parasite", "vector"),
+                ("shark", "ocean"), ("moss", "forest_floor"),
+                ("lichen", "rock"), ("chimpanzee", "jungle"),
+                ("camel", "sahara"), ("penguin", "antarctica"),
+                ("orchid", "canopy"), ("mushroom", "decaying_log"),
             ],
         }
 
@@ -1895,6 +1984,14 @@ class RLMv2(Module):
         
         'causes' -> 'caus', 'freezes' -> 'freez', 'produces' -> 'produc',
         'makes' -> 'make', 'melts' -> 'melt', 'is' -> 'is'
+        
+        Handles compound verbs joined by underscore/hyphen:
+        'contributes_to' -> 'contribut_to', 'leads_to' -> 'lead_to',
+        'is_a' -> 'is_a', 'type_of' -> 'type_of'
+        
+        Also treats preposition compounds as atomic stems:
+        'associated_with' -> 'associated_with'
+        
         Stemming preserves enough information to distinguish verbs that
         map to the same relation type but have different semantics.
         """
@@ -1902,7 +1999,33 @@ class RLMv2(Module):
         # Handle short words (2+ chars for stem)
         if len(w) <= 3:
             return w
-        # Strip common suffixes
+        
+        # Compound verb handling (P3 Sprint 6):
+        # If the word contains underscore or hyphen, split into parts.
+        # Stem the first part (the verb), keep the second part (preposition/particle).
+        # This preserves compound semantics: 'contributes_to' != 'contributes'.
+        if '_' in w:
+            parts = w.split('_')
+            if len(parts) >= 2:
+                # Stem only the verb part
+                verb_part = parts[0]
+                for suffix in ['ing', 'ed', 'es', 's', 'd']:
+                    if verb_part.endswith(suffix) and len(verb_part) > len(suffix) + 1:
+                        verb_part = verb_part[:-len(suffix)]
+                        break
+                return verb_part + '_' + '_'.join(parts[1:])
+        
+        if '-' in w:
+            parts = w.split('-')
+            if len(parts) >= 2:
+                verb_part = parts[0]
+                for suffix in ['ing', 'ed', 'es', 's', 'd']:
+                    if verb_part.endswith(suffix) and len(verb_part) > len(suffix) + 1:
+                        verb_part = verb_part[:-len(suffix)]
+                        break
+                return verb_part + '_' + '_'.join(parts[1:])
+        
+        # Single-word: strip common suffixes
         for suffix in ['ing', 'ed', 'es', 's', 'd']:
             if w.endswith(suffix) and len(w) > len(suffix) + 1:
                 w = w[:-len(suffix)]
@@ -2137,6 +2260,14 @@ class RLMv2(Module):
             return logits
         return None
 
+
+    def _compose_W_rel(self, domain_id: int, rel_type_idx: int) -> np.ndarray:
+        """Compose low-rank W_rel from factors: diag(W_base) + U.T @ V."""
+        w_vec = self._rp_W_base[rel_type_idx]
+        U = self._rp_U_d[domain_id, rel_type_idx]
+        V = self._rp_V_d[domain_id, rel_type_idx]
+        return (np.diag(w_vec).astype(np.float32) + U.T @ V)
+
     def _rp_forward(self, subject_tid, rel_type_idx, route_softly=None, verb_word=None):
         """Bilinear RP forward using raw token embeddings (bypass collapsed encoder).
 
@@ -2192,7 +2323,7 @@ class RLMv2(Module):
                     target_latents = token_embeds
                 
                 domain_id = self.current_domain_id if self.current_domain_id is not None else 0
-                W_rel = self._rp_rel_matrices[domain_id, rel_type_idx]
+                W_rel = self._compose_W_rel(domain_id, rel_type_idx)
                 w_rel_logits = (source_latent @ W_rel) @ target_latents.T
                 
                 # Blend: verb_offset dominates for high-count verbs, W_rel for rare verbs
@@ -2259,7 +2390,7 @@ class RLMv2(Module):
 
         # Relation matrix (domain-specific, per relation type)
         domain_id = self.current_domain_id if self.current_domain_id is not None else 0
-        W_rel = self._rp_rel_matrices[domain_id, rel_type_idx]
+        W_rel = self._compose_W_rel(domain_id, rel_type_idx)
 
         # Bilinear scoring: logits = source_latent @ W_rel @ target_latents.T
         projected = source_latent @ W_rel
@@ -2438,10 +2569,28 @@ class RLMv2(Module):
         freeze_token_embeds = getattr(self, 'freeze_token_embeds_in_rp', True)
         embed_lr = 0.0 if freeze_token_embeds or self._rp_use_encoder_latent else lr * 0.1
 
-        self._rp_mrel_matrices[domain_id, rel_type_idx] = (
-            self._rp_momentum * self._rp_mrel_matrices[domain_id, rel_type_idx] - lr * dW_rel
+        # Low-rank gradient routing (P2 Sprint 5)
+        U = self._rp_U_d[domain_id, rel_type_idx]
+        V = self._rp_V_d[domain_id, rel_type_idx]
+        d_w = np.diag(dW_rel)
+        dU = V @ dW_rel.T
+        dV = U @ dW_rel
+        for g in [dU, dV]:
+            gn = np.linalg.norm(g)
+            if gn > 10.0:
+                g *= (10.0 / (gn + 1e-15))
+        self._rp_mW_base[rel_type_idx] = (
+            self._rp_momentum * self._rp_mW_base[rel_type_idx] - lr * d_w
         )
-        self._rp_rel_matrices[domain_id, rel_type_idx] += self._rp_mrel_matrices[domain_id, rel_type_idx]
+        self._rp_mU_d[domain_id, rel_type_idx] = (
+            self._rp_momentum * self._rp_mU_d[domain_id, rel_type_idx] - lr * dU
+        )
+        self._rp_mV_d[domain_id, rel_type_idx] = (
+            self._rp_momentum * self._rp_mV_d[domain_id, rel_type_idx] - lr * dV
+        )
+        self._rp_W_base[rel_type_idx] += self._rp_mW_base[rel_type_idx]
+        self._rp_U_d[domain_id, rel_type_idx] += self._rp_mU_d[domain_id, rel_type_idx]
+        self._rp_V_d[domain_id, rel_type_idx] += self._rp_mV_d[domain_id, rel_type_idx]
 
         if self._rp_use_encoder_latent:
             self._rp_cache = None
@@ -2693,10 +2842,25 @@ class RLMv2(Module):
                                 break
                         if subject_idx >= 0:
                             sims[subject_idx] = -1.0
-                        # Activate nodes above threshold
-                        mask = sims > 0.3
-                        for i in np.where(mask)[0]:
-                            self.graph.activate(node_ids[i], amount=float(sims[i]) * 0.3)
+                        # Build prototype membership map for similarity gating
+                    proto_members = set()
+                    if self._prototype_hierarchy:
+                        subj_proto_label = None
+                        for p_label, cids in self._prototype_hierarchy.items():
+                            if subject_cid in cids:
+                                subj_proto_label = p_label
+                                break
+                        if subj_proto_label is not None:
+                            proto_members = set(self._prototype_hierarchy.get(subj_proto_label, []))
+
+                    # Activate nodes above threshold
+                    # If subject has a prototype, only activate same-prototype concepts
+                    # (avoids false positive cross-domain activation in compressed space)
+                    mask = sims > 0.3
+                    for i in np.where(mask)[0]:
+                        if proto_members and node_ids[i] not in proto_members:
+                            continue
+                        self.graph.activate(node_ids[i], amount=float(sims[i]) * 0.3)
 
                 # Phase 1: General spreading (3 steps, decay 0.3)
                 self.graph.spread_activation(steps=3, k_active=10, decay=0.3)
@@ -2953,6 +3117,19 @@ class RLMv2(Module):
                 if depth < _max_hops:
                     new_visited = visited | {nid}
                     bfs_queue.append((tgt_cid, edge_score, depth + 1, new_visited))
+
+        # ── Prototype-domain gating: suppress cross-prototype false positives ──
+        if self._prototype_hierarchy and matching_targets:
+            cid_to_proto = {}
+            for p_label, cids in self._prototype_hierarchy.items():
+                for cid in cids:
+                    cid_to_proto[cid] = p_label
+            subj_proto = cid_to_proto.get(subject_cid)
+            if subj_proto is not None:
+                for cid in list(matching_targets.keys()):
+                    cid_proto = cid_to_proto.get(cid)
+                    if cid_proto is not None and cid_proto != subj_proto:
+                        matching_targets[cid] *= 0.2
 
         # Also include directly active concepts (for same-type queries)
         # Hub suppression: penalize low-activation high-in-degree noise nodes
@@ -4255,12 +4432,21 @@ class RLMv2(Module):
                     if edge is None:
                         continue
 
-                    # Strengthen edge through replay
-                    edge.weight = min(1.0, edge.weight + 0.02)
-                    edge.confidence = min(1.0, edge.confidence + 0.01)
-
-                    # Hebbian co-activation replay
-                    self.graph.hebbian_update(subj_cid, obj_cid, coactivation=0.5, lr=0.005)
+                    # Precision-gated replay
+                    # Use forward_pred_count / prediction_count to decide:
+                    #   High precision (>=0.7): strengthen (reliable knowledge)
+                    #   Low precision (<0.3): weaken (false positive generators)
+                    #   Medium: maintain with slight decay
+                    precision = edge.forward_pred_count / max(1, edge.prediction_count)
+                    if precision >= 0.7:
+                        boost = 0.02 * (1.0 + precision)
+                        edge.weight = min(1.0, edge.weight + boost)
+                        edge.confidence = min(1.0, edge.confidence + boost * 0.5)
+                        self.graph.hebbian_update(subj_cid, obj_cid, coactivation=0.5, lr=0.005)
+                    elif precision < 0.3 and edge.prediction_count >= 5:
+                        edge.weight = max(0.0, edge.weight - 0.02)
+                        edge.confidence = max(0.0, edge.confidence - 0.01)
+                    # Medium precision edges: no change (preserve but don't amplify)
 
             # ── Homeostatic downscaling ──
             # Normalize edge weights to prevent runaway strengthening
@@ -4308,6 +4494,16 @@ class RLMv2(Module):
                     norm = np.linalg.norm(node.vector)
                     if norm > 0:
                         node.vector /= norm
+
+            # ── Prototype reassignment from trained concepts ──
+            # Rebuild level-0 prototypes from current graph state.
+            # Training drifts concept vectors; re-clustering captures post-training
+            # domain structure. Clear and rebuild so stale clusters are replaced.
+            if len(self.graph.nodes) >= 5:
+                self._prototype_hierarchy.clear()
+                self._prototype_vectors.clear()
+                self._prototype_levels.clear()
+                self._init_default_prototypes()
 
             # ── Episodic -> semantic consolidation ──
             self._consolidate_episodic_to_semantic()
@@ -4876,8 +5072,12 @@ class RLMv2(Module):
             "_dec_b1": self._dec_b1.copy(),
             "_dec_W2": self._dec_W2.copy(),
             "_dec_b2": self._dec_b2.copy(),
-            "_rp_rel_matrices": self._rp_rel_matrices.copy(),
-            "_rp_mrel_matrices": self._rp_mrel_matrices.copy(),
+            "_rp_W_base": self._rp_W_base.copy(),
+            "_rp_U_d": self._rp_U_d.copy(),
+            "_rp_V_d": self._rp_V_d.copy(),
+            "_rp_mW_base": self._rp_mW_base.copy(),
+            "_rp_mU_d": self._rp_mU_d.copy(),
+            "_rp_mV_d": self._rp_mV_d.copy(),
             "rel_proj": self.rel_proj.copy() if hasattr(self, "rel_proj") else np.eye(self.latent_dim, dtype=np.float32),
             "use_subspace_projection": self.use_subspace_projection,
             "lambda_recon": self.lambda_recon,
@@ -5161,8 +5361,12 @@ class RLMv2(Module):
         arrays["dec/b1"] = self._dec_b1
         arrays["dec/W2"] = self._dec_W2
         arrays["dec/b2"] = self._dec_b2
-        arrays["rp/rel_matrices"] = self._rp_rel_matrices
-        arrays["rp/mrel_matrices"] = self._rp_mrel_matrices
+        arrays["rp/W_base"] = self._rp_W_base
+        arrays["rp/U_d"] = self._rp_U_d
+        arrays["rp/V_d"] = self._rp_V_d
+        arrays["rp/mW_base"] = self._rp_mW_base
+        arrays["rp/mU_d"] = self._rp_mU_d
+        arrays["rp/mV_d"] = self._rp_mV_d
         arrays["rp/rel_proj"] = self.rel_proj
 
         # Node vectors
@@ -5836,7 +6040,7 @@ class RLMv2(Module):
             if len(pairs) < 2:
                 continue
             rel_idx = RELATION_TYPES.index(rel_name)
-            W_rel = self._rp_rel_matrices[domain_id, rel_idx]
+            W_rel = self._compose_W_rel(domain_id, rel_idx)
             # Accumulate gradient toward minimizing mean residual norm
             grad_sum = np.zeros_like(W_rel)
             for src_tid, tgt_tid in pairs:
@@ -5850,7 +6054,16 @@ class RLMv2(Module):
             gn = np.linalg.norm(grad_mean)
             if gn > 5.0:
                 grad_mean *= (5.0 / (gn + 1e-15))
-            self._rp_rel_matrices[domain_id, rel_idx] -= lr * grad_mean
+            # Low-rank gradient update (P2 Sprint 5)
+            w_vec = self._rp_W_base[rel_idx]
+            U = self._rp_U_d[domain_id, rel_idx]
+            V = self._rp_V_d[domain_id, rel_idx]
+            d_w = np.diag(grad_mean)
+            dU = V @ grad_mean.T
+            dV = U @ grad_mean
+            self._rp_W_base[rel_idx] -= lr * d_w
+            self._rp_U_d[domain_id, rel_idx] -= lr * dU
+            self._rp_V_d[domain_id, rel_idx] -= lr * dV
             results[rel_name] = float(np.linalg.norm(grad_mean))
         return results
 
@@ -5904,7 +6117,7 @@ class RLMv2(Module):
         for d, pairs in pairs_by_domain.items():
             if not pairs:
                 continue
-            W_rel = self._rp_rel_matrices[d, rel_idx]
+            W_rel = self._compose_W_rel(d, rel_idx)
             for src_tid, tgt_tid in pairs:
                 s = self.token_embed.weight.data[src_tid]
                 pred = s @ W_rel
@@ -6033,7 +6246,7 @@ class RLMv2(Module):
             return 0.0
             
         rel_idx = RELATION_TYPES.index(rel_name)
-        W_rel = self._rp_rel_matrices[domain_id, rel_idx]
+        W_rel = self._compose_W_rel(domain_id, rel_idx)
         
         # === Alignment gradient (same as before) ===
         grad_sum = np.zeros_like(W_rel)
@@ -6136,7 +6349,7 @@ class RLMv2(Module):
                 if not pairs:
                     continue
                 rel_idx = RELATION_TYPES.index(rel_name)
-                W_rel = self._rp_rel_matrices[domain_id, rel_idx]
+                W_rel = self._compose_W_rel(domain_id, rel_idx)
                 sims = []
                 for src_tid, tgt_tid in pairs:
                     s = self.token_embed.weight.data[src_tid]
@@ -6157,7 +6370,7 @@ class RLMv2(Module):
                     if not pairs:
                         continue
                     rel_idx = RELATION_TYPES.index(rel_name)
-                    W_rel = self._rp_rel_matrices[did, rel_idx]
+                    W_rel = self._compose_W_rel(did, rel_idx)
                     sims = []
                     for src_tid, tgt_tid in pairs:
                         s = self.token_embed.weight.data[src_tid]

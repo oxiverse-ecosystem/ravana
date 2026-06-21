@@ -2,7 +2,9 @@
 
 > Generated: 2026-06-19 | Based on full codebase audit + neuroscience literature review
 > 
-> **STATUS UPDATE (2026-06-19):** P0 Generalization & Verb-Offset System ✅ COMPLETED — deeper prototype hierarchy, cross-verb generalization, variance-aware blending. P1 Syntactic Pipeline ✅ COMPLETED. **P1 Theory of Mind & Personalization** ✅ COMPLETED — goal inference, relationship depth, adaptive verbosity, personalized greeting, serialization. Published to PyPI: ravana-ml 0.3.2, ravana-grace 0.2.2, ravana-chat 0.3.2.
+> **STATUS UPDATE (2026-06-20):** P0 Generalization & Verb-Offset System ✅ COMPLETED. P1 Syntactic Pipeline ✅ COMPLETED. **P1 Theory of Mind & Personalization** ✅ COMPLETED. **P2 Emotional Mirroring Loop** ✅ COMPLETED — `EmotionalMirrorEngine` with VAD lexicon-based user emotion detection, mirror neuron-style VAD state mirroring, and response modulation (temperature, breadth, verbosity). Published to PyPI: ravana-ml 0.3.2, ravana-grace 0.2.2, ravana-chat 0.3.2.
+> 
+> **STATUS UPDATE (2026-06-20):** **P2 Emotional State Tracking** ✅ COMPLETED — `UserModel.emotional_state` VAD field with `_infer_user_emotion()` using ANEW-based VAD lexicon (`UserEmotionDetector`), EMA blending for temporal coherence, `belief_state` and `interaction_history` fields, user emotion wired into `_get_temperature()` (arousal modulation), `_adapt_verbosity_for_user()` (arousal-based intent count), and concept breadth modulation in `_generate_with_decoder_and_syntax()`. 66/66 tests passing in `scripts/test_emotional_mirror.py`. Backward-compatible serialization with migration in `_load()`.
 
 ---
 
@@ -382,11 +384,11 @@ The `UserModel` (`scripts/ravana_chat.py`) was upgraded from a basic familiarity
 
 ### What's Still Planned for Future Sprints
 
-**Emotional State Tracking** (not yet implemented — §7 Key Behavior B):
-- `emotional_state: VAD` field in UserModel
-- `_infer_user_emotion()` method to detect VAD from text keywords
-- `belief_state` and `interaction_history` fields in UserModel
-- Emotional mirroring: wire user emotion into response temperature, concept breadth, verbosity
+~~**Emotional State Tracking** — ✅ COMPLETED (2026-06-20)~~
+- ~~`emotional_state: VAD` field in UserModel — ✅ Done~~
+- ~~`_infer_user_emotion()` method to detect VAD from text keywords — ✅ Done (uses `UserEmotionDetector` with ANEW VAD lexicon)~~
+- ~~`belief_state` and `interaction_history` fields in UserModel — ✅ Done~~
+- ~~Emotional mirroring: wire user emotion into temperature, breadth, verbosity — ✅ Done (in `_get_temperature`, `_adapt_verbosity_for_user`, concept breadth in `_generate_with_decoder_and_syntax`)~~
 
 ---
 
@@ -578,8 +580,9 @@ def run_benchmark():
 | **P0** | ~~Cross-verb offset generalization~~ | ✅ **DONE** | Medium | — | Held-out verb accuracy |
 | **P0** | ~~Verb offset variance tracking~~ | ✅ **DONE** | Medium | — | Uncertainty calibration |
 | **P1** | ~~Complete Theory of Mind UserModel~~ | ✅ **DONE** | High | — | 42/42 unit tests |
-| **P2** | Emotional mirroring loop | 2 days | High | VAD emotion engine | User engagement rating |
+| **P2** | ~~Emotional mirroring loop~~ | ✅ **DONE** | High | VAD emotion engine | User engagement rating |
 | **P2** | ~~Relationship memory + depth~~ | **Partial** (P1 delivered relationship depth, greeting) | Medium | — | — |
+| **P2** | ~~Emotional State Tracking in UserModel~~ | ✅ **DONE** | High | UserEmotionDetector | 66/66 unit tests |
 | **P2** | Low-rank W_rel decomposition | 2 days | Low | None | Parameter count, speed |
 | **P3** | LSH token scoring | 3 days | Low | None | Forward pass speed |
 | **P3** | Benchmark harness | 3 days | Medium | All P0/P1 fixes | Comparison results |
@@ -592,11 +595,13 @@ def run_benchmark():
 
 **Sprint 2 (Week 2):** ✅ P1 — Complete Theory of Mind UserModel
 
-**Sprint 3 (Week 3):** P2 — Emotional mirroring loop + Relationship memory
+**Sprint 3 (Week 3):** ✅ P2 — Emotional mirroring loop completed
 
-**Sprint 4 (Week 4):** P2 — Low-rank W_rel + P3 — LSH token scoring
+**Sprint 4 (Week 4):** ✅ P2 — Emotional State Tracking in UserModel completed
 
-**Sprint 5 (Week 5):** P3 — Benchmark harness + ConceptNet ontology bootstrap + Verb offset for compounds
+**Sprint 5 (Week 5):** P2 — Low-rank W_rel + P3 — LSH token scoring
+
+**Sprint 6 (Week 6):** P3 — Benchmark harness + ConceptNet ontology bootstrap + Verb offset for compounds
 
 ---
 
@@ -628,6 +633,12 @@ def run_benchmark():
 | `rlm_v2.py` — `_accumulate_verb_offset()` | Add variance tracking | P0 |
 | `interface.py` — `_update_user_model()` | Full Theory of Mind | P1 |
 | `scripts/ravana_chat.py` — `UserModel` | Goal inference, relationship depth, adaptive verbosity, personalized greeting | ✅ P1 DONE |
+| `scripts/ravana_chat.py` — `UserModel` | `emotional_state`, `_infer_user_emotion()`, `belief_state`, `interaction_history` | ✅ P2 DONE |
+| `scripts/ravana_chat.py` — `_get_temperature()` | User arousal modulation via `user_model.emotional_state['arousal']` | ✅ P2 DONE |
+| `scripts/ravana_chat.py` — `_adapt_verbosity_for_user()` | User arousal-based intent count modulation | ✅ P2 DONE |
+| `scripts/ravana_chat.py` — `_generate_with_decoder_and_syntax()` | Concept breadth modulation from user arousal | ✅ P2 DONE |
+| `scripts/ravana_chat.py` — `_load()` | P2 backward-compatible migration for `emotional_state`, `belief_state`, `interaction_history` | ✅ P2 DONE |
+| `scripts/test_emotional_mirror.py` | New file — 66 test suite for P2 emotional state tracking | ✅ P2 DONE |
 | `rlm_v2.py` — `_rp_rel_matrices` shape | Low-rank decomposition | P2 |
 | `rlm_v2.py` — `_rp_forward()` | LSH scoring | P3 |
 | `scripts/benchmark_vs_transformers.py` | New file | P3 |

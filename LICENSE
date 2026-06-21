@@ -1,0 +1,109 @@
+Oxiverse Community License (OCL) v1.0. Source-Available • Non-Commercial • Privacy-by-Design.
+
+Oxiverse Community License (OCL) v1.0
+Copyright © 2026 Likhith Sai Seemala
+1. Grant of License
+Subject to the terms of this License, Likhith Sai Seemala ("Licensor") grants you a worldwide, non-exclusive, non-transferable, non-sublicensable license to:
+
+(a) use, copy, modify, and run the Software;
+(b) create derivative works of the Software;
+(c) share the Software and derivative works, for Non-Commercial Purposes only.
+Derivative works must be distributed under a license approved by the Open Source Initiative (OSI). However, such derivative works may not relicense, sublicense, or obscure the original Oxiverse Software's copyright notices, and any modification to the core Oxiverse Software must remain under OCL v1.0. "Core Oxiverse Software" means the Oxiverse cognitive architecture (including RAVANA, RLMv2, ConceptGraph, and successor components), IntentForge search engine, and any other Oxiverse services released under this License unless explicitly designated otherwise by Licensor.
+
+Commercial use is prohibited except as expressly permitted under Section 3.
+
+2. Non-Commercial Use Definition
+"Non-Commercial Purpose" means use that is:
+
+Personal, non-monetized experimentation
+Educational or academic instruction
+Academic or non-profit research
+Internal evaluation within a non-revenue-generating organization
+Open research or community learning projects
+Non-Commercial Purpose expressly excludes:
+
+Selling, licensing, or monetizing the Software or derivatives
+Offering the Software as a hosted service (SaaS, API-as-a-Service, etc.)
+Integrating the Software into a paid product, platform, or commercial offering
+Using the Software for commercial consulting, client work, or agency deliverables
+Any activity that generates revenue, directly or indirectly, using the Software
+Knowledge Exception: This License restricts the commercial distribution, hosting, or monetization of the Software itself. It does not restrict a developer's ability to use general knowledge, algorithms, ideas, or publicly documented concepts learned from reading or using the Software in wholly separate, unrelated commercial projects.
+
+3. Commercial Use & Licensing
+Commercial use of the Software is permitted under one of two paths:
+
+(a) Open-Source Commercial License (Free)
+You may use, modify, and monetize the Software for commercial purposes without paying a licensing fee, provided that:
+
+Your project and all derivative works are distributed under OCL v1.0 only;
+You make complete corresponding source code publicly available;
+You maintain all copyright notices and this License;
+You comply fully with Section 5 (Privacy-by-Design Requirement).
+This path is designed to reward builders who contribute back to the ecosystem.
+
+(b) Proprietary Commercial License (Paid)
+If you wish to develop, deploy, or monetize the Software without open-sourcing your derivative works, you must obtain a separate, written Commercial License from Licensor.
+
+To inquire about Proprietary Commercial Licensing, contact: likhith@oxiverse.com
+
+Proprietary Commercial Licenses may include terms for:
+
+Closed-source deployment in revenue-generating environments
+White-labeling or proprietary redistribution rights
+Support, updates, and SLA options
+Custom feature development or integration
+Multi-year licensing agreements with volume discounts
+3.1 Verification & Compliance
+If you claim eligibility for the Open-Source Commercial License under (a):
+
+You are responsible for maintaining public source code availability;
+Licensor reserves the right to verify compliance and request evidence of open-source distribution;
+Misrepresenting your project as open-source to avoid Commercial Licensing constitutes license violation and triggers Section 9 (Termination).
+3.2 No Selective Open-Washing
+Publishing only a frontend, UI layer, or non-functional wrapper under an open-source license while keeping the core engine, search index, ranking algorithms, cognitive architecture, or any revenue-generating component proprietary does not qualify as open-source distribution under this License. The complete corresponding source code for all functional components must be publicly available. Any attempt to circumvent this by architectural separation of "open" and "closed" modules triggers Section 9 (Termination).
+
+4. Redistribution & Source Availability
+If you distribute the Software or derivative works (even for Non-Commercial Purposes):
+
+(a) You must include this License in full, unmodified, with all copyright notices intact;
+(b) You must make the complete corresponding source code available under the same OCL v1.0 terms;
+(c) You may not sublicense, relicense, or distribute under different terms.
+5. Privacy-by-Design Requirement
+All derivative works, modifications, or redistributions of the Software must uphold privacy-by-design as a non-negotiable baseline:
+
+(a) No Unauthorized Data Collection: You may not add tracking, telemetry, analytics, or user data collection mechanisms without explicit, informed, opt-in user consent.
+(b) Data Minimization: No telemetry, analytics, or user data may be collected except for crash logs and diagnostic data. Such logs must be stored locally by default. If the user chooses to transmit logs to a third-party service (including Oxiverse-operated services, or a self-hosted alternative), they must obtain explicit, informed, opt-in consent from the end-user. The Software must provide a clear mechanism to disable all log transmission entirely.
+(c) User Control: Users must retain the ability to view, export, and delete any data generated or stored by the Software.
+(d) Enhancements Encouraged: You are free—and encouraged—to enhance privacy protections beyond this baseline (e.g., end-to-end encryption, local-first architecture, zero-knowledge proofs).
+(e) Transparency & Mandatory Privacy Policy: Any entity distributing the Software or derivative works (commercial or non-commercial) must publish a human-readable privacy policy that: (i) discloses use of Oxiverse services; (ii) states that no user data is stored except crash logs, which may be transmitted (if the user opts in) to Oxiverse-operated services or a user-selected third-party alternative, and that transmission can be entirely disabled; (iii) is prominently linked in the Software and all distribution channels.
+Violation of this Privacy Requirement constitutes a material breach of this License and triggers automatic termination under Section 9.
+
+6. Contributions
+Any contribution submitted to Licensor for inclusion in the Software shall be governed by the terms of this License. By submitting a contribution, you represent that you have the right to do so, and you grant Licensor a perpetual, worldwide, non-exclusive, royalty-free license to distribute your contribution solely under the terms of OCL v1.0 (and any future versions of OCL that Licensor publishes).
+
+Commercial Licensing Exception: If Licensor wishes to include your contribution in a Proprietary Commercial License (Section 3(b)), Licensor must obtain your separate, explicit written consent and negotiate fair compensation with you at that time.
+
+Contributor Commercial Licensing Benefit: If you are a contributor to the Software and wish to obtain a Proprietary Commercial License (Section 3(b)) to commercialize derivative works based on your contribution, you are eligible for preferential licensing terms (discounted or waived fees) at Licensor's discretion, contingent on: (a) Your contribution being already merged into the core Software; (b) You operating a distinct, separate commercial service or product (not a direct fork of the Software); (c) Your application for commercial licensing explicitly referencing your contributor status and the specific contribution(s) involved.
+
+The core Oxiverse Software and its cognitive architecture (RAVANA, RLMv2, ConceptGraph, and successor components) remain under OCL v1.0 and may not be relicensed, sublicensed, or closed-sourced by any party, including contributors. Only derivative works and original extensions created on top of the core may be commercialized under proprietary terms, subject to a valid Proprietary Commercial License.
+
+7. Patent Grant
+Subject to the terms of this License, Licensor grants Licensee a non-exclusive, worldwide, royalty-free license under any patent claims licensable by Licensor that are necessarily infringed by the Software alone, solely for Non-Commercial Purposes. This patent grant terminates automatically upon any commercial use without a valid Commercial License.
+
+8. No Warranty
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND NON-INFRINGEMENT. IN NO EVENT SHALL THE LICENSOR BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+9. Termination
+This License automatically terminates if you violate any of its terms and fail to cure the violation after written notice. Upon discovery of a violation, Licensor shall provide written notice to Licensee and a reasonable opportunity (minimum 30 days) to cure the violation. If not cured within this period, the License terminates automatically. Upon termination:
+
+(a) All rights granted to you cease immediately;
+(b) You must cease all use, distribution, and development of the Software;
+(c) Licensor reserves the right to pursue legal remedies for unauthorized commercial use or privacy violations.
+10. License Versions
+Licensor may publish updated versions of this License. Existing projects may continue under the version they adopted at the time of first use. New projects should use the latest published version. Commercial License terms are negotiated separately and are not affected by public License updates.
+
+11. Governing Law & Jurisdiction
+This License shall be governed by and construed in accordance with the laws of the Republic of India, without regard to its conflict of law principles. Any disputes arising under or in connection with this License shall be subject to the exclusive jurisdiction of the courts located in Visakhapatnam, Andhra Pradesh, India.
+
+Last Updated: April 2026
+For licensing inquiries: likhith@oxiverse.com

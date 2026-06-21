@@ -15,8 +15,8 @@ import os
 import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
-from ..research.core_k0.agent_loop_k1_2 import K1_2_Agent, AgentAction
-from ..research.experiments_k0.resource_env import ResourceSurvivalEnv
+from ..core_k0.agent_loop_k1_2 import K1_2_Agent, AgentAction
+from ..experiments_k0.resource_env import ResourceSurvivalEnv
 import numpy as np
 from typing import List, Dict, Any
 

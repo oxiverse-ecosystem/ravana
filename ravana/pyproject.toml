@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ravana-chat"
-version = "0.3.2"
+version = "0.3.4"
 description = "RAVANA modular package -- decoder-first chat with continuous web learning"
 readme = "README.md"
-license = "MIT"
+license = {text = "OCL-1.0"}
 requires-python = ">=3.9"
 dependencies = [
     "numpy>=1.20",

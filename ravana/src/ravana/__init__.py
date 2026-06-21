@@ -12,7 +12,11 @@ from .core import (
 from .chat import ChatInterface
 from .web import WebLearner
 
-__version__ = "0.3.2"
+try:
+    from importlib.metadata import version as _v
+    __version__ = _v("ravana-chat")
+except Exception:
+    __version__ = "0.0.0"
 __all__ = [
     "VADEmotionEngine",
     "IdentityEngine",

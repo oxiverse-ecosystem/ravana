@@ -2,18 +2,18 @@
 Test script for Ravana Memory System integration into StateManager.
 """
 
-import sys
-import os
-from pathlib import Path
+try:
+    from .conftest import import_core
+except ImportError:
+    from conftest import import_core
 
-# Add project root to sys.path
-project_root = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(project_root))
+# Dev:  from core.governor import Governor, GovernorConfig
+# Pkg:  from ravana_grace.core.governor import …
+Governor, GovernorConfig = import_core("governor", "Governor", "GovernorConfig")
+ResolutionEngine = import_core("resolution", "ResolutionEngine")
+IdentityEngine = import_core("identity", "IdentityEngine")
+StateManager = import_core("state", "StateManager")
 
-from core.governor import Governor, GovernorConfig
-from core.resolution import ResolutionEngine
-from core.identity import IdentityEngine
-from core.state import StateManager
 
 def test_memory_integration():
     print("="*60)

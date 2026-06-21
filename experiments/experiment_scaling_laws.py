@@ -219,24 +219,26 @@ def _populate_graph_to_size(graph, target_size: int):
     if current >= target_size:
         return
 
+    label_to_id = {}
+    to_add = target_size - current
     # Add synthetic concept nodes
-    for i in range(target_size - current):
+    for i in range(to_add):
         label = f"concept_{i}"
         vector = np.random.randn(64).astype(np.float32)
         vector /= np.linalg.norm(vector) + 1e-8
-        nid = graph.add_node(label=label, vector=vector)
-        graph._concept_keywords.setdefault(label, []).append(nid)
+        node = graph.add_node(label=label, vector=vector)
+        label_to_id[label] = node.id
 
     # Add some random edges for connectivity
-    labels = [f"concept_{i}" for i in range(target_size)]
+    all_labels = list(label_to_id.keys())
     for i in range(min(target_size // 2, 5000)):
-        src = labels[np.random.randint(0, target_size)]
-        tgt = labels[np.random.randint(0, target_size)]
+        src = all_labels[np.random.randint(0, len(all_labels))]
+        tgt = all_labels[np.random.randint(0, len(all_labels))]
         if src != tgt:
-            src_id = graph._concept_keywords[src][0]
-            tgt_id = graph._concept_keywords[tgt][0]
+            src_id = label_to_id[src]
+            tgt_id = label_to_id[tgt]
             if src_id in graph.nodes and tgt_id in graph.nodes:
-                graph.add_edge(src_id, tgt_id, relation="semantic", weight=1.0)
+                graph.add_edge(src_id, tgt_id, relation_type="semantic", weight=1.0)
 
 
 def _retrain_decoder(engine: CognitiveChatEngine):

@@ -1,16 +1,15 @@
 # RAVANA PyPI Publishing Guide
 
-## Package Strategy: Three Independent Packages (Recommended)
+## Package Strategy: Four Independent Packages
 
-Because PyPI package names must use underscores/hyphens and the directory `ravana-v2` has a hyphen, the cleanest approach is **three separate packages**:
+Because PyPI package names must use underscores/hyphens and the directory `ravana-v2` has a hyphen, the cleanest approach is **four separate packages**:
 
 | Package | PyPI Name | Directory | Version | Purpose |
 |---------|-----------|-----------|---------|---------|
-| **ML Framework** | `ravana-ml` | `ravana_ml/` | 0.3.2 | Tensors, modules, ConceptGraph, RLMv1/RLMv2 |
-| **GRACE Core** | `ravana-grace` | `ravana-v2/` | 0.2.2 | 27-phase cognitive architecture |
-| **Modular Chat** | `ravana-chat` | `ravana/` | 0.3.2 | Decoder-first chat, web learning, CLI |
-
-(Optional) Unified: `ravana-cognitive` (all three together)
+| **ML Framework** | `ravana-ml` | `ravana_ml/` | 0.3.3 | Tensors, modules, ConceptGraph, RLMv1/RLMv2 |
+| **GRACE Core** | `ravana-grace` | `ravana-v2/` | 0.2.3 | 27-phase cognitive architecture |
+| **Modular Chat** | `ravana-chat` | `ravana/` | 0.3.3 | Decoder-first chat, web learning, CLI |
+| **Unified Meta** | `ravana-cognitive` | `pyproject.toml` (root) | 0.3.2 | All three packages bundled together |
 
 ---
 
@@ -18,10 +17,10 @@ Because PyPI package names must use underscores/hyphens and the directory `ravan
 | Name | Status |
 |------|--------|
 | `ravana` | ❌ Taken (MIDI package) |
-| `ravana-ml` | ✅ Published v0.3.2 |
-| `ravana-grace` | ✅ Published v0.2.2 |
-| `ravana-chat` | ✅ Published v0.1.1 |
-| `ravana-cognitive` | ✅ Available |
+| `ravana-ml` | ✅ Published v0.3.3 |
+| `ravana-grace` | ✅ Published v0.2.3 |
+| `ravana-chat` | ✅ Published v0.3.3 |
+| `ravana-cognitive` | ✅ Published v0.3.2 |
 
 ---
 
@@ -49,11 +48,11 @@ cd ..
 
 # 4. Publish to TestPyPI first
 export TESTPYPI_TOKEN='your-testpypi-token'
-python -m twine upload --repository-url https://test.pypi.org/legacy/ -u "__token__" -p "$TESTPYPI_TOKEN" dist/*
+python -m twine upload --repository-url https://test.pypi.org/legacy/ -u "__token__" -p "$TESTPYPI_TOKEN" ravana_ml/dist/* ravana-v2/dist/* ravana/dist/*
 
 # 5. Verify on https://test.pypi.org, then publish to PyPI
 export PYPI_TOKEN='your-pypi-token'
-python -m twine upload --repository-url https://upload.pypi.org/legacy/ -u "__token__" -p "$PYPI_TOKEN" dist/*
+python -m twine upload --repository-url https://upload.pypi.org/legacy/ -u "__token__" -p "$PYPI_TOKEN" ravana_ml/dist/* ravana-v2/dist/* ravana/dist/*
 ```
 
 ### Option B: Unified Package

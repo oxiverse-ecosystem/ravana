@@ -16,9 +16,9 @@ import os
 import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
-from ..research.core_k0.agent_loop_k2 import K2_Agent
-from ..research.experiments_k0.resource_env import ResourceSurvivalEnv, AgentAction
-from ..research.experiments_k0.latent_regime_env import LatentRegimeEnv
+from ..core_k0.agent_loop_k2 import K2_Agent
+from ..experiments_k0.resource_env import ResourceSurvivalEnv, AgentAction
+from ..experiments_k0.latent_regime_env import LatentRegimeEnv
 import numpy as np
 import json
 from dataclasses import dataclass, field
