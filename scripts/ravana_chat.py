@@ -3324,8 +3324,7 @@ class CognitiveChatEngine:
             assoc_nid = assoc_nids[0]
             existing = self.graph.get_edge(subj_nid, assoc_nid)
             if existing is None:
-                self.graph.add_edge(subj_nid, assoc_nid,
-                                    weight=0.15, relation_type="episodic")
+                self._add_episodic_edge(subj_nid, assoc_nid, weight=0.15, confidence=0.5)
             elif existing.relation_type == "episodic":
                 sl = subject.lower()
                 entry = self._topic_store.get(sl, {})
@@ -3333,6 +3332,7 @@ class CognitiveChatEngine:
                 if visits >= 3:
                     existing.relation_type = "semantic"
                     existing.weight = min(0.40, existing.weight + 0.15)
+                    self._semantic_by_src.setdefault(subj_nid, []).append((assoc_nid, existing))
                 elif visits >= 2:
                     existing.weight = min(0.30, existing.weight + 0.10)
 
@@ -5940,10 +5940,42 @@ class CognitiveChatEngine:
         """Phase 15.1: Add a fast-learning, high-decay episodic edge."""
         if not hasattr(self, '_episodic_edges'):
             self._episodic_edges = {}
+        if not hasattr(self, '_episodic_by_src'):
+            self._episodic_by_src = {}
         key = (src, tgt)
         if key not in self._episodic_edges:
             edge = ConceptEdge(src, tgt, weight=weight, confidence=confidence, relation_type="episodic")
             self._episodic_edges[key] = edge
+            self._episodic_by_src.setdefault(src, []).append((tgt, edge))
+        return self._episodic_edges[key]
+
+    def _store_episodic(self, subject: str, associations: List[Tuple[str, float]]):
+        """Create episodic edges linking current subject to top associations.
+        Phase 3.2: On revisit, boost weight. 3+ visits => migrate to semantic."""
+        if not subject or not associations:
+            return
+        subj_nids = self._concept_keywords.get(subject.lower(), [])
+        if not subj_nids:
+            return
+        subj_nid = subj_nids[0]
+        for assoc_label, _ in associations[:3]:
+            assoc_nids = self._concept_keywords.get(assoc_label.lower(), [])
+            if not assoc_nids:
+                continue
+            assoc_nid = assoc_nids[0]
+            existing = self.graph.get_edge(subj_nid, assoc_nid)
+            if existing is None:
+                self._add_episodic_edge(subj_nid, assoc_nid, weight=0.15, confidence=0.5)
+            elif existing.relation_type == "episodic":
+                sl = subject.lower()
+                entry = self._topic_store.get(sl, {})
+                visits = entry.get('visit_count', 1) if isinstance(entry, dict) else 1
+                if visits >= 3:
+                    existing.relation_type = "semantic"
+                    existing.weight = min(0.40, existing.weight + 0.15)
+                    self._semantic_by_src.setdefault(subj_nid, []).append((assoc_nid, existing))
+                elif visits >= 2:
+                    existing.weight = min(0.30, existing.weight + 0.10)
 
     def _add_semantic_edge(self, src: int, tgt: int, weight: float = 0.4, confidence: float = 0.3):
         """Phase 15.1: Add a slow-learning, stable semantic edge."""
@@ -5966,16 +5998,11 @@ class CognitiveChatEngine:
                 to_remove.append((src, tgt))
         for key in to_remove:
             del self._episodic_edges[key]
-            # Clean up src-indexed lookup
             src_id, tgt_id = key
             if src_id in self._episodic_by_src:
                 self._episodic_by_src[src_id] = [(t, e) for t, e in self._episodic_by_src[src_id] if t != tgt_id]
                 if not self._episodic_by_src[src_id]:
                     del self._episodic_by_src[src_id]
-            # Update src-indexed lookup
-            src_id, tgt_id = key
-            if src_id in self._episodic_by_src:
-                self._episodic_by_src[src_id] = [(t, e) for t, e in self._episodic_by_src[src_id] if t != tgt_id]
 
     def _consolidate_to_semantic(self):
         """Phase 15.5: Transfer frequently-used episodic edges to semantic store.
