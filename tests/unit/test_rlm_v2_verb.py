@@ -72,6 +72,37 @@ class TestVerbStem:
         s2 = VerbMixin._verb_stem("melt")
         assert s1 == s2
 
+    def test_stem_compound_underscore_suffix(self):
+        """Compound with '_': verb part gets stemmed, particle preserved."""
+        assert VerbMixin._verb_stem("contributes_to") == "contribut_to"
+        assert VerbMixin._verb_stem("leads_to") == "lead_to"
+        assert VerbMixin._verb_stem("results_in") == "result_in"
+        assert VerbMixin._verb_stem("associated_with") == "associat_with"
+        assert VerbMixin._verb_stem("correlated_with") == "correlat_with"
+
+    def test_stem_compound_underscore_no_suffix(self):
+        """Compound where verb part has no suffix to strip."""
+        assert VerbMixin._verb_stem("is_a") == "is_a"
+        assert VerbMixin._verb_stem("type_of") == "type_of"
+        assert VerbMixin._verb_stem("same_as") == "same_as"
+        assert VerbMixin._verb_stem("able_to") == "able_to"
+
+    def test_stem_compound_hyphen(self):
+        """Compound with '-' (hyphen): converted to '_' after stemming."""
+        assert VerbMixin._verb_stem("leads-to") == "lead_to"
+        assert VerbMixin._verb_stem("made-of") == "made_of"
+
+    def test_stem_compound_multi_part(self):
+        """Multi-part compounds: only first part stemmed."""
+        assert VerbMixin._verb_stem("is_type_of") == "is_type_of"
+        assert VerbMixin._verb_stem("can_cause") == "can_cause"
+        assert VerbMixin._verb_stem("may_cause") == "may_cause"
+
+    def test_stem_compound_ing(self):
+        """Compound with 'ing' on verb part."""
+        assert VerbMixin._verb_stem("leading_to") == "lead_to"
+        assert VerbMixin._verb_stem("consisting_of") == "consist_of"
+
 
 class TestVerbOffsetAccumulation:
     """Test verb offset accumulation logic."""

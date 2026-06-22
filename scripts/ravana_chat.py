@@ -27,7 +27,6 @@ _proj_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # ravana/src LAST (highest priority) and keep _proj_root for `scripts` package discovery.
 sys.path.insert(0, _proj_root)
 sys.path.insert(0, os.path.join(_proj_root, "ravana", "src"))
-sys.path.insert(0, os.path.join(_proj_root, "ravana_chat_src", "src"))
 sys.path.insert(0, os.path.join(_proj_root, "ravana-v2"))
 
 from ravana_ml.graph import ConceptGraph, ConceptEdge

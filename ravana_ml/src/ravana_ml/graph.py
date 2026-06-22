@@ -1224,13 +1224,17 @@ class ConceptGraph:
             self._adj_sparse = None
             self._adj_dirty = False
             return
-        n = max(self.nodes.keys()) + 1 if self.nodes else 0
+        n = max(max(self.nodes.keys(), default=0),
+                max((s for s, t in self.edges), default=0),
+                max((t for s, t in self.edges), default=0)) + 1
         if n == 0:
             self._adj_sparse = None
             self._adj_dirty = False
             return
         rows, cols, data = [], [], []
         for (src, tgt), edge in self.edges.items():
+            if src not in self.nodes or tgt not in self.nodes:
+                continue
             eff_w = edge.posterior_mean if hasattr(edge, 'posterior_mean') else edge.weight
             w = eff_w * edge.confidence
             if edge.edge_type == "inhibitory":

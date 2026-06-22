@@ -1,0 +1,98 @@
+{
+  "timestamp": "2026-06-20 20:54:08",
+  "results": [
+    {
+      "model_name": "RLMv2 (RAVANA)",
+      "timestamp": "2026-06-20 20:54:02",
+      "train_accuracy": 0.509090909090909,
+      "test_accuracy": 0.509090909090909,
+      "held_out_accuracy": 0.0,
+      "cross_domain_accuracy": 0.0,
+      "generalization_gap": 0.509090909090909,
+      "per_relation_test": {},
+      "forgetting_curves": {
+        "physics": [
+          0.6,
+          0.375,
+          0.35
+        ],
+        "cooking": [
+          0.0,
+          0.875,
+          0.475
+        ],
+        "music": [
+          0.0,
+          0.0,
+          0.975
+        ]
+      },
+      "forgetting_rate": -0.39999999999999997,
+      "coherence_score": 0.832518792982328,
+      "diversity_score": 0.5416666666666667,
+      "repetition_rate": 0.25,
+      "avg_response_length": 12.0,
+      "parameters": 156870,
+      "mean_latency_ms": 0.0,
+      "params_per_accuracy": 0.0,
+      "speed_score": 0.0
+    }
+  ],
+  "forgetting": {
+    "curves": {
+      "physics": [
+        0.6,
+        0.375,
+        0.35
+      ],
+      "cooking": [
+        0.0,
+        0.875,
+        0.475
+      ],
+      "music": [
+        0.0,
+        0.0,
+        0.975
+      ]
+    },
+    "forgetting_rates": {
+      "physics": 0.25,
+      "cooking": -0.475,
+      "music": -0.975
+    },
+    "avg_forgetting": -0.39999999999999997
+  },
+  "cross_domain": {
+    "science_accuracy": 0.8666666666666667,
+    "social_accuracy": 0.9166666666666666,
+    "held_out_accuracy": 0.0,
+    "cross_domain_gap": 0.8666666666666667,
+    "per_relation": {
+      "causes": 0.0,
+      "produces": 0.0
+    },
+    "ontology_benefit_held_out": 0.4,
+    "ontology_without_held_out": 0.0,
+    "ontology_benefit_delta": 0.4
+  },
+  "conversation_quality": {
+    "RLMv2 (RAVANA)": {
+      "coherence": 0.832518792982328,
+      "diversity": 0.5416666666666667,
+      "bigram_diversity": 0.75,
+      "trigram_diversity": 0.925,
+      "repetition": 0.25,
+      "avg_length": 12.0
+    }
+  },
+  "baseline_sizes": {
+    "RAVANA RLMv2": null,
+    "Linear Baseline": null,
+    "MLP Baseline (2-layer)": null,
+    "DistilGPT-2": 82000000,
+    "Tiny Transformer (4-layer)": 10000000,
+    "Tiny LLaMA (1.1B)": 1100000000,
+    "GPT-2 Small (124M)": 124000000
+  }
+}

@@ -188,8 +188,12 @@ def test_relation_predictor_preservation():
     rp_mb1_before = m._rp_mb1.copy()
     rp_mW2_before = m._rp_mW2.copy()
     rp_mb2_before = m._rp_mb2.copy()
-    rp_rel_before = m._rp_rel_matrices.copy()
-    rp_mrel_before = m._rp_mrel_matrices.copy()
+    rp_W_base_before = m._rp_W_base.copy()
+    rp_U_d_before = m._rp_U_d.copy()
+    rp_V_d_before = m._rp_V_d.copy()
+    rp_mW_base_before = m._rp_mW_base.copy()
+    rp_mU_d_before = m._rp_mU_d.copy()
+    rp_mV_d_before = m._rp_mV_d.copy()
 
     with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as f:
         path = f.name
@@ -214,10 +218,18 @@ def test_relation_predictor_preservation():
                                       err_msg="rp_mW2 changed after roundtrip")
         np.testing.assert_array_equal(loaded._rp_mb2, rp_mb2_before,
                                       err_msg="rp_mb2 changed after roundtrip")
-        np.testing.assert_array_equal(loaded._rp_rel_matrices, rp_rel_before,
-                                      err_msg="rp_rel_matrices changed after roundtrip")
-        np.testing.assert_array_equal(loaded._rp_mrel_matrices, rp_mrel_before,
-                                      err_msg="rp_mrel_matrices changed after roundtrip")
+        np.testing.assert_array_equal(loaded._rp_W_base, rp_W_base_before,
+                                      err_msg="rp_W_base changed after roundtrip")
+        np.testing.assert_array_equal(loaded._rp_U_d, rp_U_d_before,
+                                      err_msg="rp_U_d changed after roundtrip")
+        np.testing.assert_array_equal(loaded._rp_V_d, rp_V_d_before,
+                                      err_msg="rp_V_d changed after roundtrip")
+        np.testing.assert_array_equal(loaded._rp_mW_base, rp_mW_base_before,
+                                      err_msg="rp_mW_base changed after roundtrip")
+        np.testing.assert_array_equal(loaded._rp_mU_d, rp_mU_d_before,
+                                      err_msg="rp_mU_d changed after roundtrip")
+        np.testing.assert_array_equal(loaded._rp_mV_d, rp_mV_d_before,
+                                      err_msg="rp_mV_d changed after roundtrip")
 
         print("PASS: test_relation_predictor_preservation")
     finally:

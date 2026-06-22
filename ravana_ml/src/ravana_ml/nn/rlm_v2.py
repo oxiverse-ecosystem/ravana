@@ -515,10 +515,12 @@ class RLMv2(Module):
         # Track cross-domain edges injected analogically (subject_cid, object_cid).
         self._cross_domain_edges_injected: Set[Tuple[int, int]] = set()
 
-        # ── P0 ConceptNet/Ontology Bootstrap (§4B) ──
+        # ---- P0 ConceptNet/Ontology Bootstrap (sec4B, P3 Expanded) ----
         # Lightweight semantic ontology seeded at init with low confidence (0.2-0.3).
         # Edges are reinforced through Hebbian updates during training.
+        # P3: Loads expanded ontology from revisions/ontology_seed.json (420 triples, 12 domains).
         self._ontology_edges: Dict[str, List[Tuple[str, str, float]]] = {}
+        self._ontology_json_path = "revisions/ontology_seed.json"
         self._init_ontology()
 
         # ── P0 Novel Entity Promotion (§4C) ──
@@ -944,18 +946,45 @@ class RLMv2(Module):
     # ── P0 ConceptNet/Ontology Bootstrap (§4B) ──
 
     def _init_ontology(self):
-        """Seed the graph with lightweight semantic ontology edges at low confidence.
+        """Seed the graph with expanded semantic ontology edges at low confidence.
 
-        Called once during __init__. Injects ~50 curated (subject, relation, object)
-        triples covering common-sense relationships across 6 relation types.
+        Called once during __init__. Tries to load from revisions/ontology_seed.json
+        (420 triples, 12 domains), falling back to hardcoded ~50 triple base.
         Edges start at confidence 0.2-0.3 and are reinforced through Hebbian
-        updates during normal training — the model must verify them through use.
+        updates during normal training - the model must verify them through use.
 
         Neuroscience basis: Pre-structured semantic knowledge in semantic memory
         (Patterson et al. 2007, Hub-and-Spoke model). Low initial confidence
         mimics the difference between innate priors and learned experience.
         """
-        self._ontology_edges = {
+        # Try loading expanded ontology from JSON first
+        json_path = getattr(self, '_ontology_json_path', None)
+        loaded_from_json = False
+        if json_path and os.path.exists(json_path):
+            try:
+                with open(json_path, 'r') as f:
+                    data = json.load(f)
+                if 'meta' in data:
+                    total = data['meta'].get('total_triples', '?')
+                    print(f"  [Ontology] Loading from {json_path} - {total} triples")
+                loaded_edges = {}
+                for rel_type in RELATION_TYPES:
+                    if rel_type in data and isinstance(data[rel_type], list):
+                        pairs = []
+                        for item in data[rel_type]:
+                            if isinstance(item, list) and len(item) >= 2:
+                                pairs.append((str(item[0]), str(item[1])))
+                        loaded_edges[rel_type] = pairs
+                if loaded_edges:
+                    self._ontology_edges = loaded_edges
+                    loaded_from_json = True
+                    n_total = sum(len(v) for v in loaded_edges.values())
+                    print(f"  [Ontology] Loaded {n_total} triples across {len(loaded_edges)} relation types")
+            except Exception as e:
+                print(f"  [Ontology] Failed to load JSON: {e}. Falling back to hardcoded.")
+
+        if not loaded_from_json:
+            self._ontology_edges = {
             "causal": [
                 ("heat", "expansion"), ("cold", "contraction"),
                 ("fire", "smoke"), ("rain", "growth"),
@@ -5142,6 +5171,13 @@ class RLMv2(Module):
         if state["relation_classifier_bias"] is not None:
             self.relation_classifier.bias.data = state["relation_classifier_bias"]
 
+        self.graph.nodes.clear()
+        self.graph.edges.clear()
+        self.graph._outgoing.clear()
+        self.graph._incoming.clear()
+        self.graph._edges_by_relation_type.clear()
+        self.graph.next_id = 0
+
         for nid, ndata in state["graph_nodes"].items():
             node = ConceptNode(nid, ndata["vector"], ndata["label"])
             node.core_vector = ndata["core_vector"]
@@ -5228,20 +5264,14 @@ class RLMv2(Module):
             self._dec_b1 = state["_dec_b1"]
             self._dec_W2 = state["_dec_W2"]
             self._dec_b2 = state["_dec_b2"]
-            # Handle both old (n_rel_types, latent, latent) and new (num_domains, n_rel_types, latent, latent) shapes
-            loaded_rel = state["_rp_rel_matrices"]
-            if loaded_rel.ndim == 3:
-                # Old shape: (n_rel_types, latent, latent) -> expand to (num_domains, n_rel_types, latent, latent)
-                n_rel_types = loaded_rel.shape[0]
-                self._rp_rel_matrices = np.tile(loaded_rel[np.newaxis, ...], (self.num_domains, 1, 1, 1))
-            else:
-                self._rp_rel_matrices = loaded_rel
-            loaded_mrel = state["_rp_mrel_matrices"]
-            if loaded_mrel.ndim == 3:
-                n_rel_types = loaded_mrel.shape[0]
-                self._rp_mrel_matrices = np.tile(loaded_mrel[np.newaxis, ...], (self.num_domains, 1, 1, 1))
-            else:
-                self._rp_mrel_matrices = loaded_mrel
+            # Load low-rank W_rel decomposition (post P2 refactor)
+            if "_rp_W_base" in state:
+                self._rp_W_base = state["_rp_W_base"].copy()
+                self._rp_U_d = state["_rp_U_d"].copy()
+                self._rp_V_d = state["_rp_V_d"].copy()
+                self._rp_mW_base = state["_rp_mW_base"].copy()
+                self._rp_mU_d = state["_rp_mU_d"].copy()
+                self._rp_mV_d = state["_rp_mV_d"].copy()
 
         if "rel_proj" in state:
             self.rel_proj = state["rel_proj"]
@@ -5541,19 +5571,14 @@ class RLMv2(Module):
             model._dec_b1 = npz["dec/b1"]
             model._dec_W2 = npz["dec/w2"] if "dec/w2" in npz else npz["dec/W2"]
             model._dec_b2 = npz["dec/b2"]
-            # Handle both old (n_rel_types, latent, latent) and new (num_domains, n_rel_types, latent, latent) shapes
-            loaded_rel = npz["rp/rel_matrices"]
-            if loaded_rel.ndim == 3:
-                n_rel_types = loaded_rel.shape[0]
-                model._rp_rel_matrices = np.tile(loaded_rel[np.newaxis, ...], (model.num_domains, 1, 1, 1))
-            else:
-                model._rp_rel_matrices = loaded_rel
-            loaded_mrel = npz["rp/mrel_matrices"]
-            if loaded_mrel.ndim == 3:
-                n_rel_types = loaded_mrel.shape[0]
-                model._rp_mrel_matrices = np.tile(loaded_mrel[np.newaxis, ...], (model.num_domains, 1, 1, 1))
-            else:
-                model._rp_mrel_matrices = loaded_mrel
+            # Load low-rank W_rel decomposition (post P2 refactor)
+            if "rp/W_base" in npz:
+                model._rp_W_base = npz["rp/W_base"].copy()
+                model._rp_U_d = npz["rp/U_d"].copy()
+                model._rp_V_d = npz["rp/V_d"].copy()
+                model._rp_mW_base = npz["rp/mW_base"].copy()
+                model._rp_mU_d = npz["rp/mU_d"].copy()
+                model._rp_mV_d = npz["rp/mV_d"].copy()
             if "rp/rel_proj" in npz:
                 model.rel_proj = npz["rp/rel_proj"]
 
