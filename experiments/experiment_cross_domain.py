@@ -576,7 +576,8 @@ def evaluate_rlm_adapted(model: RLMv2, facts: List[Tuple[str, str, str]],
         if model.use_verb_offset and verb_word:
             model._adapt_entity_adapter_at_test_time(
                 subject_tid, verb_word, target_tid,
-                n_steps=adapt_steps, lr=adapt_lr
+                n_steps=adapt_steps, lr=adapt_lr,
+                contrastive_alpha=0.3, contrastive_k=3
             )
 
         logits = model.forward(input_ids)
@@ -711,7 +712,8 @@ def test_structural_transfer(model: RLMv2, tokenizer,
             if model.use_verb_offset and verb_word and target_tid:
                 model._adapt_entity_adapter_at_test_time(
                     subject_tid, verb_word, target_tid,
-                    n_steps=adapt_steps, lr=adapt_lr
+                    n_steps=adapt_steps, lr=adapt_lr,
+                    contrastive_alpha=0.3, contrastive_k=3
                 )
         else:
             model._test_time_adapt_mode = saved_adapt_mode
