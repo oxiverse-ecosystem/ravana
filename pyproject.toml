@@ -42,7 +42,7 @@ testpaths = ["tests/unit", "tests/integration", "tests/ci", "ravana-v2/tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --tb=short"
+addopts = "-v --tb=short --import-mode=importlib"
 markers = [
     "ci: CI-critical test — runs in the fast CI pipeline on every push.",
 ]
