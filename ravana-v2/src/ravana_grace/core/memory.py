@@ -88,6 +88,36 @@ class RavanaMemorySystem:
         self.semantic = SemanticMemory()
         self.working = WorkingMemory()
         
+    def _trace_to_signal(self, trace: MemoryTrace) -> Dict[str, Any]:
+        """Convert a memory trace into a working-memory broadcast signal."""
+        bid = float(np.clip(
+            trace.salience * 0.55
+            + trace.dissonance_at_time * 0.30
+            + (1.0 - trace.identity_at_time) * 0.15,
+            0.0,
+            1.0,
+        ))
+        return {
+            "bid": bid,
+            "episode": trace.episode,
+            "timestamp": trace.timestamp,
+            "salience": trace.salience,
+            "dissonance": trace.dissonance_at_time,
+            "identity": trace.identity_at_time,
+            "tags": list(trace.tags),
+            "content": trace.content,
+        }
+
+    def _refresh_working_memory(self):
+        """Rebuild the working-memory focus from recent episodic traces."""
+        if not self.episodic.traces:
+            self.working.current_focus = []
+            return
+
+        recent_traces = self.episodic.traces[-(self.working.capacity * 2):]
+        signals = [self._trace_to_signal(trace) for trace in recent_traces]
+        self.working.broadcast(signals)
+        
     def process_step(self, episode_data: Dict[str, Any], state_snapshot: Dict[str, float]):
         """Integrate new data into memory layers."""
         # 1. Create episodic trace
@@ -100,6 +130,7 @@ class RavanaMemorySystem:
             salience=min(1.0, state_snapshot.get('dissonance', 0.5) * 1.5) # Dissonance drives salience, clamped [0,1]
         )
         self.episodic.record(trace)
+        self._refresh_working_memory()
         
         # 2. Update semantic norms if dissonance is low (reinforcement) or high (revision)
         # Placeholder for complex Bayesian update logic
@@ -108,9 +139,20 @@ class RavanaMemorySystem:
             
     def get_context_for_decision(self) -> Dict[str, Any]:
         """Retrieve relevant past experiences for current deliberation (System 2)."""
+        if not self.working.current_focus:
+            self._refresh_working_memory()
         high_d_events = self.episodic.retrieve_by_dissonance(0.6)
         return {
             "past_failures": high_d_events[:3],
             "core_norms": self.semantic.knowledge_graph,
             "working_focus": self.working.current_focus
+        }
+
+    def get_status(self) -> Dict[str, Any]:
+        """Return a compact summary of the memory system."""
+        return {
+            "episodic_traces": len(self.episodic.traces),
+            "semantic_norms": len(self.semantic.knowledge_graph),
+            "working_focus_size": len(self.working.current_focus),
+            "working_focus": self.working.current_focus[:3],
         }
