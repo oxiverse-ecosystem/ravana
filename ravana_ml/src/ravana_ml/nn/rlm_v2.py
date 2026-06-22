@@ -6112,16 +6112,13 @@ class RLMv2(Module):
     def _cross_domain_relation_alignment(self, lr=None):
         """One step of cross-domain relation alignment (ALL DOMAINS).
 
-        Collects all subject-object pairs from the graph, computes the mean
-        (target_embed - W_rel @ source_embed) residual per relation type,
-        and updates EVERY domain's W_rel to reduce that residual.
+        For each domain, computes the mean (target_embed - W_rel @ source_embed)
+        residual per relation type using THAT domain's own W_rel, then updates
+        that domain's factors. This lets every domain converge toward the shared
+        domain-agnostic transformation from its own starting point.
 
-        The shared base (_rp_W_base) is updated using pairs from all domains.
-        Each domain's U_d, V_d factors are also updated from the same pairs,
-        pushing W_rel toward domain-agnostic relation transformations.
-
-        This restores the original cross-domain alignment mechanism that
-        achieved 75% transfer (broken when W_rel became domain-specific).
+        The shared base (_rp_W_base) is updated from the average gradient
+        across all domains.
         """
         if lr is None:
             lr = getattr(self, "alignment_lr", 0.005)
@@ -6150,33 +6147,40 @@ class RLMv2(Module):
                 continue
             rel_idx = RELATION_TYPES.index(rel_name)
 
-            # Compute gradient from ALL pairs (no domain filter)
-            grad_sum = np.zeros((self.latent_dim, self.latent_dim), dtype=np.float32)
-            for src_tid, tgt_tid in pairs:
-                s = self.token_embed.weight.data[src_tid]
-                t = self.token_embed.weight.data[tgt_tid]
-                W_rel = self._compose_W_rel(0, rel_idx)
-                pred = s @ W_rel
-                residual = pred - t
-                grad_sum += np.outer(s, residual)
-            grad_mean = grad_sum / len(pairs)
-            gn = np.linalg.norm(grad_mean)
-            if gn > 5.0:
-                grad_mean *= (5.0 / (gn + 1e-15))
-
-            # Update ALL domains + shared base using the same gradient
-            d_w = np.diag(grad_mean)
-            self._rp_W_base[rel_idx] -= lr * d_w
-
+            # Compute per-domain gradients using each domain's own W_rel
+            grads_per_domain = []
             for did in range(self.num_domains):
+                grad_sum = np.zeros((self.latent_dim, self.latent_dim), dtype=np.float32)
+                W_rel = self._compose_W_rel(did, rel_idx)
+                for src_tid, tgt_tid in pairs:
+                    s = self.token_embed.weight.data[src_tid]
+                    t = self.token_embed.weight.data[tgt_tid]
+                    pred = s @ W_rel
+                    residual = pred - t
+                    grad_sum += np.outer(s, residual)
+                grad_mean = grad_sum / len(pairs)
+                gn = np.linalg.norm(grad_mean)
+                if gn > 5.0:
+                    grad_mean *= (5.0 / (gn + 1e-15))
+
                 U = self._rp_U_d[did, rel_idx]
                 V = self._rp_V_d[did, rel_idx]
                 dU = V @ grad_mean.T
                 dV = U @ grad_mean
+                for g in [dU, dV]:
+                    gn2 = np.linalg.norm(g)
+                    if gn2 > 5.0:
+                        g *= (5.0 / (gn2 + 1e-15))
                 self._rp_U_d[did, rel_idx] -= lr * dU
                 self._rp_V_d[did, rel_idx] -= lr * dV
+                grads_per_domain.append(grad_mean)
 
-            results[rel_name] = float(np.linalg.norm(grad_mean))
+            # Update shared base from average gradient across domains
+            avg_grad = np.mean(grads_per_domain, axis=0)
+            d_w = np.diag(avg_grad)
+            self._rp_W_base[rel_idx] -= lr * d_w
+
+            results[rel_name] = float(np.linalg.norm(avg_grad))
         return results
 
     # ── Adversarial Alignment (Fix #2) ──
