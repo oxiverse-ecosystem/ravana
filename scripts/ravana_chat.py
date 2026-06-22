@@ -460,6 +460,42 @@ TEEN_CONCEPTS = [
 ]
 
 # ─── Stop words to filter during article reading ───
+# Web garbage words that should never become graph concepts
+# These come from HTML/CSS/JS, URLs, and programming artifacts
+WEB_GARBAGE = {
+    # HTML/CSS artifacts
+    'html', 'css', 'js', 'div', 'span', 'class', 'style', 'script', 'meta',
+    'href', 'src', 'img', 'br', 'hr', 'head', 'body', 'font', 'nav',
+    'header', 'footer', 'section', 'article', 'aside', 'main',
+    'width', 'height', 'color', 'margin', 'padding', 'border',
+    'background', 'display', 'position', 'float', 'clear', 'overflow',
+    'block', 'inline', 'flex', 'grid', 'align', 'justify', 'content',
+    # URL/web artifacts
+    'http', 'https', 'www', 'com', 'org', 'net', 'io', 'gov', 'edu',
+    'url', 'uri', 'link', 'domain', 'cookie',
+    'query', 'params', 'token', 'oauth', 'api', 'json', 'xml',
+    # JavaScript/programming
+    'var', 'let', 'const', 'func', 'function', 'return', 'import',
+    'export', 'module', 'require', 'console', 'log', 'debug',
+    'undefined', 'null', 'true', 'false', 'typeof', 'instanceof',
+    'array', 'object', 'string', 'number', 'boolean', 'promise',
+    'async', 'await', 'callback', 'event', 'listener', 'handler',
+    'prototype', 'constructor', 'length', 'index', 'value',
+    # Common tech/platform names that are not general English words
+    'gform', 'wordpress', 'joomla', 'drupal', 'shopify', 'squarespace',
+    'wix', 'webflow', 'github', 'gitlab', 'bitbucket', 'heroku',
+    'netlify', 'vercel', 'aws', 'azure', 'gcp', 'docker', 'kubernetes',
+    'react', 'angular', 'vue', 'svelte', 'jquery', 'bootstrap',
+    'tailwind', 'sass', 'less', 'webpack', 'vite',
+    # Analytics/tracking
+    'analytics', 'tracking', 'pixel', 'gtag', 'gaq',
+    'utm', 'campaign', 'click', 'impression', 'conversion',
+    # Date/time patterns that appear as words
+    'jan', 'feb', 'mar', 'apr', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec',
+    'mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun',
+}
+
+
 STOP_WORDS = {
     "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for",
     "of", "with", "by", "from", "as", "is", "was", "were", "be", "been",
@@ -762,6 +798,8 @@ class UserModel:
 
     def get_state(self) -> Dict:
         """Return serializable state."""
+
+
         return {
             'edge_reactivations': {str(k): v for k, v in self.edge_reactivations.items()},
             'query_concepts': list(self.query_concepts),
@@ -785,7 +823,6 @@ class UserModel:
             'belief_state': self.belief_state,
             'interaction_history': self.interaction_history,
         }
-
     def set_state(self, state: Dict):
         """Restore state from dict."""
         self.edge_reactivations = {eval(k): v for k, v in state.get('edge_reactivations', {}).items()}
@@ -2494,7 +2531,7 @@ class CognitiveChatEngine:
         meaningful = set()
         for w in words:
             wc = w.strip("'")
-            if wc not in STOP_WORDS and len(wc) >= 3:
+            if wc not in STOP_WORDS and wc not in WEB_GARBAGE and len(wc) >= 3:
                 meaningful.add(wc)
         if not meaningful:
             return 0
@@ -6377,6 +6414,35 @@ class CognitiveChatEngine:
                                             new_edge, subj_node.vector, other_node.vector,
                                             learning_rate=0.08)
 
+        if replayed > 0 and getattr(self, "_trace_enabled", False):
+            print(f"  [trace]   sleep replay: resolved {replayed} impossible queries")
+
+        # Fix 3: Belief reconciliation — resolve contradictions by recency x confidence
+        if getattr(self, "use_beliefs", True) and self.belief_store.beliefs:
+            before = len(self.belief_store.contradictions)
+            resolved = self.belief_store.reconcile()
+            after = len(self.belief_store.contradictions)
+            if resolved:
+                # Prune contradictory graph edges that conflict with resolved beliefs
+                for (subj, pred), (value, conf, _) in resolved.items():
+                    subj_nids = self._concept_keywords.get(subj.lower(), [])
+                    for nid in subj_nids:
+                        for tid, edge in list(self.graph.get_outgoing(nid)):
+                            tgt_node = self.graph.get_node(tid)
+                            if tgt_node and tgt_node.label and edge.relation_type == pred and tgt_node.label.lower() != value.lower():
+                                edge.weight = max(0.01, edge.weight * 0.3)
+                                edge.confidence = max(0.01, edge.confidence * 0.3)
+                                edges_pruned += 1
+                if getattr(self, "_trace_enabled", False):
+                    print(f"  [trace]   sleep belief: reconciled {len(resolved)} contradictions (pruned {edges_pruned} conflicting edges)")
+
+        # Solution #5: Correct mis-typed relations during sleep
+        if self.turn_count > 0 and self.turn_count % 50 == 0:
+            migrated = self._correct_relation_types()
+            if migrated > 0:
+                if getattr(self, "_trace_enabled", False):
+                    print(f"  [trace]   sleep relation: reclassified {migrated} edges")
+
         # Update sleep metrics
         self._sleep_metrics["edges_strengthened"] += edges_strengthened
         self._sleep_metrics["edges_pruned"] += edges_pruned
@@ -6397,58 +6463,6 @@ class CognitiveChatEngine:
             "episodic_consolidated": episodic_consolidated,
         }
 
-        # Phase 7.6: Sleep-replay impossible queries
-        replayed = 0
-        for iq in self._impossible_queries:
-            if iq.resolved:
-                continue
-            subj_nids = self._concept_keywords.get(iq.subject.lower(), [])
-            if subj_nids:
-                subj_node = self.graph.get_node(subj_nids[0])
-                if subj_node and subj_node.vector is not None:
-                    # Try to auto-wire to all existing concepts with high similarity
-                    new_edges = 0
-                    for other_nid, other_node in self.graph.nodes.items():
-                        if other_nid == subj_nids[0]:
-                            continue
-                        if other_node.vector is not None and other_node.label:
-                            sim = float(np.dot(subj_node.vector, other_node.vector))
-                            if sim > 0.5 and self.graph.get_edge(subj_nids[0], other_nid) is None:
-                                weight = min(0.6, sim * 0.6)
-                                ne = self.graph.add_edge(subj_nids[0], other_nid, weight=weight,
-                                                     relation_type="semantic")
-                                ne.confidence = 0.001  # dormant
-                                self._dormant_edges.add((subj_nids[0], other_nid))
-                                # Run prediction error correction for accuracy
-                                if other_node.vector is not None:
-                                    new_edge = self.graph.get_edge(subj_nids[0], other_nid)
-                                    if new_edge:
-                                        self._update_edge_from_error(
-                                            new_edge, subj_node.vector, other_node.vector,
-                                            learning_rate=0.08)
-                                new_edges += 1
-                    if new_edges > 0:
-                        iq.resolved = True
-                        replayed += 1
-        if replayed > 0 and getattr(self, '_trace_enabled', False):
-            print(f"  [trace]   sleep replay: resolved {replayed} impossible queries")
-
-        # Fix 3: Belief reconciliation — resolve contradictions by recency × confidence
-        if getattr(self, 'use_beliefs', True) and self.belief_store.beliefs:
-            before = len(self.belief_store.contradictions)
-            resolved = self.belief_store.reconcile()
-            after = len(self.belief_store.contradictions)
-            if after > before and getattr(self, '_trace_enabled', False):
-                print(f"  [trace]   sleep belief: reconciled {len(resolved)} contradictions")
-
-        # Solution #5: Correct mis-typed relations during sleep
-        if self.turn_count > 0 and self.turn_count % 50 == 0:
-            migrated = self._correct_relation_types()
-            if migrated > 0:
-                if getattr(self, '_trace_enabled', False):
-                    print(f"  [trace]   sleep relation: reclassified {migrated} edges")
-
-    def print_traces(self, label: str = ""):
         """Print all chain walk traces from the last response."""
         if not self._chain_traces:
             return

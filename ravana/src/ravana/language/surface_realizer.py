@@ -89,15 +89,25 @@ class SurfaceRealizer:
     }
 
     # Abstract nouns that don't take articles
+    # EXPANDED to cover graph concepts (Bug C fix)
     ABSTRACT_NOUNS = {
         "life", "death", "love", "hate", "truth", "beauty",
         "justice", "freedom", "knowledge", "wisdom", "time",
         "nature", "science", "art", "history", "meaning",
         "trust", "hope", "fear", "joy", "grief",
         "empathy", "respect", "culture", "power", "responsibility",
+        "courage", "patience", "kindness", "honesty", "loyalty",
+        "gratitude", "compassion", "generosity", "humility", "integrity",
+        "dignity", "prudence", "grace", "mercy", "forgiveness",
+        "peace", "faith", "fate", "destiny", "consciousness",
+        "awareness", "education", "healthcare", "democracy", "diversity",
+        "sustainability", "mindfulness", "meditation", "poverty",
+        "hunger", "disease", "wealth", "war", "society",
+        "identity", "culture", "tradition", "heritage",
     }
 
     # Uncountable nouns (no "a"/"an")
+    # EXPANDED to cover graph concepts (Bug C fix)
     UNCOUNTABLE_NOUNS = {
         "knowledge", "wisdom", "information", "music", "research",
         "evidence", "advice", "news", "progress", "nature",
@@ -105,6 +115,12 @@ class SurfaceRealizer:
         "trust", "justice", "freedom", "empathy", "respect",
         "hope", "fear", "anxiety", "joy", "grief",
         "power", "culture", "art", "science", "history",
+        "meaning", "truth", "beauty", "courage", "patience",
+        "kindness", "honesty", "loyalty", "gratitude", "compassion",
+        "generosity", "humility", "integrity", "dignity", "prudence",
+        "temperance", "fortitude", "charity", "mercy", "forgiveness",
+        "peace", "faith", "grace", "fate", "destiny",
+        "consciousness", "awareness", "mindfulness",
         # Gerunds (-ing forms used as uncountable nouns)
         "bonding", "learning", "understanding", "thinking", "feeling",
         "running", "walking", "swimming", "reading", "writing",
@@ -112,6 +128,7 @@ class SurfaceRealizer:
         "living", "dying", "growing", "changing", "moving",
         "being", "doing", "having", "making", "taking",
         "giving", "getting", "seeing", "hearing", "knowing",
+        "trying", "caring", "sharing", "helping", "loving",
     }
 
     # Singular nouns ending in 's' (fields of study, diseases, etc.)

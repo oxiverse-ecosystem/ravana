@@ -201,38 +201,61 @@ class PrefrontalWorkspace:
         return plan
 
     # ─── Planning Strategies ───
-
+    # Enhanced with more diverse explanatory patterns (Bug E fix)
+    # Neuroscience basis: prefrontal cortex builds causal models, not just association lists
+    
     def _plan_explain(self, subject: str, associations: List[Tuple[str, float]],
                       seen: set, qtype: str) -> DiscoursePlan:
-        """Plan: [EXPLAIN → ELABORATE → CONTRAST/CONNECT]"""
+        """Plan: [EXPLAIN → ELABORATE → CONTRAST/CONNECT]
+        
+        Produces multi-perspective responses instead of flat association lists.
+        """
         plan = DiscoursePlan(original_subject=subject, question_type=qtype)
         subj_lower = subject.lower()
 
-        # Sentence 1: EXPLAIN the subject (use best semantic association)
+        # Sentence 1: EXPLAIN - what the subject is, its core nature
         target1 = self._pick_best_association(associations, seen, exclude_verbs=True)
+        # Try to get a more specific explanation target (not just top association)
+        deeper = self._pick_best_association(associations, seen, exclude_subject=target1 if target1 else subject)
+        
+        # Use deeper association for more explanatory intent
         plan.intents.append(DiscourseIntent(
             type=DiscourseType.EXPLAIN,
             subject=subject,
             primary_relation="semantic",
             target_concept=target1,
+            secondary_concept=deeper if deeper else "",
             seen_so_far=seen.copy(),
         ))
         if target1:
             seen.add(target1.lower())
+        if deeper:
+            seen.add(deeper.lower())
 
-        # Sentence 2: ELABORATE on the target or pick another association
-        target2 = self._pick_best_association(associations, seen, exclude_subject=target1 if target1 else subject)
-        if not target2:
-            target2 = self._pick_random_relation(associations, seen)
-        plan.intents.append(DiscourseIntent(
-            type=DiscourseType.ELABORATE,
-            subject=target1 if target1 else subject,
-            primary_relation="semantic",
-            target_concept=target2,
-            seen_so_far=seen.copy(),
-        ))
-        if target2:
-            seen.add(target2.lower())
+        # Sentence 2: ELABORATE — go deeper with causal or analogical reasoning
+        causal_target = self._pick_best_association(associations, seen, prefer_causal=True)
+        if causal_target:
+            plan.intents.append(DiscourseIntent(
+                type=DiscourseType.CAUSAL_EXPLAIN,
+                subject=subject,
+                primary_relation="causal",
+                target_concept=causal_target,
+                seen_so_far=seen.copy(),
+            ))
+            seen.add(causal_target.lower())
+        else:
+            target2 = self._pick_best_association(associations, seen, exclude_subject=target1 if target1 else subject)
+            if not target2:
+                target2 = self._pick_random_relation(associations, seen)
+            plan.intents.append(DiscourseIntent(
+                type=DiscourseType.ELABORATE,
+                subject=target1 if target1 else subject,
+                primary_relation="semantic",
+                target_concept=target2,
+                seen_so_far=seen.copy(),
+            ))
+            if target2:
+                seen.add(target2.lower())
 
         # Sentence 3: CONTRAST or CONNECT back to broader context
         target3 = self._pick_best_association(associations, seen, prefer_contrast=True)
@@ -241,7 +264,7 @@ class PrefrontalWorkspace:
             type=intent3_type,
             subject=subject,
             primary_relation="contrastive" if intent3_type == DiscourseType.CONTRAST else "semantic",
-            target_concept=target3 or "life",
+            target_concept=target3 or "",
             end_with_question=(target3 is None),  # ask back if nothing left to say
             seen_so_far=seen.copy(),
         ))
@@ -250,11 +273,18 @@ class PrefrontalWorkspace:
 
     def _plan_causal_explain(self, subject: str, associations: List[Tuple[str, float]],
                               seen: set, qtype: str) -> DiscoursePlan:
-        """Plan: [CAUSAL_EXPLAIN → ELABORATE → CONNECT]"""
+        """Plan: [CAUSAL_EXPLAIN → ELABORATE → CONNECT]
+        
+        For 'why' and 'how' questions - produces deeper causal explanations
+        rather than just listing associations.
+        """
         plan = DiscoursePlan(original_subject=subject, question_type=qtype)
 
         # Sentence 1: CAUSAL — what causes/creates the subject
         target1 = self._pick_best_association(associations, seen, prefer_causal=True)
+        if not target1:
+            # Fall back to any semantic association for explanatory power
+            target1 = self._pick_best_association(associations, seen)
         plan.intents.append(DiscourseIntent(
             type=DiscourseType.CAUSAL_EXPLAIN,
             subject=subject,
@@ -265,8 +295,10 @@ class PrefrontalWorkspace:
         if target1:
             seen.add(target1.lower())
 
-        # Sentence 2: ELABORATE — what the subject causes
+        # Sentence 2: ELABORATE — what the subject causes/leads to (effect)
         target2 = self._pick_best_association(associations, seen, prefer_causal=True, exclude_subject=target1 if target1 else subject)
+        if not target2:
+            target2 = self._pick_best_association(associations, seen, exclude_subject=target1 if target1 else subject)
         plan.intents.append(DiscourseIntent(
             type=DiscourseType.ELABORATE,
             subject=target1 if target1 else subject,
@@ -278,12 +310,12 @@ class PrefrontalWorkspace:
         if target2:
             seen.add(target2.lower())
 
-        # Sentence 3: CONNECT — link to a broader concept
+        # Sentence 3: CONNECT — link to a broader concept or practical implication
         plan.intents.append(DiscourseIntent(
             type=DiscourseType.CONNECT,
             subject=subject,
             primary_relation="semantic",
-            target_concept=self._pick_best_association(associations, seen) or "world",
+            target_concept=self._pick_best_association(associations, seen) or "",
             end_with_question=True,
             seen_so_far=seen.copy(),
         ))

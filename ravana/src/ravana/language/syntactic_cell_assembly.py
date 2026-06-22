@@ -141,6 +141,7 @@ class SyntacticCellAssembly:
 
         # Countability tracking for article insertion
         # Seeded with common uncountable/abstract nouns
+        # EXPANDED to cover more abstract concepts the graph might contain
         self._uncountable_nouns: Set[str] = {
             'knowledge', 'wisdom', 'information', 'music', 'research',
             'evidence', 'advice', 'news', 'progress', 'nature',
@@ -149,6 +150,12 @@ class SyntacticCellAssembly:
             'hope', 'fear', 'anxiety', 'joy', 'grief',
             'power', 'responsibility', 'culture', 'art',
             'science', 'history', 'meaning', 'truth', 'beauty',
+            'courage', 'patience', 'kindness', 'honesty', 'loyalty',
+            'gratitude', 'compassion', 'generosity', 'humility', 'integrity',
+            'dignity', 'prudence', 'temperance', 'fortitude', 'charity',
+            'wisdom', 'faith', 'grace', 'mercy', 'forgiveness',
+            'peace', 'justice', 'equality', 'diversity', 'sustainability',
+            'consciousness', 'awareness', 'attention', 'mindfulness',
             # Gerunds (-ing forms used as uncountable nouns)
             'bonding', 'learning', 'understanding', 'thinking', 'feeling',
             'running', 'walking', 'swimming', 'reading', 'writing',
@@ -156,6 +163,7 @@ class SyntacticCellAssembly:
             'living', 'dying', 'growing', 'changing', 'moving',
             'being', 'doing', 'having', 'making', 'taking',
             'giving', 'getting', 'seeing', 'hearing', 'knowing',
+            'trying', 'caring', 'sharing', 'helping', 'loving',
         }
 
         # Pronouns for substitution
@@ -168,10 +176,21 @@ class SyntacticCellAssembly:
         }
 
         # Abstract concepts that don't take articles
+        # EXPANDED to cover graph concepts that shouldn't have "a"/"an"
         self._abstract_nouns: Set[str] = {
             'life', 'death', 'love', 'hate', 'truth', 'beauty',
             'justice', 'freedom', 'knowledge', 'wisdom', 'time',
             'nature', 'science', 'art', 'history', 'meaning',
+            'trust', 'hope', 'faith', 'grace', 'luck', 'fate',
+            'destiny', 'karma', 'dharma', 'nirvana', 'heaven', 'hell',
+            'god', 'spirit', 'soul', 'consciousness', 'awareness',
+            'peace', 'war', 'wealth', 'poverty', 'hunger', 'disease',
+            'education', 'healthcare', 'democracy', 'tyranny',
+            'courage', 'patience', 'kindness', 'honesty', 'gratitude',
+            'compassion', 'generosity', 'humility', 'integrity',
+            'dignity', 'prudence', 'temperance', 'fortitude', 'charity',
+            'mercy', 'forgiveness', 'equality', 'diversity',
+            'sustainability', 'mindfulness', 'meditation',
         }
 
     def seed_from_pos(self, concept_pos: Dict[str, str]):
@@ -332,23 +351,56 @@ class SyntacticCellAssembly:
         - Adjectives and verbs → no article (don't function as NPs alone)
         - Countable singular → "a"/"an" or "the"
         - First mention: "a/an", subsequent: "the"
+        - Web-garbage concepts (no GloVe vector) → no article
+        - Concepts ending with common adjective suffixes → no article
         """
         cl = concept.lower()
+        # Non-noun POS → no article
         if pos in ('pron', 'interj', 'conj', 'prep', 'det', 'adj', 'verb', 'v'):
             return ""
+        # Abstract nouns → no article (check FIRST to catch words like 'gas', 'atlas')
         if cl in self._abstract_nouns:
             return ""
+        # Uncountable nouns → no article
         if cl in self._uncountable_nouns:
             return ""
+        # Short words → no article (likely abbreviations, garbage)
         if len(cl) <= 2:
             return ""
-        # Plural nouns (ending in s) don't take "a"/"an"
-        if cl.endswith('s') and cl not in {'news', 'physics', 'mathematics', 'economics', 'politics', 'ethics'}:
+        # Plural-looking nouns that aren't known singular exceptions → no article
+        # Check AFTER abstract/uncountable to avoid false positives on words like 'gas', 'grass', 'lens'
+        if cl.endswith('s') and cl not in {
+            'news', 'physics', 'mathematics', 'economics', 'politics', 'ethics',
+            'linguistics', 'statistics', 'genetics', 'dynamics', 'kinematics',
+            'acoustics', 'optics', 'mechanics', 'thermodynamics',
+            'gas', 'atlas', 'campus', 'virus', 'bus', 'lens', 'bonus',
+            'genius', 'cactus', 'alumnus', 'focus', 'corpus', 'status',
+        }:
             return ""
-        # Subject gets "the" for specificity, object is more flexible
+        # Common adjective suffixes → likely not a noun, no article
+        adj_suffixes = ('ous', 'ful', 'less', 'able', 'ible', 'ical', 'ive',
+                        'like', 'ish', 'some', 'ward', 'fold', 'most')
+        if cl.endswith(adj_suffixes):
+            return ""
+        # Web-garbage / non-English indicators: no article
+        # These patterns suggest the word isn't a real English noun
+        garbage_indicators = (
+            cl.startswith('http'), cl.startswith('www'),
+            cl.startswith('font'), cl.startswith('class'),
+            cl.startswith('div'), cl.startswith('span'),
+            cl.startswith('var'), cl.startswith('func'),
+            cl.startswith('btn'), cl.startswith('img'),
+            cl.startswith('href'), cl.startswith('src'),
+            cl.startswith('data'), cl.startswith('meta'),
+            'gform' in cl, 'https' in cl, 'http' in cl,
+            'javascript' in cl, 'stylesheet' in cl,
+        )
+        if any(garbage_indicators):
+            return ""
+        # Subject gets "the" for specificity
         if is_subject:
             return "the"
-        # For objects: check if it starts with a vowel
+        # For objects: use a/an based on vowel start
         if cl[0] in 'aeiou':
             return "an"
         return "a"

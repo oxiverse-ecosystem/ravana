@@ -287,13 +287,48 @@ class WebLearner:
         except Exception:
             return None
 
+    # Web garbage words that should never become graph concepts
+    # These come from HTML/CSS/JS, URLs, and programming artifacts
+    WEB_GARBAGE: Set[str] = {
+        # HTML/CSS artifacts
+        'html', 'css', 'js', 'div', 'span', 'class', 'style', 'script', 'meta',
+        'href', 'src', 'img', 'br', 'hr', 'head', 'body', 'font', 'nav',
+        'header', 'footer', 'section', 'article', 'aside', 'main',
+        'width', 'height', 'color', 'margin', 'padding', 'border',
+        'background', 'display', 'position', 'float', 'clear', 'overflow',
+        'block', 'inline', 'flex', 'grid', 'align', 'justify', 'content',
+        # URL/web artifacts
+        'http', 'https', 'www', 'com', 'org', 'net', 'io', 'gov', 'edu',
+        'url', 'uri', 'link', 'href', 'src', 'domain', 'cookie',
+        'query', 'params', 'token', 'oauth', 'api', 'json', 'xml',
+        # JavaScript/programming
+        'var', 'let', 'const', 'func', 'function', 'return', 'import',
+        'export', 'module', 'require', 'console', 'log', 'debug',
+        'undefined', 'null', 'true', 'false', 'typeof', 'instanceof',
+        'array', 'object', 'string', 'number', 'boolean', 'promise',
+        'async', 'await', 'callback', 'event', 'listener', 'handler',
+        'prototype', 'constructor', 'length', 'index', 'value',
+        # Common tech/platform names that are not general English words
+        'gform', 'wordpress', 'joomla', 'drupal', 'shopify', 'squarespace',
+        'wix', 'webflow', 'github', 'gitlab', 'bitbucket', 'heroku',
+        'netlify', 'vercel', 'aws', 'azure', 'gcp', 'docker', 'kubernetes',
+        'react', 'angular', 'vue', 'svelte', 'jquery', 'bootstrap',
+        'tailwind', 'sass', 'less', 'webpack', 'vite', 'eslint', 'prettier',
+        # Analytics/tracking
+        'analytics', 'tracking', 'pixel', 'gtag', 'gaq', 'analytics',
+        'utm', 'campaign', 'click', 'impression', 'conversion',
+        # Date/time patterns that appear as words
+        'jan', 'feb', 'mar', 'apr', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec',
+        'mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun',
+    }
+
     def _learn_from_text(self, text: str, topic: str, source_url: str = "") -> int:
         """Extract keywords, add concepts, form connections, train decoder."""
         words = re.findall(r"[a-zA-Z']{3,}", text.lower())
         word_counts = {}
         for w in words:
             wc = w.strip("'")
-            if wc not in STOP_WORDS and len(wc) >= 3:
+            if wc not in STOP_WORDS and len(wc) >= 3 and wc not in self.WEB_GARBAGE:
                 word_counts[wc] = word_counts.get(wc, 0) + 1
 
         if not word_counts:
