@@ -1054,9 +1054,14 @@ def run_cross_domain_experiment(config: CrossDomainConfig) -> Dict[str, Any]:
     # ── Phase 3: Cross-Domain Relation Alignment ──
     print("\n[Phase 3] Cross-domain relation alignment...")
     model.set_domain(0)
+    model.alignment_lr = 0.02  # More aggressive alignment
     # Run alignment steps if method exists
     if hasattr(model, '_cross_domain_relation_alignment'):
-        for align_step in range(30):
+        for align_step in range(100):
+            if align_step % 20 == 0:
+                align_q = model.measure_cross_domain_alignment()
+                causal_val = align_q.get(0, {}).get('causal', 0.0) if isinstance(align_q, dict) else 0.0
+                print(f"    [Align {align_step}] causal_sim={causal_val:.4f}")
             model._cross_domain_relation_alignment()
         print("  Alignment complete.")
     else:
@@ -1096,7 +1101,11 @@ def run_cross_domain_experiment(config: CrossDomainConfig) -> Dict[str, Any]:
     # Run alignment after sleep too if method exists
     if hasattr(model, '_cross_domain_relation_alignment'):
         print("  Running cross-domain relation alignment (post-sleep)...")
-        for align_step in range(20):
+        for align_step in range(50):
+            if align_step % 20 == 0:
+                align_q = model.measure_cross_domain_alignment()
+                causal_val = align_q.get(0, {}).get('causal', 0.0) if isinstance(align_q, dict) else 0.0
+                print(f"    [Align PostSleep {align_step}] causal_sim={causal_val:.4f}")
             model._cross_domain_relation_alignment()
     else:
         print("  Skipping post-sleep alignment - method not available")

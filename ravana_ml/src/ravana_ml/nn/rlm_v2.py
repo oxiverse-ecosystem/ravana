@@ -385,15 +385,17 @@ class RLMv2(Module):
         # A latent-space RP path is required whenever embed_dim != latent_dim.
         self._rp_use_encoder_latent = self.embed_dim != self.latent_dim
 
-        # ── W_rel with Full Shared Base + Per-Domain Low-Rank ──
-        # W_rel[domain, type] = W_base[type] + U_d[domain, type].T @ V_d[domain, type]
-        # W_base is a full matrix so cross-domain alignment can apply full gradients
-        # (original approach used a single full matrix and achieved 0.68 alignment).
+        # ── Diagonal W_base + Per-Domain Low-Rank U/V ──
+        # W_rel[domain, type] = diag(W_base[type]) + U_d[domain, type].T @ V_d[domain, type]
+        # Diagonal W_base is intentionally constrained — forces alignment to
+        # generalize through the low-rank U/V factors rather than overfitting
+        # to the shared diagonal. The original 0.68 alignment was with
+        # contaminated data and is not reproducible with clean holdouts.
         n_rel_types = len(RELATION_TYPES)
         rank = kwargs.get("low_rank_rank", 8)
         self._rp_low_rank_rank = rank
-        # W_base[type]: full shared base matrix (identity init)
-        self._rp_W_base = np.tile(np.eye(self.latent_dim, dtype=np.float32)[np.newaxis, :, :], (n_rel_types, 1, 1))
+        # W_base[type]: diagonal base matrix stored as vector (identity init)
+        self._rp_W_base = np.ones((n_rel_types, self.latent_dim), dtype=np.float32)
         # U_d, V_d: low-rank factors per (domain, type)
         rng_rp = np.random.RandomState(42)
         scale = np.sqrt(2.0 / self.latent_dim) * 0.1
@@ -2355,11 +2357,11 @@ class RLMv2(Module):
 
 
     def _compose_W_rel(self, domain_id: int, rel_type_idx: int) -> np.ndarray:
-        """Compose W_rel from factors: W_base + U.T @ V."""
-        W_base = self._rp_W_base[rel_type_idx]
+        """Compose W_rel from factors: diag(W_base) + U.T @ V."""
+        w_vec = self._rp_W_base[rel_type_idx]
         U = self._rp_U_d[domain_id, rel_type_idx]
         V = self._rp_V_d[domain_id, rel_type_idx]
-        return (W_base + U.T @ V)
+        return (np.diag(w_vec).astype(np.float32) + U.T @ V)
 
     def _rp_forward(self, subject_tid, rel_type_idx, route_softly=None, verb_word=None):
         """Bilinear RP forward using raw token embeddings (bypass collapsed encoder).
@@ -2647,10 +2649,10 @@ class RLMv2(Module):
             print("        depends on autoencoder producing semantically aligned embeddings.")
             print("        Verb-stem offsets (use_verb_offset) provide the primary path.")
 
-        # Full W_base + low-rank gradient routing
+        # Low-rank gradient routing (diag W_base + U,V)
         U = self._rp_U_d[domain_id, rel_type_idx]
         V = self._rp_V_d[domain_id, rel_type_idx]
-        d_w = dW_rel  # Full matrix gradient for W_base
+        d_w = np.diag(dW_rel)
         dU = V @ dW_rel.T
         dV = U @ dW_rel
         for g in [dU, dV]:
@@ -5347,22 +5349,12 @@ class RLMv2(Module):
             self._dec_b1 = state["_dec_b1"]
             self._dec_W2 = state["_dec_W2"]
             self._dec_b2 = state["_dec_b2"]
-            # Load W_rel decomposition (post P2 refactor)
+            # Load low-rank W_rel decomposition
             if "_rp_W_base" in state:
-                loaded = state["_rp_W_base"]
-                if loaded.ndim == 2:
-                    # Old diagonal format (n_rel, D) -> convert to full matrix (n_rel, D, D)
-                    n_rel, D = loaded.shape
-                    full = np.tile(np.eye(D, dtype=np.float32)[np.newaxis, :, :], (n_rel, 1, 1))
-                    for i in range(n_rel):
-                        full[i] += np.diag(loaded[i] - 1.0)
-                    self._rp_W_base = full
-                    self._rp_mW_base = np.zeros_like(full)
-                else:
-                    self._rp_W_base = loaded.copy()
-                    self._rp_mW_base = state["_rp_mW_base"].copy()
+                self._rp_W_base = state["_rp_W_base"].copy()
                 self._rp_U_d = state["_rp_U_d"].copy()
                 self._rp_V_d = state["_rp_V_d"].copy()
+                self._rp_mW_base = state["_rp_mW_base"].copy()
                 self._rp_mU_d = state["_rp_mU_d"].copy()
                 self._rp_mV_d = state["_rp_mV_d"].copy()
 
@@ -6183,9 +6175,10 @@ class RLMv2(Module):
                 self._rp_V_d[did, rel_idx] -= lr * dV
                 grads_per_domain.append(grad_mean)
 
-            # Update shared full base from average gradient across domains
+            # Update shared diagonal base from average gradient across domains
             avg_grad = np.mean(grads_per_domain, axis=0)
-            self._rp_W_base[rel_idx] -= lr * avg_grad
+            d_w = np.diag(avg_grad)
+            self._rp_W_base[rel_idx] -= lr * d_w
 
             results[rel_name] = float(np.linalg.norm(avg_grad))
         return results
