@@ -246,12 +246,18 @@ class TelegramReporter:
         
         return msg
     
+    def _field(self, item: Any, key: str, default: Any = None) -> Any:
+        if isinstance(item, dict):
+            return item.get(key, default)
+        return getattr(item, key, default)
+    
     # ─── Private Formatting Methods ────────────────────────────────────────────
     
     def _format_grounding_report(self, data: dict) -> str:
         news_items = data.get('news', [])[:5]
         workspace_bids = data.get('workspace_bids', [])[:5]
         top_bid = workspace_bids[0] if workspace_bids else None
+        summary = data.get('summary', '')
         
         lines = [
             "🌍 Reality Grounding Report",
@@ -263,9 +269,15 @@ class TelegramReporter:
             "TOP STORIES:",
         ]
         
+        if summary:
+            lines.append(f"Summary: {summary[:180]}")
+            lines.append("")
+        
         for i, item in enumerate(news_items, 1):
-            lines.append(f"{i}. {item.get('title', 'No title')[:80]}")
-            lines.append(f"   {item.get('summary', '')[:100]}...")
+            title = str(self._field(item, 'title', 'No title'))
+            item_summary = str(self._field(item, 'summary', ''))
+            lines.append(f"{i}. {title[:80]}")
+            lines.append(f"   {item_summary[:100]}...")
 
         if workspace_bids:
             lines.append("")
@@ -279,11 +291,11 @@ class TelegramReporter:
                 if i >= 3:
                     break
         
-        alignment = data.get('alignment_check', {})
+        alignment = data.get('alignment_check') or data.get('alignment') or {}
         if alignment:
             lines.append("")
-            lines.append(f"Alignment: {alignment.get('verdict', 'unknown').upper()}")
-            lines.append(f"Score: {alignment.get('alignment_score', 0):.2f}")
+            lines.append(f"Alignment: {str(self._field(alignment, 'verdict', 'unknown')).upper()}")
+            lines.append(f"Score: {float(self._field(alignment, 'alignment_score', 0)):.2f}")
         if top_bid:
             lines.append(f"Top bid: {top_bid.get('source', 'unknown')} @ {top_bid.get('urgency', 0):.2f}")
         
