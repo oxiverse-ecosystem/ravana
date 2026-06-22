@@ -1054,16 +1054,11 @@ def run_cross_domain_experiment(config: CrossDomainConfig) -> Dict[str, Any]:
     # ── Phase 3: Cross-Domain Relation Alignment ──
     print("\n[Phase 3] Cross-domain relation alignment...")
     model.set_domain(0)
-    model.alignment_lr = 0.02  # More aggressive alignment
-    # Run alignment steps if method exists
+    model.alignment_lr = 0.02  # 100 steps needed for convergence to ceiling (~0.38)
     if hasattr(model, '_cross_domain_relation_alignment'):
-        for align_step in range(100):
-            if align_step % 20 == 0:
-                align_q = model.measure_cross_domain_alignment()
-                causal_val = align_q.get(0, {}).get('causal', 0.0) if isinstance(align_q, dict) else 0.0
-                print(f"    [Align {align_step}] causal_sim={causal_val:.4f}")
+        for _ in range(100):
             model._cross_domain_relation_alignment()
-        print("  Alignment complete.")
+        print("  Alignment complete (100 steps).")
     else:
         print("  Skipping - method not available in this model version")
     
