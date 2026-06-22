@@ -1709,16 +1709,15 @@ class RLMv2(Module):
 
     def _adapt_entity_adapter_at_test_time(self, subject_tid: int, verb_word: str, target_tid: int,
                                             n_steps: int = 10, lr: float = 0.05,
-                                            contrastive_alpha: float = 0.0,
-                                            contrastive_k: int = 3) -> Tuple[np.ndarray, np.ndarray]:
+                                            temperature: float = 0.0) -> Tuple[np.ndarray, np.ndarray]:
         """Test-time adapter adaptation for held-out subjects using verb offset loss.
 
-        Uses cosine distance loss to match evaluation metric. Optionally adds
-        contrastive loss to push predictions away from nearest distractor tokens.
+        Uses cosine distance loss (temp=0) or softmax cross-entropy over all tokens (temp>0).
+        Cross-entropy directly optimizes the ranking metric by pushing probability mass
+        toward the target token and away from all distractors simultaneously.
 
         Args:
-            contrastive_alpha: weight of contrastive push-away loss (0 = disabled)
-            contrastive_k: number of nearest distractors to push away from
+            temperature: softmax temperature for cross-entropy (0 = use cosine distance)
         """
         if not self.use_verb_offset:
             return self._get_or_adapt_entity_adapter(subject_tid, verb_word, target_tid)
@@ -1737,8 +1736,9 @@ class RLMv2(Module):
 
         offset = self._verb_offsets[domain_id][stem]
 
-        # Precompute normalized token embeddings for contrastive distractor search
+        # Precompute normalized token embeddings for cross-entropy over all tokens
         all_tokens = self.token_embed.weight.data
+        n_tokens = len(all_tokens)
         token_norms = np.linalg.norm(all_tokens, axis=1)
         valid = token_norms > 1e-8
         normed_tokens = np.zeros_like(all_tokens)
@@ -1746,7 +1746,7 @@ class RLMv2(Module):
         
         momentum = self._entity_adapter_momentum
         adapter_lr = lr
-        use_contrastive = contrastive_alpha > 0 and contrastive_k > 0
+        use_xent = temperature > 0
 
         for step in range(n_steps):
             # Forward: adapted = subject_embed @ U.T @ V
@@ -1755,49 +1755,46 @@ class RLMv2(Module):
             predicted = adapted + offset
 
             pred_norm = np.linalg.norm(predicted)
-            tgt_norm = np.linalg.norm(target_embed)
-            if pred_norm > 1e-8 and tgt_norm > 1e-8:
+            if pred_norm > 1e-8:
                 pred_normed = predicted / pred_norm
-                tgt_normed = target_embed / tgt_norm
-                cos_sim = float(np.dot(pred_normed, tgt_normed))
-                cos_sim = np.clip(cos_sim, -1.0, 1.0)
-                pull_loss = 1.0 - cos_sim
-                d_predicted = (cos_sim * pred_normed - tgt_normed) / pred_norm
 
-                # Contrastive push-away from nearest distractors
-                if use_contrastive:
-                    sims = pred_normed @ normed_tokens.T
-                    # Exclude target token
-                    sims[target_tid] = -np.inf
-                    top_k = min(contrastive_k, len(sims) - 1)
-                    distractor_idxs = np.argsort(sims)[-top_k:]
-                    
-                    cont_loss = 0.0
-                    d_cont = np.zeros_like(d_predicted)
-                    for did in distractor_idxs:
-                        d_sim = sims[did]
-                        # Push away: loss = -alpha * log(1 - sim) when sim > 0
-                        # Simpler: loss = alpha * sim  (negative cosine similarity)
-                        # d(loss)/d(pred) = -alpha * d(sim)/d(pred)
-                        if d_sim > -0.5:
-                            d_normed = normed_tokens[did]
-                            # d(sim)/d(pred) = (d_normed - sim * pred_normed) / pred_norm
-                            d_sim_d_pred = (d_normed - d_sim * pred_normed) / pred_norm
-                            d_cont += -d_sim_d_pred  # gradient of -sim (push away)
-                            cont_loss += -d_sim  # -sim so push-away penalizes high sim
-                    
-                    if cont_loss != 0.0:
-                        d_cont *= contrastive_alpha / len(distractor_idxs)
-                        d_predicted += d_cont
-                        cont_loss = contrastive_alpha * cont_loss / len(distractor_idxs)
-                        loss = pull_loss + cont_loss
-                    else:
-                        loss = pull_loss
+                if use_xent:
+                    # Cross-entropy over all tokens
+                    # logits_i = cos_sim(predicted, token_i)
+                    logits = pred_normed @ normed_tokens.T
+                    # Temperature scaling
+                    logits_scaled = logits / temperature
+                    # Softmax (stable: subtract max)
+                    logits_scaled -= np.max(logits_scaled)
+                    exp_logits = np.exp(logits_scaled)
+                    probs = exp_logits / np.sum(exp_logits)
+                    # Cross-entropy loss
+                    xent_loss = -np.log(max(probs[target_tid], 1e-15))
+                    # d(loss)/d(sim_i) = (p_i - delta_{i,target}) / T
+                    grad_sim = (probs - np.eye(n_tokens)[target_tid]) / temperature
+                    # d(sim_i)/d(pred) = (normed_i - sim_i * pred_normed) / pred_norm
+                    d_predicted = np.sum(
+                        grad_sim[:, np.newaxis] * (normed_tokens - logits[:, np.newaxis] * pred_normed) / pred_norm,
+                        axis=0
+                    )
+                    tgt_normed = normed_tokens[target_tid]
+                    target_cos = float(np.dot(pred_normed, tgt_normed))
+                    loss = xent_loss
                 else:
-                    loss = pull_loss
+                    # Cosine distance loss (original behavior)
+                    tgt_norm = np.linalg.norm(target_embed)
+                    if tgt_norm > 1e-8:
+                        tgt_normed = target_embed / tgt_norm
+                    else:
+                        tgt_normed = target_embed
+                    cos_sim = float(np.dot(pred_normed, tgt_normed))
+                    cos_sim = np.clip(cos_sim, -1.0, 1.0)
+                    loss = 1.0 - cos_sim
+                    d_predicted = (cos_sim * pred_normed - tgt_normed) / pred_norm
             else:
-                if use_contrastive:
-                    contrastive_alpha = 0.0
+                if use_xent:
+                    temperature = 0.0
+                    use_xent = False
                 residual = predicted - target_embed
                 loss = 0.5 * np.sum(residual ** 2)
                 d_predicted = residual
@@ -1820,10 +1817,10 @@ class RLMv2(Module):
             U += mU
             V += mV
 
-            if step % 3 == 0:
-                cos_after = 1.0 - pull_loss if isinstance(pull_loss, float) else 1.0 - loss if not isinstance(loss, float) else loss
-                if use_contrastive:
-                    print(f"    [Adapt Step {step}] pull_cos={1.0-pull_loss:.4f} cont_loss={cont_loss:.4f} total={loss:.4f}")
+            if step % 5 == 0:
+                if use_xent:
+                    tp = probs[target_tid]
+                    print(f"    [Adapt Step {step}] xent={xent_loss:.4f} p_target={tp:.4f} cos_target={target_cos:.4f}")
                 else:
                     print(f"    [Adapt Step {step}] cos_dist={loss:.4f} cos_sim={1.0-loss:.4f}")
 
