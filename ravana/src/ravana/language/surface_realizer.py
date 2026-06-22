@@ -131,12 +131,33 @@ class SurfaceRealizer:
     }
 
     # Discourse markers (mapped from intent type)
+    # Expanded for more variety: each type has 8+ options with different styles
     DISCOURSE_MARKERS = {
-        "elaborate": ["furthermore", "in addition", "also", "moreover", "besides"],
-        "contrast": ["however", "on the other hand", "yet", "but", "at the same time"],
-        "connect": ["similarly", "likewise", "in the same way", "correspondingly"],
-        "explain": ["", "", "in fact", "indeed"],
-        "conclude": ["ultimately", "in essence", "at its core", "fundamentally"],
+        "elaborate": [
+            "furthermore", "in addition", "also", "moreover", "besides",
+            "on top of that", "what is more", "not only that", "additionally",
+            "another thing is", "plus", "to add to that",
+        ],
+        "contrast": [
+            "however", "on the other hand", "yet", "but", "at the same time",
+            "then again", "that said", "still", "nevertheless", "nonetheless",
+            "even so", "despite this", "conversely", "although",
+        ],
+        "connect": [
+            "similarly", "likewise", "in the same way", "correspondingly",
+            "by the same token", "along those lines", "in a similar vein",
+            "equally", "just as", "in parallel", "analogously",
+        ],
+        "explain": [
+            "", "", "in fact", "indeed",
+            "actually", "in other words", "more precisely", "specifically",
+            "to be exact", "namely", "that is", "put differently",
+        ],
+        "conclude": [
+            "ultimately", "in essence", "at its core", "fundamentally",
+            "all things considered", "when you think about it", "in the end",
+            "at the end of the day", "basically", "deep down",
+        ],
     }
 
     def __init__(self):

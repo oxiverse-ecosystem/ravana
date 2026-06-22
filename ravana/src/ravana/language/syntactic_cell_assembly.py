@@ -82,28 +82,40 @@ class SyntacticCellAssembly:
     }
 
     # Verb phrases per relation type (seeded, refined by cerebellar n-gram)
+    # Expanded for more natural-sounding variety
     VERB_PHRASES = {
         'semantic': [
             'is closely tied to', 'relates to', 'connects with',
             'links to', 'goes hand in hand with', 'is associated with',
+            'is connected to', 'has a relationship with', 'is bound up with',
+            'is part of', 'ties into', 'is deeply connected with',
         ],
         'causal': [
             'leads to', 'creates', 'causes', 'brings about',
             'influences', 'gives rise to', 'results in',
+            'sparks', 'triggers', 'fuels', 'contributes to',
+            'sets off', 'prompts', 'drives',
         ],
         'contrastive': [
             'contrasts with', 'differs from', 'stands against',
             'challenges', 'is the opposite of',
+            'clashes with', 'pulls against', 'runs counter to',
+            'is at odds with', 'pushes back against', 'diverges from',
         ],
         'analogical': [
             'is like', 'resembles', 'mirrors', 'echoes', 'is similar to',
+            'can be compared to', 'is akin to', 'parallels',
+            'reflects', 'brings to mind', 'reminds us of',
         ],
         'temporal': [
             'comes before', 'follows', 'leads into', 'precedes',
             'happens before', 'occurs after',
+            'ushers in', 'paves the way for', 'sets the stage for',
+            'gives way to', 'traces back to',
         ],
         'episodic': [
             'connects to', 'is linked with', 'relates to',
+            'brings up', 'recalls', 'reminds us of',
         ],
     }
 

@@ -27,7 +27,7 @@ to predict the next embedding via local predictive coding error signals
 import numpy as np
 from typing import Dict, List, Optional, Tuple, Set, Callable
 from ..tensor import StateTensor, Parameter, RawTensor
-from .module import Module, Linear, Embedding, GRUCell, LayerNorm, Dropout, ConceptAttentionHead
+from .module import Module, Linear, Embedding, GRUCell, Dropout, ConceptAttentionHead
 import re
 
 
@@ -87,8 +87,8 @@ class NeuralDecoder(Module):
 
     def __init__(self, vocab_size: int, embed_dim: int = 64,
                  hidden_dim: int = 128, n_attention_heads: int = 2,
-                 contrastive_weight: float = 0.3,
-                 contrastive_negatives: int = 5):
+                 contrastive_weight: float = 0.5,
+                 contrastive_negatives: int = 8):
         super().__init__()
         self.vocab_size = vocab_size
         self.embed_dim = embed_dim
@@ -104,9 +104,6 @@ class NeuralDecoder(Module):
 
         # GRU for sequence processing (temporal cortex)
         self.gru = TracedGRUCell(hidden_dim, hidden_dim)
-
-        # Layer norm for stability
-        self.norm = LayerNorm(hidden_dim)
 
         # Attention over conditioning context
         self.attention = ConceptAttentionHead(hidden_dim, hidden_dim, n_heads=n_attention_heads)
@@ -129,16 +126,42 @@ class NeuralDecoder(Module):
         # Learning statistics
         self._total_training_examples = 0
         self._avg_prediction_error = 0.0
+        # Real metrics (replaces the fake |one-hot - probs| mean that rounded
+        # to a constant ~2/vocab_size and never moved). Cross-entropy in nats;
+        # top-1/top-5 next-word accuracy in [0, 1]. Tracked as EMAs so the
+        # caller can poll progress without storing per-token history.
+        self._avg_cross_entropy = 0.0
+        self._avg_top1_acc = 0.0
+        self._avg_top5_acc = 0.0
+        self._metric_examples = 0  # EMA sample count for the metrics above
 
     def rebuild_vocab_cache(self):
         """Rebuild internal vocabulary embedding cache for fast similarity lookup."""
         self._vocab_embed_cache = self.word_embedding._w_raw.copy()
 
+    def reset_plasticity(self, stability: float = 0.5):
+        """Reset every parameter's stability to keep the network learnable.
+
+        After many sleep cycles stability climbs toward the 0.8 cap, shrinking
+        plasticity (1 - stability) and slowing learning. Call this before a
+        fresh training burst (e.g. a Phase 2 run on a new corpus) so updates
+        land at full strength. Does not touch learned weights.
+        """
+        for _, param in self.named_parameters():
+            if hasattr(param, '_stability'):
+                param._stability = float(np.clip(stability, 0.0, 0.8))
+        # Rebuild raw caches for submodules (defensive; stability change
+        # doesn't move weights, but keep views consistent).
+        for mod in self.modules():
+            if hasattr(mod, '_rebuild_raw_cache'):
+                mod._rebuild_raw_cache()
+
     def forward(self, conditioning_embs: np.ndarray,
                 input_seq: np.ndarray,
                 h_prev: Optional[np.ndarray] = None,
                 use_raw: bool = True,
-                _use_gru_traced: bool = False) -> Tuple[np.ndarray, np.ndarray]:
+                _use_gru_traced: bool = False,
+                precomputed_attn_logits: Optional[np.ndarray] = None) -> Tuple[np.ndarray, np.ndarray]:
         """Forward pass for training (next-word prediction).
 
         Args:
@@ -147,6 +170,9 @@ class NeuralDecoder(Module):
             h_prev: Optional (hidden_dim,) — initial hidden state
             use_raw: if True, return raw numpy arrays (no StateTensor wrapping)
             _use_gru_traced: if True, use GRU.forward_traced to store traces for Hebbian learning
+            precomputed_attn_logits: optional (vocab_size,) — cached attention output for
+                this sentence's conditioning context. When provided, skips recomputing
+                the full multi-head attention on every timestep (~3-5x speedup).
 
         Returns:
             logits: (seq_len, vocab_size) — prediction logits for each position
@@ -158,26 +184,28 @@ class NeuralDecoder(Module):
         else:
             h = h_prev.copy()
 
-        # Use forward() for training to store traces for Hebbian learning.
-        # During training, we wrap inputs in StateTensor so Linear stores _trace_x.
-        cond_proj_tensor = self.condition_proj(StateTensor(conditioning_embs))
-        cond_proj = cond_proj_tensor.data
+        # Only compute conditioning projection for attention if not precomputed
+        if precomputed_attn_logits is None:
+            cond_proj_tensor = self.condition_proj(StateTensor(conditioning_embs))
+            cond_proj = cond_proj_tensor.data
 
         logits_list = []
         for t in range(seq_len):
             word_idx = int(input_seq[t])
             word_emb = self.word_embedding.embed_raw(word_idx)
 
-            # Use forward for trace storage
-            proj_tensor = self.condition_proj(StateTensor(word_emb[np.newaxis, :]))
-            proj_emb = proj_tensor.data[0]
+            # Use forward_raw for condition_proj (trace never consumed by Hebbian)
+            proj_emb = self.condition_proj.forward_raw(word_emb[np.newaxis, :])[0]
 
             if _use_gru_traced:
                 h = self.gru.forward_traced(proj_emb, h)
             else:
                 h = self.gru(proj_emb, h)
 
-            attn_logits = self.attention.forward_raw(cond_proj)
+            if precomputed_attn_logits is not None:
+                attn_logits = precomputed_attn_logits
+            else:
+                attn_logits = self.attention.forward_raw(cond_proj)
             combined = h + attn_logits * 0.1
             if self.training and self.dropout.p > 0:
                 mask = np.random.binomial(1, 1.0 - self.dropout.p, combined.shape).astype(combined.dtype)
@@ -197,7 +225,8 @@ class NeuralDecoder(Module):
                  temperature: float = 0.5,
                  cerebellar_ngram=None,
                  idx_to_word: Optional[Dict[int, str]] = None,
-                 basal_ganglia=None) -> List[int]:
+                 basal_ganglia=None,
+                 content_word_ids: Optional[Set[int]] = None) -> List[int]:
         """Generate a sequence autoregressively conditioned on concept embeddings.
 
         Optionally uses cerebellar n-gram bias and basal ganglia gating
@@ -230,7 +259,7 @@ class NeuralDecoder(Module):
             h = self.gru(projected_word, h)
 
             attn_logits = self.attention.forward_raw(cond_proj)
-            combined = h + attn_logits * 0.1
+            combined = h * 0.5 + attn_logits * 0.5
             logits = self.output_proj.forward_raw(combined[np.newaxis, :])[0]
 
             # Cerebellar bias: boost transitions learned from past chain walks
@@ -252,14 +281,32 @@ class NeuralDecoder(Module):
                             if fw and fw == cand:
                                 logits[idx] += 0.3
 
-            # Adaptive repetition penalty: scale based on how many times seen
+            # Track seen counts for repetition & content-word biasing
             if len(generated) > 1:
                 seen_counts = {}
-                for idx in generated:
+                for idx in generated[1:]:
                     seen_counts[idx] = seen_counts.get(idx, 0) + 1
+            else:
+                seen_counts = {}
+
+            # Content word biasing: boost tokens that are known graph concepts
+            # to counteract the function-word bias learned from template training.
+            if content_word_ids is not None and len(generated) > 3:
+                func_count = sum(1 for idx in generated[1:] if idx not in content_word_ids)
+                if func_count > len(generated) * 0.6:
+                    for cid in content_word_ids:
+                        logits[cid] += 0.8
+                        if seen_counts.get(cid, 0) == 0:
+                            logits[cid] += 0.5
+
+            # Adaptive repetition penalty: suppress cycling between function words
+            if len(generated) > 1:
                 for idx, count in seen_counts.items():
-                    if count > 1:
-                        penalty = 1.0 + 0.5 * (count - 1)
+                    if count >= 3:
+                        logits[idx] -= 5.0
+                    elif count > 1:
+                        is_func = content_word_ids is not None and idx not in content_word_ids
+                        penalty = 1.5 + 1.0 * (count - 1) if is_func else 1.0 + 0.5 * (count - 1)
                         logits[idx] -= penalty
 
             # BasalGangliaGate Go/NoGo selection
@@ -333,36 +380,18 @@ class NeuralDecoder(Module):
                           word_to_embed: Dict[str, np.ndarray],
                           word_to_idx: Dict[str, int],
                           unknown_idx: int = 1,
-                          conditioning_embs: Optional[np.ndarray] = None) -> float:
-        """Unsupervised online learning from a sentence.
+                          conditioning_embs: Optional[np.ndarray] = None,
+                          word_indices: Optional[List[int]] = None) -> float:
+        """Unsupervised learning from a sentence (fully batched Hebbian updates).
 
-        Processes one word at a time (not batched): for each word, predict
-        the next word, compute predictive coding error, and update all layers
-        via local Hebbian signals. Hidden state carries across timesteps.
-
-        This mimics how babies learn language: hear a sequence, predict what
-        comes next, update when prediction is wrong.
-
-        Unlike the batched forward pass (which overwrites _trace_x), this online
-        approach ensures each timestep's error is paired with the correct input
-        trace for Hebbian learning.
-
-        Args:
-            sentence_words: list of words from the sentence
-            word_to_embed: {word: embedding_vector} — embedding lookup
-            word_to_idx: {word: index} — vocab index lookup
-            unknown_idx: index for out-of-vocabulary words (default 1)
-            conditioning_embs: optional (n_concepts, embed_dim) graph walk embeddings.
-                If None, uses sentence's own word embeddings as pseudo-context.
-
-        Returns:
-            average prediction error for this sentence
+        Forward pass stores all errors and intermediates; then at the end
+        all Hebbian updates are computed in a few large matmuls.
+        ~5-10x faster than per-token accumulate calls.
         """
         if len(sentence_words) < 2:
             return 0.0
 
         if conditioning_embs is None:
-            # Build conditioning from the sentence itself (unsupervised: context = sentence)
             known_embs = []
             for w in sentence_words:
                 wl = w.lower().strip(".,!?").strip("'")
@@ -374,7 +403,6 @@ class NeuralDecoder(Module):
                     if norm > 0:
                         rand_emb /= norm
                     known_embs.append(rand_emb)
-
             if len(known_embs) < 2:
                 known_embs_flat = [np.random.randn(self.embed_dim).astype(np.float32) * 0.1
                                    for _ in range(max(2, len(sentence_words)))]
@@ -386,41 +414,83 @@ class NeuralDecoder(Module):
             else:
                 conditioning_embs = np.stack(known_embs, axis=0)
 
-        # Build word index sequence
-        word_indices = []
-        for w in sentence_words:
-            wl = w.lower().strip(".,!?").strip("'")
-            if wl in word_to_idx:
-                word_indices.append(word_to_idx[wl])
-            else:
-                word_indices.append(unknown_idx)
+        if word_indices is None:
+            word_indices = []
+            for w in sentence_words:
+                wl = w.lower().strip(".,!?").strip("'")
+                if wl in word_to_idx:
+                    word_indices.append(word_to_idx[wl])
+                else:
+                    word_indices.append(unknown_idx)
 
         if len(word_indices) < 2:
             return 0.0
 
-        # Online learning: one timestep at a time (carries h state)
-        h = np.zeros(self.hidden_dim, dtype=np.float32)
-        total_error = 0.0
+        cond_proj = self.condition_proj.forward_raw(conditioning_embs)
+        cached_attn_tensor = self.attention(StateTensor(cond_proj))
+        cached_attn_logits = cached_attn_tensor.data[0]
+
+        out_weight = self.output_proj.weight.data
+        vocab_size_actual = out_weight.shape[0]
+
+        # Buffers
+        all_combined: List[np.ndarray] = []
+        all_error_out: List[np.ndarray] = []
+        all_word_emb: List[np.ndarray] = []
+        all_input_idx: List[int] = []
+        # GRU buffers
+        all_gru_combined: List[np.ndarray] = []
+        all_gru_combined_r: List[np.ndarray] = []
+        all_gru_h_candidate: List[np.ndarray] = []
+        all_gru_h_prev: List[np.ndarray] = []
+        all_gru_z: List[np.ndarray] = []
+        all_gru_r: List[np.ndarray] = []
+        total_ce = 0.0
+        top1_hits = 0
+        top5_hits = 0
         trained = 0
 
+        h = np.zeros(self.hidden_dim, dtype=np.float32)
         for pos in range(len(word_indices) - 1):
             input_idx = word_indices[pos]
             target_idx = word_indices[pos + 1]
 
-            # Single-step forward pass
-            input_arr = np.array([input_idx], dtype=np.int64)
-            logits_t, h = self.forward(conditioning_embs, input_arr, h_prev=h,
-                                        use_raw=True, _use_gru_traced=True)
+            word_emb = self.word_embedding.embed_raw(input_idx)
+            proj_emb = self.condition_proj.forward_raw(word_emb[np.newaxis, :])[0]
 
-            logit_t = logits_t[0]
+            # Manual GRU (stores intermediates for batched update)
+            x_data = np.asarray(proj_emb, dtype=np.float32)
+            h_data = np.asarray(h, dtype=np.float32)
+            combined = np.concatenate([x_data, h_data])
+            combined_2d = combined[np.newaxis, :]
+            z_out = self.gru.W_z.forward_raw(combined_2d)[0]
+            z = 1.0 / (1.0 + np.exp(-np.clip(z_out, -100, 100)))
+            r_out = self.gru.W_r.forward_raw(combined_2d)[0]
+            r = 1.0 / (1.0 + np.exp(-np.clip(r_out, -100, 100)))
+            combined_r = np.concatenate([x_data, r * h_data])
+            h_candidate_pre = self.gru.W_h.forward_raw(combined_r[np.newaxis, :])[0]
+            h_candidate = np.tanh(h_candidate_pre)
+            h_new = (1.0 - z) * h_data + z * h_candidate
 
-            # Compute softmax and predictive coding error
+            all_gru_combined.append(combined.copy())
+            all_gru_combined_r.append(combined_r.copy())
+            all_gru_h_candidate.append(h_candidate.copy())
+            all_gru_h_prev.append(h_data.copy())
+            all_gru_z.append(z.copy())
+            all_gru_r.append(r.copy())
+            h = h_new
+
+            # Attention + output
+            combined_vec = h + cached_attn_logits * 0.1
+            if self.training and self.dropout.p > 0:
+                mask = np.random.binomial(1, 1.0 - self.dropout.p, combined_vec.shape).astype(combined_vec.dtype)
+                combined_vec = combined_vec * mask / (1.0 - self.dropout.p)
+            logit_t = self.output_proj.forward_raw(combined_vec[np.newaxis, :])[0]
+
             logit_stable = logit_t - np.max(logit_t)
             exp_logits = np.exp(np.clip(logit_stable, -50, 50))
             probs = exp_logits / (np.sum(exp_logits) + 1e-10)
 
-            out_weight = self.output_proj.weight.data
-            vocab_size_actual = out_weight.shape[0]
             target_one_hot = np.zeros(vocab_size_actual, dtype=np.float32)
             if target_idx < vocab_size_actual:
                 target_one_hot[target_idx] = 1.0
@@ -428,14 +498,8 @@ class NeuralDecoder(Module):
             error_output = (target_one_hot - probs).astype(np.float32)
             error_output = np.clip(error_output, -1.0, 1.0)
 
-            # ─── Contrastive Next-Token Loss ───
-            # Sample negative tokens and add contrastive gradient to error_output.
-            # This provides stronger signal than pure predictive coding (Hebbian only),
-            # preventing repetitive/looped output by explicitly suppressing common negatives.
-            if self.contrastive_weight > 0 and self.contrastive_negatives > 0:
-                # Top-k sampling for negatives (avoidunks, target, special tokens)
-                special = {0, 1, 2, 3}  # pad, unk, bos, eos
-                # Exclude target and special tokens from negative candidates
+            if self.contrastive_weight > 0 and self.contrastive_negatives > 0 and (pos % 2 == 0):
+                special = {0, 1, 2, 3}
                 candidate_mask = np.ones(vocab_size_actual, dtype=bool)
                 candidate_mask[list(special)] = False
                 if target_idx < vocab_size_actual:
@@ -443,56 +507,170 @@ class NeuralDecoder(Module):
                 candidate_indices = np.where(candidate_mask)[0]
                 if len(candidate_indices) > 0:
                     k = min(self.contrastive_negatives, len(candidate_indices))
-                    # Prefer negatives with higher current probability (hard negatives)
                     prob_neg = probs[candidate_indices]
-                    neg_top = np.argsort(prob_neg)[-k:] if k < len(prob_neg) else np.arange(len(prob_neg))
+                    neg_top = np.argpartition(prob_neg, -k)[-k:] if k < len(prob_neg) else np.arange(len(prob_neg))
                     neg_indices = candidate_indices[neg_top]
-                    
-                    # Contrastive gradients: push positive up, negatives down
-                    # Using InfoNCE-style gradients: sigmoid(pos) up, sigmoid(neg) down
                     pos_margin = 0.9 - probs[target_idx] if target_idx < vocab_size_actual else 0.5
-                    # Positive contrastive push
                     if target_idx < vocab_size_actual:
                         error_output[target_idx] += self.contrastive_weight * pos_margin
-                    # Negative contrastive push (suppress probable negatives)
                     for neg_idx in neg_indices:
-                        neg_force = -self.contrastive_weight * probs[neg_idx] * 0.5
-                        error_output[neg_idx] += neg_force
+                        error_output[neg_idx] -= self.contrastive_weight * probs[neg_idx] * 1.5
 
             error_output = np.clip(error_output, -1.0, 1.0)
 
-            # Output projection Hebbian update (trace_x was set during forward)
-            self.output_proj.accumulate_free_energy(StateTensor(error_output, salience=0.15))
+            all_combined.append(combined_vec.copy())
+            all_error_out.append(error_output.copy())
+            all_word_emb.append(word_emb.copy())
+            all_input_idx.append(input_idx)
 
-            # Propagate error to hidden state via output_proj weights
-            error_h = error_output @ out_weight  # (hidden_dim,)
-
-            # GRU Hebbian updates using stored intermediates from forward_traced
-            h_candidate = getattr(self.gru, '_last_h_candidate', None)
-            h_prev = getattr(self.gru, '_last_h_prev', None)
-            z = getattr(self.gru, '_last_z', None)
-            if h_candidate is not None and h_prev is not None and z is not None:
-                error_z = error_h * (h_candidate - h_prev) * 0.5
-                self.gru.W_z.accumulate_free_energy(StateTensor(error_z, salience=0.1))
-                error_r = error_h * 0.3
-                self.gru.W_r.accumulate_free_energy(StateTensor(error_r, salience=0.1))
-                error_h_val = error_h * z
-                self.gru.W_h.accumulate_free_energy(StateTensor(error_h_val, salience=0.1))
-
-            total_error += float(np.mean(np.abs(error_output)))
+            if target_idx < vocab_size_actual:
+                p_t = max(float(probs[target_idx]), 1e-10)
+                total_ce += -np.log(p_t)
+                if int(np.argmax(probs)) == target_idx:
+                    top1_hits += 1
+                if target_idx in np.argpartition(probs, -5)[-5:]:
+                    top5_hits += 1
             trained += 1
 
-        avg_error = total_error / max(1, trained)
-        self._total_training_examples += trained
-        self._avg_prediction_error = self._avg_prediction_error * 0.95 + avg_error * 0.05
+        if trained == 0:
+            return 0.0
 
-        return avg_error
+        # ── Batched Hebbian updates ──
+        T = len(all_combined)
+        fe_decay = 0.99 ** T
+
+        # 1. output_proj
+        combined_stack = np.stack(all_combined)
+        err_out_stack = np.stack(all_error_out)
+        hebbian_out = combined_stack.T @ err_out_stack
+        self.output_proj._weight_free_energy.data += hebbian_out.T * 0.15
+        self.output_proj._weight_free_energy.data *= fe_decay
+
+        error_h_all = err_out_stack @ self.output_proj.weight.data
+
+        # 2. condition_proj
+        emb_stack = np.stack(all_word_emb)
+        error_proj_all = np.clip(error_h_all * 0.5, -1.0, 1.0)
+        hebbian_proj = emb_stack.T @ error_proj_all
+        self.condition_proj._weight_free_energy.data += hebbian_proj.T * 0.1
+        self.condition_proj._weight_free_energy.data *= fe_decay
+
+        # 3. word_embedding
+        W_cond = self.condition_proj.weight.data
+        error_word_all = np.clip(error_proj_all @ W_cond, -1.0, 1.0)
+        for i, idx in enumerate(all_input_idx):
+            self.word_embedding._weight_free_energy.data[idx] += error_word_all[i] * 0.05
+        self.word_embedding._weight_free_energy.data *= fe_decay
+
+        # 4. GRU W_z / W_r / W_h
+        gru_c_stack = np.stack(all_gru_combined)
+        gru_cr_stack = np.stack(all_gru_combined_r)
+        gru_hc_stack = np.stack(all_gru_h_candidate)
+        gru_hp_stack = np.stack(all_gru_h_prev)
+        gru_z_stack = np.stack(all_gru_z)
+
+        err_wz = error_h_all * (gru_hc_stack - gru_hp_stack) * 0.5
+        fe_wz = gru_c_stack.T @ err_wz
+        self.gru.W_z._weight_free_energy.data += fe_wz.T * 0.1
+        self.gru.W_z._weight_free_energy.data *= fe_decay
+
+        err_wr = error_h_all * 0.3
+        fe_wr = gru_c_stack.T @ err_wr
+        self.gru.W_r._weight_free_energy.data += fe_wr.T * 0.1
+        self.gru.W_r._weight_free_energy.data *= fe_decay
+
+        err_wh = error_h_all * gru_z_stack
+        fe_wh = gru_cr_stack.T @ err_wh
+        self.gru.W_h._weight_free_energy.data += fe_wh.T * 0.1
+        self.gru.W_h._weight_free_energy.data *= fe_decay
+
+        # 5. attention output_proj
+        attn_error_all = np.clip(error_h_all * 0.1, -1.0, 1.0)
+        total_attn_err = np.sum(attn_error_all, axis=0)
+        self.attention.output_proj.accumulate_free_energy(
+            StateTensor(total_attn_err[np.newaxis, :], salience=0.1))
+        self.attention.output_proj._weight_free_energy.data *= (0.99 ** (T - 1))
+
+        # Skip attention W_q/W_k/W_v (traces are sentence-specific, unreliable)
+
+        avg_ce = total_ce / max(1, trained)
+        t1 = top1_hits / max(1, trained)
+        t5 = top5_hits / max(1, trained)
+
+        self._total_training_examples += trained
+        # EMA over sentences (each sentence ~10-30 tokens)
+        alpha = 0.05
+        self._avg_cross_entropy = (1 - alpha) * self._avg_cross_entropy + alpha * avg_ce
+        self._avg_top1_acc = (1 - alpha) * self._avg_top1_acc + alpha * t1
+        self._avg_top5_acc = (1 - alpha) * self._avg_top5_acc + alpha * t5
+        self._metric_examples += 1
+        # Keep legacy field for back-compat (now also EMA-tracked; callers
+        # reading it get a non-constant value, unlike the old ~2/vocab artifact).
+        self._avg_prediction_error = (1 - alpha) * self._avg_prediction_error + alpha * avg_ce
+
+        return avg_ce
+
+    def prepare_sentences(self, text: str,
+                          word_to_embed: Dict[str, np.ndarray],
+                          word_to_idx: Dict[str, int],
+                          unknown_idx: int = 1,
+                          min_sentence_len: int = 3,
+                          max_sentences: Optional[int] = None) -> List[dict]:
+        """Pre-process text into cached sentence data for fast training loops.
+
+        Returns a list of dicts with 'words', 'word_indices', and 'conditioning_embs'
+        so that repeated training passes avoid re-parsing and re-embedding the text.
+
+        Use with train_on_sentence(word_indices=..., conditioning_embs=...) for
+        ~2x speedup over repeated train_on_text calls.
+        """
+        sentences = []
+        for sent in re.split(r'[.!?]+', text):
+            words = [w.strip(".,!?\"' ") for w in sent.split()
+                     if len(w.strip(".,!?\"' ")) > 0]
+            if len(words) >= min_sentence_len:
+                word_indices = []
+                known_embs = []
+                for w in words:
+                    wl = w.lower().strip(".,!?").strip("'")
+                    if wl in word_to_idx:
+                        word_indices.append(word_to_idx[wl])
+                    else:
+                        word_indices.append(unknown_idx)
+                    if wl in word_to_embed:
+                        known_embs.append(word_to_embed[wl])
+                    elif wl:
+                        rand_emb = np.random.randn(self.embed_dim).astype(np.float32) * 0.1
+                        norm = np.linalg.norm(rand_emb)
+                        if norm > 0:
+                            rand_emb /= norm
+                        known_embs.append(rand_emb)
+                if len(word_indices) < 2:
+                    continue
+                if len(known_embs) >= 2:
+                    conditioning_embs = np.stack(known_embs, axis=0)
+                else:
+                    conditioning_embs = np.stack(
+                        [np.random.randn(self.embed_dim).astype(np.float32) * 0.1
+                         for _ in range(max(2, len(words)))], axis=0)
+                    for i in range(len(conditioning_embs)):
+                        n = np.linalg.norm(conditioning_embs[i])
+                        if n > 0:
+                            conditioning_embs[i] /= n
+                sentences.append({
+                    'words': words,
+                    'word_indices': word_indices,
+                    'conditioning_embs': conditioning_embs,
+                })
+        cap = max_sentences if max_sentences is not None else len(sentences)
+        return sentences[:cap]
 
     def train_on_text(self, text: str,
                       word_to_embed: Dict[str, np.ndarray],
                       word_to_idx: Dict[str, int],
                       unknown_idx: int = 1,
                       min_sentence_len: int = 3,
+                      max_sentences: Optional[int] = None,
                       conditioning_embs: Optional[np.ndarray] = None) -> Tuple[float, int]:
         """Train on a full text (sentence by sentence).
 
@@ -506,6 +684,8 @@ class NeuralDecoder(Module):
             word_to_idx: word → index mapping
             unknown_idx: index for unknown words
             min_sentence_len: minimum words in a sentence to train on
+            max_sentences: maximum number of sentences to train on per call.
+                If None, defaults to 50 (safety cap to prevent OOM).
             conditioning_embs: optional pre-computed conditioning embeddings.
                 If None, uses self-conditioning (sentence's own embeddings).
 
@@ -523,9 +703,11 @@ class NeuralDecoder(Module):
         if not sentences:
             return 0.0, 0
 
+        # Apply max_sentences cap if provided
+        cap = max_sentences if max_sentences is not None else 50
         total_error = 0.0
         trained_count = 0
-        for words in sentences[:50]:  # cap per text to avoid OOM
+        for words in sentences[:cap]:
             err = self.train_on_sentence(words, word_to_embed, word_to_idx, unknown_idx,
                                          conditioning_embs=conditioning_embs)
             total_error += err
@@ -543,6 +725,10 @@ class NeuralDecoder(Module):
         sd = super().state_dict()
         sd['_total_training_examples'] = self._total_training_examples
         sd['_avg_prediction_error'] = float(self._avg_prediction_error)
+        sd['_avg_cross_entropy'] = float(self._avg_cross_entropy)
+        sd['_avg_top1_acc'] = float(self._avg_top1_acc)
+        sd['_avg_top5_acc'] = float(self._avg_top5_acc)
+        sd['_metric_examples'] = self._metric_examples
         return sd
 
     def load_state_dict(self, sd):
@@ -559,6 +745,11 @@ class NeuralDecoder(Module):
             self._total_training_examples = sd['_total_training_examples']
         if '_avg_prediction_error' in sd:
             self._avg_prediction_error = sd['_avg_prediction_error']
+        # New metrics (graceful back-compat with older checkpoints that lack them)
+        self._avg_cross_entropy = float(sd.get('_avg_cross_entropy', 0.0))
+        self._avg_top1_acc = float(sd.get('_avg_top1_acc', 0.0))
+        self._avg_top5_acc = float(sd.get('_avg_top5_acc', 0.0))
+        self._metric_examples = int(sd.get('_metric_examples', 0))
         self.rebuild_vocab_cache()
 
 

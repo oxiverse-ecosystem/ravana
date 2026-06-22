@@ -209,30 +209,57 @@ class Linear(Module):
         elif error_data.ndim > 2:
             error_data = error_data.reshape(-1, error_data.shape[-1])
         salience = getattr(error, '_salience', 0.3) if isinstance(error, StateTensor) else 0.3
-        hebbian = (x_data.T @ error_data) * salience * 0.01
+        # Effective learning rate: salience only (no 0.01 shrinkage).
+        # Hebbian update is local preactivation × error; salience (0.1–0.3)
+        # already keeps it in a stable range. This is ~100× larger than the
+        # previous * 0.01 factor, which had effectively frozen the network.
+        hebbian = (x_data.T @ error_data) * salience
         self._weight_free_energy.data += hebbian.T
+        # Leaky decay: multiply accumulated FE by a decay factor < 1 so it
+        # reaches a steady-state proportional to the learning signal rather
+        # than growing without bound. Without this, high-frequency tokens
+        # (the, a, is) accumulate FE proportional to corpus frequency,
+        # dominating the weight update and destabilizing the network.
+        # decay=0.99 means ~100 updates to halve the effective contribution
+        # of old updates, keeping the FE bounded while preserving recency.
+        self._weight_free_energy.data *= 0.99
         # EWC: accumulate Fisher diagonal (squared gradient proxy)
         self._fisher_diagonal.data += hebbian.T ** 2
+        self._fisher_diagonal.data *= 0.99
         self._fisher_count += 1
         if self.bias is not None:
-            self._bias_free_energy.data += error_data.mean(axis=0) * salience * 0.01
+            self._bias_free_energy.data += error_data.mean(axis=0) * salience
+            self._bias_free_energy.data *= 0.99
         super().accumulate_free_energy(error)
         return float(np.mean(np.abs(hebbian)))
 
     def sleep_cycle(self):
+        # Cap plasticity-driven freezing: stability climbs toward 1.0 by default,
+        # which drives plasticity (1 - stability) to 0 and freezes the layer.
+        # Capping at STABILITY_CAP keeps a minimum learning rate so continued
+        # training can still reshape weights after many sleep cycles.
+        STABILITY_CAP = 0.8
         plasticity = 1.0 - float(np.mean(self.weight.stability))
+        # Free energy is the accumulated Hebbian trace. The per-element clamp
+        # handles outlier accumulation (high-frequency words that appear in
+        # almost every sentence can build FE > 10) while letting median
+        # elements (~0.01 FE) move at a meaningful rate (~10× faster than the
+        # old 0.01× shrinkage): median delta ≈ 0.01 × 0.1 × 0.5 = 0.0005.
         delta_w = self._weight_free_energy.data * plasticity * 0.1
+        np.clip(delta_w, -0.1, 0.1, out=delta_w)
         # EWC penalty: resist weight changes for high-Fisher parameters
         if self._old_weight_snapshot is not None:
             ewc_penalty = 0.4 * self._fisher_diagonal.data * (self.weight.data - self._old_weight_snapshot)
             delta_w -= ewc_penalty
         self.weight.data += delta_w
         self._weight_free_energy = StateTensor(np.zeros_like(self._weight_free_energy.data))
-        self.weight.stability = min(1.0, self.weight.stability + 0.005)
+        self._fisher_diagonal = StateTensor(np.zeros_like(self._fisher_diagonal.data))
+        self._fisher_count = 0
+        self.weight.stability = min(STABILITY_CAP, self.weight.stability + 0.005)
         if self.bias is not None:
             self.bias.data += self._bias_free_energy.data * plasticity * 0.1
             self._bias_free_energy = StateTensor(np.zeros_like(self._bias_free_energy.data))
-            self.bias.stability = min(1.0, self.bias.stability + 0.005)
+            self.bias.stability = min(STABILITY_CAP, self.bias.stability + 0.005)
         self._rebuild_raw_cache()
 
     def __repr__(self):
@@ -289,23 +316,31 @@ class Embedding(Module):
             return
         error_data = error.data if isinstance(error, RawTensor) else np.array(error)
         salience = getattr(error, '_salience', 0.3) if isinstance(error, StateTensor) else 0.3
+        # No 0.01 shrinkage (matches Linear.accumulate_free_energy). Effective
+        # rate is salience only, ~100× larger than before so the embedding
+        # table actually moves during training instead of staying at GloVe init.
         for i, idx in enumerate(self._trace_indices.flatten()):
-            fe = error_data[i] * salience * 0.01
+            fe = error_data[i] * salience
             self._weight_free_energy.data[idx] += fe
             self._fisher_diagonal.data[idx] += fe ** 2
         self._fisher_count += 1
         super().accumulate_free_energy(error)
 
     def sleep_cycle(self):
+        # See Linear.sleep_cycle: cap stability, per-element clamp.
+        STABILITY_CAP = 0.8
         plasticity = 1.0 - float(np.mean(self.weight.stability))
         delta_w = self._weight_free_energy.data * plasticity * 0.1
+        np.clip(delta_w, -0.1, 0.1, out=delta_w)
         # EWC penalty
         if self._old_weight_snapshot is not None:
             ewc_penalty = 0.4 * self._fisher_diagonal.data * (self.weight.data - self._old_weight_snapshot)
             delta_w -= ewc_penalty
         self.weight.data += delta_w
         self._weight_free_energy = StateTensor(np.zeros_like(self._weight_free_energy.data))
-        self.weight.stability = min(1.0, self.weight.stability + 0.005)
+        self._fisher_diagonal = StateTensor(np.zeros_like(self._fisher_diagonal.data))
+        self._fisher_count = 0
+        self.weight.stability = min(STABILITY_CAP, self.weight.stability + 0.005)
         if self.padding_idx is not None:
             self.weight.data[self.padding_idx] = 0.0
         self._w_raw = self.weight.data.view()
@@ -453,7 +488,8 @@ class ConceptAttentionHead(Module):
         self.output_proj = Linear(concept_dim, vocab_size)
 
     def forward_raw(self, concept_vecs):
-        """concept_vecs: (n_concepts, concept_dim) → (vocab_size,) logits"""
+        """Fast path: concept_vecs (n_concepts, concept_dim) → (vocab_size,) logits.
+        Skips trace storage — use for inference-only paths."""
         # Multi-head attention
         Q = self.W_q.forward_raw(concept_vecs)  # (n, d)
         K = self.W_k.forward_raw(concept_vecs)
@@ -479,3 +515,38 @@ class ConceptAttentionHead(Module):
 
         # Project to vocab
         return self.output_proj.forward_raw(pooled[np.newaxis, :])[0]  # (vocab_size,)
+
+    def forward(self, concept_vecs):
+        """Traced path: stores _trace_x on sub-linears so accumulate_free_energy
+        can update W_q, W_k, W_v, output_proj during training.
+
+        Args:
+            concept_vecs: (n_concepts, concept_dim) ndarray or StateTensor
+
+        Returns:
+            StateTensor of shape (vocab_size,)
+        """
+        if isinstance(concept_vecs, StateTensor):
+            x_data = concept_vecs.data
+        else:
+            x_data = np.asarray(concept_vecs, dtype=np.float32)
+
+        # Multi-head attention — use traced forward on sub-linears
+        Q = self.W_q(StateTensor(x_data)).data  # (n, d)
+        K = self.W_k(StateTensor(x_data)).data
+        V = self.W_v(StateTensor(x_data)).data
+
+        n = x_data.shape[0]
+        Q = Q.reshape(n, self.n_heads, self.head_dim).transpose(1, 0, 2)
+        K = K.reshape(n, self.n_heads, self.head_dim).transpose(1, 0, 2)
+        V = V.reshape(n, self.n_heads, self.head_dim).transpose(1, 0, 2)
+
+        scores = Q @ K.transpose(0, 2, 1) / np.sqrt(self.head_dim)
+        attn_weights = np.exp(scores - np.max(scores, axis=-1, keepdims=True))
+        attn_weights = attn_weights / (np.sum(attn_weights, axis=-1, keepdims=True) + 1e-10)
+
+        attended = attn_weights @ V
+        attended = attended.transpose(1, 0, 2).reshape(n, -1)
+        pooled = np.mean(attended, axis=0)
+
+        return self.output_proj(StateTensor(pooled[np.newaxis, :]))  # (1, vocab_size)
