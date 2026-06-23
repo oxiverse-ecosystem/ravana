@@ -206,7 +206,7 @@ class NeuralDecoder(Module):
                 attn_logits = precomputed_attn_logits
             else:
                 attn_logits = self.attention.forward_raw(cond_proj)
-            combined = h + attn_logits * 0.1
+            combined = h * 0.5 + attn_logits * 0.5
             if self.training and self.dropout.p > 0:
                 mask = np.random.binomial(1, 1.0 - self.dropout.p, combined.shape).astype(combined.dtype)
                 combined = combined * mask / (1.0 - self.dropout.p)
@@ -500,8 +500,8 @@ class NeuralDecoder(Module):
             all_gru_r.append(r.copy())
             h = h_new
 
-            # Attention + output
-            combined_vec = h + cached_attn_logits * 0.1
+            # Attention + output (keep ratio consistent with generate: 0.5 each)
+            combined_vec = h * 0.5 + cached_attn_logits * 0.5
             if self.training and self.dropout.p > 0:
                 mask = np.random.binomial(1, 1.0 - self.dropout.p, combined_vec.shape).astype(combined_vec.dtype)
                 combined_vec = combined_vec * mask / (1.0 - self.dropout.p)
