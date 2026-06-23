@@ -86,12 +86,14 @@ class SyntacticCellAssembly:
     # templates from SurfaceRealizer.NATURAL_CLAUSES. This list is still used
     # when no template matches (the cerebellar n-gram fallback path) and for
     # verb-concept selection in _pick_verb_for_relation.
+    # NOTE: Avoided template-y phrases like "connects with", "relates to" —
+    # these produced robotic output in chat.
     VERB_PHRASES = {
         'semantic': [
-            'is closely tied to', 'relates to', 'connects with',
-            'links to', 'goes hand in hand with', 'is associated with',
-            'is connected to', 'has a relationship with', 'is bound up with',
-            'is part of', 'ties into', 'is deeply connected with',
+            'has a lot to do with', 'goes hand in hand with',
+            'is tied to', 'is bound up with', 'is deeply connected with',
+            'has a relationship with', 'ties into', 'is part of',
+            'plays a role in', 'feeds into',
         ],
         'causal': [
             'leads to', 'creates', 'causes', 'brings about',
@@ -117,8 +119,8 @@ class SyntacticCellAssembly:
             'gives way to', 'traces back to',
         ],
         'episodic': [
-            'connects to', 'is linked with', 'relates to',
             'brings up', 'recalls', 'reminds us of',
+            'is linked with', 'ties into', 'feeds into',
         ],
     }
 
@@ -323,11 +325,11 @@ class SyntacticCellAssembly:
         if not best_verb:
             # Map relation types to default verb concepts
             rel_to_verb = {
-                'causal': 'cause', 'semantic': 'connect',
+                'causal': 'cause', 'semantic': 'shape',
                 'contrastive': 'contrast', 'analogical': 'resemble',
-                'temporal': 'follow', 'episodic': 'connect',
+                'temporal': 'follow', 'episodic': 'tie',
             }
-            best_verb = rel_to_verb.get(relation, 'connect')
+            best_verb = rel_to_verb.get(relation, 'shape')
 
         return best_verb
 

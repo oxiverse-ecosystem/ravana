@@ -1450,79 +1450,69 @@ class CognitiveChatEngine:
         self._needs_synthetic_training = True
 
     def _train_decoder_from_graph(self, min_synthetic: int = 2000):
-        """Train neural decoder on synthetic sentences from graph relationships.
+        """Train neural decoder on natural sentences derived from graph relationships.
+
+        Uses diverse, human-like phrasings instead of template artifacts like
+        "X connects with Y" that were poisoning the decoder's output.
         
         Args:
-            min_synthetic: Maximum number of synthetic sentences to generate (default 2000, reduced from ~8000)
+            min_synthetic: Maximum number of synthetic sentences to generate (default 2000)
         """
         if self.neural_decoder is None or not self._decoder_vocab_built:
             return
+        # Natural phrasings that sound like human conversation, not graph templates
         templates = [
-            # Core relationships (semantic / associative)
-            "{s} is related to {o}",
-            "{s} connects with {o}",
-            "{s} links to {o}",
+            # Casual / conversational
+            "{s} and {o} go hand in hand",
+            "when you think about {s}, {o} comes to mind",
+            "{s} is a big part of {o}",
+            "{s} has a lot to do with {o}",
+            "{o} matters a lot when it comes to {s}",
 
-            # Definitional / explanatory
-            "{s} refers to {o}",
-            "{s} can be described as {o}",
-            "the concept of {s} involves {o}",
-            "when people talk about {s} they often mention {o}",
+            # Explanatory
+            "{s} is really about {o}",
+            "at its core, {s} ties into {o}",
+            "{s} plays a role in {o}",
+            "one way to think about {s} is through {o}",
+            "{s} shapes how we understand {o}",
 
-            # Causal
-            "{s} leads to {o}",
-            "{s} causes {o}",
-            "{o} is a result of {s}",
-            "{s} contributes to {o}",
-            "{s} influences {o}",
-
-            # Temporal / sequential
-            "{s} precedes {o}",
-            "{o} follows {s}",
-            "first comes {s} then {o}",
+            # Causal / influence
+            "{s} can lead to {o}",
+            "{o} often happens because of {s}",
+            "{s} has an impact on {o}",
+            "{s} contributes to {o} in important ways",
+            "{o} is something that {s} can bring about",
 
             # Contrastive
-            "{s} contrasts with {o}",
-            "unlike {s} {o} is different",
-            "while {s} has one meaning {o} has another",
+            "{s} and {o} are quite different",
+            "while {s} is one thing, {o} is another",
+            "{s} stands apart from {o} in interesting ways",
+            "unlike {s}, {o} takes a different path",
 
             # Analogical
-            "{s} is like {o} in many ways",
-            "both {s} and {o} share similarities",
-            "the relationship between {s} and {o} is important",
+            "{s} is a lot like {o} in some ways",
+            "you can see {s} reflected in {o}",
+            "{s} and {o} share something important",
+            "thinking of {s} reminds me of {o}",
 
-            # Hierarchical / compositional
-            "{s} is a part of {o}",
-            "{s} is a type of {o}",
-            "{o} includes {s}",
-            "{s} forms the basis of {o}",
+            # Temporal / process
+            "{s} often comes before {o}",
+            "{o} tends to follow {s}",
+            "{s} sets the stage for {o}",
+            "{s} paves the way for {o}",
 
-            # Functional / practical
-            "people use {s} to understand {o}",
-            "{s} helps explain {o}",
-            "understanding {s} requires knowing {o}",
-            "{o} depends on {s}",
+            # Speculative / reflective
+            "maybe {s} and {o} are more related than we think",
+            "it is interesting how {s} ties into {o}",
+            "{s} makes you wonder about {o}",
+            "in a way, {s} and {o} feed into each other",
 
-            # Speculative / exploratory
-            "maybe {s} connects to {o}",
-            "it seems like {s} relates to {o}",
-            "one way to think about {s} is through {o}",
-
-            # Abstract / philosophical
-            "the meaning of {s} goes beyond {o}",
-            "{s} represents something larger than {o}",
-            "thinking about {s} naturally leads to {o}",
-            "{s} and {o} are deeply connected",
+            # Personal / first person
+            "i think {s} is closely tied to {o}",
+            "to me, {s} says something about {o}",
+            "i see {s} and {o} as deeply connected",
         ]
 
-        # Add relation-type-specific templates based on actual edge types
-        relation_templates = {
-            "causal": ["{s} causes {o}", "{s} leads to {o}", "{o} results from {s}"],
-            "contrastive": ["{s} contrasts with {o}", "unlike {s} {o} is different"],
-            "analogical": ["{s} is like {o}", "{s} resembles {o} in many ways"],
-            "temporal": ["{s} comes before {o}", "{s} precedes {o}"],
-            "semantic": ["{s} relates to {o}", "{s} connects with {o}"],
-        }
         sentences = []
         seen = set()
         for (src_id, tgt_id), edge in self.graph.edges.items():
@@ -1536,20 +1526,13 @@ class CognitiveChatEngine:
                 key = (s_label, o_label)
                 if key not in seen:
                     seen.add(key)
-                    # Pick from relation-specific templates if available, else general
-                    rel = getattr(edge, 'relation_type', 'semantic') or 'semantic'
-                    rtemplates = relation_templates.get(rel, templates)
-                    t = rtemplates[len(sentences) % len(rtemplates)]
+                    t = templates[len(sentences) % len(templates)]
                     sent = t.format(s=s_label, o=o_label)
                     sentences.append(sent)
 
-        # Train with moderate learning to avoid overfitting to frequent words
         # Limit synthetic training to avoid overwhelming real English patterns
         sentences = sentences[:min_synthetic]
         total_trained = 0
-        # Periodic consolidation now that the Hebbian learning rate is ~100×
-        # larger: applying accumulated free energy every 200 sentences keeps
-        # weight updates numerically stable (vs. one big apply at the end).
         sleep_every = 200
         for sent in sentences:
             words = sent.split()
@@ -1560,7 +1543,7 @@ class CognitiveChatEngine:
                 self.neural_decoder.sleep_cycle()
         self.neural_decoder.sleep_cycle()
         self._decoder_training_count = total_trained + self._decoder_web_training_count
-        print(f"  [Decoder] Trained on {total_trained} synthetic graph sentences"
+        print(f"  [Decoder] Trained on {total_trained} natural graph sentences"
               f"{' + ' + str(self._decoder_web_training_count) + ' from web' if self._decoder_web_training_count > 0 else ''}")
 
     def _train_decoder_on_seed_corpus(self, max_sentences: int = 250) -> int:
@@ -1879,6 +1862,10 @@ class CognitiveChatEngine:
         temp = max(0.15, min(0.7, temp))
 
         # Build content word IDs (non-function, non-special tokens)
+        # IMPORTANT: Do NOT include semantic connector words like "connects",
+        # "relates", "links", "leads" here — those are content words whose
+        # presence in the function-word set was causing the decoder to default
+        # to template-like "X connects with Y" patterns.
         function_words_set = {
             "a", "an", "the", "is", "are", "was", "were", "be", "been",
             "being", "have", "has", "had", "do", "does", "did", "will",
@@ -1892,9 +1879,6 @@ class CognitiveChatEngine:
             "their", "we", "our", "you", "your", "he", "she", "him", "her",
             "his", "i", "me", "my", "myself", "am",
             "of", "to", "for", "with", "from", "at", "by", "as", "on",
-            "related", "connect", "connects", "mean", "means",
-            "concept", "concepts", "idea", "ideas", "important",
-            "lead", "leads", "talk", "think", "link", "links",
             "<pad>", "?", "<bos>", "<eos>",
         }
         with self._vocab_lock:
@@ -1948,14 +1932,35 @@ class CognitiveChatEngine:
                 "just","about","also","into","over","after","before",
                 "between","through","during","because","while","which",
                 "who","whom","what","when","where","why","how","all",
-                "each","every","both","few","more","most","some","any",
-                "this","that","these","those","it","its","they","them",
-                "their","we","our","you","your","he","she","him","her",
-                "his","i","me","my","myself","am",
-                "of","to","for","with","from","at","by","as","on"}
+                "each","every","both","few","more", "most", "some", "any",
+                "this", "that", "these", "those", "it", "its", "they", "them",
+                "their", "we", "our", "you", "your", "he", "she", "him", "her",
+                "his", "i", "me", "my", "myself", "am",
+                "of", "to", "for", "with", "from", "at", "by", "as", "on"}
             func_count = sum(1 for w in words if w.lower() in func_set)
             if len(words) > 0 and func_count / len(words) > 0.70:
                 return None
+
+            # Template-pattern gate: reject output that looks like "X connects with Y"
+            # or "X relates to Y" — these are the synthetic graph training artifacts.
+            template_verbs = {"connects", "connect", "relates", "relate", "links",
+                               "link", "leads", "lead", "refers", "involves",
+                               "associated"}
+            template_preps = {"with", "to", "from", "into"}
+            text_lower = text.lower()
+            # Reject if pattern like "word connects/relates/links with/to word" appears
+            for tv in template_verbs:
+                for tp in template_preps:
+                    if re.search(rf'\b\w+\s+{tv}\s+{tp}\s+\w+', text_lower):
+                        return None
+
+            # Bigram repetition gate: reject if any bigram appears 3+ times
+            if len(words) >= 4:
+                bigrams = [tuple(words[i:i+2]) for i in range(len(words)-1)]
+                from collections import Counter
+                bg_counts = Counter(bigrams)
+                if any(c >= 3 for c in bg_counts.values()):
+                    return None
 
             # Clean up basic punctuation issues
             text = text[0].upper() + text[1:]
@@ -6038,14 +6043,15 @@ class CognitiveChatEngine:
         subject = ctx.subject
         assocs = ctx.associated_concepts
 
+        # Natural responses for known/unknown subjects (no template phrases)
         if not assocs:
             if subject:
                 subj_lower = subject.lower()
                 if subj_lower in self._concept_keywords or subj_lower in self._concept_labels:
                     neighbor = self._find_vector_neighbor(subject)
                     if neighbor and neighbor.lower() != subject.lower():
-                        return (f"{subject} connects with {neighbor}.", "associative")
-                    return (f"{subject.capitalize()} is something I know about.", "associative")
+                        return (f"{subject.capitalize()} reminds me of {neighbor}.", "associative")
+                    return (f"{subject.capitalize()} is something I find interesting.", "associative")
                 return (f"I don't know about {subject} yet.", "unknown_subject")
             return ("...", "associative")
 
@@ -6053,19 +6059,36 @@ class CognitiveChatEngine:
         sentences = []
         seen = {subject.lower()}
 
+        # Natural phrasings for graph relationships (no "connects with" / "relates to")
+        natural_phrases = [
+            "{} makes me think of {}",
+            "{} goes hand in hand with {}",
+            "when I think about {}, {} comes to mind",
+            "{} is closely tied to {}",
+            "{} has a lot to do with {}",
+        ]
+        import random
+        phrase_idx = 0
+
         for i, temp in enumerate(temps):
             chain = self._walk_chain(subject, seen, max_hops=2 if i > 0 else 1,
                                      temperature=temp, subject_proximity=subject)
             if chain:
                 concepts = [p for p in chain.split() if p.lower() not in self._CONNECTOR_SET]
                 if len(concepts) >= 2:
-                    sentences.append(f"{subject.capitalize()} relates to {concepts[1]}.")
+                    phrase = natural_phrases[phrase_idx % len(natural_phrases)]
+                    phrase_idx += 1
+                    sentences.append(phrase.format(
+                        concepts[0].capitalize(), concepts[1]))
                 elif concepts:
                     neighbor = self._find_vector_neighbor(concepts[0])
                     if neighbor:
-                        sentences.append(f"{concepts[0].capitalize()} connects to {neighbor}.")
+                        phrase = natural_phrases[phrase_idx % len(natural_phrases)]
+                        phrase_idx += 1
+                        sentences.append(phrase.format(
+                            concepts[0].capitalize(), neighbor))
                     else:
-                        sentences.append(f"{concepts[0].capitalize()} is interesting.")
+                        sentences.append(f"{concepts[0].capitalize()} is pretty interesting.")
                 seen.update(p.lower() for p in concepts)
 
         if not sentences:

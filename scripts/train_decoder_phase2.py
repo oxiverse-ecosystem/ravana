@@ -3,8 +3,9 @@
 RAVANA Decoder Training — Phase 2+3
 =====================================
 Loads the existing CognitiveChatEngine, trains the neural decoder on:
-1. The teen_seeds.txt corpus (natural English sentences, 250 passes)
-2. Synthetic sentences generated from graph edge relationships
+1. The teen_seeds.txt corpus (natural English sentences — primary training)
+2. Synthetic sentences from graph edges are SKIPPED — they produce
+   "X connects with Y" template artifacts that poison the decoder.
 
 Then saves the updated state so the chat script picks up the improvements.
 
@@ -26,7 +27,7 @@ print("=" * 60)
 print()
 
 # ── Load Engine ──
-print("[1/4] Loading CognitiveChatEngine...", flush=True)
+print("[1/3] Loading CognitiveChatEngine...", flush=True)
 t0 = time.time()
 from scripts.ravana_chat import CognitiveChatEngine
 
@@ -40,15 +41,12 @@ print(f"  Vocab: {len(engine._decoder_word_to_idx)} words")
 print()
 
 # ── Reset decoder plasticity so this training burst lands at full strength ──
-# After many prior sleep cycles, parameter stability drifts toward the 0.8 cap,
-# shrinking plasticity (1 - stability) and slowing learning. Resetting lets the
-# larger Hebbian updates (no more 0.01 shrinkage) actually reshape weights.
 engine.neural_decoder.reset_plasticity(stability=0.5)
 print(f"  [reset] Decoder plasticity reset to stability=0.5 (was freezing after prior runs)")
 print()
 
-# ── Step 1: Seed corpus training (optimized) ──
-print("[2/4] Training decoder on teen_seeds.txt corpus...", flush=True)
+# ── Step 1: Seed corpus training (the ONLY training — no synthetic templates) ──
+print("[2/3] Training decoder on teen_seeds.txt corpus (real English only)...", flush=True)
 t1 = time.time()
 corpus_path = os.path.join(_proj_root, "data", "corpora", "teen_seeds.txt")
 if not os.path.exists(corpus_path):
@@ -72,13 +70,11 @@ else:
         min_sentence_len=3,
     )
     n_available = len(all_sentences)
-    sentences_per_pass = min(300, n_available)  # Increased from 200
+    sentences_per_pass = min(300, n_available)
     n_passes = 1000
-    synthetic_interval = 0  # Stage 2: disabled — causes CE spikes; done at end
-    _synthetic_trained = 0
     sleep_interval = 5
-    patience = 10
-    target_ce = 3.5  # Stop when CE drops below this
+    patience = 15
+    target_ce = 3.0  # Lower target — we want better next-word prediction
 
     passes = 0
     rng = np.random.RandomState(42)
@@ -106,7 +102,7 @@ else:
                       f"top1={nd._avg_top1_acc:.3f} top5={nd._avg_top5_acc:.3f} "
                       f"(sentences={passes})", flush=True)
 
-            if nd._avg_cross_entropy <= target_ce and nd._avg_top1_acc > 0.25:
+            if nd._avg_cross_entropy <= target_ce and nd._avg_top1_acc > 0.30:
                 print(f"  Target CE={target_ce} reached at pass {i+1} — stopping early")
                 break
 
@@ -135,23 +131,16 @@ print(f"  Trained {corpus_sentences} sentences in {seed_time:.1f}s")
 print(f"  Decoder seed count: {engine._decoder_seed_training_count}")
 print()
 
-# ── Step 2: Synthetic graph consolidation ──
-print(f"[3/4] Training decoder on synthetic graph sentences...", flush=True)
-t2 = time.time()
-if hasattr(engine, '_train_decoder_from_graph'):
-    old_trace = getattr(engine, '_trace_enabled', False)
-    if hasattr(engine, '_trace_enabled'):
-        engine._trace_enabled = False
-    engine._train_decoder_from_graph(min_synthetic=500)
-    if hasattr(engine, '_trace_enabled'):
-        engine._trace_enabled = old_trace
-graph_time = time.time() - t2
-print(f"  Graph training done in {graph_time:.1f}s")
-print(f"  Total decoder training: {engine._decoder_training_count}")
+# ── Step 2: Synthetic graph training SKIPPED ──
+# The synthetic "{s} connects with {o}" templates were poisoning the decoder.
+# The decoder now trains ONLY on real English from teen_seeds.txt.
+# Graph knowledge is used for conditioning embeddings, not for template text.
+print("[3/3] Skipping synthetic graph training (was causing template artifacts)...", flush=True)
+print(f"  Graph edges still available for conditioning embeddings ({len(engine.graph.edges)} edges)")
 print()
 
-# ── Step 3: Save ──
-print("[4/4] Saving engine state...", flush=True)
+# ── Save ──
+print("Saving engine state...", flush=True)
 t3 = time.time()
 result = engine.save()
 save_time = time.time() - t3

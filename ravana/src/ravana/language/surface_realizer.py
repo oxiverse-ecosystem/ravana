@@ -58,6 +58,7 @@ class SurfaceRealizer:
     # Natural clause structures per discourse type (Stage 1 de-template)
     # These replace the fixed SVO "subject verb object" assembly.
     # {subj} and {obj} are filled from the frame's subject and object phrases.
+    # NOTE: Avoided "connects with/to" and "relates to" — they sound robotic.
     NATURAL_CLAUSES = {
         "explain": [
             "{subj} is really about {obj}",
@@ -79,22 +80,22 @@ class SurfaceRealizer:
             "{subj} and {obj} go together — one feeds the other",
             "another side of {subj} is {obj}",
             "there is also {obj} to consider with {subj}",
-            "beyond that, {subj} relates to {obj}",
-            "{subj} also connects to {obj}",
+            "beyond that, {subj} ties into {obj}",
+            "{subj} has a lot to do with {obj}",
         ],
         "contrast": [
             "{subj} is different from {obj}",
             "while {subj} is one thing, {obj} is another",
-            "{subj} contrasts with {obj}",
+            "{subj} stands apart from {obj}",
             "unlike {subj}, {obj} tends to be different",
             "{subj} and {obj} pull in different directions",
         ],
         "connect": [
-            "{subj} connects to {obj} in an interesting way",
-            "there is a link between {subj} and {obj}",
             "{subj} and {obj} are closely related",
-            "you can draw a line from {subj} to {obj}",
+            "there is a link between {subj} and {obj}",
             "{subj} ties into {obj}",
+            "you can draw a line from {subj} to {obj}",
+            "{subj} goes hand in hand with {obj}",
         ],
     }
 
