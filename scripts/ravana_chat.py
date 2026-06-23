@@ -3181,9 +3181,14 @@ class CognitiveChatEngine:
                 if self._trace_enabled:
                     print(f"  [init] Synthetic training error: {e}")
 
-        # ── Solution #6: Turn-scoped context isolation ──
-        # Reset context vector to prevent cross-turn contamination
-        self._current_context_vector = None
+        # ── Cross-turn context accumulation (N400/P600 discourse integration) ──
+        # Decay old context rather than wiping it — the brain maintains a
+        # situation model across turns (Nature Human Behaviour 2025:
+        # "shared representations at longer timescales support integration
+        # of incoming conversational content with prior conversational context")
+        old_ctx = getattr(self, '_current_context_vector', None)
+        if old_ctx is not None:
+            old_ctx *= 0.4  # Decay old context (forgets ~60% between turns)
         self._modulated_vectors.clear()
         if hasattr(self, '_prefrontal_buffer'):
             self._prefrontal_buffer = [self._prefrontal_buffer[-1]] if self._prefrontal_buffer else []
@@ -3304,10 +3309,17 @@ class CognitiveChatEngine:
                     self._pending_learning_queue.append(w)
 
         # Phase 11.1: Build context vector for this turn + sentence-level composition
-        if subject:
-            self._current_context_vector = self._build_context_vector(subject)
+        new_ctx = self._build_context_vector(subject) if subject else np.zeros(self.dim, dtype=np.float32)
+        # Blend with decayed prior context (persistent situation model across turns)
+        old_ctx = getattr(self, '_current_context_vector', None)
+        if old_ctx is not None and np.any(old_ctx != 0):
+            self._current_context_vector = new_ctx * 0.6 + old_ctx * 0.4
+            n = np.linalg.norm(self._current_context_vector)
+            if n > 0:
+                self._current_context_vector /= n
         else:
-            self._current_context_vector = None
+            self._current_context_vector = new_ctx
+        # Build sentence-level compositional vector from all input words (N400/P600)
         self._sentence_vector = self._build_sentence_vector(user_input)
         # Blend with accumulated discourse context (N400/P600 cross-turn integration)
         if hasattr(self, '_discourse_context') and self._discourse_context is not None:
