@@ -874,6 +874,8 @@ class CognitiveResponseContext:
     recall_mode: bool = False  # Episodic re-traversal vs generic chain walk
     sentence_vector: Any = None  # Compositional sentence-level vector (N400/P600 integration)
     discourse_context: str = ""  # Accumulated discourse context across turns
+    content_vector: Any = None  # Orthogonal content subspace (what we're discussing)
+    context_vector: Any = None  # Orthogonal context subspace (how we're discussing)
 
 
 class BeliefStore:
@@ -1073,6 +1075,11 @@ class CognitiveChatEngine:
         # Phase 11.3: Discourse context (cross-turn accumulation, N400/P600 integration)
         self._sentence_vector: Optional[np.ndarray] = None
         self._discourse_context: Optional[np.ndarray] = None
+        # Phase 11.4: Orthogonal context/content subspaces (PMC 2025)
+        # Content = what we're talking about (semantics)
+        # Context = how we're talking about it (pragmatics, discourse frame)
+        self._content_vector: Optional[np.ndarray] = None
+        self._context_vector: Optional[np.ndarray] = None
         # Phase 9b: Prediction error tracking (surprise signal for Active Inference)
         self._mean_prediction_error = 0.0
         self._prediction_error_count = 0
@@ -3332,6 +3339,15 @@ class CognitiveChatEngine:
             if n > 0:
                 self._sentence_vector /= n
         self._discourse_context = self._sentence_vector.copy() if self._sentence_vector is not None else None
+        # Phase 11.4: Orthogonal content/context subspaces (PMC 2025)
+        # Content = what we're talking about (sentence semantics)
+        self._content_vector = self._sentence_vector.copy() if self._sentence_vector is not None else None
+        # Context = how we're talking about it (discourse frame)
+        raw_ctx = self._build_context_vector_from_input(user_input, subject)
+        if self._content_vector is not None and np.any(self._content_vector != 0):
+            self._context_vector = self._ensure_orthogonal(self._content_vector, raw_ctx)
+        else:
+            self._context_vector = raw_ctx
         
         # Step 5: Emotional modulation (with concept-specific tagging)
         self._update_emotion(user_input)
@@ -3413,6 +3429,8 @@ class CognitiveChatEngine:
             recall_mode=getattr(self, '_recall_mode', False),
             sentence_vector=self._sentence_vector,
             discourse_context=" | ".join(self._topic_list[-5:]) if self._topic_list else "",
+            content_vector=self._content_vector,
+            context_vector=self._context_vector,
         )
 
         response, strategy = self._generate_response(ctx)
@@ -4772,6 +4790,67 @@ class CognitiveChatEngine:
         if n > 0:
             acc /= n
         return acc.astype(np.float32)
+
+    def _build_context_vector_from_input(self, user_input: str, subject: str) -> np.ndarray:
+        """Build a context vector encoding discourse frame (question type, emotion, turn).
+
+        This is the 'context' stream — orthogonal to content semantics.
+        Encodes: question type, emotional state, turn number, conversation depth.
+
+        Neuroscience basis (PMC 2025): PFC encodes task context in an orthogonal
+        subspace separate from content representations, enabling flexible reuse
+        of mnemonic codes across behavioral contexts.
+        """
+        ctx = np.zeros(self.dim, dtype=np.float32)
+
+        # Encode question type as a vector
+        q_lower = user_input.lower().strip()
+        if q_lower.startswith("what") or q_lower.startswith("who"):
+            ctx[0] = 1.0   # factual inquiry
+        elif q_lower.startswith("why") or q_lower.startswith("how"):
+            ctx[0] = -1.0  # causal inquiry
+        elif q_lower.startswith("tell") or q_lower.startswith("describe"):
+            ctx[1] = 1.0   # elaboration request
+        elif q_lower.startswith("is") or q_lower.startswith("are") or q_lower.startswith("do"):
+            ctx[1] = -1.0  # yes/no inquiry
+        else:
+            ctx[2] = 1.0   # open-ended
+
+        # Encode emotional state
+        ctx[3] = self.emotion.state.valence
+        ctx[4] = self.emotion.state.arousal
+        ctx[5] = self.emotion.state.dominance
+
+        # Encode turn number (normalized)
+        ctx[6] = min(1.0, self.turn_count / 100.0)
+
+        # Encode conversation depth (how many follow-ups)
+        depth = min(1.0, getattr(self.user_model, 'conversation_depth', 0.0))
+        ctx[7] = depth
+
+        # Encode recent topic consistency
+        topic_shift = 0.0
+        if len(self._topic_list) >= 2:
+            if self._topic_list[-1].lower() != self._topic_list[-2].lower():
+                topic_shift = 1.0
+        ctx[8] = topic_shift
+
+        return ctx.astype(np.float32)
+
+    def _ensure_orthogonal(self, content: np.ndarray, context: np.ndarray) -> np.ndarray:
+        """Project context vector to be orthogonal to content vector.
+
+        This implements the PFC's orthogonal subspace coding (PMC 2025):
+        content and context are maintained in independent dimensions,
+        preventing contextual drift from corrupting semantic content.
+        """
+        c_norm = np.linalg.norm(content)
+        if c_norm < 1e-8:
+            return context
+        # Project out the content direction from context
+        projection = (np.dot(context, content) / (c_norm * c_norm)) * content
+        orthogonal = context - projection
+        return orthogonal.astype(np.float32)
 
     def _modulate_vector(self, node_id: int) -> Optional[np.ndarray]:
         """Phase 11.2: Return context-modulated vector for a concept node.
