@@ -5577,11 +5577,13 @@ class CognitiveChatEngine:
 
     def _generate_with_decoder_and_syntax(self, ctx: CognitiveResponseContext) -> Optional[str]:
         """Generate response using full syntactic pipeline:
-        
+
         1. PrefrontalWorkspace: Plan discourse (3-sentence intent arc)
         2. SyntacticCellAssembly: Bind concepts to grammatical frames
-        3. SurfaceRealizer: Apply morphology, agreement, pronouns, articles
-        
+        3. BasalGangliaGate: Concept selection (Go/NoGo)
+        4. CerebellarNgram: Completion hints for function words
+        5. SurfaceRealizer: Final text with morphology, agreement, articles
+
         Uses graph walk chain concepts directly - decoder produces garbage.
         """
         subject = ctx.subject
@@ -6038,63 +6040,90 @@ class CognitiveChatEngine:
             print(f"  [reasoning] Decoder trained on {total_trained} sentences from articles")
 
 
+    def _safe_graph_node(self, label: str):
+        """Safely look up a graph node by label, returning None if not found."""
+        nids = self._concept_keywords.get(label.lower(), [])
+        if nids:
+            return self.graph.get_node(nids[0])
+        return None
+
     def _graph_fallback_response(self, ctx: CognitiveResponseContext) -> Tuple[str, str]:
-        """Simple graph-walk fallback when decoder isn't ready."""
+        """Graph-walk fallback when decoder / syntactic pipeline are not enough."""
         subject = ctx.subject
         assocs = ctx.associated_concepts
 
-        # Natural responses for known/unknown subjects (no template phrases)
-        if not assocs:
-            if subject:
-                subj_lower = subject.lower()
-                if subj_lower in self._concept_keywords or subj_lower in self._concept_labels:
-                    neighbor = self._find_vector_neighbor(subject)
-                    if neighbor and neighbor.lower() != subject.lower():
-                        return (f"{subject.capitalize()} reminds me of {neighbor}.", "associative")
-                    return (f"{subject.capitalize()} is something I find interesting.", "associative")
-                return (f"I don't know about {subject} yet.", "unknown_subject")
+        if not subject:
             return ("...", "associative")
 
+        # We still know notable entities that aren’t explained well yet -> ask.
+        if not assocs:
+            subj_lower = subject.lower()
+            if subj_lower in self._concept_keywords or subj_lower in self._concept_labels:
+                return (f"I recognize {subject}, but I can't explain it yet. Want me to keep exploring?", "associative")
+            return (f"I don't know about {subject} yet.", "unknown_subject")
+
         temps = [self._get_temperature(0), self._get_temperature(1), self._get_temperature(2)]
-        sentences = []
-        seen = {subject.lower()}
+        sentences_parts: List[str] = []
+        seen: Set[str] = {subject.lower()}
+        from random import Random
+        rnd = Random(self.rng.randint(0, 10**9))
 
-        # Natural phrasings for graph relationships (no "connects with" / "relates to")
-        natural_phrases = [
-            "{} makes me think of {}",
-            "{} goes hand in hand with {}",
-            "when I think about {}, {} comes to mind",
-            "{} is closely tied to {}",
-            "{} has a lot to do with {}",
-        ]
-        import random
-        phrase_idx = 0
+        def _one_rel(a: str, b: str) -> str:
+            relation_phrases = [
+                "reminds me of",
+                "ties into",
+                "leads toward",
+                "feels related to",
+                "points to",
+                "shows up again with",
+                "keeps coming back to",
+            ]
+            phrase = rnd.choice(relation_phrases)
+            return f"{a} {phrase} {b}."
 
-        for i, temp in enumerate(temps):
-            chain = self._walk_chain(subject, seen, max_hops=2 if i > 0 else 1,
-                                     temperature=temp, subject_proximity=subject)
-            if chain:
-                concepts = [p for p in chain.split() if p.lower() not in self._CONNECTOR_SET]
-                if len(concepts) >= 2:
-                    phrase = natural_phrases[phrase_idx % len(natural_phrases)]
-                    phrase_idx += 1
-                    sentences.append(phrase.format(
-                        concepts[0].capitalize(), concepts[1]))
-                elif concepts:
-                    neighbor = self._find_vector_neighbor(concepts[0])
-                    if neighbor:
-                        phrase = natural_phrases[phrase_idx % len(natural_phrases)]
-                        phrase_idx += 1
-                        sentences.append(phrase.format(
-                            concepts[0].capitalize(), neighbor))
-                    else:
-                        sentences.append(f"{concepts[0].capitalize()} is pretty interesting.")
-                seen.update(p.lower() for p in concepts)
+        seen_full: Set[str] = set()
+        max_loops = max(3, min(8, len(assocs) * 2))
+        loops = 0
 
-        if not sentences:
+        while len(sentences_parts) < 4 and loops < max_loops:
+            loops += 1
+            label, score = assocs[(self.turn_count + loops) % len(assocs)]
+            if not label or label.lower() in seen:
+                continue
+
+            node = self._safe_graph_node(label)
+            node_b = self._safe_graph_node(subject)
+            if node and node_b and hasattr(node, "vector") and hasattr(node_b, "vector") and node.vector is not None and node_b.vector is not None:
+                try:
+                    from numpy import dot
+                    from numpy.linalg import norm
+                    relation_score = dot(node.vector, node_b.vector) / (norm(node.vector) * norm(node_b.vector) + 1e-9)
+                except Exception:
+                    relation_score = float(score)
+            else:
+                relation_score = float(score)
+
+            relation_score = max(0.0, min(1.0, relation_score))
+            sentence = _one_rel(subject.capitalize(), label.capitalize())
+            sentence_key = " ".join(sorted([subject.lower(), label.lower()]))
+            if sentence_key in seen_full:
+                continue
+            seen_full.add(sentence_key)
+            sentences_parts.append(sentence)
+            seen.add(label.lower())
+
+        # Add one relevant follow-up.
+        if len(sentences_parts) == 1:
+            first_lower = sentences_parts[0].lower()
+            follow_up = getattr(self, "_ASK_BACK", {}).get("default", "")
+            if not follow_up:
+                follow_up = "Does that match what you were getting at?"
+            sentences_parts.append(follow_up)
+
+        if not sentences_parts:
             return (f"I don't know much about {subject} yet.", "associative")
 
-        return (" ".join(sentences), "graph_fallback")
+        return (" ".join(sentences_parts), "graph_fallback")
 
 
 
