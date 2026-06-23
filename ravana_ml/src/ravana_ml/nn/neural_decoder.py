@@ -433,6 +433,16 @@ class NeuralDecoder(Module):
         out_weight = self.output_proj.weight.data
         vocab_size_actual = out_weight.shape[0]
 
+        # Stage 2: Precompute contrastive candidates once per sentence (not per pos)
+        # This replaces the per-token np.ones(vocab) + np.where + argpartition overhead.
+        contrastive_precomputed = None
+        _cweight = self.contrastive_weight
+        _cnegs = self.contrastive_negatives
+        if _cweight > 0 and _cnegs > 0:
+            special_set = frozenset({0, 1, 2, 3})
+            non_special = np.array([i for i in range(vocab_size_actual) if i not in special_set], dtype=np.intp)
+            contrastive_precomputed = non_special
+
         # Buffers
         all_combined: List[np.ndarray] = []
         all_error_out: List[np.ndarray] = []
@@ -498,23 +508,24 @@ class NeuralDecoder(Module):
             error_output = (target_one_hot - probs).astype(np.float32)
             error_output = np.clip(error_output, -1.0, 1.0)
 
-            if self.contrastive_weight > 0 and self.contrastive_negatives > 0 and (pos % 2 == 0):
-                special = {0, 1, 2, 3}
-                candidate_mask = np.ones(vocab_size_actual, dtype=bool)
-                candidate_mask[list(special)] = False
+            # Stage 2: Vectorized contrastive using precomputed candidate set
+            if contrastive_precomputed is not None and (pos % 2 == 0):
+                non_special = contrastive_precomputed
+                # Remove target from candidates efficiently
                 if target_idx < vocab_size_actual:
-                    candidate_mask[target_idx] = False
-                candidate_indices = np.where(candidate_mask)[0]
-                if len(candidate_indices) > 0:
-                    k = min(self.contrastive_negatives, len(candidate_indices))
-                    prob_neg = probs[candidate_indices]
-                    neg_top = np.argpartition(prob_neg, -k)[-k:] if k < len(prob_neg) else np.arange(len(prob_neg))
-                    neg_indices = candidate_indices[neg_top]
-                    pos_margin = 0.9 - probs[target_idx] if target_idx < vocab_size_actual else 0.5
+                    mask = non_special != target_idx
+                    candidates = non_special[mask]
+                else:
+                    candidates = non_special
+                if len(candidates) > 0:
+                    k = min(_cnegs, len(candidates))
+                    probs_cand = probs[candidates]
+                    neg_top = np.argpartition(probs_cand, -k)[-k:]
+                    neg_indices = candidates[neg_top]
                     if target_idx < vocab_size_actual:
-                        error_output[target_idx] += self.contrastive_weight * pos_margin
-                    for neg_idx in neg_indices:
-                        error_output[neg_idx] -= self.contrastive_weight * probs[neg_idx] * 1.5
+                        pos_margin = 0.9 - probs[target_idx]
+                        error_output[target_idx] += _cweight * pos_margin
+                    error_output[neg_indices] -= _cweight * probs[neg_indices] * 1.5
 
             error_output = np.clip(error_output, -1.0, 1.0)
 

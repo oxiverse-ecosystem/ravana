@@ -1297,11 +1297,14 @@ class CognitiveChatEngine:
 
     # ─── Neural Decoder Vocabulary ───
 
+    MAX_DECODER_VOCAB_SIZE = 1500  # Stage 2: focused vocab for 5× speed
+
     def _build_decoder_vocab(self):
         """Build vocabulary for the NeuralDecoder from graph concepts + GloVe + function words.
 
         Maps every graph concept label and common English function words to
         vocab indices and embedding vectors. Initializes the NeuralDecoder.
+        Stage 2: Capped at MAX_DECODER_VOCAB_SIZE for speed (5× fewer logits).
         """
         self._decoder_word_to_idx = {}
         self._decoder_idx_to_word = {}
@@ -1312,7 +1315,6 @@ class CognitiveChatEngine:
         for i, tok in enumerate(special_tokens):
             self._decoder_word_to_idx[tok] = i
             self._decoder_idx_to_word[i] = tok
-            # Random embedding for special tokens
             vec = np.random.randn(self.dim).astype(np.float32) * 0.05
             norm = np.linalg.norm(vec)
             if norm > 0:
@@ -1320,6 +1322,7 @@ class CognitiveChatEngine:
             self._decoder_word_to_embed[tok] = vec
 
         next_idx = len(special_tokens)
+        max_vocab = self.MAX_DECODER_VOCAB_SIZE
 
         # Common function words for fluent generation
         function_words = [
@@ -1334,25 +1337,42 @@ class CognitiveChatEngine:
             "this", "that", "these", "those", "it", "its", "they", "them",
             "their", "we", "our", "you", "your", "he", "she", "him", "her",
             "his", "i", "me", "my", "myself", "am",
-            # Additional function words for fluent generation
             "of", "to", "for", "with", "from", "at", "by", "as", "on",
             "related", "connect", "connects", "mean", "means",
             "concept", "concepts", "idea", "ideas", "important",
             "lead", "leads", "talk", "think", "link", "links",
         ]
 
-        # Add graph concept labels
-        concept_labels = set()
-        for nid, node in self.graph.nodes.items():
-            if node.label:
-                concept_labels.add(node.label.lower())
+        # Add graph concept labels (highest priority after function words)
+        with self._graph_lock:
+            concept_labels = set()
+            for nid, node in self.graph.nodes.items():
+                if node.label:
+                    concept_labels.add(node.label.lower())
 
-        # Add concepts first
+        # Function words first (ensures fluent generation)
+        for fw in function_words:
+            if next_idx >= max_vocab:
+                break
+            if fw not in self._decoder_word_to_idx:
+                self._decoder_word_to_idx[fw] = next_idx
+                self._decoder_idx_to_word[next_idx] = fw
+                vec = self._glove_vector(fw)
+                if vec is None:
+                    vec = np.random.randn(self.dim).astype(np.float32) * 0.1
+                    norm_v = np.linalg.norm(vec)
+                    if norm_v > 0:
+                        vec /= norm_v
+                self._decoder_word_to_embed[fw] = vec.astype(np.float32)
+                next_idx += 1
+
+        # Graph concepts next
         for label in sorted(concept_labels):
+            if next_idx >= max_vocab:
+                break
             if label not in self._decoder_word_to_idx:
                 self._decoder_word_to_idx[label] = next_idx
                 self._decoder_idx_to_word[next_idx] = label
-                # Get embedding from graph node
                 nids = self._concept_keywords.get(label, [])
                 if nids:
                     node = self.graph.get_node(nids[0])
@@ -1370,43 +1390,34 @@ class CognitiveChatEngine:
                 self._decoder_word_to_embed[label] = vec.astype(np.float32)
                 next_idx += 1
 
-        # Add function words that aren't already in vocab
-        for fw in function_words:
-            if fw not in self._decoder_word_to_idx:
-                self._decoder_word_to_idx[fw] = next_idx
-                self._decoder_idx_to_word[next_idx] = fw
-                vec = self._glove_vector(fw)
-                if vec is None:
-                    vec = np.random.randn(self.dim).astype(np.float32) * 0.1
-                    norm_v = np.linalg.norm(vec)
-                    if norm_v > 0:
-                        vec /= norm_v
-                self._decoder_word_to_embed[fw] = vec.astype(np.float32)
-                next_idx += 1
+        # Fill remaining slots with corpus words
+        remaining = max_vocab - next_idx
+        if remaining > 0:
+            corpus_path = os.path.join(_proj_root, "data", "corpora", "teen_seeds.txt")
+            if os.path.exists(corpus_path):
+                import re
+                with open(corpus_path, "r", encoding="utf-8") as f:
+                    corpus_text = f.read()
+                words_in_corpus = set(re.findall(r"[a-zA-Z']{3,}", corpus_text.lower()))
+                for w in sorted(words_in_corpus):
+                    if remaining <= 0:
+                        break
+                    if w not in self._decoder_word_to_idx:
+                        self._decoder_word_to_idx[w] = next_idx
+                        self._decoder_idx_to_word[next_idx] = w
+                        vec = self._glove_vector(w)
+                        if vec is None:
+                            vec = np.random.randn(self.dim).astype(np.float32) * 0.1
+                            norm_v = np.linalg.norm(vec)
+                            if norm_v > 0:
+                                vec /= norm_v
+                        self._decoder_word_to_embed[w] = vec.astype(np.float32)
+                        next_idx += 1
+                        remaining -= 1
 
-        # Add concepts from corpus (for training)
-        corpus_path = os.path.join(_proj_root, "data", "corpora", "teen_seeds.txt")
-        if os.path.exists(corpus_path):
-            import re
-            with open(corpus_path, "r", encoding="utf-8") as f:
-                corpus_text = f.read()
-            words_in_corpus = set(re.findall(r"[a-zA-Z']{3,}", corpus_text.lower()))
-            for w in sorted(words_in_corpus):
-                if w not in self._decoder_word_to_idx:
-                    self._decoder_word_to_idx[w] = next_idx
-                    self._decoder_idx_to_word[next_idx] = w
-                    vec = self._glove_vector(w)
-                    if vec is None:
-                        vec = np.random.randn(self.dim).astype(np.float32) * 0.1
-                        norm_v = np.linalg.norm(vec)
-                        if norm_v > 0:
-                            vec /= norm_v
-                    self._decoder_word_to_embed[w] = vec.astype(np.float32)
-                    next_idx += 1
-
-        # If forced vocab size is set (from saved state), pad with dummy tokens
+        # If forced vocab size is set (from saved state), match it for back-compat
         if hasattr(self, '_forced_vocab_size') and self._forced_vocab_size:
-            target_size = self._forced_vocab_size
+            target_size = min(self._forced_vocab_size, max_vocab)
             while len(self._decoder_word_to_idx) < target_size:
                 pad_token = f"<pad_{next_idx}>"
                 self._decoder_word_to_idx[pad_token] = next_idx
@@ -1429,14 +1440,12 @@ class CognitiveChatEngine:
             contrastive_negatives=8,
         )
 
-        # Initialize decoder word embeddings from our built vectors
         for word, idx in self._decoder_word_to_idx.items():
             if word in self._decoder_word_to_embed:
                 self.neural_decoder.word_embedding.weight.data[idx] = \
                     self._decoder_word_to_embed[word]
         self.neural_decoder.rebuild_vocab_cache()
         self._decoder_vocab_built = True
-        # Defer decoder training to first turn for fast startup
         self._needs_seed_training = True
         self._needs_synthetic_training = True
 
@@ -1625,15 +1634,18 @@ class CognitiveChatEngine:
         New words get embeddings from GloVe (or random if unavailable).
         The decoder embedding table is resized and vocabulary caches rebuilt.
         Existing embeddings are preserved (neocortical consolidation).
+        Stage 2: Respects MAX_DECODER_VOCAB_SIZE cap.
         """
         if not new_words or self.neural_decoder is None:
             return
         import sys
-        freeze = getattr(self, '_freeze_decoder_vocab', 'NOT_SET')
         if getattr(self, '_freeze_decoder_vocab', False):
             return
+        max_vocab = self.MAX_DECODER_VOCAB_SIZE
 
         with self._vocab_lock:
+            if len(self._decoder_word_to_idx) >= max_vocab:
+                return
             added = 0
             for word in new_words:
                 wl = word.lower().strip()
@@ -1807,10 +1819,9 @@ class CognitiveChatEngine:
         basal ganglia gating for biologically-plausible word selection.
 
         Returns None if decoder is not ready or generation fails.
+        (Quality gate is now in _generate_response.)
         """
         if self.neural_decoder is None or not self._decoder_vocab_built:
-            return None
-        if self._decoder_training_count < 1000:
             return None
 
         subject = ctx.subject
@@ -5506,34 +5517,47 @@ class CognitiveChatEngine:
 
 
     def _generate_response(self, ctx: CognitiveResponseContext) -> Tuple[str, str]:
-        """Generate response using syntactic pipeline first, then reasoning loop.
+        """Generate response using neural decoder (primary), syntactic pipeline (fallback),
+        then reasoning loop (last resort).
 
-        Falls through to reasoning loop (web search + learn + generate) if
-        the concept is unknown or the syntactic pipeline fails.
+        Stage 2: Inverted order — decoder first when quality suffices.
+        Quality gate is CE < 4.0 + top1 > 0.1 (learned from real data),
+        not a raw training count.
         """
         subject = ctx.subject
         assocs = ctx.associated_concepts
+        decoder_ready = False
+        if self.neural_decoder is not None and self._decoder_vocab_built:
+            nd = self.neural_decoder
+            ce_ok = nd._avg_cross_entropy < 4.0 if nd._metric_examples > 5 else False
+            t1_ok = nd._avg_top1_acc > 0.1 if nd._metric_examples > 5 else False
+            decoder_ready = (ce_ok and t1_ok) or self._decoder_training_count >= 500
 
-        _total = self._decoder_training_count
-
-        # Path 1: Syntactic pipeline (graph walk + discourse + surface realizer)
-        if _total >= 1000:
+        # Path 1: Neural decoder (true generation) — primary when ready
+        if decoder_ready:
             try:
-                syntax_response = self._generate_with_decoder_and_syntax(ctx)
-                if syntax_response and len(syntax_response) > 10:
-                    return (syntax_response, "syntactic_pipeline")
+                decoder_response = self._generate_with_decoder(ctx)
+                if decoder_response and len(decoder_response) > 10:
+                    return (decoder_response, "neural_decoder")
             except Exception:
                 pass
 
-        # If both paths failed, run reasoning loop (web search + learn, then retry)
+        # Path 2: Syntactic pipeline (graph walk + discourse + surface realizer)
+        # Stage 1 de-template makes this much more natural — good fallback
+        try:
+            syntax_response = self._generate_with_decoder_and_syntax(ctx)
+            if syntax_response and len(syntax_response) > 10:
+                return (syntax_response, "syntactic_pipeline")
+        except Exception:
+            pass
+
+        # Path 3: Reasoning loop (web search + learn, then retry)
         try:
             return self._reasoning_loop(ctx)
         except Exception as e:
             if self._trace_enabled:
                 print(f"  [trace] reasoning loop error: {e}")
-            raise  # Re-raise so outer handler catches it
-
-        # Final fallback: simple graph-based response
+            raise
 
     def _generate_with_decoder_and_syntax(self, ctx: CognitiveResponseContext) -> Optional[str]:
         """Generate response using full syntactic pipeline:
