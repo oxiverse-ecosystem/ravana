@@ -5477,31 +5477,29 @@ class CognitiveChatEngine:
     # ─── Phase 8: Sentence Formatting & Prefrontal Coherence ───
 
     def _is_low_quality_response(self, sentences: list) -> bool:
-        """Detect circular/repetitive/low-quality responses.""" 
+        """Detect circular/repetitive/low-quality responses.
+        
+        Stage 1: Loosened — natural chat allows concept carry-across and
+        coreference. Only flag truly degenerate cases.
+        """
         if not sentences:
             return True
         full = ' '.join(sentences).lower()
-        # Check for circular patterns: subject appears multiple times as both src and tgt
         words = full.split()
         if len(words) < 3:
             return True
-        # Check repetitiveness: same concept appears 4+ times (raised from 3 
-        # to allow core concepts to naturally repeat across 3 sentences)
+        # Stage 1: Only flag extreme repetition (6+ occurrences)
         from collections import Counter
         word_counts = Counter(w for w in words if len(w) > 3)
-        if any(c >= 4 for c in word_counts.values()):
+        if any(c >= 6 for c in word_counts.values()):
             return True
-        # Check for circular A->B then B->A patterns
-        sentences_lower = [s.lower() for s in sentences]
+        # Stage 1: Only flag exact word-set duplicates (same sentence verbatim)
+        sentences_lower = [s.lower().strip() for s in sentences]
         if len(sentences_lower) >= 2:
             for i, s1 in enumerate(sentences_lower):
                 for s2 in sentences_lower[i+1:]:
-                    # Check if concepts in s1 appear reversed in s2
-                    words1 = set(w for w in s1.split() if len(w) > 3)
-                    words2 = set(w for w in s2.split() if len(w) > 3)
-                    if len(words1) >= 2 and len(words2) >= 2:
-                        if words1 == words2:
-                            return True
+                    if s1 == s2 and len(s1) > 15:
+                        return True
         return False
 
     # ─── Phase E+F+G: Syntactic assembly + Surface realization pipeline ───
@@ -5588,10 +5586,11 @@ class CognitiveChatEngine:
         # ─── STEP 2: For each discourse intent, generate a sentence ───
         sentences = []
         dopamine_tone = getattr(self, '_dopamine_tone', 0.5)
-        used_targets = {subject.lower()}  # Track used concepts across sentences
-        # Allow reuse after 2 sentences to prevent deadlock
-        target_reuse_window = 2
-        recent_targets = []  # Track recent targets for reuse window
+        # Stage 1: Allow a concept to carry across 2-3 sentences with pronoun/coreference.
+        # This prevents the choppy "Trust… It… Likewise it…" pattern.
+        used_targets = {}  # concept -> last sentence index used
+        target_reuse_window = 3  # Allow reuse after 3 sentences (was 2)
+        last_subject = None  # For pronoun coreference across sentences
         
         for sent_idx, intent in enumerate(plan.intents):
             # Generate concept sequence for this intent
@@ -5615,7 +5614,7 @@ class CognitiveChatEngine:
             _temp = min(_temp, 0.8)
             chain_result = self._walk_chain(
                 label=intent_subject,
-                seen=seen.copy(),  # Pass copy to avoid mutation by _walk_chain
+                seen=seen.copy(),
                 max_hops=_hops,
                 temperature=_temp,
                 contradiction_penalty=0.6,
@@ -5631,7 +5630,6 @@ class CognitiveChatEngine:
                     if token in self._CONNECTOR_SET:
                         chain_connectors.append(token)
                     else:
-                        # Filter out grammatical concepts early
                         is_gram = token.lower() in self._GRAMMATICAL_CONCEPTS
                         if not is_gram:
                             chain_concepts.append(token)
@@ -5639,23 +5637,24 @@ class CognitiveChatEngine:
             if self._trace_enabled:
                 print(f"  [trace] Sent {sent_idx}: intent_subject={intent_subject}, intent_target={intent_target}, chain_result={chain_result}")
                 print(f"    chain_concepts={chain_concepts}, chain_connectors={chain_connectors}")
-                print(f"    used_targets={used_targets}, recent_targets={recent_targets}")
+                print(f"    used_targets={used_targets}, last_subject={last_subject}")
             
             # Use discourse target if chain didn't produce it, else use chain's top concept
             target_for_frame = intent_target
             
-            # PRIORITY 1: Use valid chain concepts (most grounded in graph structure)
+            # PRIORITY 1: Use valid chain concepts (grounded in graph structure)
+            # Stage 1: Don't require disjoint targets — allow carry-across
             if not target_for_frame and chain_concepts:
                 for c in chain_concepts:
                     cl = c.lower()
-                    if cl not in seen and cl not in self._GRAMMATICAL_CONCEPTS and cl not in used_targets:
+                    if cl not in seen and cl not in self._GRAMMATICAL_CONCEPTS:
                         target_for_frame = c
                         break
             
             # PRIORITY 2: Use discourse plan target if valid
             if not target_for_frame and intent_target:
                 it_lower = intent_target.lower()
-                if it_lower not in seen and it_lower not in self._GRAMMATICAL_CONCEPTS and it_lower not in used_targets:
+                if it_lower not in seen and it_lower not in self._GRAMMATICAL_CONCEPTS:
                     target_for_frame = intent_target
             
             # PRIORITY 3: Vector neighbor as last resort
@@ -5665,25 +5664,32 @@ class CognitiveChatEngine:
                     print(f"    _find_vector_neighbor({intent_subject}) = {neighbor}")
                 if neighbor:
                     nb_lower = neighbor.lower()
-                    if nb_lower not in seen and nb_lower not in self._GRAMMATICAL_CONCEPTS and nb_lower not in used_targets:
+                    if nb_lower not in seen and nb_lower not in self._GRAMMATICAL_CONCEPTS:
                         target_for_frame = neighbor
             
-            # Allow target reuse if not used in last N sentences
-            target_reusable = False
-            if target_for_frame and target_for_frame.lower() in used_targets:
-                if target_for_frame.lower() not in [t.lower() for t in recent_targets[-target_reuse_window:]]:
-                    target_reusable = True
+            # Stage 1: Allow reuse if it's been at least target_reuse_window sentences,
+            # or if this is adjacent sentence reuse (for coreference/continuity)
+            can_reuse = False
+            if target_for_frame:
+                tfl = target_for_frame.lower()
+                if tfl in used_targets:
+                    last_used = used_targets[tfl]
+                    if sent_idx - last_used >= target_reuse_window:
+                        can_reuse = True
+                    elif last_subject and last_subject.lower() == tfl:
+                        can_reuse = True  # Allow subject to carry across
+                else:
+                    can_reuse = True
+            else:
+                can_reuse = False
             
-            if not target_for_frame or (target_for_frame.lower() in used_targets and not target_reusable) or target_for_frame.lower() in self._GRAMMATICAL_CONCEPTS:
+            if not target_for_frame or not can_reuse or target_for_frame.lower() in self._GRAMMATICAL_CONCEPTS:
                 if self._trace_enabled:
                     print(f"    SKIPPING sentence {sent_idx}: target_for_frame={target_for_frame}")
                 continue
             
-            if not target_reusable:
-                used_targets.add(target_for_frame.lower())
-            recent_targets.append(target_for_frame)
-            if len(recent_targets) > target_reuse_window:
-                recent_targets.pop(0)
+            used_targets[target_for_frame.lower()] = sent_idx
+            last_subject = target_for_frame
             
             # ─── STEP 4: SyntacticCellAssembly — Bind to grammatical frame ───
             frame = self.syntactic_assembly.bind_to_sentence(

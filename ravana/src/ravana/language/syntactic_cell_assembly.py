@@ -82,7 +82,10 @@ class SyntacticCellAssembly:
     }
 
     # Verb phrases per relation type (seeded, refined by cerebellar n-gram)
-    # Expanded for more natural-sounding variety
+    # Stage 1: Moved to fallback status — primary generation uses natural clause
+    # templates from SurfaceRealizer.NATURAL_CLAUSES. This list is still used
+    # when no template matches (the cerebellar n-gram fallback path) and for
+    # verb-concept selection in _pick_verb_for_relation.
     VERB_PHRASES = {
         'semantic': [
             'is closely tied to', 'relates to', 'connects with',
@@ -117,6 +120,17 @@ class SyntacticCellAssembly:
             'connects to', 'is linked with', 'relates to',
             'brings up', 'recalls', 'reminds us of',
         ],
+    }
+
+    # Discourse type mapping — maps edge relation types to surface discourse types
+    # Used by the SurfaceRealizer to pick natural clause templates.
+    RELATION_TO_DISCOURSE = {
+        'semantic': 'explain',
+        'causal': 'causal',
+        'contrastive': 'contrast',
+        'analogical': 'connect',
+        'temporal': 'elaborate',
+        'episodic': 'elaborate',
     }
 
     def __init__(self, learning_rate: float = 0.05):

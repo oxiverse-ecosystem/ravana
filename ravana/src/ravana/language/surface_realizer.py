@@ -17,6 +17,7 @@ modulating exploration of less-used phrases.
 Replaces _format_sentence's random template approach.
 """
 
+import random
 from typing import Dict, Optional, List, Tuple
 from dataclasses import dataclass, field
 import re
@@ -50,7 +51,84 @@ class SurfaceRealizer:
     - Pronoun resolution prevents repetition
     - Dopamine tone modulates variety: high DA → more variety, low DA → conservative
     - Article insertion follows English rules (a/an/the, abstract noun exceptions)
+    - Stage 1: Uses rotating natural clause structures per discourse type instead of fixed SVO
+    - Stage 1: Light human texture — hedges, first/second person, reflective closing
     """
+
+    # Natural clause structures per discourse type (Stage 1 de-template)
+    # These replace the fixed SVO "subject verb object" assembly.
+    # {subj} and {obj} are filled from the frame's subject and object phrases.
+    NATURAL_CLAUSES = {
+        "explain": [
+            "{subj} is really about {obj}",
+            "when you think of {subj}, {obj} comes up",
+            "at its heart, {subj} is {obj}",
+            "the idea of {subj} ties into {obj}",
+            "you could say {subj} comes down to {obj}",
+            "{subj} basically means {obj}",
+        ],
+        "causal": [
+            "{subj} leads to {obj}",
+            "{subj} happens because of {obj}",
+            "{subj} matters because of {obj}",
+            "when {subj} is there, you tend to see {obj}",
+            "{subj} often creates {obj}",
+            "one reason for {subj} is {obj}",
+        ],
+        "elaborate": [
+            "{subj} and {obj} go together — one feeds the other",
+            "another side of {subj} is {obj}",
+            "there is also {obj} to consider with {subj}",
+            "beyond that, {subj} relates to {obj}",
+            "{subj} also connects to {obj}",
+        ],
+        "contrast": [
+            "{subj} is different from {obj}",
+            "while {subj} is one thing, {obj} is another",
+            "{subj} contrasts with {obj}",
+            "unlike {subj}, {obj} tends to be different",
+            "{subj} and {obj} pull in different directions",
+        ],
+        "connect": [
+            "{subj} connects to {obj} in an interesting way",
+            "there is a link between {subj} and {obj}",
+            "{subj} and {obj} are closely related",
+            "you can draw a line from {subj} to {obj}",
+            "{subj} ties into {obj}",
+        ],
+    }
+
+    # Light hedges — used sparingly (<25% of sentences)
+    HEDGES = [
+        "kind of", "basically", "in a way", "sort of",
+        "in many ways", "in some sense", "more or less",
+    ]
+
+    # First/second person frames — used ~15-25%
+    PERSON_FRAMES = [
+        "I think {subj} is about {obj}",
+        "you see {subj} in how {obj} plays out",
+        "when I think about {subj}, {obj} comes to mind",
+        "you can see {subj} in {obj}",
+        "I would say {subj} ties into {obj}",
+    ]
+
+    # Reflective closing clauses — tacked on ~30% of the time
+    REFLECTIVE_CLAUSES = [
+        "which is worth thinking about",
+        "when you really stop and think about it",
+        "and that shapes how things play out",
+        "it is something to reflect on",
+        "and that is what makes it interesting",
+        "if that makes sense",
+    ]
+
+    QUESTION_CLAUSES = [
+        "does that make sense?",
+        "what do you think?",
+        "does that resonate?",
+        "have you noticed that?",
+    ]
 
     # Grammatical agreement rules
     AGREEMENT_RULES = {
@@ -151,29 +229,28 @@ class SurfaceRealizer:
     # Expanded for more variety: each type has 8+ options with different styles
     DISCOURSE_MARKERS = {
         "elaborate": [
-            "furthermore", "in addition", "also", "moreover", "besides",
-            "on top of that", "what is more", "not only that", "additionally",
-            "another thing is", "plus", "to add to that",
+            "", "", "", "also", "", "and", "", "", "besides",
+            "on top of that", "", "plus",
         ],
         "contrast": [
-            "however", "on the other hand", "yet", "but", "at the same time",
-            "then again", "that said", "still", "nevertheless", "nonetheless",
-            "even so", "despite this", "conversely", "although",
+            "", "but", "", "but", "at the same time",
+            "then again", "", "still", "", "",
+            "", "", "", "although",
         ],
         "connect": [
-            "similarly", "likewise", "in the same way", "correspondingly",
-            "by the same token", "along those lines", "in a similar vein",
-            "equally", "just as", "in parallel", "analogously",
+            "", "", "in the same way", "",
+            "by the same token", "", "",
+            "", "", "",
         ],
         "explain": [
-            "", "", "in fact", "indeed",
-            "actually", "in other words", "more precisely", "specifically",
-            "to be exact", "namely", "that is", "put differently",
+            "", "", "", "",
+            "", "in other words", "", "",
+            "", "", "", "",
         ],
         "conclude": [
-            "ultimately", "in essence", "at its core", "fundamentally",
-            "all things considered", "when you think about it", "in the end",
-            "at the end of the day", "basically", "deep down",
+            "", "in essence", "", "",
+            "", "when you think about it", "",
+            "", "basically", "",
         ],
     }
 
@@ -189,13 +266,15 @@ class SurfaceRealizer:
                 discourse_marker: Optional[str] = None) -> str:
         """Convert a syntactic frame into a well-formed English sentence.
 
-        Pipeline:
+        Pipeline (Stage 1 — de-template):
         1. Determine subject-verb agreement from POS tags + countability
         2. Insert articles where needed (a/an/the)
         3. Choose best verb phrase (cerebellar-weighted, not random)
         4. Handle pronoun resolution (don't repeat subject)
-        5. Apply discourse marker (if not first sentence)
-        6. Capitalize and punctuate
+        5. Pick natural clause template from NATURAL_CLAUSES per discourse type
+        6. Apply discourse marker (sparingly, <25% of sentences beyond first)
+        7. Optionally add hedges, first/second person, reflective closing
+        8. Capitalize and punctuate
 
         Args:
             frame: SyntacticFrame (from SyntacticCellAssembly.bind_to_sentence)
@@ -206,13 +285,13 @@ class SurfaceRealizer:
         Returns:
             Well-formed English sentence string
         """
-        import random
         subj = frame.subject_concept
         obj = frame.object_concept
         verb_phrase = frame.verb_phrase
         art_subj = frame.article_subject
         art_obj = frame.article_object
         relation = frame.relation_type
+        discourse_type = discourse_context.discourse_type
         sl, tl = subj.lower(), obj.lower()
 
         # Step 1: Pronoun resolution
@@ -230,48 +309,81 @@ class SurfaceRealizer:
             obj, art_obj, is_subject=False, dopamine_tone=dopamine_tone
         )
 
-        # Step 4: Get verb phrase (cerebellar-weighted)
+        # Step 4: Get verb phrase (cerebellar-weighted fallback)
         verb = self._select_verb_phrase(verb_phrase, relation,
                                          dopamine_tone, cerebellar_ngram)
 
-        # Step 5: Apply subject-verb agreement (use resolved subject for agreement)
+        # Step 5: Apply subject-verb agreement
         verb = self._apply_agreement(verb, subject_phrase, display_subj.lower())
 
         # Step 6: Apply tense
         verb = self._apply_tense(verb, frame.tense)
 
-        # Step 7: Assemble core sentence
+        # Step 7: Assemble core sentence — pick from natural clauses (Stage 1)
         if relation == 'interrogative':
-            # ASK_BACK: the object_concept IS the pre-formed question
             sentence = frame.object_concept
-            # Don't add period if already has punctuation
             has_punct = sentence.endswith('.') or sentence.endswith('?') or sentence.endswith('!')
-        elif relation == 'causal':
-            sentence = f"{subject_phrase} {verb} {object_phrase}"
-            has_punct = False
-        elif relation == 'contrastive':
-            sentence = f"{subject_phrase} {verb} {object_phrase}"
-            has_punct = False
         else:
-            sentence = f"{subject_phrase} {verb} {object_phrase}"
+            use_person_frame = (dopamine_tone > 0.4 and random.random() < 0.2
+                                and discourse_context.sentence_index == 0)
+            # Pick a natural clause template based on discourse type
+            # Map any extras from PrefrontalWorkspace to known keys
+            _discourse_map = {
+                "causal_explain": "causal",
+                "continue": "explain",
+                "self_reference": "explain",
+                "ask_back": "explain",
+            }
+            discourse_key = _discourse_map.get(discourse_type, discourse_type)
+            if discourse_key not in self.NATURAL_CLAUSES:
+                discourse_key = "explain"
+            clauses = self.NATURAL_CLAUSES.get(discourse_key, [])
+            if use_person_frame and self.PERSON_FRAMES:
+                template = random.choice(self.PERSON_FRAMES)
+            elif clauses and random.random() < 0.7:
+                template = random.choice(clauses)
+            else:
+                # Fallback to SVO
+                template = "{subj} {verb} {obj}"
+            sentence = template.replace("{subj}", subject_phrase).replace("{obj}", object_phrase).replace("{verb}", verb)
             has_punct = False
 
-        # Step 8: Add discourse marker (skip for questions)
-        if discourse_marker and not has_punct:
-            marker = discourse_marker
-        else:
-            marker = self._select_discourse_marker(
-                discourse_context.discourse_type,
-                discourse_context.sentence_index,
-                dopamine_tone
-            )
-        if marker and not has_punct:
-            sentence = f"{marker}, {sentence[0].lower() + sentence[1:]}"
+        # Step 8: Add hedge (sparingly, ~15-20% of sentences not first)
+        if not has_punct and discourse_context.sentence_index > 0 and random.random() < 0.18:
+            hedge = random.choice(self.HEDGES)
+            # Insert after first word or after "you" / "it"
+            first_space = sentence.find(" ")
+            if first_space > 0 and first_space < len(sentence) - 3:
+                after_first = sentence[first_space + 1]
+                if after_first.islower():
+                    sentence = sentence[:first_space + 1] + hedge + " " + sentence[first_space + 1:]
 
-        # Step 9: Capitalize and punctuate
+        # Step 9: Reflective closing clause (~30% of non-first sentences, not on questions)
+        if not has_punct and discourse_context.sentence_index > 0 and random.random() < 0.30:
+            if random.random() < 0.25 and discourse_context.sentence_index == discourse_context.total_sentences - 1:
+                # Closing question
+                sentence = sentence + " " + random.choice(self.QUESTION_CLAUSES)
+                has_punct = sentence.endswith('?')
+            else:
+                sentence = sentence + ", " + random.choice(self.REFLECTIVE_CLAUSES)
+
+        # Step 10: Add discourse marker (sparingly — <25% of sentences beyond first)
+        if not has_punct and discourse_context.sentence_index > 0:
+            if discourse_marker and random.random() < 0.25:
+                marker = discourse_marker
+            else:
+                marker = self._select_discourse_marker(
+                    discourse_context.discourse_type,
+                    discourse_context.sentence_index,
+                    dopamine_tone
+                )
+            if marker and random.random() < 0.25:
+                sentence = f"{marker}, {sentence[0].lower() + sentence[1:]}"
+
+        # Step 11: Capitalize and punctuate
         if not has_punct:
             sentence = sentence[0].upper() + sentence[1:]
-            if not sentence.endswith('.'):
+            if not sentence.endswith('.') and not sentence.endswith('?') and not sentence.endswith('!'):
                 sentence += '.'
 
         # Track subject usage
@@ -319,6 +431,7 @@ class SurfaceRealizer:
         - Pronouns → no article
         - Countable singular → "a"/"an" or "the"
         - First mention: no article for abstract, "the" for specific
+        - Stage 1: Web-garbage/unknown short targets → no article, use as qualifier
         """
         cl = concept.lower()
 
@@ -332,6 +445,19 @@ class SurfaceRealizer:
 
         # No article for uncountable
         if cl in self.UNCOUNTABLE_NOUNS:
+            return concept
+
+        # Web-garbage / unknown / non-English patterns — no article
+        # These sound wrong as count nouns ("a money", "a thing", "a stuff")
+        garbage_indicators = (
+            len(cl) <= 2,
+            cl.startswith('http'), cl.startswith('www'),
+            cl.endswith(('ous', 'ful', 'less', 'able', 'ical', 'ive', 'ish', 'some')),
+            cl in ('thing', 'stuff', 'money', 'data', 'info', 'math',
+                   'nothing', 'something', 'everything', 'anything',
+                   'way', 'lot', 'bit', 'kind', 'sort', 'type', 'part'),
+        )
+        if any(garbage_indicators):
             return concept
 
         # Apply article
