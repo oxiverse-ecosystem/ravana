@@ -1211,6 +1211,8 @@ class CognitiveChatEngine:
         self._bg_learning_active: bool = False
         self._bg_learning_queue: List[str] = []  # queries to research in background
         self._bg_lock = threading.Lock()
+        self._vocab_lock = threading.RLock()
+        self._graph_lock = threading.RLock()
         self._bg_idle_event = threading.Event()  # set when user sends a message
         self._bg_search_count: int = 0  # total background searches performed
         self._bg_multi_search_max: int = 1  # related searches to expand per query (reduced from 3)
@@ -1618,7 +1620,7 @@ class CognitiveChatEngine:
         return passes
 
     def _expand_decoder_vocab(self, new_words: List[str]):
-        """Add new words to the decoder vocabulary (hippocampal replay).""
+        """Add new words to the decoder vocabulary (hippocampal replay)."
 
         New words get embeddings from GloVe (or random if unavailable).
         The decoder embedding table is resized and vocabulary caches rebuilt.
@@ -1631,36 +1633,37 @@ class CognitiveChatEngine:
         if getattr(self, '_freeze_decoder_vocab', False):
             return
 
-        added = 0
-        for word in new_words:
-            wl = word.lower().strip()
-            if wl in self._decoder_word_to_idx or wl in ('<pad>', '<unk>', '<bos>', '<eos>'):
-                continue
-            idx = len(self._decoder_word_to_idx)
-            self._decoder_word_to_idx[wl] = idx
-            self._decoder_idx_to_word[idx] = wl
-            vec = self._glove_vector(wl)
-            if vec is None:
-                vec = np.random.randn(self.dim).astype(np.float32) * 0.1
-                n = np.linalg.norm(vec)
-                if n > 0:
-                    vec /= n
-            self._decoder_word_to_embed[wl] = vec.astype(np.float32)
-            added += 1
+        with self._vocab_lock:
+            added = 0
+            for word in new_words:
+                wl = word.lower().strip()
+                if wl in self._decoder_word_to_idx or wl in ('<pad>', '<unk>', '<bos>', '<eos>'):
+                    continue
+                idx = len(self._decoder_word_to_idx)
+                self._decoder_word_to_idx[wl] = idx
+                self._decoder_idx_to_word[idx] = wl
+                vec = self._glove_vector(wl)
+                if vec is None:
+                    vec = np.random.randn(self.dim).astype(np.float32) * 0.1
+                    n = np.linalg.norm(vec)
+                    if n > 0:
+                        vec /= n
+                self._decoder_word_to_embed[wl] = vec.astype(np.float32)
+                added += 1
 
-        if added == 0:
-            return
+            if added == 0:
+                return
 
-        old_vocab_size = self.neural_decoder.vocab_size
-        new_vocab_size = len(self._decoder_word_to_idx)
+            old_vocab_size = self.neural_decoder.vocab_size
+            new_vocab_size = len(self._decoder_word_to_idx)
 
-        # Resize decoder embedding table (preserve existing weights)
-        old_weight = self.neural_decoder.word_embedding.weight.data
-        new_weight = np.zeros((new_vocab_size, self.dim), dtype=np.float32)
-        new_weight[:len(old_weight)] = old_weight
-        for word, idx in self._decoder_word_to_idx.items():
-            if idx >= len(old_weight) and word in self._decoder_word_to_embed:
-                new_weight[idx] = self._decoder_word_to_embed[word]
+            # Resize decoder embedding table (preserve existing weights)
+            old_weight = self.neural_decoder.word_embedding.weight.data
+            new_weight = np.zeros((new_vocab_size, self.dim), dtype=np.float32)
+            new_weight[:len(old_weight)] = old_weight
+            for word, idx in list(self._decoder_word_to_idx.items()):
+                if idx >= len(old_weight) and word in self._decoder_word_to_embed:
+                    new_weight[idx] = self._decoder_word_to_embed[word]
 
         from ravana_ml.nn.module import Embedding, Linear
         new_emb = Embedding(new_vocab_size, self.dim)
@@ -1686,20 +1689,21 @@ class CognitiveChatEngine:
 
         # Hippocampal replay: mix new embeddings with similar existing ones
         # Build batch embedding matrix for existing words once (avoids O(V²) per new word)
-        existing_labels = []
-        existing_vecs = []
-        new_set = set(w.lower().strip() for w in new_words)
-        for ew, ei in self._decoder_word_to_idx.items():
-            if ew.startswith('<') or ew in new_set:
-                continue
-            ev = self._decoder_word_to_embed.get(ew)
-            if ev is not None:
-                existing_labels.append(ew)
-                existing_vecs.append(ev)
-        if existing_vecs:
-            existing_mat = np.stack(existing_vecs, axis=0).astype(np.float32)
-        else:
-            existing_mat = np.empty((0, self.dim), dtype=np.float32)
+        with self._vocab_lock:
+            existing_labels = []
+            existing_vecs = []
+            new_set = set(w.lower().strip() for w in new_words)
+            for ew, ei in list(self._decoder_word_to_idx.items()):
+                if ew.startswith('<') or ew in new_set:
+                    continue
+                ev = self._decoder_word_to_embed.get(ew)
+                if ev is not None:
+                    existing_labels.append(ew)
+                    existing_vecs.append(ev)
+            if existing_vecs:
+                existing_mat = np.stack(existing_vecs, axis=0).astype(np.float32)
+            else:
+                existing_mat = np.empty((0, self.dim), dtype=np.float32)
 
         for word in new_words:
             wl = word.lower().strip()
@@ -1817,27 +1821,28 @@ class CognitiveChatEngine:
         concept_embs = []
         seen_labels: Set[str] = set()
 
-        # Subject embedding (core concept)
-        subj_lower = subject.lower()
-        if subj_lower in self._concept_keywords:
-            nids = self._concept_keywords[subj_lower]
-            node = self.graph.get_node(nids[0])
-            if node and node.vector is not None:
-                concept_embs.append(node.vector.copy())
-                seen_labels.add(subj_lower)
-
-        # Associated concepts with weighted significance
-        for label, score in ctx.associated_concepts[:6]:
-            ll = label.lower()
-            if ll not in seen_labels and ll in self._concept_keywords:
-                nids = self._concept_keywords[ll]
+        # Subject embedding (core concept) — lock graph reads
+        with self._graph_lock:
+            subj_lower = subject.lower()
+            if subj_lower in self._concept_keywords:
+                nids = self._concept_keywords[subj_lower]
                 node = self.graph.get_node(nids[0])
                 if node and node.vector is not None:
-                    weight = 0.5 + min(score, 1.0) * 0.5
-                    concept_embs.append(node.vector.copy() * weight)
-                    seen_labels.add(ll)
-                    if len(concept_embs) >= 6:
-                        break
+                    concept_embs.append(node.vector.copy())
+                    seen_labels.add(subj_lower)
+
+            # Associated concepts with weighted significance
+            for label, score in ctx.associated_concepts[:6]:
+                ll = label.lower()
+                if ll not in seen_labels and ll in self._concept_keywords:
+                    nids = self._concept_keywords[ll]
+                    node = self.graph.get_node(nids[0])
+                    if node and node.vector is not None:
+                        weight = 0.5 + min(score, 1.0) * 0.5
+                        concept_embs.append(node.vector.copy() * weight)
+                        seen_labels.add(ll)
+                        if len(concept_embs) >= 6:
+                            break
 
         # Fallback: use decoder word embeddings if no graph nodes found
         if len(concept_embs) < 1:
@@ -1880,10 +1885,11 @@ class CognitiveChatEngine:
             "lead", "leads", "talk", "think", "link", "links",
             "<pad>", "?", "<bos>", "<eos>",
         }
-        content_word_ids = {
-            idx for word, idx in self._decoder_word_to_idx.items()
-            if word not in function_words_set and not word.startswith("<")
-        }
+        with self._vocab_lock:
+            content_word_ids = {
+                idx for word, idx in self._decoder_word_to_idx.items()
+                if word not in function_words_set and not word.startswith("<")
+            }
 
         try:
             generated = self.neural_decoder.generate(
@@ -2915,18 +2921,19 @@ class CognitiveChatEngine:
         topic_words = [tw for tw in re.findall(r"[a-zA-Z']{3,}", topic_lower) if tw not in STOP_WORDS]
         important_words = topic_words + [w for w in important_words if w not in topic_words]
 
-        # Check which words are new vs known
-        existing_labels = set()
-        for nid, node in self.graph.nodes.items():
-            if node.label:
-                existing_labels.add(node.label.lower())
+        # Check which words are new vs known (lock graph reads)
+        with self._graph_lock:
+            existing_labels = set()
+            for nid, node in self.graph.nodes.items():
+                if node.label:
+                    existing_labels.add(node.label.lower())
 
-        new_count = 0
-        existing_labels_before = existing_labels.copy()
-        label_to_id = {}
-        for nid, node in self.graph.nodes.items():
-            if node.label:
-                label_to_id[node.label] = nid
+            new_count = 0
+            existing_labels_before = existing_labels.copy()
+            label_to_id = {}
+            for nid, node in self.graph.nodes.items():
+                if node.label:
+                    label_to_id[node.label] = nid
 
         # Phase 18c: Track source of this learning - use URL when available
         if source_url:
@@ -2934,7 +2941,7 @@ class CognitiveChatEngine:
         else:
             source_id = hashlib.md5((source_url or topic).encode()).hexdigest()[:16]
 
-        # Add new concepts
+        # Add new concepts (locked to prevent graph mutation during save iteration)
         for word in important_words:
             if word in existing_labels:
                 # Concept already exists - reinforce by tracking additional source
@@ -2955,7 +2962,8 @@ class CognitiveChatEngine:
                 norm = np.linalg.norm(vec)
                 if norm > 0:
                     vec /= norm
-            node = self.graph.add_node(vector=vec, label=word)
+            with self._graph_lock:
+                node = self.graph.add_node(vector=vec, label=word)
             label_to_id[word] = node.id
             self._concept_keywords[word] = self._concept_keywords.get(word, []) + [node.id]
             self._concept_labels.add(word.lower())
@@ -2972,71 +2980,73 @@ class CognitiveChatEngine:
         # Get unique important words that appear in the text
         present_important = list(set(w for w in article_words_lower if w in important_words))
 
-        for i in range(len(present_important)):
-            for j in range(i + 1, len(present_important)):
-                w1, w2 = present_important[i], present_important[j]
-                nid1 = label_to_id.get(w1)
-                nid2 = label_to_id.get(w2)
-                if nid1 is not None and nid2 is not None:
-                    # Don't duplicate existing edges, just boost weight
-                    existing = self.graph.get_edge(nid1, nid2)
-                    if existing is None:
-                        weight = max(0.3, min(0.7, 0.2 + word_counts.get(w1, 1) * word_counts.get(w2, 1) * 0.001))
-                        self.graph.add_edge(nid1, nid2, weight=weight, relation_type="semantic")
-                    else:
-                        existing.weight = min(0.9, existing.weight + 0.05)
+        with self._graph_lock:
+            for i in range(len(present_important)):
+                for j in range(i + 1, len(present_important)):
+                    w1, w2 = present_important[i], present_important[j]
+                    nid1 = label_to_id.get(w1)
+                    nid2 = label_to_id.get(w2)
+                    if nid1 is not None and nid2 is not None:
+                        # Don't duplicate existing edges, just boost weight
+                        existing = self.graph.get_edge(nid1, nid2)
+                        if existing is None:
+                            weight = max(0.3, min(0.7, 0.2 + word_counts.get(w1, 1) * word_counts.get(w2, 1) * 0.001))
+                            self.graph.add_edge(nid1, nid2, weight=weight, relation_type="semantic")
+                        else:
+                            existing.weight = min(0.9, existing.weight + 0.05)
 
         # Connect new words to existing related concepts via vector similarity
         # Only do this for the topic word and first 2 important words (others
         # rely on co-occurrence edges, which are more topically coherent)
-        for word in important_words[:10]:
-            nid = label_to_id.get(word)
-            if nid is None:
-                continue
-            node = self.graph.get_node(nid)
-            if node is None:
-                continue
-            edge_count = 0
-            # FAISS/vectorized: matrix multiply instead of per-node loop
-            if self.graph._vectors_dirty or self.graph._vector_matrix_normed is None:
-                self.graph._rebuild_vector_matrix()
-            if self.graph._vector_matrix_normed is not None and len(self.graph._node_id_order) > 0:
-                vec_norm = node.vector / (np.linalg.norm(node.vector) + 1e-15)
-                all_sims = self.graph._vector_matrix_normed @ vec_norm.astype(np.float32)
-                for idx in np.where(all_sims > 0.3)[0]:
-                    existing_nid = self.graph._node_id_order[idx]
-                    if existing_nid == nid or existing_nid not in self.graph.nodes:
-                        continue
-                    existing_node = self.graph.get_node(existing_nid)
-                    if existing_node is None or existing_node.vector is None:
-                        continue
-                    if existing_node.label and existing_node.label in important_words:
-                        continue
-                    sim = float(all_sims[idx])
-                    if self.graph.get_edge(nid, existing_nid) is None:
-                        weight = max(0.25, min(0.5, sim * 0.5))
-                        inf_type, _ = self._infer_relation_type(word, existing_node.label, "semantic")
-                        self.graph.add_edge(nid, existing_nid, weight=weight,
-                                            relation_type=inf_type)
-                        edge_count += 1
-            # Guarantee at least one connection for the topic word
-            if edge_count == 0 and word == important_words[0]:
-                best_sim = 0.0
-                best_nid = None
-                best_label = None
-                for existing_nid, existing_node in self.graph.nodes.items():
-                    if existing_nid == nid or existing_node.label in important_words:
-                        continue
-                    if existing_node.vector is not None and node.vector is not None:
-                        sim = float(np.dot(node.vector, existing_node.vector))
-                        if sim > best_sim:
-                            best_sim = sim
-                            best_nid = existing_nid
-                            best_label = existing_node.label
-                if best_nid is not None and best_label is not None:
-                    weight = max(0.25, min(0.4, best_sim * 0.5))
-                    inf_type, _ = self._infer_relation_type(word, best_label, "semantic")
-                    self.graph.add_edge(nid, best_nid, weight=weight, relation_type=inf_type)
+        with self._graph_lock:
+            for word in important_words[:10]:
+                nid = label_to_id.get(word)
+                if nid is None:
+                    continue
+                node = self.graph.get_node(nid)
+                if node is None:
+                    continue
+                edge_count = 0
+                # FAISS/vectorized: matrix multiply instead of per-node loop
+                if self.graph._vectors_dirty or self.graph._vector_matrix_normed is None:
+                    self.graph._rebuild_vector_matrix()
+                if self.graph._vector_matrix_normed is not None and len(self.graph._node_id_order) > 0:
+                    vec_norm = node.vector / (np.linalg.norm(node.vector) + 1e-15)
+                    all_sims = self.graph._vector_matrix_normed @ vec_norm.astype(np.float32)
+                    for idx in np.where(all_sims > 0.3)[0]:
+                        existing_nid = self.graph._node_id_order[idx]
+                        if existing_nid == nid or existing_nid not in self.graph.nodes:
+                            continue
+                        existing_node = self.graph.get_node(existing_nid)
+                        if existing_node is None or existing_node.vector is None:
+                            continue
+                        if existing_node.label and existing_node.label in important_words:
+                            continue
+                        sim = float(all_sims[idx])
+                        if self.graph.get_edge(nid, existing_nid) is None:
+                            weight = max(0.25, min(0.5, sim * 0.5))
+                            inf_type, _ = self._infer_relation_type(word, existing_node.label, "semantic")
+                            self.graph.add_edge(nid, existing_nid, weight=weight,
+                                                relation_type=inf_type)
+                            edge_count += 1
+                # Guarantee at least one connection for the topic word
+                if edge_count == 0 and word == important_words[0]:
+                    best_sim = 0.0
+                    best_nid = None
+                    best_label = None
+                    for existing_nid, existing_node in list(self.graph.nodes.items()):
+                        if existing_nid == nid or existing_node.label in important_words:
+                            continue
+                        if existing_node.vector is not None and node.vector is not None:
+                            sim = float(np.dot(node.vector, existing_node.vector))
+                            if sim > best_sim:
+                                best_sim = sim
+                                best_nid = existing_nid
+                                best_label = existing_node.label
+                    if best_nid is not None and best_label is not None:
+                        weight = max(0.25, min(0.4, best_sim * 0.5))
+                        inf_type, _ = self._infer_relation_type(word, best_label, "semantic")
+                        self.graph.add_edge(nid, best_nid, weight=weight, relation_type=inf_type)
 
         # Train neural decoder on article text (unsupervised next-word prediction)
         if self.neural_decoder is not None and self._decoder_vocab_built:
@@ -3044,10 +3054,11 @@ class CognitiveChatEngine:
             article_words = re.findall(r"[a-zA-Z']{3,}", text.lower())
             cond_embs = self._build_conditioning_for_text(topic, article_words)
 
-            # Expand decoder vocab with newly added concepts
-            new_labels = [n.label for nid, n in self.graph.nodes.items()
-                          if n.label and n.label.lower() not in self._decoder_word_to_idx
-                          and n.label.lower() not in ('<pad>', '<unk>', '<bos>', '<eos>')]
+            # Expand decoder vocab with newly added concepts (lock graph read)
+            with self._graph_lock:
+                new_labels = [n.label for nid, n in self.graph.nodes.items()
+                              if n.label and n.label.lower() not in self._decoder_word_to_idx
+                              and n.label.lower() not in ('<pad>', '<unk>', '<bos>', '<eos>')]
             if new_labels:
                 self._expand_decoder_vocab(new_labels)
 
@@ -7071,14 +7082,28 @@ class CognitiveChatEngine:
 
     def save(self) -> str:
         """Save full cognitive state to disk. Returns path to save file."""
+        with self._vocab_lock, self._graph_lock:
+            _graph_snapshot = self.graph
+            _decoder_w2i = dict(self._decoder_word_to_idx)
+            _decoder_i2w = dict(self._decoder_idx_to_word)
+            _decoder_w2e = dict(self._decoder_word_to_embed)
+            _ck_snapshot = dict(self._concept_keywords)
+            _cl_snapshot = set(self._concept_labels)
+            _vc_snapshot = set(self._visited_concepts)
+            _af_snapshot = dict(self._activation_fatigue)
+            _rt_snapshot = list(self._recent_traversals)
+            _rtm_snapshot = dict(self._recent_traversal_map)
+            _cv_snapshot = dict(self._concept_vad)
+            _td_snapshot = list(self._td_error_history[-50:])
+            _cc_snapshot = dict(self._concept_confidence)
         state = {
-            'graph': self.graph,
-            'concept_keywords': self._concept_keywords,
+            'graph': _graph_snapshot,
+            'concept_keywords': _ck_snapshot,
             'turn_count': self.turn_count,
-            'topic_list': self._topic_list,
-            'topic_store': self._topic_store,
-            'response_context': self._response_context,
-            'last_responses': self._last_responses,
+            'topic_list': list(self._topic_list),
+            'topic_store': dict(self._topic_store),
+            'response_context': list(self._response_context),
+            'last_responses': list(self._last_responses),
             'last_strategy': self._last_strategy,
             'free_energy': self._free_energy,
             'learning_count': self._learning_count,
@@ -7094,9 +7119,9 @@ class CognitiveChatEngine:
             'sleep_pressure': self._sleep_pressure,
             'last_sleep_episode': self._last_sleep_episode,
             'sleep_cycles_completed': self.sleep_cycles_completed,
-            'concept_vad': self._concept_vad,
+            'concept_vad': _cv_snapshot,
             'meta_mode': self.meta_cog.current_mode.value,
-            'contradiction_map': self._contradiction_map,
+            'contradiction_map': dict(self._contradiction_map),
             'user_model': self.user_model,
             'use_vad': getattr(self, 'use_vad', True),
             'use_rlm': getattr(self, 'use_rlm', True),
@@ -7108,15 +7133,16 @@ class CognitiveChatEngine:
             'bg_multi_search_max': self._bg_multi_search_max,
             # Curiosity Drive state
             'curiosity_drive_enabled': self._curiosity_drive_enabled,
-            'concept_visit_count': self._concept_visit_count,
-            'concept_learning_progress': self._concept_learning_progress,            'concept_pe_delta': self._concept_pe_delta,
-            'curiosity_topics_queue': self._curiosity_topics_queue,
+            'concept_visit_count': dict(self._concept_visit_count),
+            'concept_learning_progress': dict(self._concept_learning_progress),
+            'concept_pe_delta': dict(self._concept_pe_delta),
+            'curiosity_topics_queue': list(self._curiosity_topics_queue),
             'last_auto_learn_turn': self._last_auto_learn_turn,
             'curiosity_urgency': self._curiosity_urgency,
-            'user_query_topics': self._user_query_topics,
+            'user_query_topics': list(self._user_query_topics),
             'user_last_topic': self._user_last_topic,
             'concept_sources': {k: list(v) for k, v in self._concept_sources.items()},
-            'explored_contradictions': [list(p) for p in self._explored_contradictions],
+            'explored_contradictions': [list(p) for p in list(self._explored_contradictions)],
             # Dual stores
             'episodic_edges': dict(self._episodic_edges),
             'semantic_edges': dict(self._semantic_edges),
@@ -7124,20 +7150,20 @@ class CognitiveChatEngine:
             'sentence_schema': dict(self._sentence_schema),
             'mean_sentence_pe': self._mean_sentence_pe,
             'dopamine_tone': self._dopamine_tone,
-            'td_error_history': list(self._td_error_history[-50:]),
-            'concept_confidence': dict(self._concept_confidence),
+            'td_error_history': _td_snapshot,
+            'concept_confidence': _cc_snapshot,
             'cerebellar_ngram': dict(self._cerebellar_ngram),
             'cerebellar_ngram_state': self.cerebellar_ngram.get_state() if hasattr(self, 'cerebellar_ngram') else {},
             'cerebellar_depth': dict(self._cerebellar_depth),
             'concept_pos': dict(self._concept_pos),
             'concept_labels': list(self._concept_labels),
             'visited_concepts': list(self._visited_concepts),
-            'activation_fatigue': dict(self._activation_fatigue),
-            'recent_traversals': list(self._recent_traversals[-30:]),
-            'recent_traversal_map': dict(self._recent_traversal_map),
+            'activation_fatigue': _af_snapshot,
+            'recent_traversals': _rt_snapshot,
+            'recent_traversal_map': _rtm_snapshot,
             'cognitive_state': self._cognitive_state,
             'state_duration': self._state_duration,
-            'prefrontal_buffer': self._prefrontal_buffer,
+            'prefrontal_buffer': list(self._prefrontal_buffer),
             'mean_prediction_error': self._mean_prediction_error,
             'prediction_error_count': self._prediction_error_count,
             # Neural decoder
@@ -7146,7 +7172,7 @@ class CognitiveChatEngine:
             'decoder_web_training_count': self._decoder_web_training_count,
             # Curiosity diversity state
             'bg_learning_cycles': getattr(self, '_bg_learning_cycles', 0),
-            'recent_curiosity_selections': getattr(self, '_recent_curiosity_selections', []),
+            'recent_curiosity_selections': list(getattr(self, '_recent_curiosity_selections', [])),
             'curiosity_selection_cooldown': getattr(self, '_curiosity_selection_cooldown', 5),
         }
         try:
