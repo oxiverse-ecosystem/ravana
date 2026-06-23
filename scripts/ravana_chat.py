@@ -872,6 +872,8 @@ class CognitiveResponseContext:
     exploration_drive: float = 0.0
     learned_recently: bool = False  # Did we just learn something new?
     recall_mode: bool = False  # Episodic re-traversal vs generic chain walk
+    sentence_vector: Any = None  # Compositional sentence-level vector (N400/P600 integration)
+    discourse_context: str = ""  # Accumulated discourse context across turns
 
 
 class BeliefStore:
@@ -1068,6 +1070,9 @@ class CognitiveChatEngine:
         # Phase 9: PFC gating — dynamic gating threshold modulated by arousal (teen = weaker gating)
         self._pfc_gating_enabled = True
         self._pfc_buffer_capacity = 7  # typical working memory capacity
+        # Phase 11.3: Discourse context (cross-turn accumulation, N400/P600 integration)
+        self._sentence_vector: Optional[np.ndarray] = None
+        self._discourse_context: Optional[np.ndarray] = None
         # Phase 9b: Prediction error tracking (surprise signal for Active Inference)
         self._mean_prediction_error = 0.0
         self._prediction_error_count = 0
@@ -1844,6 +1849,11 @@ class CognitiveChatEngine:
                 concept_embs.append(self._decoder_word_to_embed[subj_lower].copy())
             else:
                 return None
+
+        # Add sentence-level compositional vector (N400/P600 integration) as conditioning
+        sent_vec = getattr(ctx, 'sentence_vector', None)
+        if sent_vec is not None and np.any(sent_vec != 0):
+            concept_embs.append(sent_vec.astype(np.float32) * 0.6)
 
         conditioning_embs = np.stack(concept_embs, axis=0).astype(np.float32)
 
@@ -3293,11 +3303,23 @@ class CognitiveChatEngine:
                 if w not in self._pending_learning_queue:
                     self._pending_learning_queue.append(w)
 
-        # Phase 11.1: Build context vector for this turn
+        # Phase 11.1: Build context vector for this turn + sentence-level composition
         if subject:
             self._current_context_vector = self._build_context_vector(subject)
         else:
             self._current_context_vector = None
+        self._sentence_vector = self._build_sentence_vector(user_input)
+        # Blend with accumulated discourse context (N400/P600 cross-turn integration)
+        if hasattr(self, '_discourse_context') and self._discourse_context is not None:
+            persistence = 0.6  # How much prior context persists
+            self._sentence_vector = (
+                persistence * self._discourse_context +
+                (1.0 - persistence) * self._sentence_vector
+            )
+            n = np.linalg.norm(self._sentence_vector)
+            if n > 0:
+                self._sentence_vector /= n
+        self._discourse_context = self._sentence_vector.copy() if self._sentence_vector is not None else None
         
         # Step 5: Emotional modulation (with concept-specific tagging)
         self._update_emotion(user_input)
@@ -3377,6 +3399,8 @@ class CognitiveChatEngine:
             exploration_drive=0.3 * (1 - self.identity.state.strength) + 0.2 * self.emotion.state.arousal,
             learned_recently=self._learned_this_turn,
             recall_mode=getattr(self, '_recall_mode', False),
+            sentence_vector=self._sentence_vector,
+            discourse_context=" | ".join(self._topic_list[-5:]) if self._topic_list else "",
         )
 
         response, strategy = self._generate_response(ctx)
@@ -4670,6 +4694,72 @@ class CognitiveChatEngine:
         if norm > 0:
             ctx /= norm
         return ctx.astype(np.float32)
+
+    def _build_sentence_vector(self, text: str) -> np.ndarray:
+        """Compose a sentence-level semantic vector from all input words.
+
+        Mimics the N400/P600 retrieval-integration cycle:
+        - Each word triggers retrieval of its concept vector (N400)
+        - Each word's meaning is integrated into the evolving representation (P600)
+        - Integration uses a simple gated composition: new = gate * word + (1-gate) * acc
+        where gate is inversely proportional to how similar the word is to the current
+        accumulated meaning (novel words contribute more).
+
+        Neuroscience basis:
+        - Brouwer et al. 2012/2017 Retrieval-Integration theory
+        - Nature 2024: single-neuron semantic composition across sentences
+        - Dimensionality ramping (PMC 2023): meaningful sentences increase representational dimensionality
+        """
+        words = [w.strip(".,!?").lower() for w in text.split()
+                 if len(w.strip(".,!?")) >= 2]
+        if not words:
+            return np.zeros(self.dim, dtype=np.float32)
+
+        acc = np.zeros(self.dim, dtype=np.float32)
+        count = 0
+
+        for w in words:
+            # N400 phase: retrieve word vector from graph/decoder
+            vec = None
+            nids = self._concept_keywords.get(w, [])
+            if nids:
+                node = self.graph.get_node(nids[0])
+                if node and node.vector is not None:
+                    vec = node.vector.copy()
+            if vec is None and hasattr(self, '_decoder_word_to_embed'):
+                vec = self._decoder_word_to_embed.get(w, None)
+            if vec is None:
+                continue
+
+            # P600 phase: integrate into evolving sentence representation
+            # Novel words contribute more (gate is high for dissimilar words)
+            if count == 0:
+                acc = vec.copy()
+            else:
+                norm_acc = np.linalg.norm(acc)
+                norm_vec = np.linalg.norm(vec)
+                if norm_acc > 0 and norm_vec > 0:
+                    cos_sim = float(np.dot(acc, vec)) / (norm_acc * norm_vec)
+                else:
+                    cos_sim = 0.0
+                # Gate: 0.7 for novel (low sim) to 0.3 for very similar
+                gate = 0.7 - 0.4 * max(0.0, min(1.0, cos_sim))
+                acc = gate * vec + (1.0 - gate) * acc
+            count += 1
+
+            # Renormalize after integration
+            n = np.linalg.norm(acc)
+            if n > 0:
+                acc /= n
+
+        if count == 0:
+            return np.zeros(self.dim, dtype=np.float32)
+
+        # Final normalization
+        n = np.linalg.norm(acc)
+        if n > 0:
+            acc /= n
+        return acc.astype(np.float32)
 
     def _modulate_vector(self, node_id: int) -> Optional[np.ndarray]:
         """Phase 11.2: Return context-modulated vector for a concept node.
