@@ -12,20 +12,32 @@ Theoretical grounding:
   syntactic unification cost, modulated by verb-argument fit.
 - Ferretti et al. (2001). Verbs automatically activate thematic roles
   (agent, patient, instrument) during comprehension.
+- Frank, M. J., et al. (2004). By carrot or by stick: cognitive reinforcement
+  learning in Parkinsonism. Dopamine modulates exploration/exploitation
+  trade-off in decision making — applied here to lexical selection.
+- Levelt, W. J. M., Roelofs, A., & Meyer, A. S. (1999). A theory of
+  lexical access in speech production (WEAVER++). Lemma selection is
+  competitive with noise — recently selected lemmas are transiently
+  inhibited (refractory period) to prevent perseveration.
 
 Design:
 - Verb phrases are grouped by relation type (semantic, causal, contrastive, etc.)
-- Selection is driven by semantic vector similarity between verb and (subject, object)
-- High similarity → simpler, more direct verbs (low unification cost)
-- Low similarity → more complex, hedging verbs (high unification cost)
+- Selection uses softmax-with-temperature over all candidates, where
+  temperature is modulated by dopamine_tone (continuous, no hard threshold)
+  - Low dopamine → low temperature → near-deterministic (exploit best match)
+  - High dopamine → high temperature → more exploration (lawful stochasticity)
+- After selection, the chosen verb enters a refractory period (temporary
+  inhibition) to prevent same-verb perseveration across consecutive sentences.
+  This mirrors the lemma inhibition mechanism in WEAVER++.
+- High similarity (close concepts) → simpler, more direct verbs
+- Low similarity (distant concepts) → more complex, hedging verbs
 - This mirrors P600 amplitude modulation: unexpected combinations require
   more complex syntactic processing
-- Dopamine tone adds exploration noise on top of the similarity signal
 """
 
 import numpy as np
 import random
-from typing import Dict, List, Optional, Tuple, Callable
+from typing import Dict, List, Optional, Tuple, Callable, Set
 
 
 class VerbLexicon:
@@ -42,8 +54,40 @@ class VerbLexicon:
     2. Score each verb by semantic similarity to avg(subject, object)
     3. High similarity → prefer simple verbs (direct, high confidence)
     4. Low similarity → prefer complex verbs (hedging, exploratory)
-    5. Dopamine tone adds random exploration noise
+    5. Softmax-with-temperature selection (continuous, no hard threshold)
+       Low DA → low temperature → near-deterministic
+       High DA → high temperature → lawful stochasticity
+    6. Refractory period: recently selected verbs are temporarily inhibited
+       to prevent perseveration (WEAVER++ lemma inhibition)
     """
+
+    # Refractory period state: verbs selected in the current turn
+    _refractory: Set[str] = set()
+    _refractory_relation: str = ""  # relation of the last selection batch
+
+    @classmethod
+    def reset_refractory(cls):
+        """Clear the refractory period (call at start of each turn)."""
+        cls._refractory.clear()
+        cls._refractory_relation = ""
+
+    @classmethod
+    def _softmax(cls, scores: List[float], temperature: float) -> List[float]:
+        """Softmax with temperature.
+
+        Args:
+            scores: Raw scores (higher = better)
+            temperature: 0+ (lower = more deterministic, higher = more uniform)
+
+        Returns:
+            Probability distribution
+        """
+        if temperature < 0.01:
+            temperature = 0.01
+        shifted = [s - max(scores) for s in scores]
+        exp_s = [np.exp(s / temperature) for s in shifted]
+        total = sum(exp_s)
+        return [e / total for e in exp_s]
 
     VERB_PATTERNS = {
         'semantic': [
@@ -203,13 +247,17 @@ class VerbLexicon:
     def select_verb(cls, relation: str, subject: str = "",
                     object: str = "", dopamine_tone: float = 0.5,
                     vector_fn: Optional[Callable] = None) -> str:
-        """Select verb phrase by semantic similarity.
+        """Select verb phrase by semantic similarity with softmax sampling.
 
-        P600-grounded algorithm:
+        P600-grounded algorithm (Phase 6a):
         1. Compute semantic similarity between subject and object
-        2. High similarity (close concepts) → simple, direct verbs
-        3. Low similarity (distant concepts) → complex, hedging verbs
-        4. Dopamine tone adds exploration noise
+        2. High similarity (close concepts) → simple, direct verbs (low P600 cost)
+        3. Low similarity (distant concepts) → complex, hedging verbs (high P600 cost)
+        4. Softmax-with-temperature selection:
+           - Low DA → low temperature → near-deterministic (exploit)
+           - High DA → high temperature → lawful stochasticity (explore)
+        5. Refractory period: verbs selected recently are penalized to prevent
+           perseveration (WEAVER++ lemma inhibition, Levelt et al. 1999)
 
         Args:
             relation: Relation type (semantic, causal, contrastive, etc.)
@@ -227,6 +275,10 @@ class VerbLexicon:
         if not phrases:
             return "relates to"
 
+        # Reset refractory if relation changed (new turn or new intent)
+        if relation != cls._refractory_relation:
+            cls.reset_refractory()
+
         # Compute semantic similarity between subject and object
         similarity = 0.5
         if fn is not None and subject and object:
@@ -242,27 +294,37 @@ class VerbLexicon:
         # Score each phrase by complexity-similarity alignment
         # High similarity → prefer low complexity (simple, direct)
         # Low similarity → prefer high complexity (hedging, exploratory)
-        scores = []
+        raw_scores = []
         for phrase in phrases:
             comp = cls.COMPLEXITY.get(phrase, 0.5)
             # Target complexity: similarity maps to [0.15, 0.55] range
             target = 0.15 + (1.0 - similarity) * 0.55
             score = 1.0 - abs(comp - target)
-            scores.append((phrase, score))
+            # Apply refractory penalty: recently selected verbs get -0.5
+            if phrase in cls._refractory:
+                score -= 0.5
+            raw_scores.append((phrase, score))
 
-        # Sort by score descending
-        scores.sort(key=lambda x: x[1], reverse=True)
+        if not raw_scores:
+            return "relates to"
 
-        # Dopamine modulation: high DA → pick from top-k with noise
-        if dopamine_tone > 0.6 and len(scores) > 2:
-            k = max(2, int(len(scores) * (1.0 - dopamine_tone * 0.5)))
-            k = min(k, len(scores) - 1)
-            candidates = scores[:max(3, k)]
-            weights = [s + 0.1 for _, s in candidates]
-            return random.choices(candidates, weights=weights, k=1)[0][0]
+        phrases_list, scores_list = zip(*raw_scores)
 
-        # Deterministic: pick highest scoring
-        return scores[0][0]
+        # Temperature: maps dopamine_tone [0.0, 1.0] → temperature [0.05, 0.5]
+        # Low DA = low temperature = sharp distribution (deterministic)
+        # High DA = high temperature = flatter distribution (exploratory)
+        temperature = 0.05 + dopamine_tone * 0.45
+
+        # Softmax sampling
+        probs = cls._softmax(list(scores_list), temperature)
+        idx = random.choices(range(len(phrases_list)), weights=probs, k=1)[0]
+        selected = phrases_list[idx]
+
+        # Add to refractory period
+        cls._refractory.add(selected)
+        cls._refractory_relation = relation
+
+        return selected
 
     @classmethod
     def select_verb_cerebellar(cls, relation: str, cerebellar_ngram,

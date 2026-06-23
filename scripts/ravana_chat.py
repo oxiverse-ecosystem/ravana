@@ -3208,6 +3208,9 @@ class CognitiveChatEngine:
                 # Phase F: Reset per-turn surface realizer state (pronoun tracking)
         if hasattr(self, 'surface_realizer'):
             self.surface_realizer.reset_turn()
+        # Phase 6a: Reset VerbLexicon refractory period (prevents verb perseveration)
+        from ravana.language.verb_lexicon import VerbLexicon
+        VerbLexicon.reset_refractory()
         self.notify_user_active()
         # Phase 15.2: Inter-turn episodic edge decay (forgetting between turns)
         self._decay_episodic_edges()
