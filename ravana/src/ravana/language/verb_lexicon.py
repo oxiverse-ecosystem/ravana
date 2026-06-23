@@ -8,27 +8,35 @@ are lemmas selected via competitive semantic activation, not random choice.
 Theoretical grounding:
 - Levelt, W. J. M. (1989). Speaking: From intention to articulation.
   Lemma selection is driven by conceptual activation + grammatical constraints.
-- Bornkessel-Schlesewsky & Schlesewsky (2008). The P600 reflects
-  syntactic unification cost, modulated by verb-argument fit.
+- Levelt, W. J. M., Roelofs, A., & Meyer, A. S. (1999). WEAVER++: A theory
+  of lexical access in speech production. Lemma selection uses Luce ratio
+  (relative activation) with explicit verification condition-action rules.
+- Bornkessel-Schlesewsky & Schlesewsky (2008). Extended ADM: P600 reflects
+  integration cost during thematic role assignment and verb-argument linking.
 - Ferretti et al. (2001). Verbs automatically activate thematic roles
   (agent, patient, instrument) during comprehension.
-- Frank, M. J., et al. (2004). By carrot or by stick: cognitive reinforcement
-  learning in Parkinsonism. Dopamine modulates exploration/exploitation
-  trade-off in decision making — applied here to lexical selection.
-- Levelt, W. J. M., Roelofs, A., & Meyer, A. S. (1999). A theory of
-  lexical access in speech production (WEAVER++). Lemma selection is
-  competitive with noise — recently selected lemmas are transiently
-  inhibited (refractory period) to prevent perseveration.
+- Humphries, M. D., et al. (2012). Dopaminergic control of the exploration-
+  exploitation trade-off via the basal ganglia. Frontiers in Neuroscience.
+  Tonic striatal dopamine decreases exploration: high DA → peaked PDF.
+  Temperature mapping corrected to match this evidence (Phase 6b).
+- Brouwer, H., et al. (2012). Getting real about Semantic Illusions: Rethinking
+  the functional role of the P600. Brain Research Reviews. Retrieval-Integration
+  account: N400 = memory retrieval, P600 = composition/integration.
+  NOTE: The P600 integration-cost framework is adapted from comprehension
+  to production. In production, verb complexity serves as a proxy for the
+  integration difficulty the speaker experiences when linking subject and
+  object through the verb.
 
 Design:
 - Verb phrases are grouped by relation type (semantic, causal, contrastive, etc.)
 - Selection uses softmax-with-temperature over all candidates, where
   temperature is modulated by dopamine_tone (continuous, no hard threshold)
-  - Low dopamine → low temperature → near-deterministic (exploit best match)
-  - High dopamine → high temperature → more exploration (lawful stochasticity)
-- After selection, the chosen verb enters a refractory period (temporary
-  inhibition) to prevent same-verb perseveration across consecutive sentences.
-  This mirrors the lemma inhibition mechanism in WEAVER++.
+  - High DA → low temperature → sharp PDF → exploit best match (Humphries 2012)
+  - Low DA → high temperature → flat PDF → lawful stochasticity
+- WEAVER++ verification: after softmax selection, the chosen verb's fit
+  score is checked. If too distant, re-sample from top candidates.
+- Refractory period: recently selected verbs are penalized to prevent
+  perseveration (transient depression in lexical access).
 - High similarity (close concepts) → simpler, more direct verbs
 - Low similarity (distant concepts) → more complex, hedging verbs
 - This mirrors P600 amplitude modulation: unexpected combinations require
@@ -249,15 +257,30 @@ class VerbLexicon:
                     vector_fn: Optional[Callable] = None) -> str:
         """Select verb phrase by semantic similarity with softmax sampling.
 
-        P600-grounded algorithm (Phase 6a):
+        P600-grounded algorithm (Phase 6b):
         1. Compute semantic similarity between subject and object
         2. High similarity (close concepts) → simple, direct verbs (low P600 cost)
         3. Low similarity (distant concepts) → complex, hedging verbs (high P600 cost)
         4. Softmax-with-temperature selection:
-           - Low DA → low temperature → near-deterministic (exploit)
-           - High DA → high temperature → lawful stochasticity (explore)
-        5. Refractory period: verbs selected recently are penalized to prevent
-           perseveration (WEAVER++ lemma inhibition, Levelt et al. 1999)
+           - High DA → low temperature → sharp distribution (exploit best match)
+           - Low DA → high temperature → flatter distribution (lawful stochasticity)
+           Grounded in Humphries et al. (2012): tonic striatal dopamine controls
+           the exploration-exploitation trade-off via basal ganglia output PDF.
+           High DA decreases exploration (peaked distribution).
+        5. WEAVER++ verification step: after softmax selection, verify the chosen
+           verb's fit score is adequate. If too distant, re-sample from top
+           candidates (mirrors Roelofs' "verification" condition-action rule).
+        6. Refractory period: recently selected verbs penalized to prevent
+           perseveration (transient depression in lexical access).
+
+        Note on P600 grounding: The P600 integration-cost framework is adapted
+        from comprehension (Brouwer et al., 2012 Retrieval-Integration account;
+        Bornkessel-Schlesewsky & Schlesewsky, 2008 eADM) to production. In
+        comprehension, P600 amplitude reflects cost of integrating a word's
+        meaning into the evolving utterance representation. Here we apply the
+        same principle to verb selection during production: verbs whose
+        complexity matches the conceptual distance have lower "integration
+        cost" and are preferred.
 
         Args:
             relation: Relation type (semantic, causal, contrastive, etc.)
@@ -310,15 +333,33 @@ class VerbLexicon:
 
         phrases_list, scores_list = zip(*raw_scores)
 
-        # Temperature: maps dopamine_tone [0.0, 1.0] → temperature [0.05, 0.5]
-        # Low DA = low temperature = sharp distribution (deterministic)
-        # High DA = high temperature = flatter distribution (exploratory)
-        temperature = 0.05 + dopamine_tone * 0.45
+        # Temperature: maps dopamine_tone [0.0, 1.0] → temperature [0.5, 0.05]
+        # Humphries et al. (2012): high tonic DA → peaked PDF → exploitation
+        # High DA = low temperature = sharp distribution (deterministic)
+        # Low DA = high temperature = flatter distribution (exploratory)
+        # Note: this inverts the previous mapping which had high DA → exploration.
+        # Corrected based on striatal DA evidence (Frank, 2004; Humphries et al., 2012).
+        temperature = max(0.05, 0.5 - dopamine_tone * 0.45)
 
         # Softmax sampling
         probs = cls._softmax(list(scores_list), temperature)
         idx = random.choices(range(len(phrases_list)), weights=probs, k=1)[0]
         selected = phrases_list[idx]
+
+        # WEAVER++ verification: check the selected verb's fit score.
+        # Roelofs (1992a): lemma selection uses "verification" — a condition-action
+        # rule that checks if the selected lemma matches the goal concept.
+        # If the fit score is too low (< 0.3), re-sample from top-3 highest
+        # scoring verbs to avoid wildly inappropriate selections.
+        selected_score = scores_list[idx]
+        if selected_score < 0.3:
+            top_candidates = sorted(raw_scores, key=lambda x: x[1], reverse=True)[:3]
+            top_phrases = [c[0] for c in top_candidates]
+            top_scores = [c[1] for c in top_candidates]
+            top_scores = [max(0.01, s) for s in top_scores]
+            total = sum(top_scores)
+            probs_top = [s / total for s in top_scores]
+            selected = random.choices(top_phrases, weights=probs_top, k=1)[0]
 
         # Add to refractory period
         cls._refractory.add(selected)

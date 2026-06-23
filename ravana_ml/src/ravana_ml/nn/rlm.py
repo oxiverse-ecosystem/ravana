@@ -2522,8 +2522,6 @@ class RLM(Module):
         self._replay_buffer.extend(to_load)
         print(f"  [Replay] Loaded {len(to_load)} experiences from '{domain_name}' into replay buffer")
 
-    # ── EWC (Elastic Weight Consolidation) ──────────────────────────────
-
     def snapshot_weights(self):
         """Snapshot current weights as the EWC 'old optimal' for the current domain.
 
@@ -2531,28 +2529,19 @@ class RLM(Module):
         the next domain. Captures:
         - Neural parameter snapshots (Linear, Embedding, GRUCell)
         - Graph edge weight snapshots
-        Also normalizes accumulated Fisher information.
         """
         # Snapshot neural parameters
-        for name, module in self._modules.items():
-            if hasattr(module, '_old_weight_snapshot'):
-                module._old_weight_snapshot = module.weight.data.copy()
-                # Normalize Fisher by count to get mean
-                if module._fisher_count > 0:
-                    module._fisher_diagonal.data /= module._fisher_count
-                module._fisher_count = 0
+        for name in list(self._modules):
+            if name in ('word_embedding', 'output_proj', 'relation_proj', 'concept_proj',
+                        'condition_proj', 'contrastive_proj'):
+                mod = self._modules[name]
+                if hasattr(mod, '_old_weight_snapshot'):
+                    mod._old_weight_snapshot = mod.weight.data.copy()
+                    mod._fisher_count = 0
 
         # Snapshot graph edge weights
         for edge in self.graph.edges.values():
             edge.old_weight = edge.weight
-            # Normalize accumulated Fisher
-            if hasattr(edge, '_fisher_raw_count') and edge._fisher_raw_count > 0:
-                edge.fisher_importance /= edge._fisher_raw_count
-            elif edge.fisher_importance > 0:
-                pass  # already normalized or manually set
-
-        n_edges = sum(1 for e in self.graph.edges.values() if e.fisher_importance > 0)
-        print(f"  [EWC] Weight snapshot captured. {n_edges} edges with Fisher > 0")
 
     def compute_fisher(self, sample_experiences: List[Tuple[np.ndarray, np.ndarray]],
                        n_samples: int = 50):
