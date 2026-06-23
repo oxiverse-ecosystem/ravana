@@ -3557,37 +3557,103 @@ class CognitiveChatEngine:
         return None
 
     def _activate_from_input(self, text: str) -> List[int]:
-        """Find matching concepts using keywords and label matching."""
+        """Activate concepts using N400/P600 sequential per-word processing.
+
+        For each word in the input (in order):
+        N400 phase: Retrieve the word's concept vector and compute prediction error
+          (surprise = 1 - cosine similarity with accumulated context). High surprise
+          = stronger retrieval activation (larger N400 amplitude).
+        P600 phase: Integrate the retrieved meaning into the evolving sentence context.
+          Propagate activation to graph neighbors, modulated by how well the word fits.
+
+        Neuroscience basis:
+        - Brouwer Retrieval-Integration theory (2012, 2017): every word elicits
+          N400 (retrieval) followed by P600 (integration)
+        - Nature 2024: single-neuron responses are context-dependent, not fixed
+        - PMC 2023: representational dimensionality ramps across sentence
+        """
         words = re.findall(r"[a-zA-Z']{1,}", text.lower())
         scores: Dict[int, float] = {}
+        # Accumulated sentence context for N400 modulation
+        acc_ctx = np.zeros(self.dim, dtype=np.float32)
+        word_count = 0
 
         for w in words:
-            if w in self._concept_keywords:
-                for nid in self._concept_keywords[w]:
-                    # Boost nouns slightly for better subject extraction
+            if w in STOP_WORDS and word_count > 0:
+                continue
+
+            # === N400: Retrieve word meaning ===
+            w_nids = self._concept_keywords.get(w, [])
+            w_vec = None
+            if w_nids:
+                node = self.graph.get_node(w_nids[0])
+                if node and node.vector is not None:
+                    w_vec = node.vector
+
+            # Compute N400 amplitude (surprise): how predictable is this word?
+            n400_surprise = 0.5  # baseline
+            if w_vec is not None and word_count > 0:
+                n_acc = np.linalg.norm(acc_ctx)
+                n_w = np.linalg.norm(w_vec)
+                if n_acc > 1e-8 and n_w > 1e-8:
+                    cos_sim = float(np.dot(acc_ctx, w_vec)) / (n_acc * n_w)
+                    n400_surprise = 1.0 - max(0.0, min(1.0, cos_sim))  # 0=expected, 1=surprising
+            elif word_count == 0:
+                n400_surprise = 0.8  # First word is always somewhat surprising
+
+            # Activate with N400-modulated strength
+            if w_nids:
+                for nid in w_nids:
                     node = self.graph.nodes.get(nid)
                     pos_boost = 0.5 if node and node.label and self._concept_pos.get(node.label.lower()) == 'noun' else 0.0
-                    scores[nid] = scores.get(nid, 0) + 5.0 + pos_boost
+                    base = 5.0 + pos_boost
+                    # N400 surprise amplifies activation for unexpected words
+                    n400_boost = 1.0 + n400_surprise * 2.0
+                    scores[nid] = scores.get(nid, 0) + base * n400_boost
 
-        for nid, node in self.graph.nodes.items():
-            if not node.label:
-                continue
-            label = node.label.lower()
-            s = scores.get(nid, 0.0)
-            for w in words:
+            # Label matching (same as before)
+            for nid, node in self.graph.nodes.items():
+                if not node or not node.label:
+                    continue
+                label = node.label.lower()
+                s = scores.get(nid, 0.0)
                 if label == w:
-                    s += 5.0
+                    s += 5.0 * (1.0 + n400_surprise)
                 elif len(w) >= 3 and (label == w or label.startswith(w + " ") or (" " + w + " ") in label or label.endswith(" " + w)):
                     s += 3.0
                 elif len(label) >= 3 and label in w:
                     s += 2.0
-            if s > 0:
-                scores[nid] = s
+                if s > 0:
+                    scores[nid] = s
+
+            # === P600: Integrate into evolving sentence representation ===
+            if w_vec is not None:
+                # Integration: blend word vector into accumulated context
+                # Gate is lower for surprising words (harder to integrate)
+                integration_gate = 0.5 + 0.3 * (1.0 - n400_surprise)
+                if word_count == 0:
+                    acc_ctx = w_vec.copy()
+                else:
+                    acc_ctx = integration_gate * w_vec + (1.0 - integration_gate) * acc_ctx
+                n = np.linalg.norm(acc_ctx)
+                if n > 0:
+                    acc_ctx /= n
+            word_count += 1
+
+            # Propagate activation to graph neighbors (P600 spread)
+            if w_nids:
+                for src_nid in w_nids:
+                    for tgt_id, edge in self.graph.get_outgoing(src_nid):
+                        if tgt_id not in scores:
+                            # Weaker propagation for surprising words
+                            prop_strength = 2.0 * (1.0 - n400_surprise * 0.5)
+                            scores[tgt_id] = scores.get(tgt_id, 0) + edge.weight * prop_strength
 
         sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
         activated = []
-        for nid, sc in sorted_scores[:5]:
-            self.graph.activate(nid, min(1.0, sc * 0.15))
+        # Keep more activations for richer sentence context (up to 8 vs 5)
+        for nid, sc in sorted_scores[:8]:
+            self.graph.activate(nid, min(1.0, sc * 0.12))
             activated.append(nid)
         return activated
 
