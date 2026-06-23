@@ -6567,6 +6567,7 @@ class CognitiveChatEngine:
             "episodic_consolidated": episodic_consolidated,
         }
 
+    def print_traces(self, label: str):
         """Print all chain walk traces from the last response."""
         if not self._chain_traces:
             return
