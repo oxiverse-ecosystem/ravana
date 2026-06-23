@@ -226,7 +226,8 @@ class NeuralDecoder(Module):
                  cerebellar_ngram=None,
                  idx_to_word: Optional[Dict[int, str]] = None,
                  basal_ganglia=None,
-                 content_word_ids: Optional[Set[int]] = None) -> List[int]:
+                 content_word_ids: Optional[Set[int]] = None,
+                 token_boost: Optional[Dict[int, float]] = None) -> List[int]:
         """Generate a sequence autoregressively conditioned on concept embeddings.
 
         Optionally uses cerebellar n-gram bias and basal ganglia gating
@@ -291,13 +292,22 @@ class NeuralDecoder(Module):
 
             # Content word biasing: boost tokens that are known graph concepts
             # to counteract the function-word bias learned from template training.
-            if content_word_ids is not None and len(generated) > 3:
+            # Stage 2: Stronger bias (×3) for 1500-vocab models where function-word
+            # logits can be 3-5 units above content-word logits.
+            if content_word_ids is not None and len(generated) > 2:
                 func_count = sum(1 for idx in generated[1:] if idx not in content_word_ids)
-                if func_count > len(generated) * 0.6:
+                if func_count > len(generated) * 0.5:
+                    boost = 3.0
                     for cid in content_word_ids:
-                        logits[cid] += 0.8
+                        logits[cid] += boost
                         if seen_counts.get(cid, 0) == 0:
-                            logits[cid] += 0.5
+                            logits[cid] += boost * 0.5
+
+            # Stage 2: Token-level boost (e.g. subject concept to seed content words)
+            if token_boost is not None:
+                for tid, tboost in token_boost.items():
+                    if tid < len(logits):
+                        logits[tid] += tboost
 
             # Adaptive repetition penalty: suppress cycling between function words
             if len(generated) > 1:

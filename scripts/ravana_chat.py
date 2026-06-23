@@ -1869,13 +1869,14 @@ class CognitiveChatEngine:
         eos_idx = self._decoder_word_to_idx.get("<eos>", 2)
 
         # Dynamic temperature from cognitive state
-        base_temp = 0.5
+        # Stage 2: Lower base temp for 1500-vocab model (more deterministic → content words)
+        base_temp = 0.35
         arousal = ctx.arousal if hasattr(ctx, 'arousal') else 0.3
         temp = base_temp * (0.7 + arousal * 0.6)
         # Higher dopamine tone = more creative/exploratory
         dt = getattr(self, '_dopamine_tone', 0.5)
         temp *= (0.7 + dt * 0.6)
-        temp = max(0.2, min(0.9, temp))
+        temp = max(0.15, min(0.7, temp))
 
         # Build content word IDs (non-function, non-special tokens)
         function_words_set = {
@@ -1902,6 +1903,13 @@ class CognitiveChatEngine:
                 if word not in function_words_set and not word.startswith("<")
             }
 
+        # Stage 2: Boost subject concept in conditioning to seed content words
+        subject_idx = self._decoder_word_to_idx.get(subject.lower())
+        if subject_idx is not None:
+            subject_boost = {subject_idx: 3.0}
+        else:
+            subject_boost = None
+
         try:
             generated = self.neural_decoder.generate(
                 conditioning_embs=conditioning_embs,
@@ -1913,6 +1921,7 @@ class CognitiveChatEngine:
                 idx_to_word=self._decoder_idx_to_word,
                 basal_ganglia=self.basal_ganglia,
                 content_word_ids=content_word_ids,
+                token_boost=subject_boost,
             )
 
             if not generated or len(generated) < 3:
@@ -1945,7 +1954,7 @@ class CognitiveChatEngine:
                 "his","i","me","my","myself","am",
                 "of","to","for","with","from","at","by","as","on"}
             func_count = sum(1 for w in words if w.lower() in func_set)
-            if len(words) > 0 and func_count / len(words) > 0.60:
+            if len(words) > 0 and func_count / len(words) > 0.70:
                 return None
 
             # Clean up basic punctuation issues
@@ -5529,8 +5538,10 @@ class CognitiveChatEngine:
         decoder_ready = False
         if self.neural_decoder is not None and self._decoder_vocab_built:
             nd = self.neural_decoder
-            ce_ok = nd._avg_cross_entropy < 4.0 if nd._metric_examples > 5 else False
-            t1_ok = nd._avg_top1_acc > 0.1 if nd._metric_examples > 5 else False
+            # Stage 2: For a 1500-vocab model, random CE ≈ ln(1500) ≈ 7.3.
+            # CE < 5.5 + top1 > 0.15 means the model has learned substantially.
+            ce_ok = nd._avg_cross_entropy < 5.5 if nd._metric_examples > 5 else False
+            t1_ok = nd._avg_top1_acc > 0.15 if nd._metric_examples > 5 else False
             decoder_ready = (ce_ok and t1_ok) or self._decoder_training_count >= 500
 
         # Path 1: Neural decoder (true generation) — primary when ready

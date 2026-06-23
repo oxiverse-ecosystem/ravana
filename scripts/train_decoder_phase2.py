@@ -72,15 +72,13 @@ else:
         min_sentence_len=3,
     )
     n_available = len(all_sentences)
-    sentences_per_pass = min(200, n_available)
-    n_passes = 250
-    # Synthetic data interleaving: train on a few synthetic sentences every
-    # `synthetic_interval` passes. This prevents the model from over-reinforcing
-    # template patterns (relates to, connects with) all at once at the end.
-    synthetic_interval = 25
+    sentences_per_pass = min(300, n_available)  # Increased from 200
+    n_passes = 1000
+    synthetic_interval = 0  # Stage 2: disabled — causes CE spikes; done at end
     _synthetic_trained = 0
     sleep_interval = 5
-    patience = 15       # early stop if no CE improvement for this many checks
+    patience = 10
+    target_ce = 3.5  # Stop when CE drops below this
 
     passes = 0
     rng = np.random.RandomState(42)
@@ -89,7 +87,6 @@ else:
 
     try:
         for i in range(n_passes):
-            # Shuffle for variety each pass
             idx = rng.choice(n_available, size=sentences_per_pass, replace=False)
             batch = [all_sentences[i] for i in idx]
 
@@ -101,32 +98,18 @@ else:
                 )
             passes += sentences_per_pass
 
-            # Interleave synthetic graph training: a few template sentences
-            # every `synthetic_interval` passes so the model sees real English
-            # nearby, preventing over-reinforcement of template patterns.
-            if synthetic_interval > 0 and (i + 1) % synthetic_interval == 0 \
-                    and hasattr(engine, '_train_decoder_from_graph'):
-                old_trace = getattr(engine, '_trace_enabled', False)
-                if hasattr(engine, '_trace_enabled'):
-                    engine._trace_enabled = False
-                engine._train_decoder_from_graph(min_synthetic=50)
-                if hasattr(engine, '_trace_enabled'):
-                    engine._trace_enabled = old_trace
-                _synthetic_trained += 1
-
-            # Periodic sleep_cycle to consolidate Hebbian traces into weights
             if (i + 1) % sleep_interval == 0:
                 nd.sleep_cycle()
 
             if (i + 1) % 5 == 0:
-                # Real metrics: cross-entropy + next-word accuracy (EMA).
-                # These move during training; the old |one-hot - probs| mean
-                # rounded to ~2/vocab_size and never moved.
                 print(f"  Pass {i+1}/{n_passes}: CE={nd._avg_cross_entropy:.3f} "
                       f"top1={nd._avg_top1_acc:.3f} top5={nd._avg_top5_acc:.3f} "
                       f"(sentences={passes})", flush=True)
 
-            # Early stopping on cross-entropy (a real signal, unlike the old metric)
+            if nd._avg_cross_entropy <= target_ce and nd._avg_top1_acc > 0.25:
+                print(f"  Target CE={target_ce} reached at pass {i+1} — stopping early")
+                break
+
             if (i + 1) >= 10 and (i + 1) % sleep_interval == 0:
                 if nd._avg_cross_entropy < best_ce - 1e-3:
                     best_ce = nd._avg_cross_entropy
@@ -140,7 +123,6 @@ else:
     except KeyboardInterrupt:
         print(f"  [Interrupted] Consolidating partial training ({passes} sentences)...", flush=True)
 
-    # Final consolidation if not already done by periodic sleep
     if (passes // sentences_per_pass % sleep_interval) != 0:
         nd.sleep_cycle()
 
@@ -153,17 +135,18 @@ print(f"  Trained {corpus_sentences} sentences in {seed_time:.1f}s")
 print(f"  Decoder seed count: {engine._decoder_seed_training_count}")
 print()
 
-# ── Step 2: Final synthetic graph consolidation ──
-remaining = max(0, 500 - _synthetic_trained * 50)
-if remaining > 0:
-    print(f"[3/4] Training decoder on synthetic graph sentences ({remaining})...", flush=True)
-    t2 = time.time()
-    assert hasattr(engine, '_train_decoder_from_graph'), "Engine missing _train_decoder_from_graph"
-    engine._train_decoder_from_graph(min_synthetic=remaining)
-    graph_time = time.time() - t2
-    print(f"  Graph training done in {graph_time:.1f}s")
-else:
-    print(f"[3/4] Synthetic training already complete via interleaving.")
+# ── Step 2: Synthetic graph consolidation ──
+print(f"[3/4] Training decoder on synthetic graph sentences...", flush=True)
+t2 = time.time()
+if hasattr(engine, '_train_decoder_from_graph'):
+    old_trace = getattr(engine, '_trace_enabled', False)
+    if hasattr(engine, '_trace_enabled'):
+        engine._trace_enabled = False
+    engine._train_decoder_from_graph(min_synthetic=500)
+    if hasattr(engine, '_trace_enabled'):
+        engine._trace_enabled = old_trace
+graph_time = time.time() - t2
+print(f"  Graph training done in {graph_time:.1f}s")
 print(f"  Total decoder training: {engine._decoder_training_count}")
 print()
 
