@@ -81,31 +81,29 @@ class SyntacticCellAssembly:
         ('verb_role', 'contrastive'):    {'object_role': 0.7, 'subject_role': 0.1, 'verb_role': 0.1},
     }
 
-    # Verb phrases per relation type (seeded, refined by cerebellar n-gram)
-    # Stage 1: Moved to fallback status — primary generation uses natural clause
-    # templates from SurfaceRealizer.NATURAL_CLAUSES. This list is still used
-    # when no template matches (the cerebellar n-gram fallback path) and for
-    # verb-concept selection in _pick_verb_for_relation.
-    # NOTE: Avoided template-y phrases like "connects with", "relates to" —
-    # these produced robotic output in chat.
+    # Verb phrases per relation type — delegated to VerbLexicon (Phase 6)
+    # The VerbLexicon provides semantically-driven verb selection based on
+    # Levelt's lemma retrieval model (1989). Kept as a class variable for
+    # backward compatibility with tests, but actual selection uses VerbLexicon.
+    # Phase 6: VERB_PHRASES is a deprecated alias; use VerbLexicon instead.
     VERB_PHRASES = {
         'semantic': [
-            'has a lot to do with', 'goes hand in hand with',
-            'is tied to', 'is bound up with', 'is deeply connected with',
-            'has a relationship with', 'ties into', 'is part of',
-            'plays a role in', 'feeds into',
+            'ties into', 'is part of', 'plays a role in',
+            'feeds into', 'goes hand in hand with', 'is bound up with',
+            'is deeply connected with', 'is tied to',
+            'has a relationship with', 'has a lot to do with',
         ],
         'causal': [
             'leads to', 'creates', 'causes', 'brings about',
             'influences', 'gives rise to', 'results in',
             'sparks', 'triggers', 'fuels', 'contributes to',
-            'sets off', 'prompts', 'drives',
+            'drives', 'prompts',
         ],
         'contrastive': [
             'contrasts with', 'differs from', 'stands against',
             'challenges', 'is the opposite of',
             'clashes with', 'pulls against', 'runs counter to',
-            'is at odds with', 'pushes back against', 'diverges from',
+            'is at odds with', 'diverges from', 'pushes back against',
         ],
         'analogical': [
             'is like', 'resembles', 'mirrors', 'echoes', 'is similar to',
@@ -116,7 +114,7 @@ class SyntacticCellAssembly:
             'comes before', 'follows', 'leads into', 'precedes',
             'happens before', 'occurs after',
             'ushers in', 'paves the way for', 'sets the stage for',
-            'gives way to', 'traces back to',
+            'traces back to',
         ],
         'episodic': [
             'brings up', 'recalls', 'reminds us of',
@@ -151,9 +149,15 @@ class SyntacticCellAssembly:
 
         # Track verb phrase usage for cerebellar-weighted selection
         self.verb_phrase_counts: Dict[str, int] = {}
+        from ravana.language.verb_lexicon import VerbLexicon
+        for rel_type in VerbLexicon.VERB_PATTERNS:
+            for phrase in VerbLexicon.get_phrases(rel_type):
+                self.verb_phrase_counts[phrase] = 1  # base count
+        # Also include legacy VERB_PHRASES for backward compatibility
         for rel_type, phrases in self.VERB_PHRASES.items():
             for phrase in phrases:
-                self.verb_phrase_counts[phrase] = 1  # base count
+                if phrase not in self.verb_phrase_counts:
+                    self.verb_phrase_counts[phrase] = 1
 
         # Countability tracking for article insertion
         # Seeded with common uncountable/abstract nouns
@@ -336,24 +340,25 @@ class SyntacticCellAssembly:
     def _pick_verb_phrase(self, relation: str) -> str:
         """Pick a verb phrase for this relation type.
 
-        Uses cerebellar-weighted selection (count-based for now).
-        Higher dopamine → more variety (picks less-used phrases).
-        Lower dopamine → picks the most-used phrase.
-        """
-        phrases = self.VERB_PHRASES.get(relation, self.VERB_PHRASES['semantic'])
-        if not phrases:
-            return "relates to"
+        Phase 6: Delegates to VerbLexicon (semantic-vector-driven selection).
+        Keeps verb_phrase_counts for backward compatibility.
 
-        # Weighted by usage count (most-used = highest probability)
-        total = sum(self.verb_phrase_counts.get(p, 1) for p in phrases)
+        Uses cerebellar-weighted selection when available.
+        Higher dopamine → more variety (exploration).
+        Lower dopamine → exploits best-matching phrase.
+        """
         import random
-        r = random.random() * total
-        cumulative = 0.0
-        for phrase in phrases:
-            cumulative += self.verb_phrase_counts.get(phrase, 1)
-            if r <= cumulative:
-                return phrase
-        return phrases[0]
+        from ravana.language.verb_lexicon import VerbLexicon
+
+        # Use VerbLexicon for semantic-vector-driven selection
+        # Without vector_fn, it falls back to complexity-similarity algorithm
+        return VerbLexicon.select_verb(
+            relation=relation,
+            subject="",
+            object="",
+            dopamine_tone=0.5,
+            vector_fn=None,
+        )
 
     def _determine_article(self, concept: str, pos: str,
                             is_subject: bool) -> str:

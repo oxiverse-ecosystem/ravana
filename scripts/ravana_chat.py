@@ -1213,6 +1213,10 @@ class CognitiveChatEngine:
         self.syntactic_assembly = SyntacticCellAssembly(learning_rate=0.05)
         # Phase F: Surface realizer — rule-governed English morphology with dopamine modulation
         self.surface_realizer = SurfaceRealizer()
+        # Phase 6: Wire vector function for semantic verb selection (VerbLexicon)
+        self.surface_realizer.set_vector_fn(self._glove_vector)
+        from ravana.language.verb_lexicon import VerbLexicon
+        VerbLexicon.set_glove_fn(self._glove_vector)
         self._cerebellar_ngram: Dict[str, Dict[str, float]] = {}
         self._cerebellar_depth: Dict[str, float] = {}
         self._concept_confidence: Dict[str, float] = {}

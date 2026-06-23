@@ -11,10 +11,19 @@ Grammar Rules (seeded, not learned):
 - pronoun_substitution: replace repeated subjects with pronouns
 - tense: present/past verb forms
 
-Verb phrase selection: cerebellar-weighted (not random), with dopamine tone
-modulating exploration of less-used phrases.
+Verb phrase selection: semantic-vector-driven via VerbLexicon (Levelt 1989),
+not random template choice. Dopamine tone modulates exploration.
 
-Replaces _format_sentence's random template approach.
+Phase 6: Replaced NATURAL_CLAUSES (32 templates) with compositional clause
+building. Core sentence is always SVO built from parts, not slot-filled.
+Voice variety comes from verb selection (semantically driven), person frames,
+hedges, and discourse markers.
+
+Theoretical grounding:
+- Levelt (1989): Lemma selection is competitive and semantically driven.
+  Verbs are lemmas that carry thematic role constraints.
+- Bornkessel-Schlesewsky & Schlesewsky (2008): P600 amplitude reflects
+  verb-argument integration cost. High similarity = low cost = simpler verbs.
 """
 
 import random
@@ -47,57 +56,14 @@ class SurfaceRealizer:
 
     Key design decisions:
     - Grammar rules are rule-based (not learned), providing baseline competence
-    - Verb phrase selection is cerebellar-weighted (not random)
+    - Verb phrase selection via VerbLexicon (semantic-vector-driven, not random)
     - Pronoun resolution prevents repetition
     - Dopamine tone modulates variety: high DA → more variety, low DA → conservative
     - Article insertion follows English rules (a/an/the, abstract noun exceptions)
-    - Stage 1: Uses rotating natural clause structures per discourse type instead of fixed SVO
-    - Stage 1: Light human texture — hedges, first/second person, reflective closing
+    - Phase 6: Compositional clause building — no NATURAL_CLAUSES templates.
+      Every sentence is built as SVO with voice layers on top.
+    - Phase 6: Light human texture — hedges, first/second person, reflective closing
     """
-
-    # Natural clause structures per discourse type (Stage 1 de-template)
-    # These replace the fixed SVO "subject verb object" assembly.
-    # {subj} and {obj} are filled from the frame's subject and object phrases.
-    # NOTE: Avoided "connects with/to" and "relates to" — they sound robotic.
-    NATURAL_CLAUSES = {
-        "explain": [
-            "{subj} is really about {obj}",
-            "when you think of {subj}, {obj} comes up",
-            "at its heart, {subj} is {obj}",
-            "the idea of {subj} ties into {obj}",
-            "you could say {subj} comes down to {obj}",
-            "{subj} basically means {obj}",
-        ],
-        "causal": [
-            "{subj} leads to {obj}",
-            "{subj} happens because of {obj}",
-            "{subj} matters because of {obj}",
-            "when {subj} is there, you tend to see {obj}",
-            "{subj} often creates {obj}",
-            "one reason for {subj} is {obj}",
-        ],
-        "elaborate": [
-            "{subj} and {obj} go together — one feeds the other",
-            "another side of {subj} is {obj}",
-            "there is also {obj} to consider with {subj}",
-            "beyond that, {subj} ties into {obj}",
-            "{subj} has a lot to do with {obj}",
-        ],
-        "contrast": [
-            "{subj} is different from {obj}",
-            "while {subj} is one thing, {obj} is another",
-            "{subj} stands apart from {obj}",
-            "unlike {subj}, {obj} tends to be different",
-            "{subj} and {obj} pull in different directions",
-        ],
-        "connect": [
-            "{subj} and {obj} are closely related",
-            "there is a link between {subj} and {obj}",
-            "{subj} ties into {obj}",
-            "you can draw a line from {subj} to {obj}",
-            "{subj} goes hand in hand with {obj}",
-        ],
-    }
 
     # Light hedges — used sparingly (<25% of sentences)
     HEDGES = [
@@ -260,6 +226,12 @@ class SurfaceRealizer:
         self._used_subjects: set = set()
         # Track verb phrase success rates (learned from feedback)
         self._verb_phrase_success: Dict[str, float] = {}
+        # Phase 6: Vector function for semantic verb selection (wired from engine)
+        self._vector_fn = None
+
+    def set_vector_fn(self, fn):
+        """Set the vector lookup function for semantic verb selection."""
+        self._vector_fn = fn
 
     def realize(self, frame, discourse_context: DiscourseState,
                 dopamine_tone: float = 0.5,
@@ -310,9 +282,10 @@ class SurfaceRealizer:
             obj, art_obj, is_subject=False, dopamine_tone=dopamine_tone
         )
 
-        # Step 4: Get verb phrase (cerebellar-weighted fallback)
+        # Step 4: Get verb phrase (semantic-vector-driven via VerbLexicon)
         verb = self._select_verb_phrase(verb_phrase, relation,
-                                         dopamine_tone, cerebellar_ngram)
+                                         dopamine_tone, cerebellar_ngram,
+                                         subject=sl, object=tl)
 
         # Step 5: Apply subject-verb agreement
         verb = self._apply_agreement(verb, subject_phrase, display_subj.lower())
@@ -320,34 +293,26 @@ class SurfaceRealizer:
         # Step 6: Apply tense
         verb = self._apply_tense(verb, frame.tense)
 
-        # Step 7: Assemble core sentence — pick from natural clauses (Stage 1)
+        # Step 7: Build core sentence compositionally (Phase 6 — no templates)
+        # Core structure is always SVO: [subject] [verb] [object]
+        # Voice variety comes from verb selection (VerbLexicon), person frames,
+        # and post-hoc additions (hedges, discourse markers)
         if relation == 'interrogative':
             sentence = frame.object_concept
             has_punct = sentence.endswith('.') or sentence.endswith('?') or sentence.endswith('!')
         else:
+            # Compose SVO core: subject_phrase verb object_phrase
+            core = f"{subject_phrase} {verb} {object_phrase}"
+            has_punct = False
+
+            # Optional: person frame wrapper (first/second person voice)
             use_person_frame = (dopamine_tone > 0.4 and random.random() < 0.2
                                 and discourse_context.sentence_index == 0)
-            # Pick a natural clause template based on discourse type
-            # Map any extras from PrefrontalWorkspace to known keys
-            _discourse_map = {
-                "causal_explain": "causal",
-                "continue": "explain",
-                "self_reference": "explain",
-                "ask_back": "explain",
-            }
-            discourse_key = _discourse_map.get(discourse_type, discourse_type)
-            if discourse_key not in self.NATURAL_CLAUSES:
-                discourse_key = "explain"
-            clauses = self.NATURAL_CLAUSES.get(discourse_key, [])
             if use_person_frame and self.PERSON_FRAMES:
                 template = random.choice(self.PERSON_FRAMES)
-            elif clauses and random.random() < 0.7:
-                template = random.choice(clauses)
+                sentence = template.replace("{subj}", subject_phrase).replace("{obj}", object_phrase).replace("{verb}", verb)
             else:
-                # Fallback to SVO
-                template = "{subj} {verb} {obj}"
-            sentence = template.replace("{subj}", subject_phrase).replace("{obj}", object_phrase).replace("{verb}", verb)
-            has_punct = False
+                sentence = core
 
         # Step 8: Add hedge (sparingly, ~15-20% of sentences not first)
         if not has_punct and discourse_context.sentence_index > 0 and random.random() < 0.18:
@@ -472,39 +437,38 @@ class SurfaceRealizer:
 
     def _select_verb_phrase(self, default_phrase: str, relation: str,
                              dopamine_tone: float,
-                             cerebellar_ngram) -> str:
-        """Select verb phrase with cerebellar-weighted selection.
+                             cerebellar_ngram,
+                             subject: str = "",
+                             object: str = "") -> str:
+        """Select verb phrase using VerbLexicon (semantic-vector-driven).
 
-        High dopamine → try less-used phrases (exploration)
-        Low dopamine → stick with well-known phrases (exploitation)
+        Phase 6: Replaced random VERB_PHRASES selection with semantically-
+        driven VerbLexicon. High similarity (subject, object) → simple verbs.
+        Low similarity → complex, hedging verbs. Mirrors P600 amplitude.
 
-        When cerebellar_ngram is available, query it for the best phrase
-        given (relation, subject_type, object_type).
+        High dopamine → explore less-used phrases
+        Low dopamine → exploit best-matching phrase
         """
-        import random
+        from ravana.language.verb_lexicon import VerbLexicon
 
-        # If we have cerebellar n-gram, try to use it for phrase selection
-        if cerebellar_ngram is not None:
-            # Check if ngram has a preferred phrase for this relation
+        # Get vector function if available (wired from RAVANAEngine)
+        vector_fn = getattr(self, '_vector_fn', None)
+
+        # If we have cerebellar n-gram and low dopamine, use it as override
+        if cerebellar_ngram is not None and dopamine_tone < 0.4:
             ngram_key = f"phrase:{relation}"
-            ngram_result = cerebellar_ngram.predict_next(
-                ngram_key, top_k=3
-            )
+            ngram_result = cerebellar_ngram.predict_next(ngram_key, top_k=3)
             if ngram_result:
-                # Use the top ngram prediction if dopamine is low (conservative)
-                if dopamine_tone < 0.4:
-                    return list(ngram_result.keys())[0]
+                return list(ngram_result.keys())[0]
 
-        # Default: return the frame's verb phrase
-        # Dopamine modulation: high DA = random exploration
-        if dopamine_tone > 0.7 and random.random() < (dopamine_tone - 0.5):
-            # Try alternate phrasing
-            from ravana.language.syntactic_cell_assembly import SyntacticCellAssembly
-            phrases = SyntacticCellAssembly.VERB_PHRASES.get(relation,
-                        SyntacticCellAssembly.VERB_PHRASES['semantic'])
-            return random.choice(phrases)
-
-        return default_phrase
+        # Use VerbLexicon for semantic-verb-driven selection
+        return VerbLexicon.select_verb(
+            relation=relation,
+            subject=subject,
+            object=object,
+            dopamine_tone=dopamine_tone,
+            vector_fn=vector_fn,
+        )
 
     def _apply_agreement(self, verb_phrase: str, subject_phrase: str,
                           subject_lower: str) -> str:
