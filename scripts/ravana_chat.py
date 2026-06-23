@@ -5633,25 +5633,38 @@ class CognitiveChatEngine:
 
 
     def _generate_response(self, ctx: CognitiveResponseContext) -> Tuple[str, str]:
-        """Generate response using neural decoder (primary), syntactic pipeline (fallback),
-        then reasoning loop (last resort).
+        """Generate response using syntactic pipeline (primary), neural decoder
+        (when proven fluent), then reasoning loop (last resort).
 
-        Stage 2: Inverted order — decoder first when quality suffices.
-        Quality gate is CE < 4.0 + top1 > 0.1 (learned from real data),
-        not a raw training count.
+        Order reflects neuroscience:
+        - Syntactic pipeline = P600-driven compositional integration (primary route)
+        - Neural decoder = overlearned fluent speech (requires high quality)
+        - Reasoning loop = web learning when knowledge is absent
+
+        Neuroscience basis:
+        - Brouwer Retrieval-Integration: composition (P600) is the default route
+        - PMC 2023: hierarchical predictive coding across multiple timescales
+        - Nature Human Behaviour 2025: multi-timescale discourse organization
         """
         subject = ctx.subject
         assocs = ctx.associated_concepts
+
+        # Path 1: Syntactic pipeline (P600 compositional integration) — primary
+        try:
+            syntax_response = self._generate_with_decoder_and_syntax(ctx)
+            if syntax_response and len(syntax_response) > 10:
+                return (syntax_response, "syntactic_pipeline")
+        except Exception:
+            pass
+
+        # Path 2: Neural decoder — only when proven fluent (strict quality gate)
         decoder_ready = False
         if self.neural_decoder is not None and self._decoder_vocab_built:
             nd = self.neural_decoder
-            # Stage 2: For a 1500-vocab model, random CE ≈ ln(1500) ≈ 7.3.
-            # CE < 5.5 + top1 > 0.15 means the model has learned substantially.
-            ce_ok = nd._avg_cross_entropy < 5.5 if nd._metric_examples > 5 else False
-            t1_ok = nd._avg_top1_acc > 0.15 if nd._metric_examples > 5 else False
-            decoder_ready = (ce_ok and t1_ok) or self._decoder_training_count >= 500
-
-        # Path 1: Neural decoder (true generation) — primary when ready
+            ce_ok = nd._avg_cross_entropy < 4.0 if nd._metric_examples > 10 else False
+            t1_ok = nd._avg_top1_acc > 0.25 if nd._metric_examples > 10 else False
+            trained_enough = self._decoder_training_count >= 2000
+            decoder_ready = ce_ok and t1_ok and trained_enough
         if decoder_ready:
             try:
                 decoder_response = self._generate_with_decoder(ctx)
@@ -5659,15 +5672,6 @@ class CognitiveChatEngine:
                     return (decoder_response, "neural_decoder")
             except Exception:
                 pass
-
-        # Path 2: Syntactic pipeline (graph walk + discourse + surface realizer)
-        # Stage 1 de-template makes this much more natural — good fallback
-        try:
-            syntax_response = self._generate_with_decoder_and_syntax(ctx)
-            if syntax_response and len(syntax_response) > 10:
-                return (syntax_response, "syntactic_pipeline")
-        except Exception:
-            pass
 
         # Path 3: Reasoning loop (web search + learn, then retry)
         try:
