@@ -1114,7 +1114,7 @@ class CognitiveChatEngine:
             "after", "before", "since", "until", "during", "while", "when",
             "where", "why", "how", "here", "there", "now", "then", "later",
             "soon", "ago", "back", "away", "forward", "backward", "inside",
-            "outside", "near", "far", "high", "low", "deep", "shallow",
+            "outside", "near", "far",
             # Pronouns
             "we", "they", "them", "their", "us", "our", "he", "she", "him", "her",
             "i", "you", "me", "my", "mine", "your", "yours", "his", "hers",
@@ -1127,7 +1127,7 @@ class CognitiveChatEngine:
             "enough", "several", "one", "two", "three", "first", "second", "last",
             "other", "another",
             # Determiner-like adjectives that make poor discourse targets
-            "such", "same", "different", "new", "certain", "whole", "own", "particular",
+            "such", "same", "different", "certain", "whole", "own", "particular",
             # Conjunctions
             "and", "or", "but", "nor", "yet", "so", "for", "because", "since",
             "although", "though", "if", "unless", "until", "while", "when",
@@ -1142,8 +1142,7 @@ class CognitiveChatEngine:
             "even", "still", "already", "yet", "again", "once", "twice",
             "here", "there", "where", "why", "how", "when",
             # Discourse markers / connectives
-            "instead", "introduced", "alternatively", "conversely", "likewise",
-            "similarly", "therefore", "however", "moreover", "furthermore",
+            "instead", "therefore", "however", "moreover", "furthermore",
             "besides", "nevertheless", "nonetheless", "accordingly", "consequently",
             "thus", "hence", "accordingly", "subsequently", "meanwhile",
         }
@@ -3123,21 +3122,6 @@ class CognitiveChatEngine:
                     self._decoder_web_training_count += trained2
                 self.neural_decoder.sleep_cycle()
 
-                # Train CerebellarNgram on article text (climbing-fibre error modulated)
-                if hasattr(self, 'cerebellar_ngram'):
-                    # Note: learn_from_text method doesn't exist, skipping
-                    pass
-
-        # Train neural decoder on real article text
-        if self.neural_decoder is not None and self._decoder_vocab_built and len(text) > 20:
-            new_labels = [w for w in important_words if w not in existing_labels_before]
-            if new_labels:
-                self._expand_decoder_vocab(new_labels)
-            err, n_trained = self.neural_decoder.train_on_text(
-                text, self._decoder_word_to_embed, self._decoder_word_to_idx
-            )
-            self._decoder_web_training_count += n_trained
-            self._decoder_training_count += n_trained
         return new_count
     def _learn_from_snippets(self, query: str, snippets: List[str]) -> str:
         """Learn from search snippet text when article fetch fails."""
@@ -3295,8 +3279,9 @@ class CognitiveChatEngine:
         self._last_grounding_method = _gmethod
         # Auto-trigger web learning for low-confidence multi-word queries
         if _gconf < 0.5 and _gmethod == "all_unknown" and _grounded_subj and self.baby_mode:
-            if _grounded_subj not in self._pending_learning_queue:
-                self._pending_learning_queue.append(_grounded_subj)
+            with self._bg_lock:
+                if _grounded_subj not in self._pending_learning_queue:
+                    self._pending_learning_queue.append(_grounded_subj)
         relation = "is"
 
         # Step 2b: Primary IDs — only these concepts spread activation
@@ -3318,9 +3303,10 @@ class CognitiveChatEngine:
                               if w not in self._concept_keywords and w not in STOP_WORDS]
         # Phase 1.3: Collect unknown words into queue instead of searching synchronously
         if unknown_meaningful and self.baby_mode:
-            for w in unknown_meaningful:
-                if w not in self._pending_learning_queue:
-                    self._pending_learning_queue.append(w)
+            with self._bg_lock:
+                for w in unknown_meaningful:
+                    if w not in self._pending_learning_queue:
+                        self._pending_learning_queue.append(w)
 
         # Phase 11.1: Build context vector for this turn + sentence-level composition
         new_ctx = self._build_context_vector(subject) if subject else np.zeros(self.dim, dtype=np.float32)
@@ -6008,7 +5994,7 @@ class CognitiveChatEngine:
             # ─── STEP 5: SurfaceRealizer — Morphology, agreement, pronouns, articles ───
             discourse_state = DiscourseState(
                 sentence_index=sent_idx,
-                previous_subject=sentences[-1].split()[0].lower() if sentences else None,
+                previous_subject=last_subject if sentences else None,
                 discourse_type=intent.type,
                 total_sentences=len(plan.intents),
             )
@@ -6066,57 +6052,6 @@ class CognitiveChatEngine:
 
         # Check for unknown multi-word phrases in the original query
         # Extract phrases that aren't fully grounded
-        query_words = ctx.raw_input.lower().split()
-        unknown_phrases = []
-        for i in range(len(query_words) - 1):
-            phrase = ' '.join(query_words[i:i+2])
-            if phrase not in self._concept_keywords and phrase not in self._concept_labels:
-                unknown_phrases.append(phrase)
-        # Also check 3-grams
-        for i in range(len(query_words) - 2):
-            phrase = ' '.join(query_words[i:i+3])
-            if phrase not in self._concept_keywords and phrase not in self._concept_labels:
-                unknown_phrases.append(phrase)
-
-        # Determine search queries
-        search_queries = []
-
-        # Check for unknown multi-word phrases in the original query
-        query_words = ctx.raw_input.lower().split()
-        unknown_phrases = []
-        for i in range(len(query_words) - 1):
-            phrase = ' '.join(query_words[i:i+2])
-            if phrase not in self._concept_keywords and phrase not in self._concept_labels:
-                unknown_phrases.append(phrase)
-        # Also check 3-grams
-        for i in range(len(query_words) - 2):
-            phrase = ' '.join(query_words[i:i+3])
-            if phrase not in self._concept_keywords and phrase not in self._concept_labels:
-                unknown_phrases.append(phrase)
-
-        # Complex query indicators
-        is_complex = any(w in query.lower() for w in
-                        ["how", "why", "create", "build", "design", "blueprint",
-                         "explain", "detail", "comprehensive", "step by step",
-                         "architecture", "implementation", "guide", "tutorial"])
-        is_unknown = not subj_known or not assoc_known
-
-        # Step 1: Check if we need web search
-        subj_lower = subject.lower()
-        subj_known = subj_lower in self._concept_keywords or subj_lower in self._concept_labels
-        assoc_known = len(assocs) > 0
-
-        # Complex query indicators
-        is_complex = any(w in query.lower() for w in
-                        ["how", "why", "create", "build", "design", "blueprint",
-                         "explain", "detail", "comprehensive", "step by step",
-                         "architecture", "implementation", "guide", "tutorial"])
-        is_unknown = not subj_known or not assoc_known
-
-        # Determine search queries
-        search_queries = []
-
-        # Check for unknown multi-word phrases in the original query
         query_words = ctx.raw_input.lower().split()
         unknown_phrases = []
         for i in range(len(query_words) - 1):
@@ -6916,18 +6851,16 @@ class CognitiveChatEngine:
                     print('  [bg] curiosity budget refreshed for new exploration cycle')
 
             # Process pending queue items in background
-            queries_to_process = []
+            all_queries = []
             with self._bg_lock:
                 queries_to_process = list(self._bg_learning_queue)
                 self._bg_learning_queue.clear()
-            # Also process deferred learning queue
-            with self._bg_lock:
                 deferred = list(self._pending_learning_queue)
                 self._pending_learning_queue.clear()
-            all_queries = queries_to_process + deferred
+                all_queries = queries_to_process + deferred
             # Phase 18: Autonomously select curiosity topics when queue runs low
             # Run curiosity selection if queue is small (<=3) or periodically every idle period
-            queue_size = len(self._bg_learning_queue) + len(self._pending_learning_queue)
+            queue_size = len(all_queries)
             should_run_curiosity = (not all_queries and self._curiosity_drive_enabled) or \
                                    (queue_size <= 3 and self._curiosity_drive_enabled and \
                          self._bg_idle_search_count % 2 == 0)  # Every other idle period

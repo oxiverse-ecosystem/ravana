@@ -344,7 +344,7 @@ class SurfaceRealizer:
                     dopamine_tone
                 )
             if marker and random.random() < 0.25:
-                sentence = f"{marker}, {sentence[0].lower() + sentence[1:]}"
+                sentence = f"{marker}, {sentence}"
 
         # Step 11: Capitalize and punctuate
         if not has_punct:
@@ -395,6 +395,9 @@ class SurfaceRealizer:
         - Abstract nouns → no article
         - Uncountable nouns → no article
         - Pronouns → no article
+        - Indefinite pronouns → no article
+        - Greetings/interjections → no article
+        - Plural/collective nouns → no "a"/"an"
         - Countable singular → "a"/"an" or "the"
         - First mention: no article for abstract, "the" for specific
         - Stage 1: Web-garbage/unknown short targets → no article, use as qualifier
@@ -412,6 +415,23 @@ class SurfaceRealizer:
         # No article for uncountable
         if cl in self.UNCOUNTABLE_NOUNS:
             return concept
+
+        # No article for indefinite pronouns
+        if cl in ('someone', 'anyone', 'everyone', 'nobody', 'somebody', 'anybody', 'everybody',
+                  'something', 'anything', 'everything', 'nothing', 'no one'):
+            return concept
+
+        # No article for greetings/interjections
+        if cl in ('hello', 'hi', 'hey', 'goodbye', 'bye', 'thanks', 'yes', 'no',
+                  'please', 'sorry'):
+            return concept
+
+        # No "a"/"an" for plural/collective nouns
+        if cl in ('people', 'police', 'children', 'men', 'women', 'teeth', 'feet',
+                  'mice', 'sheep', 'fish', 'deer'):
+            if article in ("a", "an"):
+                return concept
+            return f"the {concept}" if article == "the" else concept
 
         # Web-garbage / unknown / non-English patterns — no article
         # These sound wrong as count nouns ("a money", "a thing", "a stuff")

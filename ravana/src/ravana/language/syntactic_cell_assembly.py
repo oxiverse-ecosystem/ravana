@@ -271,7 +271,7 @@ class SyntacticCellAssembly:
         verb_concept = self._pick_verb_for_relation(relation, sl, tl, pos_map)
 
         # Pick the verb phrase (cerebellar-weighted, not random)
-        verb_phrase = self._pick_verb_phrase(relation)
+        verb_phrase = self._pick_verb_phrase(relation, subject=sl, object=tl)
 
         # Determine article for subject
         subj_pos = pos_map.get(sl, 'noun')
@@ -337,7 +337,7 @@ class SyntacticCellAssembly:
 
         return best_verb
 
-    def _pick_verb_phrase(self, relation: str) -> str:
+    def _pick_verb_phrase(self, relation: str, subject: str = "", object: str = "") -> str:
         """Pick a verb phrase for this relation type.
 
         Phase 6: Delegates to VerbLexicon (semantic-vector-driven selection).
@@ -346,16 +346,20 @@ class SyntacticCellAssembly:
         Uses cerebellar-weighted selection when available.
         Higher dopamine → more variety (exploration).
         Lower dopamine → exploits best-matching phrase.
+
+        Args:
+            relation: Relation type (semantic, causal, contrastive, etc.)
+            subject: Subject concept for semantic similarity computation
+            object: Object concept for semantic similarity computation
         """
-        import random
         from ravana.language.verb_lexicon import VerbLexicon
 
         # Use VerbLexicon for semantic-vector-driven selection
-        # Without vector_fn, it falls back to complexity-similarity algorithm
+        # subject and object are forwarded for P600-grounded complexity matching
         return VerbLexicon.select_verb(
             relation=relation,
-            subject="",
-            object="",
+            subject=subject,
+            object=object,
             dopamine_tone=0.5,
             vector_fn=None,
         )
@@ -370,6 +374,9 @@ class SyntacticCellAssembly:
         - Proper nouns → no article (capitalized already)
         - Pronouns → no article
         - Adjectives and verbs → no article (don't function as NPs alone)
+        - Plural/collective nouns → no "a"/"an"
+        - Indefinite pronouns → no article
+        - Interjections/greetings → no article
         - Countable singular → "a"/"an" or "the"
         - First mention: "a/an", subsequent: "the"
         - Web-garbage concepts (no GloVe vector) → no article
@@ -384,6 +391,18 @@ class SyntacticCellAssembly:
             return ""
         # Uncountable nouns → no article
         if cl in self._uncountable_nouns:
+            return ""
+        # Indefinite pronouns → no article
+        if cl in ('someone', 'anyone', 'everyone', 'nobody', 'somebody', 'anybody', 'everybody',
+                  'something', 'anything', 'everything', 'nothing', 'no one'):
+            return ""
+        # Greetings/interjections → no article
+        if cl in ('hello', 'hi', 'hey', 'goodbye', 'bye', 'thanks', 'yes', 'no',
+                  'please', 'sorry'):
+            return ""
+        # Plural/collective nouns → no "a"/"an", allow "the"
+        if cl in ('people', 'police', 'children', 'men', 'women', 'teeth', 'feet',
+                  'mice', 'sheep', 'fish', 'deer', 'data', 'media', 'criteria'):
             return ""
         # Short words → no article (likely abbreviations, garbage)
         if len(cl) <= 2:
@@ -544,7 +563,7 @@ class SyntacticCellAssembly:
 
         # Discourse marker prefix
         if discourse_marker:
-            sentence = f"{discourse_marker}, {sentence[0].lower() + sentence[1:]}"
+            sentence = f"{discourse_marker}, {sentence}"
 
         # Capitalize and punctuate
         sentence = sentence[0].upper() + sentence[1:]
