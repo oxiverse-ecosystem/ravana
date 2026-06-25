@@ -9,10 +9,15 @@ import sys
 import json
 import time
 
-PROJ_ROOT = os.path.dirname(os.path.abspath(__file__))
+PROJ_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(PROJ_ROOT, "ravana-v2"))
 sys.path.insert(0, PROJ_ROOT)
 
-from scripts.ravana_chat import CognitiveChatEngine
+# Try package-qualified import first, fall back to direct sibling import
+try:
+    from scripts.ravana_chat import CognitiveChatEngine
+except ImportError:
+    from ravana_chat import CognitiveChatEngine
 
 # Test questions to evaluate quality
 TEST_QUESTIONS = [

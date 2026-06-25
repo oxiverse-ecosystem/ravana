@@ -11,12 +11,22 @@ Grammar Rules (seeded, not learned):
 - pronoun_substitution: replace repeated subjects with pronouns
 - tense: present/past verb forms
 
-Verb phrase selection: cerebellar-weighted (not random), with dopamine tone
-modulating exploration of less-used phrases.
+Verb phrase selection: semantic-vector-driven via VerbLexicon (Levelt 1989),
+not random template choice. Dopamine tone modulates exploration.
 
-Replaces _format_sentence's random template approach.
+Phase 6: Replaced NATURAL_CLAUSES (32 templates) with compositional clause
+building. Core sentence is always SVO built from parts, not slot-filled.
+Voice variety comes from verb selection (semantically driven), person frames,
+hedges, and discourse markers.
+
+Theoretical grounding:
+- Levelt (1989): Lemma selection is competitive and semantically driven.
+  Verbs are lemmas that carry thematic role constraints.
+- Bornkessel-Schlesewsky & Schlesewsky (2008): P600 amplitude reflects
+  verb-argument integration cost. High similarity = low cost = simpler verbs.
 """
 
+import random
 from typing import Dict, Optional, List, Tuple
 from dataclasses import dataclass, field
 import re
@@ -46,11 +56,46 @@ class SurfaceRealizer:
 
     Key design decisions:
     - Grammar rules are rule-based (not learned), providing baseline competence
-    - Verb phrase selection is cerebellar-weighted (not random)
+    - Verb phrase selection via VerbLexicon (semantic-vector-driven, not random)
     - Pronoun resolution prevents repetition
     - Dopamine tone modulates variety: high DA → more variety, low DA → conservative
     - Article insertion follows English rules (a/an/the, abstract noun exceptions)
+    - Phase 6: Compositional clause building — no NATURAL_CLAUSES templates.
+      Every sentence is built as SVO with voice layers on top.
+    - Phase 6: Light human texture — hedges, first/second person, reflective closing
     """
+
+    # Light hedges — used sparingly (<25% of sentences)
+    HEDGES = [
+        "kind of", "basically", "in a way", "sort of",
+        "in many ways", "in some sense", "more or less",
+    ]
+
+    # First/second person frames — used ~15-25%
+    PERSON_FRAMES = [
+        "I think {subj} is about {obj}",
+        "you see {subj} in how {obj} plays out",
+        "when I think about {subj}, {obj} comes to mind",
+        "you can see {subj} in {obj}",
+        "I would say {subj} ties into {obj}",
+    ]
+
+    # Reflective closing clauses — tacked on ~30% of the time
+    REFLECTIVE_CLAUSES = [
+        "which is worth thinking about",
+        "when you really stop and think about it",
+        "and that shapes how things play out",
+        "it is something to reflect on",
+        "and that is what makes it interesting",
+        "if that makes sense",
+    ]
+
+    QUESTION_CLAUSES = [
+        "does that make sense?",
+        "what do you think?",
+        "does that resonate?",
+        "have you noticed that?",
+    ]
 
     # Grammatical agreement rules
     AGREEMENT_RULES = {
@@ -89,15 +134,25 @@ class SurfaceRealizer:
     }
 
     # Abstract nouns that don't take articles
+    # EXPANDED to cover graph concepts (Bug C fix)
     ABSTRACT_NOUNS = {
         "life", "death", "love", "hate", "truth", "beauty",
         "justice", "freedom", "knowledge", "wisdom", "time",
         "nature", "science", "art", "history", "meaning",
         "trust", "hope", "fear", "joy", "grief",
         "empathy", "respect", "culture", "power", "responsibility",
+        "courage", "patience", "kindness", "honesty", "loyalty",
+        "gratitude", "compassion", "generosity", "humility", "integrity",
+        "dignity", "prudence", "grace", "mercy", "forgiveness",
+        "peace", "faith", "fate", "destiny", "consciousness",
+        "awareness", "education", "healthcare", "democracy", "diversity",
+        "sustainability", "mindfulness", "meditation", "poverty",
+        "hunger", "disease", "wealth", "war", "society",
+        "identity", "culture", "tradition", "heritage",
     }
 
     # Uncountable nouns (no "a"/"an")
+    # EXPANDED to cover graph concepts (Bug C fix)
     UNCOUNTABLE_NOUNS = {
         "knowledge", "wisdom", "information", "music", "research",
         "evidence", "advice", "news", "progress", "nature",
@@ -105,6 +160,12 @@ class SurfaceRealizer:
         "trust", "justice", "freedom", "empathy", "respect",
         "hope", "fear", "anxiety", "joy", "grief",
         "power", "culture", "art", "science", "history",
+        "meaning", "truth", "beauty", "courage", "patience",
+        "kindness", "honesty", "loyalty", "gratitude", "compassion",
+        "generosity", "humility", "integrity", "dignity", "prudence",
+        "temperance", "fortitude", "charity", "mercy", "forgiveness",
+        "peace", "faith", "grace", "fate", "destiny",
+        "consciousness", "awareness", "mindfulness",
         # Gerunds (-ing forms used as uncountable nouns)
         "bonding", "learning", "understanding", "thinking", "feeling",
         "running", "walking", "swimming", "reading", "writing",
@@ -112,6 +173,7 @@ class SurfaceRealizer:
         "living", "dying", "growing", "changing", "moving",
         "being", "doing", "having", "making", "taking",
         "giving", "getting", "seeing", "hearing", "knowing",
+        "trying", "caring", "sharing", "helping", "loving",
     }
 
     # Singular nouns ending in 's' (fields of study, diseases, etc.)
@@ -131,12 +193,32 @@ class SurfaceRealizer:
     }
 
     # Discourse markers (mapped from intent type)
+    # Expanded for more variety: each type has 8+ options with different styles
     DISCOURSE_MARKERS = {
-        "elaborate": ["furthermore", "in addition", "also", "moreover", "besides"],
-        "contrast": ["however", "on the other hand", "yet", "but", "at the same time"],
-        "connect": ["similarly", "likewise", "in the same way", "correspondingly"],
-        "explain": ["", "", "in fact", "indeed"],
-        "conclude": ["ultimately", "in essence", "at its core", "fundamentally"],
+        "elaborate": [
+            "", "", "", "also", "", "and", "", "", "besides",
+            "on top of that", "", "plus",
+        ],
+        "contrast": [
+            "", "but", "", "but", "at the same time",
+            "then again", "", "still", "", "",
+            "", "", "", "although",
+        ],
+        "connect": [
+            "", "", "in the same way", "",
+            "by the same token", "", "",
+            "", "", "",
+        ],
+        "explain": [
+            "", "", "", "",
+            "", "in other words", "", "",
+            "", "", "", "",
+        ],
+        "conclude": [
+            "", "in essence", "", "",
+            "", "when you think about it", "",
+            "", "basically", "",
+        ],
     }
 
     def __init__(self):
@@ -144,6 +226,12 @@ class SurfaceRealizer:
         self._used_subjects: set = set()
         # Track verb phrase success rates (learned from feedback)
         self._verb_phrase_success: Dict[str, float] = {}
+        # Phase 6: Vector function for semantic verb selection (wired from engine)
+        self._vector_fn = None
+
+    def set_vector_fn(self, fn):
+        """Set the vector lookup function for semantic verb selection."""
+        self._vector_fn = fn
 
     def realize(self, frame, discourse_context: DiscourseState,
                 dopamine_tone: float = 0.5,
@@ -151,13 +239,15 @@ class SurfaceRealizer:
                 discourse_marker: Optional[str] = None) -> str:
         """Convert a syntactic frame into a well-formed English sentence.
 
-        Pipeline:
+        Pipeline (Stage 1 — de-template):
         1. Determine subject-verb agreement from POS tags + countability
         2. Insert articles where needed (a/an/the)
         3. Choose best verb phrase (cerebellar-weighted, not random)
         4. Handle pronoun resolution (don't repeat subject)
-        5. Apply discourse marker (if not first sentence)
-        6. Capitalize and punctuate
+        5. Pick natural clause template from NATURAL_CLAUSES per discourse type
+        6. Apply discourse marker (sparingly, <25% of sentences beyond first)
+        7. Optionally add hedges, first/second person, reflective closing
+        8. Capitalize and punctuate
 
         Args:
             frame: SyntacticFrame (from SyntacticCellAssembly.bind_to_sentence)
@@ -168,13 +258,13 @@ class SurfaceRealizer:
         Returns:
             Well-formed English sentence string
         """
-        import random
         subj = frame.subject_concept
         obj = frame.object_concept
         verb_phrase = frame.verb_phrase
         art_subj = frame.article_subject
         art_obj = frame.article_object
         relation = frame.relation_type
+        discourse_type = discourse_context.discourse_type
         sl, tl = subj.lower(), obj.lower()
 
         # Step 1: Pronoun resolution
@@ -192,48 +282,74 @@ class SurfaceRealizer:
             obj, art_obj, is_subject=False, dopamine_tone=dopamine_tone
         )
 
-        # Step 4: Get verb phrase (cerebellar-weighted)
+        # Step 4: Get verb phrase (semantic-vector-driven via VerbLexicon)
         verb = self._select_verb_phrase(verb_phrase, relation,
-                                         dopamine_tone, cerebellar_ngram)
+                                         dopamine_tone, cerebellar_ngram,
+                                         subject=sl, object=tl)
 
-        # Step 5: Apply subject-verb agreement (use resolved subject for agreement)
+        # Step 5: Apply subject-verb agreement
         verb = self._apply_agreement(verb, subject_phrase, display_subj.lower())
 
         # Step 6: Apply tense
         verb = self._apply_tense(verb, frame.tense)
 
-        # Step 7: Assemble core sentence
+        # Step 7: Build core sentence compositionally (Phase 6 — no templates)
+        # Core structure is always SVO: [subject] [verb] [object]
+        # Voice variety comes from verb selection (VerbLexicon), person frames,
+        # and post-hoc additions (hedges, discourse markers)
         if relation == 'interrogative':
-            # ASK_BACK: the object_concept IS the pre-formed question
             sentence = frame.object_concept
-            # Don't add period if already has punctuation
             has_punct = sentence.endswith('.') or sentence.endswith('?') or sentence.endswith('!')
-        elif relation == 'causal':
-            sentence = f"{subject_phrase} {verb} {object_phrase}"
-            has_punct = False
-        elif relation == 'contrastive':
-            sentence = f"{subject_phrase} {verb} {object_phrase}"
-            has_punct = False
         else:
-            sentence = f"{subject_phrase} {verb} {object_phrase}"
+            # Compose SVO core: subject_phrase verb object_phrase
+            core = f"{subject_phrase} {verb} {object_phrase}"
             has_punct = False
 
-        # Step 8: Add discourse marker (skip for questions)
-        if discourse_marker and not has_punct:
-            marker = discourse_marker
-        else:
-            marker = self._select_discourse_marker(
-                discourse_context.discourse_type,
-                discourse_context.sentence_index,
-                dopamine_tone
-            )
-        if marker and not has_punct:
-            sentence = f"{marker}, {sentence[0].lower() + sentence[1:]}"
+            # Optional: person frame wrapper (first/second person voice)
+            use_person_frame = (dopamine_tone > 0.4 and random.random() < 0.2
+                                and discourse_context.sentence_index == 0)
+            if use_person_frame and self.PERSON_FRAMES:
+                template = random.choice(self.PERSON_FRAMES)
+                sentence = template.replace("{subj}", subject_phrase).replace("{obj}", object_phrase).replace("{verb}", verb)
+            else:
+                sentence = core
 
-        # Step 9: Capitalize and punctuate
+        # Step 8: Add hedge (sparingly, ~15-20% of sentences not first)
+        if not has_punct and discourse_context.sentence_index > 0 and random.random() < 0.18:
+            hedge = random.choice(self.HEDGES)
+            # Insert after first word or after "you" / "it"
+            first_space = sentence.find(" ")
+            if first_space > 0 and first_space < len(sentence) - 3:
+                after_first = sentence[first_space + 1]
+                if after_first.islower():
+                    sentence = sentence[:first_space + 1] + hedge + " " + sentence[first_space + 1:]
+
+        # Step 9: Reflective closing clause (~30% of non-first sentences, not on questions)
+        if not has_punct and discourse_context.sentence_index > 0 and random.random() < 0.30:
+            if random.random() < 0.25 and discourse_context.sentence_index == discourse_context.total_sentences - 1:
+                # Closing question
+                sentence = sentence + " " + random.choice(self.QUESTION_CLAUSES)
+                has_punct = sentence.endswith('?')
+            else:
+                sentence = sentence + ", " + random.choice(self.REFLECTIVE_CLAUSES)
+
+        # Step 10: Add discourse marker (sparingly — <25% of sentences beyond first)
+        if not has_punct and discourse_context.sentence_index > 0:
+            if discourse_marker and random.random() < 0.25:
+                marker = discourse_marker
+            else:
+                marker = self._select_discourse_marker(
+                    discourse_context.discourse_type,
+                    discourse_context.sentence_index,
+                    dopamine_tone
+                )
+            if marker and random.random() < 0.25:
+                sentence = f"{marker}, {sentence}"
+
+        # Step 11: Capitalize and punctuate
         if not has_punct:
             sentence = sentence[0].upper() + sentence[1:]
-            if not sentence.endswith('.'):
+            if not sentence.endswith('.') and not sentence.endswith('?') and not sentence.endswith('!'):
                 sentence += '.'
 
         # Track subject usage
@@ -279,8 +395,12 @@ class SurfaceRealizer:
         - Abstract nouns → no article
         - Uncountable nouns → no article
         - Pronouns → no article
+        - Indefinite pronouns → no article
+        - Greetings/interjections → no article
+        - Plural/collective nouns → no "a"/"an"
         - Countable singular → "a"/"an" or "the"
         - First mention: no article for abstract, "the" for specific
+        - Stage 1: Web-garbage/unknown short targets → no article, use as qualifier
         """
         cl = concept.lower()
 
@@ -296,6 +416,36 @@ class SurfaceRealizer:
         if cl in self.UNCOUNTABLE_NOUNS:
             return concept
 
+        # No article for indefinite pronouns
+        if cl in ('someone', 'anyone', 'everyone', 'nobody', 'somebody', 'anybody', 'everybody',
+                  'something', 'anything', 'everything', 'nothing', 'no one'):
+            return concept
+
+        # No article for greetings/interjections
+        if cl in ('hello', 'hi', 'hey', 'goodbye', 'bye', 'thanks', 'yes', 'no',
+                  'please', 'sorry'):
+            return concept
+
+        # No "a"/"an" for plural/collective nouns
+        if cl in ('people', 'police', 'children', 'men', 'women', 'teeth', 'feet',
+                  'mice', 'sheep', 'fish', 'deer'):
+            if article in ("a", "an"):
+                return concept
+            return f"the {concept}" if article == "the" else concept
+
+        # Web-garbage / unknown / non-English patterns — no article
+        # These sound wrong as count nouns ("a money", "a thing", "a stuff")
+        garbage_indicators = (
+            len(cl) <= 2,
+            cl.startswith('http'), cl.startswith('www'),
+            cl.endswith(('ous', 'ful', 'less', 'able', 'ical', 'ive', 'ish', 'some')),
+            cl in ('thing', 'stuff', 'money', 'data', 'info', 'math',
+                   'nothing', 'something', 'everything', 'anything',
+                   'way', 'lot', 'bit', 'kind', 'sort', 'type', 'part'),
+        )
+        if any(garbage_indicators):
+            return concept
+
         # Apply article
         if article == "the":
             return f"the {concept}"
@@ -307,39 +457,38 @@ class SurfaceRealizer:
 
     def _select_verb_phrase(self, default_phrase: str, relation: str,
                              dopamine_tone: float,
-                             cerebellar_ngram) -> str:
-        """Select verb phrase with cerebellar-weighted selection.
+                             cerebellar_ngram,
+                             subject: str = "",
+                             object: str = "") -> str:
+        """Select verb phrase using VerbLexicon (semantic-vector-driven).
 
-        High dopamine → try less-used phrases (exploration)
-        Low dopamine → stick with well-known phrases (exploitation)
+        Phase 6: Replaced random VERB_PHRASES selection with semantically-
+        driven VerbLexicon. High similarity (subject, object) → simple verbs.
+        Low similarity → complex, hedging verbs. Mirrors P600 amplitude.
 
-        When cerebellar_ngram is available, query it for the best phrase
-        given (relation, subject_type, object_type).
+        High dopamine → explore less-used phrases
+        Low dopamine → exploit best-matching phrase
         """
-        import random
+        from ravana.language.verb_lexicon import VerbLexicon
 
-        # If we have cerebellar n-gram, try to use it for phrase selection
-        if cerebellar_ngram is not None:
-            # Check if ngram has a preferred phrase for this relation
+        # Get vector function if available (wired from RAVANAEngine)
+        vector_fn = getattr(self, '_vector_fn', None)
+
+        # If we have cerebellar n-gram and low dopamine, use it as override
+        if cerebellar_ngram is not None and dopamine_tone < 0.4:
             ngram_key = f"phrase:{relation}"
-            ngram_result = cerebellar_ngram.predict_next(
-                ngram_key, top_k=3
-            )
+            ngram_result = cerebellar_ngram.predict_next(ngram_key, top_k=3)
             if ngram_result:
-                # Use the top ngram prediction if dopamine is low (conservative)
-                if dopamine_tone < 0.4:
-                    return list(ngram_result.keys())[0]
+                return list(ngram_result.keys())[0]
 
-        # Default: return the frame's verb phrase
-        # Dopamine modulation: high DA = random exploration
-        if dopamine_tone > 0.7 and random.random() < (dopamine_tone - 0.5):
-            # Try alternate phrasing
-            from ravana.language.syntactic_cell_assembly import SyntacticCellAssembly
-            phrases = SyntacticCellAssembly.VERB_PHRASES.get(relation,
-                        SyntacticCellAssembly.VERB_PHRASES['semantic'])
-            return random.choice(phrases)
-
-        return default_phrase
+        # Use VerbLexicon for semantic-verb-driven selection
+        return VerbLexicon.select_verb(
+            relation=relation,
+            subject=subject,
+            object=object,
+            dopamine_tone=dopamine_tone,
+            vector_fn=vector_fn,
+        )
 
     def _apply_agreement(self, verb_phrase: str, subject_phrase: str,
                           subject_lower: str) -> str:

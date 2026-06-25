@@ -81,30 +81,56 @@ class SyntacticCellAssembly:
         ('verb_role', 'contrastive'):    {'object_role': 0.7, 'subject_role': 0.1, 'verb_role': 0.1},
     }
 
-    # Verb phrases per relation type (seeded, refined by cerebellar n-gram)
+    # Verb phrases per relation type — delegated to VerbLexicon (Phase 6)
+    # The VerbLexicon provides semantically-driven verb selection based on
+    # Levelt's lemma retrieval model (1989). Kept as a class variable for
+    # backward compatibility with tests, but actual selection uses VerbLexicon.
+    # Phase 6: VERB_PHRASES is a deprecated alias; use VerbLexicon instead.
     VERB_PHRASES = {
         'semantic': [
-            'is closely tied to', 'relates to', 'connects with',
-            'links to', 'goes hand in hand with', 'is associated with',
+            'ties into', 'is part of', 'plays a role in',
+            'feeds into', 'goes hand in hand with', 'is bound up with',
+            'is deeply connected with', 'is tied to',
+            'has a relationship with', 'has a lot to do with',
         ],
         'causal': [
             'leads to', 'creates', 'causes', 'brings about',
             'influences', 'gives rise to', 'results in',
+            'sparks', 'triggers', 'fuels', 'contributes to',
+            'drives', 'prompts',
         ],
         'contrastive': [
             'contrasts with', 'differs from', 'stands against',
             'challenges', 'is the opposite of',
+            'clashes with', 'pulls against', 'runs counter to',
+            'is at odds with', 'diverges from', 'pushes back against',
         ],
         'analogical': [
             'is like', 'resembles', 'mirrors', 'echoes', 'is similar to',
+            'can be compared to', 'is akin to', 'parallels',
+            'reflects', 'brings to mind', 'reminds us of',
         ],
         'temporal': [
             'comes before', 'follows', 'leads into', 'precedes',
             'happens before', 'occurs after',
+            'ushers in', 'paves the way for', 'sets the stage for',
+            'traces back to',
         ],
         'episodic': [
-            'connects to', 'is linked with', 'relates to',
+            'brings up', 'recalls', 'reminds us of',
+            'is linked with', 'ties into', 'feeds into',
         ],
+    }
+
+    # Discourse type mapping — maps edge relation types to surface discourse types
+    # Used by the SurfaceRealizer to pick natural clause templates.
+    RELATION_TO_DISCOURSE = {
+        'semantic': 'explain',
+        'causal': 'causal',
+        'contrastive': 'contrast',
+        'analogical': 'connect',
+        'temporal': 'elaborate',
+        'episodic': 'elaborate',
     }
 
     def __init__(self, learning_rate: float = 0.05):
@@ -123,12 +149,19 @@ class SyntacticCellAssembly:
 
         # Track verb phrase usage for cerebellar-weighted selection
         self.verb_phrase_counts: Dict[str, int] = {}
+        from ravana.language.verb_lexicon import VerbLexicon
+        for rel_type in VerbLexicon.VERB_PATTERNS:
+            for phrase in VerbLexicon.get_phrases(rel_type):
+                self.verb_phrase_counts[phrase] = 1  # base count
+        # Also include legacy VERB_PHRASES for backward compatibility
         for rel_type, phrases in self.VERB_PHRASES.items():
             for phrase in phrases:
-                self.verb_phrase_counts[phrase] = 1  # base count
+                if phrase not in self.verb_phrase_counts:
+                    self.verb_phrase_counts[phrase] = 1
 
         # Countability tracking for article insertion
         # Seeded with common uncountable/abstract nouns
+        # EXPANDED to cover more abstract concepts the graph might contain
         self._uncountable_nouns: Set[str] = {
             'knowledge', 'wisdom', 'information', 'music', 'research',
             'evidence', 'advice', 'news', 'progress', 'nature',
@@ -137,6 +170,12 @@ class SyntacticCellAssembly:
             'hope', 'fear', 'anxiety', 'joy', 'grief',
             'power', 'responsibility', 'culture', 'art',
             'science', 'history', 'meaning', 'truth', 'beauty',
+            'courage', 'patience', 'kindness', 'honesty', 'loyalty',
+            'gratitude', 'compassion', 'generosity', 'humility', 'integrity',
+            'dignity', 'prudence', 'temperance', 'fortitude', 'charity',
+            'wisdom', 'faith', 'grace', 'mercy', 'forgiveness',
+            'peace', 'justice', 'equality', 'diversity', 'sustainability',
+            'consciousness', 'awareness', 'attention', 'mindfulness',
             # Gerunds (-ing forms used as uncountable nouns)
             'bonding', 'learning', 'understanding', 'thinking', 'feeling',
             'running', 'walking', 'swimming', 'reading', 'writing',
@@ -144,6 +183,7 @@ class SyntacticCellAssembly:
             'living', 'dying', 'growing', 'changing', 'moving',
             'being', 'doing', 'having', 'making', 'taking',
             'giving', 'getting', 'seeing', 'hearing', 'knowing',
+            'trying', 'caring', 'sharing', 'helping', 'loving',
         }
 
         # Pronouns for substitution
@@ -156,10 +196,21 @@ class SyntacticCellAssembly:
         }
 
         # Abstract concepts that don't take articles
+        # EXPANDED to cover graph concepts that shouldn't have "a"/"an"
         self._abstract_nouns: Set[str] = {
             'life', 'death', 'love', 'hate', 'truth', 'beauty',
             'justice', 'freedom', 'knowledge', 'wisdom', 'time',
             'nature', 'science', 'art', 'history', 'meaning',
+            'trust', 'hope', 'faith', 'grace', 'luck', 'fate',
+            'destiny', 'karma', 'dharma', 'nirvana', 'heaven', 'hell',
+            'god', 'spirit', 'soul', 'consciousness', 'awareness',
+            'peace', 'war', 'wealth', 'poverty', 'hunger', 'disease',
+            'education', 'healthcare', 'democracy', 'tyranny',
+            'courage', 'patience', 'kindness', 'honesty', 'gratitude',
+            'compassion', 'generosity', 'humility', 'integrity',
+            'dignity', 'prudence', 'temperance', 'fortitude', 'charity',
+            'mercy', 'forgiveness', 'equality', 'diversity',
+            'sustainability', 'mindfulness', 'meditation',
         }
 
     def seed_from_pos(self, concept_pos: Dict[str, str]):
@@ -220,7 +271,7 @@ class SyntacticCellAssembly:
         verb_concept = self._pick_verb_for_relation(relation, sl, tl, pos_map)
 
         # Pick the verb phrase (cerebellar-weighted, not random)
-        verb_phrase = self._pick_verb_phrase(relation)
+        verb_phrase = self._pick_verb_phrase(relation, subject=sl, object=tl)
 
         # Determine article for subject
         subj_pos = pos_map.get(sl, 'noun')
@@ -278,35 +329,40 @@ class SyntacticCellAssembly:
         if not best_verb:
             # Map relation types to default verb concepts
             rel_to_verb = {
-                'causal': 'cause', 'semantic': 'connect',
+                'causal': 'cause', 'semantic': 'shape',
                 'contrastive': 'contrast', 'analogical': 'resemble',
-                'temporal': 'follow', 'episodic': 'connect',
+                'temporal': 'follow', 'episodic': 'tie',
             }
-            best_verb = rel_to_verb.get(relation, 'connect')
+            best_verb = rel_to_verb.get(relation, 'shape')
 
         return best_verb
 
-    def _pick_verb_phrase(self, relation: str) -> str:
+    def _pick_verb_phrase(self, relation: str, subject: str = "", object: str = "") -> str:
         """Pick a verb phrase for this relation type.
 
-        Uses cerebellar-weighted selection (count-based for now).
-        Higher dopamine → more variety (picks less-used phrases).
-        Lower dopamine → picks the most-used phrase.
-        """
-        phrases = self.VERB_PHRASES.get(relation, self.VERB_PHRASES['semantic'])
-        if not phrases:
-            return "relates to"
+        Phase 6: Delegates to VerbLexicon (semantic-vector-driven selection).
+        Keeps verb_phrase_counts for backward compatibility.
 
-        # Weighted by usage count (most-used = highest probability)
-        total = sum(self.verb_phrase_counts.get(p, 1) for p in phrases)
-        import random
-        r = random.random() * total
-        cumulative = 0.0
-        for phrase in phrases:
-            cumulative += self.verb_phrase_counts.get(phrase, 1)
-            if r <= cumulative:
-                return phrase
-        return phrases[0]
+        Uses cerebellar-weighted selection when available.
+        Higher dopamine → more variety (exploration).
+        Lower dopamine → exploits best-matching phrase.
+
+        Args:
+            relation: Relation type (semantic, causal, contrastive, etc.)
+            subject: Subject concept for semantic similarity computation
+            object: Object concept for semantic similarity computation
+        """
+        from ravana.language.verb_lexicon import VerbLexicon
+
+        # Use VerbLexicon for semantic-vector-driven selection
+        # subject and object are forwarded for P600-grounded complexity matching
+        return VerbLexicon.select_verb(
+            relation=relation,
+            subject=subject,
+            object=object,
+            dopamine_tone=0.5,
+            vector_fn=None,
+        )
 
     def _determine_article(self, concept: str, pos: str,
                             is_subject: bool) -> str:
@@ -318,25 +374,73 @@ class SyntacticCellAssembly:
         - Proper nouns → no article (capitalized already)
         - Pronouns → no article
         - Adjectives and verbs → no article (don't function as NPs alone)
+        - Plural/collective nouns → no "a"/"an"
+        - Indefinite pronouns → no article
+        - Interjections/greetings → no article
         - Countable singular → "a"/"an" or "the"
         - First mention: "a/an", subsequent: "the"
+        - Web-garbage concepts (no GloVe vector) → no article
+        - Concepts ending with common adjective suffixes → no article
         """
         cl = concept.lower()
+        # Non-noun POS → no article
         if pos in ('pron', 'interj', 'conj', 'prep', 'det', 'adj', 'verb', 'v'):
             return ""
+        # Abstract nouns → no article (check FIRST to catch words like 'gas', 'atlas')
         if cl in self._abstract_nouns:
             return ""
+        # Uncountable nouns → no article
         if cl in self._uncountable_nouns:
             return ""
+        # Indefinite pronouns → no article
+        if cl in ('someone', 'anyone', 'everyone', 'nobody', 'somebody', 'anybody', 'everybody',
+                  'something', 'anything', 'everything', 'nothing', 'no one'):
+            return ""
+        # Greetings/interjections → no article
+        if cl in ('hello', 'hi', 'hey', 'goodbye', 'bye', 'thanks', 'yes', 'no',
+                  'please', 'sorry'):
+            return ""
+        # Plural/collective nouns → no "a"/"an", allow "the"
+        if cl in ('people', 'police', 'children', 'men', 'women', 'teeth', 'feet',
+                  'mice', 'sheep', 'fish', 'deer', 'data', 'media', 'criteria'):
+            return ""
+        # Short words → no article (likely abbreviations, garbage)
         if len(cl) <= 2:
             return ""
-        # Plural nouns (ending in s) don't take "a"/"an"
-        if cl.endswith('s') and cl not in {'news', 'physics', 'mathematics', 'economics', 'politics', 'ethics'}:
+        # Plural-looking nouns that aren't known singular exceptions → no article
+        # Check AFTER abstract/uncountable to avoid false positives on words like 'gas', 'grass', 'lens'
+        if cl.endswith('s') and cl not in {
+            'news', 'physics', 'mathematics', 'economics', 'politics', 'ethics',
+            'linguistics', 'statistics', 'genetics', 'dynamics', 'kinematics',
+            'acoustics', 'optics', 'mechanics', 'thermodynamics',
+            'gas', 'atlas', 'campus', 'virus', 'bus', 'lens', 'bonus',
+            'genius', 'cactus', 'alumnus', 'focus', 'corpus', 'status',
+        }:
             return ""
-        # Subject gets "the" for specificity, object is more flexible
+        # Common adjective suffixes → likely not a noun, no article
+        adj_suffixes = ('ous', 'ful', 'less', 'able', 'ible', 'ical', 'ive',
+                        'like', 'ish', 'some', 'ward', 'fold', 'most')
+        if cl.endswith(adj_suffixes):
+            return ""
+        # Web-garbage / non-English indicators: no article
+        # These patterns suggest the word isn't a real English noun
+        garbage_indicators = (
+            cl.startswith('http'), cl.startswith('www'),
+            cl.startswith('font'), cl.startswith('class'),
+            cl.startswith('div'), cl.startswith('span'),
+            cl.startswith('var'), cl.startswith('func'),
+            cl.startswith('btn'), cl.startswith('img'),
+            cl.startswith('href'), cl.startswith('src'),
+            cl.startswith('data'), cl.startswith('meta'),
+            'gform' in cl, 'https' in cl, 'http' in cl,
+            'javascript' in cl, 'stylesheet' in cl,
+        )
+        if any(garbage_indicators):
+            return ""
+        # Subject gets "the" for specificity
         if is_subject:
             return "the"
-        # For objects: check if it starts with a vowel
+        # For objects: use a/an based on vowel start
         if cl[0] in 'aeiou':
             return "an"
         return "a"
@@ -459,7 +563,7 @@ class SyntacticCellAssembly:
 
         # Discourse marker prefix
         if discourse_marker:
-            sentence = f"{discourse_marker}, {sentence[0].lower() + sentence[1:]}"
+            sentence = f"{discourse_marker}, {sentence}"
 
         # Capitalize and punctuate
         sentence = sentence[0].upper() + sentence[1:]

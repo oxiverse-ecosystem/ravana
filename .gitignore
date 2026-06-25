@@ -75,3 +75,5 @@ test_graph.json
 # ── OS Files ──
 .DS_Store
 nul
+
+.poolside/

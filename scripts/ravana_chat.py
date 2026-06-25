@@ -460,6 +460,42 @@ TEEN_CONCEPTS = [
 ]
 
 # ─── Stop words to filter during article reading ───
+# Web garbage words that should never become graph concepts
+# These come from HTML/CSS/JS, URLs, and programming artifacts
+WEB_GARBAGE = {
+    # HTML/CSS artifacts
+    'html', 'css', 'js', 'div', 'span', 'class', 'style', 'script', 'meta',
+    'href', 'src', 'img', 'br', 'hr', 'head', 'body', 'font', 'nav',
+    'header', 'footer', 'section', 'article', 'aside', 'main',
+    'width', 'height', 'color', 'margin', 'padding', 'border',
+    'background', 'display', 'position', 'float', 'clear', 'overflow',
+    'block', 'inline', 'flex', 'grid', 'align', 'justify', 'content',
+    # URL/web artifacts
+    'http', 'https', 'www', 'com', 'org', 'net', 'io', 'gov', 'edu',
+    'url', 'uri', 'link', 'domain', 'cookie',
+    'query', 'params', 'token', 'oauth', 'api', 'json', 'xml',
+    # JavaScript/programming
+    'var', 'let', 'const', 'func', 'function', 'return', 'import',
+    'export', 'module', 'require', 'console', 'log', 'debug',
+    'undefined', 'null', 'true', 'false', 'typeof', 'instanceof',
+    'array', 'object', 'string', 'number', 'boolean', 'promise',
+    'async', 'await', 'callback', 'event', 'listener', 'handler',
+    'prototype', 'constructor', 'length', 'index', 'value',
+    # Common tech/platform names that are not general English words
+    'gform', 'wordpress', 'joomla', 'drupal', 'shopify', 'squarespace',
+    'wix', 'webflow', 'github', 'gitlab', 'bitbucket', 'heroku',
+    'netlify', 'vercel', 'aws', 'azure', 'gcp', 'docker', 'kubernetes',
+    'react', 'angular', 'vue', 'svelte', 'jquery', 'bootstrap',
+    'tailwind', 'sass', 'less', 'webpack', 'vite',
+    # Analytics/tracking
+    'analytics', 'tracking', 'pixel', 'gtag', 'gaq',
+    'utm', 'campaign', 'click', 'impression', 'conversion',
+    # Date/time patterns that appear as words
+    'jan', 'feb', 'mar', 'apr', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec',
+    'mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun',
+}
+
+
 STOP_WORDS = {
     "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for",
     "of", "with", "by", "from", "as", "is", "was", "were", "be", "been",
@@ -762,6 +798,8 @@ class UserModel:
 
     def get_state(self) -> Dict:
         """Return serializable state."""
+
+
         return {
             'edge_reactivations': {str(k): v for k, v in self.edge_reactivations.items()},
             'query_concepts': list(self.query_concepts),
@@ -785,7 +823,6 @@ class UserModel:
             'belief_state': self.belief_state,
             'interaction_history': self.interaction_history,
         }
-
     def set_state(self, state: Dict):
         """Restore state from dict."""
         self.edge_reactivations = {eval(k): v for k, v in state.get('edge_reactivations', {}).items()}
@@ -835,6 +872,10 @@ class CognitiveResponseContext:
     exploration_drive: float = 0.0
     learned_recently: bool = False  # Did we just learn something new?
     recall_mode: bool = False  # Episodic re-traversal vs generic chain walk
+    sentence_vector: Any = None  # Compositional sentence-level vector (N400/P600 integration)
+    discourse_context: str = ""  # Accumulated discourse context across turns
+    content_vector: Any = None  # Orthogonal content subspace (what we're discussing)
+    context_vector: Any = None  # Orthogonal context subspace (how we're discussing)
 
 
 class BeliefStore:
@@ -1031,6 +1072,14 @@ class CognitiveChatEngine:
         # Phase 9: PFC gating — dynamic gating threshold modulated by arousal (teen = weaker gating)
         self._pfc_gating_enabled = True
         self._pfc_buffer_capacity = 7  # typical working memory capacity
+        # Phase 11.3: Discourse context (cross-turn accumulation, N400/P600 integration)
+        self._sentence_vector: Optional[np.ndarray] = None
+        self._discourse_context: Optional[np.ndarray] = None
+        # Phase 11.4: Orthogonal context/content subspaces (PMC 2025)
+        # Content = what we're talking about (semantics)
+        # Context = how we're talking about it (pragmatics, discourse frame)
+        self._content_vector: Optional[np.ndarray] = None
+        self._context_vector: Optional[np.ndarray] = None
         # Phase 9b: Prediction error tracking (surprise signal for Active Inference)
         self._mean_prediction_error = 0.0
         self._prediction_error_count = 0
@@ -1065,7 +1114,7 @@ class CognitiveChatEngine:
             "after", "before", "since", "until", "during", "while", "when",
             "where", "why", "how", "here", "there", "now", "then", "later",
             "soon", "ago", "back", "away", "forward", "backward", "inside",
-            "outside", "near", "far", "high", "low", "deep", "shallow",
+            "outside", "near", "far",
             # Pronouns
             "we", "they", "them", "their", "us", "our", "he", "she", "him", "her",
             "i", "you", "me", "my", "mine", "your", "yours", "his", "hers",
@@ -1078,7 +1127,7 @@ class CognitiveChatEngine:
             "enough", "several", "one", "two", "three", "first", "second", "last",
             "other", "another",
             # Determiner-like adjectives that make poor discourse targets
-            "such", "same", "different", "new", "certain", "whole", "own", "particular",
+            "such", "same", "different", "certain", "whole", "own", "particular",
             # Conjunctions
             "and", "or", "but", "nor", "yet", "so", "for", "because", "since",
             "although", "though", "if", "unless", "until", "while", "when",
@@ -1093,8 +1142,7 @@ class CognitiveChatEngine:
             "even", "still", "already", "yet", "again", "once", "twice",
             "here", "there", "where", "why", "how", "when",
             # Discourse markers / connectives
-            "instead", "introduced", "alternatively", "conversely", "likewise",
-            "similarly", "therefore", "however", "moreover", "furthermore",
+            "instead", "therefore", "however", "moreover", "furthermore",
             "besides", "nevertheless", "nonetheless", "accordingly", "consequently",
             "thus", "hence", "accordingly", "subsequently", "meanwhile",
         }
@@ -1164,6 +1212,10 @@ class CognitiveChatEngine:
         self.syntactic_assembly = SyntacticCellAssembly(learning_rate=0.05)
         # Phase F: Surface realizer — rule-governed English morphology with dopamine modulation
         self.surface_realizer = SurfaceRealizer()
+        # Phase 6: Wire vector function for semantic verb selection (VerbLexicon)
+        self.surface_realizer.set_vector_fn(self._glove_vector)
+        from ravana.language.verb_lexicon import VerbLexicon
+        VerbLexicon.set_glove_fn(self._glove_vector)
         self._cerebellar_ngram: Dict[str, Dict[str, float]] = {}
         self._cerebellar_depth: Dict[str, float] = {}
         self._concept_confidence: Dict[str, float] = {}
@@ -1174,6 +1226,8 @@ class CognitiveChatEngine:
         self._bg_learning_active: bool = False
         self._bg_learning_queue: List[str] = []  # queries to research in background
         self._bg_lock = threading.Lock()
+        self._vocab_lock = threading.RLock()
+        self._graph_lock = threading.RLock()
         self._bg_idle_event = threading.Event()  # set when user sends a message
         self._bg_search_count: int = 0  # total background searches performed
         self._bg_multi_search_max: int = 1  # related searches to expand per query (reduced from 3)
@@ -1258,11 +1312,14 @@ class CognitiveChatEngine:
 
     # ─── Neural Decoder Vocabulary ───
 
+    MAX_DECODER_VOCAB_SIZE = 1500  # Stage 2: focused vocab for 5× speed
+
     def _build_decoder_vocab(self):
         """Build vocabulary for the NeuralDecoder from graph concepts + GloVe + function words.
 
         Maps every graph concept label and common English function words to
         vocab indices and embedding vectors. Initializes the NeuralDecoder.
+        Stage 2: Capped at MAX_DECODER_VOCAB_SIZE for speed (5× fewer logits).
         """
         self._decoder_word_to_idx = {}
         self._decoder_idx_to_word = {}
@@ -1273,7 +1330,6 @@ class CognitiveChatEngine:
         for i, tok in enumerate(special_tokens):
             self._decoder_word_to_idx[tok] = i
             self._decoder_idx_to_word[i] = tok
-            # Random embedding for special tokens
             vec = np.random.randn(self.dim).astype(np.float32) * 0.05
             norm = np.linalg.norm(vec)
             if norm > 0:
@@ -1281,6 +1337,7 @@ class CognitiveChatEngine:
             self._decoder_word_to_embed[tok] = vec
 
         next_idx = len(special_tokens)
+        max_vocab = self.MAX_DECODER_VOCAB_SIZE
 
         # Common function words for fluent generation
         function_words = [
@@ -1295,25 +1352,42 @@ class CognitiveChatEngine:
             "this", "that", "these", "those", "it", "its", "they", "them",
             "their", "we", "our", "you", "your", "he", "she", "him", "her",
             "his", "i", "me", "my", "myself", "am",
-            # Additional function words for fluent generation
             "of", "to", "for", "with", "from", "at", "by", "as", "on",
             "related", "connect", "connects", "mean", "means",
             "concept", "concepts", "idea", "ideas", "important",
             "lead", "leads", "talk", "think", "link", "links",
         ]
 
-        # Add graph concept labels
-        concept_labels = set()
-        for nid, node in self.graph.nodes.items():
-            if node.label:
-                concept_labels.add(node.label.lower())
+        # Add graph concept labels (highest priority after function words)
+        with self._graph_lock:
+            concept_labels = set()
+            for nid, node in self.graph.nodes.items():
+                if node.label:
+                    concept_labels.add(node.label.lower())
 
-        # Add concepts first
+        # Function words first (ensures fluent generation)
+        for fw in function_words:
+            if next_idx >= max_vocab:
+                break
+            if fw not in self._decoder_word_to_idx:
+                self._decoder_word_to_idx[fw] = next_idx
+                self._decoder_idx_to_word[next_idx] = fw
+                vec = self._glove_vector(fw)
+                if vec is None:
+                    vec = np.random.randn(self.dim).astype(np.float32) * 0.1
+                    norm_v = np.linalg.norm(vec)
+                    if norm_v > 0:
+                        vec /= norm_v
+                self._decoder_word_to_embed[fw] = vec.astype(np.float32)
+                next_idx += 1
+
+        # Graph concepts next
         for label in sorted(concept_labels):
+            if next_idx >= max_vocab:
+                break
             if label not in self._decoder_word_to_idx:
                 self._decoder_word_to_idx[label] = next_idx
                 self._decoder_idx_to_word[next_idx] = label
-                # Get embedding from graph node
                 nids = self._concept_keywords.get(label, [])
                 if nids:
                     node = self.graph.get_node(nids[0])
@@ -1331,43 +1405,34 @@ class CognitiveChatEngine:
                 self._decoder_word_to_embed[label] = vec.astype(np.float32)
                 next_idx += 1
 
-        # Add function words that aren't already in vocab
-        for fw in function_words:
-            if fw not in self._decoder_word_to_idx:
-                self._decoder_word_to_idx[fw] = next_idx
-                self._decoder_idx_to_word[next_idx] = fw
-                vec = self._glove_vector(fw)
-                if vec is None:
-                    vec = np.random.randn(self.dim).astype(np.float32) * 0.1
-                    norm_v = np.linalg.norm(vec)
-                    if norm_v > 0:
-                        vec /= norm_v
-                self._decoder_word_to_embed[fw] = vec.astype(np.float32)
-                next_idx += 1
+        # Fill remaining slots with corpus words
+        remaining = max_vocab - next_idx
+        if remaining > 0:
+            corpus_path = os.path.join(_proj_root, "data", "corpora", "teen_seeds.txt")
+            if os.path.exists(corpus_path):
+                import re
+                with open(corpus_path, "r", encoding="utf-8") as f:
+                    corpus_text = f.read()
+                words_in_corpus = set(re.findall(r"[a-zA-Z']{3,}", corpus_text.lower()))
+                for w in sorted(words_in_corpus):
+                    if remaining <= 0:
+                        break
+                    if w not in self._decoder_word_to_idx:
+                        self._decoder_word_to_idx[w] = next_idx
+                        self._decoder_idx_to_word[next_idx] = w
+                        vec = self._glove_vector(w)
+                        if vec is None:
+                            vec = np.random.randn(self.dim).astype(np.float32) * 0.1
+                            norm_v = np.linalg.norm(vec)
+                            if norm_v > 0:
+                                vec /= norm_v
+                        self._decoder_word_to_embed[w] = vec.astype(np.float32)
+                        next_idx += 1
+                        remaining -= 1
 
-        # Add concepts from corpus (for training)
-        corpus_path = os.path.join(_proj_root, "data", "corpora", "teen_seeds.txt")
-        if os.path.exists(corpus_path):
-            import re
-            with open(corpus_path, "r", encoding="utf-8") as f:
-                corpus_text = f.read()
-            words_in_corpus = set(re.findall(r"[a-zA-Z']{3,}", corpus_text.lower()))
-            for w in sorted(words_in_corpus):
-                if w not in self._decoder_word_to_idx:
-                    self._decoder_word_to_idx[w] = next_idx
-                    self._decoder_idx_to_word[next_idx] = w
-                    vec = self._glove_vector(w)
-                    if vec is None:
-                        vec = np.random.randn(self.dim).astype(np.float32) * 0.1
-                        norm_v = np.linalg.norm(vec)
-                        if norm_v > 0:
-                            vec /= norm_v
-                    self._decoder_word_to_embed[w] = vec.astype(np.float32)
-                    next_idx += 1
-
-        # If forced vocab size is set (from saved state), pad with dummy tokens
+        # If forced vocab size is set (from saved state), match it for back-compat
         if hasattr(self, '_forced_vocab_size') and self._forced_vocab_size:
-            target_size = self._forced_vocab_size
+            target_size = min(self._forced_vocab_size, max_vocab)
             while len(self._decoder_word_to_idx) < target_size:
                 pad_token = f"<pad_{next_idx}>"
                 self._decoder_word_to_idx[pad_token] = next_idx
@@ -1386,95 +1451,83 @@ class CognitiveChatEngine:
             embed_dim=self.dim,
             hidden_dim=256,
             n_attention_heads=4,
-            contrastive_weight=0.3,
-            contrastive_negatives=5,
+            contrastive_weight=0.5,
+            contrastive_negatives=8,
         )
 
-        # Initialize decoder word embeddings from our built vectors
         for word, idx in self._decoder_word_to_idx.items():
             if word in self._decoder_word_to_embed:
                 self.neural_decoder.word_embedding.weight.data[idx] = \
                     self._decoder_word_to_embed[word]
         self.neural_decoder.rebuild_vocab_cache()
         self._decoder_vocab_built = True
-        # Defer decoder training to first turn for fast startup
         self._needs_seed_training = True
         self._needs_synthetic_training = True
 
     def _train_decoder_from_graph(self, min_synthetic: int = 2000):
-        """Train neural decoder on synthetic sentences from graph relationships.
+        """Train neural decoder on natural sentences derived from graph relationships.
+
+        Uses diverse, human-like phrasings instead of template artifacts like
+        "X connects with Y" that were poisoning the decoder's output.
         
         Args:
-            min_synthetic: Maximum number of synthetic sentences to generate (default 2000, reduced from ~8000)
+            min_synthetic: Maximum number of synthetic sentences to generate (default 2000)
         """
         if self.neural_decoder is None or not self._decoder_vocab_built:
             return
+        # Natural phrasings that sound like human conversation, not graph templates
         templates = [
-            # Core relationships (semantic / associative)
-            "{s} is related to {o}",
-            "{s} connects with {o}",
-            "{s} links to {o}",
+            # Casual / conversational
+            "{s} and {o} go hand in hand",
+            "when you think about {s}, {o} comes to mind",
+            "{s} is a big part of {o}",
+            "{s} has a lot to do with {o}",
+            "{o} matters a lot when it comes to {s}",
 
-            # Definitional / explanatory
-            "{s} refers to {o}",
-            "{s} can be described as {o}",
-            "the concept of {s} involves {o}",
-            "when people talk about {s} they often mention {o}",
+            # Explanatory
+            "{s} is really about {o}",
+            "at its core, {s} ties into {o}",
+            "{s} plays a role in {o}",
+            "one way to think about {s} is through {o}",
+            "{s} shapes how we understand {o}",
 
-            # Causal
-            "{s} leads to {o}",
-            "{s} causes {o}",
-            "{o} is a result of {s}",
-            "{s} contributes to {o}",
-            "{s} influences {o}",
-
-            # Temporal / sequential
-            "{s} precedes {o}",
-            "{o} follows {s}",
-            "first comes {s} then {o}",
+            # Causal / influence
+            "{s} can lead to {o}",
+            "{o} often happens because of {s}",
+            "{s} has an impact on {o}",
+            "{s} contributes to {o} in important ways",
+            "{o} is something that {s} can bring about",
 
             # Contrastive
-            "{s} contrasts with {o}",
-            "unlike {s} {o} is different",
-            "while {s} has one meaning {o} has another",
+            "{s} and {o} are quite different",
+            "while {s} is one thing, {o} is another",
+            "{s} stands apart from {o} in interesting ways",
+            "unlike {s}, {o} takes a different path",
 
             # Analogical
-            "{s} is like {o} in many ways",
-            "both {s} and {o} share similarities",
-            "the relationship between {s} and {o} is important",
+            "{s} is a lot like {o} in some ways",
+            "you can see {s} reflected in {o}",
+            "{s} and {o} share something important",
+            "thinking of {s} reminds me of {o}",
 
-            # Hierarchical / compositional
-            "{s} is a part of {o}",
-            "{s} is a type of {o}",
-            "{o} includes {s}",
-            "{s} forms the basis of {o}",
+            # Temporal / process
+            "{s} often comes before {o}",
+            "{o} tends to follow {s}",
+            "{s} sets the stage for {o}",
+            "{s} paves the way for {o}",
 
-            # Functional / practical
-            "people use {s} to understand {o}",
-            "{s} helps explain {o}",
-            "understanding {s} requires knowing {o}",
-            "{o} depends on {s}",
+            # Speculative / reflective
+            "maybe {s} and {o} are more related than we think",
+            "it is interesting how {s} ties into {o}",
+            "{s} makes you wonder about {o}",
+            "in a way, {s} and {o} feed into each other",
 
-            # Speculative / exploratory
-            "maybe {s} connects to {o}",
-            "it seems like {s} relates to {o}",
-            "one way to think about {s} is through {o}",
-
-            # Abstract / philosophical
-            "the meaning of {s} goes beyond {o}",
-            "{s} represents something larger than {o}",
-            "thinking about {s} naturally leads to {o}",
-            "{s} and {o} are deeply connected",
+            # Personal / first person
+            "i think {s} is closely tied to {o}",
+            "to me, {s} says something about {o}",
+            "i see {s} and {o} as deeply connected",
         ]
 
-        # Add relation-type-specific templates based on actual edge types
-        relation_templates = {
-            "causal": ["{s} causes {o}", "{s} leads to {o}", "{o} results from {s}"],
-            "contrastive": ["{s} contrasts with {o}", "unlike {s} {o} is different"],
-            "analogical": ["{s} is like {o}", "{s} resembles {o} in many ways"],
-            "temporal": ["{s} comes before {o}", "{s} precedes {o}"],
-            "semantic": ["{s} relates to {o}", "{s} connects with {o}"],
-        }
         sentences = []
         seen = set()
         for (src_id, tgt_id), edge in self.graph.edges.items():
@@ -1488,25 +1541,24 @@ class CognitiveChatEngine:
                 key = (s_label, o_label)
                 if key not in seen:
                     seen.add(key)
-                    # Pick from relation-specific templates if available, else general
-                    rel = getattr(edge, 'relation_type', 'semantic') or 'semantic'
-                    rtemplates = relation_templates.get(rel, templates)
-                    t = rtemplates[len(sentences) % len(rtemplates)]
+                    t = templates[len(sentences) % len(templates)]
                     sent = t.format(s=s_label, o=o_label)
                     sentences.append(sent)
 
-        # Train with moderate learning to avoid overfitting to frequent words
         # Limit synthetic training to avoid overwhelming real English patterns
         sentences = sentences[:min_synthetic]
         total_trained = 0
+        sleep_every = 200
         for sent in sentences:
             words = sent.split()
             err = self.neural_decoder.train_on_sentence(
                 words, self._decoder_word_to_embed, self._decoder_word_to_idx)
             total_trained += 1
+            if total_trained % sleep_every == 0:
+                self.neural_decoder.sleep_cycle()
         self.neural_decoder.sleep_cycle()
         self._decoder_training_count = total_trained + self._decoder_web_training_count
-        print(f"  [Decoder] Trained on {total_trained} synthetic graph sentences"
+        print(f"  [Decoder] Trained on {total_trained} natural graph sentences"
               f"{' + ' + str(self._decoder_web_training_count) + ' from web' if self._decoder_web_training_count > 0 else ''}")
 
     def _train_decoder_on_seed_corpus(self, max_sentences: int = 250) -> int:
@@ -1532,69 +1584,96 @@ class CognitiveChatEngine:
         new_for_vocab = [w for w in words_in_corpus if w not in self._decoder_word_to_idx]
         if new_for_vocab:
             self._expand_decoder_vocab(new_for_vocab)
-        # Train decoder on the corpus text, MANY passes for
-        # Hebbian consolidation (no backprop). Seed corpus is the primary
-        # source of real English syntax - train extensively.
+
+        # Pre-process corpus once, then loop with shuffled passes
+        nd = self.neural_decoder
+        all_sentences = nd.prepare_sentences(
+            text, self._decoder_word_to_embed, self._decoder_word_to_idx,
+            min_sentence_len=3,
+        )
+        n_available = len(all_sentences)
+        sentences_per_pass = min(200, n_available)
+        n_passes = 20
+        sleep_interval = 5
+
         total_err = 0.0
         passes = 0
-        for _ in range(20):  # 20 passes instead of 2
-            err, n = self.neural_decoder.train_on_text(
-                text, self._decoder_word_to_embed, self._decoder_word_to_idx,
-                min_sentence_len=3, max_sentences=200)  # More sentences per pass
-            total_err += err
-            passes += n
-        if hasattr(self, "cerebellar_ngram") and self.cerebellar_ngram is not None:
-            # Note: learn_from_text method doesn't exist, skipping cerebellar training
-            pass
-        self.neural_decoder.sleep_cycle()
+        rng = np.random.RandomState(42)
+
+        for i in range(n_passes):
+            idx = rng.permutation(n_available)
+            batch = [all_sentences[idx[j]] for j in range(sentences_per_pass)]
+
+            err_sum = 0.0
+            for sent in batch:
+                err = nd.train_on_sentence(
+                    sent['words'], self._decoder_word_to_embed, self._decoder_word_to_idx,
+                    word_indices=sent['word_indices'],
+                    conditioning_embs=sent['conditioning_embs'],
+                )
+                err_sum += err
+            avg_err = err_sum / sentences_per_pass
+            total_err += avg_err
+            passes += sentences_per_pass
+
+            if (i + 1) % sleep_interval == 0:
+                nd.sleep_cycle()
+
+        if (n_passes % sleep_interval) != 0:
+            nd.sleep_cycle()
+
         self._decoder_seed_training_count = passes
         self._decoder_training_count += passes
         return passes
 
     def _expand_decoder_vocab(self, new_words: List[str]):
-        """Add new words to the decoder vocabulary (hippocampal replay).""
+        """Add new words to the decoder vocabulary (hippocampal replay)."
 
         New words get embeddings from GloVe (or random if unavailable).
         The decoder embedding table is resized and vocabulary caches rebuilt.
         Existing embeddings are preserved (neocortical consolidation).
+        Stage 2: Respects MAX_DECODER_VOCAB_SIZE cap.
         """
         if not new_words or self.neural_decoder is None:
             return
         import sys
-        freeze = getattr(self, '_freeze_decoder_vocab', 'NOT_SET')
         if getattr(self, '_freeze_decoder_vocab', False):
             return
+        max_vocab = self.MAX_DECODER_VOCAB_SIZE
 
-        added = 0
-        for word in new_words:
-            wl = word.lower().strip()
-            if wl in self._decoder_word_to_idx or wl in ('<pad>', '<unk>', '<bos>', '<eos>'):
-                continue
-            idx = len(self._decoder_word_to_idx)
-            self._decoder_word_to_idx[wl] = idx
-            self._decoder_idx_to_word[idx] = wl
-            vec = self._glove_vector(wl)
-            if vec is None:
-                vec = np.random.randn(self.dim).astype(np.float32) * 0.1
-                n = np.linalg.norm(vec)
-                if n > 0:
-                    vec /= n
-            self._decoder_word_to_embed[wl] = vec.astype(np.float32)
-            added += 1
+        with self._vocab_lock:
+            if len(self._decoder_word_to_idx) >= max_vocab:
+                return
+            added = 0
+            for word in new_words:
+                wl = word.lower().strip()
+                if wl in self._decoder_word_to_idx or wl in ('<pad>', '<unk>', '<bos>', '<eos>'):
+                    continue
+                idx = len(self._decoder_word_to_idx)
+                self._decoder_word_to_idx[wl] = idx
+                self._decoder_idx_to_word[idx] = wl
+                vec = self._glove_vector(wl)
+                if vec is None:
+                    vec = np.random.randn(self.dim).astype(np.float32) * 0.1
+                    n = np.linalg.norm(vec)
+                    if n > 0:
+                        vec /= n
+                self._decoder_word_to_embed[wl] = vec.astype(np.float32)
+                added += 1
 
-        if added == 0:
-            return
+            if added == 0:
+                return
 
-        old_vocab_size = self.neural_decoder.vocab_size
-        new_vocab_size = len(self._decoder_word_to_idx)
+            old_vocab_size = self.neural_decoder.vocab_size
+            new_vocab_size = len(self._decoder_word_to_idx)
 
-        # Resize decoder embedding table (preserve existing weights)
-        old_weight = self.neural_decoder.word_embedding.weight.data
-        new_weight = np.zeros((new_vocab_size, self.dim), dtype=np.float32)
-        new_weight[:len(old_weight)] = old_weight
-        for word, idx in self._decoder_word_to_idx.items():
-            if idx >= len(old_weight) and word in self._decoder_word_to_embed:
-                new_weight[idx] = self._decoder_word_to_embed[word]
+            # Resize decoder embedding table (preserve existing weights)
+            old_weight = self.neural_decoder.word_embedding.weight.data
+            new_weight = np.zeros((new_vocab_size, self.dim), dtype=np.float32)
+            new_weight[:len(old_weight)] = old_weight
+            for word, idx in list(self._decoder_word_to_idx.items()):
+                if idx >= len(old_weight) and word in self._decoder_word_to_embed:
+                    new_weight[idx] = self._decoder_word_to_embed[word]
 
         from ravana_ml.nn.module import Embedding, Linear
         new_emb = Embedding(new_vocab_size, self.dim)
@@ -1619,6 +1698,23 @@ class CognitiveChatEngine:
         self.neural_decoder.rebuild_vocab_cache()
 
         # Hippocampal replay: mix new embeddings with similar existing ones
+        # Build batch embedding matrix for existing words once (avoids O(V²) per new word)
+        with self._vocab_lock:
+            existing_labels = []
+            existing_vecs = []
+            new_set = set(w.lower().strip() for w in new_words)
+            for ew, ei in list(self._decoder_word_to_idx.items()):
+                if ew.startswith('<') or ew in new_set:
+                    continue
+                ev = self._decoder_word_to_embed.get(ew)
+                if ev is not None:
+                    existing_labels.append(ew)
+                    existing_vecs.append(ev)
+            if existing_vecs:
+                existing_mat = np.stack(existing_vecs, axis=0).astype(np.float32)
+            else:
+                existing_mat = np.empty((0, self.dim), dtype=np.float32)
+
         for word in new_words:
             wl = word.lower().strip()
             idx = self._decoder_word_to_idx.get(wl)
@@ -1627,29 +1723,21 @@ class CognitiveChatEngine:
             vec = self._decoder_word_to_embed.get(wl)
             if vec is None:
                 continue
-            # Find nearest neighbor in existing vocab via cosine similarity
-            best_sim = 0.0
-            best_label = None
-            for existing_word, existing_idx in list(self._decoder_word_to_idx.items()):
-                if existing_word == wl or existing_word.startswith('<'):
-                    continue
-                ev = self._decoder_word_to_embed.get(existing_word)
-                if ev is not None:
-                    sim = float(np.dot(vec, ev))
-                    if sim > best_sim:
-                        best_sim = sim
-                        best_label = existing_word
-            # Blend: 70% new + 30% nearest (hippocampal-neocortical consolidation)
-            if best_label is not None and best_sim > 0.3:
-                best_vec = self._decoder_word_to_embed[best_label]
-                blended = vec * 0.7 + best_vec * 0.3
-                blended /= np.linalg.norm(blended)
-                self._decoder_word_to_embed[wl] = blended
-                new_weight[idx] = blended
+            if len(existing_labels) > 0:
+                sims = existing_mat @ vec
+                best_idx = int(np.argmax(sims))
+                best_sim = float(sims[best_idx])
+                best_label = existing_labels[best_idx]
+                # Blend: 70% new + 30% nearest (hippocampal-neocortical consolidation)
+                if best_sim > 0.3:
+                    best_vec = self._decoder_word_to_embed[best_label]
+                    blended = vec * 0.7 + best_vec * 0.3
+                    blended /= np.linalg.norm(blended)
+                    self._decoder_word_to_embed[wl] = blended
+                    new_weight[idx] = blended
         self.neural_decoder.word_embedding.weight.data = new_weight
 
-        # Mini training pass on new words: train predictions involving new embeddings
-        # to integrate them into the decoder's learned transition patterns
+        # Mini training pass on new words using batch similarity
         for nw in new_words:
             nwl = nw.lower().strip()
             nidx = self._decoder_word_to_idx.get(nwl)
@@ -1658,21 +1746,17 @@ class CognitiveChatEngine:
             nvec = self._decoder_word_to_embed.get(nwl)
             if nvec is None:
                 continue
-            # Find nearest existing neighbors and create bridging sentences
-            neighbors = []
-            for ew, ei in self._decoder_word_to_idx.items():
-                if ew == nwl or ew.startswith('<') or ei == nidx:
-                    continue
-                ev = self._decoder_word_to_embed.get(ew)
-                if ev is not None:
-                    sim = float(np.dot(nvec, ev))
-                    if sim > 0.4:
-                        neighbors.append((ew, sim))
-            neighbors.sort(key=lambda x: -x[1])
-            for neighbor, _ in neighbors[:3]:
-                bridge = f"{nwl} and {neighbor} are related"
-                self.neural_decoder.train_on_sentence(
-                    bridge.split(), self._decoder_word_to_embed, self._decoder_word_to_idx)
+            if len(existing_labels) > 0:
+                sims = existing_mat @ nvec
+                above_thresh = np.where(sims > 0.4)[0]
+                if len(above_thresh) > 0:
+                    top_k = min(3, len(above_thresh))
+                    top_order = np.argsort(sims[above_thresh])[::-1][:top_k]
+                    for ni in above_thresh[top_order]:
+                        neighbor = existing_labels[ni]
+                        bridge = f"{nwl} and {neighbor} are related"
+                        self.neural_decoder.train_on_sentence(
+                            bridge.split(), self._decoder_word_to_embed, self._decoder_word_to_idx)
 
         print(f"  [Decoder] Expanded vocab by {added} words (now {new_vocab_size})")
 
@@ -1726,11 +1810,191 @@ class CognitiveChatEngine:
     # ─── Neural Decoder Generation ───
 
     def _generate_with_decoder(self, ctx: CognitiveResponseContext) -> Optional[str]:
-        """Disabled - use syntactic generation instead."""
-        return None
-    def _generate_with_decoder(self, ctx: CognitiveResponseContext) -> Optional[str]:
-        """Disabled - use syntactic generation instead."""
-        return None
+        """Generate response using NeuralDecoder with graph conditioning.
+
+        Builds conditioning embeddings from the subject and associated concepts,
+        then runs the decoder autoregressively with cerebellar n-gram bias and
+        basal ganglia gating for biologically-plausible word selection.
+
+        Returns None if decoder is not ready or generation fails.
+        (Quality gate is now in _generate_response.)
+        """
+        if self.neural_decoder is None or not self._decoder_vocab_built:
+            return None
+
+        subject = ctx.subject
+        if not subject or subject.lower() not in self._decoder_word_to_idx:
+            return None
+
+        # Build conditioning embeddings from graph concepts
+        concept_embs = []
+        seen_labels: Set[str] = set()
+
+        # Subject embedding (core concept) — lock graph reads
+        with self._graph_lock:
+            subj_lower = subject.lower()
+            if subj_lower in self._concept_keywords:
+                nids = self._concept_keywords[subj_lower]
+                node = self.graph.get_node(nids[0])
+                if node and node.vector is not None:
+                    concept_embs.append(node.vector.copy())
+                    seen_labels.add(subj_lower)
+
+            # Associated concepts with weighted significance
+            for label, score in ctx.associated_concepts[:6]:
+                ll = label.lower()
+                if ll not in seen_labels and ll in self._concept_keywords:
+                    nids = self._concept_keywords[ll]
+                    node = self.graph.get_node(nids[0])
+                    if node and node.vector is not None:
+                        weight = 0.5 + min(score, 1.0) * 0.5
+                        concept_embs.append(node.vector.copy() * weight)
+                        seen_labels.add(ll)
+                        if len(concept_embs) >= 6:
+                            break
+
+        # Fallback: use decoder word embeddings if no graph nodes found
+        if len(concept_embs) < 1:
+            if subj_lower in self._decoder_word_to_embed:
+                concept_embs.append(self._decoder_word_to_embed[subj_lower].copy())
+            else:
+                return None
+
+        # Add sentence-level compositional vector (N400/P600 integration) as conditioning
+        sent_vec = getattr(ctx, 'sentence_vector', None)
+        if sent_vec is not None and np.any(sent_vec != 0):
+            concept_embs.append(sent_vec.astype(np.float32) * 0.6)
+
+        conditioning_embs = np.stack(concept_embs, axis=0).astype(np.float32)
+
+        # Special token indices
+        bos_idx = self._decoder_word_to_idx.get("<bos>", 0)
+        eos_idx = self._decoder_word_to_idx.get("<eos>", 2)
+
+        # Dynamic temperature from cognitive state
+        # Stage 2: Lower base temp for 1500-vocab model (more deterministic → content words)
+        base_temp = 0.35
+        arousal = ctx.arousal if hasattr(ctx, 'arousal') else 0.3
+        temp = base_temp * (0.7 + arousal * 0.6)
+        # Higher dopamine tone = more creative/exploratory
+        dt = getattr(self, '_dopamine_tone', 0.5)
+        temp *= (0.7 + dt * 0.6)
+        temp = max(0.15, min(0.7, temp))
+
+        # Build content word IDs (non-function, non-special tokens)
+        # IMPORTANT: Do NOT include semantic connector words like "connects",
+        # "relates", "links", "leads" here — those are content words whose
+        # presence in the function-word set was causing the decoder to default
+        # to template-like "X connects with Y" patterns.
+        function_words_set = {
+            "a", "an", "the", "is", "are", "was", "were", "be", "been",
+            "being", "have", "has", "had", "do", "does", "did", "will",
+            "would", "could", "should", "may", "might", "shall", "can",
+            "not", "no", "nor", "so", "if", "then", "than", "too", "very",
+            "just", "about", "also", "into", "over", "after", "before",
+            "between", "through", "during", "because", "while", "which",
+            "who", "whom", "what", "when", "where", "why", "how", "all",
+            "each", "every", "both", "few", "more", "most", "some", "any",
+            "this", "that", "these", "those", "it", "its", "they", "them",
+            "their", "we", "our", "you", "your", "he", "she", "him", "her",
+            "his", "i", "me", "my", "myself", "am",
+            "of", "to", "for", "with", "from", "at", "by", "as", "on",
+            "<pad>", "?", "<bos>", "<eos>",
+        }
+        with self._vocab_lock:
+            content_word_ids = {
+                idx for word, idx in self._decoder_word_to_idx.items()
+                if word not in function_words_set and not word.startswith("<")
+            }
+
+        # Stage 2: Boost subject concept in conditioning to seed content words
+        subject_idx = self._decoder_word_to_idx.get(subject.lower())
+        if subject_idx is not None:
+            subject_boost = {subject_idx: 3.0}
+        else:
+            subject_boost = None
+
+        try:
+            generated = self.neural_decoder.generate(
+                conditioning_embs=conditioning_embs,
+                max_steps=28,
+                bos_idx=bos_idx,
+                eos_idx=eos_idx,
+                temperature=temp,
+                cerebellar_ngram=self.cerebellar_ngram,
+                idx_to_word=self._decoder_idx_to_word,
+                basal_ganglia=self.basal_ganglia,
+                content_word_ids=content_word_ids,
+                token_boost=subject_boost,
+            )
+
+            if not generated or len(generated) < 3:
+                return None
+
+            # Convert indices to words, filtering special tokens
+            words = []
+            for idx in generated:
+                word = self._decoder_idx_to_word.get(idx, "")
+                if word and not word.startswith("<"):
+                    words.append(word)
+
+            if len(words) < 3:
+                return None
+
+            text = " ".join(words)
+
+            # Quality gate: if >60% of output is function words, fall through
+            # to syntactic pipeline or reasoning loop (decoder not ready yet)
+            func_set = {"a","an","the","is","are","was","were","be","been",
+                "being","have","has","had","do","does","did","will",
+                "would","could","should","may","might","shall","can",
+                "not","no","nor","so","if","then","than","too","very",
+                "just","about","also","into","over","after","before",
+                "between","through","during","because","while","which",
+                "who","whom","what","when","where","why","how","all",
+                "each","every","both","few","more", "most", "some", "any",
+                "this", "that", "these", "those", "it", "its", "they", "them",
+                "their", "we", "our", "you", "your", "he", "she", "him", "her",
+                "his", "i", "me", "my", "myself", "am",
+                "of", "to", "for", "with", "from", "at", "by", "as", "on"}
+            func_count = sum(1 for w in words if w.lower() in func_set)
+            if len(words) > 0 and func_count / len(words) > 0.70:
+                return None
+
+            # Template-pattern gate: reject output that looks like "X connects with Y"
+            # or "X relates to Y" — these are the synthetic graph training artifacts.
+            template_verbs = {"connects", "connect", "relates", "relate", "links",
+                               "link", "leads", "lead", "refers", "involves",
+                               "associated"}
+            template_preps = {"with", "to", "from", "into"}
+            text_lower = text.lower()
+            # Reject if pattern like "word connects/relates/links with/to word" appears
+            for tv in template_verbs:
+                for tp in template_preps:
+                    if re.search(rf'\b\w+\s+{tv}\s+{tp}\s+\w+', text_lower):
+                        return None
+
+            # Bigram repetition gate: reject if any bigram appears 3+ times
+            if len(words) >= 4:
+                bigrams = [tuple(words[i:i+2]) for i in range(len(words)-1)]
+                from collections import Counter
+                bg_counts = Counter(bigrams)
+                if any(c >= 3 for c in bg_counts.values()):
+                    return None
+
+            # Clean up basic punctuation issues
+            text = text[0].upper() + text[1:]
+            if not text.endswith((".", "?", "!")):
+                text += "."
+            # Remove double spaces
+            text = re.sub(r'\s+', ' ', text)
+
+            return text
+        except Exception as e:
+            if self._trace_enabled:
+                print(f"  [trace] decoder generation error: {e}")
+            return None
+
     def _seed_concepts(self):
         """Seed the graph with teenager-level vocabulary and typed relationships."""
         self._concept_labels = set()
@@ -2318,7 +2582,7 @@ class CognitiveChatEngine:
         meaningful = set()
         for w in words:
             wc = w.strip("'")
-            if wc not in STOP_WORDS and len(wc) >= 3:
+            if wc not in STOP_WORDS and wc not in WEB_GARBAGE and len(wc) >= 3:
                 meaningful.add(wc)
         if not meaningful:
             return 0
@@ -2702,18 +2966,19 @@ class CognitiveChatEngine:
         topic_words = [tw for tw in re.findall(r"[a-zA-Z']{3,}", topic_lower) if tw not in STOP_WORDS]
         important_words = topic_words + [w for w in important_words if w not in topic_words]
 
-        # Check which words are new vs known
-        existing_labels = set()
-        for nid, node in self.graph.nodes.items():
-            if node.label:
-                existing_labels.add(node.label.lower())
+        # Check which words are new vs known (lock graph reads)
+        with self._graph_lock:
+            existing_labels = set()
+            for nid, node in self.graph.nodes.items():
+                if node.label:
+                    existing_labels.add(node.label.lower())
 
-        new_count = 0
-        existing_labels_before = existing_labels.copy()
-        label_to_id = {}
-        for nid, node in self.graph.nodes.items():
-            if node.label:
-                label_to_id[node.label] = nid
+            new_count = 0
+            existing_labels_before = existing_labels.copy()
+            label_to_id = {}
+            for nid, node in self.graph.nodes.items():
+                if node.label:
+                    label_to_id[node.label] = nid
 
         # Phase 18c: Track source of this learning - use URL when available
         if source_url:
@@ -2721,7 +2986,7 @@ class CognitiveChatEngine:
         else:
             source_id = hashlib.md5((source_url or topic).encode()).hexdigest()[:16]
 
-        # Add new concepts
+        # Add new concepts (locked to prevent graph mutation during save iteration)
         for word in important_words:
             if word in existing_labels:
                 # Concept already exists - reinforce by tracking additional source
@@ -2742,7 +3007,8 @@ class CognitiveChatEngine:
                 norm = np.linalg.norm(vec)
                 if norm > 0:
                     vec /= norm
-            node = self.graph.add_node(vector=vec, label=word)
+            with self._graph_lock:
+                node = self.graph.add_node(vector=vec, label=word)
             label_to_id[word] = node.id
             self._concept_keywords[word] = self._concept_keywords.get(word, []) + [node.id]
             self._concept_labels.add(word.lower())
@@ -2759,71 +3025,73 @@ class CognitiveChatEngine:
         # Get unique important words that appear in the text
         present_important = list(set(w for w in article_words_lower if w in important_words))
 
-        for i in range(len(present_important)):
-            for j in range(i + 1, len(present_important)):
-                w1, w2 = present_important[i], present_important[j]
-                nid1 = label_to_id.get(w1)
-                nid2 = label_to_id.get(w2)
-                if nid1 is not None and nid2 is not None:
-                    # Don't duplicate existing edges, just boost weight
-                    existing = self.graph.get_edge(nid1, nid2)
-                    if existing is None:
-                        weight = max(0.3, min(0.7, 0.2 + word_counts.get(w1, 1) * word_counts.get(w2, 1) * 0.001))
-                        self.graph.add_edge(nid1, nid2, weight=weight, relation_type="semantic")
-                    else:
-                        existing.weight = min(0.9, existing.weight + 0.05)
+        with self._graph_lock:
+            for i in range(len(present_important)):
+                for j in range(i + 1, len(present_important)):
+                    w1, w2 = present_important[i], present_important[j]
+                    nid1 = label_to_id.get(w1)
+                    nid2 = label_to_id.get(w2)
+                    if nid1 is not None and nid2 is not None:
+                        # Don't duplicate existing edges, just boost weight
+                        existing = self.graph.get_edge(nid1, nid2)
+                        if existing is None:
+                            weight = max(0.3, min(0.7, 0.2 + word_counts.get(w1, 1) * word_counts.get(w2, 1) * 0.001))
+                            self.graph.add_edge(nid1, nid2, weight=weight, relation_type="semantic")
+                        else:
+                            existing.weight = min(0.9, existing.weight + 0.05)
 
         # Connect new words to existing related concepts via vector similarity
         # Only do this for the topic word and first 2 important words (others
         # rely on co-occurrence edges, which are more topically coherent)
-        for word in important_words[:10]:
-            nid = label_to_id.get(word)
-            if nid is None:
-                continue
-            node = self.graph.get_node(nid)
-            if node is None:
-                continue
-            edge_count = 0
-            # FAISS/vectorized: matrix multiply instead of per-node loop
-            if self.graph._vectors_dirty or self.graph._vector_matrix_normed is None:
-                self.graph._rebuild_vector_matrix()
-            if self.graph._vector_matrix_normed is not None and len(self.graph._node_id_order) > 0:
-                vec_norm = node.vector / (np.linalg.norm(node.vector) + 1e-15)
-                all_sims = self.graph._vector_matrix_normed @ vec_norm.astype(np.float32)
-                for idx in np.where(all_sims > 0.3)[0]:
-                    existing_nid = self.graph._node_id_order[idx]
-                    if existing_nid == nid or existing_nid not in self.graph.nodes:
-                        continue
-                    existing_node = self.graph.get_node(existing_nid)
-                    if existing_node is None or existing_node.vector is None:
-                        continue
-                    if existing_node.label and existing_node.label in important_words:
-                        continue
-                    sim = float(all_sims[idx])
-                    if self.graph.get_edge(nid, existing_nid) is None:
-                        weight = max(0.25, min(0.5, sim * 0.5))
-                        inf_type, _ = self._infer_relation_type(word, existing_node.label, "semantic")
-                        self.graph.add_edge(nid, existing_nid, weight=weight,
-                                            relation_type=inf_type)
-                        edge_count += 1
-            # Guarantee at least one connection for the topic word
-            if edge_count == 0 and word == important_words[0]:
-                best_sim = 0.0
-                best_nid = None
-                best_label = None
-                for existing_nid, existing_node in self.graph.nodes.items():
-                    if existing_nid == nid or existing_node.label in important_words:
-                        continue
-                    if existing_node.vector is not None and node.vector is not None:
-                        sim = float(np.dot(node.vector, existing_node.vector))
-                        if sim > best_sim:
-                            best_sim = sim
-                            best_nid = existing_nid
-                            best_label = existing_node.label
-                if best_nid is not None and best_label is not None:
-                    weight = max(0.25, min(0.4, best_sim * 0.5))
-                    inf_type, _ = self._infer_relation_type(word, best_label, "semantic")
-                    self.graph.add_edge(nid, best_nid, weight=weight, relation_type=inf_type)
+        with self._graph_lock:
+            for word in important_words[:10]:
+                nid = label_to_id.get(word)
+                if nid is None:
+                    continue
+                node = self.graph.get_node(nid)
+                if node is None:
+                    continue
+                edge_count = 0
+                # FAISS/vectorized: matrix multiply instead of per-node loop
+                if self.graph._vectors_dirty or self.graph._vector_matrix_normed is None:
+                    self.graph._rebuild_vector_matrix()
+                if self.graph._vector_matrix_normed is not None and len(self.graph._node_id_order) > 0:
+                    vec_norm = node.vector / (np.linalg.norm(node.vector) + 1e-15)
+                    all_sims = self.graph._vector_matrix_normed @ vec_norm.astype(np.float32)
+                    for idx in np.where(all_sims > 0.3)[0]:
+                        existing_nid = self.graph._node_id_order[idx]
+                        if existing_nid == nid or existing_nid not in self.graph.nodes:
+                            continue
+                        existing_node = self.graph.get_node(existing_nid)
+                        if existing_node is None or existing_node.vector is None:
+                            continue
+                        if existing_node.label and existing_node.label in important_words:
+                            continue
+                        sim = float(all_sims[idx])
+                        if self.graph.get_edge(nid, existing_nid) is None:
+                            weight = max(0.25, min(0.5, sim * 0.5))
+                            inf_type, _ = self._infer_relation_type(word, existing_node.label, "semantic")
+                            self.graph.add_edge(nid, existing_nid, weight=weight,
+                                                relation_type=inf_type)
+                            edge_count += 1
+                # Guarantee at least one connection for the topic word
+                if edge_count == 0 and word == important_words[0]:
+                    best_sim = 0.0
+                    best_nid = None
+                    best_label = None
+                    for existing_nid, existing_node in list(self.graph.nodes.items()):
+                        if existing_nid == nid or existing_node.label in important_words:
+                            continue
+                        if existing_node.vector is not None and node.vector is not None:
+                            sim = float(np.dot(node.vector, existing_node.vector))
+                            if sim > best_sim:
+                                best_sim = sim
+                                best_nid = existing_nid
+                                best_label = existing_node.label
+                    if best_nid is not None and best_label is not None:
+                        weight = max(0.25, min(0.4, best_sim * 0.5))
+                        inf_type, _ = self._infer_relation_type(word, best_label, "semantic")
+                        self.graph.add_edge(nid, best_nid, weight=weight, relation_type=inf_type)
 
         # Train neural decoder on article text (unsupervised next-word prediction)
         if self.neural_decoder is not None and self._decoder_vocab_built:
@@ -2831,10 +3099,11 @@ class CognitiveChatEngine:
             article_words = re.findall(r"[a-zA-Z']{3,}", text.lower())
             cond_embs = self._build_conditioning_for_text(topic, article_words)
 
-            # Expand decoder vocab with newly added concepts
-            new_labels = [n.label for nid, n in self.graph.nodes.items()
-                          if n.label and n.label.lower() not in self._decoder_word_to_idx
-                          and n.label.lower() not in ('<pad>', '<unk>', '<bos>', '<eos>')]
+            # Expand decoder vocab with newly added concepts (lock graph read)
+            with self._graph_lock:
+                new_labels = [n.label for nid, n in self.graph.nodes.items()
+                              if n.label and n.label.lower() not in self._decoder_word_to_idx
+                              and n.label.lower() not in ('<pad>', '<unk>', '<bos>', '<eos>')]
             if new_labels:
                 self._expand_decoder_vocab(new_labels)
 
@@ -2853,21 +3122,6 @@ class CognitiveChatEngine:
                     self._decoder_web_training_count += trained2
                 self.neural_decoder.sleep_cycle()
 
-                # Train CerebellarNgram on article text (climbing-fibre error modulated)
-                if hasattr(self, 'cerebellar_ngram'):
-                    # Note: learn_from_text method doesn't exist, skipping
-                    pass
-
-        # Train neural decoder on real article text
-        if self.neural_decoder is not None and self._decoder_vocab_built and len(text) > 20:
-            new_labels = [w for w in important_words if w not in existing_labels_before]
-            if new_labels:
-                self._expand_decoder_vocab(new_labels)
-            err, n_trained = self.neural_decoder.train_on_text(
-                text, self._decoder_word_to_embed, self._decoder_word_to_idx
-            )
-            self._decoder_web_training_count += n_trained
-            self._decoder_training_count += n_trained
         return new_count
     def _learn_from_snippets(self, query: str, snippets: List[str]) -> str:
         """Learn from search snippet text when article fetch fails."""
@@ -2922,9 +3176,14 @@ class CognitiveChatEngine:
                 if self._trace_enabled:
                     print(f"  [init] Synthetic training error: {e}")
 
-        # ── Solution #6: Turn-scoped context isolation ──
-        # Reset context vector to prevent cross-turn contamination
-        self._current_context_vector = None
+        # ── Cross-turn context accumulation (N400/P600 discourse integration) ──
+        # Decay old context rather than wiping it — the brain maintains a
+        # situation model across turns (Nature Human Behaviour 2025:
+        # "shared representations at longer timescales support integration
+        # of incoming conversational content with prior conversational context")
+        old_ctx = getattr(self, '_current_context_vector', None)
+        if old_ctx is not None:
+            old_ctx *= 0.4  # Decay old context (forgets ~60% between turns)
         self._modulated_vectors.clear()
         if hasattr(self, '_prefrontal_buffer'):
             self._prefrontal_buffer = [self._prefrontal_buffer[-1]] if self._prefrontal_buffer else []
@@ -2933,6 +3192,9 @@ class CognitiveChatEngine:
                 # Phase F: Reset per-turn surface realizer state (pronoun tracking)
         if hasattr(self, 'surface_realizer'):
             self.surface_realizer.reset_turn()
+        # Phase 6a: Reset VerbLexicon refractory period (prevents verb perseveration)
+        from ravana.language.verb_lexicon import VerbLexicon
+        VerbLexicon.reset_refractory()
         self.notify_user_active()
         # Phase 15.2: Inter-turn episodic edge decay (forgetting between turns)
         self._decay_episodic_edges()
@@ -3017,8 +3279,9 @@ class CognitiveChatEngine:
         self._last_grounding_method = _gmethod
         # Auto-trigger web learning for low-confidence multi-word queries
         if _gconf < 0.5 and _gmethod == "all_unknown" and _grounded_subj and self.baby_mode:
-            if _grounded_subj not in self._pending_learning_queue:
-                self._pending_learning_queue.append(_grounded_subj)
+            with self._bg_lock:
+                if _grounded_subj not in self._pending_learning_queue:
+                    self._pending_learning_queue.append(_grounded_subj)
         relation = "is"
 
         # Step 2b: Primary IDs — only these concepts spread activation
@@ -3040,15 +3303,44 @@ class CognitiveChatEngine:
                               if w not in self._concept_keywords and w not in STOP_WORDS]
         # Phase 1.3: Collect unknown words into queue instead of searching synchronously
         if unknown_meaningful and self.baby_mode:
-            for w in unknown_meaningful:
-                if w not in self._pending_learning_queue:
-                    self._pending_learning_queue.append(w)
+            with self._bg_lock:
+                for w in unknown_meaningful:
+                    if w not in self._pending_learning_queue:
+                        self._pending_learning_queue.append(w)
 
-        # Phase 11.1: Build context vector for this turn
-        if subject:
-            self._current_context_vector = self._build_context_vector(subject)
+        # Phase 11.1: Build context vector for this turn + sentence-level composition
+        new_ctx = self._build_context_vector(subject) if subject else np.zeros(self.dim, dtype=np.float32)
+        # Blend with decayed prior context (persistent situation model across turns)
+        old_ctx = getattr(self, '_current_context_vector', None)
+        if old_ctx is not None and np.any(old_ctx != 0):
+            self._current_context_vector = new_ctx * 0.6 + old_ctx * 0.4
+            n = np.linalg.norm(self._current_context_vector)
+            if n > 0:
+                self._current_context_vector /= n
         else:
-            self._current_context_vector = None
+            self._current_context_vector = new_ctx
+        # Build sentence-level compositional vector from all input words (N400/P600)
+        self._sentence_vector = self._build_sentence_vector(user_input)
+        # Blend with accumulated discourse context (N400/P600 cross-turn integration)
+        if hasattr(self, '_discourse_context') and self._discourse_context is not None:
+            persistence = 0.6  # How much prior context persists
+            self._sentence_vector = (
+                persistence * self._discourse_context +
+                (1.0 - persistence) * self._sentence_vector
+            )
+            n = np.linalg.norm(self._sentence_vector)
+            if n > 0:
+                self._sentence_vector /= n
+        self._discourse_context = self._sentence_vector.copy() if self._sentence_vector is not None else None
+        # Phase 11.4: Orthogonal content/context subspaces (PMC 2025)
+        # Content = what we're talking about (sentence semantics)
+        self._content_vector = self._sentence_vector.copy() if self._sentence_vector is not None else None
+        # Context = how we're talking about it (discourse frame)
+        raw_ctx = self._build_context_vector_from_input(user_input, subject)
+        if self._content_vector is not None and np.any(self._content_vector != 0):
+            self._context_vector = self._ensure_orthogonal(self._content_vector, raw_ctx)
+        else:
+            self._context_vector = raw_ctx
         
         # Step 5: Emotional modulation (with concept-specific tagging)
         self._update_emotion(user_input)
@@ -3128,6 +3420,10 @@ class CognitiveChatEngine:
             exploration_drive=0.3 * (1 - self.identity.state.strength) + 0.2 * self.emotion.state.arousal,
             learned_recently=self._learned_this_turn,
             recall_mode=getattr(self, '_recall_mode', False),
+            sentence_vector=self._sentence_vector,
+            discourse_context=" | ".join(self._topic_list[-5:]) if self._topic_list else "",
+            content_vector=self._content_vector,
+            context_vector=self._context_vector,
         )
 
         response, strategy = self._generate_response(ctx)
@@ -3254,37 +3550,103 @@ class CognitiveChatEngine:
         return None
 
     def _activate_from_input(self, text: str) -> List[int]:
-        """Find matching concepts using keywords and label matching."""
+        """Activate concepts using N400/P600 sequential per-word processing.
+
+        For each word in the input (in order):
+        N400 phase: Retrieve the word's concept vector and compute prediction error
+          (surprise = 1 - cosine similarity with accumulated context). High surprise
+          = stronger retrieval activation (larger N400 amplitude).
+        P600 phase: Integrate the retrieved meaning into the evolving sentence context.
+          Propagate activation to graph neighbors, modulated by how well the word fits.
+
+        Neuroscience basis:
+        - Brouwer Retrieval-Integration theory (2012, 2017): every word elicits
+          N400 (retrieval) followed by P600 (integration)
+        - Nature 2024: single-neuron responses are context-dependent, not fixed
+        - PMC 2023: representational dimensionality ramps across sentence
+        """
         words = re.findall(r"[a-zA-Z']{1,}", text.lower())
         scores: Dict[int, float] = {}
+        # Accumulated sentence context for N400 modulation
+        acc_ctx = np.zeros(self.dim, dtype=np.float32)
+        word_count = 0
 
         for w in words:
-            if w in self._concept_keywords:
-                for nid in self._concept_keywords[w]:
-                    # Boost nouns slightly for better subject extraction
+            if w in STOP_WORDS and word_count > 0:
+                continue
+
+            # === N400: Retrieve word meaning ===
+            w_nids = self._concept_keywords.get(w, [])
+            w_vec = None
+            if w_nids:
+                node = self.graph.get_node(w_nids[0])
+                if node and node.vector is not None:
+                    w_vec = node.vector
+
+            # Compute N400 amplitude (surprise): how predictable is this word?
+            n400_surprise = 0.5  # baseline
+            if w_vec is not None and word_count > 0:
+                n_acc = np.linalg.norm(acc_ctx)
+                n_w = np.linalg.norm(w_vec)
+                if n_acc > 1e-8 and n_w > 1e-8:
+                    cos_sim = float(np.dot(acc_ctx, w_vec)) / (n_acc * n_w)
+                    n400_surprise = 1.0 - max(0.0, min(1.0, cos_sim))  # 0=expected, 1=surprising
+            elif word_count == 0:
+                n400_surprise = 0.8  # First word is always somewhat surprising
+
+            # Activate with N400-modulated strength
+            if w_nids:
+                for nid in w_nids:
                     node = self.graph.nodes.get(nid)
                     pos_boost = 0.5 if node and node.label and self._concept_pos.get(node.label.lower()) == 'noun' else 0.0
-                    scores[nid] = scores.get(nid, 0) + 5.0 + pos_boost
+                    base = 5.0 + pos_boost
+                    # N400 surprise amplifies activation for unexpected words
+                    n400_boost = 1.0 + n400_surprise * 2.0
+                    scores[nid] = scores.get(nid, 0) + base * n400_boost
 
-        for nid, node in self.graph.nodes.items():
-            if not node.label:
-                continue
-            label = node.label.lower()
-            s = scores.get(nid, 0.0)
-            for w in words:
+            # Label matching (same as before)
+            for nid, node in self.graph.nodes.items():
+                if not node or not node.label:
+                    continue
+                label = node.label.lower()
+                s = scores.get(nid, 0.0)
                 if label == w:
-                    s += 5.0
+                    s += 5.0 * (1.0 + n400_surprise)
                 elif len(w) >= 3 and (label == w or label.startswith(w + " ") or (" " + w + " ") in label or label.endswith(" " + w)):
                     s += 3.0
                 elif len(label) >= 3 and label in w:
                     s += 2.0
-            if s > 0:
-                scores[nid] = s
+                if s > 0:
+                    scores[nid] = s
+
+            # === P600: Integrate into evolving sentence representation ===
+            if w_vec is not None:
+                # Integration: blend word vector into accumulated context
+                # Gate is lower for surprising words (harder to integrate)
+                integration_gate = 0.5 + 0.3 * (1.0 - n400_surprise)
+                if word_count == 0:
+                    acc_ctx = w_vec.copy()
+                else:
+                    acc_ctx = integration_gate * w_vec + (1.0 - integration_gate) * acc_ctx
+                n = np.linalg.norm(acc_ctx)
+                if n > 0:
+                    acc_ctx /= n
+            word_count += 1
+
+            # Propagate activation to graph neighbors (P600 spread)
+            if w_nids:
+                for src_nid in w_nids:
+                    for tgt_id, edge in self.graph.get_outgoing(src_nid):
+                        if tgt_id not in scores:
+                            # Weaker propagation for surprising words
+                            prop_strength = 2.0 * (1.0 - n400_surprise * 0.5)
+                            scores[tgt_id] = scores.get(tgt_id, 0) + edge.weight * prop_strength
 
         sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
         activated = []
-        for nid, sc in sorted_scores[:5]:
-            self.graph.activate(nid, min(1.0, sc * 0.15))
+        # Keep more activations for richer sentence context (up to 8 vs 5)
+        for nid, sc in sorted_scores[:8]:
+            self.graph.activate(nid, min(1.0, sc * 0.12))
             activated.append(nid)
         return activated
 
@@ -4422,6 +4784,133 @@ class CognitiveChatEngine:
             ctx /= norm
         return ctx.astype(np.float32)
 
+    def _build_sentence_vector(self, text: str) -> np.ndarray:
+        """Compose a sentence-level semantic vector from all input words.
+
+        Mimics the N400/P600 retrieval-integration cycle:
+        - Each word triggers retrieval of its concept vector (N400)
+        - Each word's meaning is integrated into the evolving representation (P600)
+        - Integration uses a simple gated composition: new = gate * word + (1-gate) * acc
+        where gate is inversely proportional to how similar the word is to the current
+        accumulated meaning (novel words contribute more).
+
+        Neuroscience basis:
+        - Brouwer et al. 2012/2017 Retrieval-Integration theory
+        - Nature 2024: single-neuron semantic composition across sentences
+        - Dimensionality ramping (PMC 2023): meaningful sentences increase representational dimensionality
+        """
+        words = [w.strip(".,!?").lower() for w in text.split()
+                 if len(w.strip(".,!?")) >= 2]
+        if not words:
+            return np.zeros(self.dim, dtype=np.float32)
+
+        acc = np.zeros(self.dim, dtype=np.float32)
+        count = 0
+
+        for w in words:
+            # N400 phase: retrieve word vector from graph/decoder
+            vec = None
+            nids = self._concept_keywords.get(w, [])
+            if nids:
+                node = self.graph.get_node(nids[0])
+                if node and node.vector is not None:
+                    vec = node.vector.copy()
+            if vec is None and hasattr(self, '_decoder_word_to_embed'):
+                vec = self._decoder_word_to_embed.get(w, None)
+            if vec is None:
+                continue
+
+            # P600 phase: integrate into evolving sentence representation
+            # Novel words contribute more (gate is high for dissimilar words)
+            if count == 0:
+                acc = vec.copy()
+            else:
+                norm_acc = np.linalg.norm(acc)
+                norm_vec = np.linalg.norm(vec)
+                if norm_acc > 0 and norm_vec > 0:
+                    cos_sim = float(np.dot(acc, vec)) / (norm_acc * norm_vec)
+                else:
+                    cos_sim = 0.0
+                # Gate: 0.7 for novel (low sim) to 0.3 for very similar
+                gate = 0.7 - 0.4 * max(0.0, min(1.0, cos_sim))
+                acc = gate * vec + (1.0 - gate) * acc
+            count += 1
+
+            # Renormalize after integration
+            n = np.linalg.norm(acc)
+            if n > 0:
+                acc /= n
+
+        if count == 0:
+            return np.zeros(self.dim, dtype=np.float32)
+
+        # Final normalization
+        n = np.linalg.norm(acc)
+        if n > 0:
+            acc /= n
+        return acc.astype(np.float32)
+
+    def _build_context_vector_from_input(self, user_input: str, subject: str) -> np.ndarray:
+        """Build a context vector encoding discourse frame (question type, emotion, turn).
+
+        This is the 'context' stream — orthogonal to content semantics.
+        Encodes: question type, emotional state, turn number, conversation depth.
+
+        Neuroscience basis (PMC 2025): PFC encodes task context in an orthogonal
+        subspace separate from content representations, enabling flexible reuse
+        of mnemonic codes across behavioral contexts.
+        """
+        ctx = np.zeros(self.dim, dtype=np.float32)
+
+        # Encode question type as a vector
+        q_lower = user_input.lower().strip()
+        if q_lower.startswith("what") or q_lower.startswith("who"):
+            ctx[0] = 1.0   # factual inquiry
+        elif q_lower.startswith("why") or q_lower.startswith("how"):
+            ctx[0] = -1.0  # causal inquiry
+        elif q_lower.startswith("tell") or q_lower.startswith("describe"):
+            ctx[1] = 1.0   # elaboration request
+        elif q_lower.startswith("is") or q_lower.startswith("are") or q_lower.startswith("do"):
+            ctx[1] = -1.0  # yes/no inquiry
+        else:
+            ctx[2] = 1.0   # open-ended
+
+        # Encode emotional state
+        ctx[3] = self.emotion.state.valence
+        ctx[4] = self.emotion.state.arousal
+        ctx[5] = self.emotion.state.dominance
+
+        # Encode turn number (normalized)
+        ctx[6] = min(1.0, self.turn_count / 100.0)
+
+        # Encode conversation depth (how many follow-ups)
+        depth = min(1.0, getattr(self.user_model, 'conversation_depth', 0.0))
+        ctx[7] = depth
+
+        # Encode recent topic consistency
+        topic_shift = 0.0
+        if len(self._topic_list) >= 2:
+            if self._topic_list[-1].lower() != self._topic_list[-2].lower():
+                topic_shift = 1.0
+        ctx[8] = topic_shift
+
+        return ctx.astype(np.float32)
+
+    def _ensure_orthogonal(self, content: np.ndarray, context: np.ndarray) -> np.ndarray:
+        """Project context vector to be orthogonal to content vector.
+
+        This implements the PFC's orthogonal subspace coding (PMC 2025):
+        content and context are maintained in independent dimensions,
+        preventing contextual drift from corrupting semantic content.
+        """
+        c_norm = np.linalg.norm(content)
+        if c_norm < 1e-8:
+            return context
+        # Project out the content direction from context
+        projection = (np.dot(context, content) / (c_norm * c_norm)) * content
+        orthogonal = context - projection
+        return orthogonal.astype(np.float32)
+
     def _modulate_vector(self, node_id: int) -> Optional[np.ndarray]:
         """Phase 11.2: Return context-modulated vector for a concept node.
         
@@ -5253,164 +5742,92 @@ class CognitiveChatEngine:
     # ─── Phase 8: Sentence Formatting & Prefrontal Coherence ───
 
     def _is_low_quality_response(self, sentences: list) -> bool:
-        """Detect circular/repetitive/low-quality responses.""" 
+        """Detect circular/repetitive/low-quality responses.
+        
+        Stage 1: Loosened — natural chat allows concept carry-across and
+        coreference. Only flag truly degenerate cases.
+        """
         if not sentences:
             return True
         full = ' '.join(sentences).lower()
-        # Check for circular patterns: subject appears multiple times as both src and tgt
         words = full.split()
         if len(words) < 3:
             return True
-        # Check repetitiveness: same concept appears 4+ times (raised from 3 
-        # to allow core concepts to naturally repeat across 3 sentences)
+        # Stage 1: Only flag extreme repetition (6+ occurrences)
         from collections import Counter
         word_counts = Counter(w for w in words if len(w) > 3)
-        if any(c >= 4 for c in word_counts.values()):
+        if any(c >= 6 for c in word_counts.values()):
             return True
-        # Check for circular A->B then B->A patterns
-        sentences_lower = [s.lower() for s in sentences]
+        # Stage 1: Only flag exact word-set duplicates (same sentence verbatim)
+        sentences_lower = [s.lower().strip() for s in sentences]
         if len(sentences_lower) >= 2:
             for i, s1 in enumerate(sentences_lower):
                 for s2 in sentences_lower[i+1:]:
-                    # Check if concepts in s1 appear reversed in s2
-                    words1 = set(w for w in s1.split() if len(w) > 3)
-                    words2 = set(w for w in s2.split() if len(w) > 3)
-                    if len(words1) >= 2 and len(words2) >= 2:
-                        if words1 == words2:
-                            return True
+                    if s1 == s2 and len(s1) > 15:
+                        return True
         return False
 
     # ─── Phase E+F+G: Syntactic assembly + Surface realization pipeline ───
 
 
     def _generate_response(self, ctx: CognitiveResponseContext) -> Tuple[str, str]:
-        """Generate response using neural decoder as primary, with reasoning loop for web search.
+        """Generate response using syntactic pipeline (primary), neural decoder
+        (when proven fluent), then reasoning loop (last resort).
 
-        The decoder generates fluent text conditioned on graph walk embeddings.
-        For unknown topics, we trigger a reasoning loop that:
-        1. Decomposes the query into search sub-questions
-        2. Searches web for each sub-question
-        3. Learns from articles (trains decoder on full text)
-        4. Generates final response with decoder
+        Order reflects neuroscience:
+        - Syntactic pipeline = P600-driven compositional integration (primary route)
+        - Neural decoder = overlearned fluent speech (requires high quality)
+        - Reasoning loop = web learning when knowledge is absent
+
+        Neuroscience basis:
+        - Brouwer Retrieval-Integration: composition (P600) is the default route
+        - PMC 2023: hierarchical predictive coding across multiple timescales
+        - Nature Human Behaviour 2025: multi-timescale discourse organization
         """
         subject = ctx.subject
         assocs = ctx.associated_concepts
 
-        # Try neural decoder + syntactic pipeline for grammatical output
-        _have_web = self._decoder_web_training_count >= 500
-        _total = self._decoder_training_count
-        if _have_web and _total >= 1000:
+        # Path 1: Syntactic pipeline (P600 compositional integration) — primary
+        try:
+            syntax_response = self._generate_with_decoder_and_syntax(ctx)
+            if syntax_response and len(syntax_response) > 10:
+                return (syntax_response, "syntactic_pipeline")
+        except Exception:
+            pass
+
+        # Path 2: Neural decoder — only when proven fluent (strict quality gate)
+        decoder_ready = False
+        if self.neural_decoder is not None and self._decoder_vocab_built:
+            nd = self.neural_decoder
+            ce_ok = nd._avg_cross_entropy < 4.0 if nd._metric_examples > 10 else False
+            t1_ok = nd._avg_top1_acc > 0.25 if nd._metric_examples > 10 else False
+            trained_enough = self._decoder_training_count >= 2000
+            decoder_ready = ce_ok and t1_ok and trained_enough
+        if decoder_ready:
             try:
-                # Prevent vocab expansion during generation
-                old_expand = self._decoder_vocab_built
-                decoder_response = self._generate_with_decoder_and_syntax(ctx)
+                decoder_response = self._generate_with_decoder(ctx)
                 if decoder_response and len(decoder_response) > 10:
                     return (decoder_response, "neural_decoder")
             except Exception:
                 pass
 
-        # If decoder not ready or quality check failed, run reasoning loop
-        # which can search web, learn, then generate
+        # Path 3: Reasoning loop (web search + learn, then retry)
         try:
             return self._reasoning_loop(ctx)
         except Exception as e:
             if self._trace_enabled:
                 print(f"  [trace] reasoning loop error: {e}")
-
-        # Final fallback: simple graph-based response
-        act_boost = getattr(self, '_activation_boost', None)
-        self._last_hops = []
-
-        if not assocs:
-            if subject:
-                subj_lower = subject.lower()
-                if subj_lower in DOMAIN_CONCEPTS:
-                    meta = DOMAIN_CONCEPTS[subj_lower]
-                    rel_labels = []
-                    for src, tgt, rel_type, weight in meta["relations"]:
-                        if src == subj_lower or tgt == subj_lower:
-                            other = tgt if src == subj_lower else src
-                            rel_labels.append(other)
-                    if rel_labels:
-                        props_str = ", ".join(rel_labels[:3])
-                        return (f"{subject.capitalize()} is a {meta['keywords'].split()[1] if len(meta['keywords'].split()) > 1 else 'concept'} related to {props_str}.", "definition")
-                subj_in_graph = subj_lower in self._concept_labels or subj_lower in self._concept_keywords
-                if subj_in_graph:
-                    neighbor = self._find_vector_neighbor(subject)
-                    if neighbor and neighbor.lower() != subject.lower():
-                        return (f"{subject} connect {neighbor}.", "associative")
-                    if subj_lower in self._concept_pos:
-                        pos = self._concept_pos[subj_lower]
-                        if pos == "verb":
-                            return (f"I {subject} all the time.", "associative")
-                        elif pos == "adj":
-                            return (f"That is {subject} indeed.", "associative")
-                        else:
-                            return (f"{subject.capitalize()} is something I think about.", "associative")
-                    return (f"{subject} is interesting.", "associative")
-                return (f"I don't know about {subject} yet.", "unknown_subject")
-            return ("...", "associative")
-
-        # Walk graph for associations as fallback
-        temps = [self._get_temperature(0), self._get_temperature(1), self._get_temperature(2)]
-        sentences = []
-        seen = {subject.lower()}
-
-        for i, temp in enumerate(temps):
-            chain = self._walk_chain(subject, seen, max_hops=2 if i > 0 else 1,
-                                     temperature=temp, activation_boost=act_boost,
-                                     subject_proximity=subject)
-            if chain:
-                # Use decoder to format even fallback chains
-                if _have_web and _total >= 500:
-                    try:
-                        decoder_out = self._generate_with_decoder(CognitiveResponseContext(
-                            subject=subject, relation="semantic", object="",
-                            raw_input=ctx.raw_input, associated_concepts=assocs,
-                            bridge_concept=self._find_bridge(assocs, subject),
-                            valence=ctx.valence, arousal=ctx.arousal,
-                            dominance=ctx.dominance, emotional_label=ctx.emotional_label,
-                            identity_strength=ctx.identity_strength, identity_trend=ctx.identity_trend,
-                            dissonance=ctx.dissonance, processing_route=ctx.processing_route,
-                            route_reason=ctx.route_reason, past_topics=ctx.past_topics,
-                            turn_count=self.turn_count, meaning_generated=ctx.meaning_generated,
-                            exploration_drive=ctx.exploration_drive, learned_recently=ctx.learned_recently,
-                            recall_mode=ctx.recall_mode
-                        ))
-                        if decoder_out:
-                            sentences.append(decoder_out)
-                            continue
-                    except Exception:
-                        pass
-                # Simple fallback formatting
-                concepts = [p for p in chain.split() if p.lower() not in self._CONNECTOR_SET]
-                if len(concepts) >= 2:
-                    sentences.append(f"{subject.capitalize()} connects with {concepts[1]}.")
-                elif concepts:
-                    neighbor = self._find_vector_neighbor(concepts[0])
-                    if neighbor:
-                        sentences.append(f"{concepts[0].capitalize()} relates to {neighbor}.")
-                    else:
-                        sentences.append(f"{concepts[0].capitalize()} is interesting.")
-                for w in chain.split():
-                    if w.lower() in self._CONNECTOR_SET:
-                        seen.add(w.lower())
-                seen.update(p.lower() for p in concepts)
-
-        if not sentences:
-            return (f"I don't know much about {subject} yet.", "associative")
-
-        return (" ".join(sentences), "graph_fallback")
-
-
+            raise
 
     def _generate_with_decoder_and_syntax(self, ctx: CognitiveResponseContext) -> Optional[str]:
         """Generate response using full syntactic pipeline:
-        
+
         1. PrefrontalWorkspace: Plan discourse (3-sentence intent arc)
         2. SyntacticCellAssembly: Bind concepts to grammatical frames
-        3. SurfaceRealizer: Apply morphology, agreement, pronouns, articles
-        
+        3. BasalGangliaGate: Concept selection (Go/NoGo)
+        4. CerebellarNgram: Completion hints for function words
+        5. SurfaceRealizer: Final text with morphology, agreement, articles
+
         Uses graph walk chain concepts directly - decoder produces garbage.
         """
         subject = ctx.subject
@@ -5455,10 +5872,11 @@ class CognitiveChatEngine:
         # ─── STEP 2: For each discourse intent, generate a sentence ───
         sentences = []
         dopamine_tone = getattr(self, '_dopamine_tone', 0.5)
-        used_targets = {subject.lower()}  # Track used concepts across sentences
-        # Allow reuse after 2 sentences to prevent deadlock
-        target_reuse_window = 2
-        recent_targets = []  # Track recent targets for reuse window
+        # Stage 1: Allow a concept to carry across 2-3 sentences with pronoun/coreference.
+        # This prevents the choppy "Trust… It… Likewise it…" pattern.
+        used_targets = {}  # concept -> last sentence index used
+        target_reuse_window = 3  # Allow reuse after 3 sentences (was 2)
+        last_subject = None  # For pronoun coreference across sentences
         
         for sent_idx, intent in enumerate(plan.intents):
             # Generate concept sequence for this intent
@@ -5475,11 +5893,16 @@ class CognitiveChatEngine:
             if intent_target:
                 seen.add(intent_target.lower())
             
+            # Dynamic graph walk: arousal + dopamine modulate depth/creativity
+            _hops = 2 + int(dopamine_tone * 2) + (1 if user_arousal > 0.6 else 0)
+            _hops = min(_hops, 5)
+            _temp = 0.2 + user_arousal * 0.5 + dopamine_tone * 0.3
+            _temp = min(_temp, 0.8)
             chain_result = self._walk_chain(
                 label=intent_subject,
-                seen=seen.copy(),  # Pass copy to avoid mutation by _walk_chain
-                max_hops=2,
-                temperature=0.25,
+                seen=seen.copy(),
+                max_hops=_hops,
+                temperature=_temp,
                 contradiction_penalty=0.6,
                 activation_boost=self._activation_boost,
                 subject_proximity=intent_subject,
@@ -5493,7 +5916,6 @@ class CognitiveChatEngine:
                     if token in self._CONNECTOR_SET:
                         chain_connectors.append(token)
                     else:
-                        # Filter out grammatical concepts early
                         is_gram = token.lower() in self._GRAMMATICAL_CONCEPTS
                         if not is_gram:
                             chain_concepts.append(token)
@@ -5501,23 +5923,24 @@ class CognitiveChatEngine:
             if self._trace_enabled:
                 print(f"  [trace] Sent {sent_idx}: intent_subject={intent_subject}, intent_target={intent_target}, chain_result={chain_result}")
                 print(f"    chain_concepts={chain_concepts}, chain_connectors={chain_connectors}")
-                print(f"    used_targets={used_targets}, recent_targets={recent_targets}")
+                print(f"    used_targets={used_targets}, last_subject={last_subject}")
             
             # Use discourse target if chain didn't produce it, else use chain's top concept
             target_for_frame = intent_target
             
-            # PRIORITY 1: Use valid chain concepts (most grounded in graph structure)
+            # PRIORITY 1: Use valid chain concepts (grounded in graph structure)
+            # Stage 1: Don't require disjoint targets — allow carry-across
             if not target_for_frame and chain_concepts:
                 for c in chain_concepts:
                     cl = c.lower()
-                    if cl not in seen and cl not in self._GRAMMATICAL_CONCEPTS and cl not in used_targets:
+                    if cl not in seen and cl not in self._GRAMMATICAL_CONCEPTS:
                         target_for_frame = c
                         break
             
             # PRIORITY 2: Use discourse plan target if valid
             if not target_for_frame and intent_target:
                 it_lower = intent_target.lower()
-                if it_lower not in seen and it_lower not in self._GRAMMATICAL_CONCEPTS and it_lower not in used_targets:
+                if it_lower not in seen and it_lower not in self._GRAMMATICAL_CONCEPTS:
                     target_for_frame = intent_target
             
             # PRIORITY 3: Vector neighbor as last resort
@@ -5527,25 +5950,32 @@ class CognitiveChatEngine:
                     print(f"    _find_vector_neighbor({intent_subject}) = {neighbor}")
                 if neighbor:
                     nb_lower = neighbor.lower()
-                    if nb_lower not in seen and nb_lower not in self._GRAMMATICAL_CONCEPTS and nb_lower not in used_targets:
+                    if nb_lower not in seen and nb_lower not in self._GRAMMATICAL_CONCEPTS:
                         target_for_frame = neighbor
             
-            # Allow target reuse if not used in last N sentences
-            target_reusable = False
-            if target_for_frame and target_for_frame.lower() in used_targets:
-                if target_for_frame.lower() not in [t.lower() for t in recent_targets[-target_reuse_window:]]:
-                    target_reusable = True
+            # Stage 1: Allow reuse if it's been at least target_reuse_window sentences,
+            # or if this is adjacent sentence reuse (for coreference/continuity)
+            can_reuse = False
+            if target_for_frame:
+                tfl = target_for_frame.lower()
+                if tfl in used_targets:
+                    last_used = used_targets[tfl]
+                    if sent_idx - last_used >= target_reuse_window:
+                        can_reuse = True
+                    elif last_subject and last_subject.lower() == tfl:
+                        can_reuse = True  # Allow subject to carry across
+                else:
+                    can_reuse = True
+            else:
+                can_reuse = False
             
-            if not target_for_frame or (target_for_frame.lower() in used_targets and not target_reusable) or target_for_frame.lower() in self._GRAMMATICAL_CONCEPTS:
+            if not target_for_frame or not can_reuse or target_for_frame.lower() in self._GRAMMATICAL_CONCEPTS:
                 if self._trace_enabled:
                     print(f"    SKIPPING sentence {sent_idx}: target_for_frame={target_for_frame}")
                 continue
             
-            if not target_reusable:
-                used_targets.add(target_for_frame.lower())
-            recent_targets.append(target_for_frame)
-            if len(recent_targets) > target_reuse_window:
-                recent_targets.pop(0)
+            used_targets[target_for_frame.lower()] = sent_idx
+            last_subject = target_for_frame
             
             # ─── STEP 4: SyntacticCellAssembly — Bind to grammatical frame ───
             frame = self.syntactic_assembly.bind_to_sentence(
@@ -5564,7 +5994,7 @@ class CognitiveChatEngine:
             # ─── STEP 5: SurfaceRealizer — Morphology, agreement, pronouns, articles ───
             discourse_state = DiscourseState(
                 sentence_index=sent_idx,
-                previous_subject=sentences[-1].split()[0].lower() if sentences else None,
+                previous_subject=last_subject if sentences else None,
                 discourse_type=intent.type,
                 total_sentences=len(plan.intents),
             )
@@ -5622,57 +6052,6 @@ class CognitiveChatEngine:
 
         # Check for unknown multi-word phrases in the original query
         # Extract phrases that aren't fully grounded
-        query_words = ctx.raw_input.lower().split()
-        unknown_phrases = []
-        for i in range(len(query_words) - 1):
-            phrase = ' '.join(query_words[i:i+2])
-            if phrase not in self._concept_keywords and phrase not in self._concept_labels:
-                unknown_phrases.append(phrase)
-        # Also check 3-grams
-        for i in range(len(query_words) - 2):
-            phrase = ' '.join(query_words[i:i+3])
-            if phrase not in self._concept_keywords and phrase not in self._concept_labels:
-                unknown_phrases.append(phrase)
-
-        # Determine search queries
-        search_queries = []
-
-        # Check for unknown multi-word phrases in the original query
-        query_words = ctx.raw_input.lower().split()
-        unknown_phrases = []
-        for i in range(len(query_words) - 1):
-            phrase = ' '.join(query_words[i:i+2])
-            if phrase not in self._concept_keywords and phrase not in self._concept_labels:
-                unknown_phrases.append(phrase)
-        # Also check 3-grams
-        for i in range(len(query_words) - 2):
-            phrase = ' '.join(query_words[i:i+3])
-            if phrase not in self._concept_keywords and phrase not in self._concept_labels:
-                unknown_phrases.append(phrase)
-
-        # Complex query indicators
-        is_complex = any(w in query.lower() for w in
-                        ["how", "why", "create", "build", "design", "blueprint",
-                         "explain", "detail", "comprehensive", "step by step",
-                         "architecture", "implementation", "guide", "tutorial"])
-        is_unknown = not subj_known or not assoc_known
-
-        # Step 1: Check if we need web search
-        subj_lower = subject.lower()
-        subj_known = subj_lower in self._concept_keywords or subj_lower in self._concept_labels
-        assoc_known = len(assocs) > 0
-
-        # Complex query indicators
-        is_complex = any(w in query.lower() for w in
-                        ["how", "why", "create", "build", "design", "blueprint",
-                         "explain", "detail", "comprehensive", "step by step",
-                         "architecture", "implementation", "guide", "tutorial"])
-        is_unknown = not subj_known or not assoc_known
-
-        # Determine search queries
-        search_queries = []
-
-        # Check for unknown multi-word phrases in the original query
         query_words = ctx.raw_input.lower().split()
         unknown_phrases = []
         for i in range(len(query_words) - 1):
@@ -5854,45 +6233,90 @@ class CognitiveChatEngine:
             print(f"  [reasoning] Decoder trained on {total_trained} sentences from articles")
 
 
+    def _safe_graph_node(self, label: str):
+        """Safely look up a graph node by label, returning None if not found."""
+        nids = self._concept_keywords.get(label.lower(), [])
+        if nids:
+            return self.graph.get_node(nids[0])
+        return None
+
     def _graph_fallback_response(self, ctx: CognitiveResponseContext) -> Tuple[str, str]:
-        """Simple graph-walk fallback when decoder isn't ready."""
+        """Graph-walk fallback when decoder / syntactic pipeline are not enough."""
         subject = ctx.subject
         assocs = ctx.associated_concepts
 
-        if not assocs:
-            if subject:
-                subj_lower = subject.lower()
-                if subj_lower in self._concept_keywords or subj_lower in self._concept_labels:
-                    neighbor = self._find_vector_neighbor(subject)
-                    if neighbor and neighbor.lower() != subject.lower():
-                        return (f"{subject} connects with {neighbor}.", "associative")
-                    return (f"{subject.capitalize()} is something I know about.", "associative")
-                return (f"I don't know about {subject} yet.", "unknown_subject")
+        if not subject:
             return ("...", "associative")
 
+        # We still know notable entities that aren’t explained well yet -> ask.
+        if not assocs:
+            subj_lower = subject.lower()
+            if subj_lower in self._concept_keywords or subj_lower in self._concept_labels:
+                return (f"I recognize {subject}, but I can't explain it yet. Want me to keep exploring?", "associative")
+            return (f"I don't know about {subject} yet.", "unknown_subject")
+
         temps = [self._get_temperature(0), self._get_temperature(1), self._get_temperature(2)]
-        sentences = []
-        seen = {subject.lower()}
+        sentences_parts: List[str] = []
+        seen: Set[str] = {subject.lower()}
+        from random import Random
+        rnd = Random(self.rng.randint(0, 10**9))
 
-        for i, temp in enumerate(temps):
-            chain = self._walk_chain(subject, seen, max_hops=2 if i > 0 else 1,
-                                     temperature=temp, subject_proximity=subject)
-            if chain:
-                concepts = [p for p in chain.split() if p.lower() not in self._CONNECTOR_SET]
-                if len(concepts) >= 2:
-                    sentences.append(f"{subject.capitalize()} relates to {concepts[1]}.")
-                elif concepts:
-                    neighbor = self._find_vector_neighbor(concepts[0])
-                    if neighbor:
-                        sentences.append(f"{concepts[0].capitalize()} connects to {neighbor}.")
-                    else:
-                        sentences.append(f"{concepts[0].capitalize()} is interesting.")
-                seen.update(p.lower() for p in concepts)
+        def _one_rel(a: str, b: str) -> str:
+            relation_phrases = [
+                "reminds me of",
+                "ties into",
+                "leads toward",
+                "feels related to",
+                "points to",
+                "shows up again with",
+                "keeps coming back to",
+            ]
+            phrase = rnd.choice(relation_phrases)
+            return f"{a} {phrase} {b}."
 
-        if not sentences:
+        seen_full: Set[str] = set()
+        max_loops = max(3, min(8, len(assocs) * 2))
+        loops = 0
+
+        while len(sentences_parts) < 4 and loops < max_loops:
+            loops += 1
+            label, score = assocs[(self.turn_count + loops) % len(assocs)]
+            if not label or label.lower() in seen:
+                continue
+
+            node = self._safe_graph_node(label)
+            node_b = self._safe_graph_node(subject)
+            if node and node_b and hasattr(node, "vector") and hasattr(node_b, "vector") and node.vector is not None and node_b.vector is not None:
+                try:
+                    from numpy import dot
+                    from numpy.linalg import norm
+                    relation_score = dot(node.vector, node_b.vector) / (norm(node.vector) * norm(node_b.vector) + 1e-9)
+                except Exception:
+                    relation_score = float(score)
+            else:
+                relation_score = float(score)
+
+            relation_score = max(0.0, min(1.0, relation_score))
+            sentence = _one_rel(subject.capitalize(), label.capitalize())
+            sentence_key = " ".join(sorted([subject.lower(), label.lower()]))
+            if sentence_key in seen_full:
+                continue
+            seen_full.add(sentence_key)
+            sentences_parts.append(sentence)
+            seen.add(label.lower())
+
+        # Add one relevant follow-up.
+        if len(sentences_parts) == 1:
+            first_lower = sentences_parts[0].lower()
+            follow_up = getattr(self, "_ASK_BACK", {}).get("default", "")
+            if not follow_up:
+                follow_up = "Does that match what you were getting at?"
+            sentences_parts.append(follow_up)
+
+        if not sentences_parts:
             return (f"I don't know much about {subject} yet.", "associative")
 
-        return (" ".join(sentences), "graph_fallback")
+        return (" ".join(sentences_parts), "graph_fallback")
 
 
 
@@ -6314,6 +6738,35 @@ class CognitiveChatEngine:
                                             new_edge, subj_node.vector, other_node.vector,
                                             learning_rate=0.08)
 
+        if replayed > 0 and getattr(self, "_trace_enabled", False):
+            print(f"  [trace]   sleep replay: resolved {replayed} impossible queries")
+
+        # Fix 3: Belief reconciliation — resolve contradictions by recency x confidence
+        if getattr(self, "use_beliefs", True) and self.belief_store.beliefs:
+            before = len(self.belief_store.contradictions)
+            resolved = self.belief_store.reconcile()
+            after = len(self.belief_store.contradictions)
+            if resolved:
+                # Prune contradictory graph edges that conflict with resolved beliefs
+                for (subj, pred), (value, conf, _) in resolved.items():
+                    subj_nids = self._concept_keywords.get(subj.lower(), [])
+                    for nid in subj_nids:
+                        for tid, edge in list(self.graph.get_outgoing(nid)):
+                            tgt_node = self.graph.get_node(tid)
+                            if tgt_node and tgt_node.label and edge.relation_type == pred and tgt_node.label.lower() != value.lower():
+                                edge.weight = max(0.01, edge.weight * 0.3)
+                                edge.confidence = max(0.01, edge.confidence * 0.3)
+                                edges_pruned += 1
+                if getattr(self, "_trace_enabled", False):
+                    print(f"  [trace]   sleep belief: reconciled {len(resolved)} contradictions (pruned {edges_pruned} conflicting edges)")
+
+        # Solution #5: Correct mis-typed relations during sleep
+        if self.turn_count > 0 and self.turn_count % 50 == 0:
+            migrated = self._correct_relation_types()
+            if migrated > 0:
+                if getattr(self, "_trace_enabled", False):
+                    print(f"  [trace]   sleep relation: reclassified {migrated} edges")
+
         # Update sleep metrics
         self._sleep_metrics["edges_strengthened"] += edges_strengthened
         self._sleep_metrics["edges_pruned"] += edges_pruned
@@ -6334,58 +6787,7 @@ class CognitiveChatEngine:
             "episodic_consolidated": episodic_consolidated,
         }
 
-        # Phase 7.6: Sleep-replay impossible queries
-        replayed = 0
-        for iq in self._impossible_queries:
-            if iq.resolved:
-                continue
-            subj_nids = self._concept_keywords.get(iq.subject.lower(), [])
-            if subj_nids:
-                subj_node = self.graph.get_node(subj_nids[0])
-                if subj_node and subj_node.vector is not None:
-                    # Try to auto-wire to all existing concepts with high similarity
-                    new_edges = 0
-                    for other_nid, other_node in self.graph.nodes.items():
-                        if other_nid == subj_nids[0]:
-                            continue
-                        if other_node.vector is not None and other_node.label:
-                            sim = float(np.dot(subj_node.vector, other_node.vector))
-                            if sim > 0.5 and self.graph.get_edge(subj_nids[0], other_nid) is None:
-                                weight = min(0.6, sim * 0.6)
-                                ne = self.graph.add_edge(subj_nids[0], other_nid, weight=weight,
-                                                     relation_type="semantic")
-                                ne.confidence = 0.001  # dormant
-                                self._dormant_edges.add((subj_nids[0], other_nid))
-                                # Run prediction error correction for accuracy
-                                if other_node.vector is not None:
-                                    new_edge = self.graph.get_edge(subj_nids[0], other_nid)
-                                    if new_edge:
-                                        self._update_edge_from_error(
-                                            new_edge, subj_node.vector, other_node.vector,
-                                            learning_rate=0.08)
-                                new_edges += 1
-                    if new_edges > 0:
-                        iq.resolved = True
-                        replayed += 1
-        if replayed > 0 and getattr(self, '_trace_enabled', False):
-            print(f"  [trace]   sleep replay: resolved {replayed} impossible queries")
-
-        # Fix 3: Belief reconciliation — resolve contradictions by recency × confidence
-        if getattr(self, 'use_beliefs', True) and self.belief_store.beliefs:
-            before = len(self.belief_store.contradictions)
-            resolved = self.belief_store.reconcile()
-            after = len(self.belief_store.contradictions)
-            if after > before and getattr(self, '_trace_enabled', False):
-                print(f"  [trace]   sleep belief: reconciled {len(resolved)} contradictions")
-
-        # Solution #5: Correct mis-typed relations during sleep
-        if self.turn_count > 0 and self.turn_count % 50 == 0:
-            migrated = self._correct_relation_types()
-            if migrated > 0:
-                if getattr(self, '_trace_enabled', False):
-                    print(f"  [trace]   sleep relation: reclassified {migrated} edges")
-
-    def print_traces(self, label: str = ""):
+    def print_traces(self, label: str):
         """Print all chain walk traces from the last response."""
         if not self._chain_traces:
             return
@@ -6476,18 +6878,16 @@ class CognitiveChatEngine:
                     print('  [bg] curiosity budget refreshed for new exploration cycle')
 
             # Process pending queue items in background
-            queries_to_process = []
+            all_queries = []
             with self._bg_lock:
                 queries_to_process = list(self._bg_learning_queue)
                 self._bg_learning_queue.clear()
-            # Also process deferred learning queue
-            with self._bg_lock:
                 deferred = list(self._pending_learning_queue)
                 self._pending_learning_queue.clear()
-            all_queries = queries_to_process + deferred
+                all_queries = queries_to_process + deferred
             # Phase 18: Autonomously select curiosity topics when queue runs low
             # Run curiosity selection if queue is small (<=3) or periodically every idle period
-            queue_size = len(self._bg_learning_queue) + len(self._pending_learning_queue)
+            queue_size = len(all_queries)
             should_run_curiosity = (not all_queries and self._curiosity_drive_enabled) or \
                                    (queue_size <= 3 and self._curiosity_drive_enabled and \
                          self._bg_idle_search_count % 2 == 0)  # Every other idle period
@@ -6994,14 +7394,28 @@ class CognitiveChatEngine:
 
     def save(self) -> str:
         """Save full cognitive state to disk. Returns path to save file."""
+        with self._vocab_lock, self._graph_lock:
+            _graph_snapshot = self.graph
+            _decoder_w2i = dict(self._decoder_word_to_idx)
+            _decoder_i2w = dict(self._decoder_idx_to_word)
+            _decoder_w2e = dict(self._decoder_word_to_embed)
+            _ck_snapshot = dict(self._concept_keywords)
+            _cl_snapshot = set(self._concept_labels)
+            _vc_snapshot = set(self._visited_concepts)
+            _af_snapshot = dict(self._activation_fatigue)
+            _rt_snapshot = list(self._recent_traversals)
+            _rtm_snapshot = dict(self._recent_traversal_map)
+            _cv_snapshot = dict(self._concept_vad)
+            _td_snapshot = list(self._td_error_history[-50:])
+            _cc_snapshot = dict(self._concept_confidence)
         state = {
-            'graph': self.graph,
-            'concept_keywords': self._concept_keywords,
+            'graph': _graph_snapshot,
+            'concept_keywords': _ck_snapshot,
             'turn_count': self.turn_count,
-            'topic_list': self._topic_list,
-            'topic_store': self._topic_store,
-            'response_context': self._response_context,
-            'last_responses': self._last_responses,
+            'topic_list': list(self._topic_list),
+            'topic_store': dict(self._topic_store),
+            'response_context': list(self._response_context),
+            'last_responses': list(self._last_responses),
             'last_strategy': self._last_strategy,
             'free_energy': self._free_energy,
             'learning_count': self._learning_count,
@@ -7017,9 +7431,9 @@ class CognitiveChatEngine:
             'sleep_pressure': self._sleep_pressure,
             'last_sleep_episode': self._last_sleep_episode,
             'sleep_cycles_completed': self.sleep_cycles_completed,
-            'concept_vad': self._concept_vad,
+            'concept_vad': _cv_snapshot,
             'meta_mode': self.meta_cog.current_mode.value,
-            'contradiction_map': self._contradiction_map,
+            'contradiction_map': dict(self._contradiction_map),
             'user_model': self.user_model,
             'use_vad': getattr(self, 'use_vad', True),
             'use_rlm': getattr(self, 'use_rlm', True),
@@ -7031,15 +7445,16 @@ class CognitiveChatEngine:
             'bg_multi_search_max': self._bg_multi_search_max,
             # Curiosity Drive state
             'curiosity_drive_enabled': self._curiosity_drive_enabled,
-            'concept_visit_count': self._concept_visit_count,
-            'concept_learning_progress': self._concept_learning_progress,            'concept_pe_delta': self._concept_pe_delta,
-            'curiosity_topics_queue': self._curiosity_topics_queue,
+            'concept_visit_count': dict(self._concept_visit_count),
+            'concept_learning_progress': dict(self._concept_learning_progress),
+            'concept_pe_delta': dict(self._concept_pe_delta),
+            'curiosity_topics_queue': list(self._curiosity_topics_queue),
             'last_auto_learn_turn': self._last_auto_learn_turn,
             'curiosity_urgency': self._curiosity_urgency,
-            'user_query_topics': self._user_query_topics,
+            'user_query_topics': list(self._user_query_topics),
             'user_last_topic': self._user_last_topic,
             'concept_sources': {k: list(v) for k, v in self._concept_sources.items()},
-            'explored_contradictions': [list(p) for p in self._explored_contradictions],
+            'explored_contradictions': [list(p) for p in list(self._explored_contradictions)],
             # Dual stores
             'episodic_edges': dict(self._episodic_edges),
             'semantic_edges': dict(self._semantic_edges),
@@ -7047,20 +7462,20 @@ class CognitiveChatEngine:
             'sentence_schema': dict(self._sentence_schema),
             'mean_sentence_pe': self._mean_sentence_pe,
             'dopamine_tone': self._dopamine_tone,
-            'td_error_history': list(self._td_error_history[-50:]),
-            'concept_confidence': dict(self._concept_confidence),
+            'td_error_history': _td_snapshot,
+            'concept_confidence': _cc_snapshot,
             'cerebellar_ngram': dict(self._cerebellar_ngram),
             'cerebellar_ngram_state': self.cerebellar_ngram.get_state() if hasattr(self, 'cerebellar_ngram') else {},
             'cerebellar_depth': dict(self._cerebellar_depth),
             'concept_pos': dict(self._concept_pos),
             'concept_labels': list(self._concept_labels),
             'visited_concepts': list(self._visited_concepts),
-            'activation_fatigue': dict(self._activation_fatigue),
-            'recent_traversals': list(self._recent_traversals[-30:]),
-            'recent_traversal_map': dict(self._recent_traversal_map),
+            'activation_fatigue': _af_snapshot,
+            'recent_traversals': _rt_snapshot,
+            'recent_traversal_map': _rtm_snapshot,
             'cognitive_state': self._cognitive_state,
             'state_duration': self._state_duration,
-            'prefrontal_buffer': self._prefrontal_buffer,
+            'prefrontal_buffer': list(self._prefrontal_buffer),
             'mean_prediction_error': self._mean_prediction_error,
             'prediction_error_count': self._prediction_error_count,
             # Neural decoder
@@ -7069,7 +7484,7 @@ class CognitiveChatEngine:
             'decoder_web_training_count': self._decoder_web_training_count,
             # Curiosity diversity state
             'bg_learning_cycles': getattr(self, '_bg_learning_cycles', 0),
-            'recent_curiosity_selections': getattr(self, '_recent_curiosity_selections', []),
+            'recent_curiosity_selections': list(getattr(self, '_recent_curiosity_selections', [])),
             'curiosity_selection_cooldown': getattr(self, '_curiosity_selection_cooldown', 5),
         }
         try:

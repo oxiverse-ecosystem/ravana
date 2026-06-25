@@ -368,10 +368,14 @@ class TestSyntacticCellAssembly:
         assert frame.relation_type == "semantic"
 
     def test_verb_phrases_exist(self):
-        assert "semantic" in SyntacticCellAssembly.VERB_PHRASES
-        assert "causal" in SyntacticCellAssembly.VERB_PHRASES
-        assert "contrastive" in SyntacticCellAssembly.VERB_PHRASES
-        assert len(SyntacticCellAssembly.VERB_PHRASES["semantic"]) >= 3
+        from ravana.language.verb_lexicon import VerbLexicon
+        phrases = VerbLexicon.get_phrases("semantic")
+        assert len(phrases) >= 3
+        assert "ties into" in phrases
+        phrases_causal = VerbLexicon.get_phrases("causal")
+        assert len(phrases_causal) >= 3
+        phrases_contrast = VerbLexicon.get_phrases("contrastive")
+        assert len(phrases_contrast) >= 3
 
     def test_determine_article_pronoun(self):
         sca = SyntacticCellAssembly()

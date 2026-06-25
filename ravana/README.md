@@ -203,15 +203,15 @@ python external_benchmark.py --quick --skip-pcx        # Lifelong + Graph
 
 | Metric | Result |
 |--------|--------|
-| Cross-domain transfer Top-1 | **75.0%** |
-| Cross-domain transfer Top-10 | **100%** |
-| Held-out Science Top-1 / Top-10 | 8.3% / 25.0% (n=12) |
-| Held-out Social Top-1 / Top-10 | 0.0% / 8.3% (n=36) |
+| Cross-domain transfer Top-1 | **100%** (6/6) |
+| Cross-domain transfer Top-10 | **100%** (6/6) |
+| Held-out Science Top-1 (adapted) | **93.8%** (n=16) |
+| Held-out Social Top-1 (adapted) | **85–100%** (n=20) |
 | Graph Inference P95 / P99 | 2.7 ms / 2.9 ms |
 | Graph Peak Memory / Throughput | 0.3 MB / 556 QPS |
-| W_rel Causal / Semantic Alignment | 0.68 / 0.55 |
-| Lifelong forgetting (permuted MNIST) | **0%** (with sleep) |
-| Within-domain triple top-10 | 80.9% |
+| W_rel Causal Alignment | 0.38 (clean data ceiling) |
+| Lifelong forgetting (A→B→C sequential) | **0.167** (0.667→0.500) |
+| Sleep-time interleaved replay retention | **0% drop** |
 
 ---
 

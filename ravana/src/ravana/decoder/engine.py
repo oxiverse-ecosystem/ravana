@@ -18,8 +18,8 @@ class DecoderConfig:
     embed_dim: int = 64
     hidden_dim: int = 256
     n_attention_heads: int = 4
-    contrastive_weight: float = 0.3
-    contrastive_negatives: int = 5
+    contrastive_weight: float = 0.5
+    contrastive_negatives: int = 8
 
 
 class DecoderEngine:
