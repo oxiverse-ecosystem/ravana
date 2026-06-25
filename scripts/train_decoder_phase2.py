@@ -26,6 +26,20 @@ print("RAVANA Decoder Training — Phase 2+3")
 print("=" * 60)
 print()
 
+# ── Auto-fetch teen_seeds.txt if missing ──
+corpus_path = os.path.join(_proj_root, "data", "corpora", "teen_seeds.txt")
+if not os.path.exists(corpus_path):
+    print("[0/3] teen_seeds.txt not found — gathering from internet...", flush=True)
+    gather_script = os.path.join(_proj_root, "scripts", "gather_teen_seeds.py")
+    if os.path.exists(gather_script):
+        import subprocess
+        ret = subprocess.call([sys.executable, gather_script, "--force"])
+        if ret != 0:
+            print(f"  [warn] Gather script exited with code {ret}", flush=True)
+    else:
+        print(f"  [warn] gather_teen_seeds.py not found at {gather_script}", flush=True)
+    print()
+
 # ── Load Engine ──
 print("[1/3] Loading CognitiveChatEngine...", flush=True)
 t0 = time.time()
@@ -50,7 +64,7 @@ print("[2/3] Training decoder on teen_seeds.txt corpus (real English only)...", 
 t1 = time.time()
 corpus_path = os.path.join(_proj_root, "data", "corpora", "teen_seeds.txt")
 if not os.path.exists(corpus_path):
-    print(f"  WARNING: Corpus not found at {corpus_path}")
+    print(f"  WARNING: Corpus still not found at {corpus_path} after gather attempt")
     corpus_sentences = 0
 else:
     with open(corpus_path, "r", encoding="utf-8") as f:

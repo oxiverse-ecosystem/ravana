@@ -1007,6 +1007,12 @@ class CognitiveChatEngine:
         self.baby_mode = baby_mode
         self._concept_labels: Set[str] = set()  # set of primary concept labels
 
+        # Definitional knowledge store: concept -> definition string
+        # Inspired by ATL convergence zones (Binder & Desai 2011): the brain
+        # stores category membership ("X is a Y") as stable neocortical
+        # representations, separate from associative episodic edges.
+        self._definitions: Dict[str, str] = {}
+
         # GloVe embeddings (loaded lazily during seeding)
         self._glove_vecs: Optional[Dict[str, np.ndarray]] = None
         self._glove_proj: Optional[np.ndarray] = None
@@ -1961,18 +1967,23 @@ class CognitiveChatEngine:
             if len(words) > 0 and func_count / len(words) > 0.70:
                 return None
 
-            # Template-pattern gate: reject output that looks like "X connects with Y"
-            # or "X relates to Y" — these are the synthetic graph training artifacts.
+            # Template-pattern gate: reject ONLY egregious graph artifacts.
+            # Relaxed: "leads to", "drives", "refers" are legitimate English.
             template_verbs = {"connects", "connect", "relates", "relate", "links",
-                               "link", "leads", "lead", "refers", "involves",
-                               "associated"}
-            template_preps = {"with", "to", "from", "into"}
+                               "link", "associated"}
+            template_preps = {"with", "into"}
             text_lower = text.lower()
-            # Reject if pattern like "word connects/relates/links with/to word" appears
+            template_rejected = False
             for tv in template_verbs:
                 for tp in template_preps:
-                    if re.search(rf'\b\w+\s+{tv}\s+{tp}\s+\w+', text_lower):
-                        return None
+                    if re.search(rf'\b\w+\s+' + tv + r'\s+' + tp + r'\s+\w+', text_lower):
+                        template_rejected = True
+                        break
+                if template_rejected:
+                    break
+            # Only reject if template pattern AND output is short (< 12 words)
+            if template_rejected and len(words) < 12:
+                return None
 
             # Bigram repetition gate: reject if any bigram appears 3+ times
             if len(words) >= 4:
@@ -2875,6 +2886,40 @@ class CognitiveChatEngine:
             combined_text = " ".join(snippets)
             first_url = results[0].get("url", "") if results else ""
             new_concepts_added = self._learn_from_text(combined_text, query, source_url=first_url if first_url else query)
+
+            # --- Extract definitional knowledge (ATL convergence zone) ---
+            # Scan article text for "X is a Y" / "X refers to Y" patterns
+            # to populate the neocortical definition store.
+            # Neuroscience: Binder & Desai (2011) — ATL convergence zones
+            # store category membership as stable representations.
+            if combined_text:
+                try:
+                    defn_patterns = [
+                        # Capitalized concepts: "Google is a search engine"
+                        re.compile(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+is\s+(?:a|an|the)\s+(.+?)\.', re.IGNORECASE),
+                        re.compile(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+(?:refers?|means?|describes?)\s+to\s+(.+?)\.', re.IGNORECASE),
+                        # Lowercase concepts: "hacking is a form of unauthorized access"
+                        re.compile(r'\b([a-z]{3,})\s+is\s+(?:a|an|the)\s+(.+?)\.'),
+                        re.compile(r'\b([a-z]{3,})\s+(?:refers?|means?)\s+to\s+(.+?)\.'),
+                    ]
+                    query_lower = query.lower().strip()
+                    for pat in defn_patterns:
+                        for m in pat.finditer(combined_text):
+                            concept = m.group(1).strip().lower()
+                            definition = m.group(2).strip()
+                            # Only store if related to query or known concept
+                            # Skip very short or very long definitions
+                            if len(definition) < 10 or len(definition) > 200:
+                                continue
+                            if (concept in query_lower or query_lower in concept
+                                    or concept in self._concept_keywords):
+                                existing = self._definitions.get(concept, '')
+                                if concept not in self._definitions or len(definition) > len(existing):
+                                    self._definitions[concept] = definition[:200]
+                                    if self._trace_enabled:
+                                        print(f"  [definition] Stored: {concept} -> {definition[:80]}...")
+                except Exception:
+                    pass
 
             if new_concepts_added > 0:
                 return f"learned {new_concepts_added} new things about {query}", combined_text
@@ -5787,15 +5832,45 @@ class CognitiveChatEngine:
         subject = ctx.subject
         assocs = ctx.associated_concepts
 
+        # Path 1.5: Definitional lookup (ATL convergence zone - Binder & Desai 2011)
+        # Before falling through to decoder/reasoning, check stored definitions.
+        if subject and subject.lower() in self._definitions:
+            defn = self._definitions[subject.lower()]
+            if defn and len(defn) > 10:
+                framings = [
+                    f"{subject.capitalize()} is {defn}.",
+                    f"From what I know, {subject.lower()} is {defn}.",
+                    f"I have learned that {subject.lower()} is {defn}.",
+                ]
+                response = random.choice(framings)
+                return (response, "definition_store")
+
+
         # Path 1: Syntactic pipeline (P600 compositional integration) — primary
         try:
             syntax_response = self._generate_with_decoder_and_syntax(ctx)
             if syntax_response and len(syntax_response) > 10:
-                return (syntax_response, "syntactic_pipeline")
+                # Quality gate: reject template-like syntactic pipeline output
+                _tpl_check = syntax_response.lower()
+                _is_template = False
+                # Check for repetitive "X is part of Y / It drives Z" patterns
+                _template_markers = ["is part of", "feeds into", "has a relationship with",
+                                     "is tied to", "plays a role in", "goes hand in hand",
+                                     "ties into", "has a lot to do with", "is bound up with"]
+                _tpl_count = sum(1 for m in _template_markers if m in _tpl_check)
+                if _tpl_count >= 1 and len(syntax_response.split()) < 30:
+                    _is_template = True
+                # Also reject if all sentences follow the same "It [verb] a [noun]" pattern
+                _it_pattern_count = len(re.findall(r'\bit\s+\w+\s+a\s+\w+', _tpl_check))
+                if _it_pattern_count >= 2:
+                    _is_template = True
+                if not _is_template:
+                    return (syntax_response, "syntactic_pipeline")
+                # Template detected - fall through to definition/graph fallback
         except Exception:
             pass
 
-        # Path 2: Neural decoder — only when proven fluent (strict quality gate)
+        # Path 2: Neural decoder - relaxed quality gate
         decoder_ready = False
         if self.neural_decoder is not None and self._decoder_vocab_built:
             nd = self.neural_decoder
@@ -6241,63 +6316,89 @@ class CognitiveChatEngine:
         return None
 
     def _graph_fallback_response(self, ctx: CognitiveResponseContext) -> Tuple[str, str]:
-        """Graph-walk fallback when decoder / syntactic pipeline are not enough."""
+        """Graph-walk fallback when decoder / syntactic pipeline are not enough.
+
+        Neuroscience basis:
+        - Definitional knowledge (ATL convergence zone, Binder & Desai 2011):
+          check _definitions store first for "X is a Y" category membership.
+        - Associative knowledge (hippocampal system): graph edges.
+        - Flexible relinking (Sandikci et al. 2025): combine definition + assocs.
+        """
         subject = ctx.subject
         assocs = ctx.associated_concepts
+        from random import Random
+        rnd = Random(self.rng.randint(0, 10**9))
 
         if not subject:
             return ("...", "associative")
 
-        # We still know notable entities that aren’t explained well yet -> ask.
+        subj_lower = subject.lower()
+
+        # --- Priority 1: Definitional knowledge (neocortical overlearned store) ---
+        if subj_lower in self._definitions:
+            defn = self._definitions[subj_lower]
+            sentences_parts: List[str] = []
+            defn_frames = [
+                f"{subject.capitalize()} is {defn}.",
+                f"Basically, {subject.lower()} is {defn}.",
+                f"From what I have learned, {subject.lower()} is {defn}.",
+            ]
+            sentences_parts.append(rnd.choice(defn_frames))
+
+            # Add 1-2 association sentences with varied phrasing
+            if assocs:
+                assoc_phrases = [
+                    lambda a, b: f"It also connects to {b.lower()}.",
+                    lambda a, b: f"{b.lower()} is something closely related to it.",
+                    lambda a, b: f"When you dig deeper, {b.lower()} comes up a lot.",
+                    lambda a, b: f"There is also a strong link to {b.lower()}.",
+                ]
+                seen_assoc = {subj_lower}
+                for label, score in assocs[:3]:
+                    if label and label.lower() not in seen_assoc:
+                        sentences_parts.append(rnd.choice(assoc_phrases)(subject, label))
+                        seen_assoc.add(label.lower())
+                        if len(sentences_parts) >= 3:
+                            break
+
+            follow_ups = [
+                "Want to know more about that?",
+                "What do you think?",
+                "Does that help?",
+                "Want me to dig deeper into any of this?",
+            ]
+            sentences_parts.append(rnd.choice(follow_ups))
+            return (" ".join(sentences_parts), "definition_with_assoc")
+
+        # --- Priority 2: Known concept without definition ---
         if not assocs:
-            subj_lower = subject.lower()
             if subj_lower in self._concept_keywords or subj_lower in self._concept_labels:
-                return (f"I recognize {subject}, but I can't explain it yet. Want me to keep exploring?", "associative")
+                return (f"I recognize {subject}, but I cannot explain it yet. Want me to keep exploring?", "associative")
             return (f"I don't know about {subject} yet.", "unknown_subject")
 
-        temps = [self._get_temperature(0), self._get_temperature(1), self._get_temperature(2)]
-        sentences_parts: List[str] = []
+        # --- Priority 3: Associative response (hippocampal graph walk) ---
+        sentences_parts = []
         seen: Set[str] = {subject.lower()}
-        from random import Random
-        rnd = Random(self.rng.randint(0, 10**9))
 
-        def _one_rel(a: str, b: str) -> str:
-            relation_phrases = [
-                "reminds me of",
-                "ties into",
-                "leads toward",
-                "feels related to",
-                "points to",
-                "shows up again with",
-                "keeps coming back to",
-            ]
-            phrase = rnd.choice(relation_phrases)
-            return f"{a} {phrase} {b}."
+        _constructors = [
+            lambda a, b: f"{a} and {b.lower()} are closely related.",
+            lambda a, b: f"{a} naturally connects with {b.lower()}.",
+            lambda a, b: f"When I think about {a.lower()}, {b.lower()} comes to mind.",
+            lambda a, b: f"{b.lower()} is closely tied to {a.lower()}.",
+            lambda a, b: f"{a} has a lot to do with {b.lower()}.",
+        ]
 
         seen_full: Set[str] = set()
         max_loops = max(3, min(8, len(assocs) * 2))
         loops = 0
 
-        while len(sentences_parts) < 4 and loops < max_loops:
+        while len(sentences_parts) < 3 and loops < max_loops:
             loops += 1
             label, score = assocs[(self.turn_count + loops) % len(assocs)]
             if not label or label.lower() in seen:
                 continue
 
-            node = self._safe_graph_node(label)
-            node_b = self._safe_graph_node(subject)
-            if node and node_b and hasattr(node, "vector") and hasattr(node_b, "vector") and node.vector is not None and node_b.vector is not None:
-                try:
-                    from numpy import dot
-                    from numpy.linalg import norm
-                    relation_score = dot(node.vector, node_b.vector) / (norm(node.vector) * norm(node_b.vector) + 1e-9)
-                except Exception:
-                    relation_score = float(score)
-            else:
-                relation_score = float(score)
-
-            relation_score = max(0.0, min(1.0, relation_score))
-            sentence = _one_rel(subject.capitalize(), label.capitalize())
+            sentence = rnd.choice(_constructors)(subject.capitalize(), label.capitalize())
             sentence_key = " ".join(sorted([subject.lower(), label.lower()]))
             if sentence_key in seen_full:
                 continue
@@ -6305,20 +6406,18 @@ class CognitiveChatEngine:
             sentences_parts.append(sentence)
             seen.add(label.lower())
 
-        # Add one relevant follow-up.
-        if len(sentences_parts) == 1:
-            first_lower = sentences_parts[0].lower()
-            follow_up = getattr(self, "_ASK_BACK", {}).get("default", "")
-            if not follow_up:
-                follow_up = "Does that match what you were getting at?"
-            sentences_parts.append(follow_up)
-
         if not sentences_parts:
             return (f"I don't know much about {subject} yet.", "associative")
 
+        follow_ups = [
+            "Does that match what you were getting at?",
+            "What do you think?",
+            "Want to explore this more?",
+        ]
+        if len(sentences_parts) <= 2:
+            sentences_parts.append(rnd.choice(follow_ups))
+
         return (" ".join(sentences_parts), "graph_fallback")
-
-
 
     def _update_state(self, ctx: CognitiveResponseContext):
         self._free_energy = max(0.0, 0.3 + 0.2 * (1.0 - ctx.identity_strength) - 0.08 * len(ctx.associated_concepts))
@@ -7455,6 +7554,7 @@ class CognitiveChatEngine:
             'decoder_state_dict': self.neural_decoder.state_dict() if self.neural_decoder is not None else None,
             'decoder_training_count': self._decoder_training_count,
             'decoder_web_training_count': self._decoder_web_training_count,
+            'definitions': self._definitions,
             # Curiosity diversity state
             'bg_learning_cycles': getattr(self, '_bg_learning_cycles', 0),
             'recent_curiosity_selections': list(getattr(self, '_recent_curiosity_selections', [])),
@@ -7655,6 +7755,7 @@ class CognitiveChatEngine:
             self._saved_decoder_state = decoder_sd if decoder_sd is not None else {}
             self._decoder_training_count = state.get('decoder_training_count', 0)
             self._decoder_web_training_count = state.get('decoder_web_training_count', 0)
+            self._definitions = state.get('definitions', {})
 
             # Restore Phase 10-17 state
             self._sentence_schema = state.get('sentence_schema', {})
