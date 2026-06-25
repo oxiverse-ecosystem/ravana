@@ -57,6 +57,35 @@ class DialogueEngineConfig:
     # Tokenizer
     tokenizer_name: str = "word"
 
+    def self_tune(self, free_energy_delta: float, turn_count: int):
+        """Adapt parameters based on free energy trend.
+
+        If free energy is rising (prediction error increasing):
+          - Slow decay (keep information longer)
+          - Lower activation threshold (more sensitive)
+          - Lower sleep threshold (consolidate sooner)
+
+        If free energy is falling (successful predictions):
+          - Faster decay (free up working memory)
+          - Higher activation threshold (less noise)
+          - Higher sleep threshold (longer between consolidations)
+        """
+        if turn_count < 5:
+            return
+
+        if free_energy_delta > 0.05:
+            self.decay_rate = min(0.98, self.decay_rate + 0.01)
+            self.activation_threshold = max(0.001, self.activation_threshold - 0.001)
+            self.sleep_pressure_threshold = max(0.5, self.sleep_pressure_threshold - 0.05)
+        elif free_energy_delta < -0.05:
+            self.decay_rate = max(0.85, self.decay_rate - 0.005)
+            self.activation_threshold = min(0.05, self.activation_threshold + 0.001)
+            self.sleep_pressure_threshold = min(3.0, self.sleep_pressure_threshold + 0.05)
+        # Bounded
+        self.decay_rate = max(0.8, min(0.99, self.decay_rate))
+        self.activation_threshold = max(0.001, min(0.1, self.activation_threshold))
+        self.sleep_pressure_threshold = max(0.3, min(5.0, self.sleep_pressure_threshold))
+
 
 @dataclass
 class DialogueTurnRecord:
@@ -191,8 +220,11 @@ class DialogueEngine:
         # Step 6: Check Governor constraints
         response = self._apply_governor_constraints(response)
 
-        # Step 7: Accumulate free energy
+        # Step 7: Accumulate free energy and self-tune
+        prev_fe = self._free_energy_accumulator
         self._accumulate_free_energy(triples)
+        fe_delta = self._free_energy_accumulator - prev_fe
+        self.config.self_tune(fe_delta, self.turn_count)
 
         # Step 8: Check if sleep consolidation is needed
         sleep_triggered = self._check_sleep_needed()
@@ -238,6 +270,7 @@ class DialogueEngine:
         event = self.repair.process_correction(
             self.dialogue_context.last_output,
             user_correction,
+            system_triples=self.dialogue_context.last_output_triples,
         )
 
         if event is not None:
@@ -536,19 +569,29 @@ class DialogueEngine:
         words = user_input.strip().split()
         if len(words) >= 3:
             # Pattern: subject verb object
-            # Use ravana_ml.nn.rlm_v2.RELATION_TYPES for type
-            from ravana_ml.nn.rlm_v2 import RELATION_TYPES
-
-            # Simple heuristic: classify based on verb
+            # Use Hebbian VerbLexicon relation types for type inference
             verb = words[1].lower().rstrip(".,!?")
-            rel_type = "semantic"
 
-            # Check keyword map from RLMv2
-            from ravana_ml.nn.rlm_v2 import _KEYWORD_MAP
-            for rtype, keywords in _KEYWORD_MAP.items():
-                if verb in keywords:
-                    rel_type = rtype
-                    break
+            # Try direct mapping first
+            from ..core.conversational_repair import _extract_relation_type
+            rel_type = _extract_relation_type(verb, default=None)
+
+            if rel_type is None:
+                # Infer relation type from Hebbian-weighted morpheme similarity
+                from ravana.language.verb_lexicon import VerbLexicon
+                rel_type = "semantic"
+                best_score = 0.0
+                for candidate_relation in VerbLexicon.COMPOSITION_RULES:
+                    rules = VerbLexicon.COMPOSITION_RULES[candidate_relation]
+                    for rule in rules:
+                        for cat in rule:
+                            pool = VerbLexicon.MORPHEMIC_SEEDS.get(cat, [])
+                            for seed in pool:
+                                if verb == seed or verb.startswith(seed) or seed.startswith(verb):
+                                    hw = VerbLexicon._hebbian_weight[candidate_relation].get(seed, 0.3)
+                                    if hw > best_score:
+                                        best_score = hw
+                                        rel_type = candidate_relation
 
             triple = Triple(
                 subject=words[0],
@@ -609,47 +652,55 @@ class DialogueEngine:
         triple: Triple,
         top_concepts: List[Tuple[str, float]],
     ) -> Tuple[str, List[Triple]]:
-        """Generate response using RLMv2 model."""
+        """Generate response using RLMv2 model with active inference.
+
+        Response form is determined by prediction confidence:
+        - High confidence (top prob > 0.6): direct SVO statement
+        - Medium confidence (0.3-0.6): epistemic hedge + SVO
+        - Low confidence (< 0.3): uncertainty-driven question
+        """
         try:
-            # Tokenize the input
             token_ids = self.tokenizer.encode(user_input)
             input_tensor = np.array(token_ids, dtype=np.int64)
 
-            # Run forward pass
             self.rlm_model._tokenizer = self.tokenizer
             logits = self.rlm_model.forward(input_tensor)
 
-            # Get top prediction
             if hasattr(logits, 'data'):
                 probs = logits.data
             else:
                 probs = logits
 
-            # Find the predicted object
             top_k = np.argsort(probs)[-5:][::-1]
+            top_prob = float(probs[top_k[0]]) if len(top_k) > 0 else 0.0
             predicted_tokens = self.tokenizer.decode(top_k.tolist())
-
-            # Build response
-            response = (
-                f"Based on what I know, {triple.subject} {triple.relation} "
-                f"{predicted_tokens.strip()}"
-            )
+            predicted_text = predicted_tokens.strip()
 
             response_triple = Triple(
                 subject=triple.subject,
                 relation=triple.relation,
                 relation_type=triple.relation_type,
-                object=predicted_tokens.strip(),
-                confidence=0.5,
+                object=predicted_text if predicted_text else triple.object,
+                confidence=top_prob,
                 source_agent="system",
                 epistemic_status="hypothesis",
                 timestamp=time.time(),
             )
 
+            if top_prob > 0.6:
+                response = f"{triple.subject} {triple.relation} {predicted_text}."
+                if not response.endswith(('.', '?', '!')):
+                    response += '.'
+            elif top_prob > 0.3:
+                hedge = "I think" if top_prob < 0.45 else "I believe"
+                response = f"{hedge} {triple.subject} {triple.relation} {predicted_text}."
+            else:
+                response = f"I'm not sure what follows from {triple.subject} {triple.relation}."
+
             return response, [response_triple]
 
         except Exception as e:
-            return f"I processed that. ({e})", []
+            return f"I processed that.", []
 
     def _generate_fallback_response(
         self,
@@ -657,11 +708,19 @@ class DialogueEngine:
         top_concepts: List[Tuple[str, float]],
     ) -> Tuple[str, List[Triple]]:
         """
-        Generate a simple template-based response when RLMv2 is unavailable.
+        Generate response from activated concepts using Hebbian compositional
+        verb selection. No hardcoded templates.
 
-        Uses activated concepts to provide context-aware responses.
+        The response is composed from:
+        1. The triple's subject and object
+        2. A verb phrase selected via Hebbian weights for the relation type
+        3. Activated concepts as supporting context (if sufficiently active)
+
+        If no concepts are activated, produces a simple belief-stating response
+        gated by current free energy.
         """
-        # Generate from activated concepts if available
+        from ravana.language.verb_lexicon import VerbLexicon
+
         if top_concepts:
             related = [
                 concept
@@ -670,20 +729,33 @@ class DialogueEngine:
                 and concept.lower() != triple.object.lower()
             ]
             if related:
-                response = (
-                    f"I understand that {triple.subject} {triple.relation} "
-                    f"{triple.object}. This relates to "
-                    f"{', '.join(related)}."
+                verb = VerbLexicon.select_verb(
+                    relation=triple.relation_type or "semantic",
+                    subject=triple.subject,
+                    object=triple.object,
+                    dopamine_tone=max(0.1, 0.5 - self._free_energy_accumulator * 0.1),
                 )
+                response = f"{triple.subject} {verb} {triple.object}."
+                response += f" This connects to {', '.join(related)}."
             else:
-                response = (
-                    f"I see that {triple.subject} {triple.relation} "
-                    f"{triple.object}."
+                verb = VerbLexicon.select_verb(
+                    relation=triple.relation_type or "semantic",
+                    subject=triple.subject,
+                    object=triple.object,
+                    dopamine_tone=0.3,
                 )
+                response = f"{triple.subject} {verb} {triple.object}."
         else:
-            response = (
-                f"Noted: {triple.subject} {triple.relation} {triple.object}."
-            )
+            if self._free_energy_accumulator > 1.0:
+                response = f"I note that {triple.subject} relates to {triple.object}."
+            else:
+                verb = VerbLexicon.select_verb(
+                    relation=triple.relation_type or "semantic",
+                    subject=triple.subject,
+                    object=triple.object,
+                    dopamine_tone=0.3,
+                )
+                response = f"{triple.subject} {verb} {triple.object}."
 
         return response, [triple]
 

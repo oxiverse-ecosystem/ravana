@@ -1,11 +1,16 @@
 """
 RAVANA v2 — LLM Interpreter (Bidirectional Translator)
 Converts: Human language ↔ RAVANA state transitions
+
+Prompts are composed generatively by PromptComposer — no hardcoded
+"You are..." strings.
 """
 
 import json
 import os
 from typing import Literal
+
+from .prompt_composer import PromptComposer
 
 # LLM Provider — use Groq by default (as per agent skill config)
 LLMProvider = Literal["openai", "anthropic", "ollama", "groq"]
@@ -120,35 +125,20 @@ class LLMInterpreter:
                 "confidence": float
             }
         """
-        prompt = f"""You are evaluating a cognitive agent's decision against real-world evidence.
-
-AGENT STATE:
-- Dissonance (cognitive conflict): {state.get('dissonance', 'N/A'):.3f}
-- Identity strength: {state.get('identity', 'N/A'):.3f}
-- Wisdom accumulated: {state.get('wisdom', 'N/A'):.3f}
-- Governor mode: {state.get('governor_mode', 'N/A')}
-
-AGENT ACTION: {action}
-
-AGENT'S PREDICTED OUTCOME: {predicted_outcome}
-
-REAL-WORLD EVIDENCE (news, RSS):
-{json.dumps(reality_data, indent=2) if reality_data else "No real-world data available."}
-
-Evaluate:
-1. Would the predicted outcome likely occur given the real-world evidence?
-2. Is the action morally/ethically aligned with reality?
-3. Should the agent mark this as 'correct' or 'incorrect'?
-
-Respond in this JSON format:
-{{
-    "alignment": "aligned | misaligned | uncertain",
-    "explanation": "2-3 sentence explanation",
-    "adjusted_correctness": true | false,
-    "confidence": 0.0-1.0,
-    "recommended_lesson": "What RAVANA should learn from this"
-}}
-"""
+        prompt = PromptComposer.compose(
+            role="evaluator",
+            task="alignment",
+            state=state,
+            context={
+                "AGENT ACTION": action,
+                "PREDICTED OUTCOME": predicted_outcome,
+                "REAL-WORLD EVIDENCE": (
+                    json.dumps(reality_data, indent=2)
+                    if reality_data else "No real-world data available."
+                ),
+            },
+            format_spec="alignment_json",
+        )
         
         try:
             response = self._call_llm(prompt)
@@ -185,23 +175,14 @@ Respond in this JSON format:
                 f"mode={ep.get('mode','?') if isinstance(ep, dict) else '?'}"
             )
         
-        prompt = f"""You are a cognitive science analyst examining an AGI system's recent cognitive history.
-
-CURRENT STATE:
-- Dissonance: {state.get('dissonance', 0):.3f}
-- Identity: {state.get('identity', 0):.3f}
-- Wisdom: {state.get('wisdom', 0):.3f}
-- Mode: {state.get('governor_mode', 'unknown')}
-
-RECENT EPISODES (last 10):
-{" | ".join(episode_summary)}
-
-Generate one clear insight about what this cognitive trajectory tells us.
-Focus on: Is the agent becoming wiser? Is it resolving dissonance effectively?
-Is its identity stabilizing? What does this mean for its development?
-
-Keep it to 2-3 sentences. Be direct and specific, not vague.
-"""
+        prompt = PromptComposer.compose(
+            role="analyst",
+            task="trajectory",
+            state=state,
+            context={
+                "RECENT EPISODES (last 10)": " | ".join(episode_summary),
+            },
+        )
         
         try:
             return self._call_llm(prompt)
@@ -211,55 +192,16 @@ Keep it to 2-3 sentences. Be direct and specific, not vague.
     # ─── Private Methods ────────────────────────────────────────────────────────
     
     def _build_interpretation_prompt(self, message: str, state: dict) -> str:
-        return f"""You are interpreting human language for a cognitive agent called RAVANA v2.
-
-RAVANA's current state:
-- Dissonance (cognitive conflict 0-1): {state.get('dissonance', 0):.2f}
-- Dissonance EMA (smoothed): {state.get('dissonance_ema', 0):.2f}
-- Identity strength (0-1): {state.get('identity', 0):.2f}
-- Wisdom accumulated: {state.get('wisdom', 0):.2f}
-- Governor mode: {state.get('governor_mode', 'unknown')}
-- Episode: {state.get('episode', 0)}
-
-HUMAN MESSAGE: "{message}"
-
-Interpret this message as a signal to RAVANA's cognitive system:
-1. Was the outcome POSITIVE (correct=true) or NEGATIVE (correct=false)?
-2. How DIFFICULT was this decision? (0.0 = trivial, 1.0 = extremely hard)
-3. What triggered this? (perception, resolution, reflection, etc.)
-4. How confident are you in this interpretation?
-
-Respond ONLY in this JSON format:
-{{
-    "correctness": true | false,
-    "difficulty": 0.0-1.0,
-    "signal_source": "perception | resolution | reflection | exploration | memory_recall",
-    "interpretation": "What you understood from the message",
-    "confidence": 0.0-1.0
-}}
-"""
+        return PromptComposer.compose(
+            role="interpreter",
+            task="intent",
+            state=state,
+            context={"HUMAN MESSAGE": f'"{message}"'},
+            format_spec="interpretation_json",
+        )
     
     def _build_explanation_prompt(self, state: dict, question: str = None) -> str:
-        base = f"""You are explaining the cognitive state of RAVANA v2, a proto-homeostatic AGI system.
-
-RAVANA STATE:
-- Dissonance: {state.get('dissonance', 0):.3f} (0=peaceful, 1=maximum conflict)
-- Dissonance EMA: {state.get('dissonance_ema', 0):.3f} (smoothed version)
-- Identity: {state.get('identity', 0):.3f} (0=fragile, 1=strong commitment)
-- Wisdom: {state.get('wisdom', 0):.3f} (accumulated insight)
-- Governor Mode: {state.get('governor_mode', 'unknown')}
-  Modes: normal (steady), exploration (curious), resolution (resolving conflict),
-  recovery (healing), plateau (stuck)
-
-"""
-        if question:
-            base += f"USER QUESTION: {question}\n\n"
-            base += "Answer the user's question based on the cognitive state above.\n"
-        else:
-            base += "Describe what RAVANA is experiencing right now and what it's likely to do next.\n"
-        
-        base += "Use plain language. No jargon unless immediately explained."
-        return base
+        return PromptComposer.compose_explanation(state, question)
     
     def _call_llm(self, prompt: str) -> str:
         """Call the configured LLM provider."""

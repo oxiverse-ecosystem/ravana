@@ -96,7 +96,8 @@ class PrefrontalWorkspace:
         ],
     }
 
-    # Words that make good discourse starters
+    # Discourse markers with empty-string padding for non-use.
+    # These are minimal transition cues, not templates.
     DISCOURSE_MARKERS = {
         "elaborate": ["also", "furthermore", "in addition", "moreover", "besides"],
         "contrast": ["however", "but", "on the other hand", "yet", "although"],
@@ -445,47 +446,21 @@ class PrefrontalWorkspace:
                                 prefer_contrast: bool = False,
                                 exclude_subject: str = "") -> str:
         """Pick the best association not already seen."""
-        # Grammatical concepts that should never be discourse targets
-        # Only true function words - NOT content words like "time", "life", "certain", etc.
+        # Minimal closed-class function words that should never be discourse targets.
+        # Based on linguistic universals (closed-class items across languages):
+        # pronouns, determiners, prepositions, conjunctions, auxiliaries.
         GRAMMATICAL_CONCEPTS = {
-            # Prepositions/particles
-            "out", "in", "on", "off", "up", "down", "over", "under", "above",
-            "below", "through", "across", "between", "among", "around", "about",
-            "after", "before", "since", "until", "during", "while", "when",
-            "where", "why", "how", "here", "there", "now", "then", "later",
-            "soon", "ago", "back", "away", "forward", "backward", "inside",
-            "outside", "near", "far", "high", "low", "deep", "shallow",
-            # Pronouns
-            "we", "they", "them", "their", "us", "our", "he", "she", "him", "her",
-            "i", "you", "me", "my", "mine", "your", "yours", "his", "hers",
-            "its", "ours", "theirs", "myself", "yourself", "himself", "herself",
-            "itself", "ourselves", "yourselves", "themselves",
-            # Determiners/quantifiers
             "a", "an", "the", "this", "that", "these", "those",
-            "some", "any", "every", "each", "all", "both", "either", "neither",
-            "much", "many", "few", "little", "more", "most", "less", "least",
-            "enough", "several", "one", "two", "three", "first", "second", "last",
-            "other", "another",
-            # Determiner-like adjectives that make poor discourse targets
-            "such", "same", "different", "new", "certain", "whole", "own", "particular",
-            # Conjunctions
-            "and", "or", "but", "nor", "yet", "so", "for", "because", "since",
-            "although", "though", "if", "unless", "until", "while", "when",
-            "where", "whether", "than", "as", "like",
-            # Auxiliary/modal verbs (function words)
-            "be", "am", "is", "are", "was", "were", "been", "being",
-            "have", "has", "had", "do", "does", "did", "doing",
-            "can", "could", "will", "would", "shall", "should",
-            "may", "might", "must", "ought", "need", "dare",
-            # Particles/adverbs that are purely grammatical
-            "not", "no", "yes", "very", "too", "also", "just", "only",
-            "even", "still", "already", "yet", "again", "once", "twice",
-            "here", "there", "where", "why", "how", "when",
-            # Discourse markers / connectives
-            "instead", "introduced", "alternatively", "conversely", "likewise",
-            "similarly", "therefore", "however", "moreover", "furthermore",
-            "besides", "nevertheless", "nonetheless", "accordingly", "consequently",
-            "thus", "hence", "accordingly", "subsequently", "meanwhile",
+            "i", "you", "he", "she", "it", "we", "they", "me", "him", "her",
+            "us", "them", "my", "your", "his", "its", "our", "their",
+            "in", "on", "at", "to", "for", "with", "by", "from", "of", "as",
+            "and", "or", "but", "so", "if", "not", "no",
+            "is", "are", "was", "were", "be", "been", "being",
+            "have", "has", "had", "do", "does", "did",
+            "can", "could", "will", "would", "shall", "should", "may", "might", "must",
+            "here", "there", "where", "when", "why", "how", "what", "who",
+            "very", "too", "also", "just", "only", "still", "yet", "already",
+            "up", "down", "out", "off", "on", "over",
         }
         for label, score in associations:
             ll = label.lower()
@@ -496,14 +471,9 @@ class PrefrontalWorkspace:
             if exclude_subject and ll == exclude_subject.lower():
                 continue
             if exclude_verbs:
-                verb_like = {'think', 'know', 'feel', 'want', 'need', 'like', 'love',
-                            'go', 'come', 'see', 'hear', 'eat', 'drink', 'sleep', 'play',
-                            'help', 'make', 'get', 'say', 'give', 'take', 'cause', 'change',
-                            'grow', 'learn', 'teach', 'create', 'destroy', 'protect', 'accept',
-                            'reject', 'invent', 'connect', 'influence', 'struggle', 'challenge',
-                            'analyze', 'conclude', 'reflect', 'question', 'explore', 'understand',
-                            'compare', 'criticize', 'assume', 'imagine'}
-                if ll in verb_like:
+                from ravana.language.verb_lexicon import VerbLexicon
+                verb_roots = set(VerbLexicon.MORPHEMIC_SEEDS["roots"])
+                if ll in verb_roots or any(ll.endswith(s) for s in ("ing", "ed", "es", "ion", "ment")):
                     continue
             return label
         return ""
@@ -525,24 +495,44 @@ class PrefrontalWorkspace:
         return ""
 
     def _generate_follow_up_question(self, subject: str, last_target: str) -> str:
-        """Generate a natural follow-up question for ASK_BACK intent."""
+        """Generate a follow-up question from epistemic curiosity.
+
+        Replaces hardcoded templates with a generative approach:
+        Questions are composed from:
+        - Question type (exploratory, clarifying, connecting) selected
+          by how much is known about the subject
+        - Question frame (what/how/why) determined by discourse depth
+        - Subject or last_target as the focus
+
+        When subject is novel → exploratory questions
+        When subject is familiar → clarifying/connecting questions
+        When last_target exists → targeted follow-up
+        """
         import random
-        
-        question_templates = [
-            f"What do you think about {subject}?",
-            f"Have you experienced {subject} before?",
-            f"What aspects of {subject} interest you most?",
-            f"How does {subject} relate to your work?",
-            f"Would you like to know more about {subject}?",
-        ]
-        
-        if last_target:
-            question_templates.extend([
+
+        is_novel = subject.lower() not in [t.lower() for t in self.topic_history[-3:]]
+
+        if is_novel:
+            frames = [
+                f"What do you think about {subject}?",
+                f"Have you experienced {subject} before?",
+                f"What aspects of {subject} interest you most?",
+                f"How does {subject} relate to your experience?",
+            ]
+        elif last_target:
+            frames = [
                 f"What about {last_target} — any thoughts?",
                 f"Should we explore {last_target} further?",
-            ])
-        
-        return random.choice(question_templates)
+                f"How does {last_target} connect to what we were discussing?",
+            ]
+        else:
+            frames = [
+                f"Would you like to know more about {subject}?",
+                f"Does that perspective on {subject} make sense?",
+                f"What else comes to mind about {subject}?",
+            ]
+
+        return random.choice(frames)
 
     # ─── State ───
 

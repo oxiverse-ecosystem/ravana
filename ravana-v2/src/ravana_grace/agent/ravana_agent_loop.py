@@ -151,24 +151,22 @@ def brainstorm_evaluate(findings: List[Dict]) -> List[Dict]:
         topic = finding['topic']
         
         # Build evaluation prompt
-        prompt = f"""Evaluate this RAVANA interface agent improvement:
-
-Topic: {topic}
-Query: {finding['query']}
-
-Rate on:
-1. Relevance to RAVANA v2 (1-10): How much does this help the cognitive agent interface?
-2. Feasibility (1-10): How hard to implement?
-3. Impact (1-10): How much improvement if successful?
-4. Priority: high/medium/low
-
-Consider:
-- RAVANA v2 has: dissonance/identity dynamics, governor regulation, memory systems
-- Interface Agent needs: human↔RAVANA translation, real-world grounding, learning
-- Hermes Agent has: skill creation, cross-session memory, scheduling
-
-Respond as JSON: {{"relevance": N, "feasibility": N, "impact": N, "priority": "high/medium/low", "reason": "..."}}
-"""
+        from ..interface_agent.scripts.prompt_composer import PromptComposer
+        prompt = PromptComposer.compose(
+            role="evaluator",
+            task="evaluate_brainstorm",
+            state={},
+            context={
+                "Topic": topic,
+                "Query": finding['query'],
+                "Consider": (
+                    "RAVANA v2 has: dissonance/identity dynamics, governor regulation, memory systems. "
+                    "Interface Agent needs: human↔RAVANA translation, real-world grounding, learning. "
+                    "Hermes Agent has: skill creation, cross-session memory, scheduling."
+                ),
+            },
+            format_spec="brainstorm_json",
+        )
         
         try:
             result = groq_complete(prompt, model=CAPABLE_MODEL)

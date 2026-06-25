@@ -81,47 +81,6 @@ class SyntacticCellAssembly:
         ('verb_role', 'contrastive'):    {'object_role': 0.7, 'subject_role': 0.1, 'verb_role': 0.1},
     }
 
-    # Verb phrases per relation type — delegated to VerbLexicon (Phase 6)
-    # The VerbLexicon provides semantically-driven verb selection based on
-    # Levelt's lemma retrieval model (1989). Kept as a class variable for
-    # backward compatibility with tests, but actual selection uses VerbLexicon.
-    # Phase 6: VERB_PHRASES is a deprecated alias; use VerbLexicon instead.
-    VERB_PHRASES = {
-        'semantic': [
-            'ties into', 'is part of', 'plays a role in',
-            'feeds into', 'goes hand in hand with', 'is bound up with',
-            'is deeply connected with', 'is tied to',
-            'has a relationship with', 'has a lot to do with',
-        ],
-        'causal': [
-            'leads to', 'creates', 'causes', 'brings about',
-            'influences', 'gives rise to', 'results in',
-            'sparks', 'triggers', 'fuels', 'contributes to',
-            'drives', 'prompts',
-        ],
-        'contrastive': [
-            'contrasts with', 'differs from', 'stands against',
-            'challenges', 'is the opposite of',
-            'clashes with', 'pulls against', 'runs counter to',
-            'is at odds with', 'diverges from', 'pushes back against',
-        ],
-        'analogical': [
-            'is like', 'resembles', 'mirrors', 'echoes', 'is similar to',
-            'can be compared to', 'is akin to', 'parallels',
-            'reflects', 'brings to mind', 'reminds us of',
-        ],
-        'temporal': [
-            'comes before', 'follows', 'leads into', 'precedes',
-            'happens before', 'occurs after',
-            'ushers in', 'paves the way for', 'sets the stage for',
-            'traces back to',
-        ],
-        'episodic': [
-            'brings up', 'recalls', 'reminds us of',
-            'is linked with', 'ties into', 'feeds into',
-        ],
-    }
-
     # Discourse type mapping — maps edge relation types to surface discourse types
     # Used by the SurfaceRealizer to pick natural clause templates.
     RELATION_TO_DISCOURSE = {
@@ -150,14 +109,10 @@ class SyntacticCellAssembly:
         # Track verb phrase usage for cerebellar-weighted selection
         self.verb_phrase_counts: Dict[str, int] = {}
         from ravana.language.verb_lexicon import VerbLexicon
-        for rel_type in VerbLexicon.VERB_PATTERNS:
-            for phrase in VerbLexicon.get_phrases(rel_type):
-                self.verb_phrase_counts[phrase] = 1  # base count
-        # Also include legacy VERB_PHRASES for backward compatibility
-        for rel_type, phrases in self.VERB_PHRASES.items():
-            for phrase in phrases:
-                if phrase not in self.verb_phrase_counts:
-                    self.verb_phrase_counts[phrase] = 1
+        for rel_type in VerbLexicon.COMPOSITION_RULES:
+            for _ in range(3):
+                phrase = VerbLexicon.select_verb(rel_type)
+                self.verb_phrase_counts[phrase] = self.verb_phrase_counts.get(phrase, 0) + 1
 
         # Countability tracking for article insertion
         # Seeded with common uncountable/abstract nouns

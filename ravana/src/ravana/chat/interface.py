@@ -80,6 +80,50 @@ TOPIC_SKIP_WORDS = {"i", "you", "we", "they", "he", "she", "it", "me", "my",
                     "point", "way", "thing", "stuff", "and", "so"}
 
 
+def _is_word_salad(text: str) -> bool:
+    """Detect if generated text is a word salad (meaningless word lists or repetitions)."""
+    if not text:
+        return True
+
+    # 1. Look for consecutive duplicated words (e.g., "the the", "coffee coffee", "is is")
+    # excluding few common cases like "that that" or "had had" if they are only 1 occurrence
+    import re
+    words = re.findall(r"\b\w+\b", text.lower())
+    if not words:
+        return True
+
+    for i in range(len(words) - 1):
+        if words[i] == words[i+1]:
+            if words[i] not in ("that", "had"):
+                return True
+
+    # 2. Look for excessive word repetition rate
+    # Count frequency of content words (length >= 3)
+    content_words = [w for w in words if len(w) >= 3 and w not in (
+        "the", "and", "for", "with", "from", "that", "this", "they", "them", "have"
+    )]
+    if content_words:
+        from collections import Counter
+        counts = Counter(content_words)
+        # If any single content word is repeated 3 or more times,
+        # or if multiple content words are repeated twice, it is likely a loop.
+        max_rep = max(counts.values())
+        if max_rep >= 3:
+            return True
+        # If more than 2 content words are repeated, or total repetition is high
+        rep_count = sum(1 for c in counts.values() if c >= 2)
+        if rep_count >= 2 and len(content_words) < 20:
+            return True
+
+    # 3. Check for ratio of unique words to total words (Type-Token Ratio)
+    unique_words = set(words)
+    ttr = len(unique_words) / len(words)
+    if len(words) >= 10 and ttr < 0.5:
+        return True
+
+    return False
+
+
 @dataclass
 class CognitiveResponseContext:
     """All cognitive signals available for response generation."""
@@ -532,7 +576,7 @@ class ChatInterface:
         if _have_web and _total >= 1000:
             try:
                 decoder_response = self._generate_with_decoder_and_syntax(ctx)
-                if decoder_response and len(decoder_response) > 10:
+                if decoder_response and len(decoder_response) > 10 and not _is_word_salad(decoder_response):
                     return (decoder_response, "neural_decoder")
             except Exception:
                 pass
@@ -541,8 +585,23 @@ class ChatInterface:
         # This works independently of neural decoder training
         try:
             syntax_response = self._generate_with_decoder_and_syntax(ctx)
-            if syntax_response and len(syntax_response) > 10:
-                return (syntax_response, "syntactic_pipeline")
+            if syntax_response and len(syntax_response) > 10 and not _is_word_salad(syntax_response):
+                # Quality gate: reject template-like syntactic pipeline output
+                _tpl_check = syntax_response.lower()
+                _is_template = False
+                # Check for repetitive "X is part of Y / It drives Z" patterns
+                _template_markers = ["is part of", "feeds into", "has a relationship with",
+                                     "is tied to", "plays a role in", "goes hand in hand",
+                                     "ties into", "has a lot to do with", "is bound up with"]
+                _tpl_count = sum(1 for m in _template_markers if m in _tpl_check)
+                if _tpl_count >= 1 and len(syntax_response.split()) < 30:
+                    _is_template = True
+                # Also reject if all sentences follow the same "It [verb] a [noun]" pattern
+                _it_pattern_count = len(re.findall(r'\bit\s+\w+\s+a\s+\w+', _tpl_check))
+                if _it_pattern_count >= 2:
+                    _is_template = True
+                if not _is_template:
+                    return (syntax_response, "syntactic_pipeline")
         except Exception as e:
             if self._trace_enabled:
                 print(f"  [trace] syntactic pipeline error: {e}")
@@ -960,7 +1019,7 @@ class ChatInterface:
 
         try:
             decoder_response = self._generate_with_decoder_and_syntax(ctx)
-            if decoder_response and len(decoder_response) > 10:
+            if decoder_response and len(decoder_response) > 10 and not _is_word_salad(decoder_response):
                 return (decoder_response, "neural_decoder_reasoned")
         except Exception:
             pass
@@ -996,31 +1055,139 @@ class ChatInterface:
     def _graph_fallback_response(self, ctx: CognitiveResponseContext) -> Tuple[str, str]:
         subject = ctx.subject
         assocs = ctx.associated_concepts
-        if not assocs:
-            if subject:
-                subj_lower = subject.lower()
-                if subj_lower in self.graph_engine._concept_keywords or subj_lower in self.graph_engine._concept_labels:
-                    neighbor = self.graph_engine.find_vector_neighbor(subject)
-                    if neighbor and neighbor.lower() != subject.lower():
-                        return (f"{subject} connects with {neighbor}.", "associative")
-                    return (f"{subject.capitalize()} is something I know about.", "associative")
-                return (f"I don't know about {subject} yet.", "unknown_subject")
+        from random import Random
+        rnd = Random(42)
+
+        if not subject:
             return ("...", "associative")
-        temps = [self._get_temperature(0), self._get_temperature(1), self._get_temperature(2)]
-        sentences = []
+
+        subj_lower = subject.lower()
+
+        # Neocortical overlearned definitional knowledge check first
+        if hasattr(self, '_definitions') and subj_lower in self._definitions:
+            defn = self._definitions[subj_lower]
+            return (f"{subject.capitalize()} is {defn}.", "definition_with_assoc")
+
+        if not assocs:
+            if subj_lower in self.graph_engine._concept_keywords or subj_lower in self.graph_engine._concept_labels:
+                neighbor = self.graph_engine.find_vector_neighbor(subject)
+                if neighbor and neighbor.lower() != subject.lower():
+                    return (f"{subject} connects with {neighbor}.", "associative")
+                return (f"{subject.capitalize()} is something I know about.", "associative")
+            return (f"I don't know about {subject} yet.", "unknown_subject")
+
+        # Dynamically compose sentences using the ConceptGraph edges & Hebbian VerbLexicon
+        from ravana.language.verb_lexicon import VerbLexicon
+
+        # Dopamine tone dynamically modulated by VAD emotions and dissonance (free energy)
+        # High valence boosts confidence; high arousal/dissonance increases exploratory variance
+        dopamine_tone = max(0.1, min(0.9, 0.5 + 0.2 * ctx.valence - 0.1 * ctx.arousal - 0.1 * ctx.dissonance))
+
         seen = {subject.lower()}
-        for i, temp in enumerate(temps):
-            chain = self._walk_chain_simple(subject, seen, max_hops=2 if i > 0 else 1, temperature=temp)
-            if chain:
-                concepts = [p for p in chain.split() if p.lower() not in self.graph_engine._CONNECTOR_SET]
-                if len(concepts) >= 2:
-                    sentences.append(f"{subject.capitalize()} relates to {concepts[1]}.")
-                elif concepts:
-                    sentences.append(f"{concepts[0].capitalize()} is interesting.")
-                seen.update(p.lower() for p in concepts)
-        if not sentences:
+        nid_subj = self.graph_engine._concept_keywords.get(subj_lower, [None])[0]
+
+        valid_assocs = []
+        for label, score in assocs:
+            if label and label.lower() != subject.lower() and label.lower() not in seen:
+                valid_assocs.append((label, score))
+                seen.add(label.lower())
+
+        valid_assocs = valid_assocs[:3]
+
+        assoc_details = []
+        for label, score in valid_assocs:
+            # Find edge in the concept graph to resolve relation type
+            edge = None
+            nid_label = self.graph_engine._concept_keywords.get(label.lower(), [None])[0]
+            if nid_subj is not None and nid_label is not None:
+                edge = self.graph_engine.graph.get_edge(nid_subj, nid_label)
+                if edge is None:
+                    edge = self.graph_engine.graph.get_edge(nid_label, nid_subj)
+
+            relation_type = "semantic"
+            edge_weight = 0.5
+            edge_conf = 0.5
+            if edge is not None:
+                relation_type = edge.relation_type or "semantic"
+                edge_weight = edge.weight
+                edge_conf = edge.confidence
+
+            # Select verb phrase via Hebbian-compositional sampling
+            verb = VerbLexicon.select_verb(
+                relation=relation_type,
+                subject=subject,
+                object=label,
+                dopamine_tone=dopamine_tone,
+                vector_fn=self.graph_engine._glove_vector if hasattr(self.graph_engine, '_glove_vector') else None
+            )
+
+            assoc_details.append({
+                "label": label,
+                "score": score,
+                "relation_type": relation_type,
+                "edge_weight": edge_weight,
+                "edge_conf": edge_conf,
+                "verb": verb
+            })
+
+        if not assoc_details:
             return (f"I don't know much about {subject} yet.", "associative")
-        return (" ".join(sentences), "graph_fallback")
+
+        # Synthesize coordinated and grammatically varied sentences
+        if len(assoc_details) == 1 or assoc_details[1]["score"] < 0.25:
+            # Single association sentence
+            details = assoc_details[0]
+            l1, v1 = details["label"], details["verb"]
+            wc1 = details["edge_weight"] * details["edge_conf"]
+
+            if wc1 >= 0.6:
+                frames = [
+                    f"{subject.capitalize()} {v1} {l1.lower()}.",
+                    f"Clearly, {subject.lower()} {v1} {l1.lower()}.",
+                    f"I recognize that {subject.lower()} {v1} {l1.lower()}.",
+                ]
+            elif wc1 >= 0.4:
+                frames = [
+                    f"It seems that {subject.lower()} {v1} {l1.lower()}.",
+                    f"I believe {subject.lower()} {v1} {l1.lower()}.",
+                    f"From what I gather, {subject.lower()} {v1} {l1.lower()}.",
+                ]
+            else:
+                frames = [
+                    f"I suspect that {subject.lower()} {v1} {l1.lower()}.",
+                    f"Perhaps {subject.lower()} {v1} {l1.lower()}.",
+                    f"Maybe {subject.lower()} {v1} {l1.lower()}.",
+                ]
+            response = rnd.choice(frames)
+        else:
+            # Coordinated sentence for the first two associations
+            details1 = assoc_details[0]
+            details2 = assoc_details[1]
+            l1, v1 = details1["label"], details1["verb"]
+            l2, v2 = details2["label"], details2["verb"]
+
+            coord_patterns = [
+                lambda s, l1, v1, l2, v2: f"{s.capitalize()} {v1} {l1.lower()}, and it also {v2} {l2.lower()}.",
+                lambda s, l1, v1, l2, v2: f"While {s.lower()} {v1} {l1.lower()}, it also {v2} {l2.lower()}.",
+                lambda s, l1, v1, l2, v2: f"It seems that {s.lower()} {v1} {l1.lower()}, though it also {v2} {l2.lower()}.",
+                lambda s, l1, v1, l2, v2: f"I believe {s.lower()} {v1} {l1.lower()}, and that connects to {l2.lower()}."
+            ]
+            response = rnd.choice(coord_patterns)(subject, l1, v1, l2, v2)
+
+            # Optional elaborative sentence for the third association
+            if len(assoc_details) >= 3 and assoc_details[2]["score"] >= 0.3:
+                details3 = assoc_details[2]
+                l3, v3 = details3["label"], details3["verb"]
+
+                elabs = [
+                    f"Additionally, {subject.lower()} {v3} {l3.lower()}.",
+                    f"Along with that, I think it {v3} {l3.lower()}.",
+                    f"Moreover, it seems to {v3} {l3.lower()}.",
+                    f"At the same time, it {v3} {l3.lower()}.",
+                ]
+                response += " " + rnd.choice(elabs)
+
+        return (response, "graph_fallback")
 
     def _walk_chain_simple(self, label: str, seen: Set[str], max_hops: int,
                             temperature: float = 0.25) -> Optional[str]:
@@ -1132,6 +1299,7 @@ class ChatInterface:
                 sentence_index=0,
                 discourse_type=discourse_plan.question_type,
                 total_sentences=len(discourse_plan.intents),
+                free_energy=self._free_energy,
             )
 
             for i, intent in enumerate(discourse_plan.intents):
@@ -1398,6 +1566,7 @@ def main():
     parser.add_argument("--no-beliefs", action="store_true", help="Disable belief store")
     parser.add_argument("--no-curiosity", action="store_true", help="Disable autonomous curiosity-driven learning")
     parser.add_argument("--mode", type=str, default="stochastic", choices=["stochastic", "deterministic", "exploratory"])
+    parser.add_argument("--debug", action="store_true", help="Print debug tracebacks for exceptions")
     parser.add_argument("--user", type=str, default=None, help="User name for multi-user isolation")
     parser.add_argument("--data-dir", type=str, default=None, help="Custom data directory")
     parser.add_argument("--export-graph", type=str, default=None, help="Export graph to JSON")

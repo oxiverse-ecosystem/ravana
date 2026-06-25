@@ -54,6 +54,50 @@ except ImportError:
     HAS_BS4 = False
 
 
+def _is_word_salad(text: str) -> bool:
+    """Detect if generated text is a word salad (meaningless word lists or repetitions)."""
+    if not text:
+        return True
+
+    # 1. Look for consecutive duplicated words (e.g., "the the", "coffee coffee", "is is")
+    # excluding few common cases like "that that" or "had had" if they are only 1 occurrence
+    import re
+    words = re.findall(r"\b\w+\b", text.lower())
+    if not words:
+        return True
+
+    for i in range(len(words) - 1):
+        if words[i] == words[i+1]:
+            if words[i] not in ("that", "had"):
+                return True
+
+    # 2. Look for excessive word repetition rate
+    # Count frequency of content words (length >= 3)
+    content_words = [w for w in words if len(w) >= 3 and w not in (
+        "the", "and", "for", "with", "from", "that", "this", "they", "them", "have"
+    )]
+    if content_words:
+        from collections import Counter
+        counts = Counter(content_words)
+        # If any single content word is repeated 3 or more times,
+        # or if multiple content words are repeated twice, it is likely a loop.
+        max_rep = max(counts.values())
+        if max_rep >= 3:
+            return True
+        # If more than 2 content words are repeated, or total repetition is high
+        rep_count = sum(1 for c in counts.values() if c >= 2)
+        if rep_count >= 2 and len(content_words) < 20:
+            return True
+
+    # 3. Check for ratio of unique words to total words (Type-Token Ratio)
+    unique_words = set(words)
+    ttr = len(unique_words) / len(words)
+    if len(words) >= 10 and ttr < 0.5:
+        return True
+
+    return False
+
+
 class SearchEngine:
     """
     Multi-API search engine with circuit breaker fallback.
@@ -667,7 +711,7 @@ class UserModel:
 
     def _ensure_emotion_detector(self):
         """Lazy-init the emotion detector to avoid import-order issues."""
-        if self._emotion_detector is None:
+        if self._emotion_detector is None or not hasattr(self._emotion_detector, '_vad_matrix'):
             self._emotion_detector = UserEmotionDetector()
 
     def _infer_user_emotion(self, text: str) -> Tuple[float, float, float]:
@@ -5849,7 +5893,7 @@ class CognitiveChatEngine:
         # Path 1: Syntactic pipeline (P600 compositional integration) — primary
         try:
             syntax_response = self._generate_with_decoder_and_syntax(ctx)
-            if syntax_response and len(syntax_response) > 10:
+            if syntax_response and len(syntax_response) > 10 and not _is_word_salad(syntax_response):
                 # Quality gate: reject template-like syntactic pipeline output
                 _tpl_check = syntax_response.lower()
                 _is_template = False
@@ -5881,7 +5925,7 @@ class CognitiveChatEngine:
         if decoder_ready:
             try:
                 decoder_response = self._generate_with_decoder(ctx)
-                if decoder_response and len(decoder_response) > 10:
+                if decoder_response and len(decoder_response) > 10 and not _is_word_salad(decoder_response):
                     return (decoder_response, "neural_decoder")
             except Exception:
                 pass
@@ -6072,6 +6116,7 @@ class CognitiveChatEngine:
                 previous_subject=last_subject if sentences else None,
                 discourse_type=intent.type,
                 total_sentences=len(plan.intents),
+                free_energy=self._free_energy,
             )
             
             try:
@@ -6184,7 +6229,7 @@ class CognitiveChatEngine:
             # Prevent vocab expansion during generation
             self._decoder_vocab_built = True
             decoder_response = self._generate_with_decoder_and_syntax(ctx)
-            if decoder_response and len(decoder_response) > 10:
+            if decoder_response and len(decoder_response) > 10 and not _is_word_salad(decoder_response):
                 return (decoder_response, "neural_decoder_reasoned")
         except Exception as e:
             if self._trace_enabled:
@@ -6376,48 +6421,126 @@ class CognitiveChatEngine:
                 return (f"I recognize {subject}, but I cannot explain it yet. Want me to keep exploring?", "associative")
             return (f"I don't know about {subject} yet.", "unknown_subject")
 
-        # --- Priority 3: Associative response (hippocampal graph walk) ---
-        sentences_parts = []
+        # --- Priority 3: Associative response (hippocampal graph walk with Hebbian selection) ---
+        from ravana.language.verb_lexicon import VerbLexicon
+
+        # Dopamine tone dynamically modulated by VAD emotions and dissonance (free energy)
+        # High valence boosts confidence; high arousal/dissonance increases exploratory variance
+        dopamine_tone = max(0.1, min(0.9, 0.5 + 0.2 * ctx.valence - 0.1 * ctx.arousal - 0.1 * ctx.dissonance))
+
         seen: Set[str] = {subject.lower()}
+        nid_subj = self._concept_keywords.get(subj_lower, [None])[0]
 
-        _constructors = [
-            lambda a, b: f"{a} and {b.lower()} are closely related.",
-            lambda a, b: f"{a} naturally connects with {b.lower()}.",
-            lambda a, b: f"When I think about {a.lower()}, {b.lower()} comes to mind.",
-            lambda a, b: f"{b.lower()} is closely tied to {a.lower()}.",
-            lambda a, b: f"{a} has a lot to do with {b.lower()}.",
-        ]
+        valid_assocs = []
+        for label, score in assocs:
+            if label and label.lower() != subject.lower() and label.lower() not in seen:
+                valid_assocs.append((label, score))
+                seen.add(label.lower())
 
-        seen_full: Set[str] = set()
-        max_loops = max(3, min(8, len(assocs) * 2))
-        loops = 0
+        valid_assocs = valid_assocs[:3]
 
-        while len(sentences_parts) < 3 and loops < max_loops:
-            loops += 1
-            label, score = assocs[(self.turn_count + loops) % len(assocs)]
-            if not label or label.lower() in seen:
-                continue
+        assoc_details = []
+        for label, score in valid_assocs:
+            # Find edge in the concept graph to resolve relation type
+            edge = None
+            nid_label = self._concept_keywords.get(label.lower(), [None])[0]
+            if nid_subj is not None and nid_label is not None:
+                edge = self.graph.get_edge(nid_subj, nid_label)
+                if edge is None:
+                    edge = self.graph.get_edge(nid_label, nid_subj)
 
-            sentence = rnd.choice(_constructors)(subject.capitalize(), label.capitalize())
-            sentence_key = " ".join(sorted([subject.lower(), label.lower()]))
-            if sentence_key in seen_full:
-                continue
-            seen_full.add(sentence_key)
-            sentences_parts.append(sentence)
-            seen.add(label.lower())
+            relation_type = "semantic"
+            edge_weight = 0.5
+            edge_conf = 0.5
+            if edge is not None:
+                relation_type = edge.relation_type or "semantic"
+                edge_weight = edge.weight
+                edge_conf = edge.confidence
 
-        if not sentences_parts:
+            # Select verb phrase via Hebbian-compositional sampling
+            verb = VerbLexicon.select_verb(
+                relation=relation_type,
+                subject=subject,
+                object=label,
+                dopamine_tone=dopamine_tone,
+                vector_fn=self._glove_vector if hasattr(self, '_glove_vector') else None
+            )
+
+            assoc_details.append({
+                "label": label,
+                "score": score,
+                "relation_type": relation_type,
+                "edge_weight": edge_weight,
+                "edge_conf": edge_conf,
+                "verb": verb
+            })
+
+        if not assoc_details:
             return (f"I don't know much about {subject} yet.", "associative")
 
+        # Synthesize coordinated and grammatically varied sentences
+        if len(assoc_details) == 1 or assoc_details[1]["score"] < 0.25:
+            # Single association sentence
+            details = assoc_details[0]
+            l1, v1 = details["label"], details["verb"]
+            wc1 = details["edge_weight"] * details["edge_conf"]
+
+            if wc1 >= 0.6:
+                frames = [
+                    f"{subject.capitalize()} {v1} {l1.lower()}.",
+                    f"Clearly, {subject.lower()} {v1} {l1.lower()}.",
+                    f"I recognize that {subject.lower()} {v1} {l1.lower()}.",
+                ]
+            elif wc1 >= 0.4:
+                frames = [
+                    f"It seems that {subject.lower()} {v1} {l1.lower()}.",
+                    f"I believe {subject.lower()} {v1} {l1.lower()}.",
+                    f"From what I gather, {subject.lower()} {v1} {l1.lower()}.",
+                ]
+            else:
+                frames = [
+                    f"I suspect that {subject.lower()} {v1} {l1.lower()}.",
+                    f"Perhaps {subject.lower()} {v1} {l1.lower()}.",
+                    f"Maybe {subject.lower()} {v1} {l1.lower()}.",
+                ]
+            response = rnd.choice(frames)
+        else:
+            # Coordinated sentence for the first two associations
+            details1 = assoc_details[0]
+            details2 = assoc_details[1]
+            l1, v1 = details1["label"], details1["verb"]
+            l2, v2 = details2["label"], details2["verb"]
+
+            coord_patterns = [
+                lambda s, l1, v1, l2, v2: f"{s.capitalize()} {v1} {l1.lower()}, and it also {v2} {l2.lower()}.",
+                lambda s, l1, v1, l2, v2: f"While {s.lower()} {v1} {l1.lower()}, it also {v2} {l2.lower()}.",
+                lambda s, l1, v1, l2, v2: f"It seems that {s.lower()} {v1} {l1.lower()}, though it also {v2} {l2.lower()}.",
+                lambda s, l1, v1, l2, v2: f"I believe {s.lower()} {v1} {l1.lower()}, and that connects to {l2.lower()}."
+            ]
+            response = rnd.choice(coord_patterns)(subject, l1, v1, l2, v2)
+
+            # Optional elaborative sentence for the third association
+            if len(assoc_details) >= 3 and assoc_details[2]["score"] >= 0.3:
+                details3 = assoc_details[2]
+                l3, v3 = details3["label"], details3["verb"]
+
+                elabs = [
+                    f"Additionally, {subject.lower()} {v3} {l3.lower()}.",
+                    f"Along with that, I think it {v3} {l3.lower()}.",
+                    f"Moreover, it seems to {v3} {l3.lower()}.",
+                    f"At the same time, it {v3} {l3.lower()}.",
+                ]
+                response += " " + rnd.choice(elabs)
+
+        # Append a follow-up check to make the response engaging
         follow_ups = [
             "Does that match what you were getting at?",
             "What do you think?",
             "Want to explore this more?",
         ]
-        if len(sentences_parts) <= 2:
-            sentences_parts.append(rnd.choice(follow_ups))
+        response += " " + rnd.choice(follow_ups)
 
-        return (" ".join(sentences_parts), "graph_fallback")
+        return (response, "graph_fallback")
 
     def _update_state(self, ctx: CognitiveResponseContext):
         self._free_energy = max(0.0, 0.3 + 0.2 * (1.0 - ctx.identity_strength) - 0.08 * len(ctx.associated_concepts))
@@ -7823,6 +7946,7 @@ def main():
     parser.add_argument("--no-curiosity", action="store_true", help="Disable autonomous curiosity-driven learning")
     parser.add_argument("--mode", type=str, default="stochastic", choices=["stochastic", "deterministic", "exploratory"],
                         help="Reasoning mode: stochastic (default), deterministic (reproducible), exploratory (high-temp)")
+    parser.add_argument("--debug", action="store_true", help="Print debug tracebacks for exceptions")
 
     parser.add_argument("--user", type=str, default=None,
                         help="User name for multi-user isolation (creates user-specific save files)")

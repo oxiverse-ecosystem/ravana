@@ -63,6 +63,31 @@ class VADConfig:
     # Emotion-tag history length
     max_history: int = 1000
 
+    def self_tune(self, prediction_error: float):
+        """Adapt learning rates based on prediction error magnitude.
+
+        High prediction error → increase learning rates (faster adaptation).
+        Low prediction error → decrease learning rates (energy conservation).
+
+        Each dimension adapts independently based on its contribution to error.
+        """
+        def _adjust(eta, base, error):
+            delta = 0.02 * min(1.0, abs(error))
+            if error > 0.1:
+                return min(0.8, eta + delta)
+            elif error < -0.05:
+                return max(0.05, eta - delta * 0.5)
+            return eta
+
+        self.eta_valence = _adjust(self.eta_valence, 0.3, prediction_error)
+        self.eta_arousal = _adjust(self.eta_arousal, 0.4, prediction_error)
+        self.eta_dominance = _adjust(self.eta_dominance, 0.25, prediction_error * 0.5)
+
+        # Stabilize arousal baseline if prediction error is consistently high
+        if abs(prediction_error) > 0.2:
+            self.baseline_arousal = max(0.1, min(0.5,
+                self.baseline_arousal + 0.01 * prediction_error))
+
 
 class VADEmotionEngine:
     """
