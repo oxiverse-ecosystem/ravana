@@ -1,10 +1,10 @@
-"
+"""
 RAVANA v2 — cognitive shim for stable imports and dev-mode behavior.
 
 Signals:
   RAVANA_RUNTIME_MODE=NORMAL|DEV|DEV_STRICT
   RAVANA_LOAD_DEFAULT_WEIGHTS=1|0
-" "
+"""
 from __future__ import annotations
 
 import os

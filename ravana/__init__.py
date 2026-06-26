@@ -100,7 +100,7 @@ try:
 except Exception:
     lab = None
 
-__version__ = '0.3.2'
+__version__ = '0.3.5'
 
 __all__ = [
     'RawTensor', 'StateTensor', 'Parameter', 'Tensor',
