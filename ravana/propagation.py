@@ -1,3 +1,6 @@
-"""Ravana propagation module — re-export from ML framework."""
+"""Ravana propagation module — re-export from ML framework (optional)."""
 
-from ravana_ml.propagation import *
+try:
+    from ravana_ml.propagation import *
+except ImportError:
+    pass

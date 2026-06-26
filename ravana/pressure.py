@@ -1,3 +1,6 @@
-"""Ravana pressure module — re-export from ML framework (renamed to free_energy)."""
+"""Ravana pressure module — re-export from ML framework (renamed to free_energy, optional)."""
 
-from ravana_ml.free_energy import *
+try:
+    from ravana_ml.free_energy import *
+except ImportError:
+    pass

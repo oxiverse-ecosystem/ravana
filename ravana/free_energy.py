@@ -1,3 +1,6 @@
-"""Ravana free_energy module — re-export from ML framework."""
+"""Ravana free_energy module — re-export from ML framework (optional)."""
 
-from ravana_ml.free_energy import *
+try:
+    from ravana_ml.free_energy import *
+except ImportError:
+    pass

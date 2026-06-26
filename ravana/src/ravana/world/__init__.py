@@ -1,3 +1,6 @@
-"""Ravana world simulations."""
+"""Ravana world simulations (optional — requires ravana-ml)."""
 
-from ravana_ml.world import *
+try:
+    from ravana_ml.world import *
+except ImportError:
+    pass

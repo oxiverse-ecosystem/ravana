@@ -1,3 +1,6 @@
-"""Ravana experiment lab tools."""
+"""Ravana experiment lab tools (optional — requires ravana-ml)."""
 
-from ravana_ml.lab import *
+try:
+    from ravana_ml.lab import *
+except ImportError:
+    pass
