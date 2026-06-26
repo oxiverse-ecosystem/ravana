@@ -87,12 +87,36 @@ class PrefrontalWorkspace:
             re.compile(r"(?:compare|difference|versus|vs)\s+(.+)\s+(?:and|vs|versus|with)\s+(.+)", re.IGNORECASE),
             re.compile(r"what'?s?\s+the\s+difference\s+between\s+(.+)\s+and\s+(.+)", re.IGNORECASE),
         ],
+        "hypothetical": [
+            re.compile(r"what\s+happens\s+if\s+(.+)", re.IGNORECASE),
+            re.compile(r"what\s+would\s+happen\s+if\s+(.+)", re.IGNORECASE),
+            re.compile(r"what\s+happens\s+when\s+(.+)", re.IGNORECASE),
+        ],
         "do_you_know": [
             re.compile(r"do\s+you\s+know\s+(.+)", re.IGNORECASE),
             re.compile(r"have\s+you\s+heard\s+of\s+(.+)", re.IGNORECASE),
         ],
         "follow_up": [
             re.compile(r"(?:more|else|another|also|further|tell me more)", re.IGNORECASE),
+        ],
+        "greeting": [
+            re.compile(r"\b(hi|hello|hey|yo|sup|greetings|whats\s*up|howdy|good\s*morning|good\s*afternoon|good\s*evening)\b", re.IGNORECASE),
+        ],
+        "wellbeing": [
+            re.compile(r"\b(how\s*are\s*you|how\s*is\s*it\s*going|how\s*are\s*you\s*doing|how\s*have\s*you\s*been|hows\s*it\s*going|hows\s*life)\b", re.IGNORECASE),
+        ],
+        "capability": [
+            re.compile(r"\b(what\s*can\s*you\s*do|what\s*do\s*you\s*do|how\s*do\s*you\s*work|tell\s*me\s*about\s*yourself|who\s*are\s*you|what\s*is\s*your\s*name)\b", re.IGNORECASE),
+        ],
+        "introduction": [
+            re.compile(r"\bmy\s+name\s+is\s+(.+)", re.IGNORECASE),
+            re.compile(r"\bi\s+am\s+called\s+(.+)", re.IGNORECASE),
+            re.compile(r"\bi\s+am\s+(.+)", re.IGNORECASE),
+            re.compile(r"\bi'm\s+(.+)", re.IGNORECASE),
+            re.compile(r"\bcall\s+me\s+(.+)", re.IGNORECASE),
+        ],
+        "farewell": [
+            re.compile(r"\b(bye|goodbye|see\s*you|good\s*night|farewell)\b", re.IGNORECASE),
         ],
     }
 
@@ -106,7 +130,7 @@ class PrefrontalWorkspace:
     }
 
     @classmethod
-    def detect_question_type(cls, text: str) -> Tuple[str, List[str]]:
+    def detect_question_type(cls, text: str, concept_pos: Optional[Dict[str, str]] = None) -> Tuple[str, List[str]]:
         """Detect question type from user input.
 
         Returns:
@@ -114,7 +138,34 @@ class PrefrontalWorkspace:
         """
         text_lower = text.lower().strip(" ?!.")
 
+        # Check social/chitchat types first to prevent general pattern hijacking
+        social_types = ["greeting", "wellbeing", "capability", "introduction", "farewell"]
+        for qtype in social_types:
+            if qtype in cls.QUESTION_PATTERNS:
+                for pattern in cls.QUESTION_PATTERNS[qtype]:
+                    m = pattern.match(text_lower)
+                    if m:
+                        groups = [g.strip() for g in m.groups() if g]
+                        # Extra validation for introduction to avoid state adjectives
+                        if qtype == "introduction":
+                            name_candidate = groups[0].lower() if groups else ""
+                            state_words = {
+                                "happy", "sad", "tired", "thinking", "learning", "busy", "ready", "sure", 
+                                "fine", "good", "well", "hungry", "sick", "bored", "excited", "doing", 
+                                "going", "coming", "trying", "working", "studying", "making", "having"
+                            }
+                            is_state_or_action = False
+                            if name_candidate and concept_pos:
+                                pos = concept_pos.get(name_candidate)
+                                if pos in ("adj", "verb", "adverb"):
+                                    is_state_or_action = True
+                            if name_candidate in state_words or is_state_or_action or not name_candidate:
+                                continue
+                        return (qtype, groups)
+
         for qtype, patterns in cls.QUESTION_PATTERNS.items():
+            if qtype in social_types:
+                continue
             for pattern in patterns:
                 m = pattern.match(text_lower)
                 if m:
@@ -146,7 +197,7 @@ class PrefrontalWorkspace:
         Returns:
             DiscoursePlan with 3 DiscourseIntents
         """
-        qtype, parts = self.detect_question_type(user_input)
+        qtype, parts = self.detect_question_type(user_input, concept_pos=concept_pos)
         plan = DiscoursePlan(original_subject=subject, question_type=qtype)
 
         # Build seen set from subject and top associations
@@ -165,19 +216,25 @@ class PrefrontalWorkspace:
             plan = self._plan_compare(subject, parts, associations, seen, qtype)
         elif qtype == "follow_up":
             plan = self._plan_continue(subject, associations, seen, qtype)
+        elif qtype == "hypothetical":
+            plan = self._plan_causal_explain(subject, associations, seen, qtype)
         elif qtype == "do_you_know":
             plan = self._plan_explain(subject, associations, seen, qtype)
+        elif qtype in ("greeting", "wellbeing", "capability", "introduction", "farewell"):
+            plan = self._plan_social(subject, qtype)
         else:
             plan = self._plan_general(subject, associations, seen, qtype)
+ 
+        # Ensure we have exactly 3 intents (pad if needed, skip for social intents)
+        if qtype not in ("greeting", "wellbeing", "capability", "introduction", "farewell"):
+            while len(plan.intents) < 3:
+                plan.intents.append(DiscourseIntent(
+                    type=DiscourseType.ELABORATE,
+                    subject=subject,
+                    primary_relation="semantic",
+                    seen_so_far=seen.copy(),
+                ))
 
-        # Ensure we have exactly 3 intents (pad if needed)
-        while len(plan.intents) < 3:
-            plan.intents.append(DiscourseIntent(
-                type=DiscourseType.ELABORATE,
-                subject=subject,
-                primary_relation="semantic",
-                seen_so_far=seen.copy(),
-            ))
 
         # Trim to capacity
         plan.intents = plan.intents[:self.capacity]
@@ -205,6 +262,15 @@ class PrefrontalWorkspace:
     # Enhanced with more diverse explanatory patterns (Bug E fix)
     # Neuroscience basis: prefrontal cortex builds causal models, not just association lists
     
+    def _plan_social(self, subject: str, qtype: str) -> DiscoursePlan:
+        plan = DiscoursePlan(original_subject=subject, question_type=qtype)
+        plan.intents.append(DiscourseIntent(
+            type="social",
+            subject=qtype,
+            primary_relation="social",
+        ))
+        return plan
+
     def _plan_explain(self, subject: str, associations: List[Tuple[str, float]],
                       seen: set, qtype: str) -> DiscoursePlan:
         """Plan: [EXPLAIN → ELABORATE → CONTRAST/CONNECT]

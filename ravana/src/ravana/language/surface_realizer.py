@@ -402,16 +402,16 @@ class SurfaceRealizer:
                 sentence = sentence + reflective
 
         if not has_punct and discourse_context.sentence_index > 0:
-            if discourse_marker and random.random() < 0.25:
-                marker = discourse_marker
+            if discourse_marker:
+                sentence = f"{discourse_marker}, {sentence}"
             else:
                 marker = self._select_discourse_marker(
                     discourse_context.discourse_type,
                     discourse_context.sentence_index,
                     dopamine_tone
                 )
-            if marker and random.random() < 0.25:
-                sentence = f"{marker}, {sentence}"
+                if marker and random.random() < 0.25:
+                    sentence = f"{marker}, {sentence}"
 
         if not has_punct:
             sentence = sentence[0].upper() + sentence[1:]

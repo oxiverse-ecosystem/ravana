@@ -74,6 +74,7 @@ class SearchEngine:
     def __init__(self, config: Optional[SearchConfig] = None):
         self.config = config or SearchConfig()
         self.apis = [
+            ("local_api", "http://localhost:4000/search?q={}", 3, 10),
             ("oxiverse", "https://api.oxiverse.com/search?q={}", 3, 10),
             ("duckduckgo", "https://html.duckduckgo.com/html/?q={}", 5, 10),
         ]

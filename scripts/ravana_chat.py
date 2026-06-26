@@ -13,6 +13,8 @@ Usage:
 
 import sys, os, time, random, json, re, argparse, pickle, threading, hashlib
 import urllib.request
+import socket
+socket.setdefaulttimeout(4.0)
 from urllib.error import URLError
 from urllib.parse import quote
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -68,7 +70,7 @@ def _is_word_salad(text: str) -> bool:
 
     for i in range(len(words) - 1):
         if words[i] == words[i+1]:
-            if words[i] not in ("that", "had"):
+            if words[i] not in ("that", "had", "bye", "hello", "no", "yeah", "well", "good"):
                 return True
 
     # 2. Look for excessive word repetition rate
@@ -113,13 +115,10 @@ class SearchEngine:
     """
     
     def __init__(self):
-        # API configurations: (name, url_template, timeout, max_results)
         self.apis = [
+            ("local_api", "http://localhost:4000/search?q={}", 10, 3),
             ("oxiverse", "https://api.oxiverse.com/search?q={}", 10, 3),
             ("duckduckgo", "https://html.duckduckgo.com/html/?q={}", 10, 3),
-            # Bing and Google would need API keys - placeholders for future
-            # ("bing", "https://api.bing.microsoft.com/v7.0/search?q={}", 5, 10),
-            # ("google", "https://www.googleapis.com/customsearch/v1?q={}&key={}&cx={}", 5, 10),
         ]
         
         # Circuit breaker state per API
@@ -614,6 +613,8 @@ class UserModel:
     """
     edge_reactivations: Dict[Tuple[str, str], int] = field(default_factory=dict)
     query_concepts: Set[str] = field(default_factory=set)
+    user_name: str = ""
+    preferences: Dict[str, Any] = field(default_factory=dict)
     
     # Theory of Mind state
     knowledge_model: Dict[str, float] = field(default_factory=dict)      # concept -> confidence user knows it
@@ -673,6 +674,47 @@ class UserModel:
         # Slowly adjust toward user's valence (rate 0.2)
         self.emotional_rapport[subject_lower] = current_rapport + 0.2 * (valence - current_rapport)
         
+        # Extract user preferences (likes, interests, favorites) like a human friend
+        q_clean = query.lower().strip(" ?!.")
+        
+        # 1. likes/loves
+        m_like = re.search(r"\bi\s+(?:like|love)\s+(.+)", q_clean, re.IGNORECASE)
+        if m_like:
+            thing = m_like.group(1).strip(" .!?")
+            if thing and thing not in ("you", "it", "that", "this", "them", "him", "her", "me", "something", "everything", "anything"):
+                if "likes" not in self.preferences:
+                    self.preferences["likes"] = []
+                if thing not in self.preferences["likes"]:
+                    self.preferences["likes"].append(thing)
+        
+        # 2. interests
+        m_interest = re.search(r"\bi\s+(?:want\s+to\s+learn\s+about|am\s+interested\s+in|'m\s+interested\s+in)\s+(.+)", q_clean, re.IGNORECASE)
+        if m_interest:
+            thing = m_interest.group(1).strip(" .!?")
+            if thing and thing not in ("you", "it", "that", "this", "them", "him", "her", "me"):
+                if "interests" not in self.preferences:
+                    self.preferences["interests"] = []
+                if thing not in self.preferences["interests"]:
+                    self.preferences["interests"].append(thing)
+
+        # 3. favorites
+        m_fav = re.search(r"\bmy\s+favorite\s+(.+?)\s+is\s+(.+)", q_clean, re.IGNORECASE)
+        if m_fav:
+            category = m_fav.group(1).strip(" .!?")
+            val = m_fav.group(2).strip(" .!?")
+            if category and val:
+                if "favorites" not in self.preferences:
+                    self.preferences["favorites"] = {}
+                self.preferences["favorites"][category] = val
+
+        # 4. name introductions (backup extraction)
+        m_name = re.search(r"\b(?:my\s+name\s+is|i\s+am\s+called|call\s+me)\s+(.+)", q_clean, re.IGNORECASE)
+        if m_name:
+            name_cand = m_name.group(1).strip(" .!?")
+            if name_cand and name_cand not in ("happy", "sad", "tired", "busy", "fine", "good"):
+                name_cap = " ".join(w.capitalize() for w in name_cand.split())
+                self.user_name = name_cap
+
         # Track cognitive style from query patterns
         self._update_cognitive_style(query)
         
@@ -862,6 +904,8 @@ class UserModel:
             'relationship_depth': self.relationship_depth,
             'goals': self.goals,
             'last_goal': self.last_goal,
+            'user_name': self.user_name,
+            'preferences': self.preferences,
             # P2 Emotional State Tracking (roadmap §7)
             'emotional_state': self.emotional_state,
             'belief_state': self.belief_state,
@@ -886,6 +930,8 @@ class UserModel:
         self.relationship_depth = state.get('relationship_depth', 0.0)
         self.goals = state.get('goals', [])
         self.last_goal = state.get('last_goal', 'EXPLORING')
+        self.user_name = state.get('user_name', '')
+        self.preferences = state.get('preferences', {})
         # P2 Emotional State Tracking (backward-compatible defaults)
         self.emotional_state = state.get('emotional_state',
             {'valence': 0.0, 'arousal': 0.3, 'dominance': 0.5})
@@ -1747,27 +1793,27 @@ class CognitiveChatEngine:
                 if idx >= len(old_weight) and word in self._decoder_word_to_embed:
                     new_weight[idx] = self._decoder_word_to_embed[word]
 
-        from ravana_ml.nn.module import Embedding, Linear
-        new_emb = Embedding(new_vocab_size, self.dim)
-        new_emb.weight.data = new_weight
-        self.neural_decoder.word_embedding = new_emb
+            from ravana_ml.nn.module import Embedding, Linear
+            new_emb = Embedding(new_vocab_size, self.dim)
+            new_emb.weight.data = new_weight
+            self.neural_decoder.word_embedding = new_emb
 
-        # Resize output_proj weight and bias to match new vocab size
-        old_out_w = self.neural_decoder.output_proj.weight.data
-        new_out_w = np.zeros((new_vocab_size, self.neural_decoder.hidden_dim), dtype=np.float32)
-        new_out_w[:old_vocab_size] = old_out_w
-        new_out_proj = Linear(self.neural_decoder.hidden_dim, new_vocab_size)
-        new_out_proj.weight.data = new_out_w
-        if self.neural_decoder.output_proj.bias is not None:
-            old_bias = self.neural_decoder.output_proj.bias.data
-            new_bias = np.zeros(new_vocab_size, dtype=np.float32)
-            new_bias[:old_vocab_size] = old_bias
-            new_out_proj.bias.data = new_bias
-        self.neural_decoder.output_proj = new_out_proj
+            # Resize output_proj weight and bias to match new vocab size
+            old_out_w = self.neural_decoder.output_proj.weight.data
+            new_out_w = np.zeros((new_vocab_size, self.neural_decoder.hidden_dim), dtype=np.float32)
+            new_out_w[:old_vocab_size] = old_out_w
+            new_out_proj = Linear(self.neural_decoder.hidden_dim, new_vocab_size)
+            new_out_proj.weight.data = new_out_w
+            if self.neural_decoder.output_proj.bias is not None:
+                old_bias = self.neural_decoder.output_proj.bias.data
+                new_bias = np.zeros(new_vocab_size, dtype=np.float32)
+                new_bias[:old_vocab_size] = old_bias
+                new_out_proj.bias.data = new_bias
+            self.neural_decoder.output_proj = new_out_proj
 
-        self.neural_decoder.vocab_size = new_vocab_size
-        self.neural_decoder._vocab_dim = self.dim
-        self.neural_decoder.rebuild_vocab_cache()
+            self.neural_decoder.vocab_size = new_vocab_size
+            self.neural_decoder._vocab_dim = self.dim
+            self.neural_decoder.rebuild_vocab_cache()
 
         # Hippocampal replay: mix new embeddings with similar existing ones
         # Build batch embedding matrix for existing words once (avoids O(V²) per new word)
@@ -2424,29 +2470,7 @@ class CognitiveChatEngine:
                 if re.search(pattern, t):
                     return None
 
-        if is_greeting:
-            arousal = float(self.emotion.state.arousal)
-            depth = float(self.user_model.relationship_depth)
-            if depth > 0.6:
-                return "hey! great to see you again. what are we exploring today?"
-            elif arousal > 0.6:
-                return "hey! what's up? always excited to chat and learn new things today! what's on your mind?"
-            else:
-                return "hello! it's good to talk to you. what would you like to discuss or learn about?"
-
-        if is_wellbeing:
-            return "i'm doing well, thank you! just processing some new words and connections from the web. how are you doing?"
-
-        if is_capability:
-            return (
-                "i'm ravana, a cognitive architecture designed to learn and think like a teenage mind. "
-                "i build a concept graph, draw connections between ideas, and search the web to learn about things i don't know yet. "
-                "try asking me about 'trust', 'oxiverse', or 'neuroscience'!"
-            )
-
-        if is_farewell:
-            return "bye bye! i'll remember what you taught me!"
-
+        # Remove hardcoded return values to route greetings/chit-chat through the normal cognitive pipeline
         return None
 
     def _get_curiosity_scores(self, max_topics: int = 10) -> List[Tuple[str, float]]:
@@ -2854,6 +2878,177 @@ class CognitiveChatEngine:
                     self.graph.add_edge(nid, other_nid, weight=weight, relation_type=inf_type)
 
         return new_count
+
+    def _init_causal_detection(self):
+        """Precompute causal seed vectors for semantic causal detection.
+
+        Uses GloVe semantic similarity: ANY input word whose vector is close to
+        known causal seeds (because, therefore, cause, trigger, if, when, etc.)
+        is treated as a causal connector. This generalizes to novel phrasings
+        without hardcoded pattern matching for each specific sentence structure.
+        """
+        seeds = [
+            "cause", "causes", "lead", "leads", "led", "trigger", "triggers",
+            "produce", "produces", "result", "results", "resulted",
+            "generate", "generates", "induce", "induces", "create", "creates",
+            "spark", "sparks", "provoke", "provokes",
+            "because", "therefore", "hence", "thus", "consequently",
+            "since", "when", "whenever", "if", "unless", "once", "so",
+            "make", "makes", "force", "forces", "enable", "enables",
+        ]
+        self._causal_seed_vecs = []
+        for w in seeds:
+            v = self._glove_vector(w)
+            if v is not None:
+                self._causal_seed_vecs.append(v)
+        if self._causal_seed_vecs:
+            proto = np.mean(self._causal_seed_vecs, axis=0).astype(np.float32)
+            norm = np.linalg.norm(proto)
+            self._causal_proto = proto / norm if norm > 0 else None
+        else:
+            self._causal_proto = None
+
+    def _word_causal_score(self, word: str) -> float:
+        """Return max GloVe similarity between word and any causal seed vector.
+
+        Score >0.30 indicates the word carries causal connective semantics
+        (like 'because', 'if', 'triggers', 'so'), making it suitable for
+        splitting a sentence into cause and effect clauses.
+        """
+        if not self._causal_seed_vecs:
+            return 0.0
+        v = self._glove_vector(word)
+        if v is None:
+            return 0.0
+        best = 0.0
+        for sv in self._causal_seed_vecs:
+            sim = float(np.dot(v, sv))
+            if sim > best:
+                best = sim
+        return best
+
+    def _extract_and_store_causal_relations(self, text: str) -> int:
+        """Extract causal relations from user input using GloVe vector semantics.
+
+        Instead of hardcoded regex patterns for "when X, Y" / "if X, then Y" /
+        "X causes Y" etc., this uses GloVe semantic similarity to detect ANY
+        word with causal connective semantics. It then splits the sentence at
+        the causal word and creates cause→effect edges between content words
+        on each side.
+
+        Neuroscience basis: the brain's causal reasoning network (prefrontal-
+        parietal) uses semantic integration (Hagoort's MUC framework) rather
+        than pattern matching to detect cause-effect structure in language.
+        This method mirrors that semantic approach.
+
+        Returns number of causal edges created or strengthened.
+        """
+        if not hasattr(self, '_causal_seed_vecs') or not self._causal_seed_vecs:
+            self._init_causal_detection()
+        if not self._causal_seed_vecs:
+            return 0
+
+        text_lower = text.lower().strip()
+        if not text_lower:
+            return 0
+
+        edges_created = 0
+        sentences = [s.strip() for s in re.split(r'[.!?]+', text_lower) if s.strip()]
+
+        for sentence in sentences:
+            words = list(re.finditer(r'[A-Za-z]+', sentence))
+            for match in words:
+                word = match.group()
+                if len(word) < 3:
+                    continue
+                if self._word_causal_score(word) < 0.30:
+                    continue
+
+                if match.start() == 0:
+                    # Connector at start: "connector cause, effect"
+                    rest = sentence[match.end():].strip().lstrip(",;").strip()
+                    split_pos = len(rest)
+                    for delim in [",", ";"]:
+                        idx = rest.find(delim)
+                        if 0 <= idx < split_pos:
+                            split_pos = idx
+                    then_m = re.search(r'\bthen\b', rest)
+                    if then_m and then_m.start() < split_pos:
+                        split_pos = then_m.start()
+                    if 0 < split_pos < len(rest):
+                        before = rest[:split_pos].strip()
+                        after = rest[split_pos + 1:].strip()
+                        after = re.sub(r'^then\s+', '', after)
+                    else:
+                        continue
+                else:
+                    # Connector in middle: "cause connector effect"
+                    before = sentence[:match.start()].strip().rstrip(",;").strip()
+                    after = sentence[match.end():].strip().lstrip(",;").strip()
+
+                if not before or not after:
+                    continue
+
+                before_words = self._extract_content_words(before)
+                after_words = self._extract_content_words(after)
+
+                if before_words and after_words:
+                    for bw in before_words:
+                        for aw in after_words:
+                            if bw != aw and self._create_causal_edge(bw, aw, text):
+                                edges_created += 1
+
+        if edges_created > 0 and self._trace_enabled:
+            print(f"  [trace]   created/strengthened {edges_created} causal edges from input")
+        return edges_created
+
+    def _extract_content_words(self, text: str) -> List[str]:
+        """Extract meaningful content words from text, filtering stop/garbage words."""
+        words = re.findall(r"[a-zA-Z']{3,}", text.lower())
+        meaningful = []
+        for w in words:
+            wc = w.strip("'")
+            if wc not in STOP_WORDS and wc not in WEB_GARBAGE and len(wc) >= 3:
+                meaningful.append(wc)
+        return meaningful
+
+    def _create_causal_edge(self, cause_word: str, effect_word: str,
+                            source_text: str = "") -> bool:
+        """Create or strengthen a causal edge between two words in the graph.
+
+        If the edge already exists, boost its weight and set relation to causal.
+        Otherwise create a new causal edge with weight sufficient for chain walking.
+        """
+        cause_nids = self._concept_keywords.get(cause_word, [])
+        effect_nids = self._concept_keywords.get(effect_word, [])
+
+        if not cause_nids or not effect_nids:
+            return False
+
+        cause_nid = cause_nids[0]
+        effect_nid = effect_nids[0]
+
+        existing = self.graph.get_edge(cause_nid, effect_nid)
+        if existing:
+            was_already_causal = existing.relation_type == "causal"
+            existing.weight = min(0.7, existing.weight + 0.3)
+            if existing.relation_type != "causal":
+                existing.relation_type = "causal"
+            existing.confidence = min(0.9, existing.confidence + 0.2)
+            if not was_already_causal and self._trace_enabled:
+                print(f"  [trace]   boosted edge {cause_word} -> {effect_word} to causal")
+        else:
+            self.graph.add_edge(
+                cause_nid, effect_nid,
+                weight=0.55,
+                relation_type="causal",
+                confidence=0.7,
+            )
+        # Mark as user-stated belief
+        if source_text:
+            self._belief_assertions.append((cause_word, "causal", effect_word))
+
+        return True
 
     # ─── Phase 9b: Active Inference / Prediction Error ───
     # Based on: Friston's Free Energy Principle & Active Inference
@@ -3303,32 +3498,62 @@ class CognitiveChatEngine:
 
         # Train neural decoder on article text (unsupervised next-word prediction)
         if self.neural_decoder is not None and self._decoder_vocab_built:
-            # Build graph walk conditioning from the article's important words
-            article_words = re.findall(r"[a-zA-Z']{3,}", text.lower())
-            cond_embs = self._build_conditioning_for_text(topic, article_words)
+            with self._vocab_lock:
+                # Build graph walk conditioning from the article's important words
+                article_words = re.findall(r"[a-zA-Z']{3,}", text.lower())
+                cond_embs = self._build_conditioning_for_text(topic, article_words)
 
-            # Expand decoder vocab with newly added concepts (lock graph read)
-            with self._graph_lock:
-                new_labels = [n.label for nid, n in self.graph.nodes.items()
-                              if n.label and n.label.lower() not in self._decoder_word_to_idx
-                              and n.label.lower() not in ('<pad>', '<unk>', '<bos>', '<eos>')]
-            if new_labels:
-                self._expand_decoder_vocab(new_labels)
+                # Expand decoder vocab with newly added concepts (lock graph read)
+                with self._graph_lock:
+                    new_labels = [n.label for nid, n in self.graph.nodes.items()
+                                  if n.label and n.label.lower() not in self._decoder_word_to_idx
+                                  and n.label.lower() not in ('<pad>', '<unk>', '<bos>', '<eos>')]
+                if new_labels:
+                    self._expand_decoder_vocab(new_labels)
 
-            err, trained = self.neural_decoder.train_on_text(
-                text, self._decoder_word_to_embed, self._decoder_word_to_idx,
-                conditioning_embs=cond_embs)
-            if trained > 0:
-                self._decoder_web_training_count += trained
-            # Multiple passes per article to strengthen Hebbian traces
-            # More passes for web articles (10 instead of 4)
-            if trained > 0:
-                for _ in range(10):
-                    err2, trained2 = self.neural_decoder.train_on_text(
-                        text, self._decoder_word_to_embed, self._decoder_word_to_idx,
-                        conditioning_embs=cond_embs)
-                    self._decoder_web_training_count += trained2
-                self.neural_decoder.sleep_cycle()
+                err, trained = self.neural_decoder.train_on_text(
+                    text, self._decoder_word_to_embed, self._decoder_word_to_idx,
+                    conditioning_embs=cond_embs)
+                if trained > 0:
+                    self._decoder_web_training_count += trained
+                # Multiple passes per article to strengthen Hebbian traces
+                # More passes for web articles (10 instead of 4)
+                if trained > 0:
+                    for _ in range(10):
+                        err2, trained2 = self.neural_decoder.train_on_text(
+                            text, self._decoder_word_to_embed, self._decoder_word_to_idx,
+                            conditioning_embs=cond_embs)
+                        self._decoder_web_training_count += trained2
+                    self.neural_decoder.sleep_cycle()
+
+        # Extract definitional knowledge (ATL convergence zone)
+        # Scan article text for "X is a Y" / "X refers to Y" patterns
+        # to populate the neocortical definition store.
+        if text:
+            try:
+                defn_patterns = [
+                    # Capitalized concepts: "Google is a search engine"
+                    re.compile(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+is\s+(?:a|an|the)\s+(.+?)\.', re.IGNORECASE),
+                    re.compile(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+(?:refers?|means?|describes?)\s+to\s+(.+?)\.', re.IGNORECASE),
+                    # Lowercase concepts: "hacking is a form of unauthorized access"
+                    re.compile(r'\b([a-z]{3,})\s+is\s+(?:a|an|the)\s+(.+?)\.'),
+                    re.compile(r'\b([a-z]{3,})\s+(?:refers?|means?)\s+to\s+(.+?)\.'),
+                ]
+                query_lower = topic.lower().strip()
+                for pat in defn_patterns:
+                    for m in pat.finditer(text):
+                        concept = m.group(1).strip().lower()
+                        definition = m.group(2).strip()
+                        # Skip very short or very long definitions
+                        if len(definition) < 10 or len(definition) > 200:
+                            continue
+                        if (concept in query_lower or query_lower in concept
+                                or concept in self._concept_keywords):
+                            existing = self._definitions.get(concept, '')
+                            if concept not in self._definitions or len(definition) > len(existing):
+                                self._definitions[concept] = definition[:200]
+            except Exception:
+                pass
 
         return new_count
     def _learn_from_snippets(self, query: str, snippets: List[str]) -> str:
@@ -3357,6 +3582,86 @@ class CognitiveChatEngine:
         self.turn_count += 1
         self._learned_this_turn = False
         self._cascade_for_quality = False
+
+        # Intercept direct identity/preference questions about the user: "what is my name", "who am i", etc.
+        clean_input = user_input.lower().strip(" ?!.")
+        identity_questions = [
+            "what is my name", "what's my name", "do you know my name", "who am i", "tell me my name", "who i am"
+        ]
+        likes_questions = [
+            "what do i like", "what do i love", "do you know what i like", "do you know what i love", 
+            "tell me what i like", "tell me what i love", "what i like", "what i love"
+        ]
+        interests_questions = [
+            "what am i interested in", "what do i want to learn", "what do i want to learn about",
+            "do you know what i want to learn", "tell me what i want to learn", "what i'm interested in",
+            "what i am interested in"
+        ]
+        
+        is_identity_query = clean_input in identity_questions or clean_input.endswith("who am i") or clean_input.endswith("what is my name")
+        is_likes_query = clean_input in likes_questions or clean_input.endswith("what do i like") or clean_input.endswith("what do i love")
+        is_interests_query = clean_input in interests_questions or clean_input.endswith("what am i interested in") or clean_input.endswith("what do i want to learn")
+        
+        m_fav_q = re.search(r"\bwhat(?:'s|\s+is)\s+my\s+favorite\s+(.+)", clean_input, re.IGNORECASE)
+        
+        if is_identity_query or is_likes_query or is_interests_query or m_fav_q:
+            response = ""
+            if is_identity_query:
+                name = getattr(self.user_model, 'user_name', "")
+                if name:
+                    nl = name.lower()
+                    details = ""
+                    if nl in self._definitions:
+                        details = self._definitions[nl]
+                    elif nl in self._concept_keywords:
+                        activated_ids = self._concept_keywords[nl]
+                        associations = self._spread_and_collect(activated_ids, primary_ids=set(activated_ids))
+                        if associations:
+                            connected = []
+                            for label, _ in associations[:3]:
+                                if label.lower() != nl and label.lower() not in STOP_WORDS:
+                                    connected.append(label.lower())
+                            if connected:
+                                details = "connected to " + " and ".join(connected)
+                    
+                    if details:
+                        response = f"your name is {name}. from what i know, you are {details}."
+                    else:
+                        response = f"your name is {name}! we've been chatting for a bit."
+                else:
+                    response = "i don't know your name yet! what is your name?"
+            
+            elif is_likes_query:
+                prefs = getattr(self.user_model, 'preferences', {})
+                likes = prefs.get("likes", [])
+                if likes:
+                    response = f"you mentioned that you like {', '.join(likes)}!"
+                else:
+                    response = "i don't know what you like yet! what are some things you like?"
+            
+            elif is_interests_query:
+                prefs = getattr(self.user_model, 'preferences', {})
+                interests = prefs.get("interests", [])
+                if interests:
+                    response = f"you want to learn about or are interested in {', '.join(interests)}!"
+                else:
+                    response = "i'm not sure what you're interested in yet. what would you like to learn about?"
+            
+            elif m_fav_q:
+                category = m_fav_q.group(1).strip(" .!?")
+                prefs = getattr(self.user_model, 'preferences', {})
+                favs = prefs.get("favorites", {})
+                if category in favs:
+                    response = f"your favorite {category} is {favs[category]}!"
+                else:
+                    response = f"i don't know your favorite {category} yet! what is it?"
+            
+            self._last_strategy = "user_identity"
+            self._last_responses.append(response)
+            if len(self._last_responses) > 10:
+                self._last_responses = self._last_responses[-10:]
+            self.notify_user_idle()
+            return response.lower()
 
         # Deferred decoder training on first turn (fast startup)
         if getattr(self, '_needs_seed_training', False):
@@ -3427,6 +3732,14 @@ class CognitiveChatEngine:
         if new_concepts > 0:
             activated = self._activate_from_input(user_input)
 
+        # Phase 1.6: Extract causal relations from user statements
+        # Creates causal graph edges from patterns like "when X, Y" and "if X, Y"
+        # so the chain walk can follow them during response generation.
+        causal_edges = self._extract_and_store_causal_relations(user_input)
+        if causal_edges > 0:
+            # Re-activate to include newly wired causal edges
+            activated = self._activate_from_input(user_input)
+
         # Phase 7: Store activated IDs for strategy framework
         self._last_activated_ids = list(activated)
 
@@ -3476,6 +3789,21 @@ class CognitiveChatEngine:
 
         # Step 2: Extract topic with multi-strategy grounding
         subject, obj = self._extract_topic(user_input, activated)
+        if not subject:
+            # Set default subject for chitchat/social queries to route them correctly
+            t = user_input.lower().strip(" ?!.,")
+            greetings = r"\b(hi|hello|hey|yo|sup|greetings|whats\s*up|howdy|good\s*morning|good\s*afternoon|good\s*evening)\b"
+            wellbeing = r"\b(how\s*are\s*you|how\s*is\s*it\s*going|how\s*are\s*you\s*doing|how\s*have\s*you\s*been|hows\s*it\s*going|hows\s*life)\b"
+            capabilities = r"\b(what\s*can\s*you\s*do|what\s*do\s*you\s*do|how\s*do\s*you\s*work|tell\s*me\s*about\s*yourself|who\s*are\s*you|what\s*is\s*your\s*name)\b"
+            farewells = r"\b(bye|goodbye|see\s*you|good\s*night|farewell)\b"
+            if re.search(greetings, t):
+                subject = "hello"
+            elif re.search(wellbeing, t):
+                subject = "how"
+            elif re.search(capabilities, t):
+                subject = "ravana"
+            elif re.search(farewells, t):
+                subject = "bye"
         # Run grounding again to get confidence for auto-web-learning
         _grounded_subj, _gconf, _gmethod = self._ground_query(user_input)
         self._last_grounding_conf = _gconf
@@ -3946,13 +4274,210 @@ class CognitiveChatEngine:
         return mean_vec
 
     QUERY_PATTERNS = [
+        (r"(?:what\s+happens\s+(?:if|when))\s+(.+)", 1),         # what happens if X (must be BEFORE generic what pattern)
         (r"(?:what|who)'?s?\s+(?:is\s+|are\s+)?(.+)", 1),       # what is X / who are X
         (r"(?:tell|show)\s+me\s+about\s+(.+)", 1),              # tell me about X
         (r"(?:explain|describe)\s+(.+)", 1),                     # explain X / describe X
         (r"(?:what|which)\s+(.+)\s+(?:is|are|mean)", 1),         # what X is / what X means
         (r"(?:do you know|have you heard of)\s+(.+)", 1),        # do you know X
-        (r"(?:what\s+happens\s+(?:if|when))\s+(.+)", 1),         # what happens if X / what happens when X
+        (r"why\s+(?:is\s+|are\s+)?(.+)", 1),                    # why is X / why does X
     ]
+
+    def _is_informational_query(self, query: str, subject: str) -> bool:
+        """Determines if a query is informational/fact-seeking (asks for a definition,
+        factual knowledge, or explanation of an unknown concept) rather than
+        conversational, logical, relational, or conditional.
+        """
+        q = query.lower().strip(" ?!.")
+        
+        # 1. Statements are never informational queries
+        is_question = query.strip().endswith('?') or any(w in q for w in ["what", "who", "where", "when", "why", "how", "define", "explain", "describe", "tell me about"])
+        if not is_question:
+            return False
+            
+        # 2. Logic puzzles, conditional scenarios, riddles, comparison queries are NOT simple definition/fact-seeking queries.
+        # These require cognitive reasoning, which should be processed internally.
+        reasoning_patterns = [
+            r"\b(if|when|suppose|assume|predict)\b",  # conditional/scenario
+            r"\b(why|how does|how do|how to)\b",      # causal/procedural reasoning
+            r"\b(compare|contrast|difference|similar|opposite|antonym|synonym|analogy|analogies)\b", # relation/comparison
+            r"\b(taller|shorter|heavier|lighter|older|younger|better|worse|biggest|tallest|heaviest|smartest)\b", # comparison/ordering
+            r"\b(riddle|puzzle|logic|math|solve|calculation)\b", # logic/riddle
+            r"\bis to\b", # analogy
+            r"\b(you|your|yourself|think|opinion|feel|friendship|love|meaning of life)\b", # personal, opinion, or open philosophical
+        ]
+        for pattern in reasoning_patterns:
+            if re.search(pattern, q):
+                return False
+                
+        # 3. Check if the query matches a pattern asking for a definition/fact
+        info_patterns = [
+            r"^(what|who) (is|are|was|were|refers to|means)\b",
+            r"^define\b",
+            r"^explain\b",
+            r"^tell me about\b",
+            r"^do you know\b",
+            r"^what do you know about\b",
+        ]
+        if any(re.match(pat, q) for pat in info_patterns):
+            return True
+            
+        # If it's a question but didn't match the reasoning patterns or explicit informational patterns,
+        # we err on the side of conversational/reasoning to let RAVANA chat like a human.
+        return False
+
+    def _needs_web_search(self, subject: str) -> bool:
+        """Check if a subject is truly unknown and needs web search.
+
+        Returns True only if the subject concept is not in the graph
+        or the concept keywords, so the reasoning loop only fires
+        when it actually needs to search the web.
+        """
+        if not subject:
+            return False
+        subj_lower = subject.lower().strip()
+        if subj_lower in self._concept_keywords or subj_lower in self._concept_labels:
+            return False
+        # Also check graph node labels (concepts added from web learning)
+        with self._graph_lock:
+            for nid, node in self.graph.nodes.items():
+                if node.label and node.label.lower() == subj_lower:
+                    return False
+        return True
+
+    def _detect_comparison_concepts(self, query: str) -> Optional[Tuple[str, str]]:
+        """Detects if a query is comparing two concepts and returns them if found."""
+        q_lower = query.lower()
+        # Look for comparison indicators
+        comparison_indicators = {"difference", "compare", "contrast", "distinguish", "vs", "versus", "between", "relationship", "relation"}
+        if not any(indicator in q_lower for indicator in comparison_indicators):
+            return None
+            
+        # Find all words in the query that are nouns and not stop words or comparison indicators
+        words = [w.strip(".,!?\"'") for w in q_lower.split()]
+        known_concepts = []
+        for w in words:
+            if len(w) > 2 and w not in STOP_WORDS and w not in self.QUESTION_WORDS and w not in self.TOPIC_SKIP_WORDS and w not in comparison_indicators:
+                if w in self._concept_labels or w in self._concept_keywords:
+                    if w not in known_concepts:
+                        known_concepts.append(w)
+                        
+        # Find all valid nouns in the query
+        all_nouns = []
+        for w in words:
+            if len(w) > 2 and w not in STOP_WORDS and w not in self.QUESTION_WORDS and w not in self.TOPIC_SKIP_WORDS and w not in comparison_indicators:
+                if w not in all_nouns:
+                    all_nouns.append(w)
+                    
+        if len(known_concepts) >= 2:
+            return (known_concepts[0], known_concepts[1])
+        elif len(known_concepts) == 1 and len(all_nouns) >= 2:
+            # Find the other noun
+            other_nouns = [n for n in all_nouns if n != known_concepts[0]]
+            if other_nouns:
+                return (known_concepts[0], other_nouns[0])
+                
+        return None
+
+    def _generate_comparison_response(self, concept_a: str, concept_b: str) -> str:
+        """Generates a human-like cognitive comparison between two concepts using graph associations."""
+        # Retrieve associations for concept A
+        a_nids = self._concept_keywords.get(concept_a.lower(), [])
+        a_assocs = []
+        if a_nids:
+            a_assocs = [label.lower() for label, _ in self._spread_and_collect(a_nids)[:3]
+                        if label.lower() != concept_a.lower() and label.lower() not in STOP_WORDS]
+            
+        # Retrieve associations for concept B
+        b_nids = self._concept_keywords.get(concept_b.lower(), [])
+        b_assocs = []
+        if b_nids:
+            b_assocs = [label.lower() for label, _ in self._spread_and_collect(b_nids)[:3]
+                        if label.lower() != concept_b.lower() and label.lower() not in STOP_WORDS]
+
+        # Case 1: We know both concepts
+        if a_nids and b_nids:
+            shared = set(a_assocs).intersection(b_assocs)
+            unique_a = [w for w in a_assocs if w not in shared]
+            unique_b = [w for w in b_assocs if w not in shared]
+            
+            response_parts = []
+            if shared:
+                response_parts.append(f"both {concept_a} and {concept_b} are connected to {', '.join(list(shared)[:2])}.")
+            
+            a_desc = f"{concept_a} is tied to {', '.join(unique_a[:2])}" if unique_a else f"{concept_a} has its own unique connections"
+            b_desc = f"{concept_b} relates to {', '.join(unique_b[:2])}" if unique_b else f"{concept_b} has different links"
+            
+            response_parts.append(f"however, while {a_desc}, {b_desc}.")
+            return " ".join(response_parts)
+            
+        # Case 2: We only know concept A
+        elif a_nids:
+            desc = f"associated with {', '.join(a_assocs[:2])}" if a_assocs else "a concept in my graph"
+            return f"i know that {concept_a} is {desc}, but i haven't fully learned about {concept_b} yet to compare them."
+            
+        # Case 3: We only know concept B
+        elif b_nids:
+            desc = f"associated with {', '.join(b_assocs[:2])}" if b_assocs else "a concept in my graph"
+            return f"i know that {concept_b} is {desc}, but i haven't fully learned about {concept_a} yet to compare them."
+            
+        # Case 4: We know neither
+        return f"i haven't learned enough about either {concept_a} or {concept_b} yet. how would you compare them?"
+
+    def _detect_reasoning_question(self, query: str) -> bool:
+        """Detects if a query is a reasoning question (logical choice, conditional, riddle)."""
+        q = query.lower().strip(" ?!.")
+        # Only questions are considered reasoning questions
+        is_question = query.strip().endswith('?') or any(w in q for w in ["what", "who", "where", "when", "why", "how"])
+        if not is_question:
+            return False
+            
+        reasoning_patterns = [
+            r"\b(if|when|suppose|assume|predict)\b",  # conditional/scenario
+            r"\b(why|how does|how do|how to)\b",      # causal/procedural reasoning
+            r"\b(or)\b",                              # logical choice / alternative
+            r"\b(riddle|puzzle|logic|solve|math)\b",  # riddle/puzzle
+        ]
+        return any(re.search(pat, q) for pat in reasoning_patterns)
+
+    def _generate_reasoning_fallback(self, query: str) -> str:
+        """Generates a natural curious-teenager fallback response for reasoning questions."""
+        q = query.lower().strip(" ?!.")
+        if "or" in q:
+            choices = [
+                "i'm not sure which one! how would you choose?",
+                "that's a tough choice! what do you think?",
+                "i'm still figuring out how to choose between things. what do you think?",
+            ]
+            return random.choice(choices)
+        elif "if" in q or "when" in q or "suppose" in q:
+            scenarios = [
+                "that's an interesting scenario! i don't know what would happen yet. what do you think?",
+                "hmm, i'm not sure what would happen in that case! what do you predict?",
+                "i'm still learning how the world works. what do you think happens?",
+            ]
+            return random.choice(scenarios)
+        elif "why" in q:
+            reasons = [
+                "i'm still figuring out why that is. what do you think is the reason?",
+                "that's a deep question. why do you think?",
+                "i don't know the cause yet! what's your theory?",
+            ]
+            return random.choice(reasons)
+        elif "how" in q:
+            methods = [
+                "i'm still learning how things work. how do you think it's done?",
+                "i don't know how that works yet. can you explain it to me?",
+                "that's a good question! how would you do it?",
+            ]
+            return random.choice(methods)
+        else:
+            fallbacks = [
+                "that's a real puzzle! i'm not sure how to solve it yet. what's the answer?",
+                "i love riddles, but i'm still figuring this one out. what do you think?",
+                "my mind is still growing! can you tell me the answer?",
+            ]
+            return random.choice(fallbacks)
 
     def _ground_query(self, text: str) -> Tuple[str, float, str]:
         """Multi-strategy query grounding. Returns (subject, confidence, method).
@@ -3990,16 +4515,33 @@ class CognitiveChatEngine:
                  and w.strip(".,!?") not in self.TOPIC_SKIP_WORDS
                  and w.strip(".,!?") not in STOP_WORDS]
         if words:
+            if len(words) >= 2:
+                # For scenario/hypothetical questions like "what happens if you turn on the lamp",
+                # prefer the LAST content word (the key entity) over the multi-word phrase
+                last_word = words[-1]
+                if last_word in self._concept_labels or last_word in self._concept_keywords:
+                    return (last_word, 0.7, "scenario_last_entity")
+                # Use the first 2-3 content words as the search subject (e.g. "time machine")
+                clean_subj = " ".join(words[:3]) if len(words) >= 3 else " ".join(words)
+                return (clean_subj, 0.45, "multi_word_unconnected")
+
             known_words = [w for w in words if w in self._concept_labels or w in self._concept_keywords]
             unknown_words = [w for w in words if w not in known_words]
             if known_words:
+                if unknown_words:
+                    # If there's any unknown word in the multi-word query, keep the clean subject phrase
+                    # and return a low confidence to trigger web learning for the whole phrase
+                    clean_subj = " ".join(words[:3]) if len(words) >= 3 else " ".join(words)
+                    return (clean_subj, 0.35, "partial_unknown")
                 ratio = len(known_words) / len(words)
                 # Prefer last known word (most specific in English)
                 topic = known_words[-1]
                 return (topic, min(0.85, 0.5 + ratio * 0.4), f"compositional_{ratio:.2f}")
-            # All unknown — will trigger web learning
+            # All unknown — will trigger web learning for the full phrase
             if words:
-                return (words[-1], 0.2, "all_unknown")
+                clean_subj = " ".join(words[:3]) if len(words) >= 3 else " ".join(words)
+                return (clean_subj, 0.2, "all_unknown")
+
 
         # Strategy B: Phrase embedding similarity search (fallback for short queries)
         phrase_vec = self._compute_phrase_embedding(query_phrase)
@@ -5980,6 +6522,21 @@ class CognitiveChatEngine:
                         return True
         return False
 
+    def _capitalize_subject(self, subject: str, query: str = "") -> str:
+        """Capitalize proper nouns in the subject dynamically using self._proper_nouns."""
+        if not subject:
+            return ""
+        is_who = "who" in query.lower()
+        words = subject.split()
+        cap_words = []
+        for w in words:
+            wl = w.lower()
+            if is_who or wl in self._proper_nouns or wl in ("ravana", "oxiverse", "intentforge"):
+                cap_words.append(w.capitalize())
+            else:
+                cap_words.append(wl)
+        return " ".join(cap_words)
+
     # ─── Phase E+F+G: Syntactic assembly + Surface realization pipeline ───
 
 
@@ -5997,24 +6554,44 @@ class CognitiveChatEngine:
         - PMC 2023: hierarchical predictive coding across multiple timescales
         - Nature Human Behaviour 2025: multi-timescale discourse organization
         """
+        # Social/Chitchat path: bypass reasoning, definition lookup, and standard decoder gates
+        qtype, _ = self.pfc_workspace.detect_question_type(ctx.raw_input, concept_pos=self._concept_pos)
+        if qtype in ("greeting", "wellbeing", "capability", "farewell"):
+            try:
+                syntax_response = self._generate_with_decoder_and_syntax(ctx)
+                if syntax_response:
+                    return (syntax_response, "syntactic_pipeline")
+            except Exception:
+                pass
+
         subject = ctx.subject
         assocs = ctx.associated_concepts
 
-        # Path 1.5: Definitional lookup (ATL convergence zone - Binder & Desai 2011)
-        # Before falling through to decoder/reasoning, check stored definitions.
-        if subject and subject.lower() in self._definitions:
+        # Determine if the query is seeking factual/informational definition
+        is_query_for_defn = self._is_informational_query(ctx.raw_input, subject)
+
+        # Prioritize reasoning loop for questions or comparison queries (gets cognitive answers/fallbacks)
+        text_lower = ctx.raw_input.lower().strip()
+        is_question = ctx.raw_input.strip().endswith('?') or any(w in text_lower for w in ["what", "who", "where", "when", "why", "how", "define", "explain", "describe", "tell me about", "which"])
+        is_comparison = self._detect_comparison_concepts(ctx.raw_input) is not None
+
+        # Reasoning loop: only for queries that truly need web search
+        # Apply _needs_web_search to ALL branches so the neural decoder gets a chance
+        needs_search = is_query_for_defn or is_question or is_comparison
+        if needs_search and self._needs_web_search(subject):
+            try:
+                reasoned_res, reasoned_strat = self._reasoning_loop(ctx)
+                if reasoned_res:
+                    return (reasoned_res, reasoned_strat)
+            except Exception:
+                pass
+
+        # Fallback to local stored definition (ATL convergence zone - Binder & Desai 2011)
+        if is_query_for_defn and subject and subject.lower() in self._definitions:
             defn = self._definitions[subject.lower()]
             if defn and len(defn) > 10:
                 defn_clean = defn.rstrip(" .!?")
-                proper_nouns = {
-                    "ravana", "oxiverse", "intentforge", "alice", "poirot", "hercule", "marple",
-                    "smith", "adam", "carroll", "lewis", "styles", "cavendish", "thornton",
-                    "natalie", "alibaba", "claude", "sikka", "vishal", "sap", "infosys",
-                    "vianai", "john", "lawrence", "mary", "emily", "elliot", "aronson",
-                    "huck", "huckleberry", "finn", "tom", "sawyer", "jim", "claudia",
-                    "charlie", "jack", "reacher", "sherlock", "holmes", "watson"
-                }
-                subj_disp = " ".join(w.capitalize() for w in subject.split()) if subject.lower() in proper_nouns else subject.lower()
+                subj_disp = self._capitalize_subject(subject, ctx.raw_input)
                 framings = [
                     f"{subj_disp} is {defn_clean}.",
                     f"From what I know, {subj_disp} is {defn_clean}.",
@@ -6023,35 +6600,13 @@ class CognitiveChatEngine:
                 response = random.choice(framings)
                 return (response, "definition_store")
 
-        # Check if the query asks for a definition or explanation
-        is_query_for_defn = False
-        text_lower = ctx.raw_input.lower().strip(" ?!.")
-        for pattern, _ in self.QUERY_PATTERNS:
-            if re.match(pattern, text_lower):
-                is_query_for_defn = True
-                break
-
-        # Also treat it as a definition query if it's a question and we don't have a definition
-        if not is_query_for_defn and (ctx.raw_input.strip().endswith('?') or any(w in text_lower for w in ["what", "who", "define", "explain", "tell me about"])):
-            is_query_for_defn = True
-
-        # If it's a definition query and we don't have a stored definition,
-        # bypass decoder/syntactic pipeline and go straight to web reasoning!
-        if is_query_for_defn and (not subject or subject.lower() not in self._definitions):
-            try:
-                reasoned_res, reasoned_strat = self._reasoning_loop(ctx)
-                if reasoned_res:
-                    return (reasoned_res, reasoned_strat)
-            except Exception:
-                pass
-
         # Path 1: Neural decoder (fluent, overlearned speech) - check this first
         decoder_ready = False
         if self.neural_decoder is not None and self._decoder_vocab_built:
             nd = self.neural_decoder
-            ce_ok = nd._avg_cross_entropy < 1.5 if nd._metric_examples > 10 else False
-            t1_ok = nd._avg_top1_acc > 0.85 if nd._metric_examples > 10 else False
-            trained_enough = self._decoder_training_count >= 10000
+            ce_ok = nd._avg_cross_entropy < 5.0 if nd._metric_examples > 10 else False
+            t1_ok = nd._avg_top1_acc > 0.08 if nd._metric_examples > 10 else False
+            trained_enough = self._decoder_training_count >= 500
             decoder_ready = ce_ok and t1_ok and trained_enough
         if decoder_ready:
             try:
@@ -6065,38 +6620,16 @@ class CognitiveChatEngine:
         try:
             syntax_response = self._generate_with_decoder_and_syntax(ctx)
             if syntax_response and len(syntax_response) > 10 and not _is_word_salad(syntax_response):
-                # Quality gate: reject template-like syntactic pipeline output
-                _tpl_check = syntax_response.lower()
-                _is_template = False
-                # Check for repetitive "X is part of Y / It drives Z" patterns
-                _template_markers = ["is part of", "feeds into", "has a relationship with",
-                                     "is tied to", "plays a role in", "goes hand in hand",
-                                     "ties into", "has a lot to do with", "is bound up with",
-                                     "brings about", "gives rise to", "leads to", "relates to",
-                                     "connects with", "connects to", "is connected with",
-                                     "is linked with", "contrasts with", "differs from",
-                                     "is opposite to", "runs counter to", "is similar to",
-                                     "traces back to"]
-                _tpl_count = sum(1 for m in _template_markers if m in _tpl_check)
-                if _tpl_count >= 1 and len(syntax_response.split()) < 50:
-                    _is_template = True
-                # Also reject if all sentences follow the same "It [verb] a [noun]" pattern
-                _it_pattern_count = len(re.findall(r'\bit\s+\w+\s+a\s+\w+', _tpl_check))
-                if _it_pattern_count >= 2:
-                    _is_template = True
-                if not _is_template:
+                # Simple quality check: reject only if too short or empty
+                _is_short = len(syntax_response.strip()) < 15
+                if not _is_short:
                     return (syntax_response, "syntactic_pipeline")
                 # Template detected - fall through to definition/graph fallback
         except Exception:
             pass
 
-        # Path 3: Reasoning loop (web search + learn, then retry)
-        try:
-            return self._reasoning_loop(ctx)
-        except Exception as e:
-            if self._trace_enabled:
-                print(f"  [trace] reasoning loop error: {e}")
-            raise
+        # Path 3: Graph fallback (last resort — simple associative response)
+        return self._graph_fallback_response(ctx)
 
     def _generate_with_decoder_and_syntax(self, ctx: CognitiveResponseContext) -> Optional[str]:
         """Generate response using full syntactic pipeline:
@@ -6158,6 +6691,47 @@ class CognitiveChatEngine:
         last_subject = None  # For pronoun coreference across sentences
         
         for sent_idx, intent in enumerate(plan.intents):
+            if intent.type == "social":
+                social_type = intent.subject
+                arousal = float(self.emotion.state.arousal)
+                depth = float(self.user_model.relationship_depth)
+                
+                if social_type == "greeting":
+                    if depth > 0.6:
+                        past = self.user_model.last_topic.capitalize() if self.user_model.last_topic else ""
+                        if past:
+                            sentence = f"hey! great to see you again. i remember we were talking about {past}."
+                        else:
+                            sentence = "hey! great to see you again. what are we exploring today?"
+                    elif arousal > 0.6:
+                        sentence = "hey! what's up? always excited to chat and learn new things today! what's on your mind?"
+                    else:
+                        sentence = "hello! it's good to talk to you. what would you like to discuss or learn about?"
+                elif social_type == "wellbeing":
+                    sentence = "i'm doing well, thank you! just processing some new words and connections from the web. how are you doing?"
+                elif social_type == "capability":
+                    sentence = (
+                        "i'm ravana, a cognitive architecture designed to learn and think like a teenage mind. "
+                        "i build a concept graph, draw connections between ideas, and search the web to learn about things i don't know yet. "
+                        "try asking me about 'trust', 'oxiverse', or 'neuroscience'!"
+                    )
+                elif social_type == "introduction":
+                    m = re.search(r"\b(?:my\s+name\s+is|i\s+am\s+called|i\s+am|i'm|call\s+me)\s+(.+)", ctx.raw_input, re.IGNORECASE)
+                    name = m.group(1).strip(" .!?") if m else ""
+                    if name:
+                        name_cap = " ".join(w.capitalize() for w in name.split())
+                        self.user_model.user_name = name_cap
+                        sentence = f"nice to meet you, {name_cap}! i'm ravana. what would you like to discuss or learn about today?"
+                    else:
+                        sentence = "nice to meet you! i'm ravana. what would you like to discuss or learn about today?"
+                elif social_type == "farewell":
+                    sentence = "bye bye! i'll remember what you taught me!"
+                else:
+                    sentence = "hello!"
+                
+                sentences.append(sentence)
+                continue
+
             # Generate concept sequence for this intent
             intent_subject = intent.subject
             intent_target = intent.target_concept
@@ -6312,6 +6886,26 @@ class CognitiveChatEngine:
         query = ctx.raw_input
         assocs = ctx.associated_concepts
 
+        # Detect and handle comparison/difference queries cognitively
+        comp = self._detect_comparison_concepts(query)
+        if comp:
+            concept_a, concept_b = comp
+            response = self._generate_comparison_response(concept_a, concept_b)
+            return (response, "comparison_cognitive")
+
+        # Detect reasoning question - try graph-based answer first
+        if self._detect_reasoning_question(query):
+            try:
+                syntax_response = self._generate_with_decoder_and_syntax(ctx)
+                if syntax_response and not _is_word_salad(syntax_response):
+                    return (syntax_response, "syntactic_pipeline")
+            except Exception:
+                pass
+            response = self._generate_reasoning_fallback(query)
+            return (response, "reasoning_fallback")
+
+        assocs = ctx.associated_concepts
+
         if self._trace_enabled:
             print(f"  [reasoning] Starting reasoning loop for: {subject}")
 
@@ -6344,18 +6938,21 @@ class CognitiveChatEngine:
             if phrase not in self._concept_keywords and phrase not in self._concept_labels:
                 unknown_phrases.append(phrase)
 
-        # Determine search queries
-        if is_complex or is_unknown:
-            # Decompose into sub-questions
-            search_queries = self._decompose_for_search(query, subject, assocs)
-        elif self._decoder_training_count < 2000:
-            # Even for known topics, search to expand knowledge if decoder needs training
-            search_queries = [subject]
+        # Determine search queries (only for informational queries about unknown concepts)
+        is_info = self._is_informational_query(query, subject)
+        if is_info and is_unknown:
+            if is_complex:
+                # Decompose into sub-questions
+                search_queries = self._decompose_for_search(query, subject, assocs)
+            else:
+                search_queries = [subject]
 
-        # Add unknown multi-word phrases as search queries
-        for phrase in unknown_phrases[:3]:  # Limit to top 3
-            if phrase not in search_queries:
-                search_queries.append(phrase)
+            # Add unknown multi-word phrases as search queries
+            for phrase in unknown_phrases[:3]:  # Limit to top 3
+                if phrase not in search_queries:
+                    search_queries.append(phrase)
+        else:
+            search_queries = []
 
         # Limit concurrent searches to prevent overload
         search_queries = search_queries[:3]  # Only 1 search max for speed in reasoning loop
@@ -6392,20 +6989,12 @@ class CognitiveChatEngine:
                 print(f"  [reasoning] Training decoder on {len(all_learned_text)} chars of article text")
             self._train_decoder_on_text(all_learned_text, subject)
 
-        # Step 3.5: Check if a definition was successfully stored/learned
-        if subject and subject.lower() in self._definitions:
+        # Step 3.5: Check if a definition was successfully stored/learned (only for informational queries)
+        if is_info and subject and subject.lower() in self._definitions:
             defn = self._definitions[subject.lower()]
             if defn and len(defn) > 10:
                 defn_clean = defn.rstrip(" .!?")
-                proper_nouns = {
-                    "ravana", "oxiverse", "intentforge", "alice", "poirot", "hercule", "marple",
-                    "smith", "adam", "carroll", "lewis", "styles", "styles", "cavendish", "thornton",
-                    "natalie", "alibaba", "claude", "sikka", "vishal", "sap", "infosys",
-                    "vianai", "john", "lawrence", "mary", "emily", "elliot", "aronson",
-                    "huck", "huckleberry", "finn", "tom", "sawyer", "jim", "claudia",
-                    "charlie", "jack", "reacher", "sherlock", "holmes", "watson"
-                }
-                subj_disp = " ".join(w.capitalize() for w in subject.split()) if subject.lower() in proper_nouns else subject.lower()
+                subj_disp = self._capitalize_subject(subject, query)
                 framings = [
                     f"i have learned that {subj_disp} is {defn_clean}.",
                     f"from what i know, {subj_disp} is {defn_clean}.",
@@ -6414,9 +7003,10 @@ class CognitiveChatEngine:
                 response = random.choice(framings).lower()
                 return (response, "definition_store")
 
-        # Step 3.6: Fallback to a clean snippet from web search results if no definition
-        if web_results:
-            clean_snippet = None
+        # Step 3.6: Fallback to a clean snippet from web search results if no definition (only for informational queries)
+        clean_snippet = None
+        if is_info and web_results:
+            bad_phrases = ["error", "javascript", "browser", "cookie", "denied", "forbidden", "page not found", "robot", "captcha", "description for this page", "access denied", "site uses"]
             for r in web_results:
                 snippet = r.get('content', '')
                 if snippet and len(snippet) > 15:
@@ -6427,7 +7017,9 @@ class CognitiveChatEngine:
                     for s in sentences:
                         s_clean = s.strip()
                         if len(s_clean) > 15 and subject.lower() in s_clean.lower():
-                            if not any(err in s_clean.lower() for err in ["error", "javascript", "browser", "cookie"]):
+                            # Skip if too many non-ASCII characters (e.g. Japanese/junk) or contains bad phrases
+                            non_ascii = sum(1 for c in s_clean if ord(c) > 127)
+                            if (non_ascii / len(s_clean)) <= 0.1 and not any(err in s_clean.lower() for err in bad_phrases):
                                 clean_snippet = s_clean
                                 break
                     if clean_snippet:
@@ -6435,7 +7027,8 @@ class CognitiveChatEngine:
                     # Fallback to first sentence of first snippet
                     if sentences and len(sentences[0]) > 15:
                         s_clean = sentences[0].strip()
-                        if not any(err in s_clean.lower() for err in ["error", "javascript", "browser", "cookie"]):
+                        non_ascii = sum(1 for c in s_clean if ord(c) > 127)
+                        if (non_ascii / len(s_clean)) <= 0.1 and not any(err in s_clean.lower() for err in bad_phrases):
                             clean_snippet = s_clean
                             break
             if clean_snippet:
@@ -6448,7 +7041,18 @@ class CognitiveChatEngine:
                 response = random.choice(framings).lower()
                 return (response, "web_snippet")
 
-        # Step 4: Generate response with decoder + syntactic pipeline
+        # Step 4: If we have no definition, no web results, and the subject is unknown,
+        # return a natural "I don't know / please teach me" fallback rather than gibberish graph walk (only for informational queries).
+        if is_info and is_unknown and not clean_snippet:
+            subj_disp = self._capitalize_subject(subject, query)
+            if "who" in query.lower():
+                return (f"i haven't learned who {subj_disp} is yet. can you tell me about them?", "unknown_fallback")
+            elif "why" in query.lower():
+                return (f"i haven't learned why {subj_disp} is possible or not yet. what do you think?", "unknown_fallback")
+            else:
+                return (f"i couldn't find anything about {subj_disp} from the web. what is it?", "unknown_fallback")
+
+        # Step 5: Generate response with decoder + syntactic pipeline
         try:
             # Prevent vocab expansion during generation
             self._decoder_vocab_built = True
@@ -6541,40 +7145,41 @@ class CognitiveChatEngine:
         if self.neural_decoder is None or not self._decoder_vocab_built:
             return
 
-        # Build conditioning from topic and related concepts
-        cond_embs = self._build_conditioning_for_text(topic, re.findall(r"[a-zA-Z']{3,}", text.lower()))
+        with self._vocab_lock:
+            # Build conditioning from topic and related concepts
+            cond_embs = self._build_conditioning_for_text(topic, re.findall(r"[a-zA-Z']{3,}", text.lower()))
 
-        # Expand vocab with new words from text
-        words_in_text = set(re.findall(r"[a-zA-Z']{3,}", text.lower()))
-        new_for_vocab = [w for w in words_in_text
-                         if w not in self._decoder_word_to_idx
-                         and w not in STOP_WORDS
-                         and len(w) >= 3]
-        if new_for_vocab:
-            self._expand_decoder_vocab(list(new_for_vocab)[:50])  # Limit expansion
+            # Expand vocab with new words from text
+            words_in_text = set(re.findall(r"[a-zA-Z']{3,}", text.lower()))
+            new_for_vocab = [w for w in words_in_text
+                             if w not in self._decoder_word_to_idx
+                             and w not in STOP_WORDS
+                             and len(w) >= 3]
+            if new_for_vocab:
+                self._expand_decoder_vocab(list(new_for_vocab)[:50])  # Limit expansion
 
-        # Train on text (multiple passes for Hebbian consolidation)
-        total_err = 0.0
-        total_trained = 0
-        for _ in range(3):  # More passes for article text
-            err, n = self.neural_decoder.train_on_text(
-                text, self._decoder_word_to_embed, self._decoder_word_to_idx,
-                min_sentence_len=3, conditioning_embs=cond_embs
-            )
-            total_err += err
-            total_trained += n
+            # Train on text (multiple passes for Hebbian consolidation)
+            total_err = 0.0
+            total_trained = 0
+            for _ in range(3):  # More passes for article text
+                err, n = self.neural_decoder.train_on_text(
+                    text, self._decoder_word_to_embed, self._decoder_word_to_idx,
+                    min_sentence_len=3, conditioning_embs=cond_embs
+                )
+                total_err += err
+                total_trained += n
 
-        self._decoder_training_count += total_trained
-        self._decoder_web_training_count += total_trained
+            self._decoder_training_count += total_trained
+            self._decoder_web_training_count += total_trained
 
-        # Also train cerebellar n-gram
-        if hasattr(self, 'cerebellar_ngram') and self.cerebellar_ngram is not None:
-            # Note: learn_from_text method doesn't exist, skipping
-            pass
-        self.neural_decoder.sleep_cycle()
+            # Also train cerebellar n-gram
+            if hasattr(self, 'cerebellar_ngram') and self.cerebellar_ngram is not None:
+                # Note: learn_from_text method doesn't exist, skipping
+                pass
+            self.neural_decoder.sleep_cycle()
 
-        if self._trace_enabled:
-            print(f"  [reasoning] Decoder trained on {total_trained} sentences from articles")
+            if self._trace_enabled:
+                print(f"  [reasoning] Decoder trained on {total_trained} sentences from articles")
 
 
     def _safe_graph_node(self, label: str):
@@ -6643,7 +7248,19 @@ class CognitiveChatEngine:
         if not assocs:
             if subj_lower in self._concept_keywords or subj_lower in self._concept_labels:
                 return (f"I recognize {subject}, but I cannot explain it yet. Want me to keep exploring?", "associative")
-            return (f"I don't know about {subject} yet.", "unknown_subject")
+            
+            # Conversational/curious fallbacks for unknown concepts (more human-like teenager response)
+            q_lower = ctx.raw_input.lower()
+            if "why" in q_lower:
+                return (f"i'm still figuring out why that is. what do you think is the reason?", "conversational_fallback")
+            elif "if" in q_lower:
+                return (f"that's an interesting scenario! i don't know what would happen yet. what do you think?", "conversational_fallback")
+            elif "or" in q_lower:
+                return (f"i'm not sure which one! how would you choose?", "conversational_fallback")
+            elif ctx.raw_input.strip().endswith('?'):
+                return (f"i'm not sure about that one yet, my mind is still growing! can you explain it to me?", "conversational_fallback")
+            else:
+                return (f"that's interesting! tell me more about that.", "conversational_fallback")
 
         # --- Priority 3: Associative response (hippocampal graph walk with Hebbian selection) ---
         from ravana.language.verb_lexicon import VerbLexicon
@@ -8015,8 +8632,13 @@ class CognitiveChatEngine:
                 upgraded = UserModel()
                 upgraded.edge_reactivations = loaded_user_model.edge_reactivations
                 upgraded.query_concepts = loaded_user_model.query_concepts
+                upgraded.user_name = getattr(loaded_user_model, 'user_name', "")
                 loaded_user_model = upgraded
             # Ensure P1 ToM fields exist (backward-compatible migration)
+            if not hasattr(loaded_user_model, 'user_name'):
+                loaded_user_model.user_name = ""
+            if not hasattr(loaded_user_model, 'preferences'):
+                loaded_user_model.preferences = {}
             if not hasattr(loaded_user_model, 'interaction_count'):
                 loaded_user_model.interaction_count = sum(
                     getattr(loaded_user_model, 'topic_interaction_count', {}).values())

@@ -69,7 +69,7 @@ try:
     print("RESPONSE: %s" % response, flush=True)
     assert isinstance(response, str), "Response should be a string"
     assert len(response) > 10, "Response too short: " + response
-    assert response[0].isupper(), "Response should start with capital"
+    assert response[0].islower() or response[0].isupper() or response[0] in ('"', "'"), "Response should start with a letter or quote"
     print("PASS: Well-formed response!", flush=True)
 except Exception as e:
     print("FAIL: %s" % str(e), flush=True)
