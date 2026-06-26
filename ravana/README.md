@@ -236,17 +236,14 @@ python external_benchmark.py --quick --skip-pcx        # Lifelong + Graph
 ## Running Tests
 
 ```bash
-# Modular package tests (NEW)
-python -m pytest tests/test_cognitive_rlm.py -v
-python -m pytest tests/test_dialogue_system.py -v
-python -m pytest tests/test_dialogue_engine_integration.py -v
-python -m pytest tests/ -k "not slow" -v
+# CI-critical tests (fast, ~0.5s)
+python -m pytest tests/ci/ -v
 
-# RLMv2 unit tests (shared)
-python -m pytest tests/test_rlm_v2.py -v
-python -m pytest tests/test_rp_only.py -v
-python -m pytest tests/test_rp_contrastive.py -v
-python -m pytest tests/test_structural_transfer.py -v
+# Unit tests (~2.5 min)
+python -m pytest tests/unit/ -v
+
+# Integration tests (~4 min)
+python -m pytest tests/integration/ -v
 
 # GRACE cognitive core tests (v2)
 python -m pytest ravana-v2/tests/ -v
@@ -255,7 +252,7 @@ python -m pytest ravana-v2/tests/ -v
 python -m pytest tests/ ravana-v2/tests/ -v
 ```
 
-**Current status: 169 tests passing** (15 cognitive + 49 dialogue + 15 integration + ML framework tests)
+**Current status: 1456+ tests passing** (30 CI + 1310 unit + 95 integration + 16 GRACE + 5 generation)
 
 ---
 

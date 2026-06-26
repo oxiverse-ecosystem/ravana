@@ -1,9 +1,0 @@
-tools:
-    shell:
-        allow:
-            - cd *
-            - python *
-            - sleep 5
-            - head *
-            - sleep 15
-            - sleep 30

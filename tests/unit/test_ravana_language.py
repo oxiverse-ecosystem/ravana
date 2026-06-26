@@ -228,6 +228,13 @@ class TestPrefrontalWorkspace:
             for pattern in patterns:
                 assert pattern.match("test string") is not None or True  # Just verify they compile
 
+    def test_get_primary_relation_for_qtype(self):
+        assert PrefrontalWorkspace.get_primary_relation_for_qtype("hypothetical") == "causal"
+        assert PrefrontalWorkspace.get_primary_relation_for_qtype("why") == "causal"
+        assert PrefrontalWorkspace.get_primary_relation_for_qtype("compare") == "contrastive"
+        assert PrefrontalWorkspace.get_primary_relation_for_qtype("what_is") == "semantic"
+        assert PrefrontalWorkspace.get_primary_relation_for_qtype("unknown_type") == "semantic"
+
     def test_topic_history_tracking(self):
         pfc = PrefrontalWorkspace()
         pfc.plan_discourse("What is trust?", "trust", {}, [], is_follow_up=False)

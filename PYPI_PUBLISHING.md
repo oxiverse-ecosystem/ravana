@@ -9,19 +9,15 @@ Because PyPI package names must use underscores/hyphens and the directory `ravan
 | **ML Framework** | `ravana-ml` | `ravana_ml/` | 0.3.3 | Tensors, modules, ConceptGraph, RLMv1/RLMv2 |
 | **GRACE Core** | `ravana-grace` | `ravana-v2/` | 0.2.3 | 27-phase cognitive architecture |
 | **Modular Chat** | `ravana-chat` | `ravana/` | 0.3.3 | Decoder-first chat, web learning, CLI |
-| **Unified Meta** | `ravana-cognitive` | `pyproject.toml` (root) | 0.3.2 | All three packages bundled together |
 
 ---
 
 ## PyPI Names Status
 | Name | Status |
 |------|--------|
-| `ravana` | ❌ Taken (MIDI package) |
 | `ravana-ml` | ✅ Published v0.3.3 |
 | `ravana-grace` | ✅ Published v0.2.3 |
 | `ravana-chat` | ✅ Published v0.3.3 |
-| `ravana-cognitive` | ✅ Published v0.3.2 |
-
 ---
 
 ## Build & Publish Commands

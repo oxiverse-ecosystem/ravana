@@ -129,6 +129,27 @@ class PrefrontalWorkspace:
         "conclude": ["ultimately", "in essence", "at its core", "fundamentally"],
     }
 
+    # Maps each detected question type to the primary relation the PFC will
+    # use for task-set biasing during activation spread. Mirrors the dispatch
+    # logic in plan_discourse — the PFC's architectural decision about what
+    # kind of reasoning the current question requires.
+    QTYPE_PRIMARY_RELATION = {
+        "what_is": "semantic",
+        "why": "causal",
+        "how": "causal",
+        "tell_me": "semantic",
+        "compare": "contrastive",
+        "hypothetical": "causal",
+        "do_you_know": "semantic",
+        "follow_up": "semantic",
+        "general": "semantic",
+    }
+
+    @classmethod
+    def get_primary_relation_for_qtype(cls, qtype: str) -> str:
+        """Return the PFC's task-set relation for a given question type."""
+        return cls.QTYPE_PRIMARY_RELATION.get(qtype, "semantic")
+
     @classmethod
     def detect_question_type(cls, text: str, concept_pos: Optional[Dict[str, str]] = None) -> Tuple[str, List[str]]:
         """Detect question type from user input.
@@ -200,10 +221,11 @@ class PrefrontalWorkspace:
         qtype, parts = self.detect_question_type(user_input, concept_pos=concept_pos)
         plan = DiscoursePlan(original_subject=subject, question_type=qtype)
 
-        # Build seen set from subject and top associations
+        # Build seen set from subject only. Do NOT pre-populate with top
+        # associations — that would consume the most causally-relevant concepts
+        # (e.g. "explosion" for "what happens if lamp?") before the
+        # task-set-aware selection can evaluate them.
         seen = {subject.lower()}
-        for label, _ in associations[:3]:
-            seen.add(label.lower())
 
         # Plan based on question type
         if qtype == "what_is":
@@ -528,6 +550,21 @@ class PrefrontalWorkspace:
             "very", "too", "also", "just", "only", "still", "yet", "already",
             "up", "down", "out", "off", "on", "over",
         }
+        # Generic causal filler verbs — they describe causation without being
+        # the actual cause or effect entity. When prefer_causal=True, the PFC
+        # task-set should pick the ENTITY (explosion, lights) over the process
+        # verb (occurs, happens) as the discourse target.
+        CAUSAL_FILLER_VERBS = {
+            "occurs", "occur", "occurred", "occurring",
+            "happens", "happen", "happened", "happening",
+            "causes", "cause", "caused", "causing",
+            "leads", "lead", "led", "leading",
+            "results", "result", "resulted", "resulting",
+            "creates", "create", "created", "creating",
+            "triggers", "trigger", "triggered", "triggering",
+            "produces", "produce", "produced", "producing",
+            "makes", "make", "made", "making",
+        }
         for label, score in associations:
             ll = label.lower()
             if ll in seen:
@@ -541,6 +578,8 @@ class PrefrontalWorkspace:
                 verb_roots = set(VerbLexicon.MORPHEMIC_SEEDS["roots"])
                 if ll in verb_roots or any(ll.endswith(s) for s in ("ing", "ed", "es", "ion", "ment")):
                     continue
+            if prefer_causal and ll in CAUSAL_FILLER_VERBS:
+                continue
             return label
         return ""
 

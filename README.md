@@ -201,11 +201,12 @@ Cross-domain transfer uses Science verbs + Social subjects with test-time cross-
 
 ### Graph Scaling (Measured, Not Extrapolated)
 
-| Nodes | `find_similar` | `spread_activation` | Consolidation (full / incremental) |
-|-------|---------------|---------------------|-------------------------------------|
-| 1K    | **0.02 ms**   | 0.78 ms             | 1.82 ms / 0.20 ms |
-| 10K   | **0.08 ms**   | 1.15 ms             | 27.98 ms / 2.14 ms |
-| 50K   | **0.66 ms**   | —                   | 49.20 ms / 3.12 ms (15.8× speedup) |
+| Nodes | `find_similar` p50 / p95 | `spread_activation` | Consolidation (full / incremental) |
+|-------|--------------------------|---------------------|-------------------------------------|
+| 1K    | **0.021 ms / 0.058 ms**  | 0.78 ms             | 1.82 ms / 0.20 ms |
+| 5K    | **0.044 ms / 0.111 ms**  | —                   | — |
+| 10K   | **0.059 ms / 0.081 ms**  | 1.15 ms             | 27.98 ms / 2.14 ms |
+| 50K   | **0.66 ms**              | —                   | 49.20 ms / 3.12 ms (15.8× speedup) |
 
 - **FAISS**: HNSWFlat index auto-activated at ≥64 nodes; switches from O(N·D) brute-force to O(log N) approximate search
 - **Incremental consolidation** processes only changed nodes rather than full graph rebuild — 15.8× faster at 50K nodes
@@ -232,18 +233,22 @@ Sleep consolidation prunes what doesn't generalize:
 - **Low-utility episodic traces** — details with high retrieval distortion or low predictive utility don't consolidate into semantic memory
 - **Low-confidence edges** — edges with confidence < 0.05 and zero prediction count are pruned during homeostatic downscale
 
+### False Positive Probe
+
+Across 3 disjoint domains (animals, colors, fruits), cross-domain intrusions in top-10: **6.17 avg** (lower is better; < 5 is good, 0 perfect).
+
 ### External Benchmark Harness
 
 ```bash
 # Quick run (PCX + Graph, ~2 min)
-python external_benchmark.py --quick
+python scripts/external_benchmark.py --quick
 
 # Full suite (PCX + Lifelong + Graph, ~10 min)
-python external_benchmark.py
+python scripts/external_benchmark.py
 
 # Individual surfaces
-python external_benchmark.py --quick --skip-lifelong    # PCX + Graph
-python external_benchmark.py --quick --skip-pcx        # Lifelong + Graph
+python scripts/external_benchmark.py --quick --skip-lifelong    # PCX + Graph
+python scripts/external_benchmark.py --quick --skip-pcx        # Lifelong + Graph
 ```
 
 ---
@@ -269,17 +274,14 @@ python external_benchmark.py --quick --skip-pcx        # Lifelong + Graph
 ## Running Tests
 
 ```bash
-# Modular package tests (NEW)
-python -m pytest tests/test_cognitive_rlm.py -v
-python -m pytest tests/test_dialogue_system.py -v
-python -m pytest tests/test_dialogue_engine_integration.py -v
-python -m pytest tests/ -k "not slow" -v
+# CI-critical tests (fast, ~0.5s)
+python -m pytest tests/ci/ -v
 
-# RLMv2 unit tests (shared)
-python -m pytest tests/test_rlm_v2.py -v
-python -m pytest tests/test_rp_only.py -v
-python -m pytest tests/test_rp_contrastive.py -v
-python -m pytest tests/test_structural_transfer.py -v
+# Unit tests (~2.5 min)
+python -m pytest tests/unit/ -v
+
+# Integration tests (~4 min)
+python -m pytest tests/integration/ -v
 
 # GRACE cognitive core tests (v2)
 python -m pytest ravana-v2/tests/ -v
@@ -288,7 +290,7 @@ python -m pytest ravana-v2/tests/ -v
 python -m pytest tests/ ravana-v2/tests/ -v
 ```
 
-**Current status: 1457+ tests passing**
+**Current status: 1456+ tests passing** (30 CI + 1310 unit + 95 integration + 16 GRACE + 5 generation)
 
 ---
 

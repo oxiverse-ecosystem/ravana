@@ -24,6 +24,9 @@ A **pressure-driven cognitive ML framework** where learning emerges from self-or
 - **Before Sleep**: 12.5% Top-1 on held-out science facts, 0% on social facts
 - **After Sleep**: 81.2% Top-1 on science, 80% Top-1 on social
 - **Cross-domain**: Science verbs + Social subjects = 81% Top-1
+- **With test-time entity adapter**: 93-100% Top-1 held-out generalization
+- **Latest graph scaling**: 1K nodes ~0.021ms, 10K nodes ~0.059ms `find_similar` p50
+- **Test suite**: **1456+ tests passing** across CI, unit, integration, and GRACE layers
 
 This means RAVANA can learn "heat causes expansion" and generalize to "anger causes conflict"
 by recognizing the shared "causes" relation pattern!

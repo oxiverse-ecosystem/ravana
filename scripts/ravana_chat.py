@@ -2927,6 +2927,100 @@ class CognitiveChatEngine:
                 best = sim
         return best
 
+    def _init_relation_prototypes(self):
+        """Precompute prototype vectors for ALL relation types.
+
+        Each prototype is the mean GloVe vector of seed words representing
+        a relation type (causal, contrastive, temporal, analogical, semantic).
+        Used by the PFC to compute top-down attentional bias: the similarity
+        between the discourse intent's relation and each prototype determines
+        how much to boost or discount edges of that type during chain walking.
+
+        Neuroscience basis: Miller & Cohen (2001) — the PFC maintains a task-set
+        that biases posterior processing toward goal-relevant dimensions.
+        Here, vector similarity (not rules) determines which relation dimensions
+        are relevant for the current discourse intent.
+        """
+        proto_map = {
+            "causal": ["cause", "lead", "trigger", "produce", "result",
+                        "because", "therefore", "hence", "consequently", "effect",
+                        "causal"],
+            "contrastive": ["but", "however", "unlike", "opposite", "differ",
+                             "contrast", "instead", "although", "yet", "versus"],
+            "temporal": ["when", "after", "before", "during", "while", "then",
+                          "until", "since", "sequence", "subsequent"],
+            "analogical": ["like", "similar", "analogous", "metaphor", "compare",
+                            "parallel", "resemble", "likewise", "correspond"],
+            "semantic": ["relate", "connect", "associate", "refer", "meaning",
+                          "define", "describe", "denote", "signify"],
+        }
+        self._relation_prototypes = {}
+        for rel_type, seeds in proto_map.items():
+            vecs = [self._glove_vector(w) for w in seeds
+                    if self._glove_vector(w) is not None]
+            if vecs:
+                proto = np.mean(vecs, axis=0).astype(np.float32)
+                norm = np.linalg.norm(proto)
+                if norm > 0:
+                    proto /= norm
+                self._relation_prototypes[rel_type] = proto
+
+    def _relation_modulation_for_word(self, word: str
+                                      ) -> Optional[Dict[str, float]]:
+        """Compute relation modulation from a single word using GloVe semantics.
+
+        Uses z-score normalization across all relation prototype similarities so
+        the most relevant relation type gets the strongest boost, less relevant
+        types get neutral or slight discount, and unrelated types get clear
+        discount. No hardcoded thresholds — the distribution of similarities
+        determines the modulation naturally.
+
+        Used by both the PFC discourse planner (per-intent) and the association
+        spread (pre-computed from question type).
+
+        Returns dict of {relation_type: multiplier} or None if word not found.
+        """
+        if not hasattr(self, '_relation_prototypes') or not self._relation_prototypes:
+            self._init_relation_prototypes()
+        if not self._relation_prototypes:
+            return None
+
+        target_vec = self._glove_vector(word)
+        if target_vec is None:
+            return None
+
+        sims = {}
+        for rt, proto_vec in self._relation_prototypes.items():
+            sims[rt] = float(np.dot(target_vec, proto_vec))
+
+        arr = np.array(list(sims.values()))
+        mean = float(arr.mean())
+        std = float(arr.std()) if arr.std() > 0.01 else 0.15
+
+        out = {}
+        for rt, sim in sims.items():
+            z = (sim - mean) / std
+            out[rt] = 1.0 + min(0.5, z * 0.15)
+        return out
+
+    def _compute_relation_modulation(self, plan, intent
+                                     ) -> Optional[Dict[str, float]]:
+        """PFC top-down modulation: which relation types to bias for this intent.
+
+        Uses the intent's primary_relation (e.g. 'causal' for hypotheticals)
+        or the plan's question_type as fallback. Delegates to the shared
+        _relation_modulation_for_word for the actual vector computation.
+
+        Neuroscience basis: Miller & Cohen (2001) — PFC task-set biases.
+        """
+        rel_type = intent.primary_relation or ""
+        out = self._relation_modulation_for_word(rel_type)
+        if out is None:
+            qtype = getattr(plan, 'question_type', "") or ""
+            if qtype:
+                out = self._relation_modulation_for_word(qtype)
+        return out
+
     def _extract_and_store_causal_relations(self, text: str) -> int:
         """Extract causal relations from user input using GloVe vector semantics.
 
@@ -2950,6 +3044,15 @@ class CognitiveChatEngine:
 
         text_lower = text.lower().strip()
         if not text_lower:
+            return 0
+
+        # Skip interrogative input: questions ask about causality, they don't
+        # assert it. Parsing "what happens if X?" as "happens → X" would create
+        # spurious edges that derail the chain walk.
+        if text_lower.endswith("?") or re.match(
+            r'^(what|who|where|when|why|how|which|whose|whom|'
+            r'do(es|id)?|is|are|was|were|can|could|will|would|'
+            r'shall|should|may|might|must|have|has|had)\b', text_lower):
             return 0
 
         edges_created = 0
@@ -3031,16 +3134,16 @@ class CognitiveChatEngine:
         existing = self.graph.get_edge(cause_nid, effect_nid)
         if existing:
             was_already_causal = existing.relation_type == "causal"
-            existing.weight = min(0.7, existing.weight + 0.3)
+            existing.weight = min(0.85, existing.weight + 0.3)
             if existing.relation_type != "causal":
                 existing.relation_type = "causal"
-            existing.confidence = min(0.9, existing.confidence + 0.2)
+            existing.confidence = min(0.95, existing.confidence + 0.2)
             if not was_already_causal and self._trace_enabled:
                 print(f"  [trace]   boosted edge {cause_word} -> {effect_word} to causal")
         else:
             self.graph.add_edge(
                 cause_nid, effect_nid,
-                weight=0.55,
+                weight=0.75,
                 relation_type="causal",
                 confidence=0.7,
             )
@@ -3822,8 +3925,21 @@ class CognitiveChatEngine:
         if sl in self._concept_keywords:
             subject_ids.update(self._concept_keywords[sl])
 
-        # Step 3: Spread activation through graph
-        associations = self._spread_and_collect(activated, primary_ids=subject_ids)
+        # Step 2c: PFC-derived relation preference for spread activation.
+        # The PFC determines what KIND of reasoning the question requires
+        # (causal, contrastive, semantic, etc.) and biases the spread accordingly.
+        # Using the PFC's task-set primary_relation, not the raw qtype string —
+        # because "hypothetical" in GloVe space maps to analogical, but the PFC
+        # correctly identifies it as a causal reasoning task.
+        _qtype_for_spread, _ = self.pfc_workspace.detect_question_type(
+            user_input, concept_pos=self._concept_pos)
+        spread_pref = self._relation_modulation_for_word(
+            self.pfc_workspace.get_primary_relation_for_qtype(_qtype_for_spread))
+
+        # Step 3: Spread activation through graph (with PFC bias if available)
+        associations = self._spread_and_collect(
+            activated, primary_ids=subject_ids,
+            relation_preference=spread_pref)
 
         # Step 4: Collect unknown words for deferred web learning
         # Phase 1.4: No hard lifetime cap — per-session rate limit (max 1 search per 3 turns)
@@ -4639,18 +4755,32 @@ class CognitiveChatEngine:
         return ("", text)
 
     def _spread_and_collect(self, seed_ids: List[int],
-                             primary_ids: Optional[Set[int]] = None) -> List[Tuple[str, float]]:
+                             primary_ids: Optional[Set[int]] = None,
+                             relation_preference: Optional[Dict[str, float]] = None,
+                             ) -> List[Tuple[str, float]]:
         """Propagate activation through graph edges (3 hops).
 
         Only concepts in primary_ids (or all seed_ids if not specified)
         serve as activation sources. Other seed_ids get context activation
         (0.3) but don't propagate — they only prevent their neighbors from
         being collected as novel associations.
+
+        relation_preference: optional {relation_type: multiplier} from the PFC's
+            top-down task-set bias (Miller & Cohen 2001). When set, edges of
+            task-relevant types are amplified during propagation — e.g. causal
+            edges get boosted when answering "what happens if" questions,
+            without hardcoding which concepts to prefer.
         """
         if not seed_ids:
             return []
-        seed_set = set(seed_ids)
-        spread_set = primary_ids if primary_ids else seed_set
+        all_seed_set = set(seed_ids)
+        spread_set = primary_ids if primary_ids else all_seed_set
+        # Only the primary spread sources block propagation — other seeds
+        # (P600-propagated neighbor concepts) should remain collectable.
+        # If we block them, high-value causal targets like "occurs" and
+        # "explosion" (activated as neighbors of "lamp" during P600) become
+        # invisible to the spread, defeating causal reasoning.
+        block_set = spread_set
 
         # Base activation: context (0.3) for all seeds, full (1.0) for spread sources
         for nid in seed_ids:
@@ -4668,16 +4798,20 @@ class CognitiveChatEngine:
                     continue
                 # Follow outgoing edges
                 for tid, edge in self.graph.get_outgoing(nid):
-                    if tid in seed_set:
+                    if tid in block_set:
                         continue
                     signal = node.activation * edge.weight * edge.confidence * decay
+                    if relation_preference:
+                        signal *= relation_preference.get(edge.relation_type, 1.0)
                     if signal > 0.01:
                         new_acts[tid] = new_acts.get(tid, 0.0) + signal
                 # Follow incoming edges (semantic network is effectively undirected)
                 for src, edge in self.graph.get_incoming(nid):
-                    if src in seed_set:
+                    if src in block_set:
                         continue
                     signal = node.activation * edge.weight * edge.confidence * decay
+                    if relation_preference:
+                        signal *= relation_preference.get(edge.relation_type, 1.0)
                     if signal > 0.01:
                         new_acts[src] = new_acts.get(src, 0.0) + signal
             for nid, sig in new_acts.items():
@@ -4686,7 +4820,7 @@ class CognitiveChatEngine:
 
         collected = []
         for nid, node in self.graph.nodes.items():
-            if nid not in seed_set and node.activation > 0.05:
+            if nid not in block_set and node.activation > 0.05:
                 collected.append((node.label or f"c{nid}", float(node.activation)))
 
         collected.sort(key=lambda x: x[1], reverse=True)
@@ -6033,7 +6167,8 @@ class CognitiveChatEngine:
                     contradiction_penalty: float = 0.6,
                     activation_boost: Optional[Dict[str, float]] = None,
                     subject_proximity: Optional[str] = None,
-                    episodic_first: bool = False) -> Optional[str]:
+                    episodic_first: bool = False,
+                    relation_modulation: Optional[Dict[str, float]] = None) -> Optional[str]:
         import sys
         """Walk a path through the graph from label, temperature-weighted.
         temperature=0 → greedy (always strongest), temperature=1 → near-uniform.
@@ -6068,12 +6203,17 @@ class CognitiveChatEngine:
                     continue
                 if tn.label.lower() in chain_labels:
                     continue  # cycle detected within this chain
+                # Filter: skip function words (closed-class items that add noise to chains)
+                if tn.label.lower() in self._GRAMMATICAL_CONCEPTS:
+                    continue
                 # Filter: skip weak edges (below auto-wire minimum threshold)
                 if edge.weight < 0.35:
                     continue
                 # Self-penalty: penalize edges to concepts too semantically different from subject
+                # SKIP for causal edges: causality often links semantically unrelated
+                # concepts (lamp → explosion), so the penalty is always wrong here.
                 score = edge.weight * edge.confidence
-                if label and tn.label and label.lower() != tn.label.lower():
+                if label and tn.label and label.lower() != tn.label.lower() and edge.relation_type != "causal":
                     src_node = self.graph.get_node(nids[0])
                     tgt_node = tn
                     if src_node and src_node.vector is not None and tgt_node and tgt_node.vector is not None:
@@ -6088,6 +6228,9 @@ class CognitiveChatEngine:
                     continue
                 if sn.label.lower() in chain_labels:
                     continue  # cycle detected within this chain
+                # Filter: skip function words
+                if sn.label.lower() in self._GRAMMATICAL_CONCEPTS:
+                    continue
                 # Filter: skip weak edges
                 if edge.weight < 0.35:
                     continue
@@ -6098,13 +6241,19 @@ class CognitiveChatEngine:
             # Semantic edges (stable knowledge) - O(1) src-indexed
             for dtgt, dedge in self._semantic_by_src.get(cur_nid, []):
                 dnode = self.graph.nodes.get(dtgt)
-                if dnode and dnode.label and dnode.label.lower() not in seen and dnode.label.lower() not in chain_labels and dnode.label.lower() not in _main_concepts:
+                if (dnode and dnode.label and dnode.label.lower() not in seen
+                    and dnode.label.lower() not in chain_labels
+                    and dnode.label.lower() not in _main_concepts
+                    and dnode.label.lower() not in self._GRAMMATICAL_CONCEPTS):
                     candidates.append((dedge.weight * dedge.confidence, dnode.label, dedge, "out"))
             # Episodic edges (conversation memory) - O(1) src-indexed, decay-modulated
             for dtgt, dedge in self._episodic_by_src.get(cur_nid, []):
                 decay_mod = dedge.weight / 0.3 if dedge.weight > 0 else 1.0
                 dnode = self.graph.nodes.get(dtgt)
-                if dnode and dnode.label and dnode.label.lower() not in seen and dnode.label.lower() not in chain_labels and dnode.label.lower() not in _main_concepts:
+                if (dnode and dnode.label and dnode.label.lower() not in seen
+                    and dnode.label.lower() not in chain_labels
+                    and dnode.label.lower() not in _main_concepts
+                    and dnode.label.lower() not in self._GRAMMATICAL_CONCEPTS):
                     candidates.append((dedge.weight * dedge.confidence * 0.7 * decay_mod, dnode.label, dedge, "out"))
             if not candidates:
                 break
@@ -6213,6 +6362,14 @@ class CognitiveChatEngine:
                             _sig *= (1.0 + 0.2 * _bconf)
                         else:
                             _sig *= (1.0 - 0.4 * _bconf)
+
+                # 11. PFC Relation Type Modulation — top-down attentional bias
+                # Based on Miller & Cohen (2001): PFC maintains task-set that
+                # biases processing toward goal-relevant information. Here the
+                # intent's target relation type modulates edge selection so
+                # causal edges are amplified for hypothetical queries.
+                if relation_modulation:
+                    _sig *= relation_modulation.get(_edge.relation_type, 1.0)
 
                 _fused.append((_sig, _tgt_lbl, _edge, _d))
             candidates = _fused
@@ -6742,15 +6899,19 @@ class CognitiveChatEngine:
                 intent_target = ""
             
             # Walk chain for this intent's relation type
+            # Do NOT add intent_target to seen — the chain walker needs to explore
+            # the target concept to discover causally-relevant intermediate concepts
+            # and connectors. Blocking the target makes the chain avoid it entirely,
+            # defeating the purpose of a guided discourse plan.
             seen = {intent_subject.lower()}
-            if intent_target:
-                seen.add(intent_target.lower())
             
             # Dynamic graph walk: arousal + dopamine modulate depth/creativity
             _hops = 2 + int(dopamine_tone * 2) + (1 if user_arousal > 0.6 else 0)
             _hops = min(_hops, 5)
             _temp = 0.2 + user_arousal * 0.5 + dopamine_tone * 0.3
             _temp = min(_temp, 0.8)
+            # PFC top-down modulation: compute relation bias for this intent
+            rel_mod = self._compute_relation_modulation(plan, intent)
             chain_result = self._walk_chain(
                 label=intent_subject,
                 seen=seen.copy(),
@@ -6759,6 +6920,7 @@ class CognitiveChatEngine:
                 contradiction_penalty=0.6,
                 activation_boost=self._activation_boost,
                 subject_proximity=intent_subject,
+                relation_modulation=rel_mod,
             )
             
             # Parse chain into concepts

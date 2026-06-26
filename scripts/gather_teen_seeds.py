@@ -734,7 +734,7 @@ def main():
 
     print("\n" + "=" * 60)
     print("  Done! The decoder can now train on real English sentences.")
-    print("  Run: python scripts/train_decoder_phase2.py")
+    print("  Run: python scripts/train.py --mode phase2")
     print("=" * 60)
 
 
