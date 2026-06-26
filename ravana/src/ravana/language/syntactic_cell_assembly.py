@@ -338,6 +338,10 @@ class SyntacticCellAssembly:
         - Concepts ending with common adjective suffixes → no article
         """
         cl = concept.lower()
+        # Proper nouns -> no article
+        proper_nouns = getattr(self, 'proper_nouns', set())
+        if cl in proper_nouns or any(p in cl for p in ("poirot", "marple", "carroll", "holmes")):
+            return ""
         # Non-noun POS → no article
         if pos in ('pron', 'interj', 'conj', 'prep', 'det', 'adj', 'verb', 'v'):
             return ""

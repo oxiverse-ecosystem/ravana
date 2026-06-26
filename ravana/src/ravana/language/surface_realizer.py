@@ -451,6 +451,10 @@ class SurfaceRealizer:
                             is_subject: bool, dopamine_tone: float) -> str:
         cl = concept.lower()
 
+        proper_nouns = getattr(self, 'proper_nouns', set())
+        if cl in proper_nouns or any(p in cl for p in ("poirot", "marple", "carroll", "holmes")):
+            return concept
+
         if cl in ('i', 'you', 'we', 'they', 'he', 'she', 'it', 'me', 'him', 'her'):
             return concept
 

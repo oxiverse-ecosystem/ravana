@@ -125,6 +125,59 @@ class VerbLexicon:
         ],
     }
 
+    SUBCAT_FRAMES = {
+        # Roots
+        "tie": ["to", "with"],
+        "lead": ["to"],
+        "cause": [],
+        "bring": ["about", "up"],
+        "influence": [],
+        "give": ["rise to"],
+        "result": ["in"],
+        "spark": [],
+        "trigger": [],
+        "fuel": [],
+        "contribute": ["to"],
+        "drive": [],
+        "prompt": [],
+        "contrast": ["with"],
+        "differ": ["from"],
+        "challenge": [],
+        "connect": ["to", "with"],
+        "relate": ["to"],
+        "link": ["to", "with"],
+        "come": ["before", "after", "from"],
+        "follow": [],
+        "precede": [],
+        "trace": ["back to"],
+        "recall": [],
+        "echo": [],
+        "parallel": [],
+        "resemble": [],
+        "mirror": [],
+        "reflect": [],
+        "feed": ["into"],
+        
+        # Compound roots
+        "give rise": ["to"],
+        "bring about": [],
+        "go hand in hand": ["with"],
+        "pave the way": ["for", "to"],
+        "set the stage": ["for"],
+        "trace back": ["to"],
+        "run counter": ["to"],
+        "have a relationship": ["with"],
+
+        # Adjectives
+        "similar": ["to"],
+        "akin": ["to"],
+        "connected": ["to", "with"],
+        "different": ["from"],
+        "opposite": ["to"],
+        "tied": ["to", "with"],
+        "linked": ["to", "with"],
+    }
+
     COMPOSITION_RULES = {
         "semantic": [
             ("roots", "prepositions"),        # "ties into", "feeds into"
@@ -251,6 +304,23 @@ class VerbLexicon:
         """Compose a verb phrase from morphemes following the given rule."""
         components = []
         for i, cat in enumerate(rule):
+            # Enforce subcategorization frames for prepositions/particles
+            if i > 0 and cat in ("prepositions", "particles") and components:
+                prev = components[0].lower()
+                valid_opts = cls.SUBCAT_FRAMES.get(prev, [])
+                if valid_opts:
+                    pool = [opt for opt in cls._get_morpheme_pool(cat) if opt in valid_opts]
+                    if not pool:
+                        pool = [valid_opts[0]]
+                    scores = [cls._hebbian_weight[relation].get(m, 0.5) for m in pool]
+                    if dopamine_tone <= 0.25:
+                        idx = int(np.argmax(scores))
+                    else:
+                        probs = cls._softmax(scores, max(0.03, 0.3 - dopamine_tone * 0.3))
+                        idx = random.choices(range(len(pool)), weights=probs, k=1)[0]
+                    components.append(pool[idx])
+                    continue
+
             if i > 0 and components:
                 best_m = None
                 best_w = 0.0
@@ -269,7 +339,11 @@ class VerbLexicon:
             components.append(m)
 
         if rule == ("roots",):
-            return cls._conjugate_root(components[0])
+            base = cls._conjugate_root(components[0])
+            prev = components[0].lower()
+            if prev in cls.SUBCAT_FRAMES and cls.SUBCAT_FRAMES[prev]:
+                return f"{base} {cls.SUBCAT_FRAMES[prev][0]}"
+            return base
         elif rule == ("roots", "prepositions"):
             return f"{cls._conjugate_root(components[0])} {components[1]}"
         elif rule == ("roots", "particles"):
@@ -277,7 +351,11 @@ class VerbLexicon:
         elif rule == ("adjectives", "prepositions"):
             return f"is {components[0]} {components[1]}"
         elif rule == ("compound_roots",):
-            return cls._conjugate_compound_root(components[0])
+            base = cls._conjugate_compound_root(components[0])
+            prev = components[0].lower()
+            if prev in cls.SUBCAT_FRAMES and cls.SUBCAT_FRAMES[prev]:
+                return f"{base} {cls.SUBCAT_FRAMES[prev][0]}"
+            return base
         elif rule == ("compound_roots", "prepositions"):
             return f"{cls._conjugate_compound_root(components[0])} {components[1]}"
         else:
