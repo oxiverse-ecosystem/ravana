@@ -466,6 +466,12 @@ class RLMv2(Module):
         self.freeze_token_embeds_in_rp = True
         # Cross-domain alignment toggle (used by _cross_domain_relation_alignment).
         self.use_cross_domain_alignment = False
+        # Optional: run cross-domain alignment during sleep (opt-in).
+        self.cross_domain_alignment_on_sleep = False
+        self.cross_domain_alignment_steps = 1
+        # Optional: bridge-alignment boost in verb-offset inference.
+        self.use_bridge_alignment = False
+        self.bridge_alignment_boost = 1.5
 
         # Graph-Encoder Alignment params
         self.alignment_margin = 0.15
@@ -2280,37 +2286,42 @@ class RLMv2(Module):
     def _rp_forward_verb_offset(self, subject_tid: int, verb_word: str, return_count: bool = False,
                                  source_embed: Optional[np.ndarray] = None):
         """Predict target logits using verb-stem offset arithmetic.
-        
+
         P0 Fix: Expanded from whitelist of 7 functional verbs to ALL verbs.
         Uses verb frequency for confidence-weighted blending with W_rel.
-        
+
         P2 Fix: Accept optional adapted source_embed for held-out subjects.
         When source_embed is provided, use it instead of raw token embedding.
         This enables nearest-neighbor adapted embeddings for held-out subjects.
-        
+
+        Opt-in bridge alignment: when ``use_bridge_alignment`` is enabled and a
+        concept exists for ``subject_tid``, boost logits of tokens whose
+        concept appears in ``_bridge_alignment_targets``. This nudges
+        cross-domain predictions toward semantically paired concepts.
+
         Returns (logits, count, variance) if return_count=True, else just logits.
         Returns None if verb is unknown.
         """
         if not verb_word or not self.use_verb_offset:
             return None
         stem = self._verb_stem(verb_word)
-        
+
         domain_id = self.current_domain_id if self.current_domain_id is not None else 0
         if domain_id not in self._verb_offsets or stem not in self._verb_offsets[domain_id]:
             return None
-        
+
         verb_count = self._verb_offset_count[domain_id].get(stem, 0)
         verb_variance = self._verb_offset_variance[domain_id].get(stem, 0.0)
-        
+
         if source_embed is None:
             source_embed = self.token_embed.weight.data[subject_tid]
         offset = self._verb_offsets[domain_id][stem]
         predicted = source_embed + offset
-        
+
         token_embeds = self.token_embed.weight.data
         token_norms = np.linalg.norm(token_embeds, axis=1)
         pred_norm = np.linalg.norm(predicted)
-        
+
         if pred_norm > 0 and np.any(token_norms > 0):
             valid_tok = token_norms > 0
             normed_tok = token_embeds.copy()
@@ -2319,6 +2330,26 @@ class RLMv2(Module):
             if 0 <= subject_tid < len(logits):
                 logits[subject_tid] = np.min(logits) - 10.0
             logits *= 10.0
+
+            # ── Opt-in bridge alignment boost ──
+            # When enabled, look up the subject's concept and boost tokens whose
+            # concept is paired in semantic_pairs. Gentle additive boost — keeps
+            # verb-offset arithmetic as the primary signal.
+            if getattr(self, "use_bridge_alignment", False):
+                subject_cid = self._get_or_create_concept(
+                    subject_tid, self.token_embed.weight.data[subject_tid]
+                )
+                bridge_targets = self._bridge_alignment_targets(
+                    subject_tid, subject_cid, '', verb_word
+                )
+                if bridge_targets:
+                    boost = float(getattr(self, "bridge_alignment_boost", 1.5))
+                    for cid, score in bridge_targets.items():
+                        for tok in self.binding_map.get_tokens(cid, min_confidence=0.05):
+                            tid = tok.token_id
+                            if 0 <= tid < len(logits):
+                                logits[tid] += boost * score
+
             if return_count:
                 return logits, verb_count, verb_variance
             return logits
@@ -2326,24 +2357,25 @@ class RLMv2(Module):
 
     def _rp_forward_verb_offset_from_adapted(self, adapted_source_embed: np.ndarray, verb_word: str) -> Optional[np.ndarray]:
         """Predict using verb-stem offset arithmetic from pre-adapted source embedding.
-        
+
         used when entity adapter has already been applied to source_embed.
         """
         if not verb_word or not self.use_verb_offset:
             return None
         stem = self._verb_stem(verb_word)
+
         domain_id = self.current_domain_id if self.current_domain_id is not None else 0
         if domain_id not in self._verb_offsets or stem not in self._verb_offsets[domain_id]:
             return None
-        
+
         offset = self._verb_offsets[domain_id][stem]
         predicted = adapted_source_embed + offset
-        
+
         # Cosine similarity against all token embeddings
         token_embeds = self.token_embed.weight.data  # (vocab_size, embed_dim)
         token_norms = np.linalg.norm(token_embeds, axis=1)
         pred_norm = np.linalg.norm(predicted)
-        
+
         if pred_norm > 0 and np.any(token_norms > 0):
             valid_tok = token_norms > 0
             normed_tok = token_embeds.copy()
@@ -2352,6 +2384,13 @@ class RLMv2(Module):
             # Note: we don't suppress subject token here since we don't have subject_tid
             # Scale up to make softmax meaningful
             logits *= 10.0
+
+            # ── Opt-in bridge alignment boost (adapted-source variant) ──
+            # Without subject_tid we can't resolve the bridge via _bridge_alignment_targets,
+            # so we surface a no-op path; full bridge lookup happens in _rp_forward_verb_offset.
+            if getattr(self, "use_bridge_alignment", False):
+                pass
+
             return logits
         return None
 
@@ -4632,6 +4671,19 @@ class RLMv2(Module):
             # to enable generalization to rare/unseen verbs (Complementary Learning Systems)
             self._cluster_verb_offsets(similarity_threshold=0.85)
 
+            # ── Optional cross-domain alignment pass during sleep ──
+            # Opt-in via ``cross_domain_alignment_on_sleep``. Runs the relation
+            # alignment step ``cross_domain_alignment_steps`` times (default 1)
+            # so held-out cross-domain queries can converge during sleep. Only
+            # fires when the global ``use_cross_domain_alignment`` is enabled.
+            if (getattr(self, "use_cross_domain_alignment", False)
+                    and getattr(self, "cross_domain_alignment_on_sleep", False)):
+                n_steps = max(1, int(getattr(self, "cross_domain_alignment_steps", 1)))
+                align = getattr(self, "_cross_domain_relation_alignment", None)
+                if callable(align):
+                    for _ in range(n_steps):
+                        align()
+
             # ── Semantic memory decay ──
             self._decay_semantic_memories()
 
@@ -6587,3 +6639,65 @@ class RLMv2(Module):
                 pass
         self._cross_domain_edges_injected.add(key)
 
+    def _bridge_alignment_targets(self, subject_tid: int, subject_cid: int,
+                                   relation_type: str, verb: str) -> Dict[int, float]:
+        """Return candidate target concepts for opt-in bridge alignment.
+
+        Given a subject token/concept, scan ``self.semantic_pairs`` for entries
+        whose first word maps to ``subject_tid`` and surface the second word's
+        concept as a positive-scored bridge target. The mapping is intended to
+        bias downstream analogy-style inference toward semantically paired
+        concepts (e.g. ``("heat", "expansion")``).
+
+        Returns a dict ``{concept_id: score}`` — empty when no pairs match.
+        """
+        targets: Dict[int, float] = {}
+        if not getattr(self, "use_bridge_alignment", False):
+            return targets
+
+        tokenizer = getattr(self, "_tokenizer", None)
+        pairs = getattr(self, "semantic_pairs", []) or []
+        if tokenizer is None or not pairs:
+            return targets
+
+        # Resolve the subject token id back to its word form.
+        subject_word = None
+        try:
+            subject_word = tokenizer.decode([subject_tid])
+        except Exception:
+            subject_word = None
+
+        for word_a, word_b in pairs:
+            match = False
+            if subject_word and (word_a == subject_word or word_b == subject_word):
+                # The pair that has word_a as the subject yields word_b as the target,
+                # and vice-versa.
+                if word_a == subject_word:
+                    paired_word = word_b
+                else:
+                    paired_word = word_a
+                match = True
+
+            if not match:
+                continue
+
+            tid_b = tokenizer.word_to_id.get(paired_word)
+            if tid_b is None or tid_b >= self.vocab_size:
+                continue
+
+            bindings = self.binding_map.get_concepts(tid_b, min_confidence=0.1)
+            if bindings:
+                cid_b = bindings[0].concept_id
+            else:
+                # Fall back to creating a concept for the token so the target
+                # still surfaces even if binding_map hasn't seen it yet.
+                cid_b = self._get_or_create_concept(
+                    tid_b, self.token_embed.weight.data[tid_b]
+                )
+
+            # Positive score — magnitude encodes relationship strength, modest
+            # constant is enough to nudge downstream alignment; further scoring
+            # happens in the alignment loop that consumes these targets.
+            targets[cid_b] = max(targets.get(cid_b, 0.0), 1.0)
+
+        return targets
