@@ -30,8 +30,10 @@ import argparse
 
 # Ensure project root is on sys.path
 _proj_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(_proj_root, "ravana-v2"))
 sys.path.insert(0, _proj_root)
+sys.path.insert(0, os.path.join(_proj_root, "ravana_ml", "src"))
+sys.path.insert(0, os.path.join(_proj_root, "ravana", "src"))
+sys.path.insert(0, os.path.join(_proj_root, "ravana-v2", "src"))
 
 # Try package-qualified import first, fall back to direct sibling import
 try:

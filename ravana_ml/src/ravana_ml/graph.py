@@ -1294,7 +1294,7 @@ class ConceptGraph:
 
     # ── edge management ──
 
-    def add_edge(self, source: int, target: int, weight: float = 0.5,
+    def add_edge(self, source: int, target: int, weight: Optional[float] = None,
                  shortcut: bool = False, edge_type: str = "excitatory",
                  relation_type: str = "semantic",
                  confidence: Optional[float] = None) -> ConceptEdge:
@@ -1302,7 +1302,8 @@ class ConceptGraph:
         if key in self.edges:
             edge = self.edges[key]
             edge.parent_graph = self
-            edge.weight = max(0.0, min(1.0, weight))
+            if weight is not None:
+                edge.weight = max(0.0, min(1.0, weight))
             if shortcut:
                 edge.shortcut = True
             if edge_type == "inhibitory":
@@ -1318,7 +1319,7 @@ class ConceptGraph:
         default_weight = ConceptEdge.RELATION_DEFAULT_WEIGHTS.get(relation_type, 0.5)
         default_edge_type = ConceptEdge.RELATION_DEFAULT_EDGE_TYPES.get(relation_type, "excitatory")
         # Only use defaults if caller didn't override (weight != 0.5 or edge_type != "excitatory")
-        if weight == 0.5:
+        if weight is None:
             weight = default_weight
         if edge_type == "excitatory":
             edge_type = default_edge_type
@@ -1650,12 +1651,14 @@ class ConceptGraph:
         self._vectors_dirty = True
         self._dirty_nodes.add(nid)
 
-    def get_or_create_edge(self, source: int, target: int, weight: float = 0.3,
+    def get_or_create_edge(self, source: int, target: int, weight: Optional[float] = None,
                            shortcut: bool = False, edge_type: str = "excitatory",
                            relation_type: str = "semantic") -> ConceptEdge:
         key = (source, target)
         if key in self.edges:
             edge = self.edges[key]
+            if weight is not None and weight != edge.weight:
+                edge.weight = max(0.0, min(1.0, weight))
             if shortcut:
                 edge.shortcut = True
             if edge_type == "inhibitory":
@@ -1663,6 +1666,8 @@ class ConceptGraph:
             if relation_type != "semantic":
                 edge.relation_type = relation_type
             return edge
+        if weight is None:
+            weight = 0.3
         return self.add_edge(source, target, weight, shortcut=shortcut,
                            edge_type=edge_type, relation_type=relation_type)
 

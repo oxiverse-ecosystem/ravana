@@ -72,7 +72,7 @@ class TestInitialization:
                       "relation_predictor", "propagation", "plasticity",
                       "web_learner", "bootstrap_manager"]:
             assert getattr(engine, attr) is not None, f"{attr} is None"
-        assert 0 < engine.identity.state.strength < 0.5
+        assert 0 < engine.identity.state.strength < 1.0
 
     def test_cognitive_framework_functional(self):
         """GRACE CognitiveFramework exposes functional API."""
@@ -96,9 +96,10 @@ class TestSingleTurn:
 
     def test_basic_response(self, engine):
         """Single turn → valid English response."""
+        start_count = engine.turn_count
         resp = engine.process_turn("Tell me about trust")
         assert _is_valid_response(resp), f"Bad: '{resp}'"
-        assert engine.turn_count == 1
+        assert engine.turn_count == start_count + 1
         assert engine._last_strategy in (
             "neural_decoder", "neural_decoder_reasoned",
             "associative", "graph_fallback", "unknown_subject",

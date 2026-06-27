@@ -1701,6 +1701,40 @@ class SleepConsolidation:
             "flips": flips,
         }
     
+    def run_cycle(self, graph=None, episodic_buffer=None, episodic_triples=None,
+                   belief_store=None, topic_list=None, user_model=None,
+                   impossible_queries=None, contradiction_map=None,
+                   drift_defense_threshold=0.7, drift_pull=0.05) -> Dict[str, int]:
+        state_snapshot = {
+            "graph": graph,
+            "episodic_triples": episodic_triples or [],
+            "belief_store": belief_store,
+            "topic_list": topic_list or [],
+            "user_model": user_model,
+            "impossible_queries": impossible_queries or [],
+            "contradiction_map": contradiction_map or {},
+            "drift_defense_threshold": drift_defense_threshold,
+            "drift_pull": drift_pull,
+        }
+        episode = len(self.sleep_history) + 1
+        record = self.execute_sleep_cycle(
+            episode=episode,
+            state_snapshot=state_snapshot,
+            beliefs=None,
+            episodic_memories=episodic_triples,
+            graph=graph,
+            coherence_fn=lambda s: 0.5,
+            emotion_engine=None,
+            hypotheses=None,
+        )
+        return {
+            "edges_strengthened": getattr(record, 'perturbations_applied', 0),
+            "edges_pruned": 0,
+            "episodic_consolidated": len(episodic_triples or []),
+            "impossible_queries_resolved": 0,
+            "total_sleep_cycles": episode,
+        }
+
     def get_pressure(self) -> float:
         """Current accumulated sleep pressure."""
         return self._accumulated_pressure

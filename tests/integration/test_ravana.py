@@ -3,9 +3,10 @@
 
 import sys
 import os
-_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if _PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, _PROJECT_ROOT)
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+for _p in [_PROJECT_ROOT, os.path.join(_PROJECT_ROOT, "ravana", "src"), os.path.join(_PROJECT_ROOT, "ravana_ml", "src"), os.path.join(_PROJECT_ROOT, "ravana-v2")]:
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 import numpy as np
 np.random.seed(42)

@@ -211,6 +211,9 @@ try:
     engine.baby_mode = False
     engine._bg_learning_active = False
 
+    # Reset user model to clean state (engine may have loaded saved state from disk)
+    engine.user_model = UserModel()
+
     print("\n── Integration 1: ToM signals update after process_turn ──")
 
     r1 = engine.process_turn("what is trust")

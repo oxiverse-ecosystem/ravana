@@ -88,48 +88,7 @@ TOPIC_SKIP_WORDS = {"i", "you", "we", "they", "he", "she", "it", "me", "my",
                     "point", "way", "thing", "stuff", "and", "so"}
 
 
-def _is_word_salad(text: str) -> bool:
-    """Detect if generated text is a word salad (meaningless word lists or repetitions)."""
-    if not text:
-        return True
-
-    # 1. Look for consecutive duplicated words (e.g., "the the", "coffee coffee", "is is")
-    # excluding few common cases like "that that" or "had had" if they are only 1 occurrence
-    import re
-    words = re.findall(r"\b\w+\b", text.lower())
-    if not words:
-        return True
-
-    for i in range(len(words) - 1):
-        if words[i] == words[i+1]:
-            if words[i] not in ("that", "had"):
-                return True
-
-    # 2. Look for excessive word repetition rate
-    # Count frequency of content words (length >= 3)
-    content_words = [w for w in words if len(w) >= 3 and w not in (
-        "the", "and", "for", "with", "from", "that", "this", "they", "them", "have"
-    )]
-    if content_words:
-        from collections import Counter
-        counts = Counter(content_words)
-        # If any single content word is repeated 3 or more times,
-        # or if multiple content words are repeated twice, it is likely a loop.
-        max_rep = max(counts.values())
-        if max_rep >= 3:
-            return True
-        # If more than 2 content words are repeated, or total repetition is high
-        rep_count = sum(1 for c in counts.values() if c >= 2)
-        if rep_count >= 2 and len(content_words) < 20:
-            return True
-
-    # 3. Check for ratio of unique words to total words (Type-Token Ratio)
-    unique_words = set(words)
-    ttr = len(unique_words) / len(words)
-    if len(words) >= 10 and ttr < 0.5:
-        return True
-
-    return False
+from .constants import _is_word_salad
 
 
 @dataclass
@@ -611,6 +570,7 @@ class ChatInterface:
         if self._current_context_vector is not None:
             self._current_context_vector *= 0.3
 
+        self._pending_quantity_result = None
         return response
 
     def _generate_response(self, ctx: CognitiveResponseContext) -> Tuple[str, str]:
@@ -677,7 +637,7 @@ class ChatInterface:
     def _get_user_model(self):
         """Get or create user model for the current session."""
         if not hasattr(self, 'user_model'):
-            from scripts.ravana_chat import UserModel
+            from .user_model import UserModel
             self.user_model = UserModel()
         return self.user_model
 
@@ -932,7 +892,10 @@ class ChatInterface:
         if subj_nids:
             subj_node = self.graph_engine.graph.get_node(subj_nids[0])
             if subj_node and subj_node.vector is not None:
-                components.append(subj_node.vector)
+                v = subj_node.vector.ravel()
+                if len(v) != self.config.dim:
+                    v = np.resize(v, self.config.dim)
+                components.append(v)
                 weights.append(0.4)
         recent_vecs = []
         for resp in self._last_responses[-3:]:
@@ -943,7 +906,10 @@ class ChatInterface:
                 if wn:
                     wn_node = self.graph_engine.graph.get_node(wn[0])
                     if wn_node and wn_node.vector is not None:
-                        recent_vecs.append(wn_node.vector)
+                        v = wn_node.vector.ravel()
+                        if len(v) != self.config.dim:
+                            v = np.resize(v, self.config.dim)
+                        recent_vecs.append(v)
         if recent_vecs:
             components.append(np.mean(recent_vecs, axis=0))
             weights.append(0.3)
@@ -953,7 +919,10 @@ class ChatInterface:
             if bn:
                 bn_node = self.graph_engine.graph.get_node(bn[0])
                 if bn_node and bn_node.vector is not None:
-                    pfc_vecs.append(bn_node.vector)
+                    v = bn_node.vector.ravel()
+                    if len(v) != self.config.dim:
+                        v = np.resize(v, self.config.dim)
+                    pfc_vecs.append(v)
         if pfc_vecs:
             components.append(np.mean(pfc_vecs, axis=0))
             weights.append(0.2)
@@ -1006,8 +975,16 @@ class ChatInterface:
             drift_pull=0.05
         )
 
-        # Clean up temporary state after response
-        self._pending_quantity_result = None
+    def _metacognitive_review(self):
+        pass
+
+    def _update_cerebellar_ngram(self, hops_list):
+        chain_labels = []
+        for hop in hops_list:
+            if isinstance(hop, tuple) and len(hop) >= 2:
+                chain_labels.append(hop[0])
+                chain_labels.append(hop[1])
+        self.cerebellar_ngram.learn_chain(chain_labels, successful=True, chain_hops=hops_list)
 
     def _update_state(self, ctx: CognitiveResponseContext):
         """Update cognitive state post-response: free energy, meaning, identity, global workspace."""
@@ -1399,11 +1376,11 @@ class ChatInterface:
             if hasattr(self, '_pending_quantity_result') and self._pending_quantity_result:
                 qa, qb, q_result, q_conf = self._pending_quantity_result
                 if q_result == 'equal':
-                    return (f"{qa.concept.capitalize()} and {qb.concept} have the same quantity. They are equal.", "quantity_comparison")
+                    return f"{qa.concept.capitalize()} and {qb.concept} have the same quantity. They are equal."
                 elif q_result == 'a_greater':
-                    return (f"{qa.concept.capitalize()} has more than {qb.concept} ({qa.value} vs {qb.value}).", "quantity_comparison")
+                    return f"{qa.concept.capitalize()} has more than {qb.concept} ({qa.value} vs {qb.value})."
                 elif q_result == 'b_greater':
-                    return (f"{qb.concept.capitalize()} has more than {qa.concept} ({qb.value} vs {qa.value}).", "quantity_comparison")
+                    return f"{qb.concept.capitalize()} has more than {qa.concept} ({qb.value} vs {qa.value})."
 
             # Discourse Planning
             is_follow_up = self._is_follow_up(ctx.raw_input)

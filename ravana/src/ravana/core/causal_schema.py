@@ -104,6 +104,13 @@ class CausalSchemaLearner:
                 properties=props,
             ))
 
+    def _find_matching_schema(self, state_a: str, condition: str, state_b: str) -> Optional[CausalSchema]:
+        """Find an exact matching schema."""
+        for schema in self.schemas:
+            if schema.state_a == state_a and schema.condition == condition and schema.state_b == state_b:
+                return schema
+        return None
+
     def learn(self, state_a: str, condition: str, state_b: str, success: bool = True):
         """Learn a state-transition pattern from experience.
 

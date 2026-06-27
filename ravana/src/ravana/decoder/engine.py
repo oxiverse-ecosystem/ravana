@@ -122,6 +122,14 @@ class DecoderEngine:
                     norm_v = np.linalg.norm(vec)
                     if norm_v > 0:
                         vec /= norm_v
+                if len(vec) != self.config.embed_dim:
+                    if len(vec) > self.config.embed_dim:
+                        vec = vec[:self.config.embed_dim]
+                    else:
+                        vec = np.pad(vec, (0, self.config.embed_dim - len(vec)), 'constant')
+                    norm_v = np.linalg.norm(vec)
+                    if norm_v > 0:
+                        vec /= norm_v
                 self._decoder_word_to_embed[label] = vec.astype(np.float32)
                 next_idx += 1
 
@@ -132,6 +140,14 @@ class DecoderEngine:
                 vec = glove_vector_fn(fw)
                 if vec is None:
                     vec = np.random.randn(self.config.embed_dim).astype(np.float32) * 0.1
+                    norm_v = np.linalg.norm(vec)
+                    if norm_v > 0:
+                        vec /= norm_v
+                if vec is not None and len(vec) != self.config.embed_dim:
+                    if len(vec) > self.config.embed_dim:
+                        vec = vec[:self.config.embed_dim]
+                    else:
+                        vec = np.pad(vec, (0, self.config.embed_dim - len(vec)), 'constant')
                     norm_v = np.linalg.norm(vec)
                     if norm_v > 0:
                         vec /= norm_v
