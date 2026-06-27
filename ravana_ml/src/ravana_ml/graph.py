@@ -11,8 +11,19 @@ except ImportError:
     _HAS_SCIPY_SPARSE = False
 
 
+class ConceptNodeType:
+    """Node type categories for semantic organization."""
+    CONCRETE = "concrete"        # tangible entities (objects, persons, places)
+    ABSTRACT = "abstract"        # abstract concepts (justice, freedom, numbers)
+    RELATIONAL = "relational"    # relations/verbs (cause, part-of, similar-to)
+    PHYSICAL = "physical"        # physical properties/mechanisms (mass, velocity, heat)
+    PROPOSITIONAL = "propositional"  # truth-bearing statements (facts, beliefs)
+    EPISODIC = "episodic"        # autobiographical events (memories, experiences)
+
+
 class ConceptNode:
-    def __init__(self, node_id: int, vector: np.ndarray, label: str = ""):
+    def __init__(self, node_id: int, vector: np.ndarray, label: str = "",
+                 node_type: str = ConceptNodeType.CONCRETE):
         self.id = node_id
         self.vector = vector.copy()          # active_vector — fast plastic representation
         self.core_vector = vector.copy()     # identity anchor — slowly changing, drift-resistant
@@ -26,6 +37,9 @@ class ConceptNode:
         self.timestamp = time.time()
         self.contradiction_count = 0
         self.fatigue = 0.0
+
+        # Node type for semantic organization
+        self.node_type: str = node_type  # one of ConceptNodeType values
 
         # Temporal free energy tracking (prediction error dynamics)
         # Renamed from "pressure" to "free_energy" for consistency with FreeEnergyAccumulator
@@ -114,6 +128,32 @@ class ConceptNode:
 
 
 class ConceptEdge:
+    # Default weights for each relation type (can be overridden in add_edge)
+    RELATION_DEFAULT_WEIGHTS = {
+        "semantic": 0.5,         # general association
+        "causal": 0.7,           # cause-effect
+        "temporal": 0.6,         # before/after
+        "analogical": 0.7,       # structure mapping
+        "contextual": 0.4,       # context-dependent
+        "inferred": 0.3,         # derived via reasoning
+        "negation": 0.8,         # inhibitory: A NOT B (weight=0.8, edge_type="inhibitory")
+        "antonym": 0.9,          # opposite mapping: A ↔ opposite B
+        "transitive": 0.8,       # ordered chain: A > B > C → A > C
+        "physical_cause": 0.6,   # mechanism simulation: ice + heat → water
+        "comparison": 0.7,       # dimensional equality: 1kg feather = 1kg steel
+        "pragmatic": 0.5,        # implicature: "I ate breakfast" → ¬specific food
+    }
+
+    # Default edge types for relation types
+    RELATION_DEFAULT_EDGE_TYPES = {
+        "negation": "inhibitory",
+        "antonym": "excitatory",
+        "transitive": "excitatory",
+        "physical_cause": "excitatory",
+        "comparison": "excitatory",
+        "pragmatic": "excitatory",
+    }
+
     def __init__(self, source: int, target: int, weight: float = 0.5,
                  shortcut: bool = False, edge_type: str = "excitatory",
                  relation_type: str = "semantic", relation_dim: int = 16,
@@ -235,6 +275,13 @@ class ConceptEdge:
             "analogical": 3,
             "contextual": 4,
             "inferred": 5,
+            # Phase 6: new cognitive reasoning edge types
+            "negation": 6,        # inhibitory: A NOT B
+            "antonym": 7,         # opposite mapping: A ↔ opposite B
+            "transitive": 8,      # ordered chain: A > B > C → A > C
+            "physical_cause": 9,  # mechanism simulation: ice + heat → water
+            "comparison": 10,     # dimensional equality: 1kg feather = 1kg steel
+            "pragmatic": 11,      # implicature: "I ate breakfast" → ¬specific food
         }
         type_idx = type_order.get(relation_type, 0)
         vec = np.zeros(dim, dtype=np.float32)
@@ -1267,6 +1314,14 @@ class ConceptGraph:
             return edge
         if confidence is None:
             confidence = 0.5
+        # Use relation-type-specific defaults if weight/edge_type not explicitly provided
+        default_weight = ConceptEdge.RELATION_DEFAULT_WEIGHTS.get(relation_type, 0.5)
+        default_edge_type = ConceptEdge.RELATION_DEFAULT_EDGE_TYPES.get(relation_type, "excitatory")
+        # Only use defaults if caller didn't override (weight != 0.5 or edge_type != "excitatory")
+        if weight == 0.5:
+            weight = default_weight
+        if edge_type == "excitatory":
+            edge_type = default_edge_type
         edge = ConceptEdge(source, target, weight, shortcut=shortcut,
                           edge_type=edge_type, relation_type=relation_type,
                           relation_dim=self._relation_dim, confidence=confidence)

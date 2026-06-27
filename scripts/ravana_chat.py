@@ -46,6 +46,12 @@ from ravana.language.syntactic_cell_assembly import SyntacticCellAssembly, Synta
 from ravana.language.surface_realizer import SurfaceRealizer, DiscourseState
 from ravana_ml.nn.neural_decoder import NeuralDecoder
 from ravana.core import UserEmotionDetector
+from ravana.core.hippocampal_buffer import HippocampalBuffer, HippocampalConfig
+from ravana.core.proposition_parser import PropositionParser
+from ravana.core.causal_schema import CausalSchemaLearner, CausalSchemaConfig
+from ravana.core.implicature_detector import ImplicatureDetector
+from ravana.core.relation_memory import RelationMemory, RelationMemoryConfig
+from ravana.core.quantity_modifier import QuantityModifierSystem
 
 
 # Try importing beautifulsoup4 for HTML parsing (optional but recommended)
@@ -1184,6 +1190,15 @@ class CognitiveChatEngine:
         self.use_rlm = True
         self.use_beliefs = True
         self.belief_store = BeliefStore()
+
+        # New cognitive modules (Phase 2-5)
+        self.hippocampal_buffer = HippocampalBuffer(HippocampalConfig(max_facts=50, decay_turns=50))
+        self.proposition_parser = PropositionParser()
+        self.causal_schema = CausalSchemaLearner(CausalSchemaConfig())
+        self.implicature_detector = ImplicatureDetector()
+        self.relation_memory = RelationMemory(RelationMemoryConfig())
+        self.quantity_modifier = QuantityModifierSystem()
+        self._pending_quantity_result = None
 
         # Fix 2: Dormant edge tracking — auto-wired GloVe edges are invisible
         # until the user model visits them at least once.
@@ -3847,7 +3862,23 @@ class CognitiveChatEngine:
         self._last_activated_ids = list(activated)
 
         # Step 1b.75: Phase 3.3 + 9c — Detect recall triggers with hippocampal reactivation
+        # Cross-check with question type to avoid false positives:
+        # introductions, greetings, what_is, tell_me, general queries should NOT
+        # trigger recall mode — they are about NEW information, not past recall.
         recall_topic = self._detect_recall_trigger(user_input)
+        if recall_topic:
+            # Cross-check: get question type to filter false positives
+            try:
+                qtype, _ = self.pfc_workspace.detect_question_type(
+                    user_input, concept_pos=getattr(self, '_concept_pos', None))
+                # Only enter recall mode for non-introductory question types
+                # Introduction/greeting/what_is/tell_me/general are about new info
+                recall_blocklist = {"introduction", "greeting", "wellbeing", 
+                                    "capability", "farewell", "what_is", "tell_me"}
+                if qtype in recall_blocklist:
+                    recall_topic = None
+            except Exception:
+                pass  # Don't break pipeline if qtype detection fails
         self._recall_mode = recall_topic is not None
         if recall_topic:
             # Phase 9c: Use hippocampal indexing to reactivate the distributed pattern
@@ -4083,6 +4114,25 @@ class CognitiveChatEngine:
             context_vector=self._context_vector,
         )
 
+        # Step 11a: Store episodic memory BEFORE generating response
+        # (Issue #7-8: store-before-recall fix — new facts must exist before recall check)
+        try:
+            if user_input and subject:
+                content_words = [w.strip(".,!?") for w in user_input.lower().split()
+                               if len(w.strip(".,!?")) >= 3 and w.strip(".,!?").isalpha()]
+                aliases = list(content_words)
+                if hasattr(self, 'user_model') and self.user_model.user_name:
+                    aliases.append(self.user_model.user_name.lower())
+                self.hippocampal_buffer.store(
+                    subject=subject,
+                    predicate="is_about",
+                    object=user_input[:80],
+                    confidence=0.6,
+                    aliases=aliases[:10]
+                )
+        except Exception:
+            pass
+
         response, strategy = self._generate_response(ctx)
         self._last_strategy = strategy
 
@@ -4109,7 +4159,12 @@ class CognitiveChatEngine:
             for r in removed:
                 self._topic_store.pop(r.lower(), None)
 
-        # Step 11: Store episodic memory — link subject to its associations
+        # Step 11: Skip post-response hippocampal store — already done before _generate_response
+        # to ensure new facts exist before recall check (store-before-recall fix).
+        # The pre-response store at Step 11a handles this. Post-response would create duplicates.
+        pass
+        self.hippocampal_buffer.advance_turn()
+
         self._store_episodic(subject, associations)
 
         if response is not None:
@@ -4315,13 +4370,17 @@ class CognitiveChatEngine:
     FOLLOW_UP_WORDS = {"more", "else", "another", "also", "further",
                        "other", "additionally", "favorite"}
 
-    # Phase 3.3: Recall trigger patterns
-    RECALL_TRIGGERS = [
-        "remember when", "remember we", "earlier you", "you said",
-        "you mentioned", "we talked about", "we discussed", "before you",
-        "what did you say about", "what did we say about",
-        "recall", "previously", "last time",
+    # Phase 3.3: Recall detection — semantic vector-based (no hardcoded patterns)
+    # Uses GloVe cosine similarity to detect recall intent.
+    # These are the semantic seeds — the actual matching uses vector similarity
+    # so any semantically similar word (like "forgot", "previous", "previously")
+    # will also trigger recall detection.
+    _RECALL_SEED_CONCEPTS = [
+        "remember", "recall", "recollect", "earlier", "previous",
+        "said", "mentioned", "discussed", "talked", "before",
+        "last", "prior", "past",
     ]
+    _RECALL_DETECTION_THRESHOLD: float = 0.55  # Min cosine sim to be considered recall
 
     def _is_follow_up(self, text: str) -> bool:
         words = set(w.lower().strip(".,!?") for w in text.split())
@@ -4985,19 +5044,68 @@ class CognitiveChatEngine:
 
 
     def _detect_recall_trigger(self, text: str) -> Optional[str]:
-        """Phase 3.3: Detect if user is recalling a past topic."""
+        """Phase 3.3: Detect if user is recalling a past topic using vector semantics.
+        
+        Uses GloVe vector similarity between query words and recall-related seed concepts.
+        If any query word has a cosine similarity >= _RECALL_DETECTION_THRESHOLD to any
+        recall seed concept, the query is treated as a recall attempt.
+        
+        This avoids hardcoded trigger patterns and naturally generalizes to any
+        semantically similar phrasing (e.g., "forgot", "previously", "what did I")."""
         text_lower = text.lower()
-        for trigger in self.RECALL_TRIGGERS:
-            if trigger in text_lower:
-                trigger_idx = text_lower.index(trigger) + len(trigger)
-                after = text_lower[trigger_idx:].strip().strip(".,!?").split()
-                for word in after:
-                    for t in reversed(self._topic_list):
-                        if t.lower() == word or (len(word) >= 3 and t.lower().startswith(word)):
-                            return t
-                if self._topic_list:
-                    return self._topic_list[-1]
-        return None
+        words = [w.strip(".,!?") for w in text_lower.split() if len(w.strip(".,!?")) >= 3]
+        
+        # Pre-compute GloVe vectors for recall seeds (lazy cache)
+        if not hasattr(self, '_recall_seed_vecs'):
+            seed_vecs = {}
+            for seed in self._RECALL_SEED_CONCEPTS:
+                v = self._glove_vector(seed)
+                if v is not None:
+                    seed_vecs[seed] = v
+            self._recall_seed_vecs = seed_vecs
+        
+        if not self._recall_seed_vecs:
+            return None
+        
+        # Check each content word in the query for semantic similarity to recall seeds
+        is_recall = False
+        for word in words:
+            wv = self._glove_vector(word)
+            if wv is None:
+                continue
+            for seed, sv in self._recall_seed_vecs.items():
+                sim = float(np.dot(wv, sv))
+                if sim >= self._RECALL_DETECTION_THRESHOLD:
+                    is_recall = True
+                    break
+            if is_recall:
+                break
+        
+        if not is_recall:
+            return None
+        
+        # If recall detected, find the most relevant past topic
+        if self._topic_list:
+            # Score each past topic by semantic similarity to the query
+            best_topic = None
+            best_score = 0.0
+            for topic in reversed(self._topic_list):
+                tv = self._glove_vector(topic)
+                if tv is None:
+                    continue
+                score = 0.0
+                for word in words:
+                    wv = self._glove_vector(word)
+                    if wv is not None:
+                        score += float(np.dot(wv, tv))
+                if score > best_score:
+                    best_score = score
+                    best_topic = topic
+            if best_topic:
+                return best_topic
+            return self._topic_list[-1]
+        
+        return text_lower.split()[0] if words else None
 
     def _recall_past(self, subj: str, obj: str) -> List[str]:
         related = []
@@ -6743,6 +6851,16 @@ class CognitiveChatEngine:
             except Exception:
                 pass
 
+        # Hippocampal buffer recall check (Issues #7-8) — check BEFORE decoder/syntactic pipeline
+        # so factual memories are retrieved even when the pipeline would generate a fluent response.
+        # This mirrors hippocampal pattern completion: from partial cue → full episodic trace.
+        try:
+            hippocampal_result = self._try_hippocampal_retrieval(ctx)
+            if hippocampal_result:
+                return (hippocampal_result, "hippocampal_recall")
+        except Exception:
+            pass
+
         # Fallback to local stored definition (ATL convergence zone - Binder & Desai 2011)
         if is_query_for_defn and subject and subject.lower() in self._definitions:
             defn = self._definitions[subject.lower()]
@@ -6786,6 +6904,47 @@ class CognitiveChatEngine:
             pass
 
         # Path 3: Graph fallback (last resort — simple associative response)
+        # Check for pragmatic implicature (Issue #6)
+        try:
+            implicature = self.implicature_detector.analyze(ctx.raw_input)
+            if implicature.is_implicature and implicature.suggested_question_type == "acknowledge":
+                return (self._generate_acknowledgment(ctx, implicature), "implicature_acknowledge")
+        except Exception:
+            pass
+
+        # Check for nested propositions (Issue #3)
+        try:
+            if self.proposition_parser.has_nested_propositions(ctx.raw_input):
+                propositions = self.proposition_parser.extract_propositions(ctx.raw_input)
+                if len(propositions) >= 2:
+                    surface = self.proposition_parser.get_surface_structure(propositions)
+                    if surface == "contrastive":
+                        p1 = propositions[0]
+                        p2 = propositions[1] if len(propositions) > 1 else None
+                        if p2:
+                            return (f"On one hand, {p1.subject} {p1.predicate} {p1.object}. On the other hand, {p2.subject} {p2.predicate} {p2.object}.", "nested_proposition_contrastive")
+                        return (f"I think there are multiple perspectives here. {p1.subject} may {p1.predicate} {p1.object} depending on the context.", "nested_proposition")
+                    elif surface == "multi_perspective":
+                        parts = []
+                        for p in propositions[:3]:
+                            parts.append(f"{p.subject} {p.predicate} {p.object}")
+                        return (" and also ".join(parts) + ".", "nested_proposition_multi")
+        except Exception:
+            pass
+
+        # Check for quantity comparison (Issue #5)
+        try:
+            if hasattr(self, '_pending_quantity_result') and self._pending_quantity_result:
+                qa, qb, q_result, q_conf = self._pending_quantity_result
+                if q_result == "equal":
+                    return (f"{qa.concept.capitalize()} and {qb.concept} have the same quantity. They are equal.", "quantity_comparison")
+                elif q_result == "a_greater":
+                    return (f"{qa.concept.capitalize()} has more than {qb.concept} ({qa.value} vs {qb.value}).", "quantity_comparison")
+                elif q_result == "b_greater":
+                    return (f"{qb.concept.capitalize()} has more than {qa.concept} ({qb.value} vs {qa.value}).", "quantity_comparison")
+        except Exception:
+            pass
+
         return self._graph_fallback_response(ctx)
 
     def _generate_with_decoder_and_syntax(self, ctx: CognitiveResponseContext) -> Optional[str]:
@@ -6818,6 +6977,31 @@ class CognitiveChatEngine:
         max_assocs = max(3, min(15, int(round(8 * breadth_mult))))
 
         # ─── STEP 1: PrefrontalWorkspace — Discourse Planning ───
+        # Check causal schema for hypothetical/causal questions (Issues #2, #10)
+        _causal_prediction = None
+        if hasattr(self, 'causal_schema') and ctx.subject:
+            try:
+                qtype = self.pfc_workspace.detect_question_type(ctx.raw_input, self._concept_pos)[0]
+                if qtype in ('hypothetical', 'why', 'how'):
+                    pred, conf = self.causal_schema.predict(ctx.subject, 'change')
+                    if pred and conf > 0.3:
+                        _causal_prediction = (pred, conf)
+                        self.causal_schema.record_prediction(ctx.subject, 'change', pred, True)
+            except Exception:
+                pass
+
+        # Check relational memory for transitive/comparison queries (Issue #9)
+        _relation_result = None
+        if hasattr(self, 'relation_memory') and ctx.subject:
+            try:
+                qtype = self.pfc_workspace.detect_question_type(ctx.raw_input, self._concept_pos)[0]
+                if qtype == 'compare':
+                    transitive_results = self.relation_memory.transitive_query(ctx.subject, 'taller')
+                    if transitive_results:
+                        _relation_result = transitive_results[0]
+            except Exception:
+                pass
+
         plan = self.pfc_workspace.plan_discourse(
             user_input=ctx.raw_input,
             subject=subject,
@@ -7007,6 +7191,16 @@ class CognitiveChatEngine:
             discourse_marker = intent.discourse_marker
             
             # ─── STEP 5: SurfaceRealizer — Morphology, agreement, pronouns, articles ───
+            # Inject relational memory info into discourse (Issues #2, #9)
+            _relational_info = ""
+            if hasattr(self, 'relation_memory') and ctx.subject:
+                try:
+                    transitive_results = self.relation_memory.transitive_query(ctx.subject, 'taller')
+                    if transitive_results:
+                        _relational_info = f" {ctx.subject} is {transitive_results[0][1]} than {transitive_results[0][0]}"
+                except Exception:
+                    pass
+
             discourse_state = DiscourseState(
                 sentence_index=sent_idx,
                 previous_subject=last_subject if sentences else None,
@@ -7577,6 +7771,8 @@ class CognitiveChatEngine:
             urgency=0.3 + 0.15 * min(len(ctx.associated_concepts), 4) / 4.0,
             valence=self.emotion.state.valence, episode=self.turn_count)
         self.gw.compete()
+        # Clean up pending quantity result after response
+        self._pending_quantity_result = None
 
     # ── Sleep Consolidation ──
 
@@ -8590,6 +8786,78 @@ class CognitiveChatEngine:
         self._last_auto_learn_turn = self.turn_count
         return selected
 
+    def _try_hippocampal_retrieval(self, ctx: CognitiveResponseContext) -> Optional[str]:
+        """Try to retrieve a factual memory from hippocampal buffer (Issues #7-8).
+
+        Uses cross-subject retrieval: queries by the current subject AND all
+        content words in the user's input, past topics, user model info, and
+        the user's name. This enables recall even when the recall query uses
+        different wording than the original statement.
+
+        Only fires when recall_mode is enabled (set by _detect_recall_trigger).
+        Introductions, greetings, what_is, and tell_me queries are blocked
+        from recall mode via qtype cross-check in process_turn.
+
+        Neuroscience basis: hippocampal pattern completion from partial cues.
+        """
+        if not ctx.subject or not ctx.recall_mode:
+            return None
+
+        # Build cue list from multiple sources for broad matching
+        cues = [ctx.subject]
+        raw = ctx.raw_input.lower()
+
+        # Add all content words from the current query
+        raw_words = [w.strip(".,!?") for w in raw.split() if len(w.strip(".,!?")) >= 3]
+        cues.extend(raw_words)
+
+        # Add past topics for cross-turn recall
+        if hasattr(self, '_topic_list') and self._topic_list:
+            cues.extend(self._topic_list[-5:])  # Last 5 topics
+
+        # Add user model info (user's name, likes, interests)
+        if hasattr(self, 'user_model'):
+            if self.user_model.user_name:
+                cues.append(self.user_model.user_name.lower())
+            prefs = self.user_model.preferences
+            for pref_list in [prefs.get('likes', []), prefs.get('interests', [])]:
+                for item in pref_list:
+                    if isinstance(item, str) and len(item) >= 2:
+                        cues.append(item.lower())
+
+        # Remove duplicates and very short words
+        seen_cues = set()
+        unique_cues = []
+        for c in cues:
+            c = c.strip().lower()
+            if c not in seen_cues and len(c) >= 2:
+                seen_cues.add(c)
+                unique_cues.append(c)
+
+        # Use retrieve_any with all cues - searches by subject, content words,
+        # partial key matches, and object content (no redundant fallbacks needed
+        # since retrieve_any already searches everything)
+        facts = self.hippocampal_buffer.retrieve_any(unique_cues)
+
+        if not facts:
+            return None
+
+        # Format response - pick best fact
+        best_fact = max(facts, key=lambda f: f.confidence * f.rehearsal_count)
+        obj_display = best_fact.object[:100] if best_fact.object else ""
+        return f"I remember that {best_fact.subject} {best_fact.predicate} {obj_display}."
+
+    def _generate_acknowledgment(self, ctx: CognitiveResponseContext, implicature) -> str:
+        """Generate acknowledgment response for pragmatic implicature (Issue #6)."""
+        if implicature.detected_type == "personal_state":
+            return f"I see. Thanks for sharing that with me! That sounds interesting."
+        elif implicature.detected_type == "obvious_statement":
+            return f"Yes, that is true! It is interesting how those things work."
+        elif implicature.detected_type == "social_cue":
+            return f"That is an interesting perspective. What do you think about it?"
+        else:
+            return f"I understand. Tell me more about that."
+
     def save(self) -> str:
         """Save full cognitive state to disk. Returns path to save file."""
         with self._vocab_lock, self._graph_lock:
@@ -8677,6 +8945,9 @@ class CognitiveChatEngine:
             'mean_prediction_error': self._mean_prediction_error,
             'prediction_error_count': self._prediction_error_count,
             # Neural decoder
+            'hippocampal_buffer_state': self.hippocampal_buffer.get_state(),
+            'causal_schema_state': self.causal_schema.get_state(),
+            'relation_memory_state': self.relation_memory.get_state(),
             'decoder_state_dict': self.neural_decoder.state_dict() if self.neural_decoder is not None else None,
             'decoder_training_count': self._decoder_training_count,
             'decoder_web_training_count': self._decoder_web_training_count,
@@ -8890,6 +9161,15 @@ class CognitiveChatEngine:
 
             # Stash decoder state dict to be loaded after _build_decoder_vocab() 
             # (neural decoder doesn't exist yet — created later in __init__)
+            hb_state = state.get('hippocampal_buffer_state', None)
+            if hb_state:
+                self.hippocampal_buffer.set_state(hb_state)
+            cs_state = state.get('causal_schema_state', None)
+            if cs_state:
+                self.causal_schema.set_state(cs_state)
+            rm_state = state.get('relation_memory_state', None)
+            if rm_state:
+                self.relation_memory.set_state(rm_state)
             decoder_sd = state.get('decoder_state_dict', None)
             self._saved_decoder_state = decoder_sd if decoder_sd is not None else {}
             self._decoder_training_count = state.get('decoder_training_count', 0)
@@ -8921,6 +9201,15 @@ class CognitiveChatEngine:
 
             # Stash decoder state dict to be loaded after _build_decoder_vocab()
             # (neural decoder doesn't exist yet — created later in __init__)
+            hb_state = state.get('hippocampal_buffer_state', None)
+            if hb_state:
+                self.hippocampal_buffer.set_state(hb_state)
+            cs_state = state.get('causal_schema_state', None)
+            if cs_state:
+                self.causal_schema.set_state(cs_state)
+            rm_state = state.get('relation_memory_state', None)
+            if rm_state:
+                self.relation_memory.set_state(rm_state)
             decoder_sd = state.get('decoder_state_dict', None)
             self._saved_decoder_state = decoder_sd if decoder_sd is not None else {}
             self._decoder_training_count = state.get('decoder_training_count', 0)

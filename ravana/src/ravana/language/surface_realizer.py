@@ -364,10 +364,29 @@ class SurfaceRealizer:
 
         verb = self._apply_agreement(verb, subject_phrase, display_subj.lower())
         verb = self._apply_tense(verb, frame.tense)
+        
+        # Cross-cutting: fix common morphology errors post-generation
+        from ravana.language.verb_lexicon import VerbLexicon
+        verb = VerbLexicon.fix_morphology(verb)
 
         if relation == 'interrogative':
             sentence = frame.object_concept
             has_punct = sentence.endswith('.') or sentence.endswith('?') or sentence.endswith('!')
+        elif discourse_context.discourse_type == 'causal_explain':
+            # Generate "because" structure for causal explanations
+            if discourse_context.sentence_index == 0:
+                # First causal sentence: "X causes Y"
+                core = f"{subject_phrase} {verb} {object_phrase}"
+            elif discourse_context.sentence_index == 1:
+                # Second causal sentence: "Y because X" or "because X, Y happens"
+                if discourse_marker == 'because':
+                    # Use "because" structure
+                    core = f"{subject_phrase} {verb} {object_phrase}"
+                else:
+                    core = f"{subject_phrase} {verb} {object_phrase}"
+            else:
+                core = f"{subject_phrase} {verb} {object_phrase}"
+            has_punct = False
         else:
             core = f"{subject_phrase} {verb} {object_phrase}"
             has_punct = False

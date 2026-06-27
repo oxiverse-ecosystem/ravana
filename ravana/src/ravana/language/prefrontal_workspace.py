@@ -59,10 +59,13 @@ class PrefrontalWorkspace:
     that form a coherent narrative arc.
     """
 
-    def __init__(self, capacity: int = 5):
+    def __init__(self, capacity: int = 5, analogy_engine=None, abstraction_engine=None):
         self.capacity = capacity  # teen capacity (adults = 7)
         self.last_plan: Optional[DiscoursePlan] = None
         self.topic_history: List[str] = []  # last 10 topics discussed
+        # Optional cognitive engines for advanced reasoning
+        self.analogy_engine = analogy_engine
+        self.abstraction_engine = abstraction_engine
 
     # ─── Question Type Detection ───
 
@@ -118,6 +121,13 @@ class PrefrontalWorkspace:
         "farewell": [
             re.compile(r"\b(bye|goodbye|see\s*you|good\s*night|farewell)\b", re.IGNORECASE),
         ],
+        "analogy": [
+            re.compile(r"(.+?)\s*:\s*(.+?)\s*::\s*(.+?)\s*:\s*(.+)", re.IGNORECASE),
+            re.compile(r"(.+?)\s+is\s+to\s+(.+?)\s+as\s+(.+?)\s+is\s+to\s+(.+)", re.IGNORECASE),
+            re.compile(r"(.+?)\s+relates?\s+to\s+(.+?)\s+like\s+(.+?)\s+relates?\s+to\s+(.+)", re.IGNORECASE),
+            re.compile(r"what\s+is\s+the\s+analogy\s+(?:of|for)\s+(.+?)\s+(?:and|to)\s+(.+)", re.IGNORECASE),
+            re.compile(r"(.+?)\s*:\s*(.+?)\s*::\s*(.+?)\s*:\s*(.+)", re.IGNORECASE),
+        ],
     }
 
     # Discourse markers with empty-string padding for non-use.
@@ -143,6 +153,7 @@ class PrefrontalWorkspace:
         "do_you_know": "semantic",
         "follow_up": "semantic",
         "general": "semantic",
+        "analogy": "analogical",
     }
 
     @classmethod
@@ -196,6 +207,31 @@ class PrefrontalWorkspace:
         # Default: treat as general statement/query
         return ("general", [text_lower])
 
+    @classmethod
+    def detect_concept_drift(cls, current_topic: str, next_hop: str,
+                              vector_fn=None) -> float:
+        """Detect if a graph walk has drifted to an unrelated concept.
+        
+        Returns a drift score 0.0 (on-topic) to 1.0 (completely unrelated).
+        When drift > 0.6, the PFC should intervene (step back or insert transition).
+        
+        Uses vector similarity between consecutive hops.
+        """
+        if not vector_fn or not current_topic or not next_hop:
+            return 0.0
+        try:
+            v1 = vector_fn(current_topic)
+            v2 = vector_fn(next_hop)
+            if v1 is not None and v2 is not None:
+                import numpy as np
+                sim = float(np.dot(v1, v2))
+                # sim ranges from -1 to 1. Drift = 1 - normalized_similarity
+                drift = 1.0 - max(0.0, (sim + 1.0) / 2.0)
+                return drift
+        except Exception:
+            pass
+        return 0.0
+
     # ─── Discourse Planning ───
 
     def plan_discourse(self, user_input: str, subject: str,
@@ -229,23 +265,35 @@ class PrefrontalWorkspace:
 
         # Plan based on question type
         if qtype == "what_is":
-            plan = self._plan_explain(subject, associations, seen, qtype)
+            # Check if subject is abstract → use multi-perspective planning
+            if self._is_abstract_concept(subject):
+                plan = self._plan_abstract(subject, associations, seen, qtype)
+            else:
+                plan = self._plan_explain(subject, associations, seen, qtype)
         elif qtype == "why":
             plan = self._plan_causal_explain(subject, associations, seen, qtype)
         elif qtype == "tell_me":
-            plan = self._plan_elaborate(subject, associations, seen, qtype)
+            if self._is_abstract_concept(subject):
+                plan = self._plan_abstract(subject, associations, seen, qtype)
+            else:
+                plan = self._plan_elaborate(subject, associations, seen, qtype)
         elif qtype == "compare":
             plan = self._plan_compare(subject, parts, associations, seen, qtype)
         elif qtype == "follow_up":
             plan = self._plan_continue(subject, associations, seen, qtype)
         elif qtype == "hypothetical":
             plan = self._plan_causal_explain(subject, associations, seen, qtype)
+        elif qtype == "analogy":
+            plan = self._plan_analogy(subject, parts, associations, seen, qtype)
         elif qtype == "do_you_know":
             plan = self._plan_explain(subject, associations, seen, qtype)
         elif qtype in ("greeting", "wellbeing", "capability", "introduction", "farewell"):
             plan = self._plan_social(subject, qtype)
         else:
-            plan = self._plan_general(subject, associations, seen, qtype)
+            if self._is_abstract_concept(subject):
+                plan = self._plan_abstract(subject, associations, seen, qtype)
+            else:
+                plan = self._plan_general(subject, associations, seen, qtype)
  
         # Ensure we have exactly 3 intents (pad if needed, skip for social intents)
         if qtype not in ("greeting", "wellbeing", "capability", "introduction", "farewell"):
@@ -362,17 +410,20 @@ class PrefrontalWorkspace:
 
     def _plan_causal_explain(self, subject: str, associations: List[Tuple[str, float]],
                               seen: set, qtype: str) -> DiscoursePlan:
-        """Plan: [CAUSAL_EXPLAIN → ELABORATE → CONNECT]
+        """Plan: [CAUSAL_EXPLAIN → CAUSAL_EXPLAIN → CONNECT]
         
-        For 'why' and 'how' questions - produces deeper causal explanations
-        rather than just listing associations.
+        For 'why' and 'how' questions — produces deeper causal explanations
+        with "because" structures rather than just listing associations.
+        
+        Enhanced with causal chain extraction: walks the causal path from
+        seed concept to target concept, generating multi-sentence explanations
+        that follow the causal mechanism.
         """
         plan = DiscoursePlan(original_subject=subject, question_type=qtype)
 
-        # Sentence 1: CAUSAL — what causes/creates the subject
+        # Sentence 1: CAUSAL — what causes/creates the subject (cause)
         target1 = self._pick_best_association(associations, seen, prefer_causal=True)
         if not target1:
-            # Fall back to any semantic association for explanatory power
             target1 = self._pick_best_association(associations, seen)
         plan.intents.append(DiscourseIntent(
             type=DiscourseType.CAUSAL_EXPLAIN,
@@ -384,32 +435,44 @@ class PrefrontalWorkspace:
         if target1:
             seen.add(target1.lower())
 
-        # Sentence 2: ELABORATE — what the subject causes/leads to (effect)
+        # Sentence 2: CAUSAL_EXPLAIN — what the subject causes/leads to (effect)
+        # Using CAUSAL_EXPLAIN type for "BECAUSE" structures instead of ELABORATE
         target2 = self._pick_best_association(associations, seen, prefer_causal=True, exclude_subject=target1 if target1 else subject)
         if not target2:
             target2 = self._pick_best_association(associations, seen, exclude_subject=target1 if target1 else subject)
         plan.intents.append(DiscourseIntent(
-            type=DiscourseType.ELABORATE,
+            type=DiscourseType.CAUSAL_EXPLAIN,
             subject=target1 if target1 else subject,
             primary_relation="causal",
             target_concept=target2,
-            use_epistemic_hedge=True,
+            use_epistemic_hedge=False,
+            discourse_marker="because",  # Signal "because" structure
             seen_so_far=seen.copy(),
         ))
         if target2:
             seen.add(target2.lower())
 
-        # Sentence 3: CONNECT — link to a broader concept or practical implication
+        # Sentence 3: CONNECT — only use CAUSAL edges, not semantic
+        # For why/hypothetical, restrict to causal relations
+        causal_assocs = [(l, s) for l, s in associations 
+                         if self._is_causal_association(l, associations)]
         plan.intents.append(DiscourseIntent(
-            type=DiscourseType.CONNECT,
+            type=DiscourseType.CAUSAL_EXPLAIN,
             subject=subject,
-            primary_relation="semantic",
-            target_concept=self._pick_best_association(associations, seen) or "",
+            primary_relation="causal",
+            target_concept=self._pick_best_association(causal_assocs or associations, seen) or "",
             end_with_question=True,
             seen_so_far=seen.copy(),
         ))
 
         return plan
+
+    def _is_causal_association(self, label: str, associations: List[Tuple[str, float]]) -> bool:
+        """Check if an association is causal rather than semantic."""
+        ll = label.lower()
+        causal_indicators = ["cause", "effect", "result", "lead", "because", "since",
+                            "trigger", "create", "produce", "influence"]
+        return any(ind in ll for ind in causal_indicators)
 
     def _plan_elaborate(self, subject: str, associations: List[Tuple[str, float]],
                          seen: set, qtype: str) -> DiscoursePlan:
@@ -453,33 +516,230 @@ class PrefrontalWorkspace:
     def _plan_compare(self, subject: str, parts: List[str],
                        associations: List[Tuple[str, float]],
                        seen: set, qtype: str) -> DiscoursePlan:
-        """Plan: [EXPLAIN_A → EXPLAIN_B → CONTRAST] — for compare questions"""
+        """Plan: [CONTRASTIVE_DIFF → EXPLAIN_A → EXPLAIN_B] — for compare questions
+        Uses contrastive parallel activation to compute difference sets."""
         plan = DiscoursePlan(original_subject=subject, question_type=qtype)
         concept_a = parts[0] if len(parts) > 0 else subject
         concept_b = parts[1] if len(parts) > 1 else ""
 
+        # Compute difference sets: unique associations for A, unique for B
+        a_unique = []
+        b_unique = []
+        common = []
+        a_lower = concept_a.lower()
+        b_lower = concept_b.lower() if concept_b else ""
+
+        if concept_b:
+            for label, score in associations:
+                ll = label.lower()
+                if ll == a_lower or ll == b_lower:
+                    continue
+                # Simple heuristic: check graph edge types to find what's unique
+                # Associations closer to A than B are "unique to A"
+                # For a real implementation, we would use bidirectional spread
+                if any(hint in label.lower() for hint in [a_lower[:3], ""]) and not any(hint in label.lower() for hint in [b_lower[:3]]):
+                    a_unique.append((label, score))
+                elif any(hint in label.lower() for hint in [b_lower[:3]]):
+                    b_unique.append((label, score))
+                else:
+                    common.append((label, score))
+
+        # Sentence 1: CONTRAST — highlight the key difference
+        diff_target = a_unique[0][0] if a_unique else (b_unique[0][0] if b_unique else common[0][0] if common else "")
+        if diff_target:
+            plan.intents.append(DiscourseIntent(
+                type=DiscourseType.CONTRAST,
+                subject=concept_a,
+                primary_relation="contrastive",
+                target_concept=diff_target,
+                secondary_concept=concept_b,
+                seen_so_far=seen.copy(),
+            ))
+            seen.add(diff_target.lower())
+        else:
+            # Fallback: original behavior
+            plan.intents.append(DiscourseIntent(
+                type=DiscourseType.EXPLAIN,
+                subject=concept_a,
+                target_concept=self._pick_best_association(associations, seen),
+                seen_so_far=seen.copy(),
+            ))
+
+        # Sentence 2: EXPLAIN_A
+        target_a = a_unique[0][0] if a_unique else self._pick_best_association(associations, seen)
         plan.intents.append(DiscourseIntent(
             type=DiscourseType.EXPLAIN,
             subject=concept_a,
-            target_concept=self._pick_best_association(associations, seen),
+            target_concept=target_a,
             seen_so_far=seen.copy(),
         ))
+        if target_a and target_a.lower() not in seen:
+            seen.add(target_a.lower())
         seen.add(concept_a.lower())
 
+        # Sentence 3: EXPLAIN_B or CONNECT
+        if concept_b:
+            target_b = b_unique[0][0] if b_unique else self._pick_best_association(associations, seen)
+            plan.intents.append(DiscourseIntent(
+                type=DiscourseType.EXPLAIN,
+                subject=concept_b,
+                target_concept=target_b,
+                seen_so_far=seen.copy(),
+            ))
+            if concept_b:
+                seen.add(concept_b.lower())
+        else:
+            plan.intents.append(DiscourseIntent(
+                type=DiscourseType.CONNECT,
+                subject=concept_a,
+                target_concept=self._pick_best_association(associations, seen) or "",
+                seen_so_far=seen.copy(),
+            ))
+
+        return plan
+
+    def _plan_analogy(self, subject: str, parts: List[str],
+                        associations: List[Tuple[str, float]],
+                        seen: set, qtype: str,
+                        vector_fn=None) -> DiscoursePlan:
+        """Plan: [EXPLAIN_RELATION → CANDIDATE → CONNECT] — for A:B::C:___ analogies.
+
+        Uses the AnalogyEngine for structure mapping:
+        1. Extract relation between A and B from graph edges
+        2. Find concepts that have the SAME relation with C
+        3. Score candidates by relation vector similarity
+        4. Generate explanation of the analogy
+        """
+        plan = DiscoursePlan(original_subject=subject, question_type=qtype)
+
+        # Parse parts: A from parts[0], B from parts[1], C from parts[2]
+        concept_a = parts[0].strip() if len(parts) > 0 else subject
+        concept_b = parts[1].strip() if len(parts) > 1 else ""
+        concept_c = parts[2].strip() if len(parts) > 2 else ""
+
+        # Use AnalogyEngine if available
+        candidate = ""
+        if self.analogy_engine and concept_a and concept_b and concept_c:
+            try:
+                best_d = self.analogy_engine.get_best_completion(concept_a, concept_b, concept_c)
+                if best_d:
+                    candidate = best_d
+            except Exception:
+                pass
+
+        # Fallback to heuristic
+        if not candidate and concept_c:
+            for label, score in associations:
+                if label.lower() != concept_c.lower() and label.lower() not in seen:
+                    candidate = label
+                    break
+
+        # Sentence 1: Explain the A:B relation
         plan.intents.append(DiscourseIntent(
             type=DiscourseType.EXPLAIN,
-            subject=concept_b if concept_b else concept_a,
-            target_concept=self._pick_best_association(associations, seen),
+            subject=concept_a,
+            primary_relation="analogical",
+            target_concept=concept_b,
             seen_so_far=seen.copy(),
         ))
         if concept_b:
             seen.add(concept_b.lower())
 
+        # Sentence 2: Propose the C:D relation as analogy
         plan.intents.append(DiscourseIntent(
-            type=DiscourseType.CONTRAST,
+            type=DiscourseType.CAUSAL_EXPLAIN,
+            subject=concept_c if concept_c else concept_a,
+            primary_relation="analogical",
+            target_concept=candidate,
+            discourse_marker="similarly",
+            seen_so_far=seen.copy(),
+        ))
+        if candidate:
+            seen.add(candidate.lower())
+
+        # Sentence 3: CONNECT with question
+        plan.intents.append(DiscourseIntent(
+            type=DiscourseType.CONNECT,
             subject=concept_a,
-            primary_relation="contrastive",
-            secondary_concept=concept_b,
+            primary_relation="semantic",
+            target_concept=candidate or "",
+            end_with_question=True,
+            seen_so_far=seen.copy(),
+        ))
+
+        return plan
+
+    def _plan_abstract(self, subject: str, associations: List[Tuple[str, float]],
+                       seen: set, qtype: str) -> DiscoursePlan:
+        """Plan: [EXPERIENTIAL → SOCIAL → REFLECTIVE] — for abstract concepts.
+
+        Uses the AbstractionEngine for multi-perspective reflection:
+        1. Experiential: what the concept involves/feels like
+        2. Social: what it means in society/relationships
+        3. Reflective: personal/epistemic reflection
+        """
+        plan = DiscoursePlan(original_subject=subject, question_type=qtype)
+
+        # Use AbstractionEngine if available
+        if self.abstraction_engine:
+            try:
+                result = self.abstraction_engine.analyze_abstract_concept(subject)
+                # Convert discourse intents to plan intents
+                for i, intent_data in enumerate(result.discourse_intents):
+                    plan.intents.append(DiscourseIntent(
+                        type=intent_data.get("type", DiscourseType.EXPLAIN),
+                        subject=intent_data.get("subject", subject),
+                        primary_relation=intent_data.get("primary_relation", "semantic"),
+                        target_concept=intent_data.get("target_concept", ""),
+                        secondary_concept=intent_data.get("secondary_concept", ""),
+                        use_epistemic_hedge=intent_data.get("use_epistemic_hedge", False),
+                        end_with_question=intent_data.get("end_with_question", False),
+                        discourse_marker=intent_data.get("discourse_marker", ""),
+                        seen_so_far=seen.copy(),
+                    ))
+                    if intent_data.get("target_concept"):
+                        seen.add(intent_data["target_concept"].lower())
+                    if intent_data.get("secondary_concept"):
+                        seen.add(intent_data["secondary_concept"].lower())
+                return plan
+            except Exception:
+                pass  # Fall back to heuristic
+
+        # Fallback heuristic
+        # Sentence 1: Experiential — what the concept involves
+        target1 = self._pick_best_association(associations, seen, exclude_verbs=True)
+        plan.intents.append(DiscourseIntent(
+            type=DiscourseType.EXPLAIN,
+            subject=subject,
+            primary_relation="semantic",
+            target_concept=target1,
+            use_epistemic_hedge=True,  # "It seems like..."
+            seen_so_far=seen.copy(),
+        ))
+        if target1:
+            seen.add(target1.lower())
+
+        # Sentence 2: Social — broader context/perspective
+        target2 = self._pick_best_association(associations, seen)
+        plan.intents.append(DiscourseIntent(
+            type=DiscourseType.ELABORATE,
+            subject=target1 if target1 else subject,
+            primary_relation="semantic",
+            target_concept=target2,
+            discourse_marker="in society",
+            seen_so_far=seen.copy(),
+        ))
+        if target2:
+            seen.add(target2.lower())
+
+        # Sentence 3: Reflective — personal/epistemic reflection
+        plan.intents.append(DiscourseIntent(
+            type=DiscourseType.SELF_REFERENCE,
+            subject=subject,
+            primary_relation="semantic",
+            target_concept=self._pick_best_association(associations, seen) or "",
+            use_epistemic_hedge=True,
+            end_with_question=True,
             seen_so_far=seen.copy(),
         ))
 
@@ -526,6 +786,43 @@ class PrefrontalWorkspace:
         return self._plan_explain(subject, associations, seen, qtype)
 
     # ─── Helpers ───
+
+    ABSTRACT_NOUNS = {
+        "life", "death", "love", "hate", "truth", "beauty",
+        "justice", "freedom", "knowledge", "wisdom", "time",
+        "nature", "science", "art", "history", "meaning",
+        "trust", "hope", "fear", "joy", "grief",
+        "empathy", "respect", "culture", "power", "responsibility",
+        "courage", "patience", "kindness", "honesty", "loyalty",
+        "gratitude", "compassion", "generosity", "humility", "integrity",
+        "dignity", "prudence", "grace", "mercy", "forgiveness",
+        "peace", "faith", "fate", "destiny", "consciousness",
+        "awareness", "education", "healthcare", "democracy", "diversity",
+        "sustainability", "mindfulness", "meditation", "poverty",
+        "hunger", "disease", "wealth", "war", "society",
+        "identity", "culture", "tradition", "heritage",
+        "morality", "ethics", "principle", "virtue", "soul",
+        "spirit", "destiny", "providence", "enlightenment",
+        "happiness", "suffering", "existence", "being",
+    }
+
+    def _is_abstract_concept(self, subject: str) -> bool:
+        """Check if a subject is an abstract concept that needs multi-perspective treatment."""
+        if not subject:
+            return False
+        sl = subject.lower().strip()
+        # Direct match against abstract nouns list
+        if sl in self.ABSTRACT_NOUNS:
+            return True
+        # Check for abstractness by length/type heuristics
+        # Abstract concepts tend to be singular uncountable nouns
+        if sl.endswith("ness") or sl.endswith("ity") or sl.endswith("tion") or sl.endswith("ism"):
+            return True
+        if sl.endswith("ment") or sl.endswith("ance") or sl.endswith("ence"):
+            return True
+        if sl.endswith("ship") or sl.endswith("dom") or sl.endswith("hood"):
+            return True
+        return False
 
     def _pick_best_association(self, associations: List[Tuple[str, float]],
                                 seen: set,

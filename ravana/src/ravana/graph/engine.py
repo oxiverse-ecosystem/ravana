@@ -500,11 +500,17 @@ class GraphEngine:
             ("memory", "library"), ("heart", "engine"),
         ]
 
+        # Phase 6: New cognitive reasoning edge types (edge types registered in ConceptGraph)
+        # Specific fact pairs should be learned via RLMv2 from data, not hardcoded
+        # negation_edges, antonym_edges, transitive_edges, physical_cause_edges,
+        # comparison_edges, pragmatic_edges will be learned during training
+
         self._apply_edges(label_to_id, semantic_edges, "semantic", 0.35)
         self._apply_edges(label_to_id, causal_edges, "causal", 0.45)
         self._apply_edges(label_to_id, temporal_edges, "temporal", 0.40)
         self._apply_edges(label_to_id, contrastive_edges, "contrastive", 0.50)
         self._apply_edges(label_to_id, analogical_edges, "analogical", 0.30)
+        # Phase 6 edge types are registered in ConceptGraph but populated via learning
 
         # Hub edges
         hub_edges = [

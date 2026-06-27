@@ -21,7 +21,15 @@ from ..core import (VADEmotionEngine, VADConfig, IdentityEngine, IdentityState, 
                           MeaningEngine, MeaningConfig, DualProcessController, DualProcessConfig, Route,
                           GlobalWorkspace, GWConfig, MetaCognition, MetaCognitiveConfig, EpistemicMode,
                           SleepConsolidation, SleepConfig, BeliefStore, UserBeliefProfile, BeliefConfig,
-                          EmotionalMirrorEngine, MirrorConfig)
+                          EmotionalMirrorEngine, MirrorConfig,
+                          HippocampalBuffer, HippocampalConfig,
+                          PropositionParser, Proposition,
+                          CausalSchemaLearner, CausalSchemaConfig,
+                          ImplicatureDetector, ImplicatureResult,
+                          RelationMemory, RelationMemoryConfig,
+                          QuantityModifierSystem,
+                          AnalogyEngine, AnalogyConfig,
+                          AbstractionEngine, AbstractionConfig)
 from ..graph import GraphEngine
 from ..decoder import DecoderEngine, DecoderConfig
 from ..web import WebLearner, SearchEngine, SearchConfig, SearchError
@@ -224,6 +232,16 @@ class ChatInterface:
         self.sleep_engine = SleepConsolidation(SleepConfig(pressure_threshold=0.3, counterfactual_rate=0.15, emotional_flip_rate=0.08))
         self.belief_store = BeliefStore(BeliefConfig(recency_decay=0.1))
 
+        # New cognitive modules (Phase 2-5)
+        self.hippocampal_buffer = HippocampalBuffer(HippocampalConfig(max_facts=50, decay_turns=50))
+        self.proposition_parser = PropositionParser()
+        self.causal_schema = CausalSchemaLearner(CausalSchemaConfig())
+        self.implicature_detector = ImplicatureDetector()
+        self.relation_memory = RelationMemory(RelationMemoryConfig())
+        self.quantity_modifier = QuantityModifierSystem()
+        self.analogy_engine = AnalogyEngine(self.graph_engine.graph)
+        self.abstraction_engine = AbstractionEngine(self.graph_engine.graph)
+
         # RLM components
         self.relation_predictor = RelationPredictor(vocab_size=50000, embed_dim=dim, concept_dim=dim)
         self.propagation = PropagationEngine(self.graph_engine.graph)
@@ -232,7 +250,7 @@ class ChatInterface:
         # Language modules
         self.basal_ganglia = BasalGangliaGate()
         self.cerebellar_ngram = CerebellarNgram()
-        self.pfc_workspace = PrefrontalWorkspace(capacity=5)
+        self.pfc_workspace = PrefrontalWorkspace(capacity=5, analogy_engine=self.analogy_engine, abstraction_engine=self.abstraction_engine)
         self.syntactic_assembly = SyntacticCellAssembly(learning_rate=0.05)
         self.surface_realizer = SurfaceRealizer()
 
@@ -301,6 +319,7 @@ class ChatInterface:
         self._explored_contradictions: Set[Tuple[str, str]] = set()
         self._cerebellar_ngram: Dict[str, Dict[str, float]] = {}
         self._cerebellar_depth: Dict[str, float] = {}
+        self._pending_quantity_result = None
 
         # Sleep metrics
         self._sleep_pressure = 0.0
@@ -405,6 +424,22 @@ class ChatInterface:
             if _grounded_subj not in self._pending_learning_queue:
                 self._pending_learning_queue.append(_grounded_subj)
         relation = "is"
+
+        # Extract quantity modifiers for comparison reasoning (Issue #5)
+        quantity_mods = self.quantity_modifier.extract(user_input)
+        if len(quantity_mods) >= 2:
+            qa = quantity_mods[0]
+            qb = quantity_mods[1]
+            q_result, q_conf = self.quantity_modifier.compare_quantities(qa.concept, qb.concept)
+            if q_result and q_conf > 0.6:
+                self._pending_quantity_result = (qa, qb, q_result, q_conf)
+
+        # Extract relations from user input (Issue #9)
+        self.relation_memory.extract_from_text(user_input)
+
+        # Check for nested propositions (Issue #3)
+        has_nested = self.proposition_parser.has_nested_propositions(user_input)
+        _use_dual_process_for_propositions = has_nested and len(user_input.split()) >= 5
 
         # Primary IDs
         subject_ids = set()
@@ -511,6 +546,16 @@ class ChatInterface:
             for r in removed:
                 self._topic_store.pop(r.lower(), None)
 
+        # Store in hippocampal buffer (for fact recall)
+        if user_input and subject:
+            self.hippocampal_buffer.store(
+                subject=subject,
+                predicate="is_about",
+                object=user_input[:80],
+                confidence=0.6
+            )
+        self.hippocampal_buffer.advance_turn()
+
         # Store episodic memory
         self._store_episodic(subject, associations)
 
@@ -612,6 +657,16 @@ class ChatInterface:
         except Exception as e:
             if self._trace_enabled:
                 print(f"  [trace] reasoning loop error: {e}")
+
+        # Check hippocampal buffer before graph fallback
+        hippocampal_result = self._try_hippocampal_retrieval(ctx)
+        if hippocampal_result:
+            return (hippocampal_result, "hippocampal_recall")
+
+        # Check if input has pragmatic implicature
+        implicature = self.implicature_detector.analyze(ctx.raw_input)
+        if implicature.is_implicature and implicature.suggested_question_type == "acknowledge":
+            return (self._generate_acknowledgment(ctx, implicature), "implicature_acknowledge")
 
         # Graph fallback
         return self._graph_fallback_response(ctx)
@@ -951,6 +1006,9 @@ class ChatInterface:
             drift_pull=0.05
         )
 
+        # Clean up temporary state after response
+        self._pending_quantity_result = None
+
     def _update_state(self, ctx: CognitiveResponseContext):
         """Update cognitive state post-response: free energy, meaning, identity, global workspace."""
         self._free_energy = max(0.0, 0.3 + 0.2 * (1.0 - ctx.identity_strength) - 0.08 * len(ctx.associated_concepts))
@@ -1060,6 +1118,36 @@ class ChatInterface:
 
         if not subject:
             return ("...", "associative")
+
+        # Check for nested propositions (Issue #3)
+        if hasattr(self, 'proposition_parser') and self.proposition_parser.has_nested_propositions(ctx.raw_input):
+            propositions = self.proposition_parser.extract_propositions(ctx.raw_input)
+            if len(propositions) >= 2:
+                surface = self.proposition_parser.get_surface_structure(propositions)
+                if surface == "contrastive":
+                    # Generate "On one hand... on the other hand..." response
+                    p1 = propositions[0]
+                    p2 = propositions[1] if len(propositions) > 1 else None
+                    if p2:
+                        return (f"On one hand, {p1.subject} {p1.predicate} {p1.object}. On the other hand, {p2.subject} {p2.predicate} {p2.object}.", "nested_proposition_contrastive")
+                    return (f"I think there are multiple perspectives here. {p1.subject} may {p1.predicate} {p1.object} depending on the context.", "nested_proposition")
+                elif surface == "multi_perspective":
+                    parts = []
+                    for p in propositions[:3]:
+                        parts.append(f"{p.subject} {p.predicate} {p.object}")
+                    return (" and also ".join(parts) + ".", "nested_proposition_multi")
+
+        # Check for causal schema prediction (Issue #2)
+        if hasattr(self, 'causal_schema') and ctx.subject:
+            qtype = self.pfc_workspace.detect_question_type(ctx.raw_input, self._concept_pos)[0]
+            if qtype in ('hypothetical', 'why', 'how'):
+                # Try to use causal schema for physical world reasoning
+                pred, conf = self.causal_schema.predict(ctx.subject, 'change')
+                if pred and conf > 0.4:
+                    chain, explanations = self.causal_schema.explain_causal_chain(ctx.subject, pred)
+                    if explanations:
+                        return (f"I think {explanations[0]}.", "causal_schema")
+                    return (f"{ctx.subject.capitalize()} leads to {pred}.", "causal_schema")
 
         subj_lower = subject.lower()
 
@@ -1189,6 +1277,28 @@ class ChatInterface:
 
         return (response, "graph_fallback")
 
+    def _try_hippocampal_retrieval(self, ctx) -> Optional[str]:
+        """Try to retrieve from hippocampal buffer for recall triggers."""
+        if not ctx.subject or not self._recall_mode:
+            return None
+        facts = self.hippocampal_buffer.retrieve(ctx.subject)
+        if not facts:
+            return None
+        # Return the highest-confidence fact
+        best_fact = max(facts, key=lambda f: f.confidence)
+        return f"I remember that {best_fact.subject} {best_fact.predicate} {best_fact.object}."
+
+    def _generate_acknowledgment(self, ctx, implicature) -> str:
+        """Generate an acknowledgment response for pragmatic implicature."""
+        if implicature.detected_type == "personal_state":
+            return f"I see. Thanks for sharing that with me! That sounds interesting."
+        elif implicature.detected_type == "obvious_statement":
+            return f"Yes, that is true! It is interesting how those things work."
+        elif implicature.detected_type == "social_cue":
+            return f"That is an interesting perspective. What do you think about it?"
+        else:
+            return f"I understand. Tell me more about that."
+
     def _walk_chain_simple(self, label: str, seen: Set[str], max_hops: int,
                             temperature: float = 0.25) -> Optional[str]:
         nids = self.graph_engine._concept_keywords.get(label.lower(), [])
@@ -1263,7 +1373,39 @@ class ChatInterface:
             if not self.cerebellar_ngram._pos_agreement and self._concept_pos:
                 self.cerebellar_ngram.seed_from_pos(self._concept_pos)
 
-            # Step 1: Discourse Planning
+            # Step 1: CausalSchema query for hypothetical/causal questions (Issues #2, #10)
+            _causal_prediction = None
+            if hasattr(self, 'causal_schema') and ctx.subject:
+                qtype = self.pfc_workspace.detect_question_type(ctx.raw_input, self._concept_pos)[0]
+                if qtype in ('hypothetical', 'why', 'how'):
+                    # Try to predict what happens with the subject
+                    pred, conf = self.causal_schema.predict(ctx.subject, 'change')
+                    if pred and conf > 0.3:
+                        _causal_prediction = (pred, conf)
+                        # Record prediction for free-energy tracking
+                        self.causal_schema.record_prediction(ctx.subject, 'change', pred, True)
+
+            # Step 2: Check relational memory for transitive/comparison queries (Issue #9)
+            _relation_result = None
+            if hasattr(self, 'relation_memory') and ctx.subject:
+                qtype = self.pfc_workspace.detect_question_type(ctx.raw_input, self._concept_pos)[0]
+                if qtype == 'compare':
+                    # Try to find comparative relations involving the subject
+                    transitive_results = self.relation_memory.transitive_query(ctx.subject, 'taller')
+                    if transitive_results:
+                        _relation_result = transitive_results[0]
+
+            # Step 3: Quantity comparison response (Issue #5)
+            if hasattr(self, '_pending_quantity_result') and self._pending_quantity_result:
+                qa, qb, q_result, q_conf = self._pending_quantity_result
+                if q_result == 'equal':
+                    return (f"{qa.concept.capitalize()} and {qb.concept} have the same quantity. They are equal.", "quantity_comparison")
+                elif q_result == 'a_greater':
+                    return (f"{qa.concept.capitalize()} has more than {qb.concept} ({qa.value} vs {qb.value}).", "quantity_comparison")
+                elif q_result == 'b_greater':
+                    return (f"{qb.concept.capitalize()} has more than {qa.concept} ({qb.value} vs {qa.value}).", "quantity_comparison")
+
+            # Discourse Planning
             is_follow_up = self._is_follow_up(ctx.raw_input)
             # Emotional mirror modulation: adjust associations and verbosity
             mirror_mod = self.mirror_engine.get_modulation(self.emotion.state)
@@ -1295,6 +1437,14 @@ class ChatInterface:
 
             # Step 2-5: Build and realize each sentence from the discourse plan
             utterances = []
+            
+            # Inject relational memory and causal schema info into discourse context (Issues #2, #9)
+            _relational_info = ""
+            if hasattr(self, 'relation_memory') and ctx.subject:
+                transitive_results = self.relation_memory.transitive_query(ctx.subject, 'taller')
+                if transitive_results:
+                    _relational_info = f" {ctx.subject} is {transitive_results[0][1]} than {transitive_results[0][0]}"
+
             discourse_context = DiscourseState(
                 sentence_index=0,
                 discourse_type=discourse_plan.question_type,
@@ -1432,6 +1582,9 @@ class ChatInterface:
             'user_last_topic': self._user_last_topic,
             'concept_sources': {k: list(v) for k, v in self._concept_sources.items()},
             'explored_contradictions': [list(p) for p in self._explored_contradictions],
+            'hippocampal_buffer_state': self.hippocampal_buffer.get_state(),
+            'causal_schema_state': self.causal_schema.get_state(),
+            'relation_memory_state': self.relation_memory.get_state(),
             'decoder_state_dict': self.decoder_engine.neural_decoder.state_dict() if self.decoder_engine.neural_decoder else None,
             'decoder_training_count': self.decoder_engine.training_count,
             'decoder_web_training_count': self.decoder_engine.web_training_count,
@@ -1535,6 +1688,15 @@ class ChatInterface:
             self._concept_sources = {k: set(v) for k, v in raw_sources.items()}
             raw_contra = state.get('explored_contradictions', [])
             self._explored_contradictions = {tuple(p) for p in raw_contra}
+            hb_state = state.get('hippocampal_buffer_state', None)
+            if hb_state:
+                self.hippocampal_buffer.set_state(hb_state)
+            cs_state = state.get('causal_schema_state', None)
+            if cs_state:
+                self.causal_schema.set_state(cs_state)
+            rm_state = state.get('relation_memory_state', None)
+            if rm_state:
+                self.relation_memory.set_state(rm_state)
             decoder_sd = state.get('decoder_state_dict', None)
             self.decoder_engine._saved_decoder_state = decoder_sd if decoder_sd is not None else {}
             self.decoder_engine._decoder_training_count = state.get('decoder_training_count', 0)
