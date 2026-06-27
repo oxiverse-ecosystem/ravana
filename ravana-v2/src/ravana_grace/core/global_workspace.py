@@ -136,6 +136,7 @@ class GlobalWorkspace:
 
         # Check threshold
         if winner.urgency < self.config.broadcast_threshold:
+            self.clear_bids()
             return None
 
         # Add to buffer (most recent first)
