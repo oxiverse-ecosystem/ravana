@@ -209,12 +209,13 @@ class ConversationalRepair:
         self,
         system_output: str,
         user_correction: str,
+        system_triples: Optional[List[Triple]] = None,
     ) -> Optional[RepairEvent]:
         """
         Process a user correction to the system's previous output.
 
         Steps:
-        1. Parse both into triples
+        1. Parse both into triples (or use provided system_triples)
         2. Detect contradictions
         3. Apply penalty/boost
         4. Spike free energy
@@ -223,12 +224,15 @@ class ConversationalRepair:
         Args:
             system_output: The system's previous response text
             user_correction: The user's correction text
+            system_triples: Optional pre-parsed triples for the system output
 
         Returns:
             RepairEvent if correction detected, None otherwise
         """
         # Phase 1: Detection
-        contradiction = self.detect_contradiction(system_output, user_correction)
+        contradiction = self.detect_contradiction(
+            system_output, user_correction, system_triples=system_triples
+        )
         if contradiction is None:
             return None
 
@@ -262,6 +266,7 @@ class ConversationalRepair:
         self,
         system_output: str,
         user_correction: str,
+        system_triples: Optional[List[Triple]] = None,
     ) -> Optional[Tuple[Triple, Triple]]:
         """
         Detect if user's correction contradicts the system's previous output.
@@ -274,12 +279,14 @@ class ConversationalRepair:
         Args:
             system_output: System's previous response
             user_correction: User's correction
+            system_triples: Optional pre-parsed triples for system output
 
         Returns:
             (wrong_triple, correct_triple) or None
         """
         # Parse both
-        system_triples = _parse_text_to_triples(system_output)
+        if system_triples is None:
+            system_triples = _parse_text_to_triples(system_output)
         correction_triples = _parse_text_to_triples(user_correction)
 
         if not system_triples or not correction_triples:

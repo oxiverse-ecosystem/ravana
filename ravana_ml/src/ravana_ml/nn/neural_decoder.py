@@ -254,6 +254,8 @@ class NeuralDecoder(Module):
 
         generated = [bos_idx]
         confidence_sum = 0.0
+        word_to_idx = {w: idx for idx, w in idx_to_word.items()} if idx_to_word else {}
+        
         for step in range(max_steps):
             word_emb = self.word_embedding.embed_raw(generated[-1])
             projected_word = self.condition_proj.forward_raw(word_emb[np.newaxis, :])[0]
@@ -307,7 +309,8 @@ class NeuralDecoder(Module):
             if token_boost is not None:
                 for tid, tboost in token_boost.items():
                     if tid < len(logits):
-                        logits[tid] += tboost
+                        if tid not in seen_counts:
+                            logits[tid] += tboost
 
             # Adaptive repetition penalty: suppress cycling between function words
             if len(generated) > 1:
@@ -318,28 +321,31 @@ class NeuralDecoder(Module):
                         is_func = content_word_ids is not None and idx not in content_word_ids
                         penalty = 1.5 + 1.0 * (count - 1) if is_func else 1.0 + 0.5 * (count - 1)
                         logits[idx] -= penalty
+                # Consecutive repetition penalty: prevent generating the same word twice in a row
+                last_idx = generated[-1]
+                if last_idx < len(logits):
+                    logits[last_idx] -= 15.0
 
             # BasalGangliaGate Go/NoGo selection
             if basal_ganglia is not None and idx_to_word is not None:
+                logits_stable = logits - np.max(logits)
+                exp_logits = np.exp(np.clip(logits_stable, -50, 50))
+                probs = exp_logits / (np.sum(exp_logits) + 1e-10)
+
                 candidates = []
-                raw_max = np.max(np.abs(logits)) if np.max(np.abs(logits)) > 0 else 1.0
-                # Optimization: pre-filter to tokens with logits > 0.01
-                active_idx = np.where(logits > 0.01)[0]
-                if len(active_idx) < 3:
-                    active_idx = np.argsort(logits)[-10:]
+                # Use top-10 candidates
+                active_idx = np.argsort(probs)[-10:]
                 for idx in active_idx:
                     word = idx_to_word.get(idx, "")
-                    if word and not word.startswith("<"):
-                        score = float(logits[idx] / raw_max)  # normalize to ~[-1, 1]
+                    # Allow <eos> to be gated so the sentence can terminate naturally, 
+                    # but filter out other structural/padding special tokens.
+                    if word and (word == "<eos>" or not word.startswith("<")):
+                        score = float(probs[idx])  # Always positive, in [0, 1]
                         candidates.append((word, score, 0.5, "decoder"))
                 if len(candidates) >= 2:
                     basal_ganglia.set_dopamine_tone(1.0 - temperature)
                     winner_label, _, _ = basal_ganglia.select_concept(candidates)
-                    winner_idx = None
-                    for idx, w in idx_to_word.items():
-                        if w == winner_label:
-                            winner_idx = idx
-                            break
+                    winner_idx = word_to_idx.get(winner_label)
                     if winner_idx is not None and winner_idx != bos_idx:
                         if eos_idx is not None and winner_idx == eos_idx:
                             break
@@ -401,28 +407,59 @@ class NeuralDecoder(Module):
         if len(sentence_words) < 2:
             return 0.0
 
+        bos_idx = word_to_idx.get("<bos>", 0)
+        eos_idx = word_to_idx.get("<eos>", 2)
+
         if conditioning_embs is None:
+            function_words_set = {
+                "a", "an", "the", "is", "are", "was", "were", "be", "been",
+                "being", "have", "has", "had", "do", "does", "did", "will",
+                "would", "could", "should", "may", "might", "shall", "can",
+                "not", "no", "nor", "so", "if", "then", "than", "too", "very",
+                "just", "about", "also", "into", "over", "after", "before",
+                "between", "through", "during", "because", "while", "which",
+                "who", "whom", "what", "when", "where", "why", "how", "all",
+                "each", "every", "both", "few", "more", "most", "some", "any",
+                "this", "that", "these", "those", "it", "its", "they", "them",
+                "their", "we", "our", "you", "your", "he", "she", "him", "her",
+                "his", "i", "me", "my", "myself", "am",
+                "of", "to", "for", "with", "from", "at", "by", "as", "on",
+            }
             known_embs = []
+            content_words_count = 0
             for w in sentence_words:
                 wl = w.lower().strip(".,!?").strip("'")
-                if wl in word_to_embed:
-                    known_embs.append(word_to_embed[wl])
-                elif wl:
-                    rand_emb = np.random.randn(self.embed_dim).astype(np.float32) * 0.1
-                    norm = np.linalg.norm(rand_emb)
-                    if norm > 0:
-                        rand_emb /= norm
-                    known_embs.append(rand_emb)
+                if wl and wl not in function_words_set and content_words_count < 3:
+                    if wl in word_to_embed:
+                        known_embs.append(word_to_embed[wl])
+                        content_words_count += 1
+                    elif wl:
+                        rand_emb = np.random.randn(self.embed_dim).astype(np.float32) * 0.1
+                        norm = np.linalg.norm(rand_emb)
+                        if norm > 0:
+                            rand_emb /= norm
+                        known_embs.append(rand_emb)
+                        content_words_count += 1
+            if len(known_embs) == 0:
+                for w in sentence_words[:2]:
+                    wl = w.lower().strip(".,!?").strip("'")
+                    if wl in word_to_embed:
+                        known_embs.append(word_to_embed[wl])
+                    elif wl:
+                        rand_emb = np.random.randn(self.embed_dim).astype(np.float32) * 0.1
+                        norm = np.linalg.norm(rand_emb)
+                        if norm > 0:
+                            rand_emb /= norm
+                        known_embs.append(rand_emb)
             if len(known_embs) < 2:
-                known_embs_flat = [np.random.randn(self.embed_dim).astype(np.float32) * 0.1
-                                   for _ in range(max(2, len(sentence_words)))]
-                for i in range(len(known_embs_flat)):
-                    n = np.linalg.norm(known_embs_flat[i])
-                    if n > 0:
-                        known_embs_flat[i] /= n
-                conditioning_embs = np.stack(known_embs_flat, axis=0)
-            else:
-                conditioning_embs = np.stack(known_embs, axis=0)
+                # Pad to at least 2 embeddings for multi-head attention reshape requirements
+                while len(known_embs) < 2:
+                    pad_emb = np.random.randn(self.embed_dim).astype(np.float32) * 0.1
+                    norm = np.linalg.norm(pad_emb)
+                    if norm > 0:
+                        pad_emb /= norm
+                    known_embs.append(pad_emb)
+            conditioning_embs = np.stack(known_embs, axis=0)
 
         if word_indices is None:
             word_indices = []
@@ -432,6 +469,15 @@ class NeuralDecoder(Module):
                     word_indices.append(word_to_idx[wl])
                 else:
                     word_indices.append(unknown_idx)
+        else:
+            word_indices = list(word_indices)
+
+        # Prepend <bos> and append <eos> to sentence indices to teach
+        # the decoder initiation from <bos> and termination at <eos>.
+        if not word_indices or word_indices[0] != bos_idx:
+            word_indices = [bos_idx] + word_indices
+        if word_indices[-1] != eos_idx:
+            word_indices = word_indices + [eos_idx]
 
         if len(word_indices) < 2:
             return 0.0
@@ -563,7 +609,7 @@ class NeuralDecoder(Module):
         # 1. output_proj
         combined_stack = np.stack(all_combined)
         err_out_stack = np.stack(all_error_out)
-        hebbian_out = combined_stack.T @ err_out_stack
+        hebbian_out = (combined_stack.T @ err_out_stack) / T
         self.output_proj._weight_free_energy.data += hebbian_out.T * 0.15
         self.output_proj._weight_free_energy.data *= fe_decay
 
@@ -572,7 +618,7 @@ class NeuralDecoder(Module):
         # 2. condition_proj
         emb_stack = np.stack(all_word_emb)
         error_proj_all = np.clip(error_h_all * 0.5, -1.0, 1.0)
-        hebbian_proj = emb_stack.T @ error_proj_all
+        hebbian_proj = (emb_stack.T @ error_proj_all) / T
         self.condition_proj._weight_free_energy.data += hebbian_proj.T * 0.1
         self.condition_proj._weight_free_energy.data *= fe_decay
 
@@ -580,7 +626,7 @@ class NeuralDecoder(Module):
         W_cond = self.condition_proj.weight.data
         error_word_all = np.clip(error_proj_all @ W_cond, -1.0, 1.0)
         for i, idx in enumerate(all_input_idx):
-            self.word_embedding._weight_free_energy.data[idx] += error_word_all[i] * 0.05
+            self.word_embedding._weight_free_energy.data[idx] += error_word_all[i] * 0.05 / T
         self.word_embedding._weight_free_energy.data *= fe_decay
 
         # 4. GRU W_z / W_r / W_h
@@ -591,17 +637,17 @@ class NeuralDecoder(Module):
         gru_z_stack = np.stack(all_gru_z)
 
         err_wz = error_h_all * (gru_hc_stack - gru_hp_stack) * 0.5
-        fe_wz = gru_c_stack.T @ err_wz
+        fe_wz = (gru_c_stack.T @ err_wz) / T
         self.gru.W_z._weight_free_energy.data += fe_wz.T * 0.1
         self.gru.W_z._weight_free_energy.data *= fe_decay
 
         err_wr = error_h_all * 0.3
-        fe_wr = gru_c_stack.T @ err_wr
+        fe_wr = (gru_c_stack.T @ err_wr) / T
         self.gru.W_r._weight_free_energy.data += fe_wr.T * 0.1
         self.gru.W_r._weight_free_energy.data *= fe_decay
 
         err_wh = error_h_all * gru_z_stack
-        fe_wh = gru_cr_stack.T @ err_wh
+        fe_wh = (gru_cr_stack.T @ err_wh) / T
         self.gru.W_h._weight_free_energy.data += fe_wh.T * 0.1
         self.gru.W_h._weight_free_energy.data *= fe_decay
 
@@ -609,7 +655,7 @@ class NeuralDecoder(Module):
         attn_error_all = np.clip(error_h_all * 0.1, -1.0, 1.0)
         total_attn_err = np.sum(attn_error_all, axis=0)
         self.attention.output_proj.accumulate_free_energy(
-            StateTensor(total_attn_err[np.newaxis, :], salience=0.1))
+            StateTensor(total_attn_err[np.newaxis, :] / T, salience=0.1))
         self.attention.output_proj._weight_free_energy.data *= (0.99 ** (T - 1))
 
         # Skip attention W_q/W_k/W_v (traces are sentence-specific, unreliable)
@@ -650,34 +696,60 @@ class NeuralDecoder(Module):
             words = [w.strip(".,!?\"' ") for w in sent.split()
                      if len(w.strip(".,!?\"' ")) > 0]
             if len(words) >= min_sentence_len:
+                function_words_set = {
+                    "a", "an", "the", "is", "are", "was", "were", "be", "been",
+                    "being", "have", "has", "had", "do", "does", "did", "will",
+                    "would", "could", "should", "may", "might", "shall", "can",
+                    "not", "no", "nor", "so", "if", "then", "than", "too", "very",
+                    "just", "about", "also", "into", "over", "after", "before",
+                    "between", "through", "during", "because", "while", "which",
+                    "who", "whom", "what", "when", "where", "why", "how", "all",
+                    "each", "every", "both", "few", "more", "most", "some", "any",
+                    "this", "that", "these", "those", "it", "its", "they", "them",
+                    "their", "we", "our", "you", "your", "he", "she", "him", "her",
+                    "his", "i", "me", "my", "myself", "am",
+                    "of", "to", "for", "with", "from", "at", "by", "as", "on",
+                }
                 word_indices = []
                 known_embs = []
+                content_words_count = 0
                 for w in words:
                     wl = w.lower().strip(".,!?").strip("'")
                     if wl in word_to_idx:
                         word_indices.append(word_to_idx[wl])
                     else:
                         word_indices.append(unknown_idx)
-                    if wl in word_to_embed:
-                        known_embs.append(word_to_embed[wl])
-                    elif wl:
-                        rand_emb = np.random.randn(self.embed_dim).astype(np.float32) * 0.1
-                        norm = np.linalg.norm(rand_emb)
+                    
+                    if wl and wl not in function_words_set and content_words_count < 3:
+                        if wl in word_to_embed:
+                            known_embs.append(word_to_embed[wl])
+                            content_words_count += 1
+                        elif wl:
+                            rand_emb = np.random.randn(self.embed_dim).astype(np.float32) * 0.1
+                            norm = np.linalg.norm(rand_emb)
+                            if norm > 0:
+                                rand_emb /= norm
+                            known_embs.append(rand_emb)
+                            content_words_count += 1
+                if len(known_embs) == 0:
+                    for w in words[:2]:
+                        wl = w.lower().strip(".,!?").strip("'")
+                        if wl in word_to_embed:
+                            known_embs.append(word_to_embed[wl])
+                        elif wl:
+                            rand_emb = np.random.randn(self.embed_dim).astype(np.float32) * 0.1
+                            norm = np.linalg.norm(rand_emb)
+                            if norm > 0:
+                                rand_emb /= norm
+                            known_embs.append(rand_emb)
+                if len(known_embs) < 2:
+                    while len(known_embs) < 2:
+                        pad_emb = np.random.randn(self.embed_dim).astype(np.float32) * 0.1
+                        norm = np.linalg.norm(pad_emb)
                         if norm > 0:
-                            rand_emb /= norm
-                        known_embs.append(rand_emb)
-                if len(word_indices) < 2:
-                    continue
-                if len(known_embs) >= 2:
-                    conditioning_embs = np.stack(known_embs, axis=0)
-                else:
-                    conditioning_embs = np.stack(
-                        [np.random.randn(self.embed_dim).astype(np.float32) * 0.1
-                         for _ in range(max(2, len(words)))], axis=0)
-                    for i in range(len(conditioning_embs)):
-                        n = np.linalg.norm(conditioning_embs[i])
-                        if n > 0:
-                            conditioning_embs[i] /= n
+                            pad_emb /= norm
+                        known_embs.append(pad_emb)
+                conditioning_embs = np.stack(known_embs, axis=0)
                 sentences.append({
                     'words': words,
                     'word_indices': word_indices,

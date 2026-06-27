@@ -340,6 +340,7 @@ def test_instruction_compression():
         def decode(self, ids):
             return "".join(chr(int(i) % 127) for i in ids)
 
+    os.makedirs("output", exist_ok=True)
     generated = model.generate(
         "test prompt", _SmallTok(), max_new_tokens=3, temperature=0.5,
         trace_json_path="output/compression_trace.json",

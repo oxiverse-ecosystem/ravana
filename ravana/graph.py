@@ -1,3 +1,6 @@
-"""Ravana graph module — re-export from ML framework."""
+"""Ravana graph module — re-export from ML framework (optional)."""
 
-from ravana_ml.graph import *
+try:
+    from ravana_ml.graph import *
+except ImportError:
+    pass

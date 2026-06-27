@@ -1,95 +1,237 @@
 """
-RAVANA Verb Lexicon — Thematic-Role-Driven Verb Selection
-==========================================================
-Replaces VERB_PHRASES (57 canned phrases) with a semantically-indexed
-verb lexicon. Grounded in Levelt's lemma retrieval model (1989) — verbs
-are lemmas selected via competitive semantic activation, not random choice.
+RAVANA Verb Lexicon — Hebbian-Compositional Verb Selection
+===========================================================
+Replaces hardcoded VERB_PATTERNS (57 canned phrases) + COMPLEXITY dict
+with a learnable Hebbian matrix over morphemic primitives.
 
-Theoretical grounding:
-- Levelt, W. J. M. (1989). Speaking: From intention to articulation.
-  Lemma selection is driven by conceptual activation + grammatical constraints.
-- Levelt, W. J. M., Roelofs, A., & Meyer, A. S. (1999). WEAVER++: A theory
-  of lexical access in speech production. Lemma selection uses Luce ratio
-  (relative activation) with explicit verification condition-action rules.
-- Bornkessel-Schlesewsky & Schlesewsky (2008). Extended ADM: P600 reflects
-  integration cost during thematic role assignment and verb-argument linking.
-- Ferretti et al. (2001). Verbs automatically activate thematic roles
-  (agent, patient, instrument) during comprehension.
-- Humphries, M. D., et al. (2012). Dopaminergic control of the exploration-
-  exploitation trade-off via the basal ganglia. Frontiers in Neuroscience.
-  Tonic striatal dopamine decreases exploration: high DA → peaked PDF.
-  Temperature mapping corrected to match this evidence (Phase 6b).
-- Brouwer, H., et al. (2012). Getting real about Semantic Illusions: Rethinking
-  the functional role of the P600. Brain Research Reviews. Retrieval-Integration
-  account: N400 = memory retrieval, P600 = composition/integration.
-  NOTE: The P600 integration-cost framework is adapted from comprehension
-  to production. In production, verb complexity serves as a proxy for the
-  integration difficulty the speaker experiences when linking subject and
-  object through the verb.
+Neuroscience grounding:
+- Hebb (1949): "Neurons that fire together, wire together" — the Hebbian
+  weight matrix tracks co-activation strength between relation types and
+  verb morphemes.
+- Pulvermüller (1999): Words are not atomic lookups but distributed
+  cell assemblies spanning cortical regions. Verb phrases are composed
+  from morphemic primitives (root + particle), not retrieved as wholes.
+- Levelt, Roelofs & Meyer (1999): WEAVER++ lemma selection uses
+  competitive activation. Here, verb components compete via Hebbian
+  weights, not hardcoded complexity scores.
+- Humphries et al. (2012): Dopamine modulates exploration-exploitation
+  via striatal output PDF sharpening. Applied to weight sampling.
 
-Design:
-- Verb phrases are grouped by relation type (semantic, causal, contrastive, etc.)
-- Selection uses softmax-with-temperature over all candidates, where
-  temperature is modulated by dopamine_tone (continuous, no hard threshold)
-  - High DA → low temperature → sharp PDF → exploit best match (Humphries 2012)
-  - Low DA → high temperature → flat PDF → lawful stochasticity
-- WEAVER++ verification: after softmax selection, the chosen verb's fit
-  score is checked. If too distant, re-sample from top candidates.
-- Refractory period: recently selected verbs are penalized to prevent
-  perseveration (transient depression in lexical access).
-- High similarity (close concepts) → simpler, more direct verbs
-- Low similarity (distant concepts) → more complex, hedging verbs
-- This mirrors P600 amplitude modulation: unexpected combinations require
-  more complex syntactic processing
+Architecture:
+- MORPHEMIC_SEEDS: irreducible building blocks (base verbs, particles,
+  prepositions). These are the "phoneme-level" assembly primitives.
+  ~25 seeds replace 57 canned phrases.
+- _hebbian_weight[relation][morpheme] : float — learned co-activation
+  strength. Initialized uniformly, updated via reinforce().
+- _hebbian_bigram[relation][(seed_i, seed_j)] : float — tracks which
+  morpheme pairs tend to co-occur for a given relation.
+- compose_phrase(relation, dopamine_tone): builds verb phrase by
+  Hebbian-weighted sampling from morpheme pools, then arranging via
+  compositional rules.
+- Complexity is EMERGENT: complexity = 1.0 - normalized_hebbian_weight.
+  Frequently-used phrases have low complexity (direct, efficient) —
+  mirroring P600 integration cost (Brouwer et al., 2012).
+- reinforce(relation, phrase): strengthens Hebbian traces for the
+  morphemes that composed the successful phrase — the system learns
+  which primitives work best for which relation types.
 """
 
+import hashlib
 import numpy as np
 import random
+import re
 from typing import Dict, List, Optional, Tuple, Callable, Set
+from collections import defaultdict
+
+
+# ── Built-in word vector function (no external dependencies) ──────────────
+
+_VECTOR_DIM: int = 32
+_VECTOR_HASH_DIM: int = 128
+_VECTOR_RNG = np.random.RandomState(42)
+_VECTOR_PROJECTION = _VECTOR_RNG.randn(_VECTOR_HASH_DIM, _VECTOR_DIM).astype(np.float32)
+_VECTOR_PROJECTION /= np.sqrt(_VECTOR_DIM)
+
+
+def _default_vector_fn(word: str) -> Optional[np.ndarray]:
+    """Character n-gram hash + random projection word vector.
+    
+    Zero external dependencies — works out of the box.
+    Replaces GloVe when no glove file is available.
+    """
+    word = word.lower().strip()
+    if not word:
+        return None
+    ngrams = set()
+    for n in (3, 4, 5):
+        for i in range(len(word) - n + 1):
+            ngrams.add(word[i:i + n])
+    vec = np.zeros(_VECTOR_HASH_DIM, dtype=np.float32)
+    for ng in ngrams:
+        h = int(hashlib.md5(ng.encode("utf-8")).hexdigest(), 16)
+        pos = h % _VECTOR_HASH_DIM
+        sign = 1.0 if (h // _VECTOR_HASH_DIM) % 2 == 0 else -1.0
+        vec[pos] += sign
+    dense = vec @ _VECTOR_PROJECTION
+    norm = float(np.linalg.norm(dense))
+    if norm > 1e-10:
+        dense /= norm
+    return dense.astype(np.float32)
 
 
 class VerbLexicon:
-    """Thematically-organized verb lexicon with semantic selection.
+    """Hebbian-compositional verb lexicon.
 
-    Each verb has:
-    - phrase: the actual verb phrase string
-    - relation: which relation type it expresses
-    - complexity: 0-1 (simple "is" vs elaborate "has a lot to do with")
-    - vector: approximate GloVe embedding (set at init time)
+    Morphemic primitives are combined into verb phrases based on learned
+    Hebbian weights. No hardcoded phrases — every phrase is composed
+    dynamically.
 
-    Selection algorithm:
-    1. Filter verbs matching the requested relation type
-    2. Score each verb by semantic similarity to avg(subject, object)
-    3. High similarity → prefer simple verbs (direct, high confidence)
-    4. Low similarity → prefer complex verbs (hedging, exploratory)
-    5. Softmax-with-temperature selection (continuous, no hard threshold)
-       Low DA → low temperature → near-deterministic
-       High DA → high temperature → lawful stochasticity
-    6. Refractory period: recently selected verbs are temporarily inhibited
-       to prevent perseveration (WEAVER++ lemma inhibition)
+    Hebbian weight matrix:
+      _hebbian_weight[relation][morpheme] : 0-1, initialized to 0.5
+      Updated via reinforce(): successful usage → weight increase
+
+    Composition rules:
+      - semantic: [root] + preposition
+      - causal: [root] + [particle] or bare [root]
+      - contrastive: root + "with"/"from"/"against"
+      - analogical: "is" + [adjective] + "to"
+      - temporal: root + "before"/"after"/"into"
     """
 
-    # Refractory period state: verbs selected in the current turn
+    MORPHEMIC_SEEDS = {
+        "roots": [
+            "tie", "lead", "cause", "bring", "influence",
+            "give", "result", "spark", "trigger", "fuel",
+            "contribute", "drive", "prompt", "contrast", "differ",
+            "challenge", "connect", "relate", "link", "come",
+            "follow", "precede", "trace", "recall", "echo",
+            "parallel", "resemble", "mirror", "reflect", "feed",
+        ],
+        "prepositions": [
+            "into", "with", "to", "from", "against",
+            "before", "after", "through", "across", "beyond",
+        ],
+        "particles": [
+            "in", "out", "up", "down", "off", "on", "over", "back",
+        ],
+        "adjectives": [
+            "similar", "akin", "connected",
+            "different", "opposite", "tied", "linked",
+        ],
+        "compound_roots": [
+            "give rise", "bring about", "go hand in hand",
+            "pave the way", "set the stage", "trace back",
+            "run counter", "have a relationship",
+        ],
+    }
+
+    SUBCAT_FRAMES = {
+        # Roots
+        "tie": ["to", "with"],
+        "lead": ["to"],
+        "cause": [],
+        "bring": ["about", "up"],
+        "influence": [],
+        "give": ["rise to"],
+        "result": ["in"],
+        "spark": [],
+        "trigger": [],
+        "fuel": [],
+        "contribute": ["to"],
+        "drive": [],
+        "prompt": [],
+        "contrast": ["with"],
+        "differ": ["from"],
+        "challenge": [],
+        "connect": ["to", "with"],
+        "relate": ["to"],
+        "link": ["to", "with"],
+        "come": ["before", "after", "from"],
+        "follow": [],
+        "precede": [],
+        "trace": ["back to"],
+        "recall": [],
+        "echo": [],
+        "parallel": [],
+        "resemble": [],
+        "mirror": [],
+        "reflect": [],
+        "feed": ["into"],
+        
+        # Compound roots
+        "give rise": ["to"],
+        "bring about": [],
+        "go hand in hand": ["with"],
+        "pave the way": ["for", "to"],
+        "set the stage": ["for"],
+        "trace back": ["to"],
+        "run counter": ["to"],
+        "have a relationship": ["with"],
+
+        # Adjectives
+        "similar": ["to"],
+        "akin": ["to"],
+        "connected": ["to", "with"],
+        "different": ["from"],
+        "opposite": ["to"],
+        "tied": ["to", "with"],
+        "linked": ["to", "with"],
+    }
+
+    COMPOSITION_RULES = {
+        "semantic": [
+            ("roots", "prepositions"),        # "ties into", "feeds into"
+            ("adjectives", "prepositions"),   # "is connected with", "is tied to"
+            ("compound_roots", "prepositions"),  # "goes hand in hand with"
+        ],
+        "causal": [
+            ("roots",),                    # "causes", "triggers", "drives"
+            ("roots", "prepositions"),     # "leads to"
+            ("compound_roots",),           # "gives rise to", "brings about"
+        ],
+        "contrastive": [
+            ("roots", "prepositions"),             # "contrasts with", "differs from"
+            ("adjectives", "prepositions"),        # "is opposite to", "is different from"
+            ("compound_roots",),                   # "runs counter to"
+        ],
+        "analogical": [
+            ("adjectives", "prepositions"),  # "is similar to", "is akin to"
+            ("roots", "prepositions"),       # "resembles", "mirrors", "echoes"
+        ],
+        "temporal": [
+            ("roots", "prepositions"),       # "comes before", "follows"
+            ("compound_roots",),             # "traces back to"
+        ],
+        "episodic": [
+            ("roots", "particles"),      # "brings up", "recalls"
+            ("adjectives", "prepositions"),  # "is linked with"
+        ],
+    }
+
+    _hebbian_weight: Dict[str, Dict[str, float]] = defaultdict(
+        lambda: defaultdict(lambda: 0.5)
+    )
+    _hebbian_bigram: Dict[str, Dict[Tuple[str, str], float]] = defaultdict(
+        lambda: defaultdict(lambda: 0.3)
+    )
+    _usage_count: Dict[str, int] = defaultdict(int)
     _refractory: Set[str] = set()
-    _refractory_relation: str = ""  # relation of the last selection batch
+    _refractory_relation: str = ""
+    _glove_vector_fn: Optional[Callable] = None
+    _total_reinforcements: int = 0
+    _seeded: bool = False
 
     @classmethod
     def reset_refractory(cls):
-        """Clear the refractory period (call at start of each turn)."""
         cls._refractory.clear()
         cls._refractory_relation = ""
 
     @classmethod
+    def set_glove_fn(cls, fn: Callable):
+        cls._glove_vector_fn = fn
+
+    @classmethod
     def _softmax(cls, scores: List[float], temperature: float) -> List[float]:
-        """Softmax with temperature.
-
-        Args:
-            scores: Raw scores (higher = better)
-            temperature: 0+ (lower = more deterministic, higher = more uniform)
-
-        Returns:
-            Probability distribution
-        """
         if temperature < 0.01:
             temperature = 0.01
         shifted = [s - max(scores) for s in scores]
@@ -97,213 +239,172 @@ class VerbLexicon:
         total = sum(exp_s)
         return [e / total for e in exp_s]
 
-    VERB_PATTERNS = {
-        'semantic': [
-            "ties into",
-            "is part of",
-            "plays a role in",
-            "feeds into",
-            "goes hand in hand with",
-            "is bound up with",
-            "is deeply connected with",
-            "is tied to",
-            "has a relationship with",
-            "has a lot to do with",
-        ],
-        'causal': [
-            "leads to",
-            "creates",
-            "causes",
-            "brings about",
-            "influences",
-            "gives rise to",
-            "results in",
-            "sparks",
-            "triggers",
-            "fuels",
-            "contributes to",
-            "drives",
-            "prompts",
-        ],
-        'contrastive': [
-            "contrasts with",
-            "differs from",
-            "stands against",
-            "challenges",
-            "is the opposite of",
-            "clashes with",
-            "pulls against",
-            "runs counter to",
-            "is at odds with",
-            "diverges from",
-            "pushes back against",
-        ],
-        'analogical': [
-            "is like",
-            "resembles",
-            "mirrors",
-            "echoes",
-            "is similar to",
-            "can be compared to",
-            "is akin to",
-            "parallels",
-            "reflects",
-            "brings to mind",
-            "reminds us of",
-        ],
-        'temporal': [
-            "comes before",
-            "follows",
-            "leads into",
-            "precedes",
-            "happens before",
-            "occurs after",
-            "ushers in",
-            "paves the way for",
-            "sets the stage for",
-            "traces back to",
-        ],
-        'episodic': [
-            "brings up",
-            "recalls",
-            "reminds us of",
-            "is linked with",
-            "ties into",
-            "feeds into",
-        ],
-    }
-
-    COMPLEXITY: Dict[str, float] = {}
-
-    _glove_vector_fn: Optional[Callable] = None
+    @classmethod
+    def _get_morpheme_pool(cls, category: str) -> List[str]:
+        return cls.MORPHEMIC_SEEDS.get(category, [])
 
     @classmethod
-    def _init_complexity(cls):
-        if cls.COMPLEXITY:
-            return
-        cls.COMPLEXITY = {
-            "ties into": 0.55,
-            "is part of": 0.30,
-            "plays a role in": 0.70,
-            "feeds into": 0.50,
-            "goes hand in hand with": 0.85,
-            "is bound up with": 0.80,
-            "is deeply connected with": 0.80,
-            "is tied to": 0.40,
-            "has a relationship with": 0.60,
-            "has a lot to do with": 0.75,
-            "leads to": 0.35,
-            "creates": 0.25,
-            "causes": 0.20,
-            "brings about": 0.60,
-            "influences": 0.40,
-            "gives rise to": 0.70,
-            "results in": 0.45,
-            "sparks": 0.40,
-            "triggers": 0.35,
-            "fuels": 0.35,
-            "contributes to": 0.55,
-            "drives": 0.30,
-            "prompts": 0.40,
-            "contrasts with": 0.50,
-            "differs from": 0.45,
-            "stands against": 0.55,
-            "challenges": 0.35,
-            "is the opposite of": 0.65,
-            "clashes with": 0.50,
-            "pulls against": 0.60,
-            "runs counter to": 0.65,
-            "is at odds with": 0.65,
-            "diverges from": 0.55,
-            "pushes back against": 0.65,
-            "is like": 0.20,
-            "resembles": 0.30,
-            "mirrors": 0.35,
-            "echoes": 0.30,
-            "is similar to": 0.35,
-            "can be compared to": 0.55,
-            "is akin to": 0.50,
-            "parallels": 0.40,
-            "reflects": 0.35,
-            "brings to mind": 0.60,
-            "reminds us of": 0.55,
-            "comes before": 0.30,
-            "follows": 0.20,
-            "leads into": 0.40,
-            "precedes": 0.35,
-            "happens before": 0.35,
-            "occurs after": 0.35,
-            "ushers in": 0.50,
-            "paves the way for": 0.60,
-            "sets the stage for": 0.60,
-            "traces back to": 0.55,
-            "brings up": 0.40,
-            "recalls": 0.35,
-            "reminds us of": 0.50,
-            "is linked with": 0.45,
-        }
+    def _sample_morpheme(cls, category: str, relation: str,
+                         dopamine_tone: float = 0.5) -> str:
+        """Sample a morpheme from the given category, weighted by Hebbian strength."""
+        pool = cls._get_morpheme_pool(category)
+        if not pool:
+            return ""
+        scores = []
+        for m in pool:
+            hw = cls._hebbian_weight[relation].get(m, 0.5)
+            refractory_penalty = -0.5 if m in cls._refractory else 0.0
+            scores.append(max(0.01, hw + refractory_penalty))
+        if dopamine_tone <= 0.25:
+            idx = int(np.argmax(scores))
+            return pool[idx]
+        temperature = max(0.03, 0.3 - dopamine_tone * 0.3)
+        probs = cls._softmax(scores, temperature)
+        idx = random.choices(range(len(pool)), weights=probs, k=1)[0]
+        selected = pool[idx]
+        return selected
 
     @classmethod
-    def set_glove_fn(cls, fn: Callable):
-        cls._glove_vector_fn = fn
+    def _mark_refractory(cls, phrase: str):
+        for word in phrase.split():
+            if len(word) > 2:
+                cls._refractory.add(word)
+
+    @classmethod
+    def _conjugate_root(cls, root: str, subject: str = "") -> str:
+        """Apply minimal conjugation to verb root based on subject."""
+        if not root:
+            return "relates"
+        if subject and subject.lower() in ("they", "we", "you", "people"):
+            return root  # plural: bare root
+        if root.endswith("y") and len(root) > 2 and root[-2] not in "aeiou":
+            return root[:-1] + "ies"
+        if root.endswith("ch") or root.endswith("sh") or root.endswith("ss") or root.endswith("x"):
+            return root + "es"
+        if root.endswith("e"):
+            return root + "s" if root[-2] in "aeiou" else root + "s"
+        if root in ("have", "do", "go"):
+            return {"have": "has", "do": "does", "go": "goes"}.get(root, root + "s")
+        return root + "s"
+
+    @classmethod
+    def _conjugate_compound_root(cls, compound: str) -> str:
+        """Conjugate the first word in a multi-word compound root phrase."""
+        if not compound:
+            return ""
+        parts = compound.split()
+        if parts:
+            parts[0] = cls._conjugate_root(parts[0])
+            return " ".join(parts)
+        return compound
+
+    @classmethod
+    def _compose_phrase(cls, rule: Tuple[str, ...], relation: str,
+                        dopamine_tone: float = 0.5) -> str:
+        """Compose a verb phrase from morphemes following the given rule."""
+        components = []
+        for i, cat in enumerate(rule):
+            # Enforce subcategorization frames for prepositions/particles
+            if i > 0 and cat in ("prepositions", "particles") and components:
+                prev = components[0].lower()
+                valid_opts = cls.SUBCAT_FRAMES.get(prev, [])
+                if valid_opts:
+                    pool = [opt for opt in cls._get_morpheme_pool(cat) if opt in valid_opts]
+                    if not pool:
+                        pool = [valid_opts[0]]
+                    scores = [cls._hebbian_weight[relation].get(m, 0.5) for m in pool]
+                    if dopamine_tone <= 0.25:
+                        idx = int(np.argmax(scores))
+                    else:
+                        probs = cls._softmax(scores, max(0.03, 0.3 - dopamine_tone * 0.3))
+                        idx = random.choices(range(len(pool)), weights=probs, k=1)[0]
+                    components.append(pool[idx])
+                    continue
+
+            if i > 0 and components:
+                best_m = None
+                best_w = 0.0
+                for m in cls._get_morpheme_pool(cat):
+                    candidate_key = tuple(components + [m])
+                    bw = cls._hebbian_bigram[relation].get(candidate_key, 0.0)
+                    if bw > best_w:
+                        best_w = bw
+                        best_m = m
+                if best_m and best_w > 0.4 and dopamine_tone < 0.7:
+                    components.append(best_m)
+                    continue
+            m = cls._sample_morpheme(cat, relation, dopamine_tone)
+            if not m:
+                return ""
+            components.append(m)
+
+        if rule == ("roots",):
+            base = cls._conjugate_root(components[0])
+            prev = components[0].lower()
+            if prev in cls.SUBCAT_FRAMES and cls.SUBCAT_FRAMES[prev]:
+                return f"{base} {cls.SUBCAT_FRAMES[prev][0]}"
+            return base
+        elif rule == ("roots", "prepositions"):
+            return f"{cls._conjugate_root(components[0])} {components[1]}"
+        elif rule == ("roots", "particles"):
+            return f"{cls._conjugate_root(components[0])} {components[1]}"
+        elif rule == ("adjectives", "prepositions"):
+            return f"is {components[0]} {components[1]}"
+        elif rule == ("compound_roots",):
+            base = cls._conjugate_compound_root(components[0])
+            prev = components[0].lower()
+            if prev in cls.SUBCAT_FRAMES and cls.SUBCAT_FRAMES[prev]:
+                return f"{base} {cls.SUBCAT_FRAMES[prev][0]}"
+            return base
+        elif rule == ("compound_roots", "prepositions"):
+            return f"{cls._conjugate_compound_root(components[0])} {components[1]}"
+        else:
+            return cls._conjugate_root(components[0]) if components else "relates to"
 
     @classmethod
     def get_phrases(cls, relation: str) -> List[str]:
-        return cls.VERB_PATTERNS.get(relation, cls.VERB_PATTERNS['semantic'])
+        """Legacy compatibility — delegates to select_verb for a single phrase."""
+        return [cls.select_verb(relation=relation)]
 
     @classmethod
     def select_verb(cls, relation: str, subject: str = "",
                     object: str = "", dopamine_tone: float = 0.5,
                     vector_fn: Optional[Callable] = None) -> str:
-        """Select verb phrase by semantic similarity with softmax sampling.
+        """Select verb phrase via Hebbian-compositional sampling.
 
-        P600-grounded algorithm (Phase 6b):
-        1. Compute semantic similarity between subject and object
-        2. High similarity (close concepts) → simple, direct verbs (low P600 cost)
-        3. Low similarity (distant concepts) → complex, hedging verbs (high P600 cost)
-        4. Softmax-with-temperature selection:
-           - High DA → low temperature → sharp distribution (exploit best match)
-           - Low DA → high temperature → flatter distribution (lawful stochasticity)
-           Grounded in Humphries et al. (2012): tonic striatal dopamine controls
-           the exploration-exploitation trade-off via basal ganglia output PDF.
-           High DA decreases exploration (peaked distribution).
-        5. WEAVER++ verification step: after softmax selection, verify the chosen
-           verb's fit score is adequate. If too distant, re-sample from top
-           candidates (mirrors Roelofs' "verification" condition-action rule).
-        6. Refractory period: recently selected verbs penalized to prevent
-           perseveration (transient depression in lexical access).
+        Replaces the old hardcoded VERB_PATTERNS + COMPLEXITY dict with
+        dynamic composition from morphemic seeds weighted by learned
+        Hebbian associations.
 
-        Note on P600 grounding: The P600 integration-cost framework is adapted
-        from comprehension (Brouwer et al., 2012 Retrieval-Integration account;
-        Bornkessel-Schlesewsky & Schlesewsky, 2008 eADM) to production. In
-        comprehension, P600 amplitude reflects cost of integrating a word's
-        meaning into the evolving utterance representation. Here we apply the
-        same principle to verb selection during production: verbs whose
-        complexity matches the conceptual distance have lower "integration
-        cost" and are preferred.
+        Algorithm:
+        1. Get composition rules for the relation type
+        2. Compute diversity pressure: how many unique rules used recently
+        3. Score each rule by average Hebbian weight of its morpheme categories
+        4. Softmax-with-temperature selection (dopamine modulates)
+        5. Compose the phrase from Hebbian-sampled morphemes
+        6. If similarity between subject & object is high, prefer simpler rules
+        7. Refractory period prevents morpheme perseveration
 
         Args:
             relation: Relation type (semantic, causal, contrastive, etc.)
             subject: Subject concept
             object: Object concept
             dopamine_tone: 0-1, exploration vs exploitation
-            vector_fn: Optional function to get concept vector by label
+            vector_fn: Optional function for semantic similarity
 
         Returns:
-            Selected verb phrase string
+            Composed verb phrase string
         """
-        cls._init_complexity()
-        fn = vector_fn or cls._glove_vector_fn
-        phrases = cls.get_phrases(relation)
-        if not phrases:
+        cls._init_hebbian_priors()
+        rules = cls.COMPOSITION_RULES.get(relation, cls.COMPOSITION_RULES["semantic"])
+        if not rules:
             return "relates to"
 
-        # Reset refractory if relation changed (new turn or new intent)
         if relation != cls._refractory_relation:
             cls.reset_refractory()
 
-        # Compute semantic similarity between subject and object
         similarity = 0.5
+        fn = vector_fn or cls._glove_vector_fn
         if fn is not None and subject and object:
             try:
                 sv = fn(subject)
@@ -314,70 +415,204 @@ class VerbLexicon:
             except Exception:
                 pass
 
-        # Score each phrase by complexity-similarity alignment
-        # High similarity → prefer low complexity (simple, direct)
-        # Low similarity → prefer high complexity (hedging, exploratory)
-        raw_scores = []
-        for phrase in phrases:
-            comp = cls.COMPLEXITY.get(phrase, 0.5)
-            # Target complexity: similarity maps to [0.15, 0.55] range
-            target = 0.15 + (1.0 - similarity) * 0.55
-            score = 1.0 - abs(comp - target)
-            # Apply refractory penalty: recently selected verbs get -0.5
-            if phrase in cls._refractory:
-                score -= 0.5
-            raw_scores.append((phrase, score))
+        rule_scores = []
+        for rule in rules:
+            best_hebbian = 0.0
+            for cat in rule:
+                pool = cls._get_morpheme_pool(cat)
+                best_in_pool = max(
+                    cls._hebbian_weight[relation].get(m, 0.5) for m in pool
+                ) if pool else 0.5
+                best_hebbian += best_in_pool
+            best_hebbian = best_hebbian / max(1, len(rule))
 
-        if not raw_scores:
+            rule_complexity = len(rule) * 0.25
+            if similarity > 0.7:
+                target_complexity = 0.2 + (1.0 - similarity) * 0.3
+            else:
+                target_complexity = 0.25 + (1.0 - similarity) * 0.55
+
+            complexity_score = 1.0 - abs(rule_complexity - target_complexity)
+            diversity_bonus = 0.1 * (1.0 - best_hebbian)
+            score = best_hebbian * 0.5 + complexity_score * 0.3 + diversity_bonus * 0.2
+            rule_scores.append((rule, max(0.01, score)))
+
+        if not rule_scores:
             return "relates to"
 
-        phrases_list, scores_list = zip(*raw_scores)
-
-        # Temperature: maps dopamine_tone [0.0, 1.0] → temperature [0.5, 0.05]
-        # Humphries et al. (2012): high tonic DA → peaked PDF → exploitation
-        # High DA = low temperature = sharp distribution (deterministic)
-        # Low DA = high temperature = flatter distribution (exploratory)
-        # Note: this inverts the previous mapping which had high DA → exploration.
-        # Corrected based on striatal DA evidence (Frank, 2004; Humphries et al., 2012).
+        rules_list, scores_list = zip(*rule_scores)
         temperature = max(0.05, 0.5 - dopamine_tone * 0.45)
-
-        # Softmax sampling
         probs = cls._softmax(list(scores_list), temperature)
-        idx = random.choices(range(len(phrases_list)), weights=probs, k=1)[0]
-        selected = phrases_list[idx]
+        idx = random.choices(range(len(rules_list)), weights=probs, k=1)[0]
+        selected_rule = rules_list[idx]
 
-        # WEAVER++ verification: check the selected verb's fit score.
-        # Roelofs (1992a): lemma selection uses "verification" — a condition-action
-        # rule that checks if the selected lemma matches the goal concept.
-        # If the fit score is too low (< 0.3), re-sample from top-3 highest
-        # scoring verbs to avoid wildly inappropriate selections.
+        composed = cls._compose_phrase(selected_rule, relation, dopamine_tone)
+        if not composed:
+            composed = "relates to"
+
         selected_score = scores_list[idx]
-        if selected_score < 0.3:
-            top_candidates = sorted(raw_scores, key=lambda x: x[1], reverse=True)[:3]
-            top_phrases = [c[0] for c in top_candidates]
-            top_scores = [c[1] for c in top_candidates]
-            top_scores = [max(0.01, s) for s in top_scores]
-            total = sum(top_scores)
-            probs_top = [s / total for s in top_scores]
-            selected = random.choices(top_phrases, weights=probs_top, k=1)[0]
+        if selected_score < 0.25:
+            top_rules = sorted(rule_scores, key=lambda x: x[1], reverse=True)[:2]
+            fallback_rule = top_rules[0][0]
+            composed = cls._compose_phrase(fallback_rule, relation, dopamine_tone)
+            if not composed:
+                composed = "relates to"
 
-        # Add to refractory period
-        cls._refractory.add(selected)
         cls._refractory_relation = relation
+        cls._usage_count[composed] += 1
+        cls._mark_refractory(composed)
 
-        return selected
+        return composed
+
+    @classmethod
+    def reinforce(cls, relation: str, verb_phrase: str, success: float = 1.0):
+        """Strengthen Hebbian weights for morphemes in a successful verb phrase.
+
+        Called when a verb phrase is used and produces a successful
+        response (e.g., user engagement, low free energy spike).
+
+        Hebbian update:
+          Δw = η * (success - w) * pre_activation
+        where η is learning rate (0.1), success is the reinforcement
+        signal (0-1), and pre_activation is the baseline (0.5).
+
+        This implements a simple form of long-term potentiation (LTP)
+        for verb-morpheme associations.
+        """
+        words = verb_phrase.lower().split()
+        eta = 0.1 * success
+
+        for word in words:
+            for category, pool in cls.MORPHEMIC_SEEDS.items():
+                if word in pool or any(word.startswith(p) or p.startswith(word)
+                                       for p in pool):
+                    current = cls._hebbian_weight[relation].get(word, 0.5)
+                    delta = eta * (success - current)
+                    cls._hebbian_weight[relation][word] = max(0.05, min(1.0, current + delta))
+
+        cls._hebbian_bigram[relation].clear()
+        for i in range(len(words) - 1):
+            bigram = (words[i], words[i + 1])
+            current = cls._hebbian_bigram[relation][bigram]
+            delta = eta * (success - current)
+            cls._hebbian_bigram[relation][bigram] = max(0.05, min(1.0, current + delta))
+
+        cls._total_reinforcements += 1
+
+    @classmethod
+    def get_state(cls) -> Dict:
+        return {
+            "hebbian_weight": dict(cls._hebbian_weight),
+            "hebbian_bigram": dict(cls._hebbian_bigram),
+            "usage_count": dict(cls._usage_count),
+            "total_reinforcements": cls._total_reinforcements,
+        }
+
+    @classmethod
+    def set_state(cls, state: Dict):
+        cls._hebbian_weight.clear()
+        cls._hebbian_weight.update(state.get("hebbian_weight", {}))
+        cls._hebbian_bigram.clear()
+        cls._hebbian_bigram.update(state.get("hebbian_bigram", {}))
+        cls._usage_count.clear()
+        cls._usage_count.update(state.get("usage_count", {}))
+        cls._total_reinforcements = state.get("total_reinforcements", 0)
+
+    @classmethod
+    def _init_hebbian_priors(cls):
+        """Seed Hebbian weights with innate linguistic priors.
+
+        These are NOT hardcoded phrases — they're bias weights on
+        morpheme-relation associations, analogous to innate language
+        biases (Pinker, 1994; Chomsky, 1965). Each weight biases
+        which morphemes are preferred for which relation types.
+
+        Through reinforce(), these priors are updated by experience.
+        """
+        if cls._seeded:
+            return
+        cls._seeded = True
+        if cls._glove_vector_fn is None:
+            cls._glove_vector_fn = _default_vector_fn
+
+        priors = {
+            "semantic": {
+                "tie": 0.8, "connect": 0.8, "relate": 0.8, "link": 0.7,
+                "feed": 0.7, "go hand in hand": 0.5,
+                "with": 0.7, "to": 0.7, "into": 0.8,
+            },
+            "causal": {
+                "lead": 0.9, "cause": 0.9, "influence": 0.7,
+                "give rise": 0.6, "result": 0.7, "spark": 0.6,
+                "trigger": 0.7, "fuel": 0.5, "contribute": 0.7,
+                "drive": 0.7, "prompt": 0.6,
+                "to": 0.8, "about": 0.4,
+            },
+            "contrastive": {
+                "contrast": 0.9, "differ": 0.9,
+                "different": 0.7, "opposite": 0.6, "run counter": 0.5,
+                "with": 0.8, "from": 0.9, "against": 0.8,
+            },
+            "analogical": {
+                "similar": 0.8, "akin": 0.7,
+                "resemble": 0.7, "mirror": 0.6, "echo": 0.6,
+                "parallel": 0.5,
+                "to": 0.9,
+            },
+            "temporal": {
+                "come": 0.7, "follow": 0.9, "lead": 0.7, "precede": 0.7,
+                "trace back": 0.5,
+                "before": 0.9, "after": 0.9, "into": 0.6,
+            },
+            "episodic": {
+                "bring": 0.8, "recall": 0.8,
+                "up": 0.7,
+            },
+        }
+        for rel, weights in priors.items():
+            for morpheme, w in weights.items():
+                cls._hebbian_weight[rel][morpheme] = w
+
+        bigram_priors = {
+            "semantic": {
+                ("tie", "into"): 0.9, ("feed", "into"): 0.8,
+                ("connect", "with"): 0.8, ("relate", "to"): 0.9,
+                ("link", "to"): 0.7,
+            },
+            "causal": {
+                ("lead", "to"): 0.9, ("cause",): 0.9,
+                ("contribute", "to"): 0.7, ("drive",): 0.7,
+                ("trigger",): 0.7, ("give rise",): 0.7,
+                ("result", "in"): 0.6, ("spark",): 0.6,
+            },
+            "contrastive": {
+                ("contrast", "with"): 0.9, ("differ", "from"): 0.9,
+                ("different", "from"): 0.8, ("opposite", "to"): 0.5,
+                ("run counter",): 0.6,
+            },
+            "analogical": {
+                ("similar", "to"): 0.8, ("akin", "to"): 0.7,
+                ("resemble",): 0.7, ("mirror",): 0.6, ("echo",): 0.6,
+                ("parallel",): 0.5,
+            },
+            "temporal": {
+                ("come", "before"): 0.9, ("follow",): 0.9,
+                ("precede",): 0.7, ("trace back",): 0.5,
+            },
+            "episodic": {
+                ("bring", "up"): 0.8, ("recall",): 0.7,
+            },
+        }
+        for rel, bigrams in bigram_priors.items():
+            for bigram, w in bigrams.items():
+                cls._hebbian_bigram[rel][bigram] = w
 
     @classmethod
     def select_verb_cerebellar(cls, relation: str, cerebellar_ngram,
                                 subject: str = "", object: str = "",
                                 dopamine_tone: float = 0.5,
                                 vector_fn: Optional[Callable] = None) -> str:
-        """Select verb with cerebellar n-gram override.
-
-        If the cerebellar n-gram has a preferred pattern for this
-        (relation, subject, object) triple, boost the relevant phrase.
-        Otherwise, use the standard semantic similarity algorithm.
-        """
+        """Select verb with cerebellar n-gram override."""
         phrase = cls.select_verb(relation, subject, object,
                                  dopamine_tone, vector_fn)
 

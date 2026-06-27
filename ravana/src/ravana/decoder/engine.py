@@ -80,23 +80,22 @@ class DecoderEngine:
 
         next_idx = len(special_tokens)
 
-        # Common function words
+        # Minimal closed-class function words (linguistic universals)
         function_words = [
             "a", "an", "the", "is", "are", "was", "were", "be", "been",
-            "being", "have", "has", "had", "do", "does", "did", "will",
-            "would", "could", "should", "may", "might", "shall", "can",
+            "have", "has", "had", "do", "does", "did", "will",
+            "would", "could", "should", "may", "might", "can",
             "not", "no", "nor", "so", "if", "then", "than", "too", "very",
-            "just", "about", "also", "into", "over", "after", "before",
-            "between", "through", "during", "because", "while", "which",
-            "who", "whom", "what", "when", "where", "why", "how", "all",
-            "each", "every", "both", "few", "more", "most", "some", "any",
-            "this", "that", "these", "those", "it", "its", "they", "them",
-            "their", "we", "our", "you", "your", "he", "she", "him", "her",
-            "his", "i", "me", "my", "myself", "am",
+            "just", "about", "also", "all", "each", "every", "both",
+            "some", "any", "this", "that", "these", "those",
+            "it", "its", "they", "them", "their", "we", "our",
+            "you", "your", "he", "she", "him", "her", "his",
+            "i", "me", "my",
             "of", "to", "for", "with", "from", "at", "by", "as", "on",
-            "related", "connect", "connects", "mean", "means",
-            "concept", "concepts", "idea", "ideas", "important",
-            "lead", "leads", "talk", "think", "link", "links",
+            "in", "into", "over", "after", "before", "through", "during",
+            "because", "while", "which", "who", "what", "when", "where",
+            "why", "how",
+            "not", "no",
         ]
 
         # Add graph concept labels
@@ -169,38 +168,20 @@ class DecoderEngine:
         self._train_decoder_from_graph(graph_engine, min_synthetic=500)
 
     def _train_decoder_from_graph(self, graph_engine, min_synthetic: int = 500) -> int:
-        """Train neural decoder on synthetic sentences from graph relationships."""
+        """Train neural decoder on synthetically composed sentences from graph relationships.
+
+        Replaces hardcoded templates with compositional sentences generated from:
+        - Graph edges (subject-object pairs)
+        - Hebbian VerbLexicon (relation-type-appropriate verb phrases composed from morphemic seeds)
+        - Dopamine-tone-modulated verb selection for variety
+
+        No hardcoded sentence templates — every training sentence is composed dynamically.
+        """
         if self.neural_decoder is None or not self._decoder_vocab_built:
             return 0
-        templates = [
-            "{s} is related to {o}", "{s} connects with {o}", "{s} links to {o}",
-            "{s} refers to {o}", "{s} can be described as {o}",
-            "the concept of {s} involves {o}", "when people talk about {s} they often mention {o}",
-            "{s} leads to {o}", "{s} causes {o}", "{o} is a result of {s}",
-            "{s} contributes to {o}", "{s} influences {o}",
-            "{s} precedes {o}", "{o} follows {s}", "first comes {s} then {o}",
-            "{s} contrasts with {o}", "unlike {s} {o} is different",
-            "while {s} has one meaning {o} has another",
-            "{s} is like {o} in many ways", "both {s} and {o} share similarities",
-            "the relationship between {s} and {o} is important",
-            "{s} is a part of {o}", "{s} is a type of {o}",
-            "{o} includes {s}", "{s} forms the basis of {o}",
-            "people use {s} to understand {o}", "{s} helps explain {o}",
-            "understanding {s} requires knowing {o}", "{o} depends on {s}",
-            "maybe {s} connects to {o}", "it seems like {s} relates to {o}",
-            "one way to think about {s} is through {o}",
-            "the meaning of {s} goes beyond {o}",
-            "{s} represents something larger than {o}",
-            "thinking about {s} naturally leads to {o}", "{s} and {o} are deeply connected",
-        ]
 
-        relation_templates = {
-            "causal": ["{s} causes {o}", "{s} leads to {o}", "{o} results from {s}"],
-            "contrastive": ["{s} contrasts with {o}", "unlike {s} {o} is different"],
-            "analogical": ["{s} is like {o}", "{s} resembles {o} in many ways"],
-            "temporal": ["{s} comes before {o}", "{s} precedes {o}"],
-            "semantic": ["{s} relates to {o}", "{s} connects with {o}"],
-        }
+        from ravana.language.verb_lexicon import VerbLexicon
+
         sentences = []
         seen = set()
         for (src_id, tgt_id), edge in graph_engine.graph.edges.items():
@@ -215,9 +196,14 @@ class DecoderEngine:
                 if key not in seen:
                     seen.add(key)
                     rel = getattr(edge, 'relation_type', 'semantic') or 'semantic'
-                    rtemplates = relation_templates.get(rel, templates)
-                    t = rtemplates[len(sentences) % len(rtemplates)]
-                    sent = t.format(s=s_label, o=o_label)
+                    tone = 0.3 + (len(seen) % 5) * 0.1
+                    verb = VerbLexicon.select_verb(
+                        relation=rel,
+                        subject=s_label,
+                        object=o_label,
+                        dopamine_tone=min(0.7, tone),
+                    )
+                    sent = f"{s_label} {verb} {o_label}."
                     sentences.append(sent)
 
         sentences = sentences[:min_synthetic]
@@ -229,7 +215,7 @@ class DecoderEngine:
             total_trained += 1
         self.neural_decoder.sleep_cycle()
         self._decoder_training_count = total_trained + self._decoder_web_training_count
-        print(f"  [Decoder] Trained on {total_trained} synthetic graph sentences"
+        print(f"  [Decoder] Trained on {total_trained} Hebbian-composed graph sentences"
               f"{' + ' + str(self._decoder_web_training_count) + ' from web' if self._decoder_web_training_count > 0 else ''}")
         return total_trained
 

@@ -5235,6 +5235,23 @@ class RLMv2(Module):
             "currency": self.currency.to_dict() if hasattr(self.currency, 'to_dict') else None,
             # --- Alignment completeness: save semantic_pairs for checkpoint/restore ---
             "semantic_pairs": getattr(self, "semantic_pairs", []),
+            # --- Entity-Specific Adapters ---
+            "_entity_adapters": {tid: (U.copy(), V.copy()) for tid, (U, V) in self._entity_adapters.items()},
+            "_entity_adapter_momentums": {tid: (mU.copy(), mV.copy()) for tid, (mU, mV) in self._entity_adapter_momentums.items()},
+            # --- Verb-Stem Offset Predictor ---
+            "_verb_offsets": {d: {stem: v.copy() for stem, v in offsets.items()} for d, offsets in self._verb_offsets.items()},
+            "_verb_offset_count": {stem: c for stem, c in self._verb_offset_count.items()},
+            "_verb_accum_buffer": [(stem, v.copy(), d) for stem, v, d in self._verb_accum_buffer],
+            # --- Multi-Target Heads ---
+            "_multi_target_cache": {key: list(lst) for key, lst in self._multi_target_cache.items()},
+            # --- Hierarchical Semantic Prototype System ---
+            "_prototype_hierarchy": {k: list(v) for k, v in self._prototype_hierarchy.items()},
+            "_prototype_vectors": {k: v.copy() for k, v in self._prototype_vectors.items()},
+            "_prototype_hierarchy_parents": dict(self._prototype_hierarchy_parents),
+            "_prototype_children": {k: list(v) for k, v in self._prototype_children.items()},
+            "_prototype_levels": dict(self._prototype_levels),
+            # --- Cross Domain ---
+            "_cross_domain_edges_injected": list(self._cross_domain_edges_injected),
         }
 
     def save(self, path: str):
@@ -5255,6 +5272,13 @@ class RLMv2(Module):
         self.relation_classifier.weight.data = state["relation_classifier_weight"]
         if state["relation_classifier_bias"] is not None:
             self.relation_classifier.bias.data = state["relation_classifier_bias"]
+
+        # Rebuild raw numpy views so loaded weight values are actually used in forward passes
+        self.token_embed._rebuild_raw_cache()
+        self.subject_proj._rebuild_raw_cache()
+        self.concept_to_embed._rebuild_raw_cache()
+        self.relation_type_embed._rebuild_raw_cache()
+        self.relation_classifier._rebuild_raw_cache()
 
         self.graph.nodes.clear()
         self.graph.edges.clear()
@@ -5401,6 +5425,40 @@ class RLMv2(Module):
         # --- Alignment completeness: restore semantic_pairs from checkpoint ---
         if "semantic_pairs" in state:
             self.semantic_pairs = state["semantic_pairs"]
+
+        # --- Entity-Specific Adapters ---
+        if "_entity_adapters" in state:
+            self._entity_adapters = {int(tid): (U.copy(), V.copy()) for tid, (U, V) in state["_entity_adapters"].items()}
+        if "_entity_adapter_momentums" in state:
+            self._entity_adapter_momentums = {int(tid): (mU.copy(), mV.copy()) for tid, (mU, mV) in state["_entity_adapter_momentums"].items()}
+
+        # --- Verb-Stem Offset Predictor ---
+        if "_verb_offsets" in state:
+            self._verb_offsets = {int(d): {stem: v.copy() for stem, v in offsets.items()} for d, offsets in state["_verb_offsets"].items()}
+        if "_verb_offset_count" in state:
+            self._verb_offset_count = {stem: c for stem, c in state["_verb_offset_count"].items()}
+        if "_verb_accum_buffer" in state:
+            self._verb_accum_buffer = [(stem, v.copy(), d) for stem, v, d in state["_verb_accum_buffer"]]
+
+        # --- Multi-Target Heads ---
+        if "_multi_target_cache" in state:
+            self._multi_target_cache = {key: list(lst) for key, lst in state["_multi_target_cache"].items()}
+
+        # --- Hierarchical Semantic Prototype System ---
+        if "_prototype_hierarchy" in state:
+            self._prototype_hierarchy = {k: list(v) for k, v in state["_prototype_hierarchy"].items()}
+        if "_prototype_vectors" in state:
+            self._prototype_vectors = {k: v.copy() for k, v in state["_prototype_vectors"].items()}
+        if "_prototype_hierarchy_parents" in state:
+            self._prototype_hierarchy_parents = dict(state["_prototype_hierarchy_parents"])
+        if "_prototype_children" in state:
+            self._prototype_children = {k: list(v) for k, v in state["_prototype_children"].items()}
+        if "_prototype_levels" in state:
+            self._prototype_levels = dict(state["_prototype_levels"])
+
+        # --- Cross Domain ---
+        if "_cross_domain_edges_injected" in state:
+            self._cross_domain_edges_injected = set((int(s), int(t)) for s, t in state["_cross_domain_edges_injected"])
 
         # Rebuild raw numpy caches in submodules and clear cached norms
         for mod in self.modules():

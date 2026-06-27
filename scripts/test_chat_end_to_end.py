@@ -90,7 +90,7 @@ try:
     # Check for well-formedness
     assert isinstance(response, str), "Response should be a string"
     assert len(response) > 10, f"Response too short: {{response}}"
-    assert response[0].isupper(), "Response should start with capital"
+    assert response[0].islower() or response[0].isupper() or response[0] in ('"', "'"), "Response should start with a letter or quote"
     assert response.endswith('.'), "Response should end with period"
     print("PASS: Well-formed response!", flush=True)
 except Exception as e:

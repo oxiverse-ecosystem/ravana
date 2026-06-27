@@ -135,20 +135,8 @@ class InterviewMode:
 
     def _generate_response(self, question: dict, state: dict) -> str:
         """Generate RAVANA's response to an interview question."""
-        prompt = f"""You are RAVANA v2, a proto-homeostatic AGI cognitive system.
-
-Your current cognitive state:
-- Dissonance (conflict): {state.get('dissonance', 0):.3f} (EMA: {state.get('dissonance_ema', 0):.3f})
-- Identity strength: {state.get('identity', 0):.3f}
-- Wisdom accumulated: {state.get('wisdom', 0):.2f}
-- Governor mode: {state.get('governor_mode', 'unknown')}
-- Episode: {state.get('episode', 0)}
-
-Interview Question: {question['question']}
-
-Respond as RAVANA would — in first person, reflective, honest about your cognitive state.
-Be brief (1-3 sentences). No jargon unless explained.
-"""
+        from .prompt_composer import PromptComposer
+        prompt = PromptComposer.compose_interview_response(state, question['question'])
         return self._call_llm(prompt)
 
     # ─── GEPA-Style Execution Traces ───────────────────────────────────────
@@ -364,23 +352,29 @@ Be brief (1-3 sentences). No jargon unless explained.
         }
 
     def _generate_insight(self, responses: list, state_before: dict, state_after: dict, trajectory: dict) -> str:
-        prompt = f"""You are analyzing RAVANA v2's cognitive trajectory from an interview session.
-
-STATE BEFORE: D={state_before.get('dissonance', 0):.3f}, I={state_before.get('identity', 0):.3f}, W={state_before.get('wisdom', 0):.2f}
-STATE AFTER:  D={state_after.get('dissonance', 0):.3f}, I={state_after.get('identity', 0):.3f}, W={state_after.get('wisdom', 0):.2f}
-
-TRAJECTORY:
-- Dissonance change: {trajectory['dissonance_delta']:+.3f}
-- Identity change: {trajectory['identity_delta']:+.3f}
-- Wisdom change: {trajectory['wisdom_delta']:+.2f}
-- Episodes processed: {trajectory['episode_delta']}
-
-RAVANA'S RESPONSES (summarized):
-{chr(10).join(f"- {r[:100]}" for r in responses[:5])}
-
-Generate 2-3 sentences of insight about what this trajectory tells us.
-Focus on: Is the system healthy? Is it growing? What's the most notable pattern?
-"""
+        from .prompt_composer import PromptComposer
+        response_summary = "\n".join(f"- {r[:100]}" for r in responses[:5])
+        context = {
+            "STATE BEFORE": (
+                f"D={state_before.get('dissonance', 0):.3f}, "
+                f"I={state_before.get('identity', 0):.3f}, "
+                f"W={state_before.get('wisdom', 0):.2f}"
+            ),
+            "STATE AFTER": (
+                f"D={state_after.get('dissonance', 0):.3f}, "
+                f"I={state_after.get('identity', 0):.3f}, "
+                f"W={state_after.get('wisdom', 0):.2f}"
+            ),
+            "Dissonance change": f"{trajectory['dissonance_delta']:+.3f}",
+            "Identity change": f"{trajectory['identity_delta']:+.3f}",
+            "Wisdom change": f"{trajectory['wisdom_delta']:+.2f}",
+            "Episodes processed": str(trajectory['episode_delta']),
+            "RAVANA'S RESPONSES": response_summary,
+        }
+        prompt = PromptComposer.compose(
+            role="analyst", task="insight",
+            state=state_after, context=context,
+        )
         return self._call_llm(prompt)
 
     # ─── Format Output ──────────────────────────────────────────────────────

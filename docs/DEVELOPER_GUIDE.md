@@ -73,7 +73,7 @@ ravana/
 │   ├── experiments/
 │   └── tests/
 ├── experiments/            # Cross-layer experiments
-├── tests/                  # ML framework tests (17 files)
+├── tests/                  # ML framework tests (CI, unit, integration)
 ├── scripts/                # Analysis tools
 ├── docs/                   # This documentation
 └── data/                   # GloVe embeddings (gitignored)

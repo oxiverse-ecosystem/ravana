@@ -295,22 +295,33 @@ class TestRavanaVADEmotion:
 
 
 class TestUserEmotionDetector:
-    """Tests for UserEmotionDetector — P2 Emotional Mirroring."""
+    """Tests for UserEmotionDetector — P2 Emotional Mirroring.
+
+    Note: VAD lexicon is now learned, not hardcoded. Tests must learn
+    the target words before detection, or rely on the universal seed set.
+    """
+
+    def _seed_word(self, detector, word, v, a, d):
+        detector.learn_association(word, (v, a, d), confidence=1.0)
 
     def test_detect_positive_excitement(self):
         detector = UserEmotionDetector()
+        self._seed_word(detector, "excited", 0.8, 0.85, 0.6)
         v, a, d = detector.detect("I am feeling very excited about this!")
         assert v > 0.3
         assert a > 0.5
 
     def test_detect_negative_frustration(self):
         detector = UserEmotionDetector()
+        self._seed_word(detector, "frustrating", -0.65, 0.75, -0.2)
+        self._seed_word(detector, "confusing", -0.3, 0.55, -0.35)
         v, a, d = detector.detect("This is really frustrating and confusing")
         assert v < -0.2
         assert a > 0.4
 
     def test_detect_fear_high_arousal(self):
         detector = UserEmotionDetector()
+        self._seed_word(detector, "terrified", -0.85, 0.95, -0.6)
         v, a, d = detector.detect("I am absolutely terrified right now")
         assert v < -0.5
         assert a > 0.7
@@ -329,32 +340,45 @@ class TestUserEmotionDetector:
 
     def test_detect_negation_flips_valence(self):
         detector = UserEmotionDetector()
+        self._seed_word(detector, "happy", 0.75, 0.6, 0.5)
         v, a, d = detector.detect("I am not happy about this")
         assert v < 0
 
     def test_detect_intensifier_boost(self):
         detector = UserEmotionDetector()
+        self._seed_word(detector, "exciting", 0.8, 0.85, 0.6)
         v1, a1, d1 = detector.detect("This is exciting")
         v2, a2, d2 = detector.detect("This is extremely exciting")
         assert abs(v2) >= abs(v1) or a2 >= a1
 
     def test_detect_stem_fallback(self):
         detector = UserEmotionDetector()
+        # Morphological normalization maps "frustrating" -> "frustrated"
+        self._seed_word(detector, "frustrated", -0.65, 0.75, -0.2)
         v, a, d = detector.detect("This is frustrating me")
         assert v < 0
 
     def test_detect_fallback_keywords(self):
         detector = UserEmotionDetector()
+        self._seed_word(detector, "stupid", -0.6, 0.3, -0.1)
+        self._seed_word(detector, "boring", -0.4, 0.1, -0.2)
         v, a, d = detector.detect("This is really stupid and boring")
         assert v < 0
 
 
 class TestEmotionalMirrorEngine:
-    """Tests for EmotionalMirrorEngine — P2 Mirror Neuron System."""
+    """Tests for EmotionalMirrorEngine — P2 Mirror Neuron System.
+
+    Note: VAD lexicon is now learned; tests seed non-seed words they need.
+    """
+
+    def _seed_word(self, detector, word, v, a, d):
+        detector.learn_association(word, (v, a, d), confidence=1.0)
 
     def test_mirror_increases_arousal_for_excitement(self):
         vad = VADEmotionEngine()
         mirror = EmotionalMirrorEngine(MirrorConfig(mirror_strength=0.5, contagion_rate=0.5))
+        self._seed_word(mirror.detector, "excited", 0.8, 0.85, 0.6)
         init_arousal = vad.state.arousal
         mirror.mirror(vad, "I am so excited about this!")
         assert vad.state.arousal > init_arousal
@@ -362,6 +386,8 @@ class TestEmotionalMirrorEngine:
     def test_mirror_updates_valence_for_positive(self):
         vad = VADEmotionEngine()
         mirror = EmotionalMirrorEngine()
+        self._seed_word(mirror.detector, "amazing", 0.85, 0.75, 0.6)
+        self._seed_word(mirror.detector, "wonderful", 0.80, 0.60, 0.55)
         init_valence = vad.state.valence
         mirror.mirror(vad, "This is absolutely amazing and wonderful!")
         assert vad.state.valence > init_valence
@@ -369,6 +395,7 @@ class TestEmotionalMirrorEngine:
     def test_mirror_updates_valence_for_negative(self):
         vad = VADEmotionEngine()
         mirror = EmotionalMirrorEngine()
+        self._seed_word(mirror.detector, "frustrated", -0.65, 0.75, -0.2)
         mirror.mirror(vad, "I am so angry and frustrated right now")
         assert vad.state.valence < 0
 
@@ -381,6 +408,7 @@ class TestEmotionalMirrorEngine:
     def test_modulation_scales_with_arousal(self):
         vad = VADEmotionEngine()
         mirror = EmotionalMirrorEngine()
+        self._seed_word(mirror.detector, "terrified", -0.85, 0.95, -0.6)
         mirror.mirror(vad, "I am terrified!")
         mod = mirror.get_modulation(vad.state)
         assert mod['temperature_mult'] >= 0.5
@@ -396,12 +424,14 @@ class TestEmotionalMirrorEngine:
 
     def test_detect_user_emotion_updates_state(self):
         mirror = EmotionalMirrorEngine()
+        self._seed_word(mirror.detector, "excited", 0.8, 0.85, 0.6)
         uv, ua, ud = mirror.detect_user_emotion("I am really excited!")
         assert mirror.state.user_valence > 0.3
         assert mirror.state.user_arousal > 0.5
 
     def test_get_emotional_label(self):
         mirror = EmotionalMirrorEngine()
+        self._seed_word(mirror.detector, "excited", 0.8, 0.85, 0.6)
         mirror.detect_user_emotion("I am so excited!")
         label = mirror.get_emotional_label()
         assert isinstance(label, str) and len(label) > 0
@@ -418,5 +448,5 @@ class TestEmotionalMirrorEngine:
         vad = VADEmotionEngine()
         mirror = EmotionalMirrorEngine()
         for _ in range(10):
-            mirror.mirror(vad, "This is great!")
+            mirror.mirror(vad, "This is good!")
         assert mirror.state.rapport_level > 0.01
