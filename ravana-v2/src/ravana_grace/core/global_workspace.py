@@ -31,6 +31,7 @@ class GWConfig:
     decay_rate: float = 0.1         # how fast old broadcasts fade
     competition_noise: float = 0.05  # stochasticity in bid selection
     max_history: int = 500          # max bid history entries
+    sleep_pressure_threshold: float = 1.5
 
 
 class GlobalWorkspace:
@@ -132,12 +133,26 @@ class GlobalWorkspace:
             noisy_bids.append((bid, noisy_urgency))
 
         # Select winner
-        winner, _ = max(noisy_bids, key=lambda x: x[1])
+        ranked = sorted(noisy_bids, key=lambda x: x[1], reverse=True)
+        winner, winner_score = ranked[0]
 
         # Check threshold
         if winner.urgency < self.config.broadcast_threshold:
             self.clear_bids()
             return None
+
+        runner_up_score = ranked[1][1] if len(ranked) > 1 else 0.0
+        competition_gap = max(0.0, winner_score - runner_up_score)
+        competing_bids = max(0, len(self._bids) - 1)
+
+        pressure_delta = (
+            0.25
+            + 0.35 * winner.urgency
+            + 0.30 * competition_gap
+            + 0.05 * competing_bids
+        )
+        pressure_delta = float(np.clip(pressure_delta, 0.0, 1.0))
+        self.accumulate_pressure(pressure_delta)
 
         # Add to buffer (most recent first)
         self._buffer.insert(0, winner)
@@ -205,9 +220,13 @@ class GlobalWorkspace:
         if len(self._pressure_history) > self.config.max_history:
             self._pressure_history = self._pressure_history[-self.config.max_history:]
 
+    def get_pressure(self) -> float:
+        """Return the current accumulated pressure."""
+        return self._pressure
+
     def should_sleep(self) -> bool:
         """Check if workspace pressure warrants consolidation."""
-        return self._pressure > 10.0
+        return self._pressure >= self.config.sleep_pressure_threshold
 
     # --- Introspection ---
 
@@ -219,6 +238,8 @@ class GlobalWorkspace:
             "pending_bids": len(self._bids),
             "broadcast_count": self._broadcast_count,
             "pressure": self._pressure,
+            "pressure_history": self._pressure_history[-3:],
+            "sleep_pressure_threshold": self.config.sleep_pressure_threshold,
             "active_sources": self.get_active_sources(),
             "recent_urgencies": [b.urgency for b in self._buffer[:3]],
         }

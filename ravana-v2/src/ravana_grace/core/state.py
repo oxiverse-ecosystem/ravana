@@ -287,7 +287,7 @@ class StateManager:
         sleep_triggered = False
         # Accumulate GW pressure to sleep engine
         if self.gw is not None and self.sleep is not None and self.gw.should_sleep():
-            self.sleep.accumulate_pressure(self.gw._pressure * 0.1)
+            self.sleep.accumulate_pressure(self.gw.get_pressure() * 0.1)
 
         if self.sleep is not None:
             # Pressure from dissonance + prediction error

@@ -21,6 +21,7 @@ def test_below_threshold_bids_are_cleared():
     assert result is None
     assert gw.get_status()["pending_bids"] == 0
     assert gw.get_status()["buffer_size"] == 0
+    assert gw.get_pressure() == 0.0
 
 
 def test_winning_bid_is_broadcast_and_buffered():
@@ -36,3 +37,6 @@ def test_winning_bid_is_broadcast_and_buffered():
     assert gw.get_status()["pending_bids"] == 0
     assert gw.get_status()["buffer_size"] == 1
     assert gw.get_recent(1)[0].source == "emotion"
+    assert gw.get_pressure() > 0.0
+    assert gw.get_status()["pressure"] == gw.get_pressure()
+    assert gw.should_sleep() == (gw.get_pressure() >= gw.config.sleep_pressure_threshold)
