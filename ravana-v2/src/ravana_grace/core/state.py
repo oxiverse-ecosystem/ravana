@@ -252,6 +252,7 @@ class StateManager:
         
         # 8. GLOBAL WORKSPACE: Submit bids and compete
         gw_broadcast = None
+        gw_context = None
         if self.gw is not None:
             # Emotion bids
             if self.emotion is not None:
@@ -276,6 +277,7 @@ class StateManager:
 
             # Competition: select winning bid
             gw_broadcast = self.gw.compete()
+            gw_context = self.gw.get_context_vector()
 
             # Accumulate pressure from competition intensity
             if gw_broadcast is not None:
@@ -348,20 +350,37 @@ class StateManager:
                 "urgency": gw_broadcast.urgency,
                 "valence": gw_broadcast.valence,
             }
+        if gw_context is not None:
+            step_record["gw_context"] = gw_context.tolist()
         
         self.history.append(step_record)
         
         # 10. MEMORY: Integrate new data
+        memory_kwargs = {
+            "workspace_context": gw_context,
+            "workspace_broadcast": (
+                {
+                    "source": gw_broadcast.source,
+                    "payload": gw_broadcast.payload,
+                    "urgency": gw_broadcast.urgency,
+                    "valence": gw_broadcast.valence,
+                    "episode": gw_broadcast.episode,
+                }
+                if gw_broadcast is not None else None
+            ),
+        }
         self.memory.process_step(
             episode_data=step_record,
-            state_snapshot=self.state.snapshot()
+            state_snapshot=self.state.snapshot(),
+            **memory_kwargs,
         )
 
         # 10b. HUMAN MEMORY: Persistent episodic storage with decay
         if self.human_memory is not None:
             self.human_memory.process_step(
                 episode_data=step_record,
-                state_snapshot=self.state.snapshot()
+                state_snapshot=self.state.snapshot(),
+                **memory_kwargs,
             )
 
         # Degradation is natural: Ebbinghaus decay runs every cycle in

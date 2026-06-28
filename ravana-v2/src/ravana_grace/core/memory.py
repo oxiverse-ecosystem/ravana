@@ -118,16 +118,30 @@ class RavanaMemorySystem:
         signals = [self._trace_to_signal(trace) for trace in recent_traces]
         self.working.broadcast(signals)
         
-    def process_step(self, episode_data: Dict[str, Any], state_snapshot: Dict[str, float]):
+    def process_step(self, episode_data: Dict[str, Any], state_snapshot: Dict[str, float],
+                     workspace_context: Optional[np.ndarray] = None,
+                     workspace_broadcast: Optional[Dict[str, Any]] = None):
         """Integrate new data into memory layers."""
         # 1. Create episodic trace
+        content = dict(episode_data)
+        if workspace_context is not None:
+            content["workspace_context"] = np.asarray(workspace_context).tolist()
+        if workspace_broadcast is not None:
+            content["workspace_broadcast"] = dict(workspace_broadcast)
+
+        salience = min(1.0, state_snapshot.get('dissonance', 0.5) * 1.5)
+        if workspace_broadcast is not None:
+            salience = min(1.0, salience + 0.1)
+        if workspace_context is not None:
+            salience = min(1.0, salience + 0.05 * float(np.linalg.norm(np.asarray(workspace_context))))
+
         trace = MemoryTrace(
             timestamp=time.time(),
             episode=episode_data.get('episode', 0),
-            content=episode_data,
+            content=content,
             dissonance_at_time=state_snapshot.get('dissonance', 0.0),
             identity_at_time=state_snapshot.get('identity', 0.0),
-            salience=min(1.0, state_snapshot.get('dissonance', 0.5) * 1.5) # Dissonance drives salience, clamped [0,1]
+            salience=salience
         )
         self.episodic.record(trace)
         self._refresh_working_memory()

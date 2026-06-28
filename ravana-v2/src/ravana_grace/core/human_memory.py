@@ -809,7 +809,9 @@ class HumanMemoryEngine:
     # ─── Public API ──────────────────────────────────────────────────────
 
     def process_step(self, episode_data: Dict[str, Any],
-                     state_snapshot: Dict[str, Any]) -> HumanMemoryRecord:
+                     state_snapshot: Dict[str, Any],
+                     workspace_context: Optional[np.ndarray] = None,
+                     workspace_broadcast: Optional[Dict[str, Any]] = None) -> HumanMemoryRecord:
         """Called by StateManager each cognitive step. Stores the episode as a memory."""
         episode = episode_data.get("episode", 0)
         # Derive salience from emotional state
@@ -817,6 +819,10 @@ class HumanMemoryEngine:
         valence = abs(vad.get("valence", 0.0)) if isinstance(vad, dict) else 0.0
         arousal = vad.get("arousal", 0.3) if isinstance(vad, dict) else 0.3
         salience = min(1.0, valence * 0.4 + arousal * 0.6)
+        if workspace_broadcast is not None:
+            salience = min(1.0, salience + 0.1)
+        if workspace_context is not None:
+            salience = min(1.0, salience + 0.05 * float(np.linalg.norm(np.asarray(workspace_context))))
 
         # Derive importance from dissonance delta
         pre_d = episode_data.get("pre_dissonance", 0.5)
@@ -847,6 +853,10 @@ class HumanMemoryEngine:
             f"identity {episode_data.get('pre_identity', 0):.3f}->{episode_data.get('post_identity', 0):.3f}, "
             f"wisdom {episode_data.get('wisdom', 0):.3f}, meaning {meaning:.3f}"
         )
+        if workspace_broadcast is not None:
+            content += f", workspace {workspace_broadcast.get('source', 'unknown')}"
+        if workspace_context is not None:
+            content += ", workspace_context"
 
         # Auto-tag from episode data
         tags_parts = []
@@ -861,6 +871,10 @@ class HumanMemoryEngine:
         gw = episode_data.get("gw_broadcast", {})
         if gw and gw.get("source"):
             tags_parts.append(f"gw:{gw['source']}")
+        if workspace_broadcast is not None and workspace_broadcast.get("source"):
+            tags_parts.append(f"workspace:{workspace_broadcast['source']}")
+        if workspace_context is not None:
+            tags_parts.append("workspace_context")
         # Identity-derived tags
         if pre_identity >= cfg.identity_strength_threshold:
             tags_parts.append("identity_strong")
