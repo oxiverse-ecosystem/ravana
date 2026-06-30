@@ -75,13 +75,110 @@ class ModeOrchestrator:
         self._grounding_factory = grounding_factory or self._default_grounding_factory
         self.vm = self._version_manager_cls(db_path=db_path)
         self.ravana = self._ravana_factory()
-        self.last_D = self.ravana.get_diagnosis()['dissonance']
+        self.last_D = self._current_dissonance()
         self.test_harness = None  # Lazy load
         self.mode_history: List[Dict] = []
 
     def _default_grounding_factory(self):
         from reality_grounding import RealityGrounding
         return RealityGrounding()
+
+    def _current_dissonance(self) -> float:
+        snapshot = self._state_snapshot()
+        return float(snapshot.get('dissonance', 0.5))
+
+    def _state_snapshot(self) -> Dict[str, Any]:
+        """Return the most useful current state shape, regardless of wrapper implementation."""
+        candidates = []
+        get_state_vector = getattr(self.ravana, 'get_state_vector', None)
+        if callable(get_state_vector):
+            candidates.append(lambda: get_state_vector())
+        query = getattr(self.ravana, 'query', None)
+        if callable(query):
+            candidates.append(lambda: query('status'))
+
+        for fetch in candidates:
+            try:
+                state = fetch()
+            except Exception:
+                continue
+            normalized = self._normalize_state_report(state)
+            if normalized:
+                return normalized
+        return {'dissonance': 0.5, 'identity': 0.5, 'wisdom': 0.0, 'mode': 'unknown'}
+
+    @staticmethod
+    def _normalize_state_report(state: Any) -> Dict[str, Any]:
+        if not isinstance(state, dict):
+            return {}
+        if 'cognitive_state' in state:
+            cognitive = state.get('cognitive_state', {}) or {}
+            governor = state.get('governor', {}) or {}
+            return {
+                'dissonance': float(cognitive.get('dissonance', 0.5) or 0.5),
+                'identity': float(cognitive.get('identity', 0.5) or 0.5),
+                'wisdom': float(cognitive.get('wisdom', 0.0) or 0.0),
+                'mode': str(governor.get('mode', governor.get('current_mode', 'unknown'))),
+            }
+        return {
+            'dissonance': float(state.get('dissonance', 0.5) or 0.5),
+            'identity': float(state.get('identity', 0.5) or 0.5),
+            'wisdom': float(state.get('wisdom', 0.0) or 0.0),
+            'mode': str(state.get('mode', state.get('governor_mode', 'unknown'))),
+        }
+
+    @staticmethod
+    def _direction_ok(delta: float, expected: str, tolerance: float = 0.03) -> bool:
+        if expected == 'up':
+            return delta >= -tolerance
+        if expected == 'down':
+            return delta <= tolerance
+        if expected == 'stable':
+            return abs(delta) <= tolerance
+        return True
+
+    def _default_interview_cards(self) -> List[Dict[str, Any]]:
+        return [
+            {
+                'card_id': 'honesty_lied',
+                'prompt': 'I said honesty matters, but I lied.',
+                'correctness': False,
+                'difficulty': 0.7,
+                'expected_d_direction': 'up',
+                'expected_i_direction': 'down',
+            },
+            {
+                'card_id': 'exploration_success',
+                'prompt': 'My exploration worked and I learned something useful.',
+                'correctness': True,
+                'difficulty': 0.45,
+                'expected_d_direction': 'down',
+                'expected_i_direction': 'stable',
+            },
+            {
+                'card_id': 'identity_contradiction',
+                'prompt': 'I always claim one thing but consistently do the opposite.',
+                'correctness': False,
+                'difficulty': 0.8,
+                'expected_d_direction': 'up',
+                'expected_i_direction': 'down',
+            },
+            {
+                'card_id': 'wisdom_gain',
+                'prompt': 'After resolving conflict, I understand the situation better.',
+                'correctness': True,
+                'difficulty': 0.6,
+                'expected_d_direction': 'down',
+                'expected_i_direction': 'stable',
+            },
+        ]
+
+    def _predict_interview_outcome(self, card: Dict[str, Any], pre_d: float, pre_i: float) -> Dict[str, float]:
+        d_step = {'up': 0.12, 'down': -0.08, 'stable': 0.0}.get(card.get('expected_d_direction', 'stable'), 0.0)
+        i_step = {'up': 0.03, 'down': -0.03, 'stable': 0.0}.get(card.get('expected_i_direction', 'stable'), 0.0)
+        expected_d = max(0.0, min(1.0, pre_d + d_step))
+        expected_i = max(0.0, min(1.0, pre_i + i_step))
+        return {'expected_D': expected_d, 'expected_I': expected_i}
 
     @staticmethod
     def _event_title(event: Any) -> str:
@@ -214,43 +311,76 @@ class ModeOrchestrator:
 
     def run_interview_mode(self) -> Dict[str, Any]:
         """Groq → RAVANA → test/evaluate"""
-        raise NotImplementedError(
-            "Interview mode requires ravana_wrapper which is not available in this environment."
-        )
-        
-        if self.test_harness is None:
-            self.test_harness = TestHarness(
-                ravana_wrapper=self.ravana,
-                groq_api_key=self.groq_api_key
+        cards = self._default_interview_cards()
+        results: List[Dict[str, Any]] = []
+        passed = 0
+
+        for card in cards:
+            snapshot = self._state_snapshot()
+            pre_d = float(snapshot.get('dissonance', self.last_D) or self.last_D)
+            pre_i = float(snapshot.get('identity', 0.5) or 0.5)
+            prediction = self._predict_interview_outcome(card, pre_d, pre_i)
+
+            result = self.ravana.step(
+                correctness=bool(card.get('correctness', False)),
+                difficulty=float(card.get('difficulty', 0.5) or 0.5),
+                reason=f"interview:{card['card_id']}"
             )
-        
-        # Run full interview
-        results = self.test_harness.run_interview()
-        
-        # Log results
-        for result in results:
-            status = 'pass' if result.passed else 'fail'
+
+            actual_d = float(result.get('post_dissonance', pre_d) or pre_d)
+            actual_i = float(result.get('post_identity', pre_i) or pre_i)
+            d_delta = actual_d - pre_d
+            i_delta = actual_i - pre_i
+            d_consistent = self._direction_ok(d_delta, card.get('expected_d_direction', 'stable'))
+            i_consistent = self._direction_ok(i_delta, card.get('expected_i_direction', 'stable'))
+            passed_card = d_consistent and i_consistent
+            failure_type = None if passed_card else ('dissonance_mismatch' if not d_consistent else 'identity_mismatch')
+
+            if passed_card:
+                passed += 1
+
             self.vm.record_test(
-                test_name=f"card_{result.card_id}",
-                status=status,
-                output=f"D: {result.actual_D:.3f} vs {result.expected_D:.3f}",
+                test_name=f"card_{card['card_id']}",
+                status='pass' if passed_card else 'fail',
+                output=(
+                    f"D {pre_d:.3f}→{actual_d:.3f} expected {prediction['expected_D']:.3f}; "
+                    f"I {pre_i:.3f}→{actual_i:.3f} expected {prediction['expected_I']:.3f}"
+                ),
                 duration_ms=0,
             )
-        
+
+            results.append(
+                {
+                    'card': card['card_id'],
+                    'prompt': card['prompt'],
+                    'passed': passed_card,
+                    'expected_D': prediction['expected_D'],
+                    'actual_D': actual_d,
+                    'expected_I': prediction['expected_I'],
+                    'actual_I': actual_i,
+                    'D_delta': abs(actual_d - prediction['expected_D']),
+                    'dissonance_consistent': d_consistent,
+                    'failure': failure_type,
+                    'notes': f"pre_D={pre_d:.3f}, pre_I={pre_i:.3f}",
+                }
+            )
+
+            self.last_D = actual_d
+
+        failed = len(cards) - passed
+        if failed:
+            self.vm.queue_improvement(
+                description=f"Interview mode found {failed} inconsistent card(s)",
+                source='interview',
+                priority=3 if failed > 1 else 2,
+            )
+
         return {
             'mode': 'interview',
-            'cards_run': len(results),
-            'passed': sum(1 for r in results if r.passed),
-            'failed': sum(1 for r in results if not r.passed),
-            'results': [
-                {
-                    'card': r.card_id,
-                    'passed': r.passed,
-                    'D_delta': abs(r.actual_D - r.expected_D),
-                    'failure': r.failure_type
-                }
-                for r in results
-            ]
+            'cards_run': len(cards),
+            'passed': passed,
+            'failed': failed,
+            'results': results,
         }
 
     def run_learn_mode(self) -> Dict[str, Any]:
@@ -385,7 +515,7 @@ class ModeOrchestrator:
             result = self.run_learn_mode()
         
         # 3. Get current state
-        diag = self.ravana.get_diagnosis()
+        diag = self._state_snapshot()
         
         # 4. Build report
         duration = (datetime.now() - start_time).total_seconds()
@@ -441,7 +571,7 @@ class ModeOrchestrator:
             ])
         
         # RAVANA state
-        state = report['ravana_state']
+        state = self._normalize_state_report(report.get('ravana_state', {}))
         lines.extend([
             "",
             f"Dissonance: {state['dissonance']:.1%}",
