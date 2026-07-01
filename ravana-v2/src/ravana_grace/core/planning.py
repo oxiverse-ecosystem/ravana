@@ -28,7 +28,7 @@ class PlanningConfig:
     """Configuration for micro-planning."""
     horizon: int = 5  # Steps to simulate
     dissonance_drift_per_step: float = 0.02  # Natural drift
-    clamp_threshold: float = 0.15  # Clamps per 20 steps = crisis
+    clamp_threshold: float = 0.15  # Clamp-risk level that counts as crisis
     
     # Mode-specific deltas (physics-based policy simulation)
     mode_deltas: Dict[ExplorationMode, Dict[str, float]] = None
@@ -102,6 +102,9 @@ class MicroPlanner:
         
         # Simulate steps
         for _ in range(steps):
+            # Apply natural drift first so the planner sees the world moving even when a mode is quiet.
+            d += self.config.dissonance_drift_per_step
+            
             # Apply mode deltas
             d += d_delta + np.random.normal(0, noise)
             i += i_delta + np.random.normal(0, noise * 0.5)
@@ -151,12 +154,16 @@ class MicroPlanner:
         # Terminal value (0-1)
         value_score = future.terminal_score
         
-        # Clamp penalty (exponential: small risk OK, high risk terrible)
-        clamp_penalty = 1.0 - np.exp(-5 * future.clamp_risk)
+        # Clamp penalty: once risk reaches the configured crisis threshold,
+        # the future is treated as meaningfully degraded.
+        risk_scale = max(self.config.clamp_threshold, 1e-6)
+        clamp_pressure = future.clamp_risk / risk_scale
+        clamp_penalty = 1.0 - np.exp(-3.0 * clamp_pressure)
         
-        # Stability bonus (low trajectory variance)
+        # Stability bonus (low trajectory variance = more predictable)
         d_variance = np.var(future.dissonance_trajectory)
-        stability_bonus = np.exp(-10 * d_variance)  # 1.0 if stable, decay if volatile
+        context_bias = 0.5 + 0.5 * np.clip(context.stability, 0.0, 1.0)
+        stability_bonus = np.exp(-10 * d_variance) * context_bias
         
         # Combined score
         score = (
