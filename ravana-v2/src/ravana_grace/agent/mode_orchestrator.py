@@ -192,6 +192,12 @@ class ModeOrchestrator:
             return str(event.get('source', 'news'))
         return str(getattr(event, 'source', 'news'))
 
+    @staticmethod
+    def _scenario_action(scenario: Any) -> str:
+        if isinstance(scenario, dict):
+            return str(scenario.get('action', ''))
+        return str(getattr(scenario, 'action', ''))
+
     def _summary(self) -> Dict[str, Any]:
         summary = self.vm.get_summary()
         if not isinstance(summary, dict):
@@ -268,7 +274,7 @@ class ModeOrchestrator:
             sources = getattr(rg, 'sources', [])
             cycle = {'summary': cycle_summary}
         
-        top_action = getattr(scenarios[0], 'action', '') if scenarios else ''
+        top_action = self._scenario_action(scenarios[0]) if scenarios else ''
         alignment_verdict = str(alignment.get('verdict', 'no_evidence')) if alignment else 'no_evidence'
         research_notes = {
             'events_collected': len(events),
