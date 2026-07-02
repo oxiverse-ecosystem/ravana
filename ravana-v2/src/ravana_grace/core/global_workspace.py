@@ -136,8 +136,9 @@ class GlobalWorkspace:
         ranked = sorted(noisy_bids, key=lambda x: x[1], reverse=True)
         winner, winner_score = ranked[0]
 
-        # Check threshold
-        if winner.urgency < self.config.broadcast_threshold:
+        # Check threshold against the competed score, not the raw urgency.
+        # Noise should be able to promote a borderline bid into broadcast.
+        if winner_score < self.config.broadcast_threshold:
             self.clear_bids()
             return None
 
