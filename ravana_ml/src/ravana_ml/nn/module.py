@@ -234,30 +234,12 @@ class Linear(Module):
         return float(np.mean(np.abs(hebbian)))
 
     def sleep_cycle(self):
-        # Cap plasticity-driven freezing: stability climbs toward 1.0 by default,
-        # which drives plasticity (1 - stability) to 0 and freezes the layer.
-        # Capping at STABILITY_CAP keeps a minimum learning rate so continued
-        # training can still reshape weights after many sleep cycles.
-        STABILITY_CAP = 0.8
-        plasticity = 1.0 - float(np.mean(self.weight.stability))
-        # Free energy is the accumulated Hebbian trace. The per-element clamp
-        # handles outlier accumulation (high-frequency words that appear in
-        # almost every sentence can build FE > 10) while letting median
-        # elements (~0.01 FE) move at a meaningful rate (~10× faster than the
-        # old 0.01× shrinkage): median delta ≈ 0.01 × 0.1 × 0.5 = 0.0005.
-        delta_w = self._weight_free_energy.data * plasticity * 0.1
-        np.clip(delta_w, -0.1, 0.1, out=delta_w)
-        # EWC penalty: resist weight changes for high-Fisher parameters
-        if self._old_weight_snapshot is not None:
-            ewc_penalty = 0.4 * self._fisher_diagonal.data * (self.weight.data - self._old_weight_snapshot)
-            delta_w -= ewc_penalty
-        self.weight.data += delta_w
+        STABILITY_CAP = 0.95
         self._weight_free_energy = StateTensor(np.zeros_like(self._weight_free_energy.data))
         self._fisher_diagonal = StateTensor(np.zeros_like(self._fisher_diagonal.data))
         self._fisher_count = 0
         self.weight.stability = min(STABILITY_CAP, self.weight.stability + 0.005)
         if self.bias is not None:
-            self.bias.data += self._bias_free_energy.data * plasticity * 0.1
             self._bias_free_energy = StateTensor(np.zeros_like(self._bias_free_energy.data))
             self.bias.stability = min(STABILITY_CAP, self.bias.stability + 0.005)
         self._rebuild_raw_cache()
@@ -327,16 +309,7 @@ class Embedding(Module):
         super().accumulate_free_energy(error)
 
     def sleep_cycle(self):
-        # See Linear.sleep_cycle: cap stability, per-element clamp.
-        STABILITY_CAP = 0.8
-        plasticity = 1.0 - float(np.mean(self.weight.stability))
-        delta_w = self._weight_free_energy.data * plasticity * 0.1
-        np.clip(delta_w, -0.1, 0.1, out=delta_w)
-        # EWC penalty
-        if self._old_weight_snapshot is not None:
-            ewc_penalty = 0.4 * self._fisher_diagonal.data * (self.weight.data - self._old_weight_snapshot)
-            delta_w -= ewc_penalty
-        self.weight.data += delta_w
+        STABILITY_CAP = 0.95
         self._weight_free_energy = StateTensor(np.zeros_like(self._weight_free_energy.data))
         self._fisher_diagonal = StateTensor(np.zeros_like(self._fisher_diagonal.data))
         self._fisher_count = 0

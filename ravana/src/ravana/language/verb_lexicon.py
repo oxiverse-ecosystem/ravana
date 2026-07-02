@@ -312,8 +312,11 @@ class VerbLexicon:
             # Enforce subcategorization frames for prepositions/particles
             if i > 0 and cat in ("prepositions", "particles") and components:
                 prev = components[0].lower()
-                valid_opts = cls.SUBCAT_FRAMES.get(prev, [])
-                if valid_opts:
+                if prev in cls.SUBCAT_FRAMES:
+                    valid_opts = cls.SUBCAT_FRAMES[prev]
+                    if not valid_opts:
+                        # This verb takes no preposition/particle
+                        continue
                     pool = [opt for opt in cls._get_morpheme_pool(cat) if opt in valid_opts]
                     if not pool:
                         pool = [valid_opts[0]]
@@ -350,10 +353,16 @@ class VerbLexicon:
                 return f"{base} {cls.SUBCAT_FRAMES[prev][0]}"
             return base
         elif rule == ("roots", "prepositions"):
+            if len(components) == 1:
+                return cls._conjugate_root(components[0])
             return f"{cls._conjugate_root(components[0])} {components[1]}"
         elif rule == ("roots", "particles"):
+            if len(components) == 1:
+                return cls._conjugate_root(components[0])
             return f"{cls._conjugate_root(components[0])} {components[1]}"
         elif rule == ("adjectives", "prepositions"):
+            if len(components) == 1:
+                return f"is {components[0]}"
             return f"is {components[0]} {components[1]}"
         elif rule == ("compound_roots",):
             base = cls._conjugate_compound_root(components[0])
@@ -362,6 +371,8 @@ class VerbLexicon:
                 return f"{base} {cls.SUBCAT_FRAMES[prev][0]}"
             return base
         elif rule == ("compound_roots", "prepositions"):
+            if len(components) == 1:
+                return cls._conjugate_compound_root(components[0])
             return f"{cls._conjugate_compound_root(components[0])} {components[1]}"
         else:
             return cls._conjugate_root(components[0]) if components else "relates to"

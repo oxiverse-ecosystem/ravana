@@ -39,7 +39,7 @@ class PredictiveCodingLearner:
         """
         node = self.graph.get_node(node_id)
         if node is None:
-            raise ValueError(f"Node {node_id} not found in graph.")
+            return np.zeros(self.graph.dim, dtype=np.float32), 0.0
             
         predictor = self.get_predictor(node_id)
         prediction = predictor @ context_vector

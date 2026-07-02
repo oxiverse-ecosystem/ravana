@@ -9,6 +9,7 @@ from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass
 
 from ravana_ml.nn.neural_decoder import NeuralDecoder
+from ravana_ml.nn.neuromodulator import NeuromodulatorEngine
 from ..graph import TEEN_CONCEPTS, DOMAIN_CONCEPTS, STOP_WORDS
 
 
@@ -155,6 +156,7 @@ class DecoderEngine:
                 next_idx += 1
 
         vocab_size = len(self._decoder_word_to_idx)
+        self.neuromodulator_engine = NeuromodulatorEngine()
         self.neural_decoder = NeuralDecoder(
             vocab_size=vocab_size,
             embed_dim=self.config.embed_dim,
@@ -162,6 +164,7 @@ class DecoderEngine:
             n_attention_heads=self.config.n_attention_heads,
             contrastive_weight=self.config.contrastive_weight,
             contrastive_negatives=self.config.contrastive_negatives,
+            neuromodulator=self.neuromodulator_engine,
         )
 
         # Initialize decoder word embeddings
@@ -256,7 +259,7 @@ class DecoderEngine:
 
         total_err = 0.0
         passes = 0
-        for _ in range(20):  # 20 passes for Hebbian consolidation
+        for _ in range(100):  # 100 passes for strong Hebbian consolidation
             err, n = self.neural_decoder.train_on_text(
                 text, self._decoder_word_to_embed, self._decoder_word_to_idx,
                 min_sentence_len=3, max_sentences=200)
@@ -355,35 +358,11 @@ class DecoderEngine:
                 new_weight[idx] = blended
         self.neural_decoder.word_embedding.weight.data = new_weight
 
-        # Mini training on new words
-        for nw in new_words:
-            nwl = nw.lower().strip()
-            nidx = self._decoder_word_to_idx.get(nwl)
-            if nidx is None:
-                continue
-            nvec = self._decoder_word_to_embed.get(nwl)
-            if nvec is None:
-                continue
-            neighbors = []
-            for ew, ei in self._decoder_word_to_idx.items():
-                if ew == nwl or ew.startswith('<') or ei == nidx:
-                    continue
-                ev = self._decoder_word_to_embed.get(ew)
-                if ev is not None:
-                    sim = float(np.dot(nvec, ev))
-                    if sim > 0.4:
-                        neighbors.append((ew, sim))
-            neighbors.sort(key=lambda x: -x[1])
-            for neighbor, _ in neighbors[:3]:
-                bridge = f"{nwl} and {neighbor} are related"
-                self.neural_decoder.train_on_sentence(
-                    bridge.split(), self._decoder_word_to_embed, self._decoder_word_to_idx)
-
         print(f"  [Decoder] Expanded vocab by {added} words (now {new_vocab_size})")
 
     def train_on_text(self, text: str, topic: str, graph_engine, glove_vector_fn,
                       conditioning_embs: Optional[np.ndarray] = None,
-                      passes: int = 3) -> int:
+                      passes: int = 10) -> int:
         """Train decoder on full article text."""
         if self.neural_decoder is None or not self._decoder_vocab_built:
             return 0

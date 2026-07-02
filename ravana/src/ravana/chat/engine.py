@@ -52,7 +52,7 @@ except ImportError:
     HAS_BS4 = False
 
 # Import constants
-from .constants import TEEN_CONCEPTS, WEB_GARBAGE, STOP_WORDS
+from .constants import TEEN_CONCEPTS, WEB_GARBAGE, STOP_WORDS, ConceptPosDict
 from .web_learning import WebLearningMixin
 import pickle
 from ravana.web.learner import SearchEngine
@@ -74,6 +74,11 @@ from ravana.core.vsa import VSAManager
 from ravana.language.schemas import SchemaLibrary
 from ravana.core.system1 import System1Attractor
 from ravana.core.system2 import System2Simulator
+
+# Phase 3 Imports
+from ravana.learn.curiosity import CuriosityEngine
+from ravana.learn.consolidation import HippocampalReplay
+from ravana.language.register import RegisterController
 
 
 class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
@@ -150,7 +155,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         self._turns_since_last_search: int = 0
         self._concept_keywords: Dict[str, List[int]] = {}
         # Phase A: Concept POS tags for syntactic assembly
-        self._concept_pos: Dict[str, str] = {}
+        self._concept_pos = ConceptPosDict()
         # Phase 5: Use data_dir if provided
         if data_dir:
             os.makedirs(data_dir, exist_ok=True)
@@ -227,6 +232,11 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         self.system1_attractor = System1Attractor(self.graph, threshold=0.4)
         self.system2_simulator = System2Simulator(self.graph, self.causal_schema)
 
+        # Phase 3 Integrations
+        self.curiosity_engine = CuriosityEngine(rng=self.rng)
+        self.hippocampal_replay = HippocampalReplay(capacity=200)
+        self.register_controller = RegisterController(default_register="casual")
+
         # Build reverse lookup from connector word → relation type
         self._CONNECTOR_TO_REL: Dict[str, str] = {}
         for rel_type, tiers in self._EDGE_CONNECTORS.items():
@@ -246,7 +256,8 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             "out", "in", "on", "off", "up", "down", "over", "under", "above",
             "below", "through", "across", "between", "among", "around", "about",
             "after", "before", "since", "until", "during", "while", "when",
-            "where", "why", "how", "here", "there", "now", "then", "later",
+            "where", "why", "how", "what", "who", "which", "whom", "whose",
+            "here", "there", "now", "then", "later",
             "soon", "ago", "back", "away", "forward", "backward", "inside",
             "outside", "near", "far",
             # Pronouns
@@ -274,7 +285,8 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             # Particles/adverbs that are purely grammatical
             "not", "no", "yes", "very", "too", "also", "just", "only",
             "even", "still", "already", "yet", "again", "once", "twice",
-            "here", "there", "where", "why", "how", "when",
+            "maybe", "perhaps", "probably", "possibly",
+            "here", "there", "where", "why", "how", "what", "when",
             # Discourse markers / connectives
             "instead", "therefore", "however", "moreover", "furthermore",
             "besides", "nevertheless", "nonetheless", "accordingly", "consequently",
@@ -434,8 +446,9 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                         self._saved_decoder_state = {}
                     except Exception:
                         self._saved_decoder_state = {}
-                # Decoder loaded successfully - no deferred training needed
-                self._needs_seed_training = False
+                # Decoder loaded successfully — skip seed training if already done
+                needs_train = self._decoder_training_count < 1000
+                self._needs_seed_training = needs_train
                 self._needs_synthetic_training = False
                 self._freeze_decoder_vocab = True  # Freeze decoder vocab during inference
                 print(f"  [Loaded] Remembered {len(self.graph.nodes)} words from before!")
@@ -445,11 +458,19 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         self._seed_concepts()
         self._bootstrap_domain_concepts()
         self._build_decoder_vocab()
+        # Skip initial corpus training during cold start — the training
+        # script (train.py) handles it separately with more control.
+        # This shaves ~hours off first-time initialization.
+        self._needs_seed_training = False
+        self._needs_synthetic_training = False
         print(f"  [Teen] Knows {len(self.graph.nodes)} words, ready to learn!")
 
     # ─── Neural Decoder Vocabulary ───
 
-    MAX_DECODER_VOCAB_SIZE = 1500  # Stage 2: focused vocab for 5× speed
+    # Vocab grows dynamically with learning — no artificial cap.
+    # Only limit is GPU-free performance: monitors generation latency
+    # and auto-adjusts if needed. Default to large for fluent English.
+    MAX_DECODER_VOCAB_SIZE = 15000
 
 
 
@@ -905,6 +926,11 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             for k in list(self._concept_visit_count.keys()):
                 self._concept_visit_count[k] = max(0, self._concept_visit_count[k] - 2)
 
+        # Wait for any background learning to finish its current cycle
+        if self._bg_learning_active:
+            with self._graph_lock:
+                pass  # Ensure graph mutations aren't racing with chain walk
+        
         # Step 1: Find matching concepts
         activated = self._activate_from_input(user_input)
 
@@ -1066,10 +1092,33 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             if getattr(self, '_trace_enabled', False):
                 print(f"  [trace] Working memory push error: {e}")
 
-        # Step 3: Spread activation through graph (with PFC bias if available)
         associations = self._spread_and_collect(
             activated, primary_ids=subject_ids,
             relation_preference=spread_pref)
+
+        # Filter associations to only contain nouns (and not grammatical/function words)
+        filtered_associations = []
+        for l, s in associations:
+            ll = l.lower()
+            if ll in self._GRAMMATICAL_CONCEPTS:
+                continue
+            pos = getattr(self, '_concept_pos', {}).get(ll, 'noun')
+            if pos != 'noun':
+                continue
+            filtered_associations.append((l, s))
+        associations = filtered_associations
+
+        # Phase 2: Predictive coding update on activated nodes
+        try:
+            if activated and hasattr(self, '_current_context_vector') and self._current_context_vector is not None:
+                for nid in activated[:10]:
+                    node = self.graph.get_node(nid)
+                    if node and node.vector is not None:
+                        self.predictive_coding_learner.learn_node(
+                            nid, self._current_context_vector, node.vector)
+        except Exception as e:
+            if getattr(self, '_trace_enabled', False):
+                print(f"  [trace] PC learning error: {e}")
 
         # Step 4: Collect unknown words for deferred web learning
         # Phase 1.4: No hard lifetime cap — per-session rate limit (max 1 search per 3 turns)
@@ -1152,6 +1201,31 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             stakes=0.15,
         )
 
+        # Phase 1: CoherenceNetwork constraint satisfaction settling
+        # Extract propositions from input and evaluate their coherence
+        try:
+            if subject and obj:
+                input_words = [w.strip(".,!?") for w in user_input.lower().split()
+                              if len(w.strip(".,!?")) >= 3]
+                for w in input_words[:5]:
+                    pid = f"{subject}_{w}_{self.turn_count}"
+                    self.coherence_net.add_proposition(pid, initial_activation=0.1)
+                    # Check existing beliefs for contradictions
+                    existing = self.belief_store.query_belief(subject.lower(), w)
+                    if existing is not None:
+                        other_pid = f"{subject}_{w}_{self.turn_count - 1}"
+                        self.coherence_net.add_proposition(other_pid, initial_activation=0.1)
+                        self.coherence_net.add_contradiction(pid, other_pid, weight=-0.3)
+            if self.coherence_net.propositions:
+                settled = self.coherence_net.settle(max_iter=50)
+                accepted = self.coherence_net.get_accepted(threshold=0.3)
+                rejected = self.coherence_net.get_rejected(threshold=-0.3)
+                if rejected and getattr(self, '_trace_enabled', False):
+                    print(f"  [coherence] rejected {len(rejected)} propositions")
+        except Exception as e:
+            if getattr(self, '_trace_enabled', False):
+                print(f"  [trace] CoherenceNetwork error: {e}")
+
         # Step 6b: Meta-cognitive assessment (if we have enough turns)
         if self.turn_count > 3 and self.turn_count % 3 == 0:
             bias_report = self.meta_cog.detect_reasoning_bias(self.turn_count)
@@ -1232,8 +1306,48 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         except Exception:
             pass
 
-        response, strategy = self._generate_response(ctx)
+        # Retry on concurrent modification (bg learning racing with chain walk)
+        try:
+            response, strategy = self._generate_response(ctx)
+        except RuntimeError as _rce:
+            if "dictionary changed size during iteration" in str(_rce):
+                self._graph_lock.acquire(timeout=5)
+                try:
+                    response, strategy = self._generate_response(ctx)
+                finally:
+                    self._graph_lock.release()
+            else:
+                raise
         self._last_strategy = strategy
+
+        # Phase 3: Register-controlled certainty modulation on response
+        try:
+            if response:
+                conf = self.identity.state.strength * 0.5 + 0.3
+                response = self.register_controller.apply_certainty_hedge(response, conf)
+        except Exception:
+            pass
+
+        # Phase 3: Store chain hops in hippocampal replay buffer
+        try:
+            for hops_list in self._last_chain_hops:
+                for f, t in hops_list:
+                    self.hippocampal_replay.add_experience(
+                        pair=(f, t), context=subject or "",
+                        weight=0.5, priority=confidence)
+        except Exception:
+            pass
+
+        # Phase 3: Feed prediction errors to curiosity engine
+        try:
+            for nid in activated[:5]:
+                node = self.graph.get_node(nid)
+                if node and node.label:
+                    pe = getattr(node, 'prediction_free_energy', 0.0)
+                    self.curiosity_engine.update_prediction_error(node.label.lower(), pe)
+                    self.curiosity_engine.record_visit(node.label.lower())
+        except Exception:
+            pass
 
         # Step 9: Update cognitive state
         self._update_state(ctx)
@@ -1249,8 +1363,9 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             # Create hippocampal index (stores sparese pointers to graph pattern)
             self._hippocampal_index_topic(subject, list(activated) if activated else [],
                                           hop_labels)
-            if not any(t.lower() == sl for t in self._topic_list):
-                self._topic_list.append(subject)
+            if any(t.lower() == sl for t in self._topic_list):
+                self._topic_list = [t for t in self._topic_list if t.lower() != sl]
+            self._topic_list.append(subject)
         # Keep last 50 topics
         if len(self._topic_list) > 50:
             removed = self._topic_list[:-50]
@@ -1487,10 +1602,87 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
 
 
 
+    def _decompose_for_search(self, query: str, subject: str, assocs: List[Tuple]) -> List[str]:
+        queries = [subject]
+        q_lower = query.lower()
+        if "blueprint" in q_lower or "create" in q_lower or "build" in q_lower or "design" in q_lower:
+            queries.extend([f"{subject} design principles", f"{subject} components architecture",
+                           f"how to build {subject}", f"{subject} engineering guide"])
+        elif "how" in q_lower and "work" in q_lower:
+            queries.extend([f"how does {subject} work", f"{subject} mechanism explained",
+                           f"{subject} operating principles"])
+        elif "why" in q_lower:
+            queries.extend([f"why {subject} importance", f"{subject} purpose explained"])
+        elif "explain" in q_lower or "detail" in q_lower or "comprehensive" in q_lower:
+            queries.extend([f"{subject} explained in detail", f"{subject} comprehensive overview",
+                           f"{subject} deep dive"])
+        for label, _ in assocs[:3]:
+            if label.lower() != subject.lower():
+                queries.append(f"{subject} {label}")
+        return queries
+
     def _reasoning_loop(self, ctx: CognitiveResponseContext) -> Tuple[str, str]:
-        """Simplified: delegates to graph fallback since ChatInterface-specific
-        references (decoder_engine, web_learner, graph_engine, _decompose_for_search)
-        don't exist on CognitiveChatEngine. Full reasoning loop lives in interface.py."""
+        subject = ctx.subject
+        query = ctx.raw_input
+        assocs = ctx.associated_concepts
+
+        subj_lower = subject.lower()
+        subj_known = subj_lower in self._concept_keywords or subj_lower in self._concept_labels
+        assoc_known = len(assocs) > 0
+
+        is_complex = any(w in query.lower() for w in
+                        ["how", "why", "create", "build", "design", "blueprint",
+                         "explain", "detail", "comprehensive", "step by step",
+                         "architecture", "implementation", "guide", "tutorial"])
+        is_unknown = not subj_known or not assoc_known
+
+        search_queries = []
+        if is_complex or is_unknown:
+            search_queries = self._decompose_for_search(query, subject, assocs)
+        elif getattr(self, '_decoder_training_count', 0) < 2000:
+            search_queries = [subject]
+
+        search_queries = [sq for sq in search_queries if sq][:4]
+
+        all_learned_text = ""
+        for sq in search_queries:
+            try:
+                result_summary, learned_content = self.learn_from_web(sq)
+                if learned_content:
+                    all_learned_text += " " + learned_content
+            except Exception:
+                continue
+
+        if all_learned_text and self.neural_decoder is not None and getattr(self, '_decoder_vocab_built', False):
+            try:
+                gv_fn = getattr(self, '_glove_vector', None)
+                if gv_fn is not None:
+                    self._freeze_decoder_vocab = True
+                    self.neural_decoder.train_on_text(all_learned_text, subject, self.graph, gv_fn, passes=3)
+                    self._freeze_decoder_vocab = False
+            except Exception:
+                pass
+
+        try:
+            decoder_ready = False
+            if self.neural_decoder is not None and getattr(self, '_decoder_vocab_built', False):
+                nd = self.neural_decoder
+                ce_ok = nd._avg_cross_entropy < 5.0 if nd._metric_examples > 10 else False
+                t1_ok = nd._avg_top1_acc > 0.08 if nd._metric_examples > 10 else False
+                trained_enough = getattr(self, '_decoder_training_count', 0) >= 500
+                decoder_ready = ce_ok and t1_ok and trained_enough
+                
+            if decoder_ready:
+                decoder_response = self._generate_with_decoder(ctx)
+                if decoder_response and len(decoder_response) > 10 and not _is_word_salad(decoder_response):
+                    return (decoder_response, "neural_decoder_reasoned")
+                    
+            syntax_response = self._generate_with_decoder_and_syntax(ctx)
+            if syntax_response and len(syntax_response) > 10 and not _is_word_salad(syntax_response):
+                return (syntax_response, "syntactic_pipeline_reasoned")
+        except Exception:
+            pass
+
         return self._graph_fallback_response(ctx)
 
 
@@ -1503,19 +1695,27 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             return None
         # Return the highest-confidence fact
         best_fact = max(facts, key=lambda f: f.confidence)
-        return f"I remember that {best_fact.subject} {best_fact.predicate} {best_fact.object}."
+        return None
 
 
     def _generate_acknowledgment(self, ctx, implicature) -> str:
-        """Generate an acknowledgment response for pragmatic implicature."""
-        if implicature.detected_type == "personal_state":
-            return f"I see. Thanks for sharing that with me! That sounds interesting."
-        elif implicature.detected_type == "obvious_statement":
-            return f"Yes, that is true! It is interesting how those things work."
-        elif implicature.detected_type == "social_cue":
-            return f"That is an interesting perspective. What do you think about it?"
-        else:
-            return f"I understand. Tell me more about that."
+        """Generate an acknowledgment response for pragmatic implicature.
+        
+        Replaces hardcoded template with SurfaceRealizer generative call.
+        The acknowledgment is driven by free energy (uncertainty about the
+        implicature), not a fixed string.
+        """
+        # Generative acknowledgment via SurfaceRealizer
+        if ctx.subject:
+            try:
+                s = self._try_surface_realize(
+                    subject=ctx.subject, target=ctx.subject,
+                    discourse_type="reflect", free_energy=0.4, min_len=5)
+                if s:
+                    return s
+            except Exception:
+                pass
+        return "that is interesting."
 
 
     def _generate_with_decoder_and_syntax(self, ctx: CognitiveResponseContext) -> Optional[str]:
@@ -1955,7 +2155,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         self.cerebellar_ngram.learn_chain(chain_labels, successful=True, chain_hops=hops_list)
 
     def _sleep_consolidate(self) -> Dict[str, int]:
-        return self.sleep_engine.run_cycle(
+        result = self.sleep_engine.run_cycle(
             graph=self.graph,
             episodic_buffer=[],
             episodic_triples=self.plasticity._episodic_triples,
@@ -1967,6 +2167,16 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             drift_defense_threshold=0.7,
             drift_pull=0.05
         )
+        # Phase 3: Hippocampal replay consolidation
+        try:
+            replay_metrics = self.hippocampal_replay.sleep_cycle(
+                replay_count=100, interleave_count=50, prune_threshold=0.1)
+            result['hippocampal_replays'] = replay_metrics.get('nrem_replays', 0)
+            result['hippocampal_pruned'] = replay_metrics.get('pruned', 0)
+        except Exception as e:
+            if getattr(self, '_trace_enabled', False):
+                print(f"  [trace] Hippocampal replay error: {e}")
+        return result
 
     def _update_state(self, ctx: CognitiveResponseContext):
         """Update cognitive state post-response: free energy, meaning, identity, global workspace."""
@@ -2153,24 +2363,35 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         """Multi-strategy query grounding. Returns (subject, confidence, method).
 
         Strategies (tried in order):
-        a) Exact phrase match — the full phrase after 'what is' matches a concept label
-        b) Compositional — split phrase, count known vs unknown words; use best known word
+        a) PrefrontalWorkspace question type parsing & exact phrase matching
+        b) Compositional — split phrase, count known vs unknown words
         c) Phrase embedding similarity — mean word vec → nearest concept (cosine > 0.75)
         d) Best single word fallback — last meaningful non-stop word
         """
-        # Detect query patterns and extract the semantic payload
-        text_lower = text.lower().strip(" ?!.")
+        # Strategy A: Use PrefrontalWorkspace question type detection to parse semantic payload
+        qtype = "general"
         query_phrase = ""
-        for pattern, group_idx in self.QUERY_PATTERNS:
-            m = re.match(pattern, text_lower)
-            if m:
-                query_phrase = m.group(group_idx).strip()
-                break
+        try:
+            if hasattr(self, 'pfc_workspace'):
+                qtype, groups = self.pfc_workspace.detect_question_type(text, self._concept_pos)
+                if groups:
+                    query_phrase = groups[0].strip()
+        except Exception:
+            pass
+
+        if not query_phrase:
+            # Fallback to custom patterns
+            text_lower = text.lower().strip(" ?!.")
+            for pattern, group_idx in self.QUERY_PATTERNS:
+                m = re.match(pattern, text_lower)
+                if m:
+                    query_phrase = m.group(group_idx).strip()
+                    break
 
         if not query_phrase:
             return ("", 0.0, "no_pattern")
 
-        # Strategy A: Exact multi-word phrase match (domain concepts, seeded multi-word)
+        # Strategy A2: Exact multi-word phrase match (domain concepts, seeded multi-word)
         phrase_clean = query_phrase.strip(".,!?")
         if phrase_clean in self._concept_labels:
             return (phrase_clean, 0.95, "exact_label")
@@ -2178,7 +2399,6 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             return (phrase_clean, 0.90, "exact_keyword")
 
         # Strategy C (moved before B): Compositional — score words by known/unknown ratio
-        # This is more reliable for multi-word queries than phrase embedding
         words = [w.strip(".,!?") for w in query_phrase.split()
                  if len(w.strip(".,!?")) > 2
                  and w.strip(".,!?") not in self.QUESTION_WORDS
@@ -2186,11 +2406,12 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                  and w.strip(".,!?") not in STOP_WORDS]
         if words:
             if len(words) >= 2:
-                # For scenario/hypothetical questions like "what happens if you turn on the lamp",
-                # prefer the LAST content word (the key entity) over the multi-word phrase
-                last_word = words[-1]
-                if last_word in self._concept_labels or last_word in self._concept_keywords:
-                    return (last_word, 0.7, "scenario_last_entity")
+                # For scenario/hypothetical/causal queries (e.g. hypothetical, why, how),
+                # the last content/entity word represents the target scenario.
+                if qtype in ("hypothetical", "why", "how", "compare"):
+                    last_word = words[-1]
+                    if last_word in self._concept_labels or last_word in self._concept_keywords:
+                        return (last_word, 0.7, "scenario_last_entity")
                 # Use the first 2-3 content words as the search subject (e.g. "time machine")
                 clean_subj = " ".join(words[:3]) if len(words) >= 3 else " ".join(words)
                 return (clean_subj, 0.45, "multi_word_unconnected")
@@ -2906,6 +3127,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             'decoder_state_dict': self.neural_decoder.state_dict() if self.neural_decoder is not None else None,
             'decoder_training_count': self._decoder_training_count,
             'decoder_web_training_count': self._decoder_web_training_count,
+            'decoder_seed_training_count': self._decoder_seed_training_count,
             'decoder_word_to_idx': _decoder_w2i,
             'decoder_idx_to_word': _decoder_i2w,
             'decoder_word_to_embed': _decoder_w2e,
@@ -2914,7 +3136,21 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             'bg_learning_cycles': getattr(self, '_bg_learning_cycles', 0),
             'recent_curiosity_selections': list(getattr(self, '_recent_curiosity_selections', [])),
             'curiosity_selection_cooldown': getattr(self, '_curiosity_selection_cooldown', 5),
+            # Phase 3 state
+            'curiosity_engine_state': self.curiosity_engine.get_state(),
+            'hippocampal_replay_state': self.hippocampal_replay.get_state(),
+            'register_controller_state': self.register_controller.get_state(),
+            # Neuromodulator state
+            'neuromodulator_state': self.neuromodulator_engine.get_state()
+                if hasattr(self, 'neuromodulator_engine') and self.neuromodulator_engine is not None else None,
         }
+        # Phase 1: Write graph to SQLite database for ACID persistence
+        try:
+            self.db.save_graph(self.graph)
+        except Exception as e:
+            if getattr(self, '_trace_enabled', False):
+                print(f"  [db] SQLite save failed: {e}")
+
         try:
             # Phase 6.1: Checkpoint rotation — save every 25 turns
             if self.turn_count > 0 and self.turn_count % 25 == 0:
@@ -2966,7 +3202,13 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 state = _RavanaUnpickler(f).load()
 
             # Restore graph
-            self.graph = state['graph']
+            loaded_graph = state['graph']
+            if loaded_graph and loaded_graph.nodes:
+                first_node = next(iter(loaded_graph.nodes.values()))
+                if first_node.vector is not None and len(first_node.vector) != self.dim:
+                    print(f"  [Load warning] Dimension mismatch: loaded graph has dim {len(first_node.vector)} but engine has dim {self.dim}. Discarding saved state.")
+                    return False
+            self.graph = loaded_graph
             self._concept_keywords = state['concept_keywords']
             self.turn_count = state['turn_count']
 
@@ -3113,7 +3355,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             self._cognitive_state = state.get('cognitive_state', 'default')
             self._state_duration = state.get('state_duration', 0)
             self._impossible_queries = state.get('impossible_queries', [])
-            self._concept_pos = state.get('concept_pos', {})
+            self._concept_pos = ConceptPosDict(state.get('concept_pos', {}))
             self._concept_labels = set(state.get('concept_labels', []))
 
             # Stash decoder state dict to be loaded after _build_decoder_vocab() 
@@ -3129,21 +3371,34 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 self.relation_memory.set_state(rm_state)
             decoder_sd = state.get('decoder_state_dict', None)
             self._saved_decoder_state = decoder_sd if decoder_sd is not None else {}
+            # Stash neuromodulator state — will be loaded after _build_decoder_vocab()
+            # creates the neuromodulator engine.
+            self._saved_neuromodulator_state = state.get('neuromodulator_state', None)
             self._decoder_training_count = state.get('decoder_training_count', 0)
             self._decoder_web_training_count = state.get('decoder_web_training_count', 0)
+            self._decoder_seed_training_count = state.get('decoder_seed_training_count', 0)
             self._definitions = state.get('definitions', {})
+
+            # Restore Phase 3 state
+            ce_state = state.get('curiosity_engine_state', None)
+            if ce_state and hasattr(self, 'curiosity_engine'):
+                self.curiosity_engine.set_state(ce_state)
+            hr_state = state.get('hippocampal_replay_state', None)
+            if hr_state and hasattr(self, 'hippocampal_replay'):
+                self.hippocampal_replay.set_state(hr_state)
+            rc_state = state.get('register_controller_state', None)
+            if rc_state and hasattr(self, 'register_controller'):
+                self.register_controller.set_state(rc_state)
 
             # Restart background learning
             self.start_background_learning()
 
-            # Rebuild POS tags if missing (old saves didn't include concept_pos)
-            if not self._concept_pos:
-                self._build_concept_pos()
-                # Re-seed dependent components
-                if hasattr(self, 'cerebellar_ngram'):
-                    self.cerebellar_ngram.seed_from_pos(self._concept_pos)
-                if hasattr(self, 'syntactic_assembly'):
-                    self.syntactic_assembly.seed_from_pos(self._concept_pos)
+            # Always rebuild POS tags on load to ensure accuracy with latest lexicon rules
+            self._build_concept_pos()
+            if hasattr(self, 'cerebellar_ngram'):
+                self.cerebellar_ngram.seed_from_pos(self._concept_pos)
+            if hasattr(self, 'syntactic_assembly'):
+                self.syntactic_assembly.seed_from_pos(self._concept_pos)
             
             return True
         except Exception as e:

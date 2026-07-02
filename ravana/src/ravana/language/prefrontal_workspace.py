@@ -846,6 +846,10 @@ class PrefrontalWorkspace:
             "here", "there", "where", "when", "why", "how", "what", "who",
             "very", "too", "also", "just", "only", "still", "yet", "already",
             "up", "down", "out", "off", "on", "over",
+            # Conjunctions — missing from original set
+            "because", "since", "although", "though", "unless",
+            "while", "whereas", "until", "once", "whether",
+            "after", "before", "despite", "nor", "neither",
         }
         # Generic causal filler verbs — they describe causation without being
         # the actual cause or effect entity. When prefer_causal=True, the PFC

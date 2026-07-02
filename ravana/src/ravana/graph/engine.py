@@ -604,30 +604,32 @@ class GraphEngine:
 
     def _build_concept_pos(self):
         """Build POS tags for seeded concepts."""
+        from ravana.chat.constants import KNOWN_VERBS, KNOWN_ADJS, FUNCTION_WORDS, FUNCTION_POS
+
         verb_suffixes = ['ing', 'ed', 'ize', 'ify', 'ate', 'en', 'ish']
         adj_suffixes = ['able', 'ible', 'ful', 'less', 'ous', 'al', 'ic', 'ive']
-        known_verbs = {'know', 'think', 'feel', 'want', 'need', 'like', 'love',
-                       'go', 'come', 'see', 'hear', 'eat', 'drink', 'sleep', 'play',
-                       'help', 'make', 'get', 'say', 'give', 'take', 'cause', 'change',
-                       'grow', 'learn', 'teach', 'create', 'destroy', 'protect', 'accept',
-                       'reject', 'invent', 'connect', 'influence', 'struggle', 'challenge',
-                       'analyze', 'conclude', 'reflect', 'question', 'explore', 'understand',
-                       'compare', 'criticize', 'assume', 'imagine'}
-        known_adjs = {'good', 'bad', 'big', 'small', 'hot', 'cold', 'happy', 'sad',
-                      'scared', 'angry', 'tired', 'excited', 'curious', 'confused',
-                      'bored', 'proud', 'lonely', 'grateful', 'complex', 'significant',
-                      'fundamental', 'inevitable', 'possible', 'obvious', 'subtle',
-                      'profound'}
+
         for label in self._concept_labels:
             ll = label.lower()
-            if ll in known_verbs:
+            is_verb = ll in KNOWN_VERBS
+            if not is_verb:
+                # Check third person singular -s (e.g. happens, differs, leads)
+                if ll.endswith('s'):
+                    if ll[:-1] in KNOWN_VERBS:
+                        is_verb = True
+                    elif ll.endswith('es') and ll[:-2] in KNOWN_VERBS:
+                        is_verb = True
+
+            if is_verb:
                 self._concept_pos[ll] = 'verb'
-            elif ll in known_adjs:
+            elif ll in KNOWN_ADJS:
                 self._concept_pos[ll] = 'adj'
             elif any(len(ll) > len(s) + 1 and ll.endswith(s) for s in verb_suffixes):
                 self._concept_pos[ll] = 'verb'
             elif any(len(ll) > len(s) + 1 and ll.endswith(s) for s in adj_suffixes):
                 self._concept_pos[ll] = 'adj'
+            elif ll in FUNCTION_WORDS:
+                self._concept_pos[ll] = FUNCTION_POS.get(ll, 'adv')
             else:
                 self._concept_pos[ll] = 'noun'
 
@@ -891,8 +893,9 @@ class GraphEngine:
             existing_cons.update(indexed_concepts[:10])
             entry['indexed_concepts'] = list(existing_cons)[:15]
 
-        if sl not in self._topic_list:
-            self._topic_list.append(subject)
+        if sl in self._topic_list:
+            self._topic_list.remove(sl)
+        self._topic_list.append(subject)
         if len(self._topic_list) > 50:
             removed = self._topic_list[:-50]
             self._topic_list = self._topic_list[-50:]

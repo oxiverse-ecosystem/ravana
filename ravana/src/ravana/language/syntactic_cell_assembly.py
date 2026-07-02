@@ -338,6 +338,36 @@ class SyntacticCellAssembly:
         - Concepts ending with common adjective suffixes → no article
         """
         cl = concept.lower()
+        # Safety net: function words should never get articles
+        # Catches cases where POS tagging defaulted to 'noun' (e.g. 'because')
+        FUNCTION_WORDS = {
+            'a','an','the','in','on','at','to','for','of','with','by','from','as',
+            'and','or','but','so','if','because','since','although','though',
+            'unless','while','whereas','until','once','whether','after','before',
+            'despite','nor','neither','not','no',
+        }
+        if cl in FUNCTION_WORDS:
+            return ""
+
+        # Check if the concept already starts with an article/determiner
+        if cl.startswith(("a ", "an ", "the ", "some ", "any ", "this ", "that ")):
+            return ""
+
+        # Complete list of pronouns to never get articles
+        PRONOUNS_ALL = {
+            'i', 'me', 'my', 'myself', 'mine',
+            'you', 'your', 'yours', 'yourself', 'yourselves',
+            'he', 'him', 'his', 'himself',
+            'she', 'her', 'hers', 'herself',
+            'it', 'its', 'itself',
+            'we', 'us', 'our', 'ours', 'ourselves',
+            'they', 'them', 'their', 'theirs', 'themselves',
+            'who', 'whom', 'whose', 'which', 'what',
+            'this', 'that', 'these', 'those',
+        }
+        if cl in PRONOUNS_ALL:
+            return ""
+
         # Proper nouns -> no article
         proper_nouns = getattr(self, 'proper_nouns', set())
         if cl in proper_nouns or any(p in cl for p in ("poirot", "marple", "carroll", "holmes")):
@@ -396,13 +426,12 @@ class SyntacticCellAssembly:
         )
         if any(garbage_indicators):
             return ""
-        # Subject gets "the" for specificity
+        # Subject gets "the" for specificity (only for real countable nouns)
         if is_subject:
-            return "the"
-        # For objects: use a/an based on vowel start
-        if cl[0] in 'aeiou':
-            return "an"
-        return "a"
+            # Skip article for most concept labels — they're generic/abstract
+            return ""
+        # For objects: skip article — concept labels are generic/abstract
+        return ""
 
     def _determine_tense(self, relation: str) -> str:
         """Determine tense from relation type.

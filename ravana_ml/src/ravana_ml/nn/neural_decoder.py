@@ -25,10 +25,13 @@ to predict the next embedding via local predictive coding error signals
 """
 
 import numpy as np
-from typing import Dict, List, Optional, Tuple, Set, Callable
+from typing import Dict, List, Optional, Tuple, Set, Callable, TYPE_CHECKING
 from ..tensor import StateTensor, Parameter, RawTensor
 from .module import Module, Linear, Embedding, GRUCell, Dropout, ConceptAttentionHead
 import re
+
+if TYPE_CHECKING:
+    from .neuromodulator import NeuromodulatorEngine
 
 
 class TracedGRUCell(GRUCell):
@@ -88,13 +91,15 @@ class NeuralDecoder(Module):
     def __init__(self, vocab_size: int, embed_dim: int = 64,
                  hidden_dim: int = 128, n_attention_heads: int = 2,
                  contrastive_weight: float = 0.5,
-                 contrastive_negatives: int = 8):
+                 contrastive_negatives: int = 8,
+                 neuromodulator: Optional['NeuromodulatorEngine'] = None):
         super().__init__()
         self.vocab_size = vocab_size
         self.embed_dim = embed_dim
         self.hidden_dim = hidden_dim
         self.contrastive_weight = contrastive_weight
         self.contrastive_negatives = contrastive_negatives
+        self.neuromodulator = neuromodulator
 
         # Word embedding (output vocabulary) — maps word indices to embeddings
         self.word_embedding = Embedding(vocab_size, embed_dim)
@@ -251,30 +256,42 @@ class NeuralDecoder(Module):
 
         h = np.zeros(self.hidden_dim, dtype=np.float32)
         cond_proj = self.condition_proj.forward_raw(conditioning_embs)
+        precomputed_attn = self.attention.forward_raw(cond_proj)
 
         generated = [bos_idx]
         confidence_sum = 0.0
         word_to_idx = {w: idx for idx, w in idx_to_word.items()} if idx_to_word else {}
-        
+        seen_counts: Dict[int, int] = {}
+        seen_bigrams: Set[Tuple[int, int]] = set()
+        seen_trigrams: Set[Tuple[int, int, int]] = set()
+        top_p = 0.92
+
         for step in range(max_steps):
             word_emb = self.word_embedding.embed_raw(generated[-1])
             projected_word = self.condition_proj.forward_raw(word_emb[np.newaxis, :])[0]
             h = self.gru(projected_word, h)
 
-            attn_logits = self.attention.forward_raw(cond_proj)
-            combined = h * 0.5 + attn_logits * 0.5
+            combined = h * 0.5 + precomputed_attn * 0.5
             logits = self.output_proj.forward_raw(combined[np.newaxis, :])[0]
 
-            # Cerebellar bias: boost transitions learned from past chain walks
-            # Optimization: pre-filter to tokens with logits > 0.01 (3-5x speedup)
+            # ── Neuromodulator modulation ──
+            nm_temp_mod = 1.0
+            nm_rep_mod = 1.0
+            nm_explore = 0.0
+            nm_conf_mod = 1.0
+            if self.neuromodulator is not None:
+                mods = self.neuromodulator.generation_mods()
+                nm_temp_mod = mods['temperature_mod']
+                nm_rep_mod = mods['repetition_penalty_mod']
+                nm_explore = mods['exploration_bonus']
+                nm_conf_mod = mods['confidence_threshold_mod']
+                self.neuromodulator.tick_decay()
+
             if cerebellar_ngram is not None and idx_to_word is not None:
                 last_word = idx_to_word.get(generated[-1], "")
                 if last_word:
-                    active_idx = np.where(logits > 0.01)[0]
-                    if len(active_idx) < 3:
-                        # Fallback: top-10 highest logits
-                        active_idx = np.argsort(logits)[-10:]
-                    for idx in active_idx:
+                    topk = np.argpartition(logits, -10)[-10:]
+                    for idx in topk:
                         cand = idx_to_word.get(idx, "")
                         if cand:
                             trans = cerebellar_ngram.get_transition_strength(last_word, cand)
@@ -284,18 +301,6 @@ class NeuralDecoder(Module):
                             if fw and fw == cand:
                                 logits[idx] += 0.3
 
-            # Track seen counts for repetition & content-word biasing
-            if len(generated) > 1:
-                seen_counts = {}
-                for idx in generated[1:]:
-                    seen_counts[idx] = seen_counts.get(idx, 0) + 1
-            else:
-                seen_counts = {}
-
-            # Content word biasing: boost tokens that are known graph concepts
-            # to counteract the function-word bias learned from template training.
-            # Stage 2: Stronger bias (×3) for 1500-vocab models where function-word
-            # logits can be 3-5 units above content-word logits.
             if content_word_ids is not None and len(generated) > 2:
                 func_count = sum(1 for idx in generated[1:] if idx not in content_word_ids)
                 if func_count > len(generated) * 0.5:
@@ -305,79 +310,114 @@ class NeuralDecoder(Module):
                         if seen_counts.get(cid, 0) == 0:
                             logits[cid] += boost * 0.5
 
-            # Stage 2: Token-level boost (e.g. subject concept to seed content words)
             if token_boost is not None:
                 for tid, tboost in token_boost.items():
-                    if tid < len(logits):
-                        if tid not in seen_counts:
-                            logits[tid] += tboost
+                    if tid < len(logits) and tid not in seen_counts:
+                        logits[tid] += tboost
 
-            # Adaptive repetition penalty: suppress cycling between function words
+            # ── Neuromodulator-aware repetition penalty ──
             if len(generated) > 1:
+                last_idx = generated[-1]
                 for idx, count in seen_counts.items():
                     if count >= 3:
-                        logits[idx] -= 5.0
+                        logits[idx] -= 5.0 * nm_rep_mod
                     elif count > 1:
                         is_func = content_word_ids is not None and idx not in content_word_ids
-                        penalty = 1.5 + 1.0 * (count - 1) if is_func else 1.0 + 0.5 * (count - 1)
-                        logits[idx] -= penalty
-                # Consecutive repetition penalty: prevent generating the same word twice in a row
-                last_idx = generated[-1]
-                if last_idx < len(logits):
-                    logits[last_idx] -= 15.0
+                        base_p = 1.5 + 1.0 * (count - 1) if is_func else 1.0 + 0.5 * (count - 1)
+                        logits[idx] -= base_p * nm_rep_mod
+                logits[last_idx] -= 15.0 * nm_rep_mod
 
-            # BasalGangliaGate Go/NoGo selection
+                if len(generated) >= 3:
+                    new_bigram = (generated[-2], generated[-1])
+                    if new_bigram in seen_bigrams:
+                        logits[generated[-1]] -= 10.0 * nm_rep_mod
+                if len(generated) >= 4:
+                    new_trigram = (generated[-3], generated[-2], generated[-1])
+                    if new_trigram in seen_trigrams:
+                        logits[generated[-1]] -= 15.0 * nm_rep_mod
+
+            # ── Neuromodulator-aware exploration bonus (NE → novel content words) ──
+            if nm_explore != 0.0 and content_word_ids is not None:
+                rare_count = sum(1 for cid in content_word_ids if seen_counts.get(cid, 0) == 0)
+                if rare_count > 0:
+                    explore_bonus = nm_explore * 2.0
+                    for cid in content_word_ids:
+                        if seen_counts.get(cid, 0) == 0:
+                            logits[cid] += explore_bonus
+
             if basal_ganglia is not None and idx_to_word is not None:
                 logits_stable = logits - np.max(logits)
                 exp_logits = np.exp(np.clip(logits_stable, -50, 50))
                 probs = exp_logits / (np.sum(exp_logits) + 1e-10)
-
+                top15_idx = np.argsort(probs)[-15:]
                 candidates = []
-                # Use top-10 candidates
-                active_idx = np.argsort(probs)[-10:]
-                for idx in active_idx:
+                for idx in top15_idx:
                     word = idx_to_word.get(idx, "")
-                    # Allow <eos> to be gated so the sentence can terminate naturally, 
-                    # but filter out other structural/padding special tokens.
-                    if word and (word == "<eos>" or not word.startswith("<")):
-                        score = float(probs[idx])  # Always positive, in [0, 1]
-                        candidates.append((word, score, 0.5, "decoder"))
+                    is_eos = (word == "<eos>")
+                    if word and (not word.startswith("<") or is_eos):
+                        if is_eos and step < 5 and len(top15_idx) > 3:
+                            continue
+                        candidates.append((word, float(probs[idx]), 0.5, "decoder"))
                 if len(candidates) >= 2:
-                    basal_ganglia.set_dopamine_tone(1.0 - temperature)
+                    if self.neuromodulator is not None:
+                        bg_mods = self.neuromodulator.bg_gate_mods()
+                        go_mod = bg_mods['go_threshold_mod']
+                        da_mod = bg_mods['dopamine_tone_mod']
+                        new_threshold = basal_ganglia.base_go_threshold * go_mod
+                        basal_ganglia.base_go_threshold = np.clip(new_threshold, 0.05, 0.8)
+                        basal_ganglia.set_dopamine_tone(np.clip(0.5 + da_mod, 0.0, 1.0))
+                    else:
+                        basal_ganglia.set_dopamine_tone(1.0 - temperature)
                     winner_label, _, _ = basal_ganglia.select_concept(candidates)
                     winner_idx = word_to_idx.get(winner_label)
+                    # At step 0, only accept content words from BG gate
+                    if step == 0 and content_word_ids is not None and winner_idx is not None:
+                        if winner_idx not in content_word_ids:
+                            winner_idx = None  # fall through to content-masked sampling
                     if winner_idx is not None and winner_idx != bos_idx:
                         if eos_idx is not None and winner_idx == eos_idx:
                             break
                         generated.append(winner_idx)
                         self._recent_predictions.append(winner_idx)
+                        if winner_idx < len(logits):
+                            seen_counts[winner_idx] = seen_counts.get(winner_idx, 0) + 1
                         continue
-                # Fallthrough to softmax if BG gate fails
-                pass
 
-            # Apply temperature and sample (standard softmax)
+            # ── Force first word to be a content word ──
+            # This prevents the decoder from defaulting to function words ("in", "the")
+            # at the start of generation, a common failure mode from BOS → function-word bias.
+            if step == 0 and content_word_ids is not None and len(content_word_ids) > 0:
+                content_mask = np.full(len(logits), -np.inf, dtype=np.float32)
+                for cid in content_word_ids:
+                    if cid < len(logits):
+                        content_mask[cid] = logits[cid]
+                if token_boost is not None:
+                    for tid, tboost in token_boost.items():
+                        if tid < len(logits) and tid not in seen_counts:
+                            content_mask[tid] += tboost * 2.0
+                logits = content_mask
+
             if temperature > 0:
-                # Dynamic temperature: slightly increase if confidence has been low
-                dyn_temp = temperature
+                dyn_temp = temperature * nm_temp_mod
                 if step > 2:
                     avg_conf = confidence_sum / max(1, step)
-                    if avg_conf < 0.3:
-                        dyn_temp = min(0.8, temperature * 1.3)
+                    confidence_threshold = 0.3 * nm_conf_mod
+                    if avg_conf < confidence_threshold:
+                        dyn_temp = min(0.8, dyn_temp * 1.3)
+                dyn_temp = max(0.1, dyn_temp)
                 logits = logits / dyn_temp
-
                 logits_exp = np.exp(logits - np.max(logits))
                 probs = logits_exp / (np.sum(logits_exp) + 1e-10)
-
-                # Top-p (nucleus) sampling: keep smallest set of tokens whose prob >= 0.92
                 sorted_idx = np.argsort(probs)[::-1]
                 sorted_probs = probs[sorted_idx]
                 cumsum = np.cumsum(sorted_probs)
-                cutoff = np.searchsorted(cumsum, 0.92) + 1
+                top_p_dyn = np.clip(top_p * nm_conf_mod, 0.6, 0.99)
+                cutoff = np.searchsorted(cumsum, top_p_dyn) + 1
                 top_p_idx = sorted_idx[:cutoff]
                 top_p_probs = probs[top_p_idx]
                 top_p_probs = top_p_probs / np.sum(top_p_probs)
                 try:
-                    chosen = np.random.choice(top_p_idx, p=top_p_probs)
+                    chosen = int(np.random.choice(top_p_idx, p=top_p_probs))
                     confidence_sum += float(np.max(probs))
                 except Exception:
                     chosen = int(np.argmax(probs))
@@ -389,8 +429,13 @@ class NeuralDecoder(Module):
 
             generated.append(chosen)
             self._recent_predictions.append(chosen)
+            seen_counts[chosen] = seen_counts.get(chosen, 0) + 1
+            if len(generated) >= 3:
+                seen_bigrams.add((generated[-2], generated[-1]))
+            if len(generated) >= 4:
+                seen_trigrams.add((generated[-3], generated[-2], generated[-1]))
 
-        return generated[1:]  # strip BOS
+        return generated[1:]
 
     def train_on_sentence(self, sentence_words: List[str],
                           word_to_embed: Dict[str, np.ndarray],
@@ -423,7 +468,7 @@ class NeuralDecoder(Module):
                 "this", "that", "these", "those", "it", "its", "they", "them",
                 "their", "we", "our", "you", "your", "he", "she", "him", "her",
                 "his", "i", "me", "my", "myself", "am",
-                "of", "to", "for", "with", "from", "at", "by", "as", "on",
+                "of", "to", "for", "with", "from", "at", "by", "as", "on", "in", "and", "but", "or",
             }
             known_embs = []
             content_words_count = 0
@@ -487,45 +532,62 @@ class NeuralDecoder(Module):
         cached_attn_logits = cached_attn_tensor.data[0]
 
         out_weight = self.output_proj.weight.data
+        out_bias = self.output_proj.bias.data if self.output_proj.bias is not None else None
         vocab_size_actual = out_weight.shape[0]
 
-        # Stage 2: Precompute contrastive candidates once per sentence (not per pos)
-        # This replaces the per-token np.ones(vocab) + np.where + argpartition overhead.
-        contrastive_precomputed = None
-        _cweight = self.contrastive_weight
-        _cnegs = self.contrastive_negatives
-        if _cweight > 0 and _cnegs > 0:
-            special_set = frozenset({0, 1, 2, 3})
-            non_special = np.array([i for i in range(vocab_size_actual) if i not in special_set], dtype=np.intp)
-            contrastive_precomputed = non_special
+        # Precompute non-special indices for negative sampling
+        special_set = frozenset({0, 1, 2, 3})
+        non_special_idx = np.array([i for i in range(vocab_size_actual) if i not in special_set], dtype=np.intp)
 
-        # Buffers
-        all_combined: List[np.ndarray] = []
-        all_error_out: List[np.ndarray] = []
-        all_word_emb: List[np.ndarray] = []
-        all_input_idx: List[int] = []
-        # GRU buffers
-        all_gru_combined: List[np.ndarray] = []
-        all_gru_combined_r: List[np.ndarray] = []
-        all_gru_h_candidate: List[np.ndarray] = []
-        all_gru_h_prev: List[np.ndarray] = []
-        all_gru_z: List[np.ndarray] = []
-        all_gru_r: List[np.ndarray] = []
+        # Sampled softmax: K=50 negatives, shared across positions within sentence
+        # Focused negative sampling: prefer words with high output weights
+        # (the model's most-confidently-predicted words make the best negatives).
+        n_neg = 50
+        if not hasattr(self, '_neg_rng'):
+            self._neg_rng = np.random.RandomState(42)
+        # Compute row L2 norms as sampling weights (softmax over indices)
+        row_norms = np.linalg.norm(out_weight[non_special_idx], axis=1)
+        # Flatten extreme outliers with log transform for stable sampling
+        log_weights = np.log1p(row_norms * 5.0)
+        neg_probs = log_weights / np.sum(log_weights)
+        # Ensure numerical stability
+        neg_probs = np.clip(neg_probs, 1e-10, None)
+        neg_probs /= neg_probs.sum()
+        shared_negatives = self._neg_rng.choice(non_special_idx, n_neg, replace=False, p=neg_probs)
+
+        # Pre-allocate buffers
+        max_T = len(word_indices) - 1
+        all_combined = [None] * max_T
+        all_err_stored = [None] * max_T
+        all_idx_stored = [None] * max_T
+        all_word_emb = [None] * max_T
+        all_input_idx = [None] * max_T
+        all_gru_combined = [None] * max_T
+        all_gru_combined_r = [None] * max_T
+        all_gru_h_candidate = [None] * max_T
+        all_gru_h_prev = [None] * max_T
+        all_gru_z = [None] * max_T
+        all_gru_r = [None] * max_T
         total_ce = 0.0
         top1_hits = 0
         top5_hits = 0
         trained = 0
 
+        # Precompute the condition projection for the entire sentence at once
+        input_word_indices = word_indices[:-1]
+        sentence_embs = self.word_embedding.embed_batch_raw(input_word_indices)
+        proj_embs = self.condition_proj.forward_raw(sentence_embs)
+
         h = np.zeros(self.hidden_dim, dtype=np.float32)
-        for pos in range(len(word_indices) - 1):
+        for pos in range(max_T):
             input_idx = word_indices[pos]
             target_idx = word_indices[pos + 1]
 
-            word_emb = self.word_embedding.embed_raw(input_idx)
-            proj_emb = self.condition_proj.forward_raw(word_emb[np.newaxis, :])[0]
+            word_emb = sentence_embs[pos]
+            proj_emb = proj_embs[pos]
 
             # Manual GRU (stores intermediates for batched update)
-            x_data = np.asarray(proj_emb, dtype=np.float32)
+            x_data = proj_emb
             h_data = np.asarray(h, dtype=np.float32)
             combined = np.concatenate([x_data, h_data])
             combined_2d = combined[np.newaxis, :]
@@ -538,12 +600,12 @@ class NeuralDecoder(Module):
             h_candidate = np.tanh(h_candidate_pre)
             h_new = (1.0 - z) * h_data + z * h_candidate
 
-            all_gru_combined.append(combined.copy())
-            all_gru_combined_r.append(combined_r.copy())
-            all_gru_h_candidate.append(h_candidate.copy())
-            all_gru_h_prev.append(h_data.copy())
-            all_gru_z.append(z.copy())
-            all_gru_r.append(r.copy())
+            all_gru_combined[pos] = combined
+            all_gru_combined_r[pos] = combined_r
+            all_gru_h_candidate[pos] = h_candidate
+            all_gru_h_prev[pos] = h_data
+            all_gru_z[pos] = z
+            all_gru_r[pos] = r
             h = h_new
 
             # Attention + output (keep ratio consistent with generate: 0.5 each)
@@ -551,112 +613,126 @@ class NeuralDecoder(Module):
             if self.training and self.dropout.p > 0:
                 mask = np.random.binomial(1, 1.0 - self.dropout.p, combined_vec.shape).astype(combined_vec.dtype)
                 combined_vec = combined_vec * mask / (1.0 - self.dropout.p)
-            logit_t = self.output_proj.forward_raw(combined_vec[np.newaxis, :])[0]
 
-            logit_stable = logit_t - np.max(logit_t)
-            exp_logits = np.exp(np.clip(logit_stable, -50, 50))
-            probs = exp_logits / (np.sum(exp_logits) + 1e-10)
-
-            target_one_hot = np.zeros(vocab_size_actual, dtype=np.float32)
+            # ── Sampled softmax (K+1-way instead of full V-way) ──
             if target_idx < vocab_size_actual:
-                target_one_hot[target_idx] = 1.0
-
-            error_output = (target_one_hot - probs).astype(np.float32)
-            error_output = np.clip(error_output, -1.0, 1.0)
-
-            # Stage 2: Vectorized contrastive using precomputed candidate set
-            if contrastive_precomputed is not None and (pos % 2 == 0):
-                non_special = contrastive_precomputed
-                # Remove target from candidates efficiently
-                if target_idx < vocab_size_actual:
-                    mask = non_special != target_idx
-                    candidates = non_special[mask]
+                # Remove target from shared negatives if present
+                if target_idx in shared_negatives:
+                    neg_idx = shared_negatives[shared_negatives != target_idx]
                 else:
-                    candidates = non_special
-                if len(candidates) > 0:
-                    k = min(_cnegs, len(candidates))
-                    probs_cand = probs[candidates]
-                    neg_top = np.argpartition(probs_cand, -k)[-k:]
-                    neg_indices = candidates[neg_top]
-                    if target_idx < vocab_size_actual:
-                        pos_margin = 0.9 - probs[target_idx]
-                        error_output[target_idx] += _cweight * pos_margin
-                    error_output[neg_indices] -= _cweight * probs[neg_indices] * 1.5
+                    neg_idx = shared_negatives
+                all_idx = np.concatenate([[target_idx], neg_idx])
 
-            error_output = np.clip(error_output, -1.0, 1.0)
+                logit_t = combined_vec @ out_weight[all_idx].T
+                if out_bias is not None:
+                    logit_t += out_bias[all_idx]
 
-            all_combined.append(combined_vec.copy())
-            all_error_out.append(error_output.copy())
-            all_word_emb.append(word_emb.copy())
-            all_input_idx.append(input_idx)
+                logit_stable = logit_t - np.max(logit_t)
+                exp_logits = np.exp(np.clip(logit_stable, -50, 50))
+                probs_k = exp_logits / (np.sum(exp_logits) + 1e-10)
 
-            if target_idx < vocab_size_actual:
-                p_t = max(float(probs[target_idx]), 1e-10)
+                err = np.zeros(len(all_idx), dtype=np.float32)
+                err[0] = 1.0 - probs_k[0]
+                err[1:] = 0.0 - probs_k[1:]
+                err = np.clip(err, -1.0, 1.0)
+
+                p_t = max(float(probs_k[0]), 1e-10)
                 total_ce += -np.log(p_t)
-                if int(np.argmax(probs)) == target_idx:
+                if int(np.argmax(probs_k)) == 0:
                     top1_hits += 1
-                if target_idx in np.argpartition(probs, -5)[-5:]:
+                if 0 in np.argpartition(probs_k, -5)[-5:]:
                     top5_hits += 1
+            else:
+                all_idx = np.array([0], dtype=np.intp)
+                err = np.zeros(1, dtype=np.float32)
+                total_ce += 9.0
             trained += 1
+
+            all_combined[pos] = combined_vec
+            all_err_stored[pos] = err
+            all_idx_stored[pos] = all_idx
+            all_word_emb[pos] = word_emb
+            all_input_idx[pos] = input_idx
 
         if trained == 0:
             return 0.0
 
-        # ── Batched Hebbian updates ──
+        # ── Get neuromodulator-based learning rate multipliers ──
+        lr_proj = 0.001
+        lr_other = 0.0005
+        lr_attn = 0.0002
+        wd = 1e-5
+        prev_ce = self._avg_cross_entropy
+        if self.neuromodulator is not None:
+            mods = self.neuromodulator.training_mods()
+            lr_proj *= mods['lr_mult_proj']
+            lr_other *= mods['lr_mult_gru']
+            wd *= (1.0 - mods['ne_level'] * 0.5)  # less weight decay when exploring
+
+        # ── Per-sentence Hebbian updates (SGD-style with weight decay) ──
         T = len(all_combined)
-        fe_decay = 0.99 ** T
 
-        # 1. output_proj
-        combined_stack = np.stack(all_combined)
-        err_out_stack = np.stack(all_error_out)
-        hebbian_out = (combined_stack.T @ err_out_stack) / T
-        self.output_proj._weight_free_energy.data += hebbian_out.T * 0.15
-        self.output_proj._weight_free_energy.data *= fe_decay
+        # 1. output_proj: sparse Hebbian update (sampled softmax, only K+1 rows)
+        for pos in range(T):
+            h_vec = all_combined[pos]
+            err = all_err_stored[pos]
+            idx = all_idx_stored[pos]
+            hebb = np.outer(err, h_vec) / T
+            out_weight[idx] += hebb * lr_proj - out_weight[idx] * wd
 
-        error_h_all = err_out_stack @ self.output_proj.weight.data
+        # 2. Error backprop to hidden (sparse: only sampled rows)
+        error_h_all = np.zeros((T, self.hidden_dim), dtype=np.float32)
+        for pos in range(T):
+            err = all_err_stored[pos]
+            idx = all_idx_stored[pos]
+            error_h_all[pos] = err @ out_weight[idx]
 
-        # 2. condition_proj
+        # 3. condition_proj (lr=lr_other, wd=1e-5)
         emb_stack = np.stack(all_word_emb)
         error_proj_all = np.clip(error_h_all * 0.5, -1.0, 1.0)
         hebbian_proj = (emb_stack.T @ error_proj_all) / T
-        self.condition_proj._weight_free_energy.data += hebbian_proj.T * 0.1
-        self.condition_proj._weight_free_energy.data *= fe_decay
+        self.condition_proj.weight.data += hebbian_proj.T * lr_other - self.condition_proj.weight.data * wd
 
-        # 3. word_embedding
+        # 4. word_embedding (lr=lr_other)
         W_cond = self.condition_proj.weight.data
-        error_word_all = np.clip(error_proj_all @ W_cond, -1.0, 1.0)
+        error_word_all = np.clip(error_proj_all @ W_cond, -1.0, 1.0) * lr_other
         for i, idx in enumerate(all_input_idx):
-            self.word_embedding._weight_free_energy.data[idx] += error_word_all[i] * 0.05 / T
-        self.word_embedding._weight_free_energy.data *= fe_decay
+            self.word_embedding.weight.data[idx] += error_word_all[i]
 
-        # 4. GRU W_z / W_r / W_h
+        # 5. GRU gates (lr=lr_other)
         gru_c_stack = np.stack(all_gru_combined)
         gru_cr_stack = np.stack(all_gru_combined_r)
         gru_hc_stack = np.stack(all_gru_h_candidate)
         gru_hp_stack = np.stack(all_gru_h_prev)
         gru_z_stack = np.stack(all_gru_z)
+        gru_r_stack = np.stack(all_gru_r)
 
-        err_wz = error_h_all * (gru_hc_stack - gru_hp_stack) * 0.5
-        fe_wz = (gru_c_stack.T @ err_wz) / T
-        self.gru.W_z._weight_free_energy.data += fe_wz.T * 0.1
-        self.gru.W_z._weight_free_energy.data *= fe_decay
-
-        err_wr = error_h_all * 0.3
-        fe_wr = (gru_c_stack.T @ err_wr) / T
-        self.gru.W_r._weight_free_energy.data += fe_wr.T * 0.1
-        self.gru.W_r._weight_free_energy.data *= fe_decay
-
-        err_wh = error_h_all * gru_z_stack
+        # Exact backprop error for h_candidate_pre:
+        # dL/dh_candidate_pre = (dL/dh * 0.5) * z * (1 - tanh^2)
+        err_wh = error_h_all * 0.5 * gru_z_stack * (1.0 - gru_hc_stack ** 2)
         fe_wh = (gru_cr_stack.T @ err_wh) / T
-        self.gru.W_h._weight_free_energy.data += fe_wh.T * 0.1
-        self.gru.W_h._weight_free_energy.data *= fe_decay
 
-        # 5. attention output_proj
+        # Exact backprop error for z_pre:
+        # dL/dz_pre = (dL/dh * 0.5) * (h_candidate - h_prev) * z * (1 - z)
+        err_wz = error_h_all * 0.5 * (gru_hc_stack - gru_hp_stack) * gru_z_stack * (1.0 - gru_z_stack)
+        fe_wz = (gru_c_stack.T @ err_wz) / T
+
+        # Exact backprop error for r_pre:
+        # dL/dr_pre = (dL/dh_candidate_pre @ W_hh * h_prev) * r * (1 - r)
+        W_hh = self.gru.W_h.weight.data[:, self.hidden_dim:]
+        err_r = (err_wh @ W_hh * gru_hp_stack) * gru_r_stack * (1.0 - gru_r_stack)
+        fe_wr = (gru_c_stack.T @ err_r) / T
+
+        # Update GRU weights with gradient clipping and weight decay to prevent divergence
+        clip_val = 1.0
+        self.gru.W_z.weight.data += np.clip(fe_wz.T, -clip_val, clip_val) * lr_other - self.gru.W_z.weight.data * wd
+        self.gru.W_r.weight.data += np.clip(fe_wr.T, -clip_val, clip_val) * lr_other - self.gru.W_r.weight.data * wd
+        self.gru.W_h.weight.data += np.clip(fe_wh.T, -clip_val, clip_val) * lr_other - self.gru.W_h.weight.data * wd
+
+        # 6. attention output_proj (lr=lr_attn, wd=1e-5)
         attn_error_all = np.clip(error_h_all * 0.1, -1.0, 1.0)
         total_attn_err = np.sum(attn_error_all, axis=0)
-        self.attention.output_proj.accumulate_free_energy(
-            StateTensor(total_attn_err[np.newaxis, :] / T, salience=0.1))
-        self.attention.output_proj._weight_free_energy.data *= (0.99 ** (T - 1))
+        self.attention.output_proj.weight.data += (total_attn_err / T) * lr_attn - self.attention.output_proj.weight.data * wd
 
         # Skip attention W_q/W_k/W_v (traces are sentence-specific, unreliable)
 
@@ -675,6 +751,13 @@ class NeuralDecoder(Module):
         # reading it get a non-constant value, unlike the old ~2/vocab artifact).
         self._avg_prediction_error = (1 - alpha) * self._avg_prediction_error + alpha * avg_ce
 
+        # ── Neuromodulator update from prediction error ──
+        if self.neuromodulator is not None:
+            # ce_delta = how much worse/better vs. old baseline
+            ce_delta = avg_ce - prev_ce if prev_ce > 0 else 0.0
+            self.neuromodulator.update_from_prediction_error(ce_delta)
+            self.neuromodulator.tick_decay()
+
         return avg_ce
 
     def prepare_sentences(self, text: str,
@@ -692,7 +775,7 @@ class NeuralDecoder(Module):
         ~2x speedup over repeated train_on_text calls.
         """
         sentences = []
-        for sent in re.split(r'[.!?]+', text):
+        for sent in re.split(r'[\r\n.!?]+', text):
             words = [w.strip(".,!?\"' ") for w in sent.split()
                      if len(w.strip(".,!?\"' ")) > 0]
             if len(words) >= min_sentence_len:
@@ -708,7 +791,7 @@ class NeuralDecoder(Module):
                     "this", "that", "these", "those", "it", "its", "they", "them",
                     "their", "we", "our", "you", "your", "he", "she", "him", "her",
                     "his", "i", "me", "my", "myself", "am",
-                    "of", "to", "for", "with", "from", "at", "by", "as", "on",
+                    "of", "to", "for", "with", "from", "at", "by", "as", "on", "in", "and", "but", "or",
                 }
                 word_indices = []
                 known_embs = []
@@ -787,7 +870,7 @@ class NeuralDecoder(Module):
         """
         # Simple sentence splitting
         sentences = []
-        for sent in re.split(r'[.!?]+', text):
+        for sent in re.split(r'[\r\n.!?]+', text):
             words = [w.strip(".,!?\"' ") for w in sent.split()
                      if len(w.strip(".,!?\"' ")) > 0]
             if len(words) >= min_sentence_len:

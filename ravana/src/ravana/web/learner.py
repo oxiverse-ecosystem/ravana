@@ -53,6 +53,13 @@ try:
 except ImportError:
     HAS_BS4 = False
 
+# Optional trafilatura for structured web extraction (roadmap #11)
+try:
+    import trafilatura
+    HAS_TRAFILATURA = True
+except ImportError:
+    HAS_TRAFILATURA = False
+
 
 @dataclass
 class SearchConfig:
@@ -127,7 +134,15 @@ class SearchEngine:
         resp = urllib.request.urlopen(req, timeout=timeout)
         content = resp.read().decode('utf-8', errors='replace')
 
-        if api_name == "oxiverse":
+        if api_name == "local_api":
+            data = json.loads(content)
+            results = data if isinstance(data, list) else data.get('results', [])
+            return [
+                {'title': r.get('title', ''), 'url': r.get('url', ''),
+                 'content': r.get('content', r.get('snippet', ''))}
+                for r in results[:max_results] if r.get('url')
+            ]
+        elif api_name == "oxiverse":
             data = json.loads(content)
             results = data.get('results', [])
             return [
@@ -274,6 +289,12 @@ class WebLearner:
             req = urllib.request.Request(url, headers=self.search_engine._headers)
             resp = urllib.request.urlopen(req, timeout=8)
             html = resp.read().decode('utf-8', errors='replace')
+
+            # trafilatura: statistical heuristics, best quality (roadmap #11)
+            if HAS_TRAFILATURA:
+                text = trafilatura.extract(html, output_format='txt', favor_precision=True)
+                if text and len(text) > 50:
+                    return text[:5000]
 
             if HAS_BS4:
                 soup = BeautifulSoup(html, 'html.parser')

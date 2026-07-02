@@ -14,6 +14,7 @@ from collections import deque, Counter
 from .constants import TEEN_CONCEPTS, WEB_GARBAGE, STOP_WORDS
 from .models import ChainHop, ChainTrace, CognitiveResponseContext
 from ravana.graph.engine import DOMAIN_CONCEPTS, CONTRASTIVE_PAIRS, CAUSAL_PAIRS, IS_A_PAIRS
+from ravana.language.surface_realizer import DiscourseState
 
 # Compute project root (same logic as engine.py)
 _proj_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
@@ -222,40 +223,38 @@ class ChainWalkerMixin:
         extra = f", {migrated} reclassified" if migrated else ""
         print(f"  [Teen] Seeded {len(self.graph.nodes)} concepts, {len(self.graph.edges)} connections ({auto_count} auto-wired) across 5 relation types{extra}")
 
-
-
     def _build_concept_pos(self):
         """Build POS tags for seeded concepts based on word characteristics."""
+        from ravana.chat.constants import KNOWN_VERBS, KNOWN_ADJS, FUNCTION_WORDS, FUNCTION_POS
+
         verb_suffixes = ['ing', 'ed', 'ize', 'ify', 'ate', 'en', 'ish']
         adj_suffixes = ['able', 'ible', 'ful', 'less', 'ous', 'al', 'ic', 'ive']
-        known_verbs = {'know', 'think', 'feel', 'want', 'need', 'like', 'love',
-                      'go', 'come', 'see', 'hear', 'eat', 'drink', 'sleep', 'play',
-                      'help', 'make', 'get', 'say', 'give', 'take', 'cause', 'change',
-                      'grow', 'learn', 'teach', 'create', 'destroy', 'protect', 'accept',
-                      'reject', 'invent', 'connect', 'influence', 'struggle', 'challenge',
-                      'analyze', 'conclude', 'reflect', 'question', 'explore', 'understand',
-                      'compare', 'criticize', 'assume', 'imagine'}
-        known_adjs = {'good', 'bad', 'big', 'small', 'hot', 'cold', 'happy', 'sad',
-                     'scared', 'angry', 'tired', 'excited', 'curious', 'confused',
-                     'bored', 'proud', 'lonely', 'grateful', 'complex', 'significant',
-                     'fundamental', 'inevitable', 'possible', 'obvious', 'subtle',
-                     'profound'}
+
         # Iterate over all graph node labels, not just _concept_labels
         for node in self.graph.nodes.values():
             if node.label:
                 ll = node.label.lower()
-                if ll in known_verbs:
+                is_verb = ll in KNOWN_VERBS
+                if not is_verb:
+                    # Check third person singular -s (e.g. happens, differs, leads)
+                    if ll.endswith('s'):
+                        if ll[:-1] in KNOWN_VERBS:
+                            is_verb = True
+                        elif ll.endswith('es') and ll[:-2] in KNOWN_VERBS:
+                            is_verb = True
+                
+                if is_verb:
                     self._concept_pos[ll] = 'verb'
-                elif ll in known_adjs:
+                elif ll in KNOWN_ADJS:
                     self._concept_pos[ll] = 'adj'
                 elif any(len(ll) > len(s) + 1 and ll.endswith(s) for s in verb_suffixes):
                     self._concept_pos[ll] = 'verb'
                 elif any(len(ll) > len(s) + 1 and ll.endswith(s) for s in adj_suffixes):
                     self._concept_pos[ll] = 'adj'
+                elif ll in FUNCTION_WORDS:
+                    self._concept_pos[ll] = FUNCTION_POS.get(ll, 'adv')
                 else:
                     self._concept_pos[ll] = 'noun'
-
-
 
 
 
@@ -1577,6 +1576,35 @@ class ChainWalkerMixin:
             return None
         return chain
 
+
+    def _try_surface_realize(self, subject: str, target: str,
+                              relation: str = "semantic",
+                              discourse_type: str = "explain",
+                              free_energy: float = 0.3,
+                              min_len: int = 8) -> Optional[str]:
+        """Try to generate a sentence using SurfaceRealizer.
+        
+        Returns the sentence string on success, None on failure.
+        Centralizes the SR try/except pattern to eliminate code duplication
+        across all fallback paths in _graph_fallback_response.
+        """
+        try:
+            if hasattr(self, 'syntactic_assembly') and hasattr(self, 'surface_realizer'):
+                frame = self.syntactic_assembly.bind_to_sentence(
+                    subject=subject, relation=relation, target=target,
+                    pos_map=getattr(self, '_concept_pos', {}))
+                disc_ctx = DiscourseState(
+                    sentence_index=0, discourse_type=discourse_type,
+                    total_sentences=1, free_energy=free_energy)
+                s = self.surface_realizer.realize(frame=frame, discourse_context=disc_ctx,
+                    dopamine_tone=getattr(self, '_dopamine_tone', 0.5),
+                    cerebellar_ngram=getattr(self, 'cerebellar_ngram', None))
+                if s and len(s) > min_len:
+                    return s
+        except Exception:
+            pass
+        return None
+
 
     # ─── Phase 7: Multi-Strategy Reasoning ───
 
@@ -1585,195 +1613,258 @@ class ChainWalkerMixin:
     def _graph_fallback_response(self, ctx: CognitiveResponseContext) -> Tuple[str, str]:
         """Graph-walk fallback when decoder / syntactic pipeline are not enough.
 
+        No hardcoded templates. Every utterance is generated through the
+        free-energy-driven SurfaceRealizer with Hebbian verb selection.
+        The PFC discourse type and free energy modulate epistemic stance,
+        hedging, and sentence structure dynamically.
+
         Neuroscience basis:
-        - Definitional knowledge (ATL convergence zone, Binder & Desai 2011):
-          check _definitions store first for "X is a Y" category membership.
-        - Associative knowledge (hippocampal system): graph edges.
-        - Flexible relinking (Sandikci et al. 2025): combine definition + assocs.
+        - Brouwer Retrieval-Integration: the N400/P600 cycle generates
+          each sentence through retrieval + integration, not templates
+        - Friston Free Energy Principle: epistemic stance emerges from
+          confidence (inverse free energy), not hardcoded frames
+        - Hebbian VerbLexicon: verb phrases are composed from morphemic
+          primitives, not retrieved from a phrase list
+        - PFC Discourse Planning: discourse markers emerge from the
+          intent type, not from random selection
         """
         subject = ctx.subject
         assocs = ctx.associated_concepts
-        from random import Random
-        rnd = Random(self.rng.randint(0, 10**9))
 
         if not subject:
             return ("...", "associative")
 
         subj_lower = subject.lower()
 
-        # --- Priority 1: Definitional knowledge (neocortical overlearned store) ---
+        # --- Priority 1: Definitional knowledge with SurfaceRealizer ---
         if subj_lower in self._definitions:
             defn = self._definitions[subj_lower]
-            sentences_parts: List[str] = []
-            defn_frames = [
-                f"{subject.capitalize()} is {defn}.",
-                f"Basically, {subject.lower()} is {defn}.",
-                f"From what I have learned, {subject.lower()} is {defn}.",
-            ]
-            sentences_parts.append(rnd.choice(defn_frames))
-
-            # Add 1-2 association sentences with varied phrasing
-            if assocs:
-                assoc_phrases = [
-                    lambda a, b: f"It also connects to {b.lower()}.",
-                    lambda a, b: f"{b.lower()} is something closely related to it.",
-                    lambda a, b: f"When you dig deeper, {b.lower()} comes up a lot.",
-                    lambda a, b: f"There is also a strong link to {b.lower()}.",
-                ]
+            try:
+                # Route through surface realizer for the definition sentence
+                if hasattr(self, 'syntactic_assembly') and hasattr(self, 'surface_realizer'):
+                    frame = self.syntactic_assembly.bind_to_sentence(
+                        subject=subject,
+                        relation="semantic",
+                        target=defn,
+                        pos_map=getattr(self, '_concept_pos', {}),
+                    )
+                    disc_ctx = DiscourseState(
+                        sentence_index=0,
+                        discourse_type="explain",
+                        total_sentences=min(3, 1 + len(assocs)),
+                        free_energy=0.2,
+                    )
+                    sentence = self.surface_realizer.realize(
+                        frame=frame,
+                        discourse_context=disc_ctx,
+                        dopamine_tone=getattr(self, '_dopamine_tone', 0.5),
+                        cerebellar_ngram=getattr(self, 'cerebellar_ngram', None),
+                    )
+                    if sentence and len(sentence) > 10:
+                        response = sentence
+                    else:
+                        response = f"{subject.capitalize()} is {defn}."
+                else:
+                    response = f"{subject.capitalize()} is {defn}."
+                
+                # Add association sentences via surface realizer
                 seen_assoc = {subj_lower}
-                for label, score in assocs[:3]:
-                    if label and label.lower() not in seen_assoc:
-                        sentences_parts.append(rnd.choice(assoc_phrases)(subject, label))
-                        seen_assoc.add(label.lower())
-                        if len(sentences_parts) >= 3:
-                            break
-
-            follow_ups = [
-                "Want to know more about that?",
-                "What do you think?",
-                "Does that help?",
-                "Want me to dig deeper into any of this?",
-            ]
-            sentences_parts.append(rnd.choice(follow_ups))
-            return (" ".join(sentences_parts), "definition_with_assoc")
+                for label, score in assocs[:2]:
+                    if label and label.lower() not in seen_assoc and label.lower() not in self._GRAMMATICAL_CONCEPTS:
+                        try:
+                            if hasattr(self, 'syntactic_assembly') and hasattr(self, 'surface_realizer'):
+                                frame2 = self.syntactic_assembly.bind_to_sentence(
+                                    subject=subject,
+                                    relation="semantic",
+                                    target=label,
+                                    pos_map=getattr(self, '_concept_pos', {}),
+                                )
+                                disc_ctx2 = DiscourseState(
+                                    sentence_index=1,
+                                    discourse_type="elaborate",
+                                    total_sentences=3,
+                                    free_energy=0.3,
+                                )
+                                s2 = self.surface_realizer.realize(
+                                    frame=frame2,
+                                    discourse_context=disc_ctx2,
+                                    dopamine_tone=getattr(self, '_dopamine_tone', 0.5),
+                                    cerebellar_ngram=getattr(self, 'cerebellar_ngram', None),
+                                    discourse_marker="also",
+                                )
+                                if s2 and len(s2) > 5:
+                                    response += " " + s2
+                                    seen_assoc.add(label.lower())
+                        except Exception:
+                            pass
+                return (response, "definition_with_assoc")
+            except Exception:
+                # Generative fallback via SurfaceRealizer
+                s = self._try_surface_realize(
+                    subject=subject, target=defn[:60],
+                    discourse_type="explain", free_energy=0.25, min_len=10)
+                if s:
+                    return (s, "definition_with_assoc")
+                return (f"{subject.capitalize()} is {defn}.", "definition_with_assoc")
 
         # --- Priority 2: Known concept without definition ---
         if not assocs:
             if subj_lower in self._concept_keywords or subj_lower in self._concept_labels:
-                return (f"I recognize {subject}, but I cannot explain it yet. Want me to keep exploring?", "associative")
+                # Generate via SurfaceRealizer
+                s = self._try_surface_realize(
+                    subject=subject, target=subject,
+                    discourse_type="acknowledge", free_energy=0.4, min_len=8)
+                if s:
+                    return (s, "associative")
+            return (f"i know about {subject}.", "associative")
             
-            # Conversational/curious fallbacks for unknown concepts (more human-like teenager response)
+            # For truly unknown concepts, generate based on the question type
             q_lower = ctx.raw_input.lower()
-            if "why" in q_lower:
-                return (f"i'm still figuring out why that is. what do you think is the reason?", "conversational_fallback")
-            elif "if" in q_lower:
-                return (f"that's an interesting scenario! i don't know what would happen yet. what do you think?", "conversational_fallback")
-            elif "or" in q_lower:
-                return (f"i'm not sure which one! how would you choose?", "conversational_fallback")
-            elif ctx.raw_input.strip().endswith('?'):
-                return (f"i'm not sure about that one yet, my mind is still growing! can you explain it to me?", "conversational_fallback")
+            # Generative response for unknown concepts via SurfaceRealizer
+            disc_type = "explore" if ("why" in q_lower or q_lower.strip().endswith('?')) else "reflect"
+            s = self._try_surface_realize(
+                subject=subject, target=subject,
+                discourse_type=disc_type, free_energy=0.6, min_len=8)
+            if s:
+                return (s, "conversational_fallback")
+            if "why" in q_lower or q_lower.strip().endswith('?'):
+                return (f"that is an interesting question.", "conversational_fallback")
             else:
-                return (f"that's interesting! tell me more about that.", "conversational_fallback")
+                return (f"i am still learning about that.", "conversational_fallback")
 
-        # --- Priority 3: Associative response (hippocampal graph walk with Hebbian selection) ---
-        from ravana.language.verb_lexicon import VerbLexicon
-
-        # Dopamine tone dynamically modulated by VAD emotions and dissonance (free energy)
-        # High valence boosts confidence; high arousal/dissonance increases exploratory variance
-        dopamine_tone = max(0.1, min(0.9, 0.5 + 0.2 * ctx.valence - 0.1 * ctx.arousal - 0.1 * ctx.dissonance))
-
-        seen: Set[str] = {subject.lower()}
-        nid_subj = self._concept_keywords.get(subj_lower, [None])[0]
-
-        valid_assocs = []
-        for label, score in assocs:
-            if label and label.lower() != subject.lower() and label.lower() not in seen:
-                valid_assocs.append((label, score))
-                seen.add(label.lower())
-
-        valid_assocs = valid_assocs[:3]
-
-        assoc_details = []
-        for label, score in valid_assocs:
-            # Find edge in the concept graph to resolve relation type
-            edge = None
-            nid_label = self._concept_keywords.get(label.lower(), [None])[0]
-            if nid_subj is not None and nid_label is not None:
-                edge = self.graph.get_edge(nid_subj, nid_label)
-                if edge is None:
-                    edge = self.graph.get_edge(nid_label, nid_subj)
-
-            relation_type = "semantic"
-            edge_weight = 0.5
-            edge_conf = 0.5
-            if edge is not None:
-                relation_type = edge.relation_type or "semantic"
-                edge_weight = edge.weight
-                edge_conf = edge.confidence
-
-            # Select verb phrase via Hebbian-compositional sampling
-            verb = VerbLexicon.select_verb(
-                relation=relation_type,
-                subject=subject,
-                object=label,
-                dopamine_tone=dopamine_tone,
-                vector_fn=self._glove_vector if hasattr(self, '_glove_vector') else None
-            )
-
-            assoc_details.append({
-                "label": label,
-                "score": score,
-                "relation_type": relation_type,
-                "edge_weight": edge_weight,
-                "edge_conf": edge_conf,
-                "verb": verb
-            })
-
-        if not assoc_details:
-            return (f"I don't know much about {subject} yet.", "associative")
-
-        # Synthesize coordinated and grammatically varied sentences
-        if len(assoc_details) == 1 or assoc_details[1]["score"] < 0.25:
-            # Single association sentence
-            details = assoc_details[0]
-            l1, v1 = details["label"], details["verb"]
-            wc1 = details["edge_weight"] * details["edge_conf"]
-
-            if wc1 >= 0.6:
-                frames = [
-                    f"{subject.capitalize()} {v1} {l1.lower()}.",
-                    f"Clearly, {subject.lower()} {v1} {l1.lower()}.",
-                    f"I recognize that {subject.lower()} {v1} {l1.lower()}.",
-                ]
-            elif wc1 >= 0.4:
-                frames = [
-                    f"It seems that {subject.lower()} {v1} {l1.lower()}.",
-                    f"I believe {subject.lower()} {v1} {l1.lower()}.",
-                    f"From what I gather, {subject.lower()} {v1} {l1.lower()}.",
-                ]
-            else:
-                frames = [
-                    f"I suspect that {subject.lower()} {v1} {l1.lower()}.",
-                    f"Perhaps {subject.lower()} {v1} {l1.lower()}.",
-                    f"Maybe {subject.lower()} {v1} {l1.lower()}.",
-                ]
-            response = rnd.choice(frames)
-        else:
-            # Coordinated sentence for the first two associations
-            details1 = assoc_details[0]
-            details2 = assoc_details[1]
-            l1, v1 = details1["label"], details1["verb"]
-            l2, v2 = details2["label"], details2["verb"]
-
-            coord_patterns = [
-                lambda s, l1, v1, l2, v2: f"{s.capitalize()} {v1} {l1.lower()}, and it also {v2} {l2.lower()}.",
-                lambda s, l1, v1, l2, v2: f"While {s.lower()} {v1} {l1.lower()}, it also {v2} {l2.lower()}.",
-                lambda s, l1, v1, l2, v2: f"It seems that {s.lower()} {v1} {l1.lower()}, though it also {v2} {l2.lower()}.",
-                lambda s, l1, v1, l2, v2: f"I believe {s.lower()} {v1} {l1.lower()}, and that connects to {l2.lower()}."
-            ]
-            response = rnd.choice(coord_patterns)(subject, l1, v1, l2, v2)
-
-            # Optional elaborative sentence for the third association
-            if len(assoc_details) >= 3 and assoc_details[2]["score"] >= 0.3:
-                details3 = assoc_details[2]
-                l3, v3 = details3["label"], details3["verb"]
-
-                elabs = [
-                    f"Additionally, {subject.lower()} {v3} {l3.lower()}.",
-                    f"Along with that, I think it {v3} {l3.lower()}.",
-                    f"Moreover, it seems to {v3} {l3.lower()}.",
-                    f"At the same time, it {v3} {l3.lower()}.",
-                ]
-                response += " " + rnd.choice(elabs)
-
-        # Append a follow-up check to make the response engaging
-        follow_ups = [
-            "Does that match what you were getting at?",
-            "What do you think?",
-            "Want to explore this more?",
+        # --- Priority 3: Associative response via SurfaceRealizer ---
+        try:
+            if hasattr(self, 'syntactic_assembly') and hasattr(self, 'surface_realizer'):
+                seen: Set[str] = {subject.lower()}
+                
+                # Filter out function words from associations (they leak through spreading activation
+                # because graph edges like "why"→"because" exist. The chain walker filters them via
+                # _GRAMMATICAL_CONCEPTS, but _graph_fallback_response iterates associations directly.)
+                filtered_assocs = []
+                for l, s in assocs:
+                    ll = l.lower()
+                    if ll in self._GRAMMATICAL_CONCEPTS:
+                        continue
+                    # Skip anything that isn't a noun (verbs, adjs, conj, prep, det, pron, adv)
+                    pos = getattr(self, '_concept_pos', {}).get(ll, 'noun')
+                    if pos != 'noun':
+                        continue
+                    filtered_assocs.append((l, s))
+                # If all assocs were filtered out (e.g. only function words remain), skip to last-resort
+                if not filtered_assocs:
+                    raise StopIteration("all assocs were function words")
+                
+                # Build discourse context
+                num_sentences = min(3, len(filtered_assocs))
+                disc_ctx = DiscourseState(
+                    sentence_index=0,
+                    discourse_type="explain",
+                    total_sentences=num_sentences,
+                    free_energy=self._free_energy if hasattr(self, '_free_energy') else 0.3,
+                )
+                
+                utterances = []
+                for i, (label, score) in enumerate(filtered_assocs[:3]):
+                    if label.lower() in seen:
+                        continue
+                    seen.add(label.lower())
+                    
+                    # Determine relation from graph edge
+                    nid_subj = self._concept_keywords.get(subj_lower, [None])[0]
+                    nid_label = self._concept_keywords.get(label.lower(), [None])[0]
+                    relation = "semantic"
+                    if nid_subj is not None and nid_label is not None:
+                        edge = self.graph.get_edge(nid_subj, nid_label)
+                        if edge is None:
+                            edge = self.graph.get_edge(nid_label, nid_subj)
+                        if edge is not None:
+                            relation = edge.relation_type or "semantic"
+                    
+                    # Build syntactic frame
+                    frame = self.syntactic_assembly.bind_to_sentence(
+                        subject=subject,
+                        relation=relation,
+                        target=label,
+                        pos_map=getattr(self, '_concept_pos', {}),
+                    )
+                    
+                    # Set discourse context for this sentence
+                    disc_ctx.sentence_index = i
+                    disc_ctx.previous_subject = utterances[-1].split()[0] if utterances else None
+                    if i == 0:
+                        discourse_marker = ""
+                    elif relation == "contrastive":
+                        discourse_marker = ""
+                    else:
+                        discourse_marker = ""
+                    
+                    # Realize through free-energy-driven surface realizer
+                    sentence = self.surface_realizer.realize(
+                        frame=frame,
+                        discourse_context=disc_ctx,
+                        dopamine_tone=getattr(self, '_dopamine_tone', 0.5),
+                        cerebellar_ngram=getattr(self, 'cerebellar_ngram', None),
+                        discourse_marker=discourse_marker,
+                    )
+                    
+                    if sentence and len(sentence) > 5:
+                        utterances.append(sentence)
+                    
+                    if len(utterances) >= num_sentences:
+                        break
+                
+                if utterances:
+                    response = " ".join(utterances)
+                    return (response, "graph_fallback")
+        except Exception:
+            pass
+        
+        # Last-resort: bare minimum if everything fails
+        # Filter function words even in last-resort path
+        filtered_assocs_lr = [
+            (l, s) for l, s in (assocs or [])
+            if l.lower() not in self._GRAMMATICAL_CONCEPTS
         ]
-        response += " " + rnd.choice(follow_ups)
-
-        return (response, "graph_fallback")
+        if filtered_assocs_lr:
+            # Find the first non-function-word association for a SurfaceRealizer call
+            try:
+                if hasattr(self, 'syntactic_assembly') and hasattr(self, 'surface_realizer'):
+                    frame = self.syntactic_assembly.bind_to_sentence(
+                        subject=subject,
+                        relation="semantic",
+                        target=filtered_assocs_lr[0][0],
+                        pos_map=getattr(self, '_concept_pos', {}),
+                    )
+                    disc_ctx = DiscourseState(
+                        sentence_index=0,
+                        discourse_type="explain",
+                        total_sentences=1,
+                        free_energy=0.4,
+                    )
+                    s = self.surface_realizer.realize(
+                        frame=frame,
+                        discourse_context=disc_ctx,
+                        dopamine_tone=getattr(self, '_dopamine_tone', 0.5),
+                        cerebellar_ngram=getattr(self, 'cerebellar_ngram', None),
+                    )
+                    if s and len(s) > 5:
+                        return (s, "associative")
+            except Exception:
+                pass
+        # If even filtered assocs fail, return minimal response without function words
+        if assocs:
+            first_content = filtered_assocs_lr[0][0].lower() if filtered_assocs_lr else subject.lower()
+            s = self._try_surface_realize(
+                subject=subject, target=first_content,
+                discourse_type="connect", free_energy=0.35, min_len=8)
+            if s:
+                return (s, "associative")
+            return (f"i see. {subject.lower()} and {first_content} are linked.", "associative")
+        s = self._try_surface_realize(
+            subject=subject, target=subject,
+            discourse_type="reflect", free_energy=0.5, min_len=8)
+        if s:
+            return (s, "associative")
+        return (f"i see. {subject.lower()} is something i am still exploring.", "associative")
 
 

@@ -62,6 +62,7 @@ STOP_WORDS = {
 QUESTION_WORDS = {"what", "why", "how", "when", "where", "who", "which",
                   "does", "do", "is", "are", "can", "will", "would",
                   "could", "should", "did", "have", "has", "had"}
+from .constants import ConceptPosDict
 
 FOLLOW_UP_WORDS = {"more", "else", "another", "also", "further",
                    "other", "additionally", "favorite"}
@@ -228,7 +229,7 @@ class ChatInterface:
         self._network_available: Optional[bool] = None
         self._network_retry_turn: int = 0
         self._turns_since_last_search: int = 0
-        self._concept_pos: Dict[str, str] = {}
+        self._concept_pos = ConceptPosDict()
         self._chain_traces: List = []
         self._impossible_queries: List = []
         self._last_strategy_used: str = ""
@@ -409,6 +410,18 @@ class ChatInterface:
         # Spread activation
         associations = self.graph_engine.spread_and_collect(activated, primary_ids=subject_ids)
 
+        # Filter associations to only contain nouns (and not grammatical/function words)
+        filtered_associations = []
+        for l, s in associations:
+            ll = l.lower()
+            if hasattr(self.graph_engine, '_GRAMMATICAL_CONCEPTS') and ll in self.graph_engine._GRAMMATICAL_CONCEPTS:
+                continue
+            pos = getattr(self, '_concept_pos', {}).get(ll, 'noun')
+            if pos != 'noun':
+                continue
+            filtered_associations.append((l, s))
+        associations = filtered_associations
+
         # Collect unknown words for deferred web learning
         input_words = [w.strip(".,!?") for w in user_input.lower().split() if len(w.strip(".,!?")) >= 3]
         unknown_meaningful = [w for w in input_words if w not in self.graph_engine._concept_keywords and w not in STOP_WORDS]
@@ -497,8 +510,9 @@ class ChatInterface:
                 for f, t in hops_list:
                     hop_labels.append((f, t))
             self.graph_engine.hippocampal_index_topic(subject, list(activated) if activated else [], hop_labels)
-            if not any(t.lower() == sl for t in self._topic_list):
-                self._topic_list.append(subject)
+            if any(t.lower() == sl for t in self._topic_list):
+                self._topic_list = [t for t in self._topic_list if t.lower() != sl]
+            self._topic_list.append(subject)
         if len(self._topic_list) > 50:
             removed = self._topic_list[:-50]
             self._topic_list = self._topic_list[-50:]
@@ -720,39 +734,68 @@ class ChatInterface:
         return ("", text)
 
     def _ground_query(self, text: str) -> Tuple[str, float, str]:
-        text_lower = text.lower().strip(" ?!.")
-        QUERY_PATTERNS = [
-            (r"(?:what|who)'?s?\s+(?:is\s+|are\s+)?(.+)", 1),
-            (r"(?:tell|show)\s+me\s+about\s+(.+)", 1),
-            (r"(?:explain|describe)\s+(.+)", 1),
-            (r"(?:what|which)\s+(.+)\s+(?:is|are|mean)", 1),
-            (r"(?:do you know|have you heard of)\s+(.+)", 1),
-        ]
+        # Strategy A: Use PrefrontalWorkspace question type detection to parse semantic payload
+        qtype = "general"
         query_phrase = ""
-        for pattern, group_idx in QUERY_PATTERNS:
-            m = re.match(pattern, text_lower)
-            if m:
-                query_phrase = m.group(group_idx).strip()
-                break
+        try:
+            if hasattr(self, 'pfc_workspace'):
+                qtype, groups = self.pfc_workspace.detect_question_type(text, self._concept_pos)
+                if groups:
+                    query_phrase = groups[0].strip()
+        except Exception:
+            pass
+
+        if not query_phrase:
+            # Fallback to custom patterns
+            text_lower = text.lower().strip(" ?!.")
+            QUERY_PATTERNS = [
+                (r"(?:what\s+happens\s+(?:if|when))\s+(.+)", 1),
+                (r"(?:what|who)'?s?\s+(?:is\s+|are\s+)?(.+)", 1),
+                (r"(?:tell|show)\s+me\s+about\s+(.+)", 1),
+                (r"(?:explain|describe)\s+(.+)", 1),
+                (r"(?:what|which)\s+(.+)\s+(?:is|are|mean)", 1),
+                (r"(?:do you know|have you heard of)\s+(.+)", 1),
+            ]
+            for pattern, group_idx in QUERY_PATTERNS:
+                m = re.match(pattern, text_lower)
+                if m:
+                    query_phrase = m.group(group_idx).strip()
+                    break
+
         if not query_phrase:
             return ("", 0.0, "no_pattern")
+
         phrase_clean = query_phrase.strip(".,!?")
         if phrase_clean in self.graph_engine._concept_labels:
             return (phrase_clean, 0.95, "exact_label")
         if phrase_clean in self.graph_engine._concept_keywords:
             return (phrase_clean, 0.90, "exact_keyword")
+
         words = [w.strip(".,!?") for w in query_phrase.split()
                  if len(w.strip(".,!?")) > 2 and w.strip(".,!?") not in QUESTION_WORDS
                  and w.strip(".,!?") not in TOPIC_SKIP_WORDS and w.strip(".,!?") not in STOP_WORDS]
         if words:
+            if len(words) >= 2:
+                if qtype in ("hypothetical", "why", "how", "compare"):
+                    last_word = words[-1]
+                    if last_word in self.graph_engine._concept_labels or last_word in self.graph_engine._concept_keywords:
+                        return (last_word, 0.7, "scenario_last_entity")
+                clean_subj = " ".join(words[:3]) if len(words) >= 3 else " ".join(words)
+                return (clean_subj, 0.45, "multi_word_unconnected")
+
             known_words = [w for w in words if w in self.graph_engine._concept_labels or w in self.graph_engine._concept_keywords]
             unknown_words = [w for w in words if w not in known_words]
             if known_words:
+                if unknown_words:
+                    # Keep the clean phrase as the topic and return low confidence to trigger web search
+                    clean_subj = " ".join(words[:3]) if len(words) >= 3 else " ".join(words)
+                    return (clean_subj, 0.45, "compositional_with_unknown")
                 ratio = len(known_words) / len(words)
                 topic = known_words[-1]
                 return (topic, min(0.85, 0.5 + ratio * 0.4), f"compositional_{ratio:.2f}")
             if words:
-                return (words[-1], 0.2, "all_unknown")
+                clean_subj = " ".join(words[:3]) if len(words) >= 3 else " ".join(words)
+                return (clean_subj, 0.2, "all_unknown")
         return ("", 0.0, "no_match")
 
     def _recall_past(self, subj: str, obj: str) -> List[str]:
@@ -1106,12 +1149,28 @@ class ChatInterface:
                     p1 = propositions[0]
                     p2 = propositions[1] if len(propositions) > 1 else None
                     if p2:
+                        s = self._try_surface_realize(
+                            subject=p1.subject, target=p2.subject,
+                            discourse_type="connect", free_energy=0.3, min_len=10)
+                        if s:
+                            return (s, "nested_proposition_contrastive")
                         return (f"On one hand, {p1.subject} {p1.predicate} {p1.object}. On the other hand, {p2.subject} {p2.predicate} {p2.object}.", "nested_proposition_contrastive")
+                    s = self._try_surface_realize(
+                            subject=p1.subject, target=p1.object or p1.subject,
+                            discourse_type="reflect", free_energy=0.35, min_len=10)
+                    if s:
+                        return (s, "nested_proposition")
                     return (f"I think there are multiple perspectives here. {p1.subject} may {p1.predicate} {p1.object} depending on the context.", "nested_proposition")
                 elif surface == "multi_perspective":
                     parts = []
                     for p in propositions[:3]:
                         parts.append(f"{p.subject} {p.predicate} {p.object}")
+                    s = self._try_surface_realize(
+                            subject=propositions[0].subject if propositions else "",
+                            target=propositions[-1].subject if propositions else "",
+                            discourse_type="elaborate", free_energy=0.25, min_len=10)
+                    if s:
+                        return (s, "nested_proposition_multi")
                     return (" and also ".join(parts) + ".", "nested_proposition_multi")
 
         # Check for causal schema prediction (Issue #2)
@@ -1123,7 +1182,17 @@ class ChatInterface:
                 if pred and conf > 0.4:
                     chain, explanations = self.causal_schema.explain_causal_chain(ctx.subject, pred)
                     if explanations:
-                        return (f"I think {explanations[0]}.", "causal_schema")
+                            s = self._try_surface_realize(
+                                subject=ctx.subject, target=pred,
+                                discourse_type="explain", free_energy=0.25, min_len=10)
+                            if s:
+                                return (s, "causal_schema")
+                            return (f"I think {explanations[0]}.", "causal_schema")
+                    s = self._try_surface_realize(
+                        subject=ctx.subject, target=pred,
+                        discourse_type="causal", free_energy=0.2, min_len=8)
+                    if s:
+                        return (s, "causal_schema")
                     return (f"{ctx.subject.capitalize()} leads to {pred}.", "causal_schema")
 
         subj_lower = subject.lower()
@@ -1131,14 +1200,34 @@ class ChatInterface:
         # Neocortical overlearned definitional knowledge check first
         if hasattr(self, '_definitions') and subj_lower in self._definitions:
             defn = self._definitions[subj_lower]
+            s = self._try_surface_realize(
+                    subject=subject, target=defn,
+                    discourse_type="explain", free_energy=0.2, min_len=10)
+            if s:
+                return (s, "definition_with_assoc")
             return (f"{subject.capitalize()} is {defn}.", "definition_with_assoc")
 
         if not assocs:
             if subj_lower in self.graph_engine._concept_keywords or subj_lower in self.graph_engine._concept_labels:
                 neighbor = self.graph_engine.find_vector_neighbor(subject)
                 if neighbor and neighbor.lower() != subject.lower():
+                    s = self._try_surface_realize(
+                        subject=subject, target=neighbor,
+                        discourse_type="explain", free_energy=0.4, min_len=8)
+                    if s:
+                        return (s, "associative")
                     return (f"{subject} connects with {neighbor}.", "associative")
+                s = self._try_surface_realize(
+                    subject=subject, target=subject,
+                    discourse_type="acknowledge", free_energy=0.45, min_len=8)
+                if s:
+                    return (s, "associative")
                 return (f"{subject.capitalize()} is something I know about.", "associative")
+            s = self._try_surface_realize(
+                    subject=subject, target=subject,
+                    discourse_type="reflect", free_energy=0.6, min_len=8)
+            if s:
+                return (s, "unknown_subject")
             return (f"I don't know about {subject} yet.", "unknown_subject")
 
         # Dynamically compose sentences using the ConceptGraph edges & Hebbian VerbLexicon
@@ -1153,9 +1242,17 @@ class ChatInterface:
 
         valid_assocs = []
         for label, score in assocs:
-            if label and label.lower() != subject.lower() and label.lower() not in seen:
+            ll = label.lower()
+            if label and ll != subject.lower() and ll not in seen:
+                # Filter out function/grammatical words
+                if hasattr(self.graph_engine, '_GRAMMATICAL_CONCEPTS') and ll in self.graph_engine._GRAMMATICAL_CONCEPTS:
+                    continue
+                # Skip anything that isn't a noun (verbs, adjs, conj, prep, det, pron, adv)
+                pos = getattr(self, '_concept_pos', {}).get(ll, 'noun')
+                if pos != 'noun':
+                    continue
                 valid_assocs.append((label, score))
-                seen.add(label.lower())
+                seen.add(ll)
 
         valid_assocs = valid_assocs[:3]
 
@@ -1205,25 +1302,23 @@ class ChatInterface:
             l1, v1 = details["label"], details["verb"]
             wc1 = details["edge_weight"] * details["edge_conf"]
 
-            if wc1 >= 0.6:
-                frames = [
-                    f"{subject.capitalize()} {v1} {l1.lower()}.",
-                    f"Clearly, {subject.lower()} {v1} {l1.lower()}.",
-                    f"I recognize that {subject.lower()} {v1} {l1.lower()}.",
-                ]
+            s = self._try_surface_realize(
+                    subject=subject, target=l1,
+                    discourse_type="explain", free_energy=0.3 if wc1 >= 0.4 else 0.5, min_len=8)
+            if s:
+                response = s
             elif wc1 >= 0.4:
                 frames = [
-                    f"It seems that {subject.lower()} {v1} {l1.lower()}.",
-                    f"I believe {subject.lower()} {v1} {l1.lower()}.",
-                    f"From what I gather, {subject.lower()} {v1} {l1.lower()}.",
+                    f"{subject.capitalize()} {v1} {l1.lower()}.",
+                    f"I think {subject.lower()} {v1} {l1.lower()}.",
                 ]
+                response = rnd.choice(frames)
             else:
                 frames = [
-                    f"I suspect that {subject.lower()} {v1} {l1.lower()}.",
-                    f"Perhaps {subject.lower()} {v1} {l1.lower()}.",
+                    f"I think {subject.lower()} {v1} {l1.lower()}.",
                     f"Maybe {subject.lower()} {v1} {l1.lower()}.",
                 ]
-            response = rnd.choice(frames)
+                response = rnd.choice(frames)
         else:
             # Coordinated sentence for the first two associations
             details1 = assoc_details[0]
@@ -1231,28 +1326,66 @@ class ChatInterface:
             l1, v1 = details1["label"], details1["verb"]
             l2, v2 = details2["label"], details2["verb"]
 
-            coord_patterns = [
-                lambda s, l1, v1, l2, v2: f"{s.capitalize()} {v1} {l1.lower()}, and it also {v2} {l2.lower()}.",
-                lambda s, l1, v1, l2, v2: f"While {s.lower()} {v1} {l1.lower()}, it also {v2} {l2.lower()}.",
-                lambda s, l1, v1, l2, v2: f"It seems that {s.lower()} {v1} {l1.lower()}, though it also {v2} {l2.lower()}.",
-                lambda s, l1, v1, l2, v2: f"I believe {s.lower()} {v1} {l1.lower()}, and that connects to {l2.lower()}."
-            ]
-            response = rnd.choice(coord_patterns)(subject, l1, v1, l2, v2)
+            # Generate via SurfaceRealizer for first association
+            s1 = self._try_surface_realize(
+                subject=subject, target=l1,
+                discourse_type="explain", free_energy=0.3, min_len=8)
+            if s1:
+                # Generate via SurfaceRealizer for second association
+                s2 = self._try_surface_realize(
+                    subject=subject, target=l2,
+                    discourse_type="elaborate", free_energy=0.35, min_len=8)
+                if s2:
+                    response = s1 + " " + s2
+                else:
+                    response = s1
+            else:
+                coord_patterns = [
+                    lambda s, l1, v1, l2, v2: f"{s.capitalize()} {v1} {l1.lower()}, and it also {v2} {l2.lower()}.",
+                    lambda s, l1, v1, l2, v2: f"While {s.lower()} {v1} {l1.lower()}, it also {v2} {l2.lower()}.",
+                ]
+                response = rnd.choice(coord_patterns)(subject, l1, v1, l2, v2)
 
             # Optional elaborative sentence for the third association
             if len(assoc_details) >= 3 and assoc_details[2]["score"] >= 0.3:
                 details3 = assoc_details[2]
                 l3, v3 = details3["label"], details3["verb"]
 
-                elabs = [
-                    f"Additionally, {subject.lower()} {v3} {l3.lower()}.",
-                    f"Along with that, I think it {v3} {l3.lower()}.",
-                    f"Moreover, it seems to {v3} {l3.lower()}.",
-                    f"At the same time, it {v3} {l3.lower()}.",
-                ]
-                response += " " + rnd.choice(elabs)
+                s3 = self._try_surface_realize(
+                        subject=subject, target=l3,
+                        discourse_type="elaborate", free_energy=0.35, min_len=8)
+                if s3:
+                    response += " " + s3
+                else:
+                    response += " " + f"{subject.lower()} {v3} {l3.lower()}."
 
         return (response, "graph_fallback")
+
+    def _try_surface_realize(self, subject: str, target: str,
+                              relation: str = "semantic",
+                              discourse_type: str = "explain",
+                              free_energy: float = 0.3,
+                              min_len: int = 8) -> Optional[str]:
+        """Try to generate a sentence using SurfaceRealizer.
+        Helper to eliminate template code duplication across fallback paths.
+        Returns sentence string on success, None on failure.
+        """
+        try:
+            if hasattr(self, 'syntactic_assembly') and hasattr(self, 'surface_realizer'):
+                frame = self.syntactic_assembly.bind_to_sentence(
+                    subject=subject, relation=relation, target=target,
+                    pos_map=getattr(self, '_concept_pos', {}))
+                from ..language.surface_realizer import DiscourseState
+                d = DiscourseState(sentence_index=0, discourse_type=discourse_type,
+                    total_sentences=1, free_energy=free_energy)
+                s = self.surface_realizer.realize(frame=frame, discourse_context=d,
+                    dopamine_tone=getattr(self, '_dopamine_tone', 0.5),
+                    cerebellar_ngram=getattr(self, 'cerebellar_ngram', None))
+                if s and len(s) > min_len:
+                    return s
+        except Exception:
+            pass
+        return None
 
     def _try_hippocampal_retrieval(self, ctx) -> Optional[str]:
         """Try to retrieve from hippocampal buffer for recall triggers."""
@@ -1263,18 +1396,11 @@ class ChatInterface:
             return None
         # Return the highest-confidence fact
         best_fact = max(facts, key=lambda f: f.confidence)
-        return f"I remember that {best_fact.subject} {best_fact.predicate} {best_fact.object}."
+        return None
 
     def _generate_acknowledgment(self, ctx, implicature) -> str:
         """Generate an acknowledgment response for pragmatic implicature."""
-        if implicature.detected_type == "personal_state":
-            return f"I see. Thanks for sharing that with me! That sounds interesting."
-        elif implicature.detected_type == "obvious_statement":
-            return f"Yes, that is true! It is interesting how those things work."
-        elif implicature.detected_type == "social_cue":
-            return f"That is an interesting perspective. What do you think about it?"
-        else:
-            return f"I understand. Tell me more about that."
+        return "that is interesting."
 
     def _walk_chain_simple(self, label: str, seen: Set[str], max_hops: int,
                             temperature: float = 0.25) -> Optional[str]:
@@ -1608,7 +1734,13 @@ class ChatInterface:
             with open(self._save_path, 'rb') as f:
                 state = _RavanaUnpickler(f).load()
 
-            self.graph_engine.graph = state['graph']
+            loaded_graph = state['graph']
+            if loaded_graph and loaded_graph.nodes:
+                first_node = next(iter(loaded_graph.nodes.values()))
+                if first_node.vector is not None and len(first_node.vector) != self.config.dim:
+                    print(f"  [Load warning] Dimension mismatch: loaded graph has dim {len(first_node.vector)} but interface has dim {self.config.dim}. Discarding saved state.")
+                    return False
+            self.graph_engine.graph = loaded_graph
             self.graph_engine._concept_keywords = state['concept_keywords']
             self.turn_count = state['turn_count']
             self._topic_list = state.get('topic_list', [])

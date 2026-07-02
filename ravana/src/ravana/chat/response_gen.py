@@ -13,10 +13,12 @@ from collections import deque, Counter
 
 from .constants import STOP_WORDS
 from .chain_walker import ChainWalkerMixin
+from ravana.language.surface_realizer import DiscourseState
 # Compute project root (same logic as engine.py)
 _proj_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 
 from ravana_ml.nn.neural_decoder import NeuralDecoder
+from ravana_ml.nn.neuromodulator import NeuromodulatorEngine
 
 from .models import CognitiveResponseContext
 from .constants import _is_word_salad
@@ -34,6 +36,11 @@ class ResponseGenMixin(ChainWalkerMixin):
         """
         if self._decoder_word_to_idx and self._decoder_idx_to_word and self._decoder_word_to_embed:
             vocab_size = len(self._decoder_word_to_idx)
+            # Neuromodulator — tracks ACh/NE/DA/5-HT for adaptive generation & learning
+            saved_nm = getattr(self, '_saved_neuromodulator_state', None)
+            self.neuromodulator_engine = NeuromodulatorEngine()
+            if saved_nm:
+                self.neuromodulator_engine.load_state(saved_nm)
             self.neural_decoder = NeuralDecoder(
                 vocab_size=vocab_size,
                 embed_dim=self.dim,
@@ -41,6 +48,7 @@ class ResponseGenMixin(ChainWalkerMixin):
                 n_attention_heads=4,
                 contrastive_weight=0.5,
                 contrastive_negatives=8,
+                neuromodulator=self.neuromodulator_engine,
             )
             for word, idx in self._decoder_word_to_idx.items():
                 if word in self._decoder_word_to_embed:
@@ -68,9 +76,11 @@ class ResponseGenMixin(ChainWalkerMixin):
         next_idx = len(special_tokens)
         max_vocab = self.MAX_DECODER_VOCAB_SIZE
 
-        # Common function words for fluent generation
+        # Common function words for fluent generation.
+        # These are genuine grammatical/function words — NOT content words
+        # like "connect", "relate", "link" which should be learned naturally.
         function_words = [
-            "a", "an", "the", "is", "are", "was", "were", "be", "been",
+            "a", "an", "the", "and", "but", "or", "is", "are", "was", "were", "be", "been",
             "being", "have", "has", "had", "do", "does", "did", "will",
             "would", "could", "should", "may", "might", "shall", "can",
             "not", "no", "nor", "so", "if", "then", "than", "too", "very",
@@ -81,10 +91,7 @@ class ResponseGenMixin(ChainWalkerMixin):
             "this", "that", "these", "those", "it", "its", "they", "them",
             "their", "we", "our", "you", "your", "he", "she", "him", "her",
             "his", "i", "me", "my", "myself", "am",
-            "of", "to", "for", "with", "from", "at", "by", "as", "on",
-            "related", "connect", "connects", "mean", "means",
-            "concept", "concepts", "idea", "ideas", "important",
-            "lead", "leads", "talk", "think", "link", "links",
+            "of", "to", "for", "with", "from", "at", "by", "as", "on", "in", "out", "up", "off",
         ]
 
         # Add graph concept labels (highest priority after function words)
@@ -175,6 +182,11 @@ class ResponseGenMixin(ChainWalkerMixin):
             delattr(self, '_forced_vocab_size')
 
         vocab_size = len(self._decoder_word_to_idx)
+        # Neuromodulator — tracks ACh/NE/DA/5-HT for adaptive generation & learning
+        saved_nm = getattr(self, '_saved_neuromodulator_state', None)
+        self.neuromodulator_engine = NeuromodulatorEngine()
+        if saved_nm:
+            self.neuromodulator_engine.load_state(saved_nm)
         self.neural_decoder = NeuralDecoder(
             vocab_size=vocab_size,
             embed_dim=self.dim,
@@ -182,6 +194,7 @@ class ResponseGenMixin(ChainWalkerMixin):
             n_attention_heads=4,
             contrastive_weight=0.5,
             contrastive_negatives=8,
+            neuromodulator=self.neuromodulator_engine,
         )
 
         for word, idx in self._decoder_word_to_idx.items():
@@ -195,112 +208,68 @@ class ResponseGenMixin(ChainWalkerMixin):
 
 
 
-    def _train_decoder_from_graph(self, min_synthetic: int = 2000):
-        """Train neural decoder on natural sentences derived from graph relationships.
-
-        Uses diverse, human-like phrasings instead of template artifacts like
-        "X connects with Y" that were poisoning the decoder's output.
+    def _train_decoder_from_graph(self, min_synthetic: int = 0):
+        """Train neural decoder on REAL English from seed corpus.
+        
+        No template sentences — those produce robotic output. Uses efficient
+        prepare/loop pattern so ALL sentences are trained on each pass.
         
         Args:
-            min_synthetic: Maximum number of synthetic sentences to generate (default 2000)
+            min_synthetic: Ignored (kept for compatibility).
         """
         if self.neural_decoder is None or not self._decoder_vocab_built:
             return
-        # Natural phrasings that sound like human conversation, not graph templates
-        templates = [
-            # Casual / conversational
-            "{s} and {o} go hand in hand",
-            "when you think about {s}, {o} comes to mind",
-            "{s} is a big part of {o}",
-            "{s} has a lot to do with {o}",
-            "{o} matters a lot when it comes to {s}",
 
-            # Explanatory
-            "{s} is really about {o}",
-            "at its core, {s} ties into {o}",
-            "{s} plays a role in {o}",
-            "one way to think about {s} is through {o}",
-            "{s} shapes how we understand {o}",
-
-            # Causal / influence
-            "{s} can lead to {o}",
-            "{o} often happens because of {s}",
-            "{s} has an impact on {o}",
-            "{s} contributes to {o} in important ways",
-            "{o} is something that {s} can bring about",
-
-            # Contrastive
-            "{s} and {o} are quite different",
-            "while {s} is one thing, {o} is another",
-            "{s} stands apart from {o} in interesting ways",
-            "unlike {s}, {o} takes a different path",
-
-            # Analogical
-            "{s} is a lot like {o} in some ways",
-            "you can see {s} reflected in {o}",
-            "{s} and {o} share something important",
-            "thinking of {s} reminds me of {o}",
-
-            # Temporal / process
-            "{s} often comes before {o}",
-            "{o} tends to follow {s}",
-            "{s} sets the stage for {o}",
-            "{s} paves the way for {o}",
-
-            # Speculative / reflective
-            "maybe {s} and {o} are more related than we think",
-            "it is interesting how {s} ties into {o}",
-            "{s} makes you wonder about {o}",
-            "in a way, {s} and {o} feed into each other",
-
-            # Personal / first person
-            "i think {s} is closely tied to {o}",
-            "to me, {s} says something about {o}",
-            "i see {s} and {o} as deeply connected",
-        ]
-
-        sentences = []
-        seen = set()
-        for (src_id, tgt_id), edge in self.graph.edges.items():
-            src_node = self.graph.get_node(src_id)
-            tgt_node = self.graph.get_node(tgt_id)
-            if src_node and tgt_node and src_node.label and tgt_node.label:
-                s_label = src_node.label.lower()
-                o_label = tgt_node.label.lower()
-                if s_label == o_label:
-                    continue
-                key = (s_label, o_label)
-                if key not in seen:
-                    seen.add(key)
-                    t = templates[len(sentences) % len(templates)]
-                    sent = t.format(s=s_label, o=o_label)
-                    sentences.append(sent)
-
-        # Limit synthetic training to avoid overwhelming real English patterns
-        sentences = sentences[:min_synthetic]
         total_trained = 0
-        sleep_every = 200
-        for sent in sentences:
-            words = sent.split()
-            err = self.neural_decoder.train_on_sentence(
-                words, self._decoder_word_to_embed, self._decoder_word_to_idx)
-            total_trained += 1
-            if total_trained % sleep_every == 0:
-                self.neural_decoder.sleep_cycle()
-        self.neural_decoder.sleep_cycle()
-        self._decoder_training_count = total_trained + self._decoder_web_training_count + self._decoder_seed_training_count
-        print(f"  [Decoder] Trained on {total_trained} natural graph sentences"
-              f"{' + ' + str(self._decoder_web_training_count) + ' from web' if self._decoder_web_training_count > 0 else ''}")
+        corpus_path = os.path.join(_proj_root, "data", "corpora", "teen_seeds.txt")
+        if os.path.exists(corpus_path):
+            try:
+                with open(corpus_path, "r", encoding="utf-8") as f:
+                    text = f.read()
+                text = text.strip()
+                if text:
+                    # Pre-process once, then loop for efficient multi-pass training
+                    nd = self.neural_decoder
+                    all_sentences = nd.prepare_sentences(
+                        text, self._decoder_word_to_embed, self._decoder_word_to_idx,
+                        min_sentence_len=3,
+                    )
+                    n_available = len(all_sentences)
+                    if n_available == 0:
+                        return
+                    passes = 5
+                    sleep_every = 2
+                    rng = np.random.RandomState(42)
+                    for i in range(passes):
+                        idx = rng.permutation(n_available)
+                        err_sum = 0.0
+                        for j in idx:
+                            s = all_sentences[j]
+                            err = nd.train_on_sentence(
+                                s['words'], self._decoder_word_to_embed, self._decoder_word_to_idx,
+                                word_indices=s['word_indices'],
+                                conditioning_embs=s['conditioning_embs'],
+                            )
+                            err_sum += err
+                        total_trained += n_available
+                        if (i + 1) % sleep_every == 0:
+                            nd.sleep_cycle()
+                    nd.sleep_cycle()
+                    self._decoder_training_count += total_trained
+                    print(f"  [Decoder] Trained on {total_trained} real-English sentences"
+                          f" ({passes} passes x {n_available} sents/pass)"
+                          f"{' + ' + str(self._decoder_web_training_count) + ' from web' if self._decoder_web_training_count > 0 else ''}")
+            except Exception as e:
+                print(f"  [Decoder] Seed corpus training error: {e}")
+        else:
+            print(f"  [Decoder] No seed corpus found at {corpus_path}")
 
 
 
-    def _train_decoder_on_seed_corpus(self, max_sentences: int = 250) -> int:
-        # Train the neural decoder on the bundled real-English corpus
-        # (data/corpora/teen_seeds.txt). This is the difference between
-        # a decoder that has seen only {s} connects with {o} template
-        # garbage and a decoder that has actually seen English. Without
-        # this, the decoder learns to imitate the very template phrases
-        # that produce the trash output in chat.
+    def _train_decoder_on_seed_corpus(self, max_sentences: int = 500) -> int:
+        """Train neural decoder on the bundled real-English corpus using efficient
+        prepare/loop pattern with shuffled passes over ALL sentences.
+        """
         if self.neural_decoder is None or not self._decoder_vocab_built:
             return 0
         corpus_path = os.path.join(_proj_root, "data", "corpora", "teen_seeds.txt")
@@ -311,51 +280,43 @@ class ResponseGenMixin(ChainWalkerMixin):
                 text = f.read()
         except Exception:
             return 0
-        # Pre-expand decoder vocab with corpus words so they can be
-        # used as inputs/targets (GloVe-backed vectors).
+        # Pre-expand decoder vocab with corpus words
         words_in_corpus = set(re.findall(r"[a-zA-Z\']{3,}", text.lower()))
         new_for_vocab = [w for w in words_in_corpus if w not in self._decoder_word_to_idx]
         if new_for_vocab:
             self._expand_decoder_vocab(new_for_vocab)
 
-        # Pre-process corpus once, then loop with shuffled passes
+        # Pre-process corpus once, then loop with shuffled passes over ALL sentences
         nd = self.neural_decoder
         all_sentences = nd.prepare_sentences(
             text, self._decoder_word_to_embed, self._decoder_word_to_idx,
             min_sentence_len=3,
         )
         n_available = len(all_sentences)
-        sentences_per_pass = min(200, n_available)
-        n_passes = 20
-        sleep_interval = 5
-
-        total_err = 0.0
-        passes = 0
+        if n_available == 0:
+            return 0
+        n_passes = 5
+        sleep_interval = 2
         rng = np.random.RandomState(42)
+        passes = 0
 
         for i in range(n_passes):
             idx = rng.permutation(n_available)
-            batch = [all_sentences[idx[j]] for j in range(sentences_per_pass)]
-
-            err_sum = 0.0
-            for sent in batch:
-                err = nd.train_on_sentence(
-                    sent['words'], self._decoder_word_to_embed, self._decoder_word_to_idx,
-                    word_indices=sent['word_indices'],
-                    conditioning_embs=sent['conditioning_embs'],
+            for j in idx:
+                s = all_sentences[j]
+                nd.train_on_sentence(
+                    s['words'], self._decoder_word_to_embed, self._decoder_word_to_idx,
+                    word_indices=s['word_indices'],
+                    conditioning_embs=s['conditioning_embs'],
                 )
-                err_sum += err
-            avg_err = err_sum / sentences_per_pass
-            total_err += avg_err
-            passes += sentences_per_pass
-
+            passes += n_available
             if (i + 1) % sleep_interval == 0:
                 nd.sleep_cycle()
 
         if (n_passes % sleep_interval) != 0:
             nd.sleep_cycle()
 
-        self._decoder_seed_training_count = passes
+        self._decoder_seed_training_count += passes
         self._decoder_training_count += passes
         return passes
 
@@ -472,27 +433,6 @@ class ResponseGenMixin(ChainWalkerMixin):
                     new_weight[idx] = blended
         self.neural_decoder.word_embedding.weight.data = new_weight
 
-        # Mini training pass on new words using batch similarity
-        for nw in new_words:
-            nwl = nw.lower().strip()
-            nidx = self._decoder_word_to_idx.get(nwl)
-            if nidx is None:
-                continue
-            nvec = self._decoder_word_to_embed.get(nwl)
-            if nvec is None:
-                continue
-            if len(existing_labels) > 0:
-                sims = existing_mat @ nvec
-                above_thresh = np.where(sims > 0.4)[0]
-                if len(above_thresh) > 0:
-                    top_k = min(3, len(above_thresh))
-                    top_order = np.argsort(sims[above_thresh])[::-1][:top_k]
-                    for ni in above_thresh[top_order]:
-                        neighbor = existing_labels[ni]
-                        bridge = f"{nwl} and {neighbor} are related"
-                        self.neural_decoder.train_on_sentence(
-                            bridge.split(), self._decoder_word_to_embed, self._decoder_word_to_idx)
-
         print(f"  [Decoder] Expanded vocab by {added} words (now {new_vocab_size})")
 
 
@@ -559,45 +499,60 @@ class ResponseGenMixin(ChainWalkerMixin):
         (Quality gate is now in _generate_response.)
         """
         if self.neural_decoder is None or not self._decoder_vocab_built:
+            print(f"  [Decoder Gen] FAIL: decoder=None or vocab not built")
             return None
 
         subject = ctx.subject
-        if not subject or subject.lower() not in self._decoder_word_to_idx:
+        if not subject:
             return None
 
         # Build conditioning embeddings from graph concepts
         concept_embs = []
         seen_labels: Set[str] = set()
 
-        # Subject embedding (core concept) — lock graph reads
+        # Extract individual concept words from subject that ARE in decoder vocab
+        subject_words = subject.lower().split()
+        vocab_words = []
         with self._graph_lock:
+            for w in subject_words:
+                wl = w.lower()
+                if wl in self._decoder_word_to_idx and wl not in seen_labels:
+                    vocab_words.append(wl)
+                    seen_labels.add(wl)
+
+        # Also check associated concepts for vocab words
+        for label, score in ctx.associated_concepts[:10]:
+            ll = label.lower()
+            if ll in self._decoder_word_to_idx and ll not in seen_labels:
+                vocab_words.append(ll)
+                seen_labels.add(ll)
+                if len(vocab_words) >= 8:
+                    break
+
+        # Fallback: if no vocab words found, try the subject as-is
+        if not vocab_words:
             subj_lower = subject.lower()
-            if subj_lower in self._concept_keywords:
-                nids = self._concept_keywords[subj_lower]
+            if subj_lower in self._decoder_word_to_idx:
+                vocab_words.append(subj_lower)
+            else:
+                print(f"  [Decoder Gen] FAIL: subject='{subject}' no words in vocab")
+                return None
+
+        # Build embeddings from graph nodes or decoder word embeddings
+        for vw in vocab_words[:6]:
+            if vw in self._concept_keywords:
+                nids = self._concept_keywords[vw]
                 node = self.graph.get_node(nids[0])
                 if node and node.vector is not None:
                     concept_embs.append(node.vector.copy())
-                    seen_labels.add(subj_lower)
+                elif vw in self._decoder_word_to_embed:
+                    concept_embs.append(self._decoder_word_to_embed[vw].copy())
+            elif vw in self._decoder_word_to_embed:
+                concept_embs.append(self._decoder_word_to_embed[vw].copy())
 
-            # Associated concepts with weighted significance
-            for label, score in ctx.associated_concepts[:6]:
-                ll = label.lower()
-                if ll not in seen_labels and ll in self._concept_keywords:
-                    nids = self._concept_keywords[ll]
-                    node = self.graph.get_node(nids[0])
-                    if node and node.vector is not None:
-                        weight = 0.5 + min(score, 1.0) * 0.5
-                        concept_embs.append(node.vector.copy() * weight)
-                        seen_labels.add(ll)
-                        if len(concept_embs) >= 6:
-                            break
-
-        # Fallback: use decoder word embeddings if no graph nodes found
+        # Final fallback
         if len(concept_embs) < 1:
-            if subj_lower in self._decoder_word_to_embed:
-                concept_embs.append(self._decoder_word_to_embed[subj_lower].copy())
-            else:
-                return None
+            return None
 
         # Add sentence-level compositional vector (N400/P600 integration) as conditioning
         sent_vec = getattr(ctx, 'sentence_vector', None)
@@ -610,15 +565,34 @@ class ResponseGenMixin(ChainWalkerMixin):
         bos_idx = self._decoder_word_to_idx.get("<bos>", 0)
         eos_idx = self._decoder_word_to_idx.get("<eos>", 2)
 
-        # Dynamic temperature from cognitive state
-        # Stage 2: Lower base temp for 1500-vocab model (more deterministic → content words)
-        base_temp = 0.35
+        print(f"  [Decoder Gen] conditioning_embs shape={conditioning_embs.shape}, vocab_words={vocab_words[:6]}, bos_idx={bos_idx}, eos_idx={eos_idx}")
+
+        # Add sentence-level compositional vector (N400/P600 integration) as conditioning
+        sent_vec = getattr(ctx, 'sentence_vector', None)
+        if sent_vec is not None and np.any(sent_vec != 0):
+            concept_embs.append(sent_vec.astype(np.float32) * 0.6)
+
+        conditioning_embs = np.stack(concept_embs, axis=0).astype(np.float32)
+
+        # Special token indices
+        bos_idx = self._decoder_word_to_idx.get("<bos>", 0)
+        eos_idx = self._decoder_word_to_idx.get("<eos>", 2)
+
+        print(f"  [Decoder Gen] conditioning_embs shape={conditioning_embs.shape}, bos_idx={bos_idx}, eos_idx={eos_idx}, subject='{subject}'")
+
+        # Dynamic temperature from cognitive state.
+        # Higher when: curious, aroused, learning. Lower when: confident, focused.
+        # With larger vocab the decoder needs more temperature to explore word choices.
+        base_temp = 0.50
         arousal = ctx.arousal if hasattr(ctx, 'arousal') else 0.3
-        temp = base_temp * (0.7 + arousal * 0.6)
+        temp = base_temp * (0.6 + arousal * 0.8)
         # Higher dopamine tone = more creative/exploratory
         dt = getattr(self, '_dopamine_tone', 0.5)
-        temp *= (0.7 + dt * 0.6)
-        temp = max(0.15, min(0.7, temp))
+        temp *= (0.6 + dt * 0.8)
+        # More training = more confidence = slightly lower temp
+        training_factor = max(0.7, 1.0 - min(0.3, self._decoder_training_count / 20000))
+        temp *= training_factor
+        temp = max(0.25, min(1.0, temp))
 
         # Build content word IDs (non-function, non-special tokens)
         # IMPORTANT: Do NOT include semantic connector words like "connects",
@@ -626,7 +600,7 @@ class ResponseGenMixin(ChainWalkerMixin):
         # presence in the function-word set was causing the decoder to default
         # to template-like "X connects with Y" patterns.
         function_words_set = {
-            "a", "an", "the", "is", "are", "was", "were", "be", "been",
+            "a", "an", "the", "and", "but", "or", "is", "are", "was", "were", "be", "been",
             "being", "have", "has", "had", "do", "does", "did", "will",
             "would", "could", "should", "may", "might", "shall", "can",
             "not", "no", "nor", "so", "if", "then", "than", "too", "very",
@@ -637,7 +611,7 @@ class ResponseGenMixin(ChainWalkerMixin):
             "this", "that", "these", "those", "it", "its", "they", "them",
             "their", "we", "our", "you", "your", "he", "she", "him", "her",
             "his", "i", "me", "my", "myself", "am",
-            "of", "to", "for", "with", "from", "at", "by", "as", "on",
+            "of", "to", "for", "with", "from", "at", "by", "as", "on", "in", "out", "up", "off",
             "<pad>", "?", "<bos>", "<eos>",
         }
         with self._vocab_lock:
@@ -656,7 +630,7 @@ class ResponseGenMixin(ChainWalkerMixin):
         try:
             generated = self.neural_decoder.generate(
                 conditioning_embs=conditioning_embs,
-                max_steps=28,
+                max_steps=22,
                 bos_idx=bos_idx,
                 eos_idx=eos_idx,
                 temperature=temp,
@@ -667,7 +641,11 @@ class ResponseGenMixin(ChainWalkerMixin):
                 token_boost=subject_boost,
             )
 
+            print(f"  [Decoder Gen] generated={generated}")
+            print(f"  [Decoder Gen] idx_to_word for first few: {[(idx, self._decoder_idx_to_word.get(idx, '?')) for idx in generated[:5]]}")
+
             if not generated or len(generated) < 3:
+                print(f"  [Decoder Gen] FAIL: generated too short or None")
                 return None
 
             # Convert indices to words, filtering special tokens
@@ -682,48 +660,17 @@ class ResponseGenMixin(ChainWalkerMixin):
 
             text = " ".join(words)
 
-            # Quality gate: if >60% of output is function words, fall through
-            # to syntactic pipeline or reasoning loop (decoder not ready yet)
-            func_set = {"a","an","the","is","are","was","were","be","been",
-                "being","have","has","had","do","does","did","will",
-                "would","could","should","may","might","shall","can",
-                "not","no","nor","so","if","then","than","too","very",
-                "just","about","also","into","over","after","before",
-                "between","through","during","because","while","which",
-                "who","whom","what","when","where","why","how","all",
-                "each","every","both","few","more", "most", "some", "any",
-                "this", "that", "these", "those", "it", "its", "they", "them",
-                "their", "we", "our", "you", "your", "he", "she", "him", "her",
-                "his", "i", "me", "my", "myself", "am",
-                "of", "to", "for", "with", "from", "at", "by", "as", "on"}
-            func_count = sum(1 for w in words if w.lower() in func_set)
-            if len(words) > 0 and func_count / len(words) > 0.70:
-                return None
+            # Let the decoder's own quality metrics (CE, top-1) be the gate.
+            # No hardcoded blacklists — they reject legitimate English patterns.
+            # If the decoder generated it, and it passed the word salad check,
+            # it's good enough to show. Over time, training improves quality.
 
-            # Template-pattern gate: reject ONLY egregious graph artifacts.
-            # Relaxed: "leads to", "drives", "refers" are legitimate English.
-            template_verbs = {"connects", "connect", "relates", "relate", "links",
-                               "link", "associated"}
-            template_preps = {"with", "into"}
-            text_lower = text.lower()
-            template_rejected = False
-            for tv in template_verbs:
-                for tp in template_preps:
-                    if re.search(rf'\b\w+\s+' + tv + r'\s+' + tp + r'\s+\w+', text_lower):
-                        template_rejected = True
-                        break
-                if template_rejected:
-                    break
-            # Only reject if template pattern AND output is short (< 12 words)
-            if template_rejected and len(words) < 12:
-                return None
-
-            # Bigram repetition gate: reject if any bigram appears 3+ times
-            if len(words) >= 4:
+            # Bigram repetition gate: reject if any bigram appears 4+ times
+            if len(words) >= 6:
                 bigrams = [tuple(words[i:i+2]) for i in range(len(words)-1)]
                 from collections import Counter
                 bg_counts = Counter(bigrams)
-                if any(c >= 3 for c in bg_counts.values()):
+                if any(c >= 4 for c in bg_counts.values()):
                     return None
 
             # Clean up basic punctuation issues
@@ -834,34 +781,41 @@ class ResponseGenMixin(ChainWalkerMixin):
             b_assocs = [label.lower() for label, _ in self._spread_and_collect(b_nids)[:3]
                         if label.lower() != concept_b.lower() and label.lower() not in STOP_WORDS]
 
-        # Case 1: We know both concepts
-        if a_nids and b_nids:
-            shared = set(a_assocs).intersection(b_assocs)
-            unique_a = [w for w in a_assocs if w not in shared]
-            unique_b = [w for w in b_assocs if w not in shared]
-            
-            response_parts = []
-            if shared:
-                response_parts.append(f"both {concept_a} and {concept_b} are connected to {', '.join(list(shared)[:2])}.")
-            
-            a_desc = f"{concept_a} is tied to {', '.join(unique_a[:2])}" if unique_a else f"{concept_a} has its own unique connections"
-            b_desc = f"{concept_b} relates to {', '.join(unique_b[:2])}" if unique_b else f"{concept_b} has different links"
-            
-            response_parts.append(f"however, while {a_desc}, {b_desc}.")
-            return " ".join(response_parts)
-            
-        # Case 2: We only know concept A
-        elif a_nids:
-            desc = f"associated with {', '.join(a_assocs[:2])}" if a_assocs else "a concept in my graph"
-            return f"i know that {concept_a} is {desc}, but i haven't fully learned about {concept_b} yet to compare them."
-            
-        # Case 3: We only know concept B
-        elif b_nids:
-            desc = f"associated with {', '.join(b_assocs[:2])}" if b_assocs else "a concept in my graph"
-            return f"i know that {concept_b} is {desc}, but i haven't fully learned about {concept_a} yet to compare them."
-            
-        # Case 4: We know neither
-        return f"i haven't learned enough about either {concept_a} or {concept_b} yet. how would you compare them?"
+        # Route through SurfaceRealizer if available
+        try:
+            if hasattr(self, 'syntactic_assembly') and hasattr(self, 'surface_realizer'):
+                utterances = []
+                for concept, assocs in [(concept_a, a_assocs), (concept_b, b_assocs)]:
+                    for target in assocs[:1]:
+                        frame = self.syntactic_assembly.bind_to_sentence(
+                            subject=concept, relation="semantic", target=target,
+                            pos_map=getattr(self, '_concept_pos', {}),
+                        )
+                        disc_ctx = DiscourseState(
+                            sentence_index=len(utterances), discourse_type="explain",
+                            total_sentences=2, free_energy=0.3,
+                        )
+                        sentence = self.surface_realizer.realize(
+                            frame=frame, discourse_context=disc_ctx,
+                            dopamine_tone=getattr(self, '_dopamine_tone', 0.5),
+                            cerebellar_ngram=getattr(self, 'cerebellar_ngram', None),
+                        )
+                        if sentence and len(sentence) > 5:
+                            utterances.append(sentence)
+                if len(utterances) >= 2:
+                    return " ".join(utterances)
+        except Exception:
+            pass
+        # Generative comparison fallback via SurfaceRealizer
+        try:
+            s = self._try_surface_realize(
+                subject=concept_a, target=concept_b,
+                discourse_type="explain", free_energy=0.35, min_len=8)
+            if s:
+                return s
+        except Exception:
+            pass
+        return f"i see that {concept_a} and {concept_b} are different concepts."
 
 
 
@@ -984,28 +938,60 @@ class ResponseGenMixin(ChainWalkerMixin):
             if defn and len(defn) > 10:
                 defn_clean = defn.rstrip(" .!?")
                 subj_disp = self._capitalize_subject(subject, ctx.raw_input)
-                framings = [
-                    f"{subj_disp} is {defn_clean}.",
-                    f"From what I know, {subj_disp} is {defn_clean}.",
-                    f"I have learned that {subj_disp} is {defn_clean}.",
-                ]
-                response = random.choice(framings)
+                try:
+                    if hasattr(self, 'syntactic_assembly') and hasattr(self, 'surface_realizer'):
+                        frame = self.syntactic_assembly.bind_to_sentence(
+                            subject=subj_disp, relation="semantic", target=defn_clean,
+                            pos_map=getattr(self, '_concept_pos', {}),
+                        )
+                        disc_ctx = DiscourseState(sentence_index=0, discourse_type="explain",
+                            total_sentences=1, free_energy=0.2,
+                        )
+                        response = self.surface_realizer.realize(frame=frame,
+                            discourse_context=disc_ctx,
+                            dopamine_tone=getattr(self, '_dopamine_tone', 0.5),
+                            cerebellar_ngram=getattr(self, 'cerebellar_ngram', None),
+                        )
+                        if not response or len(response) < 5:
+                            response = f"{subj_disp} is {defn_clean}."
+                    else:
+                        response = f"{subj_disp} is {defn_clean}."
+                except Exception:
+                    response = f"{subj_disp} is {defn_clean}."
                 return (response, "definition_store")
 
         # Path 1: Neural decoder (fluent, overlearned speech) - check this first
+        # Thresholds adapt based on training count: after 5000+ sentences, we
+        # expect CE < 3.5 and top-1 > 0.12. Early on, be more permissive to
+        # let the decoder learn from its mistakes.
         decoder_ready = False
         if self.neural_decoder is not None and self._decoder_vocab_built:
             nd = self.neural_decoder
-            ce_ok = nd._avg_cross_entropy < 5.0 if nd._metric_examples > 10 else False
-            t1_ok = nd._avg_top1_acc > 0.08 if nd._metric_examples > 10 else False
             trained_enough = self._decoder_training_count >= 500
-            decoder_ready = ce_ok and t1_ok and trained_enough
+            if nd._metric_examples > 10:
+                # Sampled softmax thresholds (random CE≈3.9, target ≈2.0)
+                if self._decoder_training_count > 5000:
+                    ce_ok = nd._avg_cross_entropy < 3.0
+                    t1_ok = nd._avg_top1_acc > 0.15
+                elif self._decoder_training_count > 2000:
+                    ce_ok = nd._avg_cross_entropy < 3.5
+                    t1_ok = nd._avg_top1_acc > 0.10
+                else:
+                    ce_ok = nd._avg_cross_entropy < 4.0
+                    t1_ok = nd._avg_top1_acc > 0.08
+                decoder_ready = ce_ok and t1_ok and trained_enough
+            else:
+                decoder_ready = trained_enough
+            print(f"  [Decoder Check] trained={self._decoder_training_count} (seed={self._decoder_seed_training_count}, web={self._decoder_web_training_count}) CE={nd._avg_cross_entropy:.3f} Top1={nd._avg_top1_acc:.3f} samples={nd._metric_examples} ready={decoder_ready}")
         if decoder_ready:
             try:
                 decoder_response = self._generate_with_decoder(ctx)
-                if decoder_response and len(decoder_response) > 10 and not _is_word_salad(decoder_response):
+                print(f"  [Decoder Gen] raw_response={decoder_response}")
+                # For neural decoder: more permissive check (allows content-word-only sequences)
+                if decoder_response and len(decoder_response) > 10 and not _is_word_salad(decoder_response, allow_content_only=True):
                     return (decoder_response, "neural_decoder")
-            except Exception:
+            except Exception as e:
+                print(f"  [Decoder Gen] error: {e}")
                 pass
 
         # Path 2: Syntactic pipeline (P600 compositional integration) — fallback when decoder is not ready/fails
@@ -1039,12 +1025,28 @@ class ResponseGenMixin(ChainWalkerMixin):
                         p1 = propositions[0]
                         p2 = propositions[1] if len(propositions) > 1 else None
                         if p2:
+                            s = self._try_surface_realize(
+                                    subject=p1.subject, target=p2.subject,
+                                    discourse_type="connect", free_energy=0.3, min_len=10)
+                            if s:
+                                return (s, "nested_proposition_contrastive")
                             return (f"On one hand, {p1.subject} {p1.predicate} {p1.object}. On the other hand, {p2.subject} {p2.predicate} {p2.object}.", "nested_proposition_contrastive")
+                        s = self._try_surface_realize(
+                                subject=p1.subject, target=p1.object or p1.subject,
+                                discourse_type="reflect", free_energy=0.35, min_len=10)
+                        if s:
+                            return (s, "nested_proposition")
                         return (f"I think there are multiple perspectives here. {p1.subject} may {p1.predicate} {p1.object} depending on the context.", "nested_proposition")
                     elif surface == "multi_perspective":
                         parts = []
                         for p in propositions[:3]:
                             parts.append(f"{p.subject} {p.predicate} {p.object}")
+                        s = self._try_surface_realize(
+                                subject=propositions[0].subject if propositions else "",
+                                target=propositions[-1].subject if propositions else "",
+                                discourse_type="elaborate", free_energy=0.25, min_len=10)
+                        if s:
+                            return (s, "nested_proposition_multi")
                         return (" and also ".join(parts) + ".", "nested_proposition_multi")
         except Exception:
             pass

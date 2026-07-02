@@ -159,21 +159,51 @@ class SurfaceRealizer:
     }
 
     HEDGE_MORPHEMES = [
-        "kind of", "sort of", "in a way", "more or less",
-        "in some sense", "in many ways",
+        "kind of", "sort of",
     ]
 
     EPISTEMIC_FRAMES = {
         "low_confidence": [
-            "I think", "I suspect", "it seems like", "perhaps",
-            "maybe", "I would say",
+            "i think", "maybe",
         ],
         "medium_confidence": [
-            "I believe", "it appears", "my sense is",
+            "i think",
         ],
         "high_confidence": [
-            "", "",
+            "",
         ],
+    }
+
+    # Dynamic sentence composition: instead of hardcoded templates, we generate
+    # sentences from the SVO triple using natural grammatical patterns.
+    # The verb is selected by VerbLexicon based on the relation type.
+    # These are just structural frames — the actual words come from the graph.
+    PROCEDURAL_SCHEMAS = {
+        "causal": [
+            "{subject} {verb} {object}",
+            "{subject} {verb} {object}",
+            "{subject} {verb} {object}",
+            "{subject} {verb} {object}",
+            "{subject} {verb} {object}",
+        ],
+        "contrastive": [
+            "{subject} {verb} {object}",
+            "{subject} {verb} {object}",
+            "{subject} {verb} {object}",
+            "{subject} {verb} {object}",
+        ],
+        "analogical": [
+            "{subject} {verb} {object}",
+            "{subject} {verb} {object}",
+            "{subject} {verb} {object}",
+        ],
+        "semantic": [
+            "{subject} {verb} {object}",
+            "{subject} {verb} {object}",
+            "{subject} {verb} {object}",
+            "{subject} {verb} {object}",
+            "{subject} {verb} {object}",
+        ]
     }
 
     def __init__(self):
@@ -358,9 +388,13 @@ class SurfaceRealizer:
             obj, art_obj, is_subject=False, dopamine_tone=dopamine_tone
         )
 
-        verb = self._select_verb_phrase(verb_phrase, relation,
-                                         dopamine_tone, cerebellar_ngram,
-                                         subject=sl, object=tl)
+        if discourse_context.discourse_type == "explain" and len(obj) > 15:
+            # For definitions/explanations, always use copula (is/are)
+            verb = "are" if display_subj.lower().endswith("s") and display_subj.lower() not in self.SINGULAR_ENDING_IN_S else "is"
+        else:
+            verb = self._select_verb_phrase(verb_phrase, relation,
+                                             dopamine_tone, cerebellar_ngram,
+                                             subject=sl, object=tl)
 
         verb = self._apply_agreement(verb, subject_phrase, display_subj.lower())
         verb = self._apply_tense(verb, frame.tense)
@@ -369,26 +403,29 @@ class SurfaceRealizer:
         from ravana.language.verb_lexicon import VerbLexicon
         verb = VerbLexicon.fix_morphology(verb)
 
+        # Use pure SVO frame — no template phrases.
+        # The verb is already selected by VerbLexicon based on relation and dopamine tone.
+        # This produces natural sentences like "X influences Y" instead of
+        # "X serves as the foundation for Y" which sounds robotic.
+        rel_key = relation if relation in ('causal', 'contrastive', 'analogical') else 'semantic'
+        selected_template = "{subject} {verb} {object}"
+
         if relation == 'interrogative':
             sentence = frame.object_concept
             has_punct = sentence.endswith('.') or sentence.endswith('?') or sentence.endswith('!')
         elif discourse_context.discourse_type == 'causal_explain':
             # Generate "because" structure for causal explanations
-            if discourse_context.sentence_index == 0:
-                # First causal sentence: "X causes Y"
-                core = f"{subject_phrase} {verb} {object_phrase}"
-            elif discourse_context.sentence_index == 1:
-                # Second causal sentence: "Y because X" or "because X, Y happens"
-                if discourse_marker == 'because':
-                    # Use "because" structure
-                    core = f"{subject_phrase} {verb} {object_phrase}"
-                else:
-                    core = f"{subject_phrase} {verb} {object_phrase}"
+            if "{verb}" in selected_template:
+                core = selected_template.format(subject=subject_phrase, object=object_phrase, verb=verb)
             else:
-                core = f"{subject_phrase} {verb} {object_phrase}"
+                core = selected_template.format(subject=subject_phrase, object=object_phrase)
             has_punct = False
+            sentence = core
         else:
-            core = f"{subject_phrase} {verb} {object_phrase}"
+            if "{verb}" in selected_template:
+                core = selected_template.format(subject=subject_phrase, object=object_phrase, verb=verb)
+            else:
+                core = selected_template.format(subject=subject_phrase, object=object_phrase)
             has_punct = False
 
             # Only prepend epistemic frame for the first sentence of the response
@@ -470,6 +507,35 @@ class SurfaceRealizer:
                             is_subject: bool, dopamine_tone: float) -> str:
         cl = concept.lower()
 
+        # Safety net: function words should never become noun phrases with articles
+        FUNCTION_WORDS = {
+            'a','an','the','in','on','at','to','for','of','with','by','from','as',
+            'and','or','but','so','if','because','since','although','though',
+            'unless','while','whereas','until','once','whether','after','before',
+            'despite','nor','neither','not','no',
+        }
+        if cl in FUNCTION_WORDS:
+            return concept
+
+        # Check if the concept already starts with an article/determiner
+        if cl.startswith(("a ", "an ", "the ", "some ", "any ", "this ", "that ")):
+            return concept
+
+        # Complete list of pronouns to never get articles
+        PRONOUNS_ALL = {
+            'i', 'me', 'my', 'myself', 'mine',
+            'you', 'your', 'yours', 'yourself', 'yourselves',
+            'he', 'him', 'his', 'himself',
+            'she', 'her', 'hers', 'herself',
+            'it', 'its', 'itself',
+            'we', 'us', 'our', 'ours', 'ourselves',
+            'they', 'them', 'their', 'theirs', 'themselves',
+            'who', 'whom', 'whose', 'which', 'what',
+            'this', 'that', 'these', 'those',
+        }
+        if cl in PRONOUNS_ALL:
+            return concept
+
         proper_nouns = getattr(self, 'proper_nouns', set())
         if cl in proper_nouns or any(p in cl for p in ("poirot", "marple", "carroll", "holmes")):
             return concept
@@ -509,10 +575,10 @@ class SurfaceRealizer:
             return concept
 
         if article == "the":
+            # Only insert "the" for definite/specific references
             return f"the {concept}"
         elif article in ("a", "an"):
-            actual_art = "an" if concept[0].lower() in "aeiou" else "a"
-            return f"{actual_art} {concept}"
+            return f"{article} {concept}"
         else:
             return concept
 
@@ -594,6 +660,9 @@ class SurfaceRealizer:
             "connect": ["", "in the same way", "by the same token", "similarly"],
             "explain": ["", "in other words", "specifically", ""],
             "conclude": ["", "in essence", "when you think about it", "basically"],
+            "acknowledge": ["", "", "", ""],
+            "reflect": ["", "", ""],
+            "explore": ["", "", ""],
         }
         markers = markers_by_type.get(discourse_type, [""])
         if not markers:

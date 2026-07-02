@@ -55,14 +55,14 @@ class WebLearningMixin(ResponseGenMixin):
                 self._network_retry_turn = self.turn_count + 20
                 known_count = self._learn_from_text(query + " " + query, query, source_url=query)
                 if known_count > 0:
-                    return f"learned {known_count} things about {query}"
-                return f"offline - already knew about {query}"
+                    return f"learned {known_count} things about {query}", ""
+                return f"offline - already knew about {query}", ""
             else:
                 # Still try GloVe-only learning from the query text itself
                 known_count = self._learn_from_text(query + " " + query, query, source_url=query)
                 if known_count > 0:
-                    return f"learned {known_count} things about {query}"
-                return f"offline - already knew about {query}"
+                    return f"learned {known_count} things about {query}", ""
+                return f"offline - already knew about {query}", ""
 
         query_clean = quote(query)
 
@@ -146,7 +146,7 @@ class WebLearningMixin(ResponseGenMixin):
                 return f"read about {query} but already knew the words", combined_text
 
         except (urllib.request.URLError, urllib.request.HTTPError,
-                ConnectionError, TimeoutError, OSError, json.JSONDecodeError):
+                ConnectionError, TimeoutError, OSError, json.JSONDecodeError) as e:
             # Phase 5: Network failure — mark as unavailable, fall back silently
             if self._trace_enabled:
                 print(f"  [bg] Network error in learn_from_web: {type(e).__name__}")
@@ -154,14 +154,14 @@ class WebLearningMixin(ResponseGenMixin):
             # Still try GloVe-only learning from the query text
             known_count = self._learn_from_text(query + " " + query, query, source_url=query)
             if known_count > 0:
-                return f"learned {known_count} things about {query}"
-            return f"offline - already knew about {query}"
+                return f"learned {known_count} things about {query}", ""
+            return f"offline - already knew about {query}", ""
         except Exception as e:
             # Any other error — also fall back silently
             if self._trace_enabled:
                 print(f"  [bg] Unexpected error in learn_from_web: {type(e).__name__}: {e}")
             self._network_available = False
-            return f"offline"
+            return "offline", ""
 
 
 
@@ -374,21 +374,23 @@ class WebLearningMixin(ResponseGenMixin):
                                   if n.label and n.label.lower() not in self._decoder_word_to_idx
                                   and n.label.lower() not in ('<pad>', '<unk>', '<bos>', '<eos>')]
                 if new_labels:
-                    self._expand_decoder_vocab(new_labels)
+                    self._expand_decoder_vocab(new_labels[:500])
 
                 err, trained = self.neural_decoder.train_on_text(
                     text, self._decoder_word_to_embed, self._decoder_word_to_idx,
                     conditioning_embs=cond_embs)
                 if trained > 0:
                     self._decoder_web_training_count += trained
+                    self._decoder_training_count += trained
                 # Multiple passes per article to strengthen Hebbian traces
-                # More passes for web articles (10 instead of 4)
+                # More passes for richer, more diverse language exposure
                 if trained > 0:
-                    for _ in range(10):
+                    for _ in range(30):
                         err2, trained2 = self.neural_decoder.train_on_text(
                             text, self._decoder_word_to_embed, self._decoder_word_to_idx,
                             conditioning_embs=cond_embs)
                         self._decoder_web_training_count += trained2
+                        self._decoder_training_count += trained2
                     self.neural_decoder.sleep_cycle()
 
         # Extract definitional knowledge (ATL convergence zone)
