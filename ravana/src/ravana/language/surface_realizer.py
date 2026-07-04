@@ -477,6 +477,35 @@ class SurfaceRealizer:
 
             sentence = core
 
+            # Handle recursive embedded frame (Broca's area hierarchy/dominance)
+            embedded_frame = getattr(frame, 'embedded_frame', None)
+            if embedded_frame:
+                sub_ctx = DiscourseState(
+                    sentence_index=0,
+                    discourse_type=getattr(frame, 'embedded_relation', 'which'),
+                    free_energy=free_energy,
+                    concept_free_energy=concept_fe
+                )
+                
+                sub_sentence = self.realize(
+                    frame=embedded_frame,
+                    discourse_context=sub_ctx,
+                    dopamine_tone=dopamine_tone,
+                    cerebellar_ngram=cerebellar_ngram,
+                    discourse_marker=None
+                )
+                
+                if sub_sentence:
+                    sub_sentence = sub_sentence[0].lower() + sub_sentence[1:]
+                    if sub_sentence.endswith('.') or sub_sentence.endswith('?'):
+                        sub_sentence = sub_sentence[:-1]
+                    
+                    rel = getattr(frame, 'embedded_relation', 'which')
+                    if rel in ('because', 'although'):
+                        sentence = f"{sentence} {rel} {sub_sentence}"
+                    else:
+                        sentence = f"{sentence}, {rel} {sub_sentence}"
+
         hedge = self._compose_hedge(free_energy)
         if hedge and not has_punct and discourse_context.sentence_index > 0:
             first_space = sentence.find(" ")

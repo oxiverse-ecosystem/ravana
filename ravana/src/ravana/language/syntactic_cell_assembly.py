@@ -37,6 +37,8 @@ class SyntacticFrame:
     is_causal: bool = False
     tense: str = "present"       # "present" or "past"
     depth: int = 0               # How many hops in the chain
+    embedded_frame: Optional['SyntacticFrame'] = None
+    embedded_relation: str = "which"
 
 
 class SyntacticCellAssembly:

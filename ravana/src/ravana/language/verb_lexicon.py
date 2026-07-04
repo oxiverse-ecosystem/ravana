@@ -417,6 +417,9 @@ class VerbLexicon:
         elif rule == ("adjectives",):
             if not components:
                 return "is similar"
+            prev = components[0].lower()
+            if prev in cls.SUBCAT_FRAMES and cls.SUBCAT_FRAMES[prev]:
+                return f"is {components[0]} {cls.SUBCAT_FRAMES[prev][0]}"
             return f"is {components[0]}"
         else:
             return cls._conjugate_root(components[0]) if components else "relates to"

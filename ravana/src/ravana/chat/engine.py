@@ -367,8 +367,8 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         self.surface_realizer = SurfaceRealizer()
         self.surface_realizer.proper_nouns = self._proper_nouns
         # Phase 6: Wire vector function for semantic verb selection (VerbLexicon)
-        self.surface_realizer.set_vector_fn(self._glove_vector)
-        VerbLexicon.set_glove_fn(self._glove_vector)
+        self.surface_realizer.set_vector_fn(self._get_modulated_vector)
+        VerbLexicon.set_glove_fn(self._get_modulated_vector)
         self._cerebellar_ngram: Dict[str, Dict[str, float]] = {}
         self._cerebellar_depth: Dict[str, float] = {}
         self._concept_confidence: Dict[str, float] = {}
@@ -775,6 +775,32 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 self._glove_vector_cache[w[:-1]] = result
             return result
         return None
+
+    def _get_modulated_vector(self, word: str) -> Optional[np.ndarray]:
+        """Retrieve a context-modulated vector for a word (LIFG-ATL modulation).
+        
+        Warps the static GloVe/node vector towards the current turn's discourse context.
+        """
+        # Get baseline GloVe vector
+        base_vec = self._glove_vector(word)
+        if base_vec is None:
+            return None
+        
+        # Get current situation model context vector (LIFG signal)
+        ctx_vec = getattr(self, '_context_vector', None)
+        if ctx_vec is None or not np.any(ctx_vec != 0):
+            return base_vec
+        
+        # Determine modulation strength based on arousal
+        arousal = self.emotion.state.arousal if hasattr(self, 'emotion') else 0.5
+        beta = 0.2 + 0.3 * arousal  # warp between 20% and 50%
+        
+        # Warp the vector
+        modulated = (1.0 - beta) * base_vec + beta * ctx_vec
+        norm = np.linalg.norm(modulated)
+        if norm > 0:
+            modulated /= norm
+        return modulated.astype(np.float32)
 
     # ─── Phase 1: Auto-Expansion from Every Message ───
 
@@ -1804,18 +1830,17 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 free_energy=self._free_energy,
             )
 
-            for i, intent in enumerate(discourse_plan.intents):
+            # Generate all frames first
+            frames = []
+            for intent in discourse_plan.intents:
                 if not intent.target_concept:
                     continue
-
-                # Determine relation type from intent
                 relation = intent.primary_relation
                 if intent.type == DiscourseType.CAUSAL_EXPLAIN:
                     relation = "causal"
                 elif intent.type == DiscourseType.CONTRAST:
                     relation = "contrastive"
-
-                # Step 2: Syntactic Frame Generation
+                
                 frame = self.syntactic_assembly.bind_to_sentence(
                     subject=intent.subject,
                     relation=relation,
@@ -1825,10 +1850,50 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                     chain_connectors=None,
                     depth=0,
                 )
+                frame._discourse_intent = intent
+                frames.append(frame)
+
+            # Merging / Nesting Pass (Broca's area hierarchy building)
+            merged_frames = []
+            skip_indices = set()
+            for i in range(len(frames)):
+                if i in skip_indices:
+                    continue
+                frame = frames[i]
+                
+                # Check if we can nest the next frame inside this one
+                if i + 1 < len(frames) and (i + 1) not in skip_indices:
+                    next_frame = frames[i + 1]
+                    # If the next frame's subject is the same as the current frame's object (or very similar)
+                    if (next_frame.subject_concept.lower() == frame.object_concept.lower() or 
+                        frame.object_concept.lower() in next_frame.subject_concept.lower()) and next_frame.object_concept:
+                        
+                        # Set embedded relation
+                        if next_frame.relation_type == "causal":
+                            frame.embedded_relation = "because"
+                        elif next_frame.relation_type == "contrastive":
+                            frame.embedded_relation = "although"
+                        else:
+                            frame.embedded_relation = "which"
+                        
+                        # Prepare next_frame to be realized as a relative/nested clause
+                        next_frame.pronoun_subject = ""
+                        next_frame.article_subject = ""
+                        next_frame.subject_concept = "" # realizes without subject prefix
+                        
+                        frame.embedded_frame = next_frame
+                        skip_indices.add(i + 1)
+                        
+                merged_frames.append(frame)
+
+            discourse_context.total_sentences = len(merged_frames)
+
+            for i, frame in enumerate(merged_frames):
+                intent = frame._discourse_intent
+                relation = frame.relation_type
 
                 # Step 3: Basal Ganglia Gating (Go/NoGo)
-                # Convert to candidate format for BG gate: (label, score, confidence, relation_type)
-                candidates = [(frame.subject_concept, 1.0, 1.0, relation)]
+                candidates = [(frame.subject_concept or frame.object_concept, 1.0, 1.0, relation)]
                 self.basal_ganglia.set_all_from_modulators({
                     "arousal": ctx.arousal,
                     "novelty": 0.3 if ctx.learned_recently else 0.1,
@@ -1846,16 +1911,6 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
 
                 if not selected_label:
                     continue
-
-                # Step 4: Cerebellar N-gram completion (for function word prediction)
-                # This helps the surface realizer pick better function words
-                if self.cerebellar_ngram.bigram:
-                    fw = self.cerebellar_ngram.predict_function_word(
-                        frame.subject_concept.lower(), frame.object_concept.lower()
-                    )
-                    if fw:
-                        # Could influence verb phrase selection, but surface_realizer handles this
-                        pass
 
                 # Step 5: Surface Realization
                 discourse_context.sentence_index = i
@@ -1904,7 +1959,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
 
                 # Learn from this chain for cerebellar n-gram
                 if len(utterances) > 0:
-                    chain_labels = [frame.subject_concept, frame.verb_phrase, frame.object_concept]
+                    chain_labels = [frame.subject_concept or "it", frame.verb_phrase, frame.object_concept]
                     self.cerebellar_ngram.learn_chain(chain_labels, successful=True)
                     VerbLexicon.reinforce(relation, frame.verb_phrase, success=1.0)
 
@@ -2282,150 +2337,197 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         (r"why\s+(?:is\s+|are\s+)?(.+)", 1),                    # why is X / why does X
     ]
 
-
-
     def save(self) -> str:
         """Save full cognitive state to disk. Returns path to save file."""
+        import time
+        import pickle
+        import os
+        import glob
+        
+        def _safe_dict_copy(d):
+            for _ in range(5):
+                try:
+                    return dict(d)
+                except RuntimeError:
+                    time.sleep(0.01)
+            try:
+                return {k: v for k, v in list(d.items())}
+            except Exception:
+                return {}
+
+        def _safe_concept_sources_copy():
+            for _ in range(5):
+                try:
+                    return {k: list(v) for k, v in self._concept_sources.items()}
+                except RuntimeError:
+                    time.sleep(0.01)
+            try:
+                return {k: list(v) for k, v in list(self._concept_sources.items())}
+            except Exception:
+                return {}
+
+        def _safe_set_copy(s):
+            for _ in range(5):
+                try:
+                    return list(s)
+                except RuntimeError:
+                    time.sleep(0.01)
+            try:
+                return list(list(s))
+            except Exception:
+                return []
+
         with self._vocab_lock, self._graph_lock:
             _graph_snapshot = self.graph
-            _decoder_w2i = dict(self._decoder_word_to_idx)
-            _decoder_i2w = dict(self._decoder_idx_to_word)
-            _decoder_w2e = dict(self._decoder_word_to_embed)
-            _ck_snapshot = dict(self._concept_keywords)
-            _cl_snapshot = set(self._concept_labels)
-            _vc_snapshot = set(self._visited_concepts)
-            _af_snapshot = dict(self._activation_fatigue)
-            _rt_snapshot = list(self._recent_traversals)
-            _rtm_snapshot = dict(self._recent_traversal_map)
-            _cv_snapshot = dict(self._concept_vad)
+            _decoder_w2i = _safe_dict_copy(self._decoder_word_to_idx)
+            _decoder_i2w = _safe_dict_copy(self._decoder_idx_to_word)
+            _decoder_w2e = _safe_dict_copy(self._decoder_word_to_embed)
+            _ck_snapshot = _safe_dict_copy(self._concept_keywords)
+            _cl_snapshot = _safe_set_copy(self._concept_labels)
+            _vc_snapshot = _safe_set_copy(self._visited_concepts)
+            _af_snapshot = _safe_dict_copy(self._activation_fatigue)
+            _rt_snapshot = _safe_set_copy(self._recent_traversals)
+            _rtm_snapshot = _safe_dict_copy(self._recent_traversal_map)
+            _cv_snapshot = _safe_dict_copy(self._concept_vad)
             _td_snapshot = list(self._td_error_history[-50:])
-            _cc_snapshot = dict(self._concept_confidence)
-        state = {
-            'graph': _graph_snapshot,
-            'concept_keywords': _ck_snapshot,
-            'turn_count': self.turn_count,
-            'topic_list': list(self._topic_list),
-            'topic_store': dict(self._topic_store),
-            'response_context': list(self._response_context),
-            'last_responses': list(self._last_responses),
-            'last_strategy': self._last_strategy,
-            'free_energy': self._free_energy,
-            'learning_count': self._learning_count,
-            'identity_state': self.identity.state,
-            'identity_momentum': self.identity.last_delta,
-            'vad_valence': self.emotion.state.valence,
-            'vad_arousal': self.emotion.state.arousal,
-            'vad_dominance': self.emotion.state.dominance,
-            'meaning_accumulated': self.meaning.accumulated_meaning,
-            'dim': self.dim,
-            'rng_state': self.rng.get_state(),
-            # Teen additions
-            'sleep_pressure': self._sleep_pressure,
-            'last_sleep_episode': self._last_sleep_episode,
-            'sleep_cycles_completed': self.sleep_cycles_completed,
-            'concept_vad': _cv_snapshot,
-            'meta_mode': self.meta_cog.current_mode.value,
-            'contradiction_map': dict(self._contradiction_map),
-            'user_model': self.user_model,
-            'use_vad': getattr(self, 'use_vad', True),
-            'use_rlm': getattr(self, 'use_rlm', True),
-            'use_beliefs': getattr(self, 'use_beliefs', True),
-            'belief_store_state': getattr(self, 'belief_store', BeliefStore()).get_state(),
-            # Background learning state
-            'bg_learning_queue': list(self._bg_learning_queue),
-            'bg_search_count': self._bg_search_count,
-            'bg_multi_search_max': self._bg_multi_search_max,
-            # Curiosity Drive state
-            'curiosity_drive_enabled': self._curiosity_drive_enabled,
-            'concept_visit_count': dict(self._concept_visit_count),
-            'concept_learning_progress': dict(self._concept_learning_progress),
-            'concept_pe_delta': dict(self._concept_pe_delta),
-            'curiosity_topics_queue': list(self._curiosity_topics_queue),
-            'last_auto_learn_turn': self._last_auto_learn_turn,
-            'curiosity_urgency': self._curiosity_urgency,
-            'user_query_topics': list(self._user_query_topics),
-            'user_last_topic': self._user_last_topic,
-            'concept_sources': {k: list(v) for k, v in self._concept_sources.items()},
-            'explored_contradictions': [list(p) for p in list(self._explored_contradictions)],
-            # Dual stores
-            'episodic_edges': dict(self._episodic_edges),
-            'semantic_edges': dict(self._semantic_edges),
-            # Phase 10-17 state
-            'sentence_schema': dict(self._sentence_schema),
-            'mean_sentence_pe': self._mean_sentence_pe,
-            'dopamine_tone': self._dopamine_tone,
-            'td_error_history': _td_snapshot,
-            'concept_confidence': _cc_snapshot,
-            'cerebellar_ngram': dict(self._cerebellar_ngram),
-            'cerebellar_ngram_state': self.cerebellar_ngram.get_state() if hasattr(self, 'cerebellar_ngram') else {},
-            'cerebellar_depth': dict(self._cerebellar_depth),
-            'concept_pos': dict(self._concept_pos),
-            'concept_labels': list(self._concept_labels),
-            'visited_concepts': list(self._visited_concepts),
-            'activation_fatigue': _af_snapshot,
-            'recent_traversals': _rt_snapshot,
-            'recent_traversal_map': _rtm_snapshot,
-            'cognitive_state': self._cognitive_state,
-            'state_duration': self._state_duration,
-            'prefrontal_buffer': list(self._prefrontal_buffer),
-            'mean_prediction_error': self._mean_prediction_error,
-            'prediction_error_count': self._prediction_error_count,
-            # Neural decoder
-            'hippocampal_buffer_state': self.hippocampal_buffer.get_state(),
-            'causal_schema_state': self.causal_schema.get_state(),
-            'relation_memory_state': self.relation_memory.get_state(),
-            'decoder_state_dict': self.neural_decoder.state_dict() if self.neural_decoder is not None else None,
-            'decoder_training_count': self._decoder_training_count,
-            'decoder_web_training_count': self._decoder_web_training_count,
-            'decoder_seed_training_count': self._decoder_seed_training_count,
-            'decoder_word_to_idx': _decoder_w2i,
-            'decoder_idx_to_word': _decoder_i2w,
-            'decoder_word_to_embed': _decoder_w2e,
-            'definitions': self._definitions,
-            # Curiosity diversity state
-            'bg_learning_cycles': getattr(self, '_bg_learning_cycles', 0),
-            'recent_curiosity_selections': list(getattr(self, '_recent_curiosity_selections', [])),
-            'curiosity_selection_cooldown': getattr(self, '_curiosity_selection_cooldown', 5),
-            # Phase 3 state
-            'curiosity_engine_state': self.curiosity_engine.get_state(),
-            'hippocampal_replay_state': self.hippocampal_replay.get_state(),
-            'register_controller_state': self.register_controller.get_state(),
-            # Neuromodulator state
-            'neuromodulator_state': self.neuromodulator_engine.get_state()
-                if hasattr(self, 'neuromodulator_engine') and self.neuromodulator_engine is not None else None,
-        }
-        # Phase 1: Write graph to SQLite database for ACID persistence
-        try:
-            self.db.save_graph(self.graph)
-        except Exception as e:
-            if getattr(self, '_trace_enabled', False):
-                print(f"  [db] SQLite save failed: {e}")
+            _cc_snapshot = _safe_dict_copy(self._concept_confidence)
+            
+            _topic_store = _safe_dict_copy(self._topic_store)
+            _concept_visit_count = _safe_dict_copy(self._concept_visit_count)
+            _concept_learning_progress = _safe_dict_copy(self._concept_learning_progress)
+            _concept_pe_delta = _safe_dict_copy(self._concept_pe_delta)
+            _concept_sources = _safe_concept_sources_copy()
+            _explored_contradictions = [list(p) for p in _safe_set_copy(self._explored_contradictions)]
+            _episodic_edges = _safe_dict_copy(self._episodic_edges)
+            _semantic_edges = _safe_dict_copy(self._semantic_edges)
+            _sentence_schema = _safe_dict_copy(self._sentence_schema)
+            _cerebellar_ngram = _safe_dict_copy(self._cerebellar_ngram)
+            _cerebellar_depth = _safe_dict_copy(self._cerebellar_depth)
+            _concept_pos = _safe_dict_copy(self._concept_pos)
 
-        try:
-            # Phase 6.1: Checkpoint rotation â€” save every 25 turns
-            if self.turn_count > 0 and self.turn_count % 25 == 0:
-                checkpoint_path = self._save_path.replace('.pkl', f'_{self.turn_count}.pkl')
-                with open(checkpoint_path, 'wb') as f:
+            state = {
+                'graph': _graph_snapshot,
+                'concept_keywords': _ck_snapshot,
+                'turn_count': self.turn_count,
+                'topic_list': list(self._topic_list),
+                'topic_store': _topic_store,
+                'response_context': list(self._response_context),
+                'last_responses': list(self._last_responses),
+                'last_strategy': self._last_strategy,
+                'free_energy': self._free_energy,
+                'learning_count': self._learning_count,
+                'identity_state': self.identity.state,
+                'identity_momentum': self.identity.last_delta,
+                'vad_valence': self.emotion.state.valence,
+                'vad_arousal': self.emotion.state.arousal,
+                'vad_dominance': self.emotion.state.dominance,
+                'meaning_accumulated': self.meaning.accumulated_meaning,
+                'dim': self.dim,
+                'rng_state': self.rng.get_state(),
+                # Teen additions
+                'sleep_pressure': self._sleep_pressure,
+                'last_sleep_episode': self._last_sleep_episode,
+                'sleep_cycles_completed': self.sleep_cycles_completed,
+                'concept_vad': _cv_snapshot,
+                'meta_mode': self.meta_cog.current_mode.value,
+                'contradiction_map': _safe_dict_copy(self._contradiction_map),
+                'user_model': self.user_model,
+                'use_vad': getattr(self, 'use_vad', True),
+                'use_rlm': getattr(self, 'use_rlm', True),
+                'use_beliefs': getattr(self, 'use_beliefs', True),
+                'belief_store_state': getattr(self, 'belief_store', BeliefStore()).get_state(),
+                # Background learning state
+                'bg_learning_queue': list(self._bg_learning_queue),
+                'bg_search_count': self._bg_search_count,
+                'bg_multi_search_max': self._bg_multi_search_max,
+                # Curiosity Drive state
+                'curiosity_drive_enabled': self._curiosity_drive_enabled,
+                'concept_visit_count': _concept_visit_count,
+                'concept_learning_progress': _concept_learning_progress,
+                'concept_pe_delta': _concept_pe_delta,
+                'curiosity_topics_queue': list(self._curiosity_topics_queue),
+                'last_auto_learn_turn': self._last_auto_learn_turn,
+                'curiosity_urgency': self._curiosity_urgency,
+                'user_query_topics': list(self._user_query_topics),
+                'user_last_topic': self._user_last_topic,
+                'concept_sources': _concept_sources,
+                'explored_contradictions': _explored_contradictions,
+                # Dual stores
+                'episodic_edges': _episodic_edges,
+                'semantic_edges': _semantic_edges,
+                # Phase 10-17 state
+                'sentence_schema': _sentence_schema,
+                'mean_sentence_pe': self._mean_sentence_pe,
+                'dopamine_tone': self._dopamine_tone,
+                'td_error_history': _td_snapshot,
+                'concept_confidence': _cc_snapshot,
+                'cerebellar_ngram': _cerebellar_ngram,
+                'cerebellar_ngram_state': self.cerebellar_ngram.get_state() if hasattr(self, 'cerebellar_ngram') else {},
+                'cerebellar_depth': _cerebellar_depth,
+                'concept_pos': _concept_pos,
+                'concept_labels': list(_cl_snapshot),
+                'visited_concepts': list(_vc_snapshot),
+                'activation_fatigue': _af_snapshot,
+                'recent_traversals': _rt_snapshot,
+                'recent_traversal_map': _rtm_snapshot,
+                'cognitive_state': self._cognitive_state,
+                'state_duration': self._state_duration,
+                'prefrontal_buffer': list(self._prefrontal_buffer),
+                'mean_prediction_error': self._mean_prediction_error,
+                'prediction_error_count': self._prediction_error_count,
+                # Neural decoder
+                'hippocampal_buffer_state': self.hippocampal_buffer.get_state(),
+                'causal_schema_state': self.causal_schema.get_state(),
+                'relation_memory_state': self.relation_memory.get_state(),
+                'decoder_state_dict': self.neural_decoder.state_dict() if self.neural_decoder is not None else None,
+                'decoder_training_count': self._decoder_training_count,
+                'decoder_web_training_count': self._decoder_web_training_count,
+                'decoder_seed_training_count': self._decoder_seed_training_count,
+                'decoder_word_to_idx': _decoder_w2i,
+                'decoder_idx_to_word': _decoder_i2w,
+                'decoder_word_to_embed': _decoder_w2e,
+                'definitions': self._definitions,
+                # Curiosity diversity state
+                'bg_learning_cycles': getattr(self, '_bg_learning_cycles', 0),
+                'recent_curiosity_selections': list(getattr(self, '_recent_curiosity_selections', [])),
+                'curiosity_selection_cooldown': getattr(self, '_curiosity_selection_cooldown', 5),
+                # Phase 3 state
+                'curiosity_engine_state': self.curiosity_engine.get_state(),
+                'hippocampal_replay_state': self.hippocampal_replay.get_state(),
+                'register_controller_state': self.register_controller.get_state(),
+                # Neuromodulator state
+                'neuromodulator_state': self.neuromodulator_engine.get_state()
+                    if hasattr(self, 'neuromodulator_engine') and self.neuromodulator_engine is not None else None,
+            }
+            # Phase 1: Write graph to SQLite database for ACID persistence
+            try:
+                self.db.save_graph(self.graph)
+            except Exception as e:
+                if getattr(self, '_trace_enabled', False):
+                    print(f"  [db] SQLite save failed: {e}")
+
+            try:
+                # Phase 6.1: Checkpoint rotation — save every 25 turns
+                if self.turn_count > 0 and self.turn_count % 25 == 0:
+                    checkpoint_path = self._save_path.replace('.pkl', f'_{self.turn_count}.pkl')
+                    with open(checkpoint_path, 'wb') as f:
+                        pickle.dump(state, f)
+                    # Keep last 3 checkpoints, remove older ones
+                    checkpoints = sorted(glob.glob(self._save_path.replace('.pkl', '_[0-9]*.pkl')))
+                    for old_cp in checkpoints[:-3]:
+                        try:
+                            os.remove(old_cp)
+                        except OSError:
+                            pass
+            except Exception:
+                pass
+            try:
+                with open(self._save_path, 'wb') as f:
                     pickle.dump(state, f)
-                # Keep last 3 checkpoints, remove older ones
-                import glob
-                checkpoints = sorted(glob.glob(self._save_path.replace('.pkl', '_[0-9]*.pkl')))
-                for old_cp in checkpoints[:-3]:
-                    try:
-                        os.remove(old_cp)
-                    except OSError:
-                        pass
-        except Exception:
-            pass
-        try:
-            with open(self._save_path, 'wb') as f:
-                pickle.dump(state, f)
-            size_kb = os.path.getsize(self._save_path) / 1024
-            return f"saved {size_kb:.0f}KB to {os.path.basename(self._save_path)}"
-        except Exception as e:
-            return f"save failed: {e}"
-
-            return f"save failed: {e}"
+                size_kb = os.path.getsize(self._save_path) / 1024
+                return f"saved {size_kb:.0f}KB to {os.path.basename(self._save_path)}"
+            except Exception as e:
+                return f"save failed: {e}"
 
     def _load(self) -> bool:
         """Load cognitive state from disk. Returns True if successful."""
