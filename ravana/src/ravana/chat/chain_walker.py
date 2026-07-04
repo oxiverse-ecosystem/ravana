@@ -199,12 +199,14 @@ class ChainWalkerMixin:
                 if nj is None or nj.vector is None:
                     continue
                 sim = float(np.dot(ni.vector, nj.vector))
-                if sim > 0.6:
+                # Higher threshold (0.65 instead of 0.6) and dormant confidence raised from 0.001 to 0.02
+                # This reduces noise edges while keeping strong semantic connections.
+                if sim > 0.65:
                     weight = min(0.5, sim * 0.5)
                     # Infer proper relation type instead of always "semantic"
                     inf_type, _ = self._infer_relation_type(ni.label, nj.label, "semantic")
                     edge = self.graph.add_edge(nids[i], nids[j], weight=weight, relation_type=inf_type)
-                    edge.confidence = 0.001  # dormant: invisible until visited
+                    edge.confidence = 0.02  # dormant: require 2+ visits to wake (raised from 0.001)
                     self._dormant_edges.add((nids[i], nids[j]))
                     auto_count += 1
 
@@ -1809,6 +1811,8 @@ class ChainWalkerMixin:
                     
                     if sentence and len(sentence) > 5:
                         utterances.append(sentence)
+                        from ravana.language.verb_lexicon import VerbLexicon
+                        VerbLexicon.reinforce(relation, frame.verb_phrase, success=1.0)
                     
                     if len(utterances) >= num_sentences:
                         break

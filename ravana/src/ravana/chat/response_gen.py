@@ -376,15 +376,17 @@ class ResponseGenMixin(ChainWalkerMixin):
             new_emb.weight.data = new_weight
             self.neural_decoder.word_embedding = new_emb
 
-            # Resize output_proj weight and bias to match new vocab size
+            # FIX: Use small random init for new output_proj rows instead of zeros.
+            # Zero-init creates a dead zone where new words have ~0 logits, which
+            # pulls gradient toward zero and destabilizes the output layer.
             old_out_w = self.neural_decoder.output_proj.weight.data
-            new_out_w = np.zeros((new_vocab_size, self.neural_decoder.hidden_dim), dtype=np.float32)
+            new_out_w = np.random.randn(new_vocab_size, self.neural_decoder.hidden_dim).astype(np.float32) * 0.01
             new_out_w[:old_vocab_size] = old_out_w
             new_out_proj = Linear(self.neural_decoder.hidden_dim, new_vocab_size)
             new_out_proj.weight.data = new_out_w
             if self.neural_decoder.output_proj.bias is not None:
                 old_bias = self.neural_decoder.output_proj.bias.data
-                new_bias = np.zeros(new_vocab_size, dtype=np.float32)
+                new_bias = np.random.randn(new_vocab_size).astype(np.float32) * 0.01
                 new_bias[:old_vocab_size] = old_bias
                 new_out_proj.bias.data = new_bias
             self.neural_decoder.output_proj = new_out_proj
@@ -879,60 +881,33 @@ class ResponseGenMixin(ChainWalkerMixin):
 
 
 
-    def _generate_response(self, ctx: CognitiveResponseContext) -> Tuple[str, str]:
-        """Generate response using syntactic pipeline (primary), neural decoder
-        (when proven fluent), then reasoning loop (last resort).
+    def _ventral_path(self, ctx: CognitiveResponseContext) -> Optional[Tuple[str, str]]:
+        """Ventral path: fast, no-reasoning response using graph + SurfaceRealizer.
 
-        Order reflects neuroscience:
-        - Syntactic pipeline = P600-driven compositional integration (primary route)
-        - Neural decoder = overlearned fluent speech (requires high quality)
-        - Reasoning loop = web learning when knowledge is absent
+        Maps to the brain's ventral stream (ATL → IFG):
+        - ATL: concept retrieval from graph (spreading activation, 1-2 hops)
+        - IFG: surface realization with diverse sentence patterns
 
-        Neuroscience basis:
-        - Brouwer Retrieval-Integration: composition (P600) is the default route
-        - PMC 2023: hierarchical predictive coding across multiple timescales
-        - Nature Human Behaviour 2025: multi-timescale discourse organization
+        No web search, no multi-hop reasoning, no neural decoder.
+        Returns None if it cannot produce a coherent response.
         """
-        # Social/Chitchat path: bypass reasoning, definition lookup, and standard decoder gates
-        qtype, _ = self.pfc_workspace.detect_question_type(ctx.raw_input, concept_pos=self._concept_pos)
-        if qtype in ("greeting", "wellbeing", "capability", "farewell"):
-            try:
-                syntax_response = self._generate_with_decoder_and_syntax(ctx)
-                if syntax_response:
-                    return (syntax_response, "syntactic_pipeline")
-            except Exception:
-                pass
-
         subject = ctx.subject
         assocs = ctx.associated_concepts
 
-        # Determine if the query is seeking factual/informational definition
-        is_query_for_defn = self._is_informational_query(ctx.raw_input, subject)
-
-        # Prioritize reasoning loop for questions or comparison queries (gets cognitive answers/fallbacks)
-        text_lower = ctx.raw_input.lower().strip()
-        is_question = ctx.raw_input.strip().endswith('?') or any(w in text_lower for w in ["what", "who", "where", "when", "why", "how", "define", "explain", "describe", "tell me about", "which"])
-        is_comparison = self._detect_comparison_concepts(ctx.raw_input) is not None
-
-        # Reasoning loop: only for queries that truly need web search
-        # Apply _needs_web_search to ALL branches so the neural decoder gets a chance
-        needs_search = is_query_for_defn or is_question or is_comparison
-        if needs_search and self._needs_web_search(subject):
-            reasoned_res, reasoned_strat = self._reasoning_loop(ctx)
-            if reasoned_res:
-                return (reasoned_res, reasoned_strat)
-
-        # Hippocampal buffer recall check (Issues #7-8) — check BEFORE decoder/syntactic pipeline
-        # so factual memories are retrieved even when the pipeline would generate a fluent response.
-        # This mirrors hippocampal pattern completion: from partial cue → full episodic trace.
+        # Route through syntactic pipeline (graph + surface realizer only)
         try:
-            hippocampal_result = self._try_hippocampal_retrieval(ctx)
-            if hippocampal_result:
-                return (hippocampal_result, "hippocampal_recall")
+            syntax_response = self._generate_with_decoder_and_syntax(ctx)
+            if syntax_response and len(syntax_response) > 10 and not _is_word_salad(syntax_response):
+                _words = syntax_response.lower().split()
+                _unique_ratio = len(set(_words)) / max(1, len(_words))
+                if _unique_ratio >= 0.35:
+                    return (syntax_response, "fast_ventral")
         except Exception:
             pass
 
-        # Fallback to local stored definition (ATL convergence zone - Binder & Desai 2011)
+        # Check definition store for known concepts (ATL convergence zone)
+        text_lower = ctx.raw_input.lower().strip()
+        is_query_for_defn = self._is_informational_query(ctx.raw_input, subject)
         if is_query_for_defn and subject and subject.lower() in self._definitions:
             defn = self._definitions[subject.lower()]
             if defn and len(defn) > 10:
@@ -958,113 +933,125 @@ class ResponseGenMixin(ChainWalkerMixin):
                         response = f"{subj_disp} is {defn_clean}."
                 except Exception:
                     response = f"{subj_disp} is {defn_clean}."
-                return (response, "definition_store")
+                return (response, "fast_ventral")
 
-        # Path 1: Neural decoder (fluent, overlearned speech) - check this first
-        # Thresholds adapt based on training count: after 5000+ sentences, we
-        # expect CE < 3.5 and top-1 > 0.12. Early on, be more permissive to
-        # let the decoder learn from its mistakes.
-        decoder_ready = False
-        if self.neural_decoder is not None and self._decoder_vocab_built:
-            nd = self.neural_decoder
-            trained_enough = self._decoder_training_count >= 500
-            if nd._metric_examples > 10:
-                # Sampled softmax thresholds (random CE≈3.9, target ≈2.0)
-                if self._decoder_training_count > 5000:
-                    ce_ok = nd._avg_cross_entropy < 3.0
-                    t1_ok = nd._avg_top1_acc > 0.15
-                elif self._decoder_training_count > 2000:
-                    ce_ok = nd._avg_cross_entropy < 3.5
-                    t1_ok = nd._avg_top1_acc > 0.10
-                else:
-                    ce_ok = nd._avg_cross_entropy < 4.0
-                    t1_ok = nd._avg_top1_acc > 0.08
-                decoder_ready = ce_ok and t1_ok and trained_enough
-            else:
-                decoder_ready = trained_enough
-            print(f"  [Decoder Check] trained={self._decoder_training_count} (seed={self._decoder_seed_training_count}, web={self._decoder_web_training_count}) CE={nd._avg_cross_entropy:.3f} Top1={nd._avg_top1_acc:.3f} samples={nd._metric_examples} ready={decoder_ready}")
-        if decoder_ready:
-            try:
-                decoder_response = self._generate_with_decoder(ctx)
-                print(f"  [Decoder Gen] raw_response={decoder_response}")
-                # For neural decoder: more permissive check (allows content-word-only sequences)
-                if decoder_response and len(decoder_response) > 10 and not _is_word_salad(decoder_response, allow_content_only=True):
-                    return (decoder_response, "neural_decoder")
-            except Exception as e:
-                print(f"  [Decoder Gen] error: {e}")
-                pass
+        return None
 
-        # Path 2: Syntactic pipeline (P600 compositional integration) — fallback when decoder is not ready/fails
+    def _dorsal_path(self, ctx: CognitiveResponseContext) -> Optional[Tuple[str, str]]:
+        """Dorsal path: slow, reasoned response using web search + multi-hop chain walking.
+
+        Maps to the brain's dorsal stream (Hippocampus → PFC → IFG):
+        - Hippocampus: novel fact integration from web search
+        - PFC: multi-hop reasoning and discourse planning
+        - IFG: surface realization for final output
+
+        Returns None if web search is unavailable or reasoning fails.
+        """
+        reasoned_res, reasoned_strat = self._reasoning_loop(ctx)
+        if reasoned_res:
+            return (reasoned_res, reasoned_strat)
+
+        # Try syntactic pipeline as alternative reasoned response
         try:
             syntax_response = self._generate_with_decoder_and_syntax(ctx)
             if syntax_response and len(syntax_response) > 10 and not _is_word_salad(syntax_response):
-                # Simple quality check: reject only if too short or empty
-                _is_short = len(syntax_response.strip()) < 15
-                if not _is_short:
-                    return (syntax_response, "syntactic_pipeline")
-                # Template detected - fall through to definition/graph fallback
+                _words = syntax_response.lower().split()
+                _unique_ratio = len(set(_words)) / max(1, len(_words))
+                if _unique_ratio >= 0.35:
+                    return (syntax_response, "dorsal_reasoned")
         except Exception:
             pass
 
-        # Path 3: Graph fallback (last resort — simple associative response)
-        # Check for pragmatic implicature (Issue #6)
-        try:
-            implicature = self.implicature_detector.analyze(ctx.raw_input)
-            if implicature.is_implicature and implicature.suggested_question_type == "acknowledge":
-                return (self._generate_acknowledgment(ctx, implicature), "implicature_acknowledge")
-        except Exception:
-            pass
+        return None
 
-        # Check for nested propositions (Issue #3)
-        try:
-            if self.proposition_parser.has_nested_propositions(ctx.raw_input):
-                propositions = self.proposition_parser.extract_propositions(ctx.raw_input)
-                if len(propositions) >= 2:
-                    surface = self.proposition_parser.get_surface_structure(propositions)
-                    if surface == "contrastive":
-                        p1 = propositions[0]
-                        p2 = propositions[1] if len(propositions) > 1 else None
-                        if p2:
-                            s = self._try_surface_realize(
-                                    subject=p1.subject, target=p2.subject,
-                                    discourse_type="connect", free_energy=0.3, min_len=10)
-                            if s:
-                                return (s, "nested_proposition_contrastive")
-                            return (f"On one hand, {p1.subject} {p1.predicate} {p1.object}. On the other hand, {p2.subject} {p2.predicate} {p2.object}.", "nested_proposition_contrastive")
-                        s = self._try_surface_realize(
-                                subject=p1.subject, target=p1.object or p1.subject,
-                                discourse_type="reflect", free_energy=0.35, min_len=10)
-                        if s:
-                            return (s, "nested_proposition")
-                        return (f"I think there are multiple perspectives here. {p1.subject} may {p1.predicate} {p1.object} depending on the context.", "nested_proposition")
-                    elif surface == "multi_perspective":
-                        parts = []
-                        for p in propositions[:3]:
-                            parts.append(f"{p.subject} {p.predicate} {p.object}")
-                        s = self._try_surface_realize(
-                                subject=propositions[0].subject if propositions else "",
-                                target=propositions[-1].subject if propositions else "",
-                                discourse_type="elaborate", free_energy=0.25, min_len=10)
-                        if s:
-                            return (s, "nested_proposition_multi")
-                        return (" and also ".join(parts) + ".", "nested_proposition_multi")
-        except Exception:
-            pass
 
-        # Check for quantity comparison (Issue #5)
-        try:
-            if hasattr(self, '_pending_quantity_result') and self._pending_quantity_result:
-                qa, qb, q_result, q_conf = self._pending_quantity_result
-                if q_result == "equal":
-                    return (f"{qa.concept.capitalize()} and {qb.concept} have the same quantity. They are equal.", "quantity_comparison")
-                elif q_result == "a_greater":
-                    return (f"{qa.concept.capitalize()} has more than {qb.concept} ({qa.value} vs {qb.value}).", "quantity_comparison")
-                elif q_result == "b_greater":
-                    return (f"{qb.concept.capitalize()} has more than {qa.concept} ({qb.value} vs {qa.value}).", "quantity_comparison")
-        except Exception:
-            pass
+    def _generate_response(self, ctx: CognitiveResponseContext) -> Tuple[str, str]:
+        """Dual-path response generation.
 
+        Neuroscience basis:
+        - Ventral Stream (fast): ATL → IFG — concept retrieval + surface realization.
+          Handles known concepts, direct associations, cached patterns.
+          NO web search, NO multi-hop reasoning, NO neural decoder.
+        - Dorsal Stream (slow): Hippocampus → PFC → IFG — reasoning + web search.
+          Handles novel concepts, multi-hop inference, web-augmented reasoning.
+
+        PFC classifier detects question type and knowledge confidence to decide
+        which path to activate. No fallback chain — each path succeeds or fails
+        independently. If the chosen path fails, the other path is tried once.
+        Graph fallback is the terminal case (always produces something).
+
+        Removed from response path:
+        - Neural decoder (bag-of-words, CE ~3.9, never produced coherent output)
+        - Hippocampal recall (merged into reasoning loop for dorsal path)
+        - Implicature detector (greetings handled by PFC routing)
+        - Nested proposition parser (edge case, rarely triggered)
+        - Quantity comparison (special case, rarely triggered)
+        """
+        # Step 1: PFC Classifier — detect question type and knowledge confidence
+        qtype, _ = self.pfc_workspace.detect_question_type(ctx.raw_input, concept_pos=self._concept_pos)
+
+        # Social/chitchat → always Ventral path
+        if qtype in ("greeting", "wellbeing", "capability", "farewell"):
+            ventral_res = self._ventral_path(ctx)
+            if ventral_res:
+                return ventral_res
+            return self._graph_fallback_response(ctx)
+
+        subject = ctx.subject
+        assocs = ctx.associated_concepts
+
+        # Determine knowledge confidence for this subject
+        text_lower = ctx.raw_input.lower().strip()
+        is_query_for_defn = self._is_informational_query(ctx.raw_input, subject)
+        is_question = (ctx.raw_input.strip().endswith('?') or
+                       any(w in text_lower for w in ["what", "who", "where", "when", "why", "how",
+                                                      "define", "explain", "describe", "tell me about", "which"]))
+        is_comparison = self._detect_comparison_concepts(ctx.raw_input) is not None
+        is_reasoning_query = is_query_for_defn or is_question or is_comparison
+
+        # Compute knowledge confidence: how well do we know this subject?
+        subj_known = subject and (subject.lower() in self._concept_keywords or
+                                  subject.lower() in self._concept_labels)
+        has_assocs = len(assocs) > 0
+        has_defn = subject and subject.lower() in self._definitions
+
+        knowledge_confidence = 0.0
+        if subj_known:
+            knowledge_confidence += 0.3
+        if has_assocs:
+            knowledge_confidence += min(0.4, len(assocs) * 0.1)
+        if has_defn:
+            knowledge_confidence += 0.3
+        knowledge_confidence = min(1.0, knowledge_confidence)
+
+        # Step 2: PFC Gate — route to Ventral or Dorsal path
+        # Ventral path: known concepts (confidence > 0.4) or non-reasoning queries
+        # Dorsal path: low confidence OR needs web search for reasoning
+        needs_search = self._needs_web_search(subject) if subject else False
+
+        if is_reasoning_query and (knowledge_confidence < 0.4 or needs_search):
+            # DORSAL PATH: needs reasoning, unknown or partially known concept
+            dorsal_res = self._dorsal_path(ctx)
+            if dorsal_res:
+                return dorsal_res
+            # If dorsal fails, try ventral
+            ventral_res = self._ventral_path(ctx)
+            if ventral_res:
+                return ventral_res
+        else:
+            # VENTRAL PATH: known concept or non-reasoning query
+            ventral_res = self._ventral_path(ctx)
+            if ventral_res:
+                return ventral_res
+            # If ventral fails, try dorsal for reasoning queries
+            if is_reasoning_query:
+                dorsal_res = self._dorsal_path(ctx)
+                if dorsal_res:
+                    return dorsal_res
+
+        # Terminal: graph fallback (always produces something)
         return self._graph_fallback_response(ctx)
+
 
     def _capitalize_subject(self, subject: str, raw_input: str) -> str:
         """Capitalize subject correctly, preserving original case for proper nouns/acronyms."""

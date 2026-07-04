@@ -327,7 +327,7 @@ class TestSurfaceRealizer:
     def test_discourse_marker_selection(self):
         sr = SurfaceRealizer()
         marker = sr._select_discourse_marker("contrast", 1, 0.5)
-        expected = {"", "however", "on the other hand", "yet", "but", "at the same time", "then again", "still", "although"}
+        expected = {"", "however", "on the other hand", "yet", "but", "at the same time", "then again", "still", "although", "even so", "that said"}
         assert marker in expected
 
     def test_get_state_and_set_state(self):

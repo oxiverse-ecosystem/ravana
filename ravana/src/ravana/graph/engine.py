@@ -544,7 +544,8 @@ class GraphEngine:
                 self.graph.add_edge(sid, tid, weight=bw + self.rng.uniform(0, 0.15),
                                    relation_type=rel)
 
-        # Auto-wire: connect GloVe-similar concepts (>0.6) as semantic edges
+        # Auto-wire: connect GloVe-similar concepts (>0.65) as semantic edges.
+        # Higher threshold and dormant confidence reduces noise from weak associations.
         auto_count = 0
         nids = list(label_to_id.values())
         for i in range(len(nids)):
@@ -558,11 +559,11 @@ class GraphEngine:
                 if nj is None or nj.vector is None:
                     continue
                 sim = float(np.dot(ni.vector, nj.vector))
-                if sim > 0.6:
+                if sim > 0.65:
                     weight = min(0.5, sim * 0.5)
                     inf_type, _ = self._infer_relation_type(ni.label, nj.label, "semantic")
                     edge = self.graph.add_edge(nids[i], nids[j], weight=weight, relation_type=inf_type)
-                    edge.confidence = 0.001
+                    edge.confidence = 0.02  # requires multiple visits to wake (up from 0.001)
                     self._dormant_edges.add((nids[i], nids[j]))
                     auto_count += 1
 

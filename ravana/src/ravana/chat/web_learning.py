@@ -376,19 +376,46 @@ class WebLearningMixin(ResponseGenMixin):
                 if new_labels:
                     self._expand_decoder_vocab(new_labels[:500])
 
+                # FIX: Deduplicate web text before training — remove repeated sentences
+                sentences = [s.strip() for s in text.split('.') if len(s.strip()) > 20]
+                seen_sents = set()
+                unique_sents = []
+                for s in sentences:
+                    key = s.lower().strip()[:60]
+                    if key not in seen_sents:
+                        seen_sents.add(key)
+                        unique_sents.append(s)
+                clean_text = '. '.join(unique_sents)
+
+                # FIX: Expand vocab selectively — only add words appearing >=3 times
+                with self._graph_lock:
+                    new_labels_all = [n.label for nid, n in self.graph.nodes.items()
+                                      if n.label and n.label.lower() not in self._decoder_word_to_idx
+                                      and n.label.lower() not in ('<pad>', '<unk>', '<bos>', '<eos>')]
+                    if new_labels_all:
+                        # Only add words seen >=3 times in the original text
+                        text_counts = {}
+                        for w in re.findall(r"[a-zA-Z']{3,}", text.lower()):
+                            wc = w.strip("'")
+                            text_counts[wc] = text_counts.get(wc, 0) + 1
+                        frequent_labels = [l for l in new_labels_all if text_counts.get(l.lower(), 0) >= 3]
+                        self._expand_decoder_vocab(frequent_labels[:200])
+
+                # FIX: Use freeze_core=True for web learning — only update word embeddings
+                # and output_proj, not the core GRU/attention. This prevents web noise
+                # from corrupting the core language model.
                 err, trained = self.neural_decoder.train_on_text(
-                    text, self._decoder_word_to_embed, self._decoder_word_to_idx,
-                    conditioning_embs=cond_embs)
+                    clean_text, self._decoder_word_to_embed, self._decoder_word_to_idx,
+                    conditioning_embs=cond_embs, freeze_core=True)
                 if trained > 0:
                     self._decoder_web_training_count += trained
                     self._decoder_training_count += trained
-                # Multiple passes per article to strengthen Hebbian traces
-                # More passes for richer, more diverse language exposure
+                # Single additional pass (was 30, already reduced to 2, now 1 with freeze_core)
                 if trained > 0:
-                    for _ in range(30):
+                    for _ in range(1):
                         err2, trained2 = self.neural_decoder.train_on_text(
-                            text, self._decoder_word_to_embed, self._decoder_word_to_idx,
-                            conditioning_embs=cond_embs)
+                            clean_text, self._decoder_word_to_embed, self._decoder_word_to_idx,
+                            conditioning_embs=cond_embs, freeze_core=True)
                         self._decoder_web_training_count += trained2
                         self._decoder_training_count += trained2
                     self.neural_decoder.sleep_cycle()

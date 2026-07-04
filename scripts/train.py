@@ -98,7 +98,13 @@ def load_corpus(engine):
 
 
 def train_seed_corpus(engine, nd, all_sentences, n_passes=200, pp=2000, si=10, pe=20):
-    """Train decoder on seed corpus with sampled softmax. Returns total sentences trained."""
+    """Train decoder on seed corpus with sampled softmax.
+    
+    Early stopping uses training CE (now honest after removing
+    self-conditioning cheat). Final evaluation is done separately
+    by the evaluate() function after training completes.
+    Returns total sentences trained.
+    """
     n_avail = len(all_sentences)
     pp = min(pp, n_avail)
     rng = np.random.RandomState(42)
@@ -256,87 +262,14 @@ def _mode_phase2(args):
 # ─── Mode: full ───
 
 def _mode_full(args):
-    """Full training pipeline — seed corpus + web learning + multiple cycles."""
-    print("="*60)
-    print("RAVANA Full Training — human-like speech + web knowledge + reasoning")
-    print("="*60)
-    t0 = time.time()
-    engine, nd = load_engine(args, reset=args.reset)
-
-    print(f"  Graph: {len(engine.graph.nodes)} nodes, {len(engine.graph.edges)} edges")
-    print(f"  Pre-training: CE={nd._avg_cross_entropy:.3f} t1={nd._avg_top1_acc:.3f}")
-    print()
-
-    text, all_sentences, nd = load_corpus(engine)
-
-    for cycle in range(1, args.cycles + 1):
-        print(f"\n{'='*60}")
-        print(f"CYCLE {cycle}/{args.cycles}")
-        print(f"{'='*60}")
-
-        # Seed corpus training
-        print(f"\n[Cycle {cycle}] Seed corpus training (50 passes)...")
-        n_seed = train_seed_corpus(engine, nd, all_sentences, n_passes=50, pp=2000, si=5, pe=10)
-        print(f"  CE={nd._avg_cross_entropy:.3f} t1={nd._avg_top1_acc:.3f}")
-
-        # Curiosity-driven web learning
-        if not args.no_web:
-            engine._bg_learning_active = True
-            engine._curiosity_drive_enabled = True
-            print(f"\n[Cycle {cycle}] Curiosity-driven web learning...")
-            t1 = time.time()
-            engine._bg_learning_queue.clear()
-            for i in range(args.web_topics):
-                topics = engine._auto_select_curiosity_topics(max_topics=3)
-                if not topics:
-                    for q in SEED_QUERIES[:3]:
-                        try: engine.process_turn(q)
-                        except Exception: pass
-                    topics = engine._auto_select_curiosity_topics(max_topics=3)
-                    if not topics:
-                        for topic in WEB_TOPICS[:args.web_topics]:
-                            engine._network_available = True
-                            try:
-                                result, _ = engine.learn_from_web(topic + " explained with examples", max_results=2)
-                                print(f"  [{i+1}] {topic} -> {result}")
-                            except Exception:
-                                print(f"  [{i+1}] {topic} -> offline")
-                        break
-                for topic in topics[:2]:
-                    engine._network_available = True
-                    query = engine._generate_curiosity_query(topic, source_type="prediction_error")
-                    try:
-                        result, _ = engine.learn_from_web(query, max_results=2)
-                        print(f"  [{i+1}] {query} -> {result}")
-                    except Exception:
-                        print(f"  [{i+1}] {query} -> offline")
-            print(f"  Web: {engine._decoder_web_training_count} sentences in {time.time()-t1:.0f}s")
-
-        # Evaluate
-        print(f"\n[Cycle {cycle}] Evaluation...")
-        evaluate(engine)
-
-    # Final consolidation
-    print(f"\n{'='*60}")
-    print("FINAL CONSOLIDATION")
-    print(f"{'='*60}")
-    n_final = train_seed_corpus(engine, nd, all_sentences, n_passes=100, pp=2000, si=10, pe=15)
-    print(f"  {n_final} consolidation sentences")
-
-    print("\nSaving...")
-    engine._needs_seed_training = False
-    result = engine.save()
-    print(f"  {result}")
-
-    print()
-    print("="*60)
-    print("TRAINING COMPLETE")
-    print("="*60)
-    print(f"  Total time: {time.time()-t0:.0f}s")
-    print(f"  Graph: {len(engine.graph.nodes)} nodes, {len(engine.graph.edges)} edges")
-    print(f"  Decoder: {engine._decoder_training_count} total")
-    print(f"  Final: CE={nd._avg_cross_entropy:.3f} t1={nd._avg_top1_acc:.3f}")
-    print()
+    """Full training pipeline — single-phase seed corpus + web knowledge.
+    
+    FIX: Eliminated multi-cycle approach which caused catastrophic forgetting.
+    Now delegates to phase2 (single long seed training + web + consolidation).
+    No alternating cycles that overwrite previous learning.
+    """
+    # Phase 2 is already the correct single-phase approach (seed → web → consolidate)
+    _mode_phase2(args)
 
 
 # ─── Mode: test ───

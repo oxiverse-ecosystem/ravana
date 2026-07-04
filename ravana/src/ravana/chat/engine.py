@@ -105,6 +105,9 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         self.dim = dim
         self.rng = np.random.RandomState(seed)
 
+        # Update global STOP_WORDS to filter out conversational filler/debris
+        STOP_WORDS.update({"please", "sorry", "thanks", "thank", "hello", "hi", "hey", "bye", "goodbye"})
+
         self.graph = ConceptGraph(dim=dim, max_nodes=10000)
         self.baby_mode = baby_mode
         self._concept_labels: Set[str] = set()  # set of primary concept labels
@@ -291,6 +294,8 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             "instead", "therefore", "however", "moreover", "furthermore",
             "besides", "nevertheless", "nonetheless", "accordingly", "consequently",
             "thus", "hence", "accordingly", "subsequently", "meanwhile",
+            # Conversational filler/debris
+            "please", "sorry", "thanks", "thank", "hello", "hi", "hey", "bye", "goodbye",
         }
 
         # Try loading saved weights first
@@ -1622,6 +1627,12 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         return queries
 
     def _reasoning_loop(self, ctx: CognitiveResponseContext) -> Tuple[str, str]:
+        """Reasoning loop: web search + syntactic pipeline only.
+
+        Stripped of the neural decoder (CE ~3.9, always produced word salad).
+        Web search enriches graph knowledge, then the syntactic pipeline
+        generates the response via SurfaceRealizer.
+        """
         subject = ctx.subject
         query = ctx.raw_input
         assocs = ctx.associated_concepts
@@ -1639,47 +1650,23 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         search_queries = []
         if is_complex or is_unknown:
             search_queries = self._decompose_for_search(query, subject, assocs)
-        elif getattr(self, '_decoder_training_count', 0) < 2000:
-            search_queries = [subject]
 
         search_queries = [sq for sq in search_queries if sq][:4]
 
-        all_learned_text = ""
         for sq in search_queries:
             try:
-                result_summary, learned_content = self.learn_from_web(sq)
-                if learned_content:
-                    all_learned_text += " " + learned_content
+                self.learn_from_web(sq)
             except Exception:
                 continue
 
-        if all_learned_text and self.neural_decoder is not None and getattr(self, '_decoder_vocab_built', False):
-            try:
-                gv_fn = getattr(self, '_glove_vector', None)
-                if gv_fn is not None:
-                    self._freeze_decoder_vocab = True
-                    self.neural_decoder.train_on_text(all_learned_text, subject, self.graph, gv_fn, passes=3)
-                    self._freeze_decoder_vocab = False
-            except Exception:
-                pass
-
+        # Syntactic pipeline only — no neural decoder generation
         try:
-            decoder_ready = False
-            if self.neural_decoder is not None and getattr(self, '_decoder_vocab_built', False):
-                nd = self.neural_decoder
-                ce_ok = nd._avg_cross_entropy < 5.0 if nd._metric_examples > 10 else False
-                t1_ok = nd._avg_top1_acc > 0.08 if nd._metric_examples > 10 else False
-                trained_enough = getattr(self, '_decoder_training_count', 0) >= 500
-                decoder_ready = ce_ok and t1_ok and trained_enough
-                
-            if decoder_ready:
-                decoder_response = self._generate_with_decoder(ctx)
-                if decoder_response and len(decoder_response) > 10 and not _is_word_salad(decoder_response):
-                    return (decoder_response, "neural_decoder_reasoned")
-                    
             syntax_response = self._generate_with_decoder_and_syntax(ctx)
             if syntax_response and len(syntax_response) > 10 and not _is_word_salad(syntax_response):
-                return (syntax_response, "syntactic_pipeline_reasoned")
+                _words = syntax_response.lower().split()
+                _unique_ratio = len(set(_words)) / max(1, len(_words))
+                if _unique_ratio >= 0.35:
+                    return (syntax_response, "dorsal_reasoned")
         except Exception:
             pass
 
@@ -1919,6 +1906,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 if len(utterances) > 0:
                     chain_labels = [frame.subject_concept, frame.verb_phrase, frame.object_concept]
                     self.cerebellar_ngram.learn_chain(chain_labels, successful=True)
+                    VerbLexicon.reinforce(relation, frame.verb_phrase, success=1.0)
 
             if utterances:
                 return " ".join(utterances)
@@ -2256,6 +2244,9 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                         "think", "know", "feel", "want", "need", "go", "come",
                         "get", "say", "make", "take", "see", "hear", "tell",
                         "give", "let", "put", "keep", "look", "find", "ask",
+                        "explain", "describe", "define", "discuss", "show", "list",
+                        "write", "read", "learn", "compare", "contrast", "introduce",
+                        "suggest", "recommend",
                         # Generic adjectives & filler that make poor conversation topics
                         "good", "bad", "big", "small", "always", "never", "maybe",
                         "if", "but", "in", "out", "up", "down",
@@ -2290,747 +2281,6 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         (r"(?:do you know|have you heard of)\s+(.+)", 1),        # do you know X
         (r"why\s+(?:is\s+|are\s+)?(.+)", 1),                    # why is X / why does X
     ]
-
-
-
-    def _is_informational_query(self, query: str, subject: str) -> bool:
-        """Determines if a query is informational/fact-seeking (asks for a definition,
-        factual knowledge, or explanation of an unknown concept) rather than
-        conversational, logical, relational, or conditional.
-        """
-        q = query.lower().strip(" ?!.")
-        
-        # 1. Statements are never informational queries
-        is_question = query.strip().endswith('?') or any(w in q for w in ["what", "who", "where", "when", "why", "how", "define", "explain", "describe", "tell me about"])
-        if not is_question:
-            return False
-            
-        # 2. Logic puzzles, conditional scenarios, riddles, comparison queries are NOT simple definition/fact-seeking queries.
-        # These require cognitive reasoning, which should be processed internally.
-        reasoning_patterns = [
-            r"\b(if|when|suppose|assume|predict)\b",  # conditional/scenario
-            r"\b(why|how does|how do|how to)\b",      # causal/procedural reasoning
-            r"\b(compare|contrast|difference|similar|opposite|antonym|synonym|analogy|analogies)\b", # relation/comparison
-            r"\b(taller|shorter|heavier|lighter|older|younger|better|worse|biggest|tallest|heaviest|smartest)\b", # comparison/ordering
-            r"\b(riddle|puzzle|logic|math|solve|calculation)\b", # logic/riddle
-            r"\bis to\b", # analogy
-            r"\b(you|your|yourself|think|opinion|feel|friendship|love|meaning of life)\b", # personal, opinion, or open philosophical
-        ]
-        for pattern in reasoning_patterns:
-            if re.search(pattern, q):
-                return False
-                
-        # 3. Check if the query matches a pattern asking for a definition/fact
-        info_patterns = [
-            r"^(what|who) (is|are|was|were|refers to|means)\b",
-            r"^define\b",
-            r"^explain\b",
-            r"^tell me about\b",
-            r"^do you know\b",
-            r"^what do you know about\b",
-        ]
-        if any(re.match(pat, q) for pat in info_patterns):
-            return True
-            
-        # If it's a question but didn't match the reasoning patterns or explicit informational patterns,
-        # we err on the side of conversational/reasoning to let RAVANA chat like a human.
-        return False
-
-
-
-    def _needs_web_search(self, subject: str) -> bool:
-        """Check if a subject is truly unknown and needs web search.
-
-        Returns True only if the subject concept is not in the graph
-        or the concept keywords, so the reasoning loop only fires
-        when it actually needs to search the web.
-        """
-        if not subject:
-            return False
-        subj_lower = subject.lower().strip()
-        if subj_lower in self._concept_keywords or subj_lower in self._concept_labels:
-            return False
-        # Also check graph node labels (concepts added from web learning)
-        with self._graph_lock:
-            for nid, node in self.graph.nodes.items():
-                if node.label and node.label.lower() == subj_lower:
-                    return False
-        return True
-
-
-
-    def _ground_query(self, text: str) -> Tuple[str, float, str]:
-        """Multi-strategy query grounding. Returns (subject, confidence, method).
-
-        Strategies (tried in order):
-        a) PrefrontalWorkspace question type parsing & exact phrase matching
-        b) Compositional — split phrase, count known vs unknown words
-        c) Phrase embedding similarity — mean word vec → nearest concept (cosine > 0.75)
-        d) Best single word fallback — last meaningful non-stop word
-        """
-        # Strategy A: Use PrefrontalWorkspace question type detection to parse semantic payload
-        qtype = "general"
-        query_phrase = ""
-        try:
-            if hasattr(self, 'pfc_workspace'):
-                qtype, groups = self.pfc_workspace.detect_question_type(text, self._concept_pos)
-                if groups:
-                    query_phrase = groups[0].strip()
-        except Exception:
-            pass
-
-        if not query_phrase:
-            # Fallback to custom patterns
-            text_lower = text.lower().strip(" ?!.")
-            for pattern, group_idx in self.QUERY_PATTERNS:
-                m = re.match(pattern, text_lower)
-                if m:
-                    query_phrase = m.group(group_idx).strip()
-                    break
-
-        if not query_phrase:
-            return ("", 0.0, "no_pattern")
-
-        # Strategy A2: Exact multi-word phrase match (domain concepts, seeded multi-word)
-        phrase_clean = query_phrase.strip(".,!?")
-        if phrase_clean in self._concept_labels:
-            return (phrase_clean, 0.95, "exact_label")
-        if phrase_clean in self._concept_keywords:
-            return (phrase_clean, 0.90, "exact_keyword")
-
-        # Strategy C (moved before B): Compositional — score words by known/unknown ratio
-        words = [w.strip(".,!?") for w in query_phrase.split()
-                 if len(w.strip(".,!?")) > 2
-                 and w.strip(".,!?") not in self.QUESTION_WORDS
-                 and w.strip(".,!?") not in self.TOPIC_SKIP_WORDS
-                 and w.strip(".,!?") not in STOP_WORDS]
-        if words:
-            if len(words) >= 2:
-                # For scenario/hypothetical/causal queries (e.g. hypothetical, why, how),
-                # the last content/entity word represents the target scenario.
-                if qtype in ("hypothetical", "why", "how", "compare"):
-                    last_word = words[-1]
-                    if last_word in self._concept_labels or last_word in self._concept_keywords:
-                        return (last_word, 0.7, "scenario_last_entity")
-                # Use the first 2-3 content words as the search subject (e.g. "time machine")
-                clean_subj = " ".join(words[:3]) if len(words) >= 3 else " ".join(words)
-                return (clean_subj, 0.45, "multi_word_unconnected")
-
-            known_words = [w for w in words if w in self._concept_labels or w in self._concept_keywords]
-            unknown_words = [w for w in words if w not in known_words]
-            if known_words:
-                if unknown_words:
-                    # If there's any unknown word in the multi-word query, keep the clean subject phrase
-                    # and return a low confidence to trigger web learning for the whole phrase
-                    clean_subj = " ".join(words[:3]) if len(words) >= 3 else " ".join(words)
-                    return (clean_subj, 0.35, "partial_unknown")
-                ratio = len(known_words) / len(words)
-                # Prefer last known word (most specific in English)
-                topic = known_words[-1]
-                return (topic, min(0.85, 0.5 + ratio * 0.4), f"compositional_{ratio:.2f}")
-            # All unknown — will trigger web learning for the full phrase
-            if words:
-                clean_subj = " ".join(words[:3]) if len(words) >= 3 else " ".join(words)
-                return (clean_subj, 0.2, "all_unknown")
-
-
-        # Strategy B: Phrase embedding similarity search (fallback for short queries)
-        phrase_vec = self._compute_phrase_embedding(query_phrase)
-        if phrase_vec is not None:
-            best_sim = 0.0
-            best_label = None
-            for nid, node in self.graph.nodes.items():
-                if node.label and node.vector is not None:
-                    sim = float(np.dot(phrase_vec, node.vector))
-                    if sim > best_sim:
-                        best_sim = sim
-                        best_label = node.label
-            # Higher threshold + reject TOPIC_SKIP_WORDS matches
-            if best_label and best_sim > 0.75 and best_label.lower() not in self.TOPIC_SKIP_WORDS:
-                return (best_label, best_sim, f"phrase_sim_{best_sim:.2f}")
-
-        # Strategy D: Spelling-tolerant close match (handles typos like "intellegence")
-        if words:
-            close_matches = []
-            for w in words:
-                wl = w.lower()
-                for label in self._concept_labels:
-                    if (label.startswith(wl[:3]) and abs(len(label) - len(wl)) <= 2) or                        (len(wl) >= 4 and label.startswith(wl[:4])):
-                        close_matches.append(label)
-                        break
-            if close_matches:
-                topic = close_matches[-1]
-                return (topic, 0.5, f"close_match_{topic}")
-
-        return ("", 0.0, "no_match")
-
-
-
-    def _extract_topic(self, text: str, activated: List[int]) -> Tuple[str, str]:
-        """Extract the main topic from input. Uses graph-activated concepts
-        first, then falls back to pattern detection.
-
-        For 'what is trust' -> 'trust'
-        For 'you know i was thinking about trust' -> 'trust' (skips 'you', 'i')
-        For 'does learning change your brain' -> 'learning'
-        """
-        # Use the multi-strategy query grounder
-        topic, confidence, method = self._ground_query(text)
-        if topic and confidence >= 0.5:
-            return (topic, text)
-        # Prefer low-confidence ground_query result over question/skip words
-        if topic and method != "all_unknown" and method != "no_pattern" and method != "no_match":
-            return (topic, text)
-
-        # Fallback: best activated concept (skip question, topic-skip, and short words)
-        # Prefer nouns over adjectives/verbs using POS tags
-        if activated:
-            best_real = None
-            best_noun = None
-            for nid in activated:
-                node = self.graph.get_node(nid)
-                if node and node.label:
-                    lbl = node.label.lower()
-                    if (len(lbl) > 2 and lbl not in self.QUESTION_WORDS
-                            and lbl not in self.TOPIC_SKIP_WORDS):
-                        pos = self._concept_pos.get(lbl, 'noun')
-                        if pos == 'noun' and best_noun is None:
-                            best_noun = (node.label, text)
-                        if best_real is None:
-                            best_real = (node.label, text)
-            # Prefer noun if available, else first valid
-            if best_noun:
-                return best_noun
-            if best_real:
-                return best_real
-
-        # Fallback: find meaningful words
-        words = [w.strip(".,!?") for w in text.lower().split()
-                 if len(w.strip(".,!?")) > 2
-                 and w.strip(".,!?") not in self.QUESTION_WORDS
-                 and w.strip(".,!?") not in self.TOPIC_SKIP_WORDS
-                 and w.strip(".,!?") not in STOP_WORDS]
-        if words:
-            # Prefer words that are actually in the graph (known concepts) over unknown ones
-            known_words = [w for w in reversed(words) if w in self._concept_labels or w in self._concept_keywords]
-            # Prefer nouns among known words
-            noun_words = [w for w in known_words if self._concept_pos.get(w, 'noun') == 'noun']
-            if noun_words:
-                return (noun_words[0], text)
-            if known_words:
-                return (known_words[0], text)
-            # Prefer nouns among unknown words
-            unknown_nouns = [w for w in words if self._concept_pos.get(w, 'noun') == 'noun']
-            if unknown_nouns:
-                return (unknown_nouns[0], text)
-            return (words[-1], text)
-
-        first = text.split()[0] if text.split() else ""
-        first_stripped = first.strip(".,!?").lower()
-        if first_stripped and len(first_stripped) > 2 and first_stripped not in self.QUESTION_WORDS and first_stripped not in self.TOPIC_SKIP_WORDS:
-            return (first_stripped, text)
-        return ("", text)
-
-
-
-    def _update_emotion(self, text: str):
-        """More nuanced emotional processing — teenage range of emotions."""
-        positive = {"good", "great", "happy", "love", "nice", "fun", "yay", "wow",
-                     "cool", "amazing", "awesome", "wonderful", "beautiful", "excited",
-                     "grateful", "proud", "hopeful", "joy", "interesting"}
-        negative = {"bad", "sad", "scared", "angry", "hurt", "cry", "mean",
-                     "terrible", "awful", "upset", "frustrated", "anxious",
-                     "worried", "disappointed", "lonely", "guilty", "afraid"}
-        curious = {"why", "how", "what", "wonder", "curious", "interesting",
-                    "really", "tell me", "explain", "mean"}
-        words = set(w.lower().strip(".,!?") for w in text.split())
-        sv = 0.0
-        sa = 0.2  # baseline engagement floor
-        # Positive words boost valence
-        if words & positive:
-            sv += 0.4
-            sa += 0.2
-        # Negative words lower valence
-        if words & negative:
-            sv -= 0.4
-            sa += 0.25
-        # Curiosity words increase arousal (engagement)
-        if words & curious:
-            sa += 0.3
-            if sv == 0.0:
-                sv += 0.05  # slight positive bias for curiosity
-        # Learning excitement
-        if self._learned_this_turn:
-            sa += 0.3
-            sv += 0.2
-        # Novelty-based arousal (unknown words = mild surprise)
-        input_words = [w for w in words if len(w) >= 3]
-        known = sum(1 for w in input_words if w in self._concept_keywords)
-        if input_words and known / len(input_words) < 0.5:
-            sa += 0.15  # novelty surprise
-        # Phase 9b: Prediction error surprise (Active Inference)
-        # High prediction error = world doesn't match expectations = arousal
-        if self._prediction_error_count > 5:
-            pe_surprise = min(0.4, self._mean_prediction_error * 2.0)
-            sa += pe_surprise
-        # Phase 10.4: N400-like arousal modulation from per-hop prediction error
-        if hasattr(self, '_mean_sentence_pe') and self._sentence_pe_count > 0:
-            n400_surprise = min(0.3, self._mean_sentence_pe * 2.0)
-            sa += n400_surprise
-        # Phase 14.4: Identity prediction error
-        if hasattr(self, '_expected_strength'):
-            identity_pe = abs(self.identity.state.strength - self._expected_strength)
-            if identity_pe > 0.3:
-                sa += min(0.3, identity_pe * 0.5)
-        # Phase 7.5: Curiosity drive — boost arousal for impossible queries
-        if getattr(self, '_last_strategy_used', '') in ('G_uncertainty', 'F_web_research'):
-            sa += 0.6  # strong curiosity arousal for impossible query
-            sv += 0.1  # slight positive valence for curiosity
-        self.emotion.update(stimulus_valence=sv, stimulus_arousal=sa,
-                           stimulus_dominance=self.identity.state.strength * 0.4 + 0.2,
-                           uncertainty=self._free_energy * 0.5, dt=1.0)
-
-    # ── P1 Theory of Mind ──
-
-
-
-    def _update_user_model(self, text: str, subject: str,
-                           associations: List[Tuple[str, float]]):
-        """Deep Theory of Mind update after turn processing (roadmap §7).
-
-        Extends the lightweight observe_user_query (which runs early in
-        process_turn) with post-spread-activation updates:
-        - Update topic familiarity from graph associations
-        - Track inferred goals alongside cognitive style
-        - Build personalized greeting eligibility
-        """
-        um = self.user_model
-        # Update topic familiarity from the spread-activation associations.
-        # Each association the user's query touched becomes slightly more
-        # familiar (exponential moving average, rate 0.1).
-        for concept, confidence in associations:
-            cl = concept.lower()
-            um.knowledge_model[cl] = (
-                0.9 * um.knowledge_model.get(cl, 0.0)
-                + 0.1 * min(1.0, confidence + 0.3)
-            )
-        # Goal is already inferred inside observe_user_query via infer_user_goal.
-        # Store the last goal for adaptive verbosity check.
-        self._last_user_goal = getattr(self, '_last_user_goal', 'EXPLORING')
-        self._last_user_goal = um.last_goal
-
-
-
-    def _personalized_greeting(self) -> str:
-        """Return a personalized greeting prefix when relationship_depth warrants it.
-
-        Neuroscience basis: repeated social interaction builds rapport, modeled
-        as relationship_depth ∈ [0, 1]. Above 0.5, reference the last topic to
-        demonstrate memory and continuity (roadmap §9).
-
-        Returns empty string if relationship is too new or no prior topic exists.
-        """
-        um = self.user_model
-        if um.relationship_depth < 0.5:
-            return ""
-        if not um.last_topic:
-            return ""
-        # Only greet every ~10 interactions to avoid repetition
-        if um.interaction_count % 10 != 0 and um.interaction_count > 1:
-            return ""
-        past = um.last_topic.capitalize()
-        if um.relationship_depth > 0.8:
-            return f"Great to see you! I remember we were talking about {past}. "
-        return f"Welcome back! Last time we discussed {past}. "
-
-
-
-    def _adapt_verbosity_for_user(self, plan: 'DiscoursePlan', subject: str) -> 'DiscoursePlan':
-        """Adaptive language complexity (roadmap §7 deliverable A).
-
-        Modulates the PFC discourse plan based on user familiarity:
-        - Low familiarity (< 0.3): keep all 3 intents — user needs full explanation
-        - Medium familiarity (0.3-0.7): keep 2-3 intents
-        - High familiarity (> 0.7) + LEARNING goal: trim to 2 — user knows the basics
-
-        P2 Emotional Mirroring: user arousal also modulates verbosity — excited users
-        get slightly longer, more engaged responses; calm users get more concise ones.
-
-        This respects the PrefrontalWorkspace capacity (7±2 items, Baddeley & Hitch 1974)
-        by avoiding unnecessary verbal load for expert users.
-        """
-        um = self.user_model
-        familiarity = um.infer_user_knows(subject)
-        goal = um.last_goal
-
-        # P2: User arousal modulates base verbosity (mirroring loop)
-        user_arousal = um.emotional_state.get('arousal', 0.3)
-        target_intents = 3
-        if user_arousal < 0.25:
-            target_intents = 2  # calm user → concise
-        elif user_arousal > 0.6:
-            target_intents = 4  # excited user → more engagement
-
-        if familiarity < 0.3:
-            # Novice: full explanation
-            if len(plan.intents) > target_intents:
-                plan.intents = plan.intents[:target_intents]
-            return plan
-        elif familiarity > 0.7 and goal == "LEARNING":
-            # Expert learner: trim — skip the generic ELABORATE
-            if len(plan.intents) > 2:
-                plan.intents = [plan.intents[0], plan.intents[1]]
-            return plan
-        # Medium: keep original plan, but cap at target
-        if len(plan.intents) > target_intents:
-            plan.intents = plan.intents[:target_intents]
-        return plan
-
-
-
-
-
-    def _detect_recall_trigger(self, text: str) -> Optional[str]:
-        """Phase 3.3: Detect if user is recalling a past topic using vector semantics.
-        
-        Uses GloVe vector similarity between query words and recall-related seed concepts.
-        If any query word has a cosine similarity >= _RECALL_DETECTION_THRESHOLD to any
-        recall seed concept, the query is treated as a recall attempt.
-        
-        This avoids hardcoded trigger patterns and naturally generalizes to any
-        semantically similar phrasing (e.g., "forgot", "previously", "what did I")."""
-        text_lower = text.lower()
-        words = [w.strip(".,!?") for w in text_lower.split() if len(w.strip(".,!?")) >= 3]
-        
-        # Pre-compute GloVe vectors for recall seeds (lazy cache)
-        if not hasattr(self, '_recall_seed_vecs'):
-            seed_vecs = {}
-            for seed in self._RECALL_SEED_CONCEPTS:
-                v = self._glove_vector(seed)
-                if v is not None:
-                    seed_vecs[seed] = v
-            self._recall_seed_vecs = seed_vecs
-        
-        if not self._recall_seed_vecs:
-            return None
-        
-        # Check each content word in the query for semantic similarity to recall seeds
-        is_recall = False
-        for word in words:
-            wv = self._glove_vector(word)
-            if wv is None:
-                continue
-            for seed, sv in self._recall_seed_vecs.items():
-                sim = float(np.dot(wv, sv))
-                if sim >= self._RECALL_DETECTION_THRESHOLD:
-                    is_recall = True
-                    break
-            if is_recall:
-                break
-        
-        if not is_recall:
-            return None
-        
-        # If recall detected, find the most relevant past topic
-        if self._topic_list:
-            # Score each past topic by semantic similarity to the query
-            best_topic = None
-            best_score = 0.0
-            for topic in reversed(self._topic_list):
-                tv = self._glove_vector(topic)
-                if tv is None:
-                    continue
-                score = 0.0
-                for word in words:
-                    wv = self._glove_vector(word)
-                    if wv is not None:
-                        score += float(np.dot(wv, tv))
-                if score > best_score:
-                    best_score = score
-                    best_topic = topic
-            if best_topic:
-                return best_topic
-            return self._topic_list[-1]
-        
-        return text_lower.split()[0] if words else None
-
-
-
-    def _recall_past(self, subj: str, obj: str) -> List[str]:
-        related = []
-        for t in self._topic_list:
-            pl = t.lower()
-            sl = subj.lower()
-            if pl != sl and (pl in sl or sl in pl or len(set(pl.split()) & set(sl.split())) > 0):
-                related.append(t)
-        return related[:3]
-
-    # ─── Phase 9c: Hippocampal Indexing ───
-    # Based on: Teyler & Rudy (2007) hippocampal indexing theory.
-    # The hippocampus stores an INDEX to distributed neocortical patterns,
-    # not the memory content itself. Reactivation of the index → reactivation
-    # of the distributed pattern → memory experience.
-    #
-    # Instead of storing full topic content, we store a sparse index:
-    # which concept IDs were activated, which edges were traversed.
-    # During recall, the index reactivates the distributed graph pattern.
-
-
-
-    def _hippocampal_index_topic(self, subject: str, activated_ids: List[int],
-                                   hop_labels: List[Tuple[str, str]]):
-        """Create a hippocampal index for the current topic and store it.
-
-        The index is a lightweight pointer to the distributed graph pattern
-        (concept IDs + edge references), not the content itself.
-        """
-        sl = subject.lower()
-        # Build index: which concept nodes were activated
-        indexed_concepts = list(set(activated_ids))
-
-        # Build index: which edge pairs were traversed
-        indexed_edges = [(f.lower(), t.lower()) for f, t in hop_labels]
-
-        # Store as lightweight index, not full content
-        index_entry = {
-            'label': subject,
-            'turn': self.turn_count,
-            'indexed_concepts': indexed_concepts[:10],  # sparse index
-            'indexed_edges': indexed_edges[:5],
-            'vad': (self.emotion.state.valence, self.emotion.state.arousal,
-                    self.emotion.state.dominance),
-            'visit_count': 1,
-            'response_summary': '',  # placeholder, not content
-        }
-
-        if sl not in self._topic_store:
-            self._topic_store[sl] = index_entry
-        else:
-            entry = self._topic_store[sl]
-            entry['visit_count'] += 1
-            entry['turn'] = self.turn_count
-            # Merge new indexed concepts
-            existing_cons = set(entry.get('indexed_concepts', []))
-            existing_cons.update(indexed_concepts[:10])
-            entry['indexed_concepts'] = list(existing_cons)[:15]
-            entry['vad'] = index_entry['vad']
-
-
-
-    def _recall_hippocampal(self, topic: str) -> Optional[List[int]]:
-        """Reactivate a hippocampal index, spreading activation through the
-        indexed graph pattern to reconstruct the memory experience.
-
-        Returns the list of reactivated concept IDs, or None if topic not found.
-        """
-        entry = self._topic_store.get(topic.lower())
-        if not entry:
-            return None
-
-        reactivated = []
-        # Phase 1: Reactivate indexed concepts (sparse pattern)
-        for nid in entry.get('indexed_concepts', []):
-            node = self.graph.get_node(nid)
-            if node and node.label:
-                self.graph.activate(nid, 0.5)
-                reactivated.append(nid)
-
-        # Phase 2: Spread activation through indexed edges (pattern completion)
-        for f_label, t_label in entry.get('indexed_edges', []):
-            f_nids = self._concept_keywords.get(f_label.lower(), [])
-            t_nids = self._concept_keywords.get(t_label.lower(), [])
-            for fn in f_nids:
-                for tn in t_nids:
-                    edge = self.graph.get_edge(fn, tn)
-                    if edge:
-                        # Strengthen episodic edges during recall (pattern strengthening)
-                        if edge.relation_type == "episodic":
-                            edge.weight = min(0.35, edge.weight + 0.05)
-                        # Activate both endpoints
-                        self.graph.activate(fn, 0.4)
-                        self.graph.activate(tn, 0.4)
-                        if fn not in reactivated:
-                            reactivated.append(fn)
-                        if tn not in reactivated:
-                            reactivated.append(tn)
-
-        # Phase 3: Activate the subject concept at higher strength
-        subj_nids = self._concept_keywords.get(topic.lower(), [])
-        for sn in subj_nids:
-            self.graph.activate(sn, 0.7)
-            if sn not in reactivated:
-                reactivated.append(sn)
-
-        return reactivated
-
-    # ─── Graph-Driven Response Generation ───
-    # NO hardcoded strings. ALL content words are concept labels from the graph.
-    # Edge relation types (stored in graph edge data) are mapped to graph concept
-    # labels that already exist in the seeded vocabulary — no external text.
-
-    # Tiered connectors: (min_weight, [word, ...])
-    # Auto-wired edges: min=0.30, ~0.30-0.40 common, max=0.50
-    # Weight ≥ 0.33 (~top 25%): stronger connector (e.g. "link", "and")
-    # Weight 0.30-0.33 (bulk): default "connect"
-    # Lower temperature = conservative (pick first option), higher = random.
-    _EDGE_CONNECTORS = {
-        "semantic": [
-            (0.35, ["link", "and", "connect"]),
-            (0.0, ["connect"]),
-        ],
-        "causal": [
-            (0.33, ["make", "create", "cause"]),
-            (0.0, ["cause", "so", "because"]),
-        ],
-        "emotional": [
-            (0.33, ["like", "love"]),
-            (0.0, ["like"]),
-        ],
-        "contrastive": [
-            (0.20, ["but", "but", "but"]),
-            (0.0, ["but"]),
-        ],
-        "temporal": [
-            (0.28, ["change", "then"]),
-            (0.0, ["then"]),
-        ],
-        "episodic": [
-            (0.20, ["connect", "and"]),
-            (0.0, ["connect"]),
-        ],
-    }
-
-    _EDGE_TO_GRAPH_LABEL = {
-        "episodic": "connect",
-    }
-
-    # Edge type → discourse starter (all labels exist in seeded TEEN_CONCEPTS)
-    _EDGE_TO_STARTER = {
-    }
-
-    # ── Solution #5: Relation Type Inference ──
-    # Known label-pair patterns for heuristic relation type assignment.
-    # All pairs stored as sorted tuples for consistent lookup.
-    CONTRASTIVE_PAIRS = {
-        tuple(sorted(["good", "bad"])), tuple(sorted(["love", "hate"])),
-        tuple(sorted(["life", "death"])), tuple(sorted(["truth", "lie"])),
-        tuple(sorted(["freedom", "oppression"])), tuple(sorted(["courage", "fear"])),
-        tuple(sorted(["hope", "despair"])), tuple(sorted(["knowledge", "ignorance"])),
-        tuple(sorted(["justice", "injustice"])), tuple(sorted(["create", "destroy"])),
-        tuple(sorted(["accept", "reject"])), tuple(sorted(["always", "never"])),
-        tuple(sorted(["happy", "sad"])), tuple(sorted(["joy", "grief"])),
-        tuple(sorted(["excited", "bored"])), tuple(sorted(["big", "small"])),
-        tuple(sorted(["hot", "cold"])), tuple(sorted(["up", "down"])),
-        tuple(sorted(["in", "out"])), tuple(sorted(["here", "there"])),
-        tuple(sorted(["now", "later"])), tuple(sorted(["yes", "no"])),
-        tuple(sorted(["more", "less"])), tuple(sorted(["possible", "impossible"])),
-        tuple(sorted(["trust", "hypocrisy"])), tuple(sorted(["freedom", "control"])),
-    }
-    CAUSAL_PAIRS = {
-        tuple(sorted(["learn", "knowledge"])), tuple(sorted(["study", "understanding"])),
-        tuple(sorted(["practice", "skill"])), tuple(sorted(["challenge", "struggle"])),
-        tuple(sorted(["struggle", "growth"])), tuple(sorted(["question", "curiosity"])),
-        tuple(sorted(["explore", "discovery"])), tuple(sorted(["trust", "friendship"])),
-        tuple(sorted(["hypocrisy", "distrust"])), tuple(sorted(["grief", "sadness"])),
-        tuple(sorted(["hope", "motivation"])), tuple(sorted(["rejection", "loneliness"])),
-        tuple(sorted(["acceptance", "belonging"])), tuple(sorted(["anger", "conflict"])),
-        tuple(sorted(["empathy", "understanding"])), tuple(sorted(["criticism", "growth"])),
-        tuple(sorted(["failure", "learning"])), tuple(sorted(["change", "growth"])),
-        tuple(sorted(["knowledge", "wisdom"])), tuple(sorted(["experience", "wisdom"])),
-        tuple(sorted(["art", "expression"])), tuple(sorted(["science", "progress"])),
-        tuple(sorted(["imagination", "invention"])), tuple(sorted(["experiment", "knowledge"])),
-        tuple(sorted(["sleep", "tired"])), tuple(sorted(["play", "happy"])),
-        tuple(sorted(["cause", "change"])), tuple(sorted(["sun", "hot"])),
-        tuple(sorted(["sun", "light"])), tuple(sorted(["eat", "food"])),
-        tuple(sorted(["drink", "water"])),
-    }
-    IS_A_PAIRS = {
-        tuple(sorted(["dog", "animal"])), tuple(sorted(["cat", "animal"])),
-        tuple(sorted(["bird", "animal"])), tuple(sorted(["rose", "flower"])),
-        tuple(sorted(["oak", "tree"])), tuple(sorted(["oxiverse", "ecosystem"])),
-        tuple(sorted(["intentforge", "search engine"])),
-        tuple(sorted(["ravana", "cognitive architecture"])),
-    }
-
-
-
-    def print_traces(self, label: str):
-        """Print all chain walk traces from the last response."""
-        if not self._chain_traces:
-            return
-        print(f"  [trace] {label}: {len(self._chain_traces)} chains")
-        for ci, t in enumerate(self._chain_traces):
-            print(f"  [trace]   chain {ci}: {t.max_hops} max, {'done' if t.completed else 'short'}")
-            for i, h in enumerate(t.hops):
-                dir_sym = " -> " if h.relation_type != "episodic" else " ~~ "
-                extra = ""
-                if h.rlm_confidence > 0:
-                    extra += f" [RLM: {h.rlm_confidence:.2f}]"
-                if h.contradiction:
-                    extra += f" [CON: {h.contradiction}]"
-                print(f"  [trace]     hop {i}: {h.from_label}{dir_sym}{h.to_label}  "
-                      f"[{h.relation_type}] w={h.weight:.3f} c={h.confidence:.3f} "
-                      f"t={h.temperature:.2f} ({h.candidates} cand){extra}")
-        # Phase 7: Print impossible query count if any
-        if self._impossible_queries:
-            unresolved = sum(1 for iq in self._impossible_queries if not iq.resolved)
-            print(f"  [trace]   impossible queries: {len(self._impossible_queries)} total, {unresolved} unresolved")
-        # Print user model state
-        if self.user_model.edge_reactivations:
-            print(f"  [trace]   user_model: {len(self.user_model.edge_reactivations)} edge visits")
-            prefs = self.user_model.inferred_preferences(threshold=1)
-            if prefs:
-                for (frm, to), cnt in sorted(prefs.items(), key=lambda x: -x[1])[:5]:
-                    print(f"  [trace]     pref: {frm} -> {to} (visit={cnt})")
-        # Print belief store state
-        if getattr(self, 'use_beliefs', False) and hasattr(self, 'belief_store'):
-            bs = self.belief_store
-            if bs.beliefs:
-                print(f"  [trace]   belief_store: {len(bs.beliefs)} beliefs, "
-                      f"{len(bs.contradictions)} contradictions")
-                for (subj, pred), (val, conf, turn) in list(bs.beliefs.items())[:3]:
-                    print(f"  [trace]     belief: {subj} . {pred} = {val} @ {conf:.2f} (turn {turn})")
-        # Print VAD state
-        print(f"  [trace]   vad: v={self.emotion.state.valence:.2f} "
-              f"a={self.emotion.state.arousal:.2f} d={self.emotion.state.dominance:.2f}")
-        if self._prefrontal_buffer:
-            print(f"  [trace]   pfc_buffer: {self._prefrontal_buffer[:5]}")
-        self._chain_traces.clear()
-
-    # === Background Web Learning ===
-    # RAVANA can learn from the web between user messages, performing
-    # multiple related searches per query to build richer knowledge.
-
-
-
-    def start_background_learning(self):
-        """Start the background learning thread. Called once at engine creation or CLI start."""
-        if self._bg_learning_active and self._bg_learning_thread and self._bg_learning_thread.is_alive():
-            return
-        self._bg_learning_active = True
-        self._bg_learning_thread = threading.Thread(target=self._bg_learn_loop, daemon=True)
-        self._bg_learning_thread.start()
-        if self._trace_enabled:
-            print('  [bg] background learning thread started')
-
-
-
-    def stop_background_learning(self):
-        """Stop the background learning thread gracefully.""" 
-        # Final curiosity sync - ensure latest diversity state is captured
-        # Must run BEFORE _bg_learning_active is set to False
-        try:
-            self._auto_select_curiosity_topics(max_topics=0)  # just sync state
-        except Exception:
-            pass
-        
-        self._bg_learning_active = False
-        self._cascade_for_quality = False
-        self._bg_idle_event.set()  # wake up the thread so it can exit
-        if self._bg_learning_thread and self._bg_learning_thread.is_alive():
-            self._bg_learning_thread.join(timeout=5)
-        if self._trace_enabled:
-            print(f'  [bg] background learning stopped (performed {self._bg_search_count} searches)')
 
 
 
@@ -3152,7 +2402,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 print(f"  [db] SQLite save failed: {e}")
 
         try:
-            # Phase 6.1: Checkpoint rotation — save every 25 turns
+            # Phase 6.1: Checkpoint rotation â€” save every 25 turns
             if self.turn_count > 0 and self.turn_count % 25 == 0:
                 checkpoint_path = self._save_path.replace('.pkl', f'_{self.turn_count}.pkl')
                 with open(checkpoint_path, 'wb') as f:
@@ -3176,6 +2426,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             return f"save failed: {e}"
 
             return f"save failed: {e}"
+
     def _load(self) -> bool:
         """Load cognitive state from disk. Returns True if successful."""
         try:
@@ -3239,7 +2490,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             # Restore RNG
             self.rng.set_state(state['rng_state'])
 
-            # Restore teen state (optional — may not exist in old saves)
+            # Restore teen state (optional â€” may not exist in old saves)
             self._sleep_pressure = state.get('sleep_pressure', 0.0)
             self._last_sleep_episode = state.get('last_sleep_episode', 0)
             self.sleep_cycles_completed = state.get('sleep_cycles_completed', 0)
@@ -3359,7 +2610,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             self._concept_labels = set(state.get('concept_labels', []))
 
             # Stash decoder state dict to be loaded after _build_decoder_vocab() 
-            # (neural decoder doesn't exist yet — created later in __init__)
+            # (neural decoder doesn't exist yet â€” created later in __init__)
             hb_state = state.get('hippocampal_buffer_state', None)
             if hb_state:
                 self.hippocampal_buffer.set_state(hb_state)
@@ -3371,7 +2622,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 self.relation_memory.set_state(rm_state)
             decoder_sd = state.get('decoder_state_dict', None)
             self._saved_decoder_state = decoder_sd if decoder_sd is not None else {}
-            # Stash neuromodulator state — will be loaded after _build_decoder_vocab()
+            # Stash neuromodulator state â€” will be loaded after _build_decoder_vocab()
             # creates the neuromodulator engine.
             self._saved_neuromodulator_state = state.get('neuromodulator_state', None)
             self._decoder_training_count = state.get('decoder_training_count', 0)
@@ -3404,3 +2655,823 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         except Exception as e:
             print(f"  [Load error] {e}")
             return False
+
+
+    def _adapt_verbosity_for_user(self, plan: 'DiscoursePlan', subject: str) -> 'DiscoursePlan':
+        """Adaptive language complexity (roadmap Â§7 deliverable A).
+
+        Modulates the PFC discourse plan based on user familiarity:
+        - Low familiarity (< 0.3): keep all 3 intents â€” user needs full explanation
+        - Medium familiarity (0.3-0.7): keep 2-3 intents
+        - High familiarity (> 0.7) + LEARNING goal: trim to 2 â€” user knows the basics
+
+        P2 Emotional Mirroring: user arousal also modulates verbosity â€” excited users
+        get slightly longer, more engaged responses; calm users get more concise ones.
+
+        This respects the PrefrontalWorkspace capacity (7Â±2 items, Baddeley & Hitch 1974)
+        by avoiding unnecessary verbal load for expert users.
+        """
+        um = self.user_model
+        familiarity = um.infer_user_knows(subject)
+        goal = um.last_goal
+
+        # P2: User arousal modulates base verbosity (mirroring loop)
+        user_arousal = um.emotional_state.get('arousal', 0.3)
+        target_intents = 3
+        if user_arousal < 0.25:
+            target_intents = 2  # calm user â†’ concise
+        elif user_arousal > 0.6:
+            target_intents = 4  # excited user â†’ more engagement
+
+        if familiarity < 0.3:
+            # Novice: full explanation
+            if len(plan.intents) > target_intents:
+                plan.intents = plan.intents[:target_intents]
+            return plan
+        elif familiarity > 0.7 and goal == "LEARNING":
+            # Expert learner: trim â€” skip the generic ELABORATE
+            if len(plan.intents) > 2:
+                plan.intents = [plan.intents[0], plan.intents[1]]
+            return plan
+        # Medium: keep original plan, but cap at target
+        if len(plan.intents) > target_intents:
+            plan.intents = plan.intents[:target_intents]
+        return plan
+
+
+
+
+
+
+    def _detect_recall_trigger(self, text: str) -> Optional[str]:
+        """Phase 3.3: Detect if user is recalling a past topic using vector semantics.
+        
+        Uses GloVe vector similarity between query words and recall-related seed concepts.
+        If any query word has a cosine similarity >= _RECALL_DETECTION_THRESHOLD to any
+        recall seed concept, the query is treated as a recall attempt.
+        
+        This avoids hardcoded trigger patterns and naturally generalizes to any
+        semantically similar phrasing (e.g., "forgot", "previously", "what did I")."""
+        text_lower = text.lower()
+        words = [w.strip(".,!?") for w in text_lower.split() if len(w.strip(".,!?")) >= 3]
+        
+        # Pre-compute GloVe vectors for recall seeds (lazy cache)
+        if not hasattr(self, '_recall_seed_vecs'):
+            seed_vecs = {}
+            for seed in self._RECALL_SEED_CONCEPTS:
+                v = self._glove_vector(seed)
+                if v is not None:
+                    seed_vecs[seed] = v
+            self._recall_seed_vecs = seed_vecs
+        
+        if not self._recall_seed_vecs:
+            return None
+        
+        # Check each content word in the query for semantic similarity to recall seeds
+        is_recall = False
+        for word in words:
+            wv = self._glove_vector(word)
+            if wv is None:
+                continue
+            for seed, sv in self._recall_seed_vecs.items():
+                sim = float(np.dot(wv, sv))
+                if sim >= self._RECALL_DETECTION_THRESHOLD:
+                    is_recall = True
+                    break
+            if is_recall:
+                break
+        
+        if not is_recall:
+            return None
+        
+        # If recall detected, find the most relevant past topic
+        if self._topic_list:
+            # Score each past topic by semantic similarity to the query
+            best_topic = None
+            best_score = 0.0
+            for topic in reversed(self._topic_list):
+                tv = self._glove_vector(topic)
+                if tv is None:
+                    continue
+                score = 0.0
+                for word in words:
+                    wv = self._glove_vector(word)
+                    if wv is not None:
+                        score += float(np.dot(wv, tv))
+                if score > best_score:
+                    best_score = score
+                    best_topic = topic
+            if best_topic:
+                return best_topic
+            return self._topic_list[-1]
+        
+        return text_lower.split()[0] if words else None
+
+
+
+
+    def _extract_topic(self, text: str, activated: List[int]) -> Tuple[str, str]:
+        """Extract the main topic from input. Uses graph-activated concepts
+        first, then falls back to pattern detection.
+
+        For 'what is trust' -> 'trust'
+        For 'you know i was thinking about trust' -> 'trust' (skips 'you', 'i')
+        For 'does learning change your brain' -> 'learning'
+        """
+        # Use the multi-strategy query grounder
+        topic, confidence, method = self._ground_query(text)
+        if topic and confidence >= 0.5:
+            return (topic, text)
+        # Prefer low-confidence ground_query result over question/skip words
+        if topic and method != "all_unknown" and method != "no_pattern" and method != "no_match":
+            return (topic, text)
+
+        # Fallback: best activated concept (skip question, topic-skip, and short words)
+        # Prefer nouns over adjectives/verbs using POS tags
+        if activated:
+            best_real = None
+            best_noun = None
+            for nid in activated:
+                node = self.graph.get_node(nid)
+                if node and node.label:
+                    lbl = node.label.lower()
+                    if (len(lbl) > 2 and lbl not in self.QUESTION_WORDS
+                            and lbl not in self.TOPIC_SKIP_WORDS):
+                        pos = self._concept_pos.get(lbl, 'noun')
+                        if pos == 'noun' and best_noun is None:
+                            best_noun = (node.label, text)
+                        if best_real is None:
+                            best_real = (node.label, text)
+            # Prefer noun if available, else first valid
+            if best_noun:
+                return best_noun
+            if best_real:
+                return best_real
+
+        # Fallback: find meaningful words
+        words = [w.strip(".,!?") for w in text.lower().split()
+                 if len(w.strip(".,!?")) > 2
+                 and w.strip(".,!?") not in self.QUESTION_WORDS
+                 and w.strip(".,!?") not in self.TOPIC_SKIP_WORDS
+                 and w.strip(".,!?") not in STOP_WORDS]
+        if words:
+            # Prefer words that are actually in the graph (known concepts) over unknown ones
+            known_words = [w for w in reversed(words) if w in self._concept_labels or w in self._concept_keywords]
+            # Prefer nouns among known words
+            noun_words = [w for w in known_words if self._concept_pos.get(w, 'noun') == 'noun']
+            if noun_words:
+                return (noun_words[0], text)
+            if known_words:
+                return (known_words[0], text)
+            # Prefer nouns among unknown words
+            unknown_nouns = [w for w in words if self._concept_pos.get(w, 'noun') == 'noun']
+            if unknown_nouns:
+                return (unknown_nouns[0], text)
+            return (words[-1], text)
+
+        first = text.split()[0] if text.split() else ""
+        first_stripped = first.strip(".,!?").lower()
+        if first_stripped and len(first_stripped) > 2 and first_stripped not in self.QUESTION_WORDS and first_stripped not in self.TOPIC_SKIP_WORDS:
+            return (first_stripped, text)
+        return ("", text)
+
+
+
+
+    def _ground_query(self, text: str) -> Tuple[str, float, str]:
+        """Multi-strategy query grounding. Returns (subject, confidence, method).
+
+        Strategies (tried in order):
+        a) PrefrontalWorkspace question type parsing & exact phrase matching
+        b) Compositional â€” split phrase, count known vs unknown words
+        c) Phrase embedding similarity â€” mean word vec â†’ nearest concept (cosine > 0.75)
+        d) Best single word fallback â€” last meaningful non-stop word
+        """
+        # Strategy A: Use PrefrontalWorkspace question type detection to parse semantic payload
+        qtype = "general"
+        query_phrase = ""
+        try:
+            if hasattr(self, 'pfc_workspace'):
+                qtype, groups = self.pfc_workspace.detect_question_type(text, self._concept_pos)
+                if groups:
+                    query_phrase = groups[0].strip()
+        except Exception:
+            pass
+
+        if not query_phrase:
+            # Fallback to custom patterns
+            text_lower = text.lower().strip(" ?!.")
+            for pattern, group_idx in self.QUERY_PATTERNS:
+                m = re.match(pattern, text_lower)
+                if m:
+                    query_phrase = m.group(group_idx).strip()
+                    break
+
+        if not query_phrase:
+            return ("", 0.0, "no_pattern")
+
+        # Strategy A2: Exact multi-word phrase match (domain concepts, seeded multi-word)
+        phrase_clean = query_phrase.strip(".,!?")
+        if phrase_clean in self._concept_labels:
+            return (phrase_clean, 0.95, "exact_label")
+        if phrase_clean in self._concept_keywords:
+            return (phrase_clean, 0.90, "exact_keyword")
+
+        # Strategy C (moved before B): Compositional â€” score words by known/unknown ratio
+        words = [w.strip(".,!?") for w in query_phrase.split()
+                 if len(w.strip(".,!?")) > 2
+                 and w.strip(".,!?") not in self.QUESTION_WORDS
+                 and w.strip(".,!?") not in self.TOPIC_SKIP_WORDS
+                 and w.strip(".,!?") not in STOP_WORDS]
+        if words:
+            if len(words) >= 2:
+                # For scenario/hypothetical/causal queries (e.g. hypothetical, why, how),
+                # the last content/entity word represents the target scenario.
+                if qtype in ("hypothetical", "why", "how", "compare"):
+                    last_word = words[-1]
+                    if last_word in self._concept_labels or last_word in self._concept_keywords:
+                        return (last_word, 0.7, "scenario_last_entity")
+                # Use the first 2-3 content words as the search subject (e.g. "time machine")
+                clean_subj = " ".join(words[:3]) if len(words) >= 3 else " ".join(words)
+                return (clean_subj, 0.45, "multi_word_unconnected")
+
+            known_words = [w for w in words if w in self._concept_labels or w in self._concept_keywords]
+            unknown_words = [w for w in words if w not in known_words]
+            if known_words:
+                if unknown_words:
+                    # If there's any unknown word in the multi-word query, keep the clean subject phrase
+                    # and return a low confidence to trigger web learning for the whole phrase
+                    clean_subj = " ".join(words[:3]) if len(words) >= 3 else " ".join(words)
+                    return (clean_subj, 0.35, "partial_unknown")
+                ratio = len(known_words) / len(words)
+                # Prefer last known word (most specific in English)
+                topic = known_words[-1]
+                return (topic, min(0.85, 0.5 + ratio * 0.4), f"compositional_{ratio:.2f}")
+            # All unknown â€” will trigger web learning for the full phrase
+            if words:
+                clean_subj = " ".join(words[:3]) if len(words) >= 3 else " ".join(words)
+                return (clean_subj, 0.2, "all_unknown")
+
+
+        # Strategy B: Phrase embedding similarity search (fallback for short queries)
+        phrase_vec = self._compute_phrase_embedding(query_phrase)
+        if phrase_vec is not None:
+            best_sim = 0.0
+            best_label = None
+            for nid, node in self.graph.nodes.items():
+                if node.label and node.vector is not None:
+                    sim = float(np.dot(phrase_vec, node.vector))
+                    if sim > best_sim:
+                        best_sim = sim
+                        best_label = node.label
+            # Higher threshold + reject TOPIC_SKIP_WORDS matches
+            if best_label and best_sim > 0.75 and best_label.lower() not in self.TOPIC_SKIP_WORDS:
+                return (best_label, best_sim, f"phrase_sim_{best_sim:.2f}")
+
+        # Strategy D: Spelling-tolerant close match (handles typos like "intellegence")
+        if words:
+            close_matches = []
+            for w in words:
+                wl = w.lower()
+                for label in self._concept_labels:
+                    if (label.startswith(wl[:3]) and abs(len(label) - len(wl)) <= 2) or                        (len(wl) >= 4 and label.startswith(wl[:4])):
+                        close_matches.append(label)
+                        break
+            if close_matches:
+                topic = close_matches[-1]
+                return (topic, 0.5, f"close_match_{topic}")
+
+        return ("", 0.0, "no_match")
+
+
+
+
+    def _hippocampal_index_topic(self, subject: str, activated_ids: List[int],
+                                   hop_labels: List[Tuple[str, str]]):
+        """Create a hippocampal index for the current topic and store it.
+
+        The index is a lightweight pointer to the distributed graph pattern
+        (concept IDs + edge references), not the content itself.
+        """
+        sl = subject.lower()
+        # Build index: which concept nodes were activated
+        indexed_concepts = list(set(activated_ids))
+
+        # Build index: which edge pairs were traversed
+        indexed_edges = [(f.lower(), t.lower()) for f, t in hop_labels]
+
+        # Store as lightweight index, not full content
+        index_entry = {
+            'label': subject,
+            'turn': self.turn_count,
+            'indexed_concepts': indexed_concepts[:10],  # sparse index
+            'indexed_edges': indexed_edges[:5],
+            'vad': (self.emotion.state.valence, self.emotion.state.arousal,
+                    self.emotion.state.dominance),
+            'visit_count': 1,
+            'response_summary': '',  # placeholder, not content
+        }
+
+        if sl not in self._topic_store:
+            self._topic_store[sl] = index_entry
+        else:
+            entry = self._topic_store[sl]
+            entry['visit_count'] += 1
+            entry['turn'] = self.turn_count
+            # Merge new indexed concepts
+            existing_cons = set(entry.get('indexed_concepts', []))
+            existing_cons.update(indexed_concepts[:10])
+            entry['indexed_concepts'] = list(existing_cons)[:15]
+            entry['vad'] = index_entry['vad']
+
+
+
+
+    def _personalized_greeting(self) -> str:
+        """Return a personalized greeting prefix when relationship_depth warrants it.
+
+        Neuroscience basis: repeated social interaction builds rapport, modeled
+        as relationship_depth âˆˆ [0, 1]. Above 0.5, reference the last topic to
+        demonstrate memory and continuity (roadmap Â§9).
+
+        Returns empty string if relationship is too new or no prior topic exists.
+        """
+        um = self.user_model
+        if um.relationship_depth < 0.5:
+            return ""
+        if not um.last_topic:
+            return ""
+        # Only greet every ~10 interactions to avoid repetition
+        if um.interaction_count % 10 != 0 and um.interaction_count > 1:
+            return ""
+        past = um.last_topic.capitalize()
+        if um.relationship_depth > 0.8:
+            return f"Great to see you! I remember we were talking about {past}. "
+        return f"Welcome back! Last time we discussed {past}. "
+
+
+
+
+    def _recall_hippocampal(self, topic: str) -> Optional[List[int]]:
+        """Reactivate a hippocampal index, spreading activation through the
+        indexed graph pattern to reconstruct the memory experience.
+
+        Returns the list of reactivated concept IDs, or None if topic not found.
+        """
+        entry = self._topic_store.get(topic.lower())
+        if not entry:
+            return None
+
+        reactivated = []
+        # Phase 1: Reactivate indexed concepts (sparse pattern)
+        for nid in entry.get('indexed_concepts', []):
+            node = self.graph.get_node(nid)
+            if node and node.label:
+                self.graph.activate(nid, 0.5)
+                reactivated.append(nid)
+
+        # Phase 2: Spread activation through indexed edges (pattern completion)
+        for f_label, t_label in entry.get('indexed_edges', []):
+            f_nids = self._concept_keywords.get(f_label.lower(), [])
+            t_nids = self._concept_keywords.get(t_label.lower(), [])
+            for fn in f_nids:
+                for tn in t_nids:
+                    edge = self.graph.get_edge(fn, tn)
+                    if edge:
+                        # Strengthen episodic edges during recall (pattern strengthening)
+                        if edge.relation_type == "episodic":
+                            edge.weight = min(0.35, edge.weight + 0.05)
+                        # Activate both endpoints
+                        self.graph.activate(fn, 0.4)
+                        self.graph.activate(tn, 0.4)
+                        if fn not in reactivated:
+                            reactivated.append(fn)
+                        if tn not in reactivated:
+                            reactivated.append(tn)
+
+        # Phase 3: Activate the subject concept at higher strength
+        subj_nids = self._concept_keywords.get(topic.lower(), [])
+        for sn in subj_nids:
+            self.graph.activate(sn, 0.7)
+            if sn not in reactivated:
+                reactivated.append(sn)
+
+        return reactivated
+
+    # â”€â”€â”€ Graph-Driven Response Generation â”€â”€â”€
+    # NO hardcoded strings. ALL content words are concept labels from the graph.
+    # Edge relation types (stored in graph edge data) are mapped to graph concept
+    # labels that already exist in the seeded vocabulary â€” no external text.
+
+    # Tiered connectors: (min_weight, [word, ...])
+    # Auto-wired edges: min=0.30, ~0.30-0.40 common, max=0.50
+    # Weight â‰¥ 0.33 (~top 25%): stronger connector (e.g. "link", "and")
+    # Weight 0.30-0.33 (bulk): default "connect"
+    # Lower temperature = conservative (pick first option), higher = random.
+    _EDGE_CONNECTORS = {
+        "semantic": [
+            (0.35, ["link", "and", "connect"]),
+            (0.0, ["connect"]),
+        ],
+        "causal": [
+            (0.33, ["make", "create", "cause"]),
+            (0.0, ["cause", "so", "because"]),
+        ],
+        "emotional": [
+            (0.33, ["like", "love"]),
+            (0.0, ["like"]),
+        ],
+        "contrastive": [
+            (0.20, ["but", "but", "but"]),
+            (0.0, ["but"]),
+        ],
+        "temporal": [
+            (0.28, ["change", "then"]),
+            (0.0, ["then"]),
+        ],
+        "episodic": [
+            (0.20, ["connect", "and"]),
+            (0.0, ["connect"]),
+        ],
+    }
+
+    _EDGE_TO_GRAPH_LABEL = {
+        "episodic": "connect",
+    }
+
+    # Edge type â†’ discourse starter (all labels exist in seeded TEEN_CONCEPTS)
+    _EDGE_TO_STARTER = {
+    }
+
+    # â”€â”€ Solution #5: Relation Type Inference â”€â”€
+    # Known label-pair patterns for heuristic relation type assignment.
+    # All pairs stored as sorted tuples for consistent lookup.
+    CONTRASTIVE_PAIRS = {
+        tuple(sorted(["good", "bad"])), tuple(sorted(["love", "hate"])),
+        tuple(sorted(["life", "death"])), tuple(sorted(["truth", "lie"])),
+        tuple(sorted(["freedom", "oppression"])), tuple(sorted(["courage", "fear"])),
+        tuple(sorted(["hope", "despair"])), tuple(sorted(["knowledge", "ignorance"])),
+        tuple(sorted(["justice", "injustice"])), tuple(sorted(["create", "destroy"])),
+        tuple(sorted(["accept", "reject"])), tuple(sorted(["always", "never"])),
+        tuple(sorted(["happy", "sad"])), tuple(sorted(["joy", "grief"])),
+        tuple(sorted(["excited", "bored"])), tuple(sorted(["big", "small"])),
+        tuple(sorted(["hot", "cold"])), tuple(sorted(["up", "down"])),
+        tuple(sorted(["in", "out"])), tuple(sorted(["here", "there"])),
+        tuple(sorted(["now", "later"])), tuple(sorted(["yes", "no"])),
+        tuple(sorted(["more", "less"])), tuple(sorted(["possible", "impossible"])),
+        tuple(sorted(["trust", "hypocrisy"])), tuple(sorted(["freedom", "control"])),
+    }
+    CAUSAL_PAIRS = {
+        tuple(sorted(["learn", "knowledge"])), tuple(sorted(["study", "understanding"])),
+        tuple(sorted(["practice", "skill"])), tuple(sorted(["challenge", "struggle"])),
+        tuple(sorted(["struggle", "growth"])), tuple(sorted(["question", "curiosity"])),
+        tuple(sorted(["explore", "discovery"])), tuple(sorted(["trust", "friendship"])),
+        tuple(sorted(["hypocrisy", "distrust"])), tuple(sorted(["grief", "sadness"])),
+        tuple(sorted(["hope", "motivation"])), tuple(sorted(["rejection", "loneliness"])),
+        tuple(sorted(["acceptance", "belonging"])), tuple(sorted(["anger", "conflict"])),
+        tuple(sorted(["empathy", "understanding"])), tuple(sorted(["criticism", "growth"])),
+        tuple(sorted(["failure", "learning"])), tuple(sorted(["change", "growth"])),
+        tuple(sorted(["knowledge", "wisdom"])), tuple(sorted(["experience", "wisdom"])),
+        tuple(sorted(["art", "expression"])), tuple(sorted(["science", "progress"])),
+        tuple(sorted(["imagination", "invention"])), tuple(sorted(["experiment", "knowledge"])),
+        tuple(sorted(["sleep", "tired"])), tuple(sorted(["play", "happy"])),
+        tuple(sorted(["cause", "change"])), tuple(sorted(["sun", "hot"])),
+        tuple(sorted(["sun", "light"])), tuple(sorted(["eat", "food"])),
+        tuple(sorted(["drink", "water"])),
+    }
+    IS_A_PAIRS = {
+        tuple(sorted(["dog", "animal"])), tuple(sorted(["cat", "animal"])),
+        tuple(sorted(["bird", "animal"])), tuple(sorted(["rose", "flower"])),
+        tuple(sorted(["oak", "tree"])), tuple(sorted(["oxiverse", "ecosystem"])),
+        tuple(sorted(["intentforge", "search engine"])),
+        tuple(sorted(["ravana", "cognitive architecture"])),
+    }
+
+
+
+
+    def _recall_past(self, subj: str, obj: str) -> List[str]:
+        related = []
+        for t in self._topic_list:
+            pl = t.lower()
+            sl = subj.lower()
+            if pl != sl and (pl in sl or sl in pl or len(set(pl.split()) & set(sl.split())) > 0):
+                related.append(t)
+        return related[:3]
+
+    # â”€â”€â”€ Phase 9c: Hippocampal Indexing â”€â”€â”€
+    # Based on: Teyler & Rudy (2007) hippocampal indexing theory.
+    # The hippocampus stores an INDEX to distributed neocortical patterns,
+    # not the memory content itself. Reactivation of the index â†’ reactivation
+    # of the distributed pattern â†’ memory experience.
+    #
+    # Instead of storing full topic content, we store a sparse index:
+    # which concept IDs were activated, which edges were traversed.
+    # During recall, the index reactivates the distributed graph pattern.
+
+
+
+
+    def _update_emotion(self, text: str):
+        """More nuanced emotional processing â€” teenage range of emotions."""
+        positive = {"good", "great", "happy", "love", "nice", "fun", "yay", "wow",
+                     "cool", "amazing", "awesome", "wonderful", "beautiful", "excited",
+                     "grateful", "proud", "hopeful", "joy", "interesting"}
+        negative = {"bad", "sad", "scared", "angry", "hurt", "cry", "mean",
+                     "terrible", "awful", "upset", "frustrated", "anxious",
+                     "worried", "disappointed", "lonely", "guilty", "afraid"}
+        curious = {"why", "how", "what", "wonder", "curious", "interesting",
+                    "really", "tell me", "explain", "mean"}
+        words = set(w.lower().strip(".,!?") for w in text.split())
+        sv = 0.0
+        sa = 0.2  # baseline engagement floor
+        # Positive words boost valence
+        if words & positive:
+            sv += 0.4
+            sa += 0.2
+        # Negative words lower valence
+        if words & negative:
+            sv -= 0.4
+            sa += 0.25
+        # Curiosity words increase arousal (engagement)
+        if words & curious:
+            sa += 0.3
+            if sv == 0.0:
+                sv += 0.05  # slight positive bias for curiosity
+        # Learning excitement
+        if self._learned_this_turn:
+            sa += 0.3
+            sv += 0.2
+        # Novelty-based arousal (unknown words = mild surprise)
+        input_words = [w for w in words if len(w) >= 3]
+        known = sum(1 for w in input_words if w in self._concept_keywords)
+        if input_words and known / len(input_words) < 0.5:
+            sa += 0.15  # novelty surprise
+        # Phase 9b: Prediction error surprise (Active Inference)
+        # High prediction error = world doesn't match expectations = arousal
+        if self._prediction_error_count > 5:
+            pe_surprise = min(0.4, self._mean_prediction_error * 2.0)
+            sa += pe_surprise
+        # Phase 10.4: N400-like arousal modulation from per-hop prediction error
+        if hasattr(self, '_mean_sentence_pe') and self._sentence_pe_count > 0:
+            n400_surprise = min(0.3, self._mean_sentence_pe * 2.0)
+            sa += n400_surprise
+        # Phase 14.4: Identity prediction error
+        if hasattr(self, '_expected_strength'):
+            identity_pe = abs(self.identity.state.strength - self._expected_strength)
+            if identity_pe > 0.3:
+                sa += min(0.3, identity_pe * 0.5)
+        # Phase 7.5: Curiosity drive â€” boost arousal for impossible queries
+        if getattr(self, '_last_strategy_used', '') in ('G_uncertainty', 'F_web_research'):
+            sa += 0.6  # strong curiosity arousal for impossible query
+            sv += 0.1  # slight positive valence for curiosity
+        self.emotion.update(stimulus_valence=sv, stimulus_arousal=sa,
+                           stimulus_dominance=self.identity.state.strength * 0.4 + 0.2,
+                           uncertainty=self._free_energy * 0.5, dt=1.0)
+
+    # â”€â”€ P1 Theory of Mind â”€â”€
+
+
+
+
+    def _update_user_model(self, text: str, subject: str,
+                           associations: List[Tuple[str, float]]):
+        """Deep Theory of Mind update after turn processing (roadmap Â§7).
+
+        Extends the lightweight observe_user_query (which runs early in
+        process_turn) with post-spread-activation updates:
+        - Update topic familiarity from graph associations
+        - Track inferred goals alongside cognitive style
+        - Build personalized greeting eligibility
+        """
+        um = self.user_model
+        # Update topic familiarity from the spread-activation associations.
+        # Each association the user's query touched becomes slightly more
+        # familiar (exponential moving average, rate 0.1).
+        for concept, confidence in associations:
+            cl = concept.lower()
+            um.knowledge_model[cl] = (
+                0.9 * um.knowledge_model.get(cl, 0.0)
+                + 0.1 * min(1.0, confidence + 0.3)
+            )
+        # Goal is already inferred inside observe_user_query via infer_user_goal.
+        # Store the last goal for adaptive verbosity check.
+        self._last_user_goal = getattr(self, '_last_user_goal', 'EXPLORING')
+        self._last_user_goal = um.last_goal
+
+
+
+
+    def print_traces(self, label: str):
+        """Print all chain walk traces from the last response."""
+        if not self._chain_traces:
+            return
+        print(f"  [trace] {label}: {len(self._chain_traces)} chains")
+        for ci, t in enumerate(self._chain_traces):
+            print(f"  [trace]   chain {ci}: {t.max_hops} max, {'done' if t.completed else 'short'}")
+            for i, h in enumerate(t.hops):
+                dir_sym = " -> " if h.relation_type != "episodic" else " ~~ "
+                extra = ""
+                if h.rlm_confidence > 0:
+                    extra += f" [RLM: {h.rlm_confidence:.2f}]"
+                if h.contradiction:
+                    extra += f" [CON: {h.contradiction}]"
+                print(f"  [trace]     hop {i}: {h.from_label}{dir_sym}{h.to_label}  "
+                      f"[{h.relation_type}] w={h.weight:.3f} c={h.confidence:.3f} "
+                      f"t={h.temperature:.2f} ({h.candidates} cand){extra}")
+        # Phase 7: Print impossible query count if any
+        if self._impossible_queries:
+            unresolved = sum(1 for iq in self._impossible_queries if not iq.resolved)
+            print(f"  [trace]   impossible queries: {len(self._impossible_queries)} total, {unresolved} unresolved")
+        # Print user model state
+        if self.user_model.edge_reactivations:
+            print(f"  [trace]   user_model: {len(self.user_model.edge_reactivations)} edge visits")
+            prefs = self.user_model.inferred_preferences(threshold=1)
+            if prefs:
+                for (frm, to), cnt in sorted(prefs.items(), key=lambda x: -x[1])[:5]:
+                    print(f"  [trace]     pref: {frm} -> {to} (visit={cnt})")
+        # Print belief store state
+        if getattr(self, 'use_beliefs', False) and hasattr(self, 'belief_store'):
+            bs = self.belief_store
+            if bs.beliefs:
+                print(f"  [trace]   belief_store: {len(bs.beliefs)} beliefs, "
+                      f"{len(bs.contradictions)} contradictions")
+                for (subj, pred), (val, conf, turn) in list(bs.beliefs.items())[:3]:
+                    print(f"  [trace]     belief: {subj} . {pred} = {val} @ {conf:.2f} (turn {turn})")
+        # Print VAD state
+        print(f"  [trace]   vad: v={self.emotion.state.valence:.2f} "
+              f"a={self.emotion.state.arousal:.2f} d={self.emotion.state.dominance:.2f}")
+        if self._prefrontal_buffer:
+            print(f"  [trace]   pfc_buffer: {self._prefrontal_buffer[:5]}")
+        self._chain_traces.clear()
+
+    # === Background Web Learning ===
+    # RAVANA can learn from the web between user messages, performing
+    # multiple related searches per query to build richer knowledge.
+
+
+
+
+    def start_background_learning(self):
+        """Start the background learning thread. Called once at engine creation or CLI start."""
+        if self._bg_learning_active and self._bg_learning_thread and self._bg_learning_thread.is_alive():
+            return
+        self._bg_learning_active = True
+        self._bg_learning_thread = threading.Thread(target=self._bg_learn_loop, daemon=True)
+        self._bg_learning_thread.start()
+        if self._trace_enabled:
+            print('  [bg] background learning thread started')
+
+
+
+
+    def stop_background_learning(self):
+        """Stop the background learning thread gracefully.""" 
+        # Final curiosity sync - ensure latest diversity state is captured
+        # Must run BEFORE _bg_learning_active is set to False
+        try:
+            self._auto_select_curiosity_topics(max_topics=0)  # just sync state
+        except Exception:
+            pass
+        
+        self._bg_learning_active = False
+        self._cascade_for_quality = False
+        self._bg_idle_event.set()  # wake up the thread so it can exit
+        if self._bg_learning_thread and self._bg_learning_thread.is_alive():
+            self._bg_learning_thread.join(timeout=5)
+        if self._trace_enabled:
+            print(f'  [bg] background learning stopped (performed {self._bg_search_count} searches)')
+
+
+
+
+    def _is_informational_query(self, query: str, subject: str) -> bool:
+        """Determines if a query is informational/fact-seeking (asks for a definition,
+        factual knowledge, or explanation of an unknown concept) rather than
+        conversational, logical, relational, or conditional.
+        """
+        q = query.lower().strip(" ?!.")
+        
+        # 1. Statements are never informational queries
+        is_question = query.strip().endswith('?') or any(w in q for w in ["what", "who", "where", "when", "why", "how", "define", "explain", "describe", "tell me about"])
+        if not is_question:
+            return False
+            
+        # 2. Logic puzzles, conditional scenarios, riddles, comparison queries are NOT simple definition/fact-seeking queries.
+        # These require cognitive reasoning, which should be processed internally.
+        reasoning_patterns = [
+            r"\b(if|when|suppose|assume|predict)\b",  # conditional/scenario
+            r"\b(why|how does|how do|how to)\b",      # causal/procedural reasoning
+            r"\b(compare|contrast|difference|similar|opposite|antonym|synonym|analogy|analogies)\b", # relation/comparison
+            r"\b(taller|shorter|heavier|lighter|older|younger|better|worse|biggest|tallest|heaviest|smartest)\b", # comparison/ordering
+            r"\b(riddle|puzzle|logic|math|solve|calculation)\b", # logic/riddle
+            r"\bis to\b", # analogy
+            r"\b(you|your|yourself|think|opinion|feel|friendship|love|meaning of life)\b", # personal, opinion, or open philosophical
+        ]
+        for pattern in reasoning_patterns:
+            if re.search(pattern, q):
+                return False
+                
+        # 3. Check if the query matches a pattern asking for a definition/fact
+        info_patterns = [
+            r"^(what|who) (is|are|was|were|refers to|means)\b",
+            r"^define\b",
+            r"^explain\b",
+            r"^tell me about\b",
+            r"^do you know\b",
+            r"^what do you know about\b",
+        ]
+        if any(re.match(pat, q) for pat in info_patterns):
+            return True
+            
+        # If it's a question but didn't match the reasoning patterns or explicit informational patterns,
+        # we err on the side of conversational/reasoning to let RAVANA chat like a human.
+        return False
+
+
+
+    def _needs_web_search(self, subject: str) -> bool:
+        """Check if a subject needs web search to enrich its associations.
+
+        Returns True if:
+        - The subject is not in the graph at all (completely unknown)
+        - The subject IS in the graph but has fewer than 3 meaningful
+          associations (edges with weight > 0.3). This catches abstract
+          concepts like "consciousness" that are seeded with weak teenage
+          associations and need web enrichment to produce useful responses.
+
+        Returns False only if the concept has >= 3 strong graph edges
+        (enough knowledge to generate a meaningful response via the
+        ventral path alone).
+        """
+        if not subject:
+            return False
+        subj_lower = subject.lower().strip()
+
+        # Not in graph at all → definitely needs web search
+        if subj_lower not in self._concept_keywords and subj_lower not in self._concept_labels:
+            with self._graph_lock:
+                for nid, node in self.graph.nodes.items():
+                    if node.label and node.label.lower() == subj_lower:
+                        break
+                else:
+                    return True
+
+        # Subject is in the graph — count strong outgoing edges (weight > 0.3)
+        strong_edges = 0
+        subj_nids = self._concept_keywords.get(subj_lower, [])
+        for nid in subj_nids:
+            for tid, edge in self.graph.get_outgoing(nid):
+                if edge.weight > 0.3:
+                    strong_edges += 1
+            for src, edge in self.graph.get_incoming(nid):
+                if edge.weight > 0.3:
+                    strong_edges += 1
+
+        # Need >= 3 strong associations to have enough knowledge
+        return strong_edges < 3
+
+
+    def _is_informational_query(self, query: str, subject: str) -> bool:
+        """Determines if a query is informational/fact-seeking (asks for a definition,
+        factual knowledge, or explanation of an unknown concept) rather than
+        conversational, logical, relational, or conditional.
+        """
+        q = query.lower().strip(" ?!.")
+        
+        # 1. Statements are never informational queries
+        is_question = query.strip().endswith('?') or any(w in q for w in ["what", "who", "where", "when", "why", "how", "define", "explain", "describe", "tell me about"])
+        if not is_question:
+            return False
+            
+        # 2. Logic puzzles, conditional scenarios, riddles, comparison queries are NOT simple definition/fact-seeking queries.
+        # These require cognitive reasoning, which should be processed internally.
+        reasoning_patterns = [
+            r"(if|when|suppose|assume|predict)",  # conditional/scenario
+            r"(why|how does|how do|how to)",      # causal/procedural reasoning
+            r"(compare|contrast|difference|similar|opposite|antonym|synonym|analogy|analogies)", # relation/comparison
+            r"(taller|shorter|heavier|lighter|older|younger|better|worse|biggest|tallest|heaviest|smartest)", # comparison/ordering
+            r"(riddle|puzzle|logic|math|solve|calculation)", # logic/riddle
+            r"is to", # analogy
+            r"(you|your|yourself|think|opinion|feel|friendship|love|meaning of life)", # personal, opinion, or open philosophical
+        ]
+        for pattern in reasoning_patterns:
+            if re.search(pattern, q):
+                return False
+                
+        # 3. Check if the query matches a pattern asking for a definition/fact
+        info_patterns = [
+            r"^(what|who) (is|are|was|were|refers to|means)",
+            r"^define",
+            r"^explain",
+            r"^tell me about",
+            r"^do you know",
+            r"^what do you know about",
+        ]
+        if any(re.match(pat, q) for pat in info_patterns):
+            return True
+            
+        # If it's a question but didn't match the reasoning patterns or explicit informational patterns,
+        # we err on the side of conversational/reasoning to let RAVANA chat like a human.
+        return False
+

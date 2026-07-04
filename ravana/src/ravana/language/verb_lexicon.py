@@ -106,10 +106,13 @@ class VerbLexicon:
             "challenge", "connect", "relate", "link", "come",
             "follow", "precede", "trace", "recall", "echo",
             "parallel", "resemble", "mirror", "reflect", "feed",
+            "shape", "guide", "ground", "build", "form",
+            "call", "hold", "cross", "color", "frame",
+            "weave", "carry", "reach", "open", "turn",
         ],
         "prepositions": [
             "into", "with", "to", "from", "against",
-            "before", "after", "through", "across", "beyond",
+            "before", "after", "through", "across", "beyond", "of",
         ],
         "particles": [
             "in", "out", "up", "down", "off", "on", "over", "back",
@@ -122,6 +125,9 @@ class VerbLexicon:
             "give rise", "bring about", "go hand in hand",
             "pave the way", "set the stage", "trace back",
             "run counter", "have a relationship",
+            "grow out", "branch off", "draw on",
+            "build on", "stem from", "spring from",
+            "open up", "reach into", "flow into",
         ],
     }
 
@@ -157,6 +163,21 @@ class VerbLexicon:
         "mirror": [],
         "reflect": [],
         "feed": ["into"],
+        "shape": [],
+        "guide": [],
+        "ground": ["in"],
+        "build": ["on", "from"],
+        "form": [],
+        "call": ["for"],
+        "hold": [],
+        "cross": [],
+        "color": [],
+        "frame": [],
+        "weave": ["through", "into"],
+        "carry": ["through", "back"],
+        "reach": ["into"],
+        "open": ["up"],
+        "turn": ["into"],
         
         # Compound roots
         "give rise": ["to"],
@@ -167,6 +188,17 @@ class VerbLexicon:
         "trace back": ["to"],
         "run counter": ["to"],
         "have a relationship": ["with"],
+
+        # Compound roots ending with preposition/particle
+        "grow out": ["of"],
+        "branch off": ["from"],
+        "draw on": [],
+        "build on": [],
+        "stem from": [],
+        "spring from": [],
+        "open up": ["to"],
+        "reach into": [],
+        "flow into": [],
 
         # Adjectives
         "similar": ["to"],
@@ -181,34 +213,42 @@ class VerbLexicon:
     COMPOSITION_RULES = {
         "semantic": [
             ("roots", "prepositions"),        # "ties into", "feeds into"
+            ("roots",),                        # "shapes", "influences", "frames", "colors"
             ("adjectives", "prepositions"),   # "is connected with", "is tied to"
             ("compound_roots", "prepositions"),  # "goes hand in hand with"
+            ("adjectives",),                   # bare adjective: "is similar" (rare)
         ],
         "causal": [
-            ("roots",),                    # "causes", "triggers", "drives"
+            ("roots",),                    # "causes", "triggers", "drives", "shapes", "builds"
             ("roots", "prepositions"),     # "leads to"
             ("compound_roots",),           # "gives rise to", "brings about"
+            ("adjectives",),               # bare adjective for causal: rare
         ],
         "contrastive": [
             ("roots", "prepositions"),             # "contrasts with", "differs from"
             ("adjectives", "prepositions"),        # "is opposite to", "is different from"
+            ("roots",),                             # bare verb: "challenges", "crosses"
             ("compound_roots",),                   # "runs counter to"
         ],
         "analogical": [
             ("adjectives", "prepositions"),  # "is similar to", "is akin to"
             ("roots", "prepositions"),       # "resembles", "mirrors", "echoes"
+            ("roots",),                       # bare verb: "parallels", "echoes"
         ],
         "temporal": [
             ("roots", "prepositions"),       # "comes before", "follows"
+            ("roots",),                       # "follows", "precedes"
             ("compound_roots",),             # "traces back to"
         ],
         "episodic": [
             ("roots", "particles"),      # "brings up", "recalls"
+            ("roots",),                    # bare verb: "recalls", "echoes"
             ("adjectives", "prepositions"),  # "is linked with"
         ],
         "inverse": [
             ("roots",),                    # "borrows" → "lends"
             ("adjectives", "prepositions"),  # "is opposite to"
+            ("roots", "prepositions"),     # "differs from"
         ],
     }
 
@@ -374,6 +414,10 @@ class VerbLexicon:
             if len(components) == 1:
                 return cls._conjugate_compound_root(components[0])
             return f"{cls._conjugate_compound_root(components[0])} {components[1]}"
+        elif rule == ("adjectives",):
+            if not components:
+                return "is similar"
+            return f"is {components[0]}"
         else:
             return cls._conjugate_root(components[0]) if components else "relates to"
 
@@ -658,41 +702,45 @@ class VerbLexicon:
 
         priors = {
             "semantic": {
-                "tie": 0.8, "connect": 0.8, "relate": 0.8, "link": 0.7,
-                "feed": 0.7, "go hand in hand": 0.5,
-                "with": 0.7, "to": 0.7, "into": 0.8,
+                "tie": 0.7, "connect": 0.7, "relate": 0.7, "link": 0.6,
+                "feed": 0.6, "shape": 0.6, "guide": 0.5, "frame": 0.5,
+                "weave": 0.4, "color": 0.4, "carry": 0.4,
+                "go hand in hand": 0.3,
+                "with": 0.6, "to": 0.6, "into": 0.7, "through": 0.5,
             },
             "causal": {
-                "lead": 0.9, "cause": 0.9, "influence": 0.7,
-                "give rise": 0.6, "result": 0.7, "spark": 0.6,
-                "trigger": 0.7, "fuel": 0.5, "contribute": 0.7,
-                "drive": 0.7, "prompt": 0.6,
-                "to": 0.8, "about": 0.4,
+                "lead": 0.7, "cause": 0.7, "influence": 0.6,
+                "shape": 0.6, "build": 0.5, "guide": 0.5, "form": 0.4,
+                "give rise": 0.4, "result": 0.5, "spark": 0.5,
+                "trigger": 0.5, "fuel": 0.4, "contribute": 0.5,
+                "drive": 0.5, "prompt": 0.5, "open": 0.4, "turn": 0.4,
+                "to": 0.7, "about": 0.4, "into": 0.5,
             },
             "contrastive": {
-                "contrast": 0.9, "differ": 0.9,
-                "different": 0.7, "opposite": 0.6, "run counter": 0.5,
-                "with": 0.8, "from": 0.9, "against": 0.8,
+                "contrast": 0.8, "differ": 0.8,
+                "different": 0.6, "opposite": 0.5, "run counter": 0.3,
+                "cross": 0.5, "challenge": 0.5, "hold": 0.3,
+                "with": 0.7, "from": 0.8, "against": 0.7,
             },
             "analogical": {
-                "similar": 0.8, "akin": 0.7,
-                "resemble": 0.7, "mirror": 0.6, "echo": 0.6,
-                "parallel": 0.5,
-                "to": 0.9,
+                "similar": 0.7, "akin": 0.6,
+                "resemble": 0.6, "mirror": 0.5, "echo": 0.5,
+                "parallel": 0.4, "call": 0.4, "reach": 0.3,
+                "to": 0.8,
             },
             "temporal": {
-                "come": 0.7, "follow": 0.9, "lead": 0.7, "precede": 0.7,
-                "trace back": 0.5,
-                "before": 0.9, "after": 0.9, "into": 0.6,
+                "come": 0.6, "follow": 0.8, "lead": 0.6, "precede": 0.6,
+                "trace back": 0.3, "reach": 0.4,
+                "before": 0.8, "after": 0.8, "into": 0.5,
             },
             "episodic": {
-                "bring": 0.8, "recall": 0.8,
-                "up": 0.7,
+                "bring": 0.7, "recall": 0.7, "reach": 0.5, "carry": 0.4,
+                "up": 0.6, "back": 0.5,
             },
             "inverse": {
-                "opposite": 0.9, "differ": 0.7,
-                "different": 0.7, "reverse": 0.6,
-                "to": 0.9, "from": 0.8,
+                "opposite": 0.8, "differ": 0.6,
+                "different": 0.6, "reverse": 0.5, "cross": 0.4,
+                "to": 0.8, "from": 0.7,
             },
         }
         for rel, weights in priors.items():
@@ -701,32 +749,35 @@ class VerbLexicon:
 
         bigram_priors = {
             "semantic": {
-                ("tie", "into"): 0.9, ("feed", "into"): 0.8,
-                ("connect", "with"): 0.8, ("relate", "to"): 0.9,
-                ("link", "to"): 0.7,
+                ("tie", "into"): 0.7, ("feed", "into"): 0.6,
+                ("connect", "with"): 0.7, ("relate", "to"): 0.8,
+                ("link", "to"): 0.6, ("shape",): 0.6, ("weave", "through"): 0.4,
+                ("carry", "through"): 0.3, ("color",): 0.4, ("frame",): 0.5,
             },
             "causal": {
-                ("lead", "to"): 0.9, ("cause",): 0.9,
-                ("contribute", "to"): 0.7, ("drive",): 0.7,
-                ("trigger",): 0.7, ("give rise",): 0.7,
-                ("result", "in"): 0.6, ("spark",): 0.6,
+                ("lead", "to"): 0.8, ("cause",): 0.8,
+                ("contribute", "to"): 0.6, ("drive",): 0.6,
+                ("trigger",): 0.5, ("give rise",): 0.5,
+                ("result", "in"): 0.5, ("spark",): 0.5,
+                ("shape",): 0.6, ("build",): 0.5, ("open",): 0.4,
+                ("guide",): 0.5, ("turn", "into"): 0.4,
             },
             "contrastive": {
-                ("contrast", "with"): 0.9, ("differ", "from"): 0.9,
-                ("different", "from"): 0.8, ("opposite", "to"): 0.5,
-                ("run counter",): 0.6,
+                ("contrast", "with"): 0.8, ("differ", "from"): 0.8,
+                ("different", "from"): 0.7, ("opposite", "to"): 0.4,
+                ("run counter",): 0.4, ("cross",): 0.5, ("challenge",): 0.5,
             },
             "analogical": {
-                ("similar", "to"): 0.8, ("akin", "to"): 0.7,
-                ("resemble",): 0.7, ("mirror",): 0.6, ("echo",): 0.6,
-                ("parallel",): 0.5,
+                ("similar", "to"): 0.7, ("akin", "to"): 0.6,
+                ("resemble",): 0.6, ("mirror",): 0.5, ("echo",): 0.5,
+                ("parallel",): 0.4, ("call",): 0.4, ("reach",): 0.3,
             },
             "temporal": {
-                ("come", "before"): 0.9, ("follow",): 0.9,
-                ("precede",): 0.7, ("trace back",): 0.5,
+                ("come", "before"): 0.8, ("follow",): 0.8,
+                ("precede",): 0.6, ("trace back",): 0.3, ("reach", "into"): 0.4,
             },
             "episodic": {
-                ("bring", "up"): 0.8, ("recall",): 0.7,
+                ("bring", "up"): 0.7, ("recall",): 0.6, ("carry", "back"): 0.4,
             },
         }
         for rel, bigrams in bigram_priors.items():

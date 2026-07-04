@@ -74,17 +74,29 @@ class SurfaceRealizer:
     hardcoded templates or lists.
     """
 
+    # Pronoun mapping with VARIETY: each abstract concept can be referred to
+    # as "it", "this", or "that" for natural discourse variety.
+    # The first reference uses the mapping, subsequent references cycle through variants.
     PRONOUNS = {
-        "person": "they", "people": "they", "friend": "they",
-        "dog": "it", "cat": "it", "bird": "it", "tree": "it",
-        "book": "it", "song": "it", "machine": "it", "world": "it",
-        "nature": "it", "life": "it", "death": "it", "time": "it",
-        "mind": "it", "heart": "it", "science": "it", "art": "it",
-        "history": "it", "knowledge": "it", "wisdom": "it",
-        "truth": "it", "meaning": "it", "love": "it", "hope": "it",
-        "fear": "it", "trust": "it", "justice": "it", "freedom": "it",
+        "person": ["they", "people"], "people": ["they", "many"], "friend": ["they", "a friend"],
+        "dog": ["it", "the animal"], "cat": ["it", "the animal"], "bird": ["it", "the creature"], "tree": ["it", "the plant"],
+        "book": ["it", "the text"], "song": ["it", "the melody"], "machine": ["it", "the device"], "world": ["it", "this world"],
+        "nature": ["it", "this"], "life": ["it", "this"], "death": ["it", "that"], "time": ["it", "this"],
+        "mind": ["it", "this"], "heart": ["it", "this"], "science": ["it", "this field"], "art": ["it", "this form"],
+        "history": ["it", "the past"], "knowledge": ["it", "this"], "wisdom": ["it", "this"],
+        "truth": ["it", "this"], "meaning": ["it", "this"], "love": ["it", "this feeling"], "hope": ["it", "this"],
+        "fear": ["it", "that"], "trust": ["it", "this"], "justice": ["it", "this principle"], "freedom": ["it", "this"],
         "i": "i", "you": "you", "we": "we", "they": "they",
         "he": "he", "she": "she", "it": "it",
+    }
+
+    # Variant pronouns for second+ references — selected by sentence position and
+    # whether the subject is abstract. "it" is always valid; variants add texture.
+    PRONOUN_VARIANTS = {
+        "it": ["it", "this", "that"],
+        "they": ["they", "these", "those"],
+        "this": ["this", "it", "that"],
+        "that": ["that", "it"],
     }
 
     ABSTRACT_NOUNS = {
@@ -174,36 +186,26 @@ class SurfaceRealizer:
         ],
     }
 
-    # Dynamic sentence composition: instead of hardcoded templates, we generate
-    # sentences from the SVO triple using natural grammatical patterns.
-    # The verb is selected by VerbLexicon based on the relation type.
-    # These are just structural frames — the actual words come from the graph.
-    PROCEDURAL_SCHEMAS = {
-        "causal": [
-            "{subject} {verb} {object}",
-            "{subject} {verb} {object}",
-            "{subject} {verb} {object}",
-            "{subject} {verb} {object}",
-            "{subject} {verb} {object}",
-        ],
-        "contrastive": [
-            "{subject} {verb} {object}",
-            "{subject} {verb} {object}",
-            "{subject} {verb} {object}",
-            "{subject} {verb} {object}",
-        ],
-        "analogical": [
-            "{subject} {verb} {object}",
-            "{subject} {verb} {object}",
-            "{subject} {verb} {object}",
-        ],
-        "semantic": [
-            "{subject} {verb} {object}",
-            "{subject} {verb} {object}",
-            "{subject} {verb} {object}",
-            "{subject} {verb} {object}",
-            "{subject} {verb} {object}",
-        ]
+    # Sentence structure diversity: five genuinely different grammatical patterns.
+    # Selected based on sentence position, dopamine tone (exploration), and relation type.
+    # Each produces a different discourse structure while preserving meaning.
+    # The core SVO is always present; the pattern changes how it's framed.
+    SENTENCE_PATTERNS = [
+        "{subject} {verb} {object}",                  # 0: Standard SVO (direct, confident)
+        "{subject}: it {verb} {object}",              # 1: Left dislocation / topic-comment
+        "{subject} is what {verb} {object}",          # 2: Pseudo-cleft (definitional focus)
+        "for {subject}, it {verb} {object}",          # 3: Topic fronting (prepositional)
+        "there is {subject} — it {verb} {object}",    # 4: Existential introduction
+    ]
+
+    # Adverbial modifiers by relation type — adds subtle variety to sentences.
+    # A non-empty adverb is prepended before the verb ~20% of the time.
+    ADVERBIAL_MODIFIERS = {
+        "causal": ["", "", "", "", "", "", "often", "directly", "naturally", "inevitably", "ultimately"],
+        "contrastive": ["", "", "", "", "", "", "sharply", "clearly", "subtly", "fundamentally"],
+        "semantic": ["", "", "", "", "", "", "closely", "deeply", "intrinsically", "broadly"],
+        "analogical": ["", "", "", "", "", "", "closely", "roughly", "broadly", "loosely"],
+        "temporal": ["", "", "", "", "", "", "usually", "typically", "sometimes", "historically"],
     }
 
     def __init__(self):
@@ -403,37 +405,75 @@ class SurfaceRealizer:
         from ravana.language.verb_lexicon import VerbLexicon
         verb = VerbLexicon.fix_morphology(verb)
 
-        # Use pure SVO frame — no template phrases.
-        # The verb is already selected by VerbLexicon based on relation and dopamine tone.
-        # This produces natural sentences like "X influences Y" instead of
-        # "X serves as the foundation for Y" which sounds robotic.
-        rel_key = relation if relation in ('causal', 'contrastive', 'analogical') else 'semantic'
-        selected_template = "{subject} {verb} {object}"
+        # Select sentence pattern for structural diversity.
+        # Patterns 1-4 add variety; pattern 0 (SVO) is the default.
+        rel_key = relation if relation in ('causal', 'contrastive', 'analogical', 'semantic', 'temporal') else 'semantic'
+        
+        # ~20% chance of inserting an adverbial modifier before the verb
+        adverbs = self.ADVERBIAL_MODIFIERS.get(rel_key, ["", "", "", "", ""])
+        adverb = random.choice(adverbs) if discourse_context.sentence_index > 0 else ""
+        
+        if adverb and dopamine_tone > 0.3:
+            modified_verb = f"{adverb} {verb}"
+        else:
+            modified_verb = verb
 
+        # Select a diverse sentence pattern based on position, dopamine, and relation.
+        # First sentence: 70% pattern 0 (SVO), 30% pattern 2 (pseudo-cleft for definitional feel)
+        # Subsequent sentences: distributed across all patterns for maximum diversity.
         if relation == 'interrogative':
             sentence = frame.object_concept
             has_punct = sentence.endswith('.') or sentence.endswith('?') or sentence.endswith('!')
         elif discourse_context.discourse_type == 'causal_explain':
-            # Generate "because" structure for causal explanations
-            if "{verb}" in selected_template:
-                core = selected_template.format(subject=subject_phrase, object=object_phrase, verb=verb)
-            else:
-                core = selected_template.format(subject=subject_phrase, object=object_phrase)
+            # Causal explanations benefit from "because" structure
+            selected_template = "{subject} {verb} {object}"
+            core = selected_template.format(subject=subject_phrase, object=object_phrase, verb=modified_verb)
             has_punct = False
             sentence = core
         else:
-            if "{verb}" in selected_template:
-                core = selected_template.format(subject=subject_phrase, object=object_phrase, verb=verb)
+            # Select pattern based on sentence index and dopamine tone
+            # IMPORTANT: patterns 1, 3, 4 hardcode "it" in the template. If the
+            # subject was already replaced with a pronoun (e.g., "it" after first
+            # reference), these patterns would produce "it: it verb object" which
+            # is ungrammatical. So we only allow patterns 1, 3, 4 for the first
+            # sentence (where full subject is used) or when subject is NOT a pronoun.
+            si = discourse_context.sentence_index
+            subject_is_pronoun = display_subj.lower() in ('it', 'this', 'that', 'they', 'he', 'she', 'i', 'you', 'we')
+            
+            if si == 0:
+                # First sentence: prefer standard SVO or pseudo-cleft for definitional tone
+                pattern_idx = 0 if random.random() < 0.7 else 2
+            elif subject_is_pronoun:
+                # Subject was pronominalized — only use patterns that don't hardcode "it"
+                # Patterns 0 (SVO) and 2 (pseudo-cleft) work with pronoun subjects
+                weights = [0.70, 0.30]  # 0: SVO, 2: pseudo-cleft
+                pattern_idx = random.choices([0, 2], weights=weights, k=1)[0]
             else:
-                core = selected_template.format(subject=subject_phrase, object=object_phrase)
+                # Subsequent sentences with full subject: distribute across patterns
+                if dopamine_tone > 0.6:
+                    weights = [0.30, 0.20, 0.15, 0.20, 0.15]
+                elif dopamine_tone > 0.3:
+                    weights = [0.40, 0.20, 0.10, 0.15, 0.15]
+                else:
+                    weights = [0.55, 0.20, 0.05, 0.10, 0.10]
+                pattern_idx = random.choices(range(5), weights=weights, k=1)[0]
+
+            selected_template = self.SENTENCE_PATTERNS[pattern_idx]
+            core = selected_template.format(
+                subject=subject_phrase,
+                object=object_phrase,
+                verb=modified_verb,
+            )
             has_punct = False
 
-            # Only prepend epistemic frame for the first sentence of the response
-            # (or with a low 15% probability for subsequent sentences) to avoid robotic repetition.
-            if discourse_context.sentence_index == 0 or random.random() < 0.15:
+            # Only prepend epistemic frame for the first sentence
+            # For non-SVO patterns, epistemic frame goes before the entire structure
+            if si == 0 or random.random() < 0.15:
                 epistemic_frame = self._generate_epistemic_frame(confidence_level, sl)
-                if epistemic_frame:
+                if epistemic_frame and pattern_idx == 0:
                     core = f"{epistemic_frame}{core[0].lower()}{core[1:]}"
+                elif epistemic_frame:
+                    core = f"{epistemic_frame} {core[0].lower()}{core[1:]}"
 
             sentence = core
 
@@ -488,20 +528,38 @@ class SurfaceRealizer:
         if subject_lower in ('i', 'you', 'we', 'they', 'he', 'she', 'it'):
             return subject
 
-        if context.previous_subject:
-            prev_lower = context.previous_subject.lower()
-            pronoun_for_subject = self.PRONOUNS.get(subject_lower)
-            if pronoun_for_subject and prev_lower == pronoun_for_subject:
-                return pronoun_for_subject
-            if prev_lower == subject_lower:
-                pronoun = self.PRONOUNS.get(subject_lower, 'it')
-                return pronoun
+        # Get pronoun options for this subject (list of variants or single string)
+        pronoun_opts = self.PRONOUNS.get(subject_lower, ["it"])
+        if isinstance(pronoun_opts, str):
+            return pronoun_opts
 
+        # Count how many times this subject has been referenced
+        ref_count = context.subject_repetitions
         if subject_lower in self._used_subjects:
-            pronoun = self.PRONOUNS.get(subject_lower, 'it')
-            return pronoun
+            ref_count += 1
 
-        return subject
+        # First reference: use the full subject
+        if ref_count == 0:
+            return subject
+
+        # Second reference: use first pronoun option (usually "it" or "they")
+        if ref_count == 1:
+            base = pronoun_opts[0] if pronoun_opts else "it"
+            return base
+
+        # Third+ reference: cycle through variants for variety
+        if len(pronoun_opts) > 1:
+            variant_idx = min(ref_count - 1, len(pronoun_opts) - 1)
+            base = pronoun_opts[variant_idx]
+            # Apply PRONOUN_VARIANTS for further cycling
+            variants = self.PRONOUN_VARIANTS.get(base, [base])
+            cycle_idx = (ref_count - 1) % len(variants)
+            return variants[cycle_idx]
+
+        base = pronoun_opts[0] if pronoun_opts else "it"
+        variants = self.PRONOUN_VARIANTS.get(base, [base])
+        cycle_idx = (ref_count - 1) % len(variants)
+        return variants[cycle_idx]
 
     def _build_noun_phrase(self, concept: str, article: str,
                             is_subject: bool, dopamine_tone: float) -> str:
@@ -612,8 +670,9 @@ class SurfaceRealizer:
         if subject_lower in plural_indicators:
             is_plural = True
         if subject_lower.endswith('s') and subject_lower not in {'this', 'is', 'has', 'was', 'its'}:
-            if subject_lower not in self.SINGULAR_ENDING_IN_S:
-                is_plural = True
+            if not subject_lower.endswith('ss'):
+                if subject_lower not in self.SINGULAR_ENDING_IN_S:
+                    is_plural = True
 
         if is_plural:
             verb_phrase = verb_phrase.replace('is ', 'are ')
@@ -655,11 +714,11 @@ class SurfaceRealizer:
             return ""
 
         markers_by_type = {
-            "elaborate": ["also", "furthermore", "in addition", "moreover", "besides", "", "", "", "plus"],
-            "contrast": ["", "but", "at the same time", "then again", "still", "although"],
-            "connect": ["", "in the same way", "by the same token", "similarly"],
-            "explain": ["", "in other words", "specifically", ""],
-            "conclude": ["", "in essence", "when you think about it", "basically"],
+            "elaborate": ["also", "furthermore", "in addition", "moreover", "besides", "beyond that", "at the same time", "on top of that", "plus", "what is more", "", "", ""],
+            "contrast": ["", "but", "at the same time", "then again", "still", "although", "even so", "that said"],
+            "connect": ["", "in the same way", "by the same token", "similarly", "likewise", "along those lines"],
+            "explain": ["", "in other words", "specifically", "put simply", "that is", ""],
+            "conclude": ["", "in essence", "when you think about it", "basically", "after all", "ultimately"],
             "acknowledge": ["", "", "", ""],
             "reflect": ["", "", ""],
             "explore": ["", "", ""],

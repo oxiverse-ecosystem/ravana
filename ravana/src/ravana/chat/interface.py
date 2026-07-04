@@ -84,6 +84,9 @@ TOPIC_SKIP_WORDS = {"i", "you", "we", "they", "he", "she", "it", "me", "my",
                     "think", "know", "feel", "want", "need", "go", "come",
                     "get", "say", "make", "take", "see", "hear", "tell",
                     "give", "let", "put", "keep", "look", "find", "ask",
+                    "explain", "describe", "define", "discuss", "show", "list",
+                    "write", "read", "learn", "compare", "contrast", "introduce",
+                    "suggest", "recommend",
                     "good", "bad", "big", "small", "always", "never", "maybe",
                     "if", "but", "in", "out", "up", "down",
                     "point", "way", "thing", "stuff", "and", "so"}
@@ -588,59 +591,30 @@ class ChatInterface:
         return response
 
     def _generate_response(self, ctx: CognitiveResponseContext) -> Tuple[str, str]:
-        """Generate response using neural decoder with reasoning loop."""
-        # Try neural decoder + syntactic pipeline (when decoder is trained)
-        _have_web = self.decoder_engine.web_training_count >= 500
-        _total = self.decoder_engine.training_count
-        if _have_web and _total >= 1000:
-            try:
-                decoder_response = self._generate_with_decoder_and_syntax(ctx)
-                if decoder_response and len(decoder_response) > 10 and not _is_word_salad(decoder_response):
-                    return (decoder_response, "neural_decoder")
-            except Exception:
-                pass
+        """Dual-path response generation.
 
-        # Try syntactic pipeline (P1: Production-Grade Syntactic Pipeline)
-        # This works independently of neural decoder training
+        Ventral path (fast): graph + SurfaceRealizer — known concepts.
+        Dorsal path (slow): web search + syntactic pipeline — reasoning queries.
+        """
+
+        # Try ventral path (syntactic pipeline, no reasoning)
         try:
             syntax_response = self._generate_with_decoder_and_syntax(ctx)
             if syntax_response and len(syntax_response) > 10 and not _is_word_salad(syntax_response):
-                # Quality gate: reject template-like syntactic pipeline output
-                _tpl_check = syntax_response.lower()
-                _is_template = False
-                # Check for repetitive "X is part of Y / It drives Z" patterns
-                _template_markers = ["is part of", "feeds into", "has a relationship with",
-                                     "is tied to", "plays a role in", "goes hand in hand",
-                                     "ties into", "has a lot to do with", "is bound up with"]
-                _tpl_count = sum(1 for m in _template_markers if m in _tpl_check)
-                if _tpl_count >= 1 and len(syntax_response.split()) < 30:
-                    _is_template = True
-                # Also reject if all sentences follow the same "It [verb] a [noun]" pattern
-                _it_pattern_count = len(re.findall(r'\bit\s+\w+\s+a\s+\w+', _tpl_check))
-                if _it_pattern_count >= 2:
-                    _is_template = True
-                if not _is_template:
-                    return (syntax_response, "syntactic_pipeline")
+                _words = syntax_response.lower().split()
+                _unique_ratio = len(set(_words)) / max(1, len(_words))
+                if _unique_ratio >= 0.35:
+                    return (syntax_response, "fast_ventral")
         except Exception as e:
             if self._trace_enabled:
                 print(f"  [trace] syntactic pipeline error: {e}")
 
-        # Reasoning loop
+        # Reasoning loop (web search + syntactic pipeline)
         try:
             return self._reasoning_loop(ctx)
         except Exception as e:
             if self._trace_enabled:
                 print(f"  [trace] reasoning loop error: {e}")
-
-        # Check hippocampal buffer before graph fallback
-        hippocampal_result = self._try_hippocampal_retrieval(ctx)
-        if hippocampal_result:
-            return (hippocampal_result, "hippocampal_recall")
-
-        # Check if input has pragmatic implicature
-        implicature = self.implicature_detector.analyze(ctx.raw_input)
-        if implicature.is_implicature and implicature.suggested_question_type == "acknowledge":
-            return (self._generate_acknowledgment(ctx, implicature), "implicature_acknowledge")
 
         # Graph fallback
         return self._graph_fallback_response(ctx)
@@ -1062,6 +1036,12 @@ class ChatInterface:
         self.gw.compete()
 
     def _reasoning_loop(self, ctx: CognitiveResponseContext) -> Tuple[str, str]:
+        """Reasoning loop: web search + syntactic pipeline only.
+
+        No neural decoder generation — it produced word salad (CE ~3.9).
+        Web search enriches graph knowledge, then the syntactic pipeline
+        generates the response via SurfaceRealizer.
+        """
         subject = ctx.subject
         query = ctx.raw_input
         assocs = ctx.associated_concepts
@@ -1079,26 +1059,23 @@ class ChatInterface:
         search_queries = []
         if is_complex or is_unknown:
             search_queries = self._decompose_for_search(query, subject, assocs)
-        elif self.decoder_engine.training_count < 2000:
-            search_queries = [subject]
 
         search_queries = search_queries[:4]
 
-        all_learned_text = ""
         for sq in search_queries:
             try:
                 result = self.web_learner.learn_from_web(sq)
             except Exception:
                 continue
 
-        if all_learned_text and self.decoder_engine.neural_decoder and self.decoder_engine._decoder_vocab_built:
-            self.decoder_engine.train_on_text(all_learned_text, subject, self.graph_engine,
-                                               self.graph_engine._glove_vector, passes=3)
-
+        # Syntactic pipeline only — no neural decoder generation
         try:
-            decoder_response = self._generate_with_decoder_and_syntax(ctx)
-            if decoder_response and len(decoder_response) > 10 and not _is_word_salad(decoder_response):
-                return (decoder_response, "neural_decoder_reasoned")
+            syntax_response = self._generate_with_decoder_and_syntax(ctx)
+            if syntax_response and len(syntax_response) > 10 and not _is_word_salad(syntax_response):
+                _words = syntax_response.lower().split()
+                _unique_ratio = len(set(_words)) / max(1, len(_words))
+                if _unique_ratio >= 0.35:
+                    return (syntax_response, "dorsal_reasoned")
         except Exception:
             pass
 

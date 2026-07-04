@@ -442,8 +442,14 @@ class NeuralDecoder(Module):
                           word_to_idx: Dict[str, int],
                           unknown_idx: int = 1,
                           conditioning_embs: Optional[np.ndarray] = None,
-                          word_indices: Optional[List[int]] = None) -> float:
+                          word_indices: Optional[List[int]] = None,
+                          freeze_core: bool = False) -> float:
         """Unsupervised learning from a sentence (fully batched Hebbian updates).
+
+        Args:
+            freeze_core: If True, only update word_embedding and output_proj.
+                Skips GRU, condition_proj, and attention updates.
+                Use this for web learning to protect core language patterns.
 
         Forward pass stores all errors and intermediates; then at the end
         all Hebbian updates are computed in a few large matmuls.
@@ -456,6 +462,9 @@ class NeuralDecoder(Module):
         eos_idx = word_to_idx.get("<eos>", 2)
 
         if conditioning_embs is None:
+            # FIX: Use function words only + random vocab embeddings for conditioning.
+            # No more self-conditioning cheat (content words from the target sentence).
+            import random as _rand_mod
             function_words_set = {
                 "a", "an", "the", "is", "are", "was", "were", "be", "been",
                 "being", "have", "has", "had", "do", "does", "did", "will",
@@ -471,39 +480,26 @@ class NeuralDecoder(Module):
                 "of", "to", "for", "with", "from", "at", "by", "as", "on", "in", "and", "but", "or",
             }
             known_embs = []
-            content_words_count = 0
+            seen_cond = set()
+            # Use first 2 function words for syntactic context
             for w in sentence_words:
                 wl = w.lower().strip(".,!?").strip("'")
-                if wl and wl not in function_words_set and content_words_count < 3:
-                    if wl in word_to_embed:
-                        known_embs.append(word_to_embed[wl])
-                        content_words_count += 1
-                    elif wl:
-                        rand_emb = np.random.randn(self.embed_dim).astype(np.float32) * 0.1
-                        norm = np.linalg.norm(rand_emb)
-                        if norm > 0:
-                            rand_emb /= norm
-                        known_embs.append(rand_emb)
-                        content_words_count += 1
-            if len(known_embs) == 0:
-                for w in sentence_words[:2]:
-                    wl = w.lower().strip(".,!?").strip("'")
-                    if wl in word_to_embed:
-                        known_embs.append(word_to_embed[wl])
-                    elif wl:
-                        rand_emb = np.random.randn(self.embed_dim).astype(np.float32) * 0.1
-                        norm = np.linalg.norm(rand_emb)
-                        if norm > 0:
-                            rand_emb /= norm
-                        known_embs.append(rand_emb)
-            if len(known_embs) < 2:
-                # Pad to at least 2 embeddings for multi-head attention reshape requirements
-                while len(known_embs) < 2:
-                    pad_emb = np.random.randn(self.embed_dim).astype(np.float32) * 0.1
-                    norm = np.linalg.norm(pad_emb)
-                    if norm > 0:
-                        pad_emb /= norm
-                    known_embs.append(pad_emb)
+                if wl in function_words_set and wl in word_to_embed and wl not in seen_cond:
+                    known_embs.append(word_to_embed[wl])
+                    seen_cond.add(wl)
+                    if len(known_embs) >= 2:
+                        break
+            # Pad with random vocabulary embeddings
+            _all_vals = list(word_to_embed.values())
+            while len(known_embs) < 2:
+                if _all_vals:
+                    known_embs.append(_rand_mod.choice(_all_vals))
+                else:
+                    pad = np.random.randn(self.embed_dim).astype(np.float32) * 0.1
+                    n = np.linalg.norm(pad)
+                    if n > 0:
+                        pad /= n
+                    known_embs.append(pad)
             conditioning_embs = np.stack(known_embs, axis=0)
 
         if word_indices is None:
@@ -694,52 +690,56 @@ class NeuralDecoder(Module):
             idx = all_idx_stored[pos]
             error_h_all[pos] = err @ out_weight[idx]
 
-        # 3. condition_proj (lr=lr_other, wd=1e-5)
-        emb_stack = np.stack(all_word_emb)
-        error_proj_all = np.clip(error_h_all * 0.5, -1.0, 1.0)
-        hebbian_proj = (emb_stack.T @ error_proj_all) / T
-        self.condition_proj.weight.data += hebbian_proj.T * lr_other - self.condition_proj.weight.data * wd
+        # 3. condition_proj (only if not frozen — protects learned language patterns)
+        if not freeze_core:
+            emb_stack = np.stack(all_word_emb)
+            error_proj_all = np.clip(error_h_all * 0.5, -1.0, 1.0)
+            hebbian_proj = (emb_stack.T @ error_proj_all) / T
+            self.condition_proj.weight.data += hebbian_proj.T * lr_other - self.condition_proj.weight.data * wd
 
-        # 4. word_embedding (lr=lr_other)
+        # 4. word_embedding (always updated — new words need embeddings)
         W_cond = self.condition_proj.weight.data
+        error_proj_all = np.clip(error_h_all * 0.5, -1.0, 1.0)
         error_word_all = np.clip(error_proj_all @ W_cond, -1.0, 1.0) * lr_other
         for i, idx in enumerate(all_input_idx):
             self.word_embedding.weight.data[idx] += error_word_all[i]
 
-        # 5. GRU gates (lr=lr_other)
-        gru_c_stack = np.stack(all_gru_combined)
-        gru_cr_stack = np.stack(all_gru_combined_r)
-        gru_hc_stack = np.stack(all_gru_h_candidate)
-        gru_hp_stack = np.stack(all_gru_h_prev)
-        gru_z_stack = np.stack(all_gru_z)
-        gru_r_stack = np.stack(all_gru_r)
+        # 5. GRU gates (only if not frozen)
+        if not freeze_core:
+            gru_c_stack = np.stack(all_gru_combined)
+            gru_cr_stack = np.stack(all_gru_combined_r)
+            gru_hc_stack = np.stack(all_gru_h_candidate)
+            gru_hp_stack = np.stack(all_gru_h_prev)
+            gru_z_stack = np.stack(all_gru_z)
+            gru_r_stack = np.stack(all_gru_r)
 
-        # Exact backprop error for h_candidate_pre:
-        # dL/dh_candidate_pre = (dL/dh * 0.5) * z * (1 - tanh^2)
-        err_wh = error_h_all * 0.5 * gru_z_stack * (1.0 - gru_hc_stack ** 2)
-        fe_wh = (gru_cr_stack.T @ err_wh) / T
+            # Exact backprop error for h_candidate_pre:
+            # dL/dh_candidate_pre = (dL/dh * 0.5) * z * (1 - tanh^2)
+            err_wh = error_h_all * 0.5 * gru_z_stack * (1.0 - gru_hc_stack ** 2)
+            fe_wh = (gru_cr_stack.T @ err_wh) / T
 
-        # Exact backprop error for z_pre:
-        # dL/dz_pre = (dL/dh * 0.5) * (h_candidate - h_prev) * z * (1 - z)
-        err_wz = error_h_all * 0.5 * (gru_hc_stack - gru_hp_stack) * gru_z_stack * (1.0 - gru_z_stack)
-        fe_wz = (gru_c_stack.T @ err_wz) / T
+            # Exact backprop error for z_pre:
+            # dL/dz_pre = (dL/dh * 0.5) * (h_candidate - h_prev) * z * (1 - z)
+            err_wz = error_h_all * 0.5 * (gru_hc_stack - gru_hp_stack) * gru_z_stack * (1.0 - gru_z_stack)
+            fe_wz = (gru_c_stack.T @ err_wz) / T
 
-        # Exact backprop error for r_pre:
-        # dL/dr_pre = (dL/dh_candidate_pre @ W_hh * h_prev) * r * (1 - r)
-        W_hh = self.gru.W_h.weight.data[:, self.hidden_dim:]
-        err_r = (err_wh @ W_hh * gru_hp_stack) * gru_r_stack * (1.0 - gru_r_stack)
-        fe_wr = (gru_c_stack.T @ err_r) / T
+            # Exact backprop error for r_pre:
+            # dL/dr_pre = (dL/dh_candidate_pre @ W_hh * h_prev) * r * (1 - r)
+            W_hh = self.gru.W_h.weight.data[:, self.hidden_dim:]
+            err_r = (err_wh @ W_hh * gru_hp_stack) * gru_r_stack * (1.0 - gru_r_stack)
+            fe_wr = (gru_c_stack.T @ err_r) / T
 
-        # Update GRU weights with gradient clipping and weight decay to prevent divergence
-        clip_val = 1.0
-        self.gru.W_z.weight.data += np.clip(fe_wz.T, -clip_val, clip_val) * lr_other - self.gru.W_z.weight.data * wd
-        self.gru.W_r.weight.data += np.clip(fe_wr.T, -clip_val, clip_val) * lr_other - self.gru.W_r.weight.data * wd
-        self.gru.W_h.weight.data += np.clip(fe_wh.T, -clip_val, clip_val) * lr_other - self.gru.W_h.weight.data * wd
+            # Update GRU weights with gradient clipping and weight decay to prevent divergence
+            clip_val = 1.0
+            self.gru.W_z.weight.data += np.clip(fe_wz.T, -clip_val, clip_val) * lr_other - self.gru.W_z.weight.data * wd
+            self.gru.W_r.weight.data += np.clip(fe_wr.T, -clip_val, clip_val) * lr_other - self.gru.W_r.weight.data * wd
+            self.gru.W_h.weight.data += np.clip(fe_wh.T, -clip_val, clip_val) * lr_other - self.gru.W_h.weight.data * wd
 
-        # 6. attention output_proj (lr=lr_attn, wd=1e-5)
-        attn_error_all = np.clip(error_h_all * 0.1, -1.0, 1.0)
-        total_attn_err = np.sum(attn_error_all, axis=0)
-        self.attention.output_proj.weight.data += (total_attn_err / T) * lr_attn - self.attention.output_proj.weight.data * wd
+        # 6. attention output_proj (only if not frozen)
+        if not freeze_core:
+            attn_error_all = np.clip(error_h_all * 0.1, -1.0, 1.0)
+            total_attn_err = np.sum(attn_error_all, axis=0)
+            self.attention.output_proj.weight.data += (total_attn_err / T) * lr_attn - self.attention.output_proj.weight.data * wd
 
         # Skip attention W_q/W_k/W_v (traces are sentence-specific, unreliable)
 
@@ -775,12 +775,22 @@ class NeuralDecoder(Module):
                           max_sentences: Optional[int] = None) -> List[dict]:
         """Pre-process text into cached sentence data for fast training loops.
 
+        FIXED: No more self-conditioning cheat. Conditioning embeddings now use
+        a blend of function words (common across sentences) + random vocabulary
+        embeddings, NOT the sentence's own content words. This forces the decoder
+        to learn true language patterns from the GRU sequence model rather than
+        cheating by reading the answer from the conditioning context.
+
         Returns a list of dicts with 'words', 'word_indices', and 'conditioning_embs'
         so that repeated training passes avoid re-parsing and re-embedding the text.
-
-        Use with train_on_sentence(word_indices=..., conditioning_embs=...) for
-        ~2x speedup over repeated train_on_text calls.
         """
+        import random as _rand_mod
+        
+        # Pre-build a pool of random vocabulary embeddings for conditioning
+        # These provide a general "language space" signal without leaking
+        # any specific sentence's content words.
+        _all_embed_vals = list(word_to_embed.values())
+        
         sentences = []
         for sent in re.split(r'[\r\n.!?]+', text):
             words = [w.strip(".,!?\"' ") for w in sent.split()
@@ -801,45 +811,37 @@ class NeuralDecoder(Module):
                     "of", "to", "for", "with", "from", "at", "by", "as", "on", "in", "and", "but", "or",
                 }
                 word_indices = []
-                known_embs = []
-                content_words_count = 0
                 for w in words:
                     wl = w.lower().strip(".,!?").strip("'")
                     if wl in word_to_idx:
                         word_indices.append(word_to_idx[wl])
                     else:
                         word_indices.append(unknown_idx)
-                    
-                    if wl and wl not in function_words_set and content_words_count < 3:
-                        if wl in word_to_embed:
-                            known_embs.append(word_to_embed[wl])
-                            content_words_count += 1
-                        elif wl:
-                            rand_emb = np.random.randn(self.embed_dim).astype(np.float32) * 0.1
-                            norm = np.linalg.norm(rand_emb)
-                            if norm > 0:
-                                rand_emb /= norm
-                            known_embs.append(rand_emb)
-                            content_words_count += 1
-                if len(known_embs) == 0:
-                    for w in words[:2]:
-                        wl = w.lower().strip(".,!?").strip("'")
-                        if wl in word_to_embed:
-                            known_embs.append(word_to_embed[wl])
-                        elif wl:
-                            rand_emb = np.random.randn(self.embed_dim).astype(np.float32) * 0.1
-                            norm = np.linalg.norm(rand_emb)
-                            if norm > 0:
-                                rand_emb /= norm
-                            known_embs.append(rand_emb)
-                if len(known_embs) < 2:
-                    while len(known_embs) < 2:
-                        pad_emb = np.random.randn(self.embed_dim).astype(np.float32) * 0.1
-                        norm = np.linalg.norm(pad_emb)
-                        if norm > 0:
-                            pad_emb /= norm
-                        known_embs.append(pad_emb)
-                conditioning_embs = np.stack(known_embs, axis=0)
+                
+                # FIX: Build conditioning from function words (which give syntactic
+                # context without leaking content) + random vocabulary embeddings.
+                # This prevents the decoder from cheating by reading the answer.
+                cond_embs = []
+                seen_cond = set()
+                for w in words:
+                    wl = w.lower().strip(".,!?").strip("'")
+                    if wl in function_words_set and wl in word_to_embed and wl not in seen_cond:
+                        cond_embs.append(word_to_embed[wl])
+                        seen_cond.add(wl)
+                        if len(cond_embs) >= 2:
+                            break
+                # Pad with random vocabulary embeddings to reach minimum 2
+                while len(cond_embs) < 2:
+                    if _all_embed_vals:
+                        cond_embs.append(_rand_mod.choice(_all_embed_vals))
+                    else:
+                        pad = np.random.randn(self.embed_dim).astype(np.float32) * 0.1
+                        n = np.linalg.norm(pad)
+                        if n > 0:
+                            pad /= n
+                        cond_embs.append(pad)
+                conditioning_embs = np.stack(cond_embs, axis=0)
+                
                 sentences.append({
                     'words': words,
                     'word_indices': word_indices,
@@ -854,7 +856,8 @@ class NeuralDecoder(Module):
                       unknown_idx: int = 1,
                       min_sentence_len: int = 3,
                       max_sentences: Optional[int] = None,
-                      conditioning_embs: Optional[np.ndarray] = None) -> Tuple[float, int]:
+                      conditioning_embs: Optional[np.ndarray] = None,
+                      freeze_core: bool = False) -> Tuple[float, int]:
         """Train on a full text (sentence by sentence).
 
         Splits text into sentences, trains on each sentence independently.
@@ -871,6 +874,8 @@ class NeuralDecoder(Module):
                 If None, defaults to 50 (safety cap to prevent OOM).
             conditioning_embs: optional pre-computed conditioning embeddings.
                 If None, uses self-conditioning (sentence's own embeddings).
+            freeze_core: If True, only update word_embedding and output_proj.
+                Skips GRU, condition_proj, and attention updates.
 
         Returns:
             (avg_error, sentences_trained): average error and count
@@ -892,7 +897,8 @@ class NeuralDecoder(Module):
         trained_count = 0
         for words in sentences[:cap]:
             err = self.train_on_sentence(words, word_to_embed, word_to_idx, unknown_idx,
-                                         conditioning_embs=conditioning_embs)
+                                         conditioning_embs=conditioning_embs,
+                                         freeze_core=freeze_core)
             total_error += err
             trained_count += 1
 
