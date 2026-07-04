@@ -235,6 +235,9 @@ class Linear(Module):
 
     def sleep_cycle(self):
         STABILITY_CAP = 0.95
+        self.weight.data += self._weight_free_energy.data
+        if self.bias is not None:
+            self.bias.data += self._bias_free_energy.data
         self._weight_free_energy = StateTensor(np.zeros_like(self._weight_free_energy.data))
         self._fisher_diagonal = StateTensor(np.zeros_like(self._fisher_diagonal.data))
         self._fisher_count = 0
@@ -310,6 +313,7 @@ class Embedding(Module):
 
     def sleep_cycle(self):
         STABILITY_CAP = 0.95
+        self.weight.data += self._weight_free_energy.data
         self._weight_free_energy = StateTensor(np.zeros_like(self._weight_free_energy.data))
         self._fisher_diagonal = StateTensor(np.zeros_like(self._fisher_diagonal.data))
         self._fisher_count = 0

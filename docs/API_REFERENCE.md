@@ -838,6 +838,186 @@ from ravana.world import GridWorld, ContinuousWorld, SymbolicWorld
 from ravana.lab import analyze_concept_graph, plot_activation_dynamics, compute_coherence_trajectory, visualize_sleep_cycle, diagnose_learning
 ```
 
+### `ravana.chat.user_model` — UserModel (Theory of Mind)
+
+```python
+from ravana.chat import UserModel
+
+class UserModel:
+    """Theory of Mind model tracking user-specific knowledge, preferences, emotional state, and goals."""
+    def __init__(self):
+        self.edge_reactivations: Dict[Tuple[str, str], int]  # (from, to) -> count
+        self.query_concepts: Set[str]
+        self.user_name: str
+        self.preferences: Dict[str, Any]  # likes, interests, favorites
+        self.knowledge_model: Dict[str, float]  # concept -> familiarity
+        self.learning_goals: Dict[str, int]  # concept -> exploration count
+        self.emotional_rapport: Dict[str, float]  # concept -> valence rapport
+        self.cognitive_style: str  # 'curious' | 'skeptical' | 'practical' | 'balanced'
+        self.engagement_level: float
+        self.conversation_depth: float
+        self.interaction_count: int
+        self.relationship_depth: float
+        self.goals: List[str]  # history of inferred goals
+        self.last_goal: str  # 'LEARNING' | 'DEBUGGING' | 'EXPLORING'
+        self.emotional_state: Dict[str, float]  # {valence, arousal, dominance}
+        self.belief_state: Dict[str, Dict]
+        self.interaction_history: List[Dict]  # capped at 100 entries
+    
+    def observe_chain(self, hops: List[Tuple[str, str]], is_user_query: bool = False) -> None:
+        """Record graph traversal hops and update knowledge model."""
+    
+    def observe_user_query(self, query: str, subject: str, valence: float) -> None:
+        """Process user message: infer emotion, update preferences, track topics, infer goals."""
+    
+    def infer_user_goal(self, query: str) -> str:
+        """Classify query into LEARNING, DEBUGGING, or EXPLORING."""
+    
+    def infer_user_knows(self, concept: str) -> float:
+        """Return familiarity score [0-1] for a concept."""
+    
+    def infer_user_wants_to_learn(self, concept: str) -> float:
+        """Return desire-to-learn score [0-1] for a concept."""
+    
+    def infer_topic_interest(self, topic: str) -> float:
+        """Return composite interest score from goals, rapport, and interaction count."""
+    
+    def get_preferred_relation_types(self) -> List[str]:
+        """Return relation types user most frequently activates."""
+    
+    def activation_boost_for(self, concept: str) -> Dict[str, float]:
+        """Return per-label boost multipliers based on edge reactivation history."""
+    
+    def get_state(self) -> Dict:
+        """Serialize full user model state for persistence."""
+    
+    def set_state(self, state: Dict) -> None:
+        """Restore user model state with backward compatibility."""
+```
+
+---
+
+## ravana-v2 Agent Infrastructure
+
+### ModeOrchestrator (`agent/mode_orchestrator.py`)
+
+```python
+from agent.mode_orchestrator import ModeOrchestrator, AgentMode, ModeDecision, InterviewResult
+
+class AgentMode(Enum):
+    RESEARCH = "research"      # Web + RSS → new methods
+    INTERVIEW = "interview"    # Groq → RAVANA → test/evaluate
+    LEARN = "learn"           # info_collector → RAVANA experience events
+
+@dataclass
+class ModeDecision:
+    mode: AgentMode
+    reason: str
+    confidence: float
+    priority: int  # 1=highest
+
+@dataclass
+class InterviewResult:
+    card_id: str
+    passed: bool
+    expected_D: float
+    actual_D: float
+    expected_I: float
+    actual_I: float
+    dissonance_consistent: bool
+    failure_type: Optional[str]
+    notes: str
+
+class ModeOrchestrator:
+    def __init__(self, groq_api_key: str, db_path: str,
+                 version_manager_cls=None, ravana_factory=None, grounding_factory=None):
+    
+    def decide_mode(self) -> ModeDecision:
+        """Decide which mode to run based on state.
+        - RESEARCH: pending_improvements > 3
+        - LEARN: active experiments > 0
+        - INTERVIEW: recent tests available or default
+        """
+    
+    def run_research_mode(self) -> Dict[str, Any]:
+        """Web + RSS → new methods → queue improvements."""
+    
+    def run_interview_mode(self) -> Dict[str, Any]:
+        """Groq → RAVANA → test/evaluate (requires TestHarness)."""
+    
+    def run_learn_mode(self) -> Dict[str, Any]:
+        """Info collector → RAVANA experience events."""
+    
+    def run_full_cycle(self) -> Dict[str, Any]:
+        """Run one full orchestration cycle — decide, run, report."""
+    
+    def build_telegram_report(self, report: Dict) -> str:
+        """Format report for Telegram delivery."""
+```
+
+### VersionManager (`agent/version_manager.py`)
+
+```python
+from agent.version_manager import VersionManager, ScriptVersion, VersionEntry, ChangeEntry
+
+class VersionManager:
+    def __init__(self, db_path: str = None):
+    
+    # Versions
+    def get_current_versions(self) -> Dict[str, Any]:
+    def detect_changed_scripts(self, scripts_dir: str) -> List[Dict]:
+    def save_version(self, agent_version: str, script_versions: List[Dict], changelog: List[Dict]):
+    
+    # Changelog
+    def add_changelog(self, component: str, change_type: str, description: str, notes: str = "", tested: bool = False):
+    def get_recent_changelog(self, limit: int = 20) -> List[Dict]:
+    def mark_tested(self, changelog_id: int):
+    
+    # Context
+    def set_context(self, key: str, value: Any):
+    def get_context(self, key: str) -> Any:
+    
+    # Experiments
+    def create_experiment(self, name: str, description: str = "") -> int:
+    def update_experiment(self, name: str, status: str = None, results: Dict = None):
+    def get_active_experiments(self) -> List[Dict]:
+    
+    # Improvements Queue
+    def queue_improvement(self, description: str, source: str = "web_search", priority: int = 5):
+    def get_pending_improvements(self, limit: int = 10) -> List[Dict]:
+    def mark_improvement(self, improvement_id: int, status: str):
+    
+    # Test Results
+    def record_test(self, test_name: str, status: str, output: str = "", duration_ms: int = 0):
+    def get_test_history(self, limit: int = 20) -> List[Dict]:
+    def get_last_test_status(self, test_name: str) -> Optional[str]:
+    
+    # Summary
+    def get_summary(self) -> Dict[str, Any]:
+```
+
+### TrainingPipeline (`training/pipeline.py`)
+
+```python
+from training.pipeline import TrainingPipeline, TrainingConfig
+
+@dataclass
+class TrainingConfig:
+    total_episodes: int = 100000
+    log_interval: int = 100
+    checkpoint_interval: int = 1000
+    debug_first_n: int = 50
+    initial_difficulty: float = 0.3
+    max_difficulty: float = 0.9
+    difficulty_ramp_episodes: int = 50000
+
+class TrainingPipeline:
+    def __init__(self, state_manager, config: TrainingConfig = None):
+    
+    def train(self) -> Dict[str, Any]:
+        """Execute full training run with governor-gated state evolution."""
+```
+
 ---
 
 ## See Also

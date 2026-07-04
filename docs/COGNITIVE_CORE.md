@@ -1089,6 +1089,214 @@ mgr = StateManager(
 
 ---
 
+## Agent Infrastructure
+
+### ModeOrchestrator — Central Dispatcher (`agent/mode_orchestrator.py`)
+
+The `ModeOrchestrator` is the central dispatcher for the Zo Agent system. It decides which mode to run, orchestrates the full cognitive loop, and handles failure escalation.
+
+**Three operation modes:**
+
+| Mode | Function | Trigger |
+|------|----------|---------|
+| `RESEARCH` | Web + RSS → discover new methods → queue improvements | Pending improvements > 3 |
+| `INTERVIEW` | Groq → RAVANA → test/evaluate behavioral cards | Every run (core validation) |
+| `LEARN` | Info collector → RAVANA experience events | Active experiments pending |
+
+```python
+from agent.mode_orchestrator import ModeOrchestrator, AgentMode, ModeDecision, InterviewResult
+
+orchestrator = ModeOrchestrator(
+    groq_api_key=os.environ["GROQ_API_KEY"],
+    db_path="context.db",
+)
+
+# Decide mode based on state
+decision = orchestrator.decide_mode()
+# ModeDecision(mode=AgentMode.RESEARCH, reason="3 pending improvements", confidence=0.8, priority=1)
+
+# Run full cycle
+report = orchestrator.run_full_cycle()
+# Returns dict with mode, result, ravana_state, duration_s
+
+# Format for delivery
+telegram_text = orchestrator.build_telegram_report(report)
+```
+
+**Research Mode** (`run_research_mode()`):
+- Fetches news via `RealityGrounding` (Google News, RSS feeds)
+- Converts events into scenarios with pressure/alignment scores
+- Queues improvements when events > 10, pressure ≥ 0.65, or alignment = `misaligned`
+- Returns structured notes: events collected, scenario count, top pressure, alignment verdict, workspace bids
+
+**Interview Mode** (`run_interview_mode()`):
+- Runs `TestHarness` against RAVANA wrapper
+- Compares expected vs actual dissonance/identity for behavioral cards
+- Records pass/fail results in VersionManager
+- Not yet implemented in standalone environment
+
+**Learn Mode** (`run_learn_mode()`):
+- Fetches events from RealityGrounding
+- Converts scenarios/events into cognitive cards
+- Steps RAVANA engine through each card with correctness/difficulty signals
+- Tracks D before/after for learning measurement
+
+**Scenarios to cognitive cards (`_scenario_to_card()`, `_event_to_card()`):**
+- Scenarios from news MDPs are classified: `increase scrutiny`/`escalate attention` → `correctness=False`, `update beliefs`/`monitor impact` → `correctness=True`
+- Events are classified by keywords: honesty/trust → domain, exploration/risk, failure/mistake → correctness
+
+### VersionManager — Persistence & Context (`agent/version_manager.py`)
+
+SQLite-backed version tracking, changelog, experiments queue, and test history for the RAVANA Interface Agent.
+
+```python
+from agent.version_manager import VersionManager, ScriptVersion, VersionEntry, ChangeEntry
+
+vm = VersionManager(db_path="context.db")
+
+# Version tracking
+current = vm.get_current_versions()
+changed = vm.detect_changed_scripts("/path/to/scripts")
+vm.save_version("1.2.0", script_versions, changelog)
+
+# Changelog
+vm.add_changelog(component="governor", change_type="improved", description="...", notes="...")
+recent = vm.get_recent_changelog(limit=20)
+vm.mark_tested(changelog_id=5)
+
+# Context
+vm.set_context("last_mode", "research")
+value = vm.get_context("last_mode")
+
+# Experiments
+exp_id = vm.create_experiment(name="cross_domain_v2", description="...")
+vm.update_experiment(name="cross_domain_v2", status="running", results={"top1": 0.75})
+active = vm.get_active_experiments()
+
+# Improvements Queue
+vm.queue_improvement(description="Improve W_rel alignment", source="web_search", priority=5)
+pending = vm.get_pending_improvements(limit=10)
+vm.mark_improvement(improvement_id=1, status="implemented")
+
+# Test Results
+vm.record_test(test_name="card_governor_p1", status="pass", output="D: 0.320 vs 0.300", duration_ms=45)
+history = vm.get_test_history(limit=20)
+last = vm.get_last_test_status(test_name="card_governor_p1")
+
+# System Summary
+summary = vm.get_summary()
+# Returns: agent_version, script_count, recent_changes, pending_improvements,
+#          active_experiments, recent_tests, last_updated
+```
+
+**Database Tables:**
+| Table | Purpose |
+|-------|---------|
+| `versions` | Agent version snapshots with script checksums and changelogs |
+| `context` | Key-value persistent context across runs |
+| `changelog` | Timestamped change entries with type (added/improved/fixed/researched) |
+| `experiments` | Named experiments with status (pending/running/completed/abandoned) and JSON results |
+| `improvements` | Pending improvement queue with priority (1-10) and source tracking |
+| `test_results` | Test history with status (pass/fail/error) and duration |
+
+---
+
+## Diagnostic Probes
+
+Three probes that validate GRACE governor dynamics by forcing specific stress conditions.
+
+### Probe 1: Exploration Pressure Test (`probes/exploration_pressure.py`)
+
+Increases chaos by 20-30% (elevated exploration_drive=0.35, larger random deltas) and verifies the system stays bounded but adapts.
+
+```bash
+python -m ravana_v2.probes.exploration_pressure
+```
+
+**What it tests:**
+- Dissonance stays within governor's hard constraints (`[min_dissonance, max_dissonance]`)
+- Identity stays within governor's hard constraints (`[min_identity, max_identity]`)
+- System is not frozen (mode switches > 3 across 100 episodes)
+
+**Metrics tracked:** D range, I range, mode switch count, constraint hit rate
+
+### Probe 2: Constraint Stress Test (`probes/constraint_stress.py`)
+
+Forces dissonance toward 0.85 (near ceiling) repeatedly, verifying active regulation (predictive dampening, boundary pressure) vs passive clipping.
+
+```bash
+python -m ravana_v2.probes.constraint_stress
+```
+
+**What it tests:**
+- Active regulation detected: dampening (soft control) or boosting occurs — not just hard ceiling caps
+- Tracks regulation event types: CEILING, DAMPEN, BOOST
+- Oscillates D between 0.80-0.89 to stress-test boundary pressure
+
+**Metrics tracked:** regulation events, ceiling hits, dampening events, regulatory layer distribution
+
+### Probe 3: Learning Signal Test (`probes/learning_signal.py`)
+
+Tracks ΔD across 200 episodes with simulated learning curve, verifying healthy exploration vs stagnation.
+
+```bash
+python -m ravana_v2.probes.learning_signal
+```
+
+**What it tests:**
+- System is exploring: mean |ΔD| > 0.01 and delta variance > 0.0001
+- System is NOT stagnant: near-zero ΔD ratio ≤ 0.7
+- Mode distribution shows healthy switching across episodes
+- Early vs late dissonance trends indicate learning progress
+
+**Metrics tracked:** D trajectory, delta variance, mean |ΔD|, mode distribution, early/late D means
+
+---
+
+## Training Pipeline
+
+### TrainingPipeline — Governor-Gated Training (`training/pipeline.py`)
+
+Clean training loop with governor-gated state evolution, difficulty scheduling, and comprehensive diagnostics.
+
+```python
+from training.pipeline import TrainingPipeline, TrainingConfig
+
+config = TrainingConfig(
+    total_episodes=100000,
+    log_interval=100,
+    checkpoint_interval=1000,
+    debug_first_n=50,
+    initial_difficulty=0.3,
+    max_difficulty=0.9,
+    difficulty_ramp_episodes=50000,
+)
+
+pipeline = TrainingPipeline(state_manager, config)
+summary = pipeline.train()
+```
+
+**Features:**
+- **Adaptive difficulty**: Linear ramp from `initial_difficulty` to `max_difficulty` over `difficulty_ramp_episodes`
+- **Governor-gated**: Every cognitive step passes through the governor; asserts state validity in debug mode
+- **Hard assertions** (debug mode): Dissonance ceiling/floor and identity floor breaches trigger immediate failure
+- **Checkpointing** at configurable intervals
+- **Clamp diagnostics**: Full governor clamp report + event log saved to `results/clamp_events.json`
+- **Metrics output**: `results/training_summary.json` with final state, governor stats, resolution stats, identity stats
+
+**Difficulty schedule:**
+```
+Difficulty(ep) = initial + (max - initial) × min(1, ep / ramp_episodes)
+```
+
+**Simulated outcome:**
+```
+success_rate = 0.7 - (difficulty - 0.3) × 0.4
+correctness = random() < success_rate
+```
+
+---
+
 ## See Also
 
 - [Architecture Overview](ARCHITECTURE.md)

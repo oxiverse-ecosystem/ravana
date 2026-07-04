@@ -10,10 +10,13 @@
 2. [Three-Layer Architecture](#three-layer-architecture)
 3. [Layer 1: `ravana_ml/` — ML Framework](#layer-1-ravana_ml--ml-framework)
 4. [Layer 2: `ravana-v2/` — GRACE Cognitive Core](#layer-2-ravana-v2--grace-cognitive-core)
-5. [Layer 3: `ravana/` — Unified Package](#layer-3-ravana--unified-package)
-5. [Data Flow & Integration](#data-flow--integration)
-6. [Key Algorithms](#key-algorithms)
-7. [Configuration Reference](#configuration-reference)
+5. [Layer 3: `ravana/` — Modular Package](#layer-3-ravana--modular-package)
+6. [Layer 4: `ravana/chat/` — Chat Interface](#layer-4-ravanachat--chat-interface)
+7. [Phase 1-3 Modules: VSA, S1/S2, Learning](#phase-1-3-modules-vsa-s1s2-learning)
+8. [Language Modules](#language-modules)
+9. [Data Flow & Integration](#data-flow--integration)
+10. [Key Algorithms](#key-algorithms)
+11. [Configuration Reference](#configuration-reference)
 
 ---
 
@@ -39,46 +42,68 @@ RAVANA:          Prediction Error → Pressure (Free Energy) → Self-Organizati
 
 ---
 
-## Three-Layer Architecture
+## Four-Layer Architecture
 
 ```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                LAYER 4: ravana/ — Modular Chat Package                      │
+│  ┌────────────────┐  ┌───────────────┐  ┌──────────────┐  ┌─────────────┐  │
+│  │ cognitive/core │  │   graph/      │  │  decoder/    │  │  web/       │  │
+│  │ (VAD,Identity, │  │  GraphEngine  │  │NeuralDecoder │  │ WebLearner  │  │
+│  │  Meaning,GW,   │  │  hippocampal  │  │ vocab/syntax │  │ background  │  │
+│  │  BeliefStore)  │  │  indexing     │  │ generation   │  │ learning    │  │
+│  ├────────────────┤  ├───────────────┤  ├──────────────┤  ├─────────────┤  │
+│  │ bootstrap/     │  │  nn/rlm/      │  │  language/   │  │  chat/      │  │
+│  │ BootstrapMgr   │  │ RelationPred  │  │  BasalGanglia│  │ ChatIface   │  │
+│  │                │  │ Propagation   │  │ Cerebellar   │  │ CLI + API   │  │
+│  │                │  │ Plasticity    │  │ PFC/syntax/  │  │             │  │
+│  │                │  │               │  │ SurfaceReal  │  │             │  │
+│  └────────────────┘  └───────────────┘  └──────────────┘  └─────────────┘  │
+└─────────────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                        LAYER 3: ravana/                          │
-│                  Unified pip-installable package                 │
-│  ┌─────────────┐  ┌─────────────┐  ┌────────────────────────┐   │
-│  │   nn/       │  │ cognitive/  │  │ graph/ propagation/    │   │
-│  │  (RLM)      │  │Framework +  │  │ world/ lab/            │   │
-│  │             │  │ 23+ modules │  │                        │   │
-│  └──────┬──────┘  └──────┬──────┘  └──────────┬─────────────┘   │
-└─────────│───────────────│─────────────────────│──────────────────┘
+│  LAYER 3: ravana/ — Re-export Layer (import ravana as torch)    │
+│  ┌───────────┐  ┌──────────────┐  ┌──────────────────────────┐  │
+│  │ ravana.nn │  │ ravana.cog. │  │ ravana.graph/propagation │  │
+│  │ re-exports│  │ Cognitive   │  │ re-exports from ravana_ml│  │
+│  │ RLM from  │  │ Framework   │  │                          │  │
+│  │ ravana_ml │  │ (GRACE API) │  │                          │  │
+│  └─────┬─────┘  └──────┬──────┘  └──────────┬───────────────┘  │
+└────────│───────────────│─────────────────────│──────────────────┘
           │               │                     │
           ▼               ▼                     ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│  LAYER 1: ravana_ml/ (5,200+ lines)    LAYER 2: ravana-v2/ (19,500+ lines) │
-│  ┌────────────────────────────┐      ┌────────────────────────────────┐    │
-│  │ • graph.py (ConceptGraph)  │      │ • GRACE Phase A–O (27 modules) │    │
-│  │ • nn/rlm.py (RLM v1)       │      │ • CognitiveCycle orchestration │    │
-│  │ • nn/rlm_v2.py (RLM v2)    │      │ • Persistent human memory      │    │
-│  │ • nn/module.py             │      │ • Sleep/dream consolidation    │    │
-│  │ • tensor.py                │      │ • VAD emotion engine           │    │
-│  │ • free_energy.py           │      │ • Global workspace             │    │
-│  │ • plasticity.py            │      │ • Meta-cognition & belief      │    │
-│  │ • propagation.py           │      │ • Social epistemology          │    │
-│  │ • tokenizer.py             │      │ • Meaning/intrinsic motivation │    │
-│  │ • currencies.py            │      │ • Planning & world model       │    │
-│  └────────────────────────────┘      └────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────────────────────────┘
+│  LAYER 2: ravana_ml/ (5,200+ lines)   LAYER 1: ravana-v2/ (22K+ lines) │
+│  ┌────────────────────────────┐      ┌──────────────────────────────┐ │
+│  │ • graph.py (ConceptGraph)  │      │ • GRACE Phases A–P (27 mods) │ │
+│  │ • nn/rlm.py (RLM v1)       │      │ • Governor, Identity, Sleep  │ │
+│  │ • nn/rlm_v2.py (RLM v2)    │      │ • VAD Emotion engine         │ │
+│  │ • nn/module.py             │      │ • Human Memory (SQLite)      │ │
+│  │ • nn/neuromodulator.py     │      │ • Global Workspace           │ │
+│  │ • nn/neural_decoder.py     │      │ • Meta-cognition + Meta²     │ │
+│  │ • tensor.py                │      │ • Belief / Social Epistemol. │ │
+│  │ • free_energy.py           │      │ • Hypothesis / Occam Layer   │ │
+│  │ • plasticity.py            │      │ • Active Epistemology/Probes │ │
+│  │ • propagation.py           │      │ • Reality Friction           │ │
+│  │ • embedder.py              │      │ • Planning/World Model       │ │
+│  │ • episode_injector.py      │      │ • Dual-Process Controller    │ │
+│  │ • relation_ontology.py     │      │ • Meaning/Intrinsic Motivat  │ │
+│  │ • tokenizer.py             │      │ • Dialogue/Repair            │ │
+│  │ • currencies/currency.py   │      │ • Runtime & Version Manager  │ │
+│  └────────────────────────────┘      └──────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Layer 1: `ravana_ml/` — ML Framework
+## Layer 2: `ravana_ml/` — ML Framework
 
 The ML framework provides a PyTorch-compatible API built entirely on NumPy.
 
 ### Core Modules
 
-#### `graph.py` — ConceptGraph (3,678 lines)
+#### `graph.py` — ConceptGraph (3,678+ lines)
 
 The central knowledge representation. A heterogeneous graph with:
 
@@ -87,7 +112,8 @@ The central knowledge representation. A heterogeneous graph with:
 - `core_vector` — identity anchor (slow, drift-resistant)
 - `genesis_vector` — original vector for drift tracking
 - `activation` — current spreading activation level
-- `salience`, `prediction_free_energy`, `stability`, `confidence`
+- `salience`, `prediction_free_energy`, `stability`, `confidence`, `contradiction_count`, `fatigue`
+- `free_energy_history`, `free_energy_gradient`, `contradiction_free_energy` — for local predictive coding
 - Hierarchical fields: `level`, `parent`, `children`, `abstraction_degree`
 - Temporal fields: `last_activated`, `activation_history`, `temporal_context`
 
@@ -114,7 +140,7 @@ graph.homeostatic_downscale(protection_threshold=0.8)
 graph.reconcile_contradictions()
 ```
 
-#### `nn/module.py` — Neural Modules (473 lines)
+#### `nn/module.py` — Neural Modules (473+ lines)
 
 PyTorch-like module hierarchy without autograd:
 
@@ -135,6 +161,28 @@ class ConceptAttentionHead(Module):  # multi-head QKV over concepts
 
 All params are `Parameter` (wraps `StateTensor` with `salience`, `free_energy`, `stability`, `decay`).
 
+#### `nn/neural_decoder.py` — NeuralDecoder
+
+The primary text generation engine. A GRU + attention decoder with:
+- Word-level embedding → GRU hidden states → attention → output logits
+- Sampled softmax with 50 negatives for tractable training
+- Word-level training on full sentences and article text
+- Conditioned generation with graph concept embeddings
+- Integrated with `NeuromodulatorEngine` for dynamic modulation
+- Sleep cycle for consolidation (weight + free energy update)
+
+#### `nn/neuromodulator.py` — NeuromodulatorEngine (NEW)
+
+Four-system ascending neuromodulation (ACh, NE, DA, 5-HT) modulating:
+- **Temperature** — generation randomness
+- **Repetition penalty** — output diversity
+- **Learning rates** — per-component learning modulation
+- **Exploration bonus** — rare word exploration
+- **BG gate thresholds** — Go/NoGo gating
+- **Dopamine tone** — vigor and confidence
+
+Based on Yu & Dayan (2002), Hasselmo (1999), Aston-Jones & Cohen (2005).
+
 #### `nn/rlm.py` — RLM v1 (3,931 lines)
 
 Recursive Learning Model with predictive coding:
@@ -142,11 +190,10 @@ Recursive Learning Model with predictive coding:
 - **Token embedding** → positional encoding → **GRU** → hidden layers → **concept predictor**
 - **5-path logit blend**: concept attention, context logits, RP analogy, sparse concept, direct latent
 - **Settling loop**: 5 iterations of predictive coding state updates
-- **Free energy**: 5-channel accumulator (semantic, linguistic, episodic, contradiction, abstraction)
+- **Free energy**: 5-channel accumulator
 - **Sleep**: interleaved replay (domain-tagged), contrastive hidden states, BP-trained RP
-- **Cognitive state**: unified via `CognitiveCurrencies`
 
-#### `nn/rlm_v2.py` — RLM v2 (5,013 lines)
+#### `nn/rlm_v2.py` — RLM v2 (5,013+ lines)
 
 Triple decomposition architecture:
 
@@ -162,14 +209,9 @@ subject_node → (filter by CAUSAL) → activated target nodes
 Logits over vocabulary
 ```
 
-Key differences from v1:
-- No character-level GRU
-- Spreading activation as **sole** inference mechanism
-- Learned relation type embeddings (not keyword-based)
-- Hebbian learning on `(subject @ relation_type) → object`
-- Verb-stem offset predictor for cross-domain generalization
+Key features: verb-stem offset predictor, entity adapter (test-time adaptation), W_rel bilinear matrices, cross-domain relation alignment.
 
-#### `free_energy.py` — FreeEnergyAccumulator (90 lines)
+#### `free_energy.py` — FreeEnergyAccumulator
 
 Five independent channels tracking prediction errors:
 
@@ -182,9 +224,10 @@ class FreeEnergyAccumulator:
     def accumulate_abstraction(self, error, salience=1.0): ...
     def total(self) -> float: ...
     def decay(self, rate=0.1): ...
+    def get_node_free_energy(self, node_id): ...
 ```
 
-#### `plasticity.py` — Plasticity Rules (77 lines)
+#### `plasticity.py` — Plasticity Rules
 
 ```python
 class HebbianPlasticity:      # Δw = lr * pre * post
@@ -192,15 +235,15 @@ class AntiHebbianPlasticity:  # Δw = -lr * pre * post (competition)
 class StructuralPlasticity:   # prune weak edges, form co-activation edges
 ```
 
-#### `propagation.py` — PropagationEngine (78 lines)
+#### `propagation.py` — PropagationEngine
 
 Spreading activation with typed edge filtering:
 
 ```python
 engine = PropagationEngine(graph)
-engine.get_prediction(active_nids, top_k=5)  # traverse edges, filter by type
-engine.get_activation_vector(nids)           # weighted average of vectors
-engine.measure_coherence(active_nids)        # mean pairwise similarity
+engine.get_prediction(active_nids, top_k=5)
+engine.get_activation_vector(nids)
+engine.measure_coherence(active_nids)
 ```
 
 #### `tokenizer.py` — Tokenizers
@@ -209,6 +252,30 @@ engine.measure_coherence(active_nids)        # mean pairwise similarity
 - `BPETokenizer` — tiktoken/GPT-2 (requires `tiktoken`)
 - `SimpleTokenizer` — char-level fallback (256 vocab)
 - `PixelTokenizer` — image → token sequence (28×28 → 784 tokens)
+
+#### `word_tokenizer.py` — WordTokenizer (Standalone)
+
+Word-level tokenizer with direct word-to-ID mapping for RLMv2. Used by the modular chat package.
+
+#### `embedder.py` — LearnedEmbedder
+
+Character n-gram + random projection (64-dim) embeddings for OOV handling. Uses MD5 feature hashing with IDF weighting.
+
+#### `episode_injector.py` — EpisodeInjector (NEW)
+
+Feeds structured knowledge into RLMv2's graph via learn(). Supports:
+- Dict-based facts, tuple-based facts, batch injection
+- Confidence-weighted training (repeat high-confidence facts more)
+- Multi-edge support via relation-object hub keys
+- Pre-built knowledge bases (PHARMACOLOGY_KB, ECOLOGY_KB)
+
+#### `relation_ontology.py` — Relation Ontology (NEW)
+
+Multi-level relation hierarchy for typed traversal:
+- Family > Sub-family > Predicate granularity
+- 6 families: causal (strong/moderate/weak), directional (positive/negative), compositional, taxonomic, temporal, capability
+- Super-families for aggregate traversal (causal_all, directional_all, causal_directional)
+- Structured Candidate dataclass with (word, predicate, family, sub_family, depth, confidence, path)
 
 #### `currencies.py` / `currency.py` — Cognitive Currencies
 
@@ -219,44 +286,68 @@ Unified cognitive state management replacing scattered scalars.
 - `RawTensor` — numpy wrapper with device API
 - `StateTensor` — adds cognitive metadata (salience, free_energy, stability, decay)
 
-#### `embedder.py` — LearnedEmbedder
+#### `lab/` — Analysis Tools
 
-Character n-gram + random projection (64-dim) for OOV handling.
+- `analyze_concept_graph()` — Graph structure analysis
+- `plot_activation_dynamics()` — Activation over time
+- `compute_coherence_trajectory()` — Coherence tracking
+- `visualize_sleep_cycle()` — Sleep diagnostics
+- `diagnose_learning()` — Learning diagnosis
+
+#### `world/` — Simulation Environments
+
+- `GridWorld` — discrete 2D environment
+- `ContinuousWorld` — continuous control
+- `SymbolicWorld` — discrete state, symbolic actions
 
 ---
 
-## Layer 2: `ravana-v2/` — GRACE Cognitive Core
+## Layer 1: `ravana-v2/` — GRACE Cognitive Core
 
 GRACE = **Governance, Reflection, Adaptation, Constraint, Exploration**
 
 ### Phase Architecture
 
-| Phase | Module | Lines | Function |
-|-------|--------|-------|----------|
-| **A** | `governor.py` | 743 | Central regulation — hard constraints, predictive dampening, boundary pressure, center-seeking |
-| **A** | `identity.py` | — | Momentum-based self-concept with recovery bias |
-| **A** | `resolution.py` | — | Continuous partial credit toward wisdom events |
-| **B** | `adaptation.py` | — | Policy learning from clamp events |
-| **C** | `strategy.py` | — | 4 exploration modes: AGGRESSIVE, SAFE, STABILIZE, RECOVER |
-| **C** | `strategy_learning.py` | — | Meta-learning over mode outcomes |
-| **D** | `intent.py` | — | Dynamic objectives evolving from outcomes |
-| **D.5** | `planning.py` | — | Micro-planner with simulated futures |
-| **E** | `environment.py` | — | Non-stationary world (boundary shifts, noise drift, goal flips) |
-| **F** | `predictive_world.py` | — | Neural world model, adaptive surprise threshold |
-| **F.5** | `belief_reasoner.py` | — | Competing hypotheses with confidence decay |
-| **G** | `active_epistemology.py` | — | Value of Information (VoI) calculation |
-| **G.5** | `surgical_probes.py` | — | Targeted intervention experiments |
-| **J** | `hypothesis_generation.py` | — | Generate hypotheses from anomalies |
-| **J.1** | `occam_layer.py` | — | Hypothesis discipline / complexity penalization |
-| **K** | `emotion.py` | 234 | VAD differential equations |
-| **K.5** | `empathy.py` | — | Other-mind modeling |
-| **L** | `sleep.py` | 703 | 4-stage SWS + REM with dream sabotage |
-| **L.5** | `dual_process.py` | — | System 1 / System 2 routing |
-| **M** | `meaning.py` | 224 | Intrinsic motivation: M = w1(-D) + w2(I) + w3(pred) × (1 + κ×effort) |
-| **N** | `global_workspace.py` | — | Competitive broadcast, consciousness bottleneck |
-| **O** | `human_memory.py` | 2,321 | Persistent episodic/semantic memory, Ebbinghaus decay, interference |
-| **P** | `dialogue_context.py` | — | Conversation tracking, active subgraphs |
-| **P** | `conversational_repair.py` | — | Correction handling, repair events |
+| Phase | Module | Function |
+|-------|--------|----------|
+| **A** | `governor.py` | Central regulation — hard constraints, predictive dampening, boundary pressure, center-seeking |
+| **A** | `identity.py` | Momentum-based self-concept with recovery bias |
+| **A** | `resolution.py` | Continuous partial credit toward wisdom events |
+| **A** | `state.py` | StateManager — orchestrates all modules |
+| **B** | `adaptation.py` | Policy learning from clamp events |
+| **C** | `strategy.py` | 4 exploration modes: AGGRESSIVE, SAFE, STABILIZE, RECOVER |
+| **C** | `strategy_learning.py` | Meta-learning over mode outcomes |
+| **D** | `intent.py` | Dynamic objectives evolving from outcomes |
+| **D.5** | `planning.py` | Micro-planner with simulated futures |
+| **E** | `environment.py` | Non-stationary world (boundary shifts, noise drift, goal flips) |
+| **F** | `predictive_world.py` | Neural world model, adaptive surprise threshold |
+| **F.5** | `belief_reasoner.py` | Competing hypotheses with confidence decay |
+| **G** | `active_epistemology.py` | Value of Information (VoI) calculation |
+| **G.5** | `surgical_probes.py` | Targeted intervention experiments |
+| **J** | `hypothesis_generation.py` | Generate hypotheses from anomalies |
+| **J.1** | `occam_layer.py` | Hypothesis discipline / complexity penalization |
+| **J.1** | `meta_cognition.py` | Meta-cognition: bias detection, confidence calibration, reasoning quality |
+| **K** | `emotion.py` | VAD differential equations |
+| **K.5** | `empathy.py` | Other-mind modeling |
+| **L** | `sleep.py` | 6-stage SWS + REM with dream sabotage |
+| **L.5** | `dual_process.py` | System 1 / System 2 routing |
+| **M** | `meaning.py` | Intrinsic motivation: M = w1(-D) + w2(I) + w3(pred) × (1 + κ×effort) |
+| **N** | `global_workspace.py` | Competitive broadcast, consciousness bottleneck |
+| **O** | `human_memory.py` | Persistent episodic/semantic memory, Ebbinghaus decay, interference |
+| **P** | `dialogue_context.py` | Conversation tracking, active subgraphs |
+| **P** | `conversational_repair.py` | Correction handling, repair events |
+| **—** | `meta2_cognition.py` | Meta²-cognition: self-model of epistemic processing |
+| **—** | `meta2_integration.py` | Meta² integration: coordinating multiple epistemic layers |
+| **—** | `social_epistemology.py` | Multi-agent belief dynamics, trust modeling, deception detection |
+| **—** | `reality_friction.py` | Testing reality model against actual outcomes |
+| **—** | `runtime.py` | Runtime orchestration module |
+| **Agent** | `agent/mode_orchestrator.py` | ModeOrchestrator — central dispatcher (RESEARCH/INTERVIEW/LEARN) |
+| **Agent** | `agent/version_manager.py` | VersionManager — SQLite version tracking, changelog, experiments queue |
+| **Probes** | `probes/exploration_pressure.py` | Probe 1: Exploration pressure test (+25% noise, verify boundedness) |
+| **Probes** | `probes/constraint_stress.py` | Probe 2: Constraint stress test (force D→0.85, verify active regulation) |
+| **Probes** | `probes/learning_signal.py` | Probe 3: Learning signal test (ΔD trends, verify learning vs stagnation) |
+| **Train** | `training/pipeline.py` | TrainingPipeline — governor-gated training with difficulty ramp |
+
 
 ### Governor — Central Regulation
 
@@ -358,36 +449,219 @@ memory.bridge_to_graph(graph) # semantic memories → ConceptGraph edges
 
 ---
 
-## Layer 3: `ravana/` — Unified Package
+## Layer 3: `ravana/` — Modular Chat Package
 
-Single pip-installable package re-exporting both codebases:
+The modular chat package (`ravana/src/ravana/`) is a full cognitive chat engine with continuous web learning. It integrates all lower layers into a cohesive conversational agent.
 
 ```bash
-pip install -e ravana/   # numpy only
-```
-
-```python
-import ravana as torch          # PyTorch-compatible API
-from ravana.nn import RLM       # RLMv2 (triple decomposition)
-from ravana.cognitive import CognitiveFramework  # Full cognitive system
-from ravana.graph import ConceptGraph
-from ravana.propagation import PropagationEngine
+# Interactive chat with web learning
+python -m ravana.chat
+# With ablation flags
+python -m ravana.chat --chat "hello|what is trust" --no-vad --no-rlm
 ```
 
 **Structure:**
 ```
-ravana/
-├── __init__.py          # import ravana as torch
-├── nn/
-│   └── __init__.py      # from ravana_ml.nn import RLMv2 as RLM
-├── cognitive/
-│   └── framework.py     # CognitiveFramework (wires L1 + L2)
-├── graph/               # re-exports ravana_ml.graph
-├── propagation/         # re-exports ravana_ml.propagation
-├── world/               # simulation environments
-├── lab/                 # analysis tools
-└── pyproject.toml       # numpy>=1.20
+ravana/src/ravana/
+├── __init__.py              # Module exports
+├── core/                    # CognitiveCore
+│   ├── emotion.py           # VADEmotionEngine
+│   ├── identity.py          # IdentityEngine
+│   ├── meaning.py           # MeaningEngine
+│   ├── dual_process.py      # DualProcessController
+│   ├── global_workspace.py  # GlobalWorkspace
+│   ├── meta_cognition.py    # MetaCognition
+│   ├── sleep.py             # SleepConsolidation
+│   ├── belief_store.py      # BeliefStore (multi-user belief merging)
+│   ├── hippocampal_buffer.py # HippocampalBuffer (fact store)
+│   ├── proposition_parser.py # Proposition parsing
+│   ├── causal_schema.py     # CausalSchemaLearner
+│   ├── implicature_detector.py # Pragmatic implicature
+│   ├── relation_memory.py   # RelationMemory (comparative)
+│   ├── quantity_modifier.py # QuantityModifierSystem
+│   ├── analogy_engine.py    # AnalogyEngine
+│   ├── abstraction_engine.py # AbstractionEngine
+│   ├── mirror.py            # EmotionalMirrorEngine
+│   ├── predictive_coding.py # PredictiveCodingLearner (Phase 1)
+│   ├── coherence.py         # CoherenceNetwork (Phase 2)
+│   ├── working_memory.py    # WorkingMemory with VSA (Phase 2)
+│   ├── vsa.py               # VSAManager (Phase 2)
+│   ├── system1.py           # System1Attractor (Phase 2)
+│   └── system2.py           # System2Simulator (Phase 2)
+├── graph/                   # GraphEngine
+│   └── engine.py            # Seeding, auto-expansion, spreading, hippocampal indexing
+├── decoder/                 # DecoderEngine
+│   └── engine.py            # NeuralDecoder management, vocab, training, generation
+├── web/                     # WebLearner
+│   └── learner.py           # SearchEngine, background learning, curiosity
+├── bootstrap/               # BootstrapManager
+│   └── manager.py           # Unified seeding: seed/domain/curiosity
+├── nn/rlm/                  # RLMv2 Decomposed
+│   ├── relation_predictor.py # RelationPredictor, verb-stem offset, W_rel
+│   ├── propagation.py       # PropagationEngine (BFS, relation-aware spread)
+│   └── plasticity.py        # Plasticity (Hebbian, Anti-Hebbian, Structural)
+├── language/                # Language production pipeline
+│   ├── basal_ganglia.py     # BasalGangliaGate (Go/NoGo selection)
+│   ├── cerebellar_ngram.py   # CerebellarNgram (fluent transitions)
+│   ├── prefrontal_workspace.py # Discourse planning
+│   ├── syntactic_cell_assembly.py # Syntactic role binding
+│   ├── surface_realizer.py  # English morphology/agreement
+│   ├── verb_lexicon.py      # Hebbian verb selection
+│   ├── register.py          # RegisterController (formality/certainty)
+│   └── schemas.py           # VSA SchemaLibrary
+├── learn/                   # Learning systems
+│   ├── curiosity.py         # CuriosityEngine (Phase 18)
+│   └── consolidation.py     # HippocampalReplay (Phase 3)
+├── storage/                 # Persistence
+│   └── db.py                # CognitiveDB (SQLite)
+└── chat/                    # Chat interface
+    ├── interface.py         # ChatInterface (main CLI/API)
+    ├── engine.py            # CognitiveChatEngine
+    ├── models.py            # Data models
+    ├── user_model.py        # UserModel — Theory of Mind (goal inference, preferences, rapport)
+    ├── belief_store.py      # Multi-user belief store
+    ├── response_gen.py      # ResponseGenMixin — neural decoder gen, chitchat, syntactic pipeline
+    ├── chain_walker.py      # ChainWalkerMixin — graph traversal, relation inference, PFC top-down bias
+    ├── web_learning.py      # WebLearningMixin — background learning, curiosity drive (Phase 18)
+    └── constants.py         # Shared constants
 ```
+
+### `chat/` — Chat Interface Mixins
+
+The chat engine (`CognitiveChatEngine`) is composed of mixin layers that each handle a distinct cognitive function:
+
+#### `UserModel` — Theory of Mind (`user_model.py`)
+
+Tracks user-specific knowledge, preferences, emotional state, and inferred goals:
+
+| Feature | Description |
+|---------|-------------|
+| **Goal Inference** | Classifies user queries into `LEARNING`, `DEBUGGING`, `EXPLORING` based on lexical markers |
+| **Relationship Depth** | Grows with interaction count (`depth = count / 20`, capped at 1.0) |
+| **Knowledge Model** | Per-concept familiarity tracking via `knowledge_model` and `learning_goals` |
+| **Emotional Rapport** | Per-topic valence tracking via `emotional_rapport` dictionary |
+| **Preference Extraction** | Regex-based extraction of likes, interests, favorites, and user name from chat |
+| **Cognitive Style** | Detects `curious`, `skeptical`, or `practical` style from query vocabulary |
+| **Edge Reactivations** | Tracks which concept pairs have been activated, boosting them in future walks |
+| **Engagement & Depth** | Computes `engagement_level`, `conversation_depth`, `topic_interaction_count` |
+| **Serialization** | Full `get_state()` / `set_state()` with backward compatibility |
+
+#### `ChainWalkerMixin` — Graph Traversal (`chain_walker.py`)
+
+Core graph walking and relation inference:
+- **Concept seeding** — GloVe-powered teen concept seeding with 5 typed relation types
+- **Auto-expansion** — `_auto_expand_concepts()` adds new words from user input via GloVe similarity
+- **Causal detection** — GloVe-based semantic causal detection (`_word_causal_score()` with seed vectors)
+- **PFC top-down modulation** — Relation prototypes bias edge selection by discourse intent type
+- **Prediction error learning** — `_prediction_error()` updates edge weights via gradient descent on cosine similarity
+- **Contradiction detection** — `_is_contradictory()` checks belief assertions against antonym map
+- **Basal Ganglia gating** — `_walk_chain()` uses 15+ modulators (arousal, novelty, fatigue, dopamine tone, etc.)
+- **Spreading activation** — `_spread_and_collect()` propagates activation through typed edges with hop decay
+- **Grouped associations** — `_group_associations()` organizes concepts by relation type for response generation
+
+#### `ResponseGenMixin` — Response Generation (`response_gen.py`)
+
+Multi-path response generation pipeline:
+1. **Neural Decoder** (`_generate_with_decoder`) — GRU+attention autoregressive generation with cerebellar n-gram bias and basal ganglia gating
+2. **Syntactic Pipeline** (`_generate_with_decoder_and_syntax`) — P600-driven compositional integration
+3. **Graph Fallback** (`_graph_fallback_response`) — Free-energy-driven SurfaceRealizer with Hebbian verb selection
+4. **Reasoning Loop** — Web-aware fallback for unknown concepts
+- **Comparison detection** — `_detect_comparison_concepts()` identifies contrasting pairs for structured responses
+- **Chitchat handling** — `_handle_chitchat()` routes greetings/wellbeing/farewells through the cognitive pipeline
+- **Hippocampal recall** — `_try_hippocampal_retrieval()` recalls factual memories before generative paths
+
+#### `WebLearningMixin` — Web Learning (`web_learning.py`)
+
+Continuous web learning and curiosity-driven exploration:
+- **Multi-API search** with circuit breaker and automatic offline fallback
+- **Background learning thread** — `_bg_learn_loop()` processes pending queue with 30s idle detection
+- **Parallel article fetching** via `ThreadPoolExecutor`
+- **Definition extraction** — ATL-style patterns (`X is a Y`, `X refers to Y`) populate neocortical definition store
+- **Decoder training** — 30+ passes per article for Hebbian strengthening
+- **Curiosity Drive (Phase 18)** — `_auto_select_curiosity_topics()` from 5 sources:
+  - Unresolved impossible queries (5× weight)
+  - High prediction error concepts (3× weight)
+  - Contradiction pairs with confidence-mismatch (3× weight)
+  - Novel concepts via dormant edge ratio (1× weight)
+  - Random graph walk from high-degree hubs (serendipity)
+
+#### Key Modular Components
+
+#### `core/` — CognitiveCore
+
+Includes all core cognitive engines from the modular package:
+- **VADEmotionEngine** — 3D affective state (Valence, Arousal, Dominance)
+- **IdentityEngine** — Self-coherence with momentum
+- **MeaningEngine** — Intrinsic motivation computation
+- **DualProcessController** — System 1/2 routing
+- **GlobalWorkspace** — Competitive broadcast bottleneck
+- **MetaCognition** — Bias detection, confidence calibration, epistemic modes
+- **SleepConsolidation** — Sleep cycles with dream sabotage
+- **BeliefStore** — Multi-user belief tracking and merging (`cross_reference_users()`, `find_agreement()`)
+- **EmotionalMirrorEngine** — Mirrors user emotion to modulate verbosity/temperature
+- **HippocampalBuffer** — Fact memory with decay and alias-based retrieval
+- **PropositionParser** — Nested proposition detection
+- **CausalSchemaLearner** — Learns causal relationships from patterns
+- **ImplicatureDetector** — Pragmatic implicature analysis
+- **RelationMemory** — Comparative/transitive relations
+- **QuantityModifierSystem** — Quantity comparison reasoning
+- **AnalogyEngine** — Analogy solving with relational structure mapping
+- **AbstractionEngine** — Multi-perspective abstraction analysis
+
+#### Phase 1-3: VSA Working Memory, System 1/2, Learning
+
+| Module | Phase | Function |
+|--------|-------|----------|
+| `predictive_coding.py` | 1 | Local predictive coding: each node learns local predictors from context vectors |
+| `coherence.py` | 2 | Thagard's ECHO coherence network: constraint satisfaction settling |
+| `working_memory.py` | 2 | PFC working memory with VSA binding, context gating, lateral interference |
+| `vsa.py` | 2 | Vector Symbolic Architecture (HRR): role-filler binding, bundling, unbinding |
+| `system1.py` | 2 | System 1 attractor dynamics: iterative activation settling with confidence entropy |
+| `system2.py` | 2 | System 2 deliberative simulation: causal subgraph extraction, forward/counterfactual sim |
+| `curiosity.py` | 3 | CuriosityEngine: 5 curiosity signals (PE, information gap, dissonance, novelty, learning progress) |
+| `consolidation.py` | 3 | HippocampalReplay: NREM forward replay + interleaved replay + pruning |
+| `register.py` | 3 | RegisterController: formality/verbosity/certainty modulation knobs |
+| `db.py` | 2 | CognitiveDB: SQLite persistence, WAL mode, graph/episode/metadata storage |
+
+#### `language/` — Production Pipeline
+
+The P1 Production-Grade Syntactic Pipeline implements a full language generation system:
+
+```
+PrefrontalWorkspace → Discourse Plan (structured intents from graph)
+       ↓
+SyntacticCellAssembly → Syntactic Frames (bind concepts to grammatical roles)
+       ↓
+BasalGangliaGate → Candidate Selection (Go/NoGo gating with neuromodulation)
+       ↓
+CerebellarNgram → Fluent Completion (learned function word transitions)
+       ↓
+SurfaceRealizer → Final Text (morphology, agreement, punctuation)
+```
+
+- **BasalGangliaGate**: Go/NoGo gating modulated by arousal, novelty, prediction error, identity strength, dopamine tone, fatigue level, prefrontal boost, thalamic salience, and contradiction penalty
+- **CerebellarNgram**: Sparse bigram/trigram prediction for function words, learned from seed corpora
+- **PrefrontalWorkspace**: Discourse planning from question type detection, intent decomposition, discourse marker assignment
+- **SyntacticCellAssembly**: Hebbian role learning with subject/verb/object frames seeded from POS tags
+- **SurfaceRealizer**: English morphology (past tense -ed, plural -s, 3rd person -s), determiner selection, pronoun coreference, negation handling
+- **VerbLexicon**: Hebbian-compositional verb selection from relation type and dopamine tone
+- **RegisterController**: Formality, verbosity, certainty knobs with REINFORCE-style adaptation
+
+#### `web/` — WebLearner
+
+Autonomous web learning system:
+- **Multi-API search** with circuit breaker (local_api, oxiverse, duckduckgo)
+- **Article fetching** with trafilatura + BeautifulSoup fallback
+- **Background learning thread** with idle detection
+- **Curiosity-driven topic selection** (Phase 18) combining prediction error, contradiction, novelty, and learning progress signals
+- **Deferred learning queue** for unknown words
+
+#### `bootstrap/` — BootstrapManager
+
+Unified concept seeding:
+- `bootstrap_all()` — seeds teen concepts + domain concepts + curiosity priming
+- `auto_expand_from_input()` — expands graph from every user message
+- `curiosity_bootstrap()` — seeds learning queue from curiosity signals
 
 ---
 

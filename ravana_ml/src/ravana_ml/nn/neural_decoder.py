@@ -542,18 +542,25 @@ class NeuralDecoder(Module):
         # Sampled softmax: K=50 negatives, shared across positions within sentence
         # Focused negative sampling: prefer words with high output weights
         # (the model's most-confidently-predicted words make the best negatives).
-        n_neg = 50
         if not hasattr(self, '_neg_rng'):
             self._neg_rng = np.random.RandomState(42)
-        # Compute row L2 norms as sampling weights (softmax over indices)
-        row_norms = np.linalg.norm(out_weight[non_special_idx], axis=1)
-        # Flatten extreme outliers with log transform for stable sampling
-        log_weights = np.log1p(row_norms * 5.0)
-        neg_probs = log_weights / np.sum(log_weights)
-        # Ensure numerical stability
-        neg_probs = np.clip(neg_probs, 1e-10, None)
-        neg_probs /= neg_probs.sum()
-        shared_negatives = self._neg_rng.choice(non_special_idx, n_neg, replace=False, p=neg_probs)
+        n_neg = min(50, len(non_special_idx))
+        if n_neg > 0:
+            # Compute row L2 norms as sampling weights (softmax over indices)
+            row_norms = np.linalg.norm(out_weight[non_special_idx], axis=1)
+            # Flatten extreme outliers with log transform for stable sampling
+            log_weights = np.log1p(row_norms * 5.0)
+            sum_log_weights = np.sum(log_weights)
+            if sum_log_weights > 0:
+                neg_probs = log_weights / sum_log_weights
+            else:
+                neg_probs = np.ones(len(non_special_idx)) / len(non_special_idx)
+            # Ensure numerical stability
+            neg_probs = np.clip(neg_probs, 1e-10, None)
+            neg_probs /= neg_probs.sum()
+            shared_negatives = self._neg_rng.choice(non_special_idx, n_neg, replace=False, p=neg_probs)
+        else:
+            shared_negatives = np.array([], dtype=np.intp)
 
         # Pre-allocate buffers
         max_T = len(word_indices) - 1

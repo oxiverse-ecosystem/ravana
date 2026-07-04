@@ -27,7 +27,7 @@ from dataclasses import dataclass, field, asdict
 from collections import defaultdict
 
 # Ensure project root in path
-_PROJECT_ROOT = Path(__file__).parent
+_PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT))
 sys.path.insert(0, str(_PROJECT_ROOT / "ravana-v2"))
 
@@ -39,7 +39,7 @@ from experiments.experiment_cross_domain import (
     train_rlm_on_domain, evaluate_rlm, evaluate_mlp,
     encode_fact
 )
-from tests.test_structural_transfer import strip_trailing_spaces
+from tests.integration.test_structural_transfer import strip_trailing_spaces
 from experiments.experiment_phase4_integrated import inject_minilm_embeddings
 from scripts.ravana_chat import CognitiveChatEngine
 from ravana.cognitive import CognitiveFramework, FrameworkConfig
@@ -353,8 +353,6 @@ def run_pxc_text_benchmarks(config: BenchmarkConfig, args=None) -> List[PCXTaskR
                   f"lat={np.mean(latencies):.1f}ms, mem={np.mean(memories):.1f}MB")
     
     # Cross-domain structural transfer (RAVANA's differentiator)
-    print("\n  Cross-domain structural transfer test...")
-    from tests.test_structural_transfer import run as run_transfer_test
     # We'll run a simplified version inline
     
     # Cross-domain probes: Domain A verb + Domain B subject

@@ -96,6 +96,15 @@ Two inference paths: (1) **Verb offset**: `offset(verb) = avg(target - subject)`
 ### 👥 Multi-User Belief Merging (Modular only)
 `BeliefStore` tracks *who believes what*, detects contradictions, merges across users — `cross_reference_users()`, `find_agreement()`, `find_disagreement()`.
 
+### 🧠 Theory of Mind & Emotional Mirroring (Modular only)
+`UserModel` tracks user-specific goals (`LEARNING`/`DEBUGGING`/`EXPLORING`), preferences, emotional state (VAD), and relationship depth. User arousal modulates generation temperature, verbosity, and concept breadth — creating adaptive, personalized dialogue.
+
+### 🔬 Validation & Benchmark Scripts
+- `scripts/validate_held_out_generalization.py` — Validates verb-offset blending, confidence-weighted blending, and prototype inheritance
+- `scripts/benchmark_vs_transformers.py` — Discriminative benchmark comparing RLMv2 against PyTorch baselines
+- `scripts/test_emotional_mirror.py` — VAD emotional tracking tests
+- `scripts/test_theory_of_mind.py` — ToM goal inference & personalization tests
+
 ---
 
 ## Quick Start
@@ -390,6 +399,15 @@ ravana/
 │   │   ├── meaning.py                  # Intrinsic motivation
 │   │   ├── dual_process.py             # System 1 / System 2
 │   │   └── ... (20 more modules)
+│   ├── agent/                          # Agent infrastructure
+│   │   ├── mode_orchestrator.py        #   ModeOrchestrator (RESEARCH/INTERVIEW/LEARN)
+│   │   └── version_manager.py          #   VersionManager (SQLite persistence)
+│   ├── probes/                         # Governor diagnostic probes
+│   │   ├── exploration_pressure.py     #   Probe 1: Boundedness under chaos
+│   │   ├── constraint_stress.py        #   Probe 2: Active regulation vs passive clipping
+│   │   └── learning_signal.py          #   Probe 3: Learning vs stagnation
+│   ├── training/                       # Training pipeline
+│   │   └── pipeline.py                 #   Governor-gated training loop
 │   ├── experiments/phases/             # Phase runners
 │   └── tests/                          # Unit tests
 ├── experiments/                        # Cross-domain & Phase 4 experiments (18 files)

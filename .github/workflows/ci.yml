@@ -21,11 +21,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install numpy pytest pytest-cov
-          pip install -e ravana_ml/         # core ML framework (ConceptGraph, plasticity, etc.)
-          pip install -e ravana-v2/          # grace cognitive architecture (Identity, Emotion, GW, etc.)
-          pip install -e ravana_chat_src/    # chat interface (optional deps)
-          pip install -e .                  # root package (test utilities)
+          pip install -e .[full,dev]
       - name: Run CI-critical tests
         run: |
           mkdir -p data output checkpoints
@@ -42,11 +38,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install numpy pytest pytest-cov
-          pip install -e ravana_ml/
-          pip install -e ravana-v2/
-          pip install -e ravana_chat_src/
-          pip install -e .
+          pip install -e .[full,dev]
       - name: Run unit tests
         run: |
           mkdir -p data output checkpoints
@@ -63,11 +55,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install numpy pytest pytest-cov
-          pip install -e ravana_ml/
-          pip install -e ravana-v2/
-          pip install -e ravana_chat_src/
-          pip install -e .
+          pip install -e .[full,dev]
       - name: Run integration tests
         run: |
           mkdir -p data output checkpoints
@@ -86,11 +74,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install numpy pytest pytest-cov
-          pip install -e ravana_ml/
-          pip install -e ravana-v2/
-          pip install -e ravana_chat_src/
-          pip install -e .
+          pip install -e .[full,dev]
       - name: Run full test suite
         run: |
           mkdir -p data output checkpoints

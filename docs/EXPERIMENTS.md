@@ -107,6 +107,128 @@ python scripts/run_ablation.py --queries "what causes rain|how does learning wor
 - Total time
 - Error modes
 
+### User Model Experiment — `experiments/experiment_user_model.py`
+
+Tests user adaptation and personalization across 3 user personas (curious, skeptical, practical):
+
+```bash
+python experiments/experiment_user_model.py --interactions 200 --output results/user_model.json
+```
+
+**Metrics tracked per interaction:**
+
+| Metric | Description |
+|--------|-------------|
+| `edge_boost_used` | Whether user model boosted graph traversal |
+| `user_model_size` | Number of tracked edge reactivations |
+| `followup_coherence` | Semantic overlap between consecutive queries (follow-ups) |
+| `topic_consistency` | Fraction of response words in user's query concepts |
+| `preferred_edges` | Top-5 most reactivated concept pairs |
+| `identity_strength` | Self-concept stability over time |
+
+**Three personas tested:**
+- **curious** (inquisitive, 70% follow-up rate) — many deep dives into related topics
+- **skeptical** (challenging, 50% follow-up) — contradiction-driven exploration
+- **practical** (action-oriented, 40% follow-up) — goal-directed queries
+
+### Phase 1 Validation — `scripts/validate_held_out_generalization.py`
+
+Validates held-out generalization mechanisms:
+
+```bash
+python scripts/validate_held_out_generalization.py
+```
+
+**Four validation tests:**
+| Test | Purpose |
+|------|---------|
+| `test_verb_offset_all_verbs` | ALL verbs (not just whitelist) produce valid predictions |
+| `test_confidence_weighted_blending` | Frequent verbs dominate, rare verbs blend with W_rel |
+| `test_prototype_inheritance` | Novel entities inherit edges from nearest prototype |
+| `test_cross_domain_transfer` | Verb offsets transfer science→social cross-domain |
+
+### P2 Emotional Mirroring — `scripts/test_emotional_mirror.py`
+
+Tests the emotional state tracking system (roadmap §7):
+
+```bash
+python scripts/test_emotional_mirror.py
+```
+
+**Tests cover:**
+1. `UserEmotionDetector`: VAD inference from text (positive, negative, curious)
+2. `emotional_state` field: initialized, updated, EMA blended
+3. `interaction_history`: recorded, capped at 100 entries
+4. Temperature modulation: user arousal affects `_get_temperature` output
+5. Verbosity modulation: user arousal affects discourse plan intent count
+6. Concept breadth modulation: user arousal affects max assocs in pipeline
+7. Serialization round-trip (`get_state` / `set_state` + backward compat)
+8. Integration: full engine `process_turn` with emotional state tracking
+
+### P1 Theory of Mind — `scripts/test_theory_of_mind.py`
+
+Tests the ToM personalization system (roadmap §7):
+
+```bash
+python scripts/test_theory_of_mind.py
+```
+
+**Tests cover:**
+1. Goal inference (`LEARNING` / `DEBUGGING` / `EXPLORING` classification)
+2. Relationship depth growth with interaction count
+3. Adaptive verbosity (novice vs expert discourse plan length)
+4. Personalized greeting (only when `relationship_depth > 0.5`)
+5. Serialization round-trip + backward compatibility
+6. Integration: full engine `process_turn` with ToM signals
+
+### P3 Benchmark Harness — `scripts/benchmark_vs_transformers.py`
+
+Discriminative benchmark comparing RLMv2 against PyTorch baselines on tasks that test unique capabilities:
+
+```bash
+python scripts/benchmark_vs_transformers.py                # full suite
+python scripts/benchmark_vs_transformers.py --quick        # smaller run
+python scripts/benchmark_vs_transformers.py --model all   # all models
+python scripts/benchmark_vs_transformers.py --output report.md
+```
+
+**Six benchmark tasks:**
+| Task | What it tests |
+|------|---------------|
+| Verb-offset held-out | Novel subjects with seen verbs → offset generalization |
+| Cross-domain transfer | Science verbs → social domain → domain transfer |
+| Ontology benefit | With vs without seed ontology initialization |
+| Catastrophic forgetting | Sequential A→B→C with retention tracking |
+| Conversation quality | Coherence, diversity, repetition, avg length |
+| Parameter efficiency | Params per unit of accuracy vs theoretical baselines |
+
+**Baselines compared:** Linear baseline, MLP (2-layer), DistilGPT-2 (if available)
+
+### Diagnostic Probes (GRACE Governor Validation)
+
+Three probes that validate GRACE governor dynamics under stress conditions, located in `ravana-v2/src/ravana_grace/probes/`:
+
+```bash
+# Probe 1: Exploration Pressure Test — +25% noise, verify boundedness
+python -m ravana_v2.probes.exploration_pressure
+
+# Probe 2: Constraint Stress Test — force D→0.85, verify active regulation
+python -m ravana_v2.probes.constraint_stress
+
+# Probe 3: Learning Signal Test — track ΔD trends, verify learning vs stagnation
+python -m ravana_v2.probes.learning_signal
+```
+
+### Training Pipeline — `training/pipeline.py`
+
+Governor-gated training loop with difficulty scheduling and comprehensive diagnostics:
+
+```bash
+python -m ravana_v2.training.pipeline
+```
+
+Outputs: `results/training_summary.json`, `results/clamp_events.json`
+
 ### Per-Triple Evaluation Harness — `scripts/triple_eval.py`
 
 Provides detailed per-triple diagnostics instead of averaged metrics.
