@@ -208,16 +208,12 @@ class SleepMixin:
 
 
         for nid in nodes_to_remove:
-
             # Remove all edges connected to this node
+            for target_nid, _ in list(self.graph._outgoing.get(nid, [])):
+                self.graph.remove_edge(nid, target_nid)
 
-            for _, edge in self.graph._outgoing.get(nid, []):
-
-                self.graph.remove_edge(nid, edge.target)
-
-            for edge, _ in self.graph._incoming.get(nid, []):
-
-                self.graph.remove_edge(edge.source, nid)
+            for source_nid, _ in list(self.graph._incoming.get(nid, [])):
+                self.graph.remove_edge(source_nid, nid)
 
             # Remove the node
 
