@@ -240,6 +240,122 @@ class EventSchemaLibrary:
             self.seed_default_schemas()
         return self._schemas.get(concept.lower().strip())
 
+    def get_schema_by_similarity(self, concept: str,
+                                  vector_fn: Optional[Callable] = None,
+                                  min_similarity: float = 0.25) -> Optional[Tuple[str, EventSchema, float]]:
+        """Find the closest schema by semantic vector similarity.
+
+        Conceptual blending mechanism: when a concept has no direct schema,
+        find the semantically closest KNOWN concept that has a schema,
+        and return its schema along with the similarity score.
+
+        This mimics the brain's analogical reasoning: hippocampus binds
+        known schemas onto novel concepts by structural similarity.
+
+        Args:
+            concept: The concept to find a schema for
+            vector_fn: Function that returns a vector for a concept label.
+                       E.g., lambda x: self._glove_vector(x)
+            min_similarity: Minimum cosine similarity to accept a match
+
+        Returns:
+            Tuple (closest_concept, schema, similarity) or None if no match
+        """
+        if not self._seeded:
+            self.seed_default_schemas()
+
+        concept_lower = concept.lower().strip()
+
+        # Direct match first
+        if concept_lower in self._schemas:
+            return (concept_lower, self._schemas[concept_lower], 1.0)
+
+        # No vector function means no similarity search
+        if vector_fn is None:
+            return None
+
+        # Get the query vector
+        query_vec = vector_fn(concept_lower)
+        if query_vec is None:
+            return None
+        qnorm = np.linalg.norm(query_vec)
+        if qnorm < 1e-10:
+            return None
+        query_vec = query_vec / qnorm
+
+        # Find the closest schema concept by cosine similarity
+        best_sim = 0.0
+        best_concept = None
+        best_schema = None
+
+        for schema_concept, schema in self._schemas.items():
+            if schema_concept == concept_lower:
+                continue
+            schema_vec = vector_fn(schema_concept)
+            if schema_vec is None:
+                continue
+            snorm = np.linalg.norm(schema_vec)
+            if snorm < 1e-10:
+                continue
+            sim = float(np.dot(query_vec, schema_vec / snorm))
+            # Clamp to [0, 1] — we only care about POSITIVE similarity
+            sim = max(0.0, sim)
+            if sim > best_sim:
+                best_sim = sim
+                best_concept = schema_concept
+                best_schema = schema
+
+        if best_schema is None or best_sim < min_similarity:
+            return None
+
+        return (best_concept, best_schema, best_sim)
+
+    def get_narrative_from_similar_schema(self, concept: str,
+                                           vector_fn: Optional[Callable] = None,
+                                           min_similarity: float = 0.25) -> Optional[Tuple[List[str], str, float]]:
+        """Generate a narrative by blending concepts onto similar schemas.
+
+        Like the brain's analogical encoding (Hofstadter 2001, Holyoak 2012):
+        when we encounter an unknown concept, the hippocampus retrieves
+        a structurally similar KNOWN schema and uses it as a scaffold,
+        substituting the target concept into the schema roles.
+
+        Returns:
+            Tuple (narrative_sentences, source_concept, similarity) or None
+        """
+        result = self.get_schema_by_similarity(concept, vector_fn, min_similarity)
+        if result is None:
+            return None
+
+        source_concept, schema, similarity = result
+        concept_lower = concept.lower().strip()
+
+        # Generate narrative sentences but SUBSTITUTE the query concept
+        # into the schema, producing blended narratives like:
+        #   Query: "infinity" -> Schema: "growth" (sim=0.31)
+        #   Blended: "infinity begins naturally..."
+        narrative = self.get_narrative_from_schema(source_concept)
+        if narrative is None:
+            return None
+
+        # Substitute the concept name in sentences
+        blended = []
+        for sent in narrative:
+            # Replace source concept references with query concept
+            # Handle capitalization variants
+            lower_sent = sent.lower()
+            if source_concept.lower() in lower_sent:
+                # Case-insensitive replacement preserving original case
+                pattern = re.compile(re.escape(source_concept), re.IGNORECASE)
+                new_sent = pattern.sub(concept_lower, sent)
+                # Capitalize first letter
+                new_sent = new_sent[0].upper() + new_sent[1:]
+            else:
+                new_sent = sent
+            blended.append(new_sent)
+
+        return (blended, source_concept, similarity)
+
     def has_schema(self, concept: str) -> bool:
         """Check if a concept has a registered schema."""
         if not self._seeded:
@@ -343,14 +459,27 @@ class EventSchemaLibrary:
 
         return sentences
 
-    def blend_schemas(self, concept_a: str, concept_b: str) -> Optional[EventSchema]:
+    def blend_schemas(self, concept_a: str, concept_b: str,
+                      vector_fn: Optional[Callable] = None) -> Optional[EventSchema]:
         """Blend two schemas into a combined narrative.
 
         Takes the first half of schema A and second half of schema B,
         creating a blended process description.
+
+        If a concept doesn't have a direct schema, tries similarity search.
         """
         schema_a = self.get_schema(concept_a)
+        if schema_a is None and vector_fn is not None:
+            res = self.get_schema_by_similarity(concept_a, vector_fn)
+            if res:
+                _, schema_a, _ = res
+
         schema_b = self.get_schema(concept_b)
+        if schema_b is None and vector_fn is not None:
+            res = self.get_schema_by_similarity(concept_b, vector_fn)
+            if res:
+                _, schema_b, _ = res
+
         if not schema_a or not schema_b:
             return None
 

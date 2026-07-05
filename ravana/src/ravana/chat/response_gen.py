@@ -792,100 +792,205 @@ class ResponseGenMixin(ChainWalkerMixin):
             total_sentences=3, free_energy=max(0.15, 1.0 - coherence * 0.7),
         )
 
+        schema_used = False
+
         if schema and len(schema.steps) >= 2:
             # Use event schema for rich process narrative
-            # Schema sentences already have correct pronouns and flow — use them as-is
             narrative_sents = schema_lib.get_narrative_from_schema(subject_lower)
             if narrative_sents:
                 for ns in narrative_sents[:2]:
-                    # Schema sentences already have proper pronouns — no "it " prefix needed
-                    # Just capitalize the first letter if it's the first utterance, else lowercase
                     if len(utterances) == 0:
                         utterances.append(ns[0].upper() + ns[1:])
                     else:
                         utterances.append(ns[0].lower() + ns[1:])
-        elif noun_assocs and len(noun_assocs) >= 2:
-            # Generate process description from second strongest association
-            second = noun_assocs[1] if len(noun_assocs) > 1 else noun_assocs[0]
-            second_rel = "causal"
-            verb_s2 = VerbLexicon.select_verb_with_situation(
-                relation="causal",
-                situation_vector=situation_vec,
-                subject=subject,
-                object=second[0],
-                dopamine_tone=dopamine_tone,
-                vector_fn=vector_fn,
-            )
-            frame2 = self.syntactic_assembly.bind_to_sentence(
-                subject=subject,
-                relation=second_rel,
-                target=second[0],
-                pos_map=getattr(self, '_concept_pos', {}),
-            )
-            frame2.verb_phrase = verb_s2
-            s2 = self.surface_realizer.realize(
-                frame=frame2, discourse_context=disc_ctx2,
-                dopamine_tone=dopamine_tone,
-                cerebellar_ngram=getattr(self, 'cerebellar_ngram', None),
-            )
-            if s2 and len(s2) > 5:
-                if utterances:
-                    s2_lower = s2[0].lower() + s2[1:]
-                    utterances.append(s2_lower)
-                else:
-                    utterances.append(s2)
+                schema_used = True
 
-            # Sentence 3: Significance/impact sentence (only if no schema was used)
-            disc_ctx3 = DiscourseState(
-                sentence_index=len(utterances), discourse_type="conclude",
-                total_sentences=3, free_energy=max(0.1, 1.0 - coherence * 0.8),
-            )
-            if noun_assocs and len(noun_assocs) >= 3:
-                third = noun_assocs[2]
-                verb_s3 = VerbLexicon.select_verb_with_situation(
+        # -- CONCEPTUAL BLENDING: Check for similar schemas if no direct match --
+        if not schema_used and schema_lib and vector_fn is not None:
+            try:
+                blended = schema_lib.get_narrative_from_similar_schema(
+                    subject_lower,
+                    vector_fn=vector_fn,
+                    min_similarity=0.25,
+                )
+                if blended:
+                    narrative_sents, source_concept, similarity = blended
+                    if narrative_sents:
+                        if len(utterances) == 0:
+                            utterances.append(narrative_sents[0][0].upper() + narrative_sents[0][1:])
+                        else:
+                            utterances.append(narrative_sents[0][0].lower() + narrative_sents[0][1:])
+                        if len(narrative_sents) > 1:
+                            utterances.append(narrative_sents[1][0].lower() + narrative_sents[1][1:])
+                        schema_used = True
+                        if getattr(self, '_trace_enabled', False):
+                            print(f"  [trace]   Blended schema from '{source_concept}' (sim={similarity:.2f})")
+            except Exception as e:
+                if getattr(self, '_trace_enabled', False):
+                    print(f"  [trace]   Schema blending error: {e}")
+
+        # -- GIST EXTRACTION: Generate from weak associations when no schema --
+        if not schema_used and noun_assocs:
+            # Generate process description — use SECOND association for diversity
+            # (first association was already used for the definition sentence)
+            if len(noun_assocs) >= 2:
+                second = noun_assocs[1]
+            elif len(noun_assocs) == 1 and len(utterances) > 0:
+                # Only one association and already used for definition
+                # Skip to avoid duplicate content; gist fallback handles it
+                second = None
+            else:
+                second = noun_assocs[0]
+
+            # Sentence 2: Process description from fresh association
+            if second is not None:
+                second_rel = "causal"
+                verb_s2 = VerbLexicon.select_verb_with_situation(
                     relation="causal",
                     situation_vector=situation_vec,
                     subject=subject,
-                    object=third[0],
+                    object=second[0],
                     dopamine_tone=dopamine_tone,
                     vector_fn=vector_fn,
                 )
-            elif noun_assocs:
-                third = noun_assocs[0]
-                verb_s3 = VerbLexicon.select_verb_with_situation(
-                    relation="semantic",
-                    situation_vector=situation_vec,
+                frame2 = self.syntactic_assembly.bind_to_sentence(
                     subject=subject,
-                    object=third[0],
-                    dopamine_tone=dopamine_tone,
-                    vector_fn=vector_fn,
-                )
-            else:
-                third = None
-                verb_s3 = "shapes"
-            if third:
-                frame3 = self.syntactic_assembly.bind_to_sentence(
-                    subject=subject if len(utterances) == 0 else "it",
-                    relation=third_rel if 'third_rel' in dir() else "causal",
-                    target=third[0],
+                    relation=second_rel,
+                    target=second[0],
                     pos_map=getattr(self, '_concept_pos', {}),
                 )
-                frame3.verb_phrase = verb_s3
-                frame3.pronoun_subject = "it"
-                s3 = self.surface_realizer.realize(
-                    frame=frame3, discourse_context=disc_ctx3,
+                frame2.verb_phrase = verb_s2
+                s2 = self.surface_realizer.realize(
+                    frame=frame2, discourse_context=disc_ctx2,
                     dopamine_tone=dopamine_tone,
                     cerebellar_ngram=getattr(self, 'cerebellar_ngram', None),
                 )
-                if s3 and len(s3) > 5:
-                    if len(utterances) >= 2:
-                        s3_lower = s3[0].lower() + s3[1:]
-                        if random.random() < 0.5:
-                            utterances.append(f"and {s3_lower}")
-                        else:
-                            utterances.append(s3_lower)
+                if s2 and len(s2) > 5:
+                    if utterances:
+                        s2_lower = s2[0].lower() + s2[1:]
+                        utterances.append(s2_lower)
                     else:
-                        utterances.append(s3)
+                        utterances.append(s2)
+
+                # Sentence 3: Significance/impact sentence
+                disc_ctx3 = DiscourseState(
+                    sentence_index=len(utterances), discourse_type="conclude",
+                    total_sentences=3, free_energy=max(0.1, 1.0 - coherence * 0.8),
+                )
+                if noun_assocs and len(noun_assocs) >= 3:
+                    third = noun_assocs[2]
+                    verb_s3 = VerbLexicon.select_verb_with_situation(
+                        relation="causal",
+                        situation_vector=situation_vec,
+                        subject=subject,
+                        object=third[0],
+                        dopamine_tone=dopamine_tone,
+                        vector_fn=vector_fn,
+                    )
+                elif noun_assocs:
+                    third = noun_assocs[0]
+                    verb_s3 = VerbLexicon.select_verb_with_situation(
+                        relation="semantic",
+                        situation_vector=situation_vec,
+                        subject=subject,
+                        object=third[0],
+                        dopamine_tone=dopamine_tone,
+                        vector_fn=vector_fn,
+                    )
+                else:
+                    third = None
+                    verb_s3 = "shapes"
+                if third:
+                    frame3 = self.syntactic_assembly.bind_to_sentence(
+                        subject=subject if len(utterances) == 0 else "it",
+                        relation="causal",
+                        target=third[0],
+                        pos_map=getattr(self, '_concept_pos', {}),
+                    )
+                    frame3.verb_phrase = verb_s3
+                    frame3.pronoun_subject = "it"
+                    s3 = self.surface_realizer.realize(
+                        frame=frame3, discourse_context=disc_ctx3,
+                        dopamine_tone=dopamine_tone,
+                        cerebellar_ngram=getattr(self, 'cerebellar_ngram', None),
+                    )
+                    if s3 and len(s3) > 5:
+                        if len(utterances) >= 2:
+                            s3_lower = s3[0].lower() + s3[1:]
+                            if random.random() < 0.5:
+                                utterances.append(f"and {s3_lower}")
+                            else:
+                                utterances.append(s3_lower)
+                        else:
+                            utterances.append(s3)
+
+        # -- RICH GIST FALLBACK: Even with only 1-2 weak associations, produce something --
+        if not schema_used and not noun_assocs:
+            # Gist synthesis: extract whatever context we have and generate a
+            # meaningful statement with epistemic hedging
+            gist_phrases = [
+                f"i don't have a complete picture of {subject}, but it seems to be a profound concept.",
+                f"{subject} is one of those ideas that people have wondered about for ages.",
+                f"i'm still learning about {subject} — it's a concept with many layers.",
+                f"the nature of {subject} has puzzled thinkers across many cultures and eras.",
+                f"i don't fully understand {subject} yet, but it touches on something deep.",
+                f"when people talk about {subject}, they're reaching for something fundamental.",
+            ]
+            # Use the situation vector to pick the most contextually appropriate phrase
+            # (pseudo-randomly based on vector hash for consistency)
+            if situation_vec is not None and np.any(situation_vec != 0):
+                hash_val = hash(situation_vec.tobytes()) % len(gist_phrases)
+                gist = gist_phrases[hash_val]
+            else:
+                gist = gist_phrases[0]
+
+            # Try to at least connect to the nearest known concept
+            nearest = None
+            if vector_fn is not None:
+                subj_ids = self._concept_keywords.get(subject_lower, [])
+                if subj_ids:
+                    node = self.graph.get_node(subj_ids[0])
+                    if node and node.vector is not None:
+                        _, _, neighbors = self.graph.topk_similar(node.vector, k=3, exclude_ids=set(subj_ids))
+                        for neighbor_id in neighbors:
+                            neighbor_node = self.graph.get_node(neighbor_id)
+                            if neighbor_node and neighbor_node.label:
+                                nl = neighbor_node.label.lower()
+                                if nl not in self._GRAMMATICAL_CONCEPTS and nl != subject_lower:
+                                    nearest = neighbor_node.label
+                                    break
+
+            if nearest:
+                verb_gist = VerbLexicon.select_verb_with_situation(
+                    relation="semantic",
+                    situation_vector=situation_vec,
+                    subject=subject,
+                    object=nearest,
+                    dopamine_tone=dopamine_tone,
+                    vector_fn=vector_fn,
+                )
+                gist_frame = self.syntactic_assembly.bind_to_sentence(
+                    subject=subject,
+                    relation="semantic",
+                    target=nearest,
+                    pos_map=getattr(self, '_concept_pos', {}),
+                )
+                gist_frame.verb_phrase = verb_gist
+                disc_ctx_gist = DiscourseState(
+                    sentence_index=len(utterances), discourse_type="explain",
+                    total_sentences=2, free_energy=0.4,
+                )
+                gist_sentence = self.surface_realizer.realize(
+                    frame=gist_frame, discourse_context=disc_ctx_gist,
+                    dopamine_tone=dopamine_tone,
+                    cerebellar_ngram=getattr(self, 'cerebellar_ngram', None),
+                )
+                if gist_sentence and len(gist_sentence) > 5:
+                    utterances.append(gist_sentence)
+
+            # Always have at least one utterance from gist
+            if not utterances:
+                utterances.append(gist)
 
         # If we have at least 2 utterances, join them into a paragraph
         if len(utterances) >= 2:

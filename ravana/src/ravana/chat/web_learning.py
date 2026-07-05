@@ -449,10 +449,22 @@ class WebLearningMixin(ResponseGenMixin):
             except Exception:
                 pass
 
+        # ---- Event Schema Discovery from Web Text (BEFORE return) ----
+        # Check if we have an event_schema_lib and the topic text contains
+        # process/event descriptions that can be extracted as event schemas
+        if hasattr(self, 'event_schema_lib') and text and topic:
+            try:
+                discovered_schema = self.event_schema_lib.discover_from_text(text, topic)
+                if discovered_schema is not None:
+                    if self._trace_enabled:
+                        print(f"  [schema] Discovered event schema for '{topic}' from web text")
+            except Exception as e:
+                if self._trace_enabled:
+                    print(f"  [schema] Discovery error: {e}")
+
         return new_count
 
 
-        return new_count
     def _learn_from_snippets(self, query: str, snippets: List[str]) -> str:
         """Learn from search snippet text when article fetch fails."""
         combined = f"{query} " + " ".join(snippets[:3])
