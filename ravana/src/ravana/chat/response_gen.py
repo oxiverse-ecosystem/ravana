@@ -951,8 +951,8 @@ class ResponseGenMixin(ChainWalkerMixin):
                 if subj_ids:
                     node = self.graph.get_node(subj_ids[0])
                     if node and node.vector is not None:
-                        _, _, neighbors = self.graph.topk_similar(node.vector, k=3, exclude_ids=set(subj_ids))
-                        for neighbor_id in neighbors:
+                        similar_nodes = self.graph.find_similar(node.vector, k=5)
+                        for neighbor_id, sim_score in similar_nodes:
                             neighbor_node = self.graph.get_node(neighbor_id)
                             if neighbor_node and neighbor_node.label:
                                 nl = neighbor_node.label.lower()
