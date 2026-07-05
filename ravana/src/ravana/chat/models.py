@@ -61,3 +61,5 @@ class CognitiveResponseContext:
     discourse_context: str = ""
     content_vector: Any = None
     context_vector: Any = None
+    situation_vector: Any = None
+    situation_narrative: Dict[str, Any] = field(default_factory=dict)

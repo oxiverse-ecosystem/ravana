@@ -43,6 +43,8 @@ from ravana.core.causal_schema import CausalSchemaLearner, CausalSchemaConfig
 from ravana.core.implicature_detector import ImplicatureDetector
 from ravana.core.relation_memory import RelationMemory, RelationMemoryConfig
 from ravana.core.quantity_modifier import QuantityModifierSystem
+from ravana.core.situation_model import SituationModel
+from ravana.core.event_schema import EventSchemaLibrary
 
 # Optional bs4
 try:
@@ -159,6 +161,11 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         self._concept_keywords: Dict[str, List[int]] = {}
         # Phase A: Concept POS tags for syntactic assembly
         self._concept_pos = ConceptPosDict()
+        # Phase SM: Situation Model - DMN-like continuous cognitive workspace
+        self.situation_model = SituationModel(dim=self.dim, dmn_decay=0.6)
+        # Phase ES: Event Schema Library - procedural/process knowledge
+        self.event_schema_lib = EventSchemaLibrary()
+
         # Phase 5: Use data_dir if provided
         if data_dir:
             os.makedirs(data_dir, exist_ok=True)
@@ -1199,6 +1206,39 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         else:
             self._context_vector = raw_ctx
         
+        # -- Situation Model Update (DMN-like continuous workspace) --
+        try:
+            if hasattr(self, "situation_model"):
+                concept_embs = {}
+                activations = {}
+                for label, score in associations[:12]:
+                    ll = label.lower()
+                    nids = self._concept_keywords.get(ll, [])
+                    if nids:
+                        n = self.graph.get_node(nids[0])
+                        if n and n.vector is not None:
+                            concept_embs[ll] = n.vector
+                            activations[ll] = max(activations.get(ll, 0), score)
+                for nid in activated[:10]:
+                    node = self.graph.get_node(nid)
+                    if node and node.label and node.vector is not None:
+                        ll = node.label.lower()
+                        if ll not in concept_embs:
+                            concept_embs[ll] = node.vector
+                            activations[ll] = 0.5
+                self.situation_model.update(
+                    concept_embeddings=concept_embs,
+                    activations=activations,
+                    graph_get_vector_fn=self._glove_vector,
+                    sentence_vector=self._sentence_vector,
+                    context_vector_input=self._context_vector,
+                )
+        except Exception as e:
+            if getattr(self, "_trace_enabled", False):
+                print(f"  [trace] Situation model update error: {e}")
+
+
+
         # Step 5: Emotional modulation (with concept-specific tagging)
         self._update_emotion(user_input)
         for nid in activated:
@@ -1316,6 +1356,8 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             discourse_context=" | ".join(self._topic_list[-5:]) if self._topic_list else "",
             content_vector=self._content_vector,
             context_vector=self._context_vector,
+            situation_vector=self.situation_model.get_blended_vector() if hasattr(self, "situation_model") else None,
+            situation_narrative=self.situation_model.get_narrative_suggestions() if hasattr(self, "situation_model") else {},
         )
 
         # Step 11a: Store episodic memory BEFORE generating response

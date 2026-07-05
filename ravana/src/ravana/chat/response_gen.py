@@ -690,6 +690,451 @@ class ResponseGenMixin(ChainWalkerMixin):
 
 
 
+    # ─── Situation-Model-Guided Generation ───
+
+
+    def _generate_narrative_paragraph(self, ctx: CognitiveResponseContext) -> Optional[str]:
+        """Generate a fluid narrative paragraph using the event schema library
+        and situation-modulated verb selection, instead of discrete SVO triples.
+
+        Key differences from the standard syntactic pipeline:
+        1. Uses Event Schemas (process chains) when available for richer descriptions
+        2. Always uses situation-modulated verb selection (not just relation-type)
+        3. Generates a structured paragraph: definition -> process -> significance
+        4. Each sentence builds on the previous one with pronoun resolution
+        5. Discourse markers and adverbial modifiers for natural flow
+
+        Returns the paragraph text or None.
+        """
+        if not ctx.subject:
+            return None
+
+        subject = ctx.subject
+        subject_lower = subject.lower()
+        situation_vec = getattr(ctx, 'situation_vector', None)
+        situation_narrative = getattr(ctx, 'situation_narrative', {})
+        coherence = situation_narrative.get('coherence', 0.5)
+        theme = situation_narrative.get('theme', subject_lower)
+        active = situation_narrative.get('active_concepts', [])
+
+        # Step 1: Get the vector function from VerbLexicon for situation-modulated verb selection
+        from ravana.language.verb_lexicon import VerbLexicon
+        vector_fn = getattr(self, '_glove_vector', None)
+        dopamine_tone = getattr(self, '_dopamine_tone', 0.5)
+
+        # Step 2: Check Event Schema Library for a process schema
+        schema_lib = getattr(self, 'event_schema_lib', None)
+        schema = schema_lib.get_schema(subject_lower) if schema_lib else None
+
+        # Get top associations for enrichment
+        assocs = ctx.associated_concepts
+        noun_assocs = []
+        for label, weight in assocs:
+            ll = label.lower()
+            if ll in self._GRAMMATICAL_CONCEPTS:
+                continue
+            if len(noun_assocs) < 5:
+                noun_assocs.append((label, weight))
+
+        # Step 3: Generate the narrative paragraph
+        utterances = []
+
+        # Sentence 1: Definition/nature of the concept
+        # Use the relation from the strongest association for modulation
+        first_rel = "semantic"
+        first_target = ""
+        if noun_assocs:
+            first_target = noun_assocs[0][0]
+            nid_s = self._concept_keywords.get(subject_lower, [None])[0]
+            nid_t = self._concept_keywords.get(first_target.lower(), [None])[0]
+            if nid_s and nid_t:
+                edge = self.graph.get_edge(nid_s, nid_t)
+                if edge is None:
+                    edge = self.graph.get_edge(nid_t, nid_s)
+                if edge:
+                    first_rel = edge.relation_type or "semantic"
+
+        # Use situation-modulated verb for the first sentence
+        verb_s1 = VerbLexicon.select_verb_with_situation(
+            relation=first_rel,
+            situation_vector=situation_vec,
+            subject=subject,
+            object=first_target or subject,
+            dopamine_tone=dopamine_tone,
+            vector_fn=vector_fn,
+        )
+
+        # Build definition frame with situation-modulated verb
+        if first_target and first_target.lower() != subject_lower:
+            frame1 = self.syntactic_assembly.bind_to_sentence(
+                subject=subject,
+                relation=first_rel,
+                target=first_target,
+                pos_map=getattr(self, '_concept_pos', {}),
+            )
+            # Override verb with situation-modulated version
+            frame1.verb_phrase = verb_s1
+            disc_ctx1 = DiscourseState(
+                sentence_index=0, discourse_type="explain",
+                total_sentences=3, free_energy=max(0.15, 1.0 - coherence * 0.7),
+            )
+            s1 = self.surface_realizer.realize(
+                frame=frame1, discourse_context=disc_ctx1,
+                dopamine_tone=dopamine_tone,
+                cerebellar_ngram=getattr(self, 'cerebellar_ngram', None),
+            )
+            if s1 and len(s1) > 5:
+                utterances.append(s1)
+
+        # Sentence 2: Process description (from schema or generated)
+        disc_ctx2 = DiscourseState(
+            sentence_index=len(utterances), discourse_type="elaborate",
+            total_sentences=3, free_energy=max(0.15, 1.0 - coherence * 0.7),
+        )
+
+        if schema and len(schema.steps) >= 2:
+            # Use event schema for rich process narrative
+            # Schema sentences already have correct pronouns and flow — use them as-is
+            narrative_sents = schema_lib.get_narrative_from_schema(subject_lower)
+            if narrative_sents:
+                for ns in narrative_sents[:2]:
+                    # Schema sentences already have proper pronouns — no "it " prefix needed
+                    # Just capitalize the first letter if it's the first utterance, else lowercase
+                    if len(utterances) == 0:
+                        utterances.append(ns[0].upper() + ns[1:])
+                    else:
+                        utterances.append(ns[0].lower() + ns[1:])
+        elif noun_assocs and len(noun_assocs) >= 2:
+            # Generate process description from second strongest association
+            second = noun_assocs[1] if len(noun_assocs) > 1 else noun_assocs[0]
+            second_rel = "causal"
+            verb_s2 = VerbLexicon.select_verb_with_situation(
+                relation="causal",
+                situation_vector=situation_vec,
+                subject=subject,
+                object=second[0],
+                dopamine_tone=dopamine_tone,
+                vector_fn=vector_fn,
+            )
+            frame2 = self.syntactic_assembly.bind_to_sentence(
+                subject=subject,
+                relation=second_rel,
+                target=second[0],
+                pos_map=getattr(self, '_concept_pos', {}),
+            )
+            frame2.verb_phrase = verb_s2
+            s2 = self.surface_realizer.realize(
+                frame=frame2, discourse_context=disc_ctx2,
+                dopamine_tone=dopamine_tone,
+                cerebellar_ngram=getattr(self, 'cerebellar_ngram', None),
+            )
+            if s2 and len(s2) > 5:
+                if utterances:
+                    s2_lower = s2[0].lower() + s2[1:]
+                    utterances.append(s2_lower)
+                else:
+                    utterances.append(s2)
+
+            # Sentence 3: Significance/impact sentence (only if no schema was used)
+            disc_ctx3 = DiscourseState(
+                sentence_index=len(utterances), discourse_type="conclude",
+                total_sentences=3, free_energy=max(0.1, 1.0 - coherence * 0.8),
+            )
+            if noun_assocs and len(noun_assocs) >= 3:
+                third = noun_assocs[2]
+                verb_s3 = VerbLexicon.select_verb_with_situation(
+                    relation="causal",
+                    situation_vector=situation_vec,
+                    subject=subject,
+                    object=third[0],
+                    dopamine_tone=dopamine_tone,
+                    vector_fn=vector_fn,
+                )
+            elif noun_assocs:
+                third = noun_assocs[0]
+                verb_s3 = VerbLexicon.select_verb_with_situation(
+                    relation="semantic",
+                    situation_vector=situation_vec,
+                    subject=subject,
+                    object=third[0],
+                    dopamine_tone=dopamine_tone,
+                    vector_fn=vector_fn,
+                )
+            else:
+                third = None
+                verb_s3 = "shapes"
+            if third:
+                frame3 = self.syntactic_assembly.bind_to_sentence(
+                    subject=subject if len(utterances) == 0 else "it",
+                    relation=third_rel if 'third_rel' in dir() else "causal",
+                    target=third[0],
+                    pos_map=getattr(self, '_concept_pos', {}),
+                )
+                frame3.verb_phrase = verb_s3
+                frame3.pronoun_subject = "it"
+                s3 = self.surface_realizer.realize(
+                    frame=frame3, discourse_context=disc_ctx3,
+                    dopamine_tone=dopamine_tone,
+                    cerebellar_ngram=getattr(self, 'cerebellar_ngram', None),
+                )
+                if s3 and len(s3) > 5:
+                    if len(utterances) >= 2:
+                        s3_lower = s3[0].lower() + s3[1:]
+                        if random.random() < 0.5:
+                            utterances.append(f"and {s3_lower}")
+                        else:
+                            utterances.append(s3_lower)
+                    else:
+                        utterances.append(s3)
+
+        # If we have at least 2 utterances, join them into a paragraph
+        if len(utterances) >= 2:
+            paragraph = " ".join(utterances)
+            # Clean up: ensure proper capitalization and punctuation
+            paragraph = paragraph[0].upper() + paragraph[1:]
+            if not paragraph.endswith((".", "?", "!")):
+                paragraph += "."
+            paragraph = re.sub(r'\s+', ' ', paragraph)
+            return paragraph
+
+        # Fall back to single-sentence response if paragraph generation failed
+        if utterances:
+            return utterances[0]
+
+        return None
+
+
+    def _generate_with_situation_model(self, ctx: CognitiveResponseContext) -> Optional[Tuple[str, str]]:
+        """Generate response using the SituationModel's blended cognitive state.
+
+        DMN-inspired generation path:
+        1. Get the blended situation vector from the SituationModel
+        2. Use it as conditioning context for the NeuralDecoder
+        3. If the decoder fails, use the situation vector with event schemas
+           and situation-modulated verb selection to generate a narrative
+           paragraph (definition -> process -> significance)
+
+        This path fundamentally differs from the standard syntactic path:
+        - It uses Event Schemas (process knowledge) for richer descriptions
+        - It uses situation-modulated verbs (builds, strengthens, shapes)
+          instead of generic relational verbs (relates to, connects with)
+        - It produces a coherent paragraph with discourse flow, not
+          a sequence of independent SVO sentences
+
+        Returns (response_text, strategy_name) or None.
+        """
+        situation_vec = getattr(ctx, 'situation_vector', None)
+        situation_narrative = getattr(ctx, 'situation_narrative', {})
+
+        if situation_vec is None or not hasattr(self, 'situation_model'):
+            return None
+
+        # Attempt 1: NeuralDecoder with situation vector conditioning
+        if self.neural_decoder is not None and self._decoder_vocab_built:
+            try:
+                # Build conditioning from situation vector + top concepts
+                cond_embs = []
+                
+                # Add situation vector as primary conditioning (tiled 3x for stability)
+                sv = situation_vec.astype(np.float32)
+                if np.any(sv != 0):
+                    cond_embs.extend([sv.copy()] * 3)
+
+                # Add top active concepts for specific content guidance
+                active = situation_narrative.get('active_concepts', [])
+                for label, weight in active[:5]:
+                    if weight > 0.1:
+                        nids = self._concept_keywords.get(label.lower(), [])
+                        if nids:
+                            node = self.graph.get_node(nids[0])
+                            if node and node.vector is not None:
+                                cond_embs.append(node.vector.copy() * 0.5)
+
+                # Add subject-specific embeddings
+                if ctx.subject:
+                    sl = ctx.subject.lower()
+                    nids = self._concept_keywords.get(sl, [])
+                    if nids:
+                        node = self.graph.get_node(nids[0])
+                        if node and node.vector is not None:
+                            cond_embs.append(node.vector.copy() * 0.8)
+                    elif sl in self._decoder_word_to_embed:
+                        cond_embs.append(self._decoder_word_to_embed[sl].copy() * 0.8)
+
+                if not cond_embs:
+                    return None
+
+                conditioning_embs = np.stack(cond_embs, axis=0).astype(np.float32)
+                bos_idx = self._decoder_word_to_idx.get("<bos>", 0)
+                eos_idx = self._decoder_word_to_idx.get("<eos>", 2)
+
+                # Compute temperature from situation coherence and diversity
+                coherence = situation_narrative.get('coherence', 0.5)
+                diversity = situation_narrative.get('diversity', 0.5)
+                base_temp = 0.45
+                temp = base_temp * (0.8 + coherence * 0.4) * (0.7 + diversity * 0.6)
+                temp = max(0.25, min(0.85, temp))
+
+                # Content word IDs set
+                function_words_set = {
+                    "a", "an", "the", "and", "but", "or", "is", "are", "was", "were", "be", "been",
+                    "being", "have", "has", "had", "do", "does", "did", "will",
+                    "would", "could", "should", "may", "might", "shall", "can",
+                    "not", "no", "nor", "so", "if", "then", "than", "too", "very",
+                    "just", "about", "also", "into", "over", "after", "before",
+                    "between", "through", "during", "because", "while", "which",
+                    "who", "whom", "what", "when", "where", "why", "how", "all",
+                    "each", "every", "both", "few", "more", "most", "some", "any",
+                    "this", "that", "these", "those", "it", "its", "they", "them",
+                    "their", "we", "our", "you", "your", "he", "she", "him", "her",
+                    "his", "i", "me", "my", "myself", "am",
+                    "of", "to", "for", "with", "from", "at", "by", "as", "on", "in", "out", "up", "off",
+                    "<pad>", "?", "<bos>", "<eos>",
+                }
+                with self._vocab_lock:
+                    content_word_ids = {
+                        idx for word, idx in self._decoder_word_to_idx.items()
+                        if word not in function_words_set and not word.startswith("<")
+                    }
+
+                generated = self.neural_decoder.generate(
+                    conditioning_embs=conditioning_embs,
+                    max_steps=24,
+                    bos_idx=bos_idx,
+                    eos_idx=eos_idx,
+                    temperature=temp,
+                    cerebellar_ngram=self.cerebellar_ngram,
+                    idx_to_word=self._decoder_idx_to_word,
+                    basal_ganglia=self.basal_ganglia,
+                    content_word_ids=content_word_ids,
+                )
+
+                if generated and len(generated) >= 5:
+                    words = []
+                    for idx in generated:
+                        word = self._decoder_idx_to_word.get(idx, "")
+                        if word and not word.startswith("<"):
+                            words.append(word)
+                    if len(words) >= 4:
+                        text = " ".join(words)
+                        # Check for excessive repetition
+                        if len(words) >= 6:
+                            bigrams = [tuple(words[i:i+2]) for i in range(len(words)-1)]
+                            bg_counts = Counter(bigrams)
+                            if any(c >= 4 for c in bg_counts.values()):
+                                pass  # Fall through to narrative generation
+                            else:
+                                text = text[0].upper() + text[1:]
+                                if not text.endswith((".", "?", "!")):
+                                    text += "."
+                                text = re.sub(r'\s+', ' ', text)
+                                if not _is_word_salad(text):
+                                    if getattr(self, '_trace_enabled', False):
+                                        print(f"  [trace]   SM decoder: generated fluid response")
+                                    return (text, "situation_model_decoder")
+            except Exception as e:
+                if getattr(self, '_trace_enabled', False):
+                    print(f"  [trace]   SM decoder error: {e}")
+
+        # Attempt 2: Narrative paragraph generation
+        # Uses Event Schemas + situation-modulated verbs + paragraph structure
+        if ctx.subject and hasattr(self, 'syntactic_assembly') and hasattr(self, 'surface_realizer'):
+            try:
+                paragraph = self._generate_narrative_paragraph(ctx)
+                if paragraph and len(paragraph) > 15 and not _is_word_salad(paragraph):
+                    if getattr(self, '_trace_enabled', False):
+                        print(f"  [trace]   SM narrative: generated fluid paragraph")
+                    return (paragraph, "situation_model_narrative")
+            except Exception as e:
+                if getattr(self, '_trace_enabled', False):
+                    print(f"  [trace]   SM narrative error: {e}")
+
+        # Attempt 3: Original syntactic pipeline with frame merging
+        # (fallback if narrative generation fails)
+        try:
+            if ctx.subject:
+                coherence = situation_narrative.get('coherence', 0.5)
+                noun_assocs = []
+                for label, weight in ctx.associated_concepts:
+                    ll = label.lower()
+                    if ll in self._GRAMMATICAL_CONCEPTS:
+                        continue
+                    pos = getattr(self, '_concept_pos', {}).get(ll, 'noun')
+                    if pos == 'noun':
+                        noun_assocs.append((label, weight))
+                if noun_assocs:
+                    utterances = []
+                    utterance_frames = []
+                    disc_ctx = DiscourseState(
+                        sentence_index=0, discourse_type="explain",
+                        total_sentences=min(3, len(noun_assocs)),
+                        free_energy=max(0.2, 1.0 - coherence),
+                    )
+                    seen = {ctx.subject.lower()}
+                    for i, (label, weight) in enumerate(noun_assocs[:3]):
+                        if label.lower() in seen:
+                            continue
+                        seen.add(label.lower())
+                        relation = "semantic"
+                        nid_subj = self._concept_keywords.get(ctx.subject.lower(), [None])[0]
+                        nid_label = self._concept_keywords.get(label.lower(), [None])[0]
+                        if nid_subj is not None and nid_label is not None:
+                            edge = self.graph.get_edge(nid_subj, nid_label)
+                            if edge is None:
+                                edge = self.graph.get_edge(nid_label, nid_subj)
+                            if edge is not None:
+                                relation = edge.relation_type or "semantic"
+                        frame = self.syntactic_assembly.bind_to_sentence(
+                            subject=ctx.subject, relation=relation, target=label,
+                            pos_map=getattr(self, '_concept_pos', {}),
+                        )
+                        if utterances and utterance_frames and coherence > 0.4:
+                            last_frame = utterance_frames[-1]
+                            if last_frame and label.lower() == last_frame.object_concept.lower():
+                                frame.embedded_relation = "which"
+                                utterances[-1] = self._make_embedded(utterances[-1], frame, disc_ctx)
+                                utterance_frames[-1] = frame
+                                continue
+                        disc_ctx.sentence_index = len(utterances)
+                        sentence = self.surface_realizer.realize(
+                            frame=frame, discourse_context=disc_ctx,
+                            dopamine_tone=getattr(self, '_dopamine_tone', 0.5),
+                            cerebellar_ngram=getattr(self, 'cerebellar_ngram', None),
+                        )
+                        if sentence and len(sentence) > 5:
+                            utterances.append(sentence)
+                            utterance_frames.append(frame)
+                    if utterances:
+                        response = " ".join(utterances)
+                        return (response, "situation_model_syntax")
+        except Exception as e:
+            if getattr(self, '_trace_enabled', False):
+                print(f"  [trace]   SM syntax error: {e}")
+
+        return None
+
+
+    def _make_embedded(self, parent_sentence: str, child_frame, disc_ctx) -> str:
+        """Try to embed a child frame as a relative clause in the parent sentence."""
+        try:
+            rel = child_frame.embedded_relation or "which"
+            child_sentence = self.surface_realizer.realize(
+                frame=child_frame,
+                discourse_context=disc_ctx,
+                dopamine_tone=getattr(self, '_dopamine_tone', 0.5),
+                cerebellar_ngram=getattr(self, 'cerebellar_ngram', None),
+            )
+            if child_sentence:
+                # Remove trailing period from parent, add relative clause
+                parent_clean = parent_sentence.rstrip(".!?")
+                child_lower = child_sentence[0].lower() + child_sentence[1:]
+                child_clean = child_lower.rstrip(".!?")
+                return f"{parent_clean}, {rel} {child_clean}."
+        except Exception:
+            pass
+        return parent_sentence
+
+
     def _handle_chitchat(self, text: str, subject: str) -> Optional[str]:
         """Detect and respond to greetings and chit-chat naturally."""
         import re
@@ -1024,7 +1469,22 @@ class ResponseGenMixin(ChainWalkerMixin):
             knowledge_confidence += 0.3
         knowledge_confidence = min(1.0, knowledge_confidence)
 
-        # Step 2: PFC Gate — route to Ventral or Dorsal path
+        # Step 2: Situation Model Path — DMN-guided fluid generation
+        # Tries the situation model first when the subject is reasonably known and
+        # the situation coherence is high enough for narrative generation
+        situation_narrative = getattr(ctx, 'situation_narrative', {})
+        situation_coherence = situation_narrative.get('coherence', 0.0) if situation_narrative else 0.0
+        situation_active = len(situation_narrative.get('active_concepts', [])) if situation_narrative else 0
+        try_situation_path = (knowledge_confidence > 0.2 or situation_coherence > 0.3) and situation_active > 1
+
+        if try_situation_path:
+            sm_res = self._generate_with_situation_model(ctx)
+            if sm_res:
+                if getattr(self, '_trace_enabled', False):
+                    print(f"  [trace]   SM path: {sm_res[1]} (coherence={situation_coherence:.2f})")
+                return sm_res
+
+        # Step 3: PFC Gate — route to Ventral or Dorsal path
         # Ventral path: known concepts (confidence > 0.4) or non-reasoning queries
         # Dorsal path: low confidence OR needs web search for reasoning
         needs_search = self._needs_web_search(subject) if subject else False

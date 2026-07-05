@@ -788,6 +788,105 @@ class VerbLexicon:
                 cls._hebbian_bigram[rel][bigram] = w
 
     @classmethod
+    def select_verb_with_situation(cls, relation: str,
+                                     situation_vector: Optional[np.ndarray] = None,
+                                     subject: str = "",
+                                     object: str = "",
+                                     dopamine_tone: float = 0.5,
+                                     vector_fn: Optional[Callable] = None) -> str:
+        """Select verb phrase modulated by a situation vector.
+
+        The situation vector (from the DMN-like SituationModel) biases
+        verb selection toward verbs whose semantic embeddings are closer
+        to the current cognitive state.
+
+        Algorithm:
+        1. Get standard verb candidates for the relation type
+        2. If situation_vector is provided, compute similarity between
+           each candidate verb's embedding and the situation vector
+        3. Bias Hebbian weights by this similarity (verbs close to the
+           situation get a boost)
+        4. Select via standard Hebbian-compositional sampling
+
+        This is the key mechanism for situation-modulated verb choice:
+        - In a "trust" situation, verbs like "build", "strengthen", 
+          "form" get boosted (close to trust's situation vector)
+        - In a "knowledge" situation, verbs like "gather", "discover",
+          "understand" get boosted
+        - Generic verbs like "relate to", "connect with" are always
+          available but only chosen when no stronger semantic match exists
+        """
+        # Start with the standard verb for this relation
+        base_verb = cls.select_verb(relation, subject, object, dopamine_tone, vector_fn)
+
+        # If no situation vector, return standard verb
+        if situation_vector is None:
+            return base_verb
+
+        # Get the vector function for computing verb embeddings
+        fn = vector_fn or cls._glove_vector_fn
+        if fn is None:
+            return base_verb
+
+        try:
+            # Get all verb candidates for this relation type
+            rules = cls.COMPOSITION_RULES.get(relation, cls.COMPOSITION_RULES["semantic"])
+            candidate_verbs = []
+
+            # Collect candidate verbs from all rule combinations
+            for rule in rules:
+                for i, cat in enumerate(rule):
+                    pool = cls._get_morpheme_pool(cat)
+                    for m in pool:
+                        if cat in ("roots", "compound_roots"):
+                            candidate_verbs.append(m)
+                        elif cat == "adjectives":
+                            candidate_verbs.append(m)
+                        elif cat == "prepositions":
+                            if i > 0:  # Don't collect prepositions alone
+                                continue
+
+            # Compute similarity scores between each candidate and the situation vector
+            verb_scores = {}
+            for verb in candidate_verbs:
+                v_vec = fn(verb)
+                if v_vec is not None:
+                    sim = float(np.dot(v_vec, situation_vector))
+                    # Clamp to [0, 1]
+                    sim = max(0.0, min(1.0, (sim + 1.0) * 0.5))
+                    verb_scores[verb] = sim
+
+            # Find the best-matched verb for the situation
+            if verb_scores:
+                best_verb = max(verb_scores, key=verb_scores.get)
+                best_score = verb_scores[best_verb]
+
+                # Only override if the match is significantly better (> 0.6)
+                # and the base verb is a generic fallback
+                generic_verbs = {"connect", "relate", "link", "tie", "have a relationship"}
+                base_root = base_verb.split()[0] if base_verb else ""
+
+                if best_score > 0.6 and base_root in generic_verbs:
+                    # Boost the best-matched verb's Hebbian weight temporarily
+                    current = cls._hebbian_weight[relation].get(best_verb, 0.5)
+                    boosted = min(1.0, current + 0.3 * best_score)
+                    # Temporarily override the Hebbian weight for this selection
+                    cls._hebbian_weight[relation][best_verb] = boosted
+                    result = cls.select_verb(relation, subject, object, dopamine_tone, vector_fn)
+                    # Restore the original weight
+                    cls._hebbian_weight[relation][best_verb] = current
+                    return result
+
+                # If the base verb itself is a good match, keep it with slight modulation
+                if base_root in verb_scores and verb_scores[base_root] > 0.4:
+                    return base_verb
+
+        except Exception:
+            pass
+
+        return base_verb
+
+    @classmethod
     def select_verb_cerebellar(cls, relation: str, cerebellar_ngram,
                                 subject: str = "", object: str = "",
                                 dopamine_tone: float = 0.5,
