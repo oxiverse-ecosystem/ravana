@@ -196,6 +196,8 @@ class SurfaceRealizer:
         "{subject} is what {verb} {object}",          # 2: Pseudo-cleft (definitional focus)
         "for {subject}, it {verb} {object}",          # 3: Topic fronting (prepositional)
         "there is {subject} — it {verb} {object}",    # 4: Existential introduction
+        "it is {subject} that {verb} {object}",        # 5: Cleft sentence (contrastive focus)
+        "as for {subject}, it {verb} {object}",        # 6: As-for topic introduction
     ]
 
     # Adverbial modifiers by relation type — adds subtle variety to sentences.
@@ -441,22 +443,44 @@ class SurfaceRealizer:
             subject_is_pronoun = display_subj.lower() in ('it', 'this', 'that', 'they', 'he', 'she', 'i', 'you', 'we')
             
             if si == 0:
-                # First sentence: prefer standard SVO or pseudo-cleft for definitional tone
-                pattern_idx = 0 if random.random() < 0.7 else 2
+                # First sentence: prefer standard SVO or cleft/pseudo-cleft for definitional tone
+                # But if copula exists, do NOT use cleft/pseudo-cleft (patterns 2 and 5)
+                has_copula = any(modified_verb.lower().startswith(cop) for cop in ("is ", "are ", "was ", "were "))
+                if has_copula:
+                    pattern_idx = 0
+                else:
+                    pattern_idx = random.choices([0, 2, 5], weights=[0.75, 0.15, 0.10], k=1)[0]
             elif subject_is_pronoun:
                 # Subject was pronominalized — only use patterns that don't hardcode "it"
                 # Patterns 0 (SVO) and 2 (pseudo-cleft) work with pronoun subjects
-                weights = [0.70, 0.30]  # 0: SVO, 2: pseudo-cleft
-                pattern_idx = random.choices([0, 2], weights=weights, k=1)[0]
+                # But if copula exists, do NOT use pseudo-cleft (pattern 2)
+                has_copula = any(modified_verb.lower().startswith(cop) for cop in ("is ", "are ", "was ", "were "))
+                if has_copula:
+                    pattern_idx = 0
+                else:
+                    weights = [0.85, 0.15]  # 0: SVO, 2: pseudo-cleft
+                    pattern_idx = random.choices([0, 2], weights=weights, k=1)[0]
             else:
                 # Subsequent sentences with full subject: distribute across patterns
+                # But if copula exists, do NOT use pseudo-cleft (pattern 2) or cleft (pattern 5)
+                has_copula = any(modified_verb.lower().startswith(cop) for cop in ("is ", "are ", "was ", "were "))
                 if dopamine_tone > 0.6:
-                    weights = [0.30, 0.20, 0.15, 0.20, 0.15]
+                    weights = [0.30, 0.15, 0.10, 0.15, 0.10, 0.10, 0.10]
                 elif dopamine_tone > 0.3:
-                    weights = [0.40, 0.20, 0.10, 0.15, 0.15]
+                    weights = [0.40, 0.15, 0.08, 0.12, 0.08, 0.07, 0.10]
                 else:
-                    weights = [0.55, 0.20, 0.05, 0.10, 0.10]
-                pattern_idx = random.choices(range(5), weights=weights, k=1)[0]
+                    weights = [0.55, 0.15, 0.04, 0.08, 0.06, 0.04, 0.07]
+                
+                options = list(range(7))
+                if has_copula:
+                    options.pop(5)
+                    weights.pop(5)
+                    options.pop(2)
+                    weights.pop(2)
+                
+                total = sum(weights)
+                weights = [w / total for w in weights]
+                pattern_idx = random.choices(options, weights=weights, k=1)[0]
 
             selected_template = self.SENTENCE_PATTERNS[pattern_idx]
             core = selected_template.format(
@@ -501,6 +525,12 @@ class SurfaceRealizer:
                         sub_sentence = sub_sentence[:-1]
                     
                     rel = getattr(frame, 'embedded_relation', 'which')
+                    if rel == 'which':
+                        parent_obj_lower = frame.object_concept.lower()
+                        people_words = {"person", "people", "man", "woman", "child", "children", "user", "someone", "anyone", "everybody", "somebody", "poirot", "marple", "carroll", "holmes"}
+                        if parent_obj_lower in people_words or any(w in parent_obj_lower for w in ("poirot", "marple", "carroll", "holmes")):
+                            rel = 'who'
+                    
                     if rel in ('because', 'although'):
                         sentence = f"{sentence} {rel} {sub_sentence}"
                     else:
