@@ -12,6 +12,8 @@ class FailedQuery:
     turn: int = 0
     free_energy_at_time: float = 0.0
     resolved: bool = False
+    response_quality: float = 0.0
+    strategy: str = ""
 
 
 @dataclass

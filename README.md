@@ -99,6 +99,21 @@ Two inference paths: (1) **Verb offset**: `offset(verb) = avg(target - subject)`
 ### 🧠 Theory of Mind & Emotional Mirroring (Modular only)
 `UserModel` tracks user-specific goals (`LEARNING`/`DEBUGGING`/`EXPLORING`), preferences, emotional state (VAD), and relationship depth. User arousal modulates generation temperature, verbosity, and concept breadth — creating adaptive, personalized dialogue.
 
+### 🖼️ SituationModel & EventSchemaLibrary (DMN Workspace) (Modular only)
+Maintains a dense, continuously evolving vector representing the cognitive "situation" (grounded in the brain's Default Mode Network) to condition language generation instead of discrete SVO triples. Integrates an `EventSchemaLibrary` that stores procedural/sequential process chains (e.g., trust development steps) discovered from web text to produce cohesive narrative paragraphs.
+
+### 🔗 LIFG-ATL Context Modulation & Broca's Area Hierarchy (Modular only)
+Implements left inferior frontal gyrus (LIFG) and anterior temporal lobe (ATL) context-modulated semantic vector warping, recursive clause frame merging (Broca's area hierarchy building) for complex syntax, and secure pickling concurrency locks for database integrity.
+
+### 🚦 Metamemory, FOK Pre-Checks, and LPFC Pause (Modular only)
+Employs Feeling-of-Knowing (FOK) pre-checks based on the RIHO model to assess whether RAVANA has sufficient topic-specific knowledge prior to generation. If FOK is low, the system triggers a prefrontal cortex (LPFC) pause, inhibiting prepotent responses to run synchronous web searches and tags concepts for dopamine-like recency boosts.
+
+### 🚪 Pattern Separation Gate & Context-Bound Recency Boost (Modular only)
+A dentate gyrus analog (pattern separation gate) that suppresses spreading activation of concepts that are semantically distant from the primary subject. Newly learned concepts receive a 1.5x context-bound recency boost, mimicking dopamine novelty signals prioritizing new relevant memories (synaptic tag capture).
+
+### 🔄 Self-Improvement Loop & Response Quality Feedback (Modular only)
+An Error-Related Negativity (ERN) and anterior cingulate cortex (ACC) analog that rates response quality (0.0 to 1.0) based on specificity, content diversity, length, and templates. Poor responses boost curiosity, trigger sleep pressure, queue targeted web-learning, and reinforce construction grammar weights.
+
 ### 🔬 Validation & Benchmark Scripts
 - `scripts/validate_held_out_generalization.py` — Validates verb-offset blending, confidence-weighted blending, and prototype inheritance
 - `scripts/benchmark_vs_transformers.py` — Discriminative benchmark comparing RLMv2 against PyTorch baselines

@@ -79,6 +79,15 @@ class WebLearningMixin(ResponseGenMixin):
             if not results:
                 return self._learn_from_snippets(query, [])
 
+            # Extract definitions from search snippets directly (Approach 3: Google featured snippets)
+            for r in results[:3]:
+                snippet = r.get("content", "") or ""
+                title = r.get("title", "") or ""
+                if snippet:
+                    self._extract_definitions(snippet, query)
+                if title:
+                    self._extract_definitions(title, query)
+
             # Step 2: Get snippets and try to fetch article text
             snippets = []
 
@@ -107,38 +116,8 @@ class WebLearningMixin(ResponseGenMixin):
             new_concepts_added = self._learn_from_text(combined_text, query, source_url=first_url if first_url else query)
 
             # --- Extract definitional knowledge (ATL convergence zone) ---
-            # Scan article text for "X is a Y" / "X refers to Y" patterns
-            # to populate the neocortical definition store.
-            # Neuroscience: Binder & Desai (2011) — ATL convergence zones
-            # store category membership as stable representations.
             if combined_text:
-                try:
-                    defn_patterns = [
-                        # Capitalized concepts: "Google is a search engine"
-                        re.compile(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+is\s+(?:a|an|the)\s+(.+?)\.', re.IGNORECASE),
-                        re.compile(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+(?:refers?|means?|describes?)\s+to\s+(.+?)\.', re.IGNORECASE),
-                        # Lowercase concepts: "hacking is a form of unauthorized access"
-                        re.compile(r'\b([a-z]{3,})\s+is\s+(?:a|an|the)\s+(.+?)\.'),
-                        re.compile(r'\b([a-z]{3,})\s+(?:refers?|means?)\s+to\s+(.+?)\.'),
-                    ]
-                    query_lower = query.lower().strip()
-                    for pat in defn_patterns:
-                        for m in pat.finditer(combined_text):
-                            concept = m.group(1).strip().lower()
-                            definition = m.group(2).strip()
-                            # Only store if related to query or known concept
-                            # Skip very short or very long definitions
-                            if len(definition) < 10 or len(definition) > 200:
-                                continue
-                            if (concept in query_lower or query_lower in concept
-                                    or concept in self._concept_keywords):
-                                existing = self._definitions.get(concept, '')
-                                if concept not in self._definitions or len(definition) > len(existing):
-                                    self._definitions[concept] = definition[:200]
-                                    if self._trace_enabled:
-                                        print(f"  [definition] Stored: {concept} -> {definition[:80]}...")
-                except Exception:
-                    pass
+                self._extract_definitions(combined_text, query)
 
             if new_concepts_added > 0:
                 return f"learned {new_concepts_added} new things about {query}", combined_text
@@ -421,33 +400,8 @@ class WebLearningMixin(ResponseGenMixin):
                     self.neural_decoder.sleep_cycle()
 
         # Extract definitional knowledge (ATL convergence zone)
-        # Scan article text for "X is a Y" / "X refers to Y" patterns
-        # to populate the neocortical definition store.
         if text:
-            try:
-                defn_patterns = [
-                    # Capitalized concepts: "Google is a search engine"
-                    re.compile(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+is\s+(?:a|an|the)\s+(.+?)\.', re.IGNORECASE),
-                    re.compile(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+(?:refers?|means?|describes?)\s+to\s+(.+?)\.', re.IGNORECASE),
-                    # Lowercase concepts: "hacking is a form of unauthorized access"
-                    re.compile(r'\b([a-z]{3,})\s+is\s+(?:a|an|the)\s+(.+?)\.'),
-                    re.compile(r'\b([a-z]{3,})\s+(?:refers?|means?)\s+to\s+(.+?)\.'),
-                ]
-                query_lower = topic.lower().strip()
-                for pat in defn_patterns:
-                    for m in pat.finditer(text):
-                        concept = m.group(1).strip().lower()
-                        definition = m.group(2).strip()
-                        # Skip very short or very long definitions
-                        if len(definition) < 10 or len(definition) > 200:
-                            continue
-                        if (concept in query_lower or query_lower in concept
-                                or concept in self._concept_keywords):
-                            existing = self._definitions.get(concept, '')
-                            if concept not in self._definitions or len(definition) > len(existing):
-                                self._definitions[concept] = definition[:200]
-            except Exception:
-                pass
+            self._extract_definitions(text, topic)
 
         # ---- Event Schema Discovery from Web Text (BEFORE return) ----
         # Check if we have an event_schema_lib and the topic text contains
@@ -472,6 +426,183 @@ class WebLearningMixin(ResponseGenMixin):
         if count > 0:
             return f"learned {count} new things about {query} from search snippets"
         return f"read about {query} but already knew those words"
+
+    def _extract_heuristic_definition(self, text: str, subject: str) -> Optional[str]:
+        """Extract a definition sentence based on heuristics (Approach 2).
+        
+        Scans sentences containing the subject for defining verbs/copulas,
+        and extracts the predicate after the verb.
+        """
+        # Split text into sentences using simple punctuation check
+        sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', text) if s.strip()]
+        subject_lower = subject.lower().strip()
+        
+        defining_verbs = [
+            ("refers to", 2.0), ("refer to", 2.0),
+            ("defined as", 2.0),
+            ("means", 2.0), ("mean", 2.0),
+            ("describes", 2.0), ("describe", 2.0),
+            ("occurs when", 2.0), ("occur when", 2.0),
+            ("is a", 1.5), ("is an", 1.5), ("is the", 1.5),
+            ("are a", 1.5), ("are an", 1.5), ("are the", 1.5),
+            ("was a", 1.2), ("was an", 1.2), ("was the", 1.2),
+            ("were a", 1.2), ("were an", 1.2), ("were the", 1.2),
+            ("is", 1.0), ("are", 1.0),
+            ("was", 0.8), ("were", 0.8)
+        ]
+        
+        candidates = []
+        for sent in sentences:
+            sent_lower = sent.lower()
+            
+            # Check if subject is in sentence (either exact phrase or all non-stop words)
+            has_subject = False
+            subject_score = 0.0
+            if subject_lower in sent_lower:
+                has_subject = True
+                subject_score = 3.0
+            else:
+                sub_words = [w for w in re.findall(r'[a-z]{3,}', subject_lower) if w not in STOP_WORDS]
+                if sub_words and all(w in sent_lower for w in sub_words):
+                    has_subject = True
+                    subject_score = 1.5
+            
+            # Fallback to pronoun references
+            if not has_subject:
+                if sent_lower.startswith(("it is", "this is", "that is", "it refers", "this refers")):
+                    has_subject = True
+                    subject_score = 1.0
+            
+            if not has_subject:
+                continue
+                
+            # Find defining verbs
+            for verb, verb_weight in defining_verbs:
+                search_start = 0
+                if subject_lower in sent_lower:
+                    search_start = sent_lower.find(subject_lower) + len(subject_lower)
+                
+                verb_idx = sent_lower.find(verb, search_start)
+                if verb_idx == -1:
+                    continue
+                    
+                # Skip verb to extract predicate
+                skip_len = len(verb)
+                if verb in ("is a", "is an", "is the", "are a", "are an", "are the",
+                            "was a", "was an", "was the", "were a", "were an", "were the"):
+                    # Keep the article (a/an/the)
+                    space_idx = verb.find(" ")
+                    if space_idx != -1:
+                        skip_len = space_idx + 1
+                
+                predicate = sent[verb_idx + skip_len:].strip()
+                predicate = predicate.rstrip('.').strip()
+                # Normalize leading article to lowercase
+                pred_words = predicate.split()
+                if pred_words and pred_words[0].lower() in ('a', 'an', 'the'):
+                    pred_words[0] = pred_words[0].lower()
+                    predicate = " ".join(pred_words)
+                
+                # Check length constraint
+                if 10 <= len(predicate) <= 200:
+                    score = subject_score + verb_weight
+                    
+                    if 20 <= len(predicate) <= 150:
+                        score += 1.0
+                        
+                    if sent_lower.startswith(subject_lower):
+                        score += 1.0
+                        
+                    candidates.append((predicate, score))
+                    break
+                    
+        if candidates:
+            # Sort by score descending and return the best one
+            candidates.sort(key=lambda x: x[1], reverse=True)
+            return candidates[0][0]
+        return None
+
+    def _extract_definitions(self, text: str, query: str):
+        """Unified method to extract definitional knowledge from text (Approaches 1, 2, 6)."""
+        if not text:
+            return
+            
+        query_lower = query.lower().strip()
+        
+        # 1. Regex-based pattern matching (Approach 1 & 6)
+        try:
+            # We restrict concepts to 1-3 words to support multi-word subjects (Approach 6).
+            defn_patterns = [
+                # 1. X is/are/was/were [a/an/the/etc] Y
+                re.compile(r'\b([a-zA-Z0-9\'-]{3,}(?:\s+[a-zA-Z0-9\'-]{3,}){0,2})\s+(?:is|are|was|were)\s+((?:a|an|the)?\s*.+?)\.', re.IGNORECASE),
+                # 2. X refers to Y / X means Y / X describes Y
+                re.compile(r'\b([a-zA-Z0-9\'-]{3,}(?:\s+[a-zA-Z0-9\'-]{3,}){0,2})\s+(?:refers?\s+to|means?|describes?)\s+((?:a|an|the)?\s*.+?)\.', re.IGNORECASE),
+                # 3. X, also known as Y (stop at comma or period)
+                re.compile(r'\b([a-zA-Z0-9\'-]{3,}(?:\s+[a-zA-Z0-9\'-]{3,}){0,2}),\s+also\s+known\s+as\s+((?:a|an|the)?\s*[^,\.]+)', re.IGNORECASE),
+                # 4. X occurs/happens when Y
+                re.compile(r'\b([a-zA-Z0-9\'-]{3,}(?:\s+[a-zA-Z0-9\'-]{3,}){0,2})\s+(?:occurs?|happens?)\s+when\s+(.+?)\.', re.IGNORECASE),
+                # 5. By definition, X is/are Y
+                re.compile(r'\b[Bb]y\s+definition,\s+([a-zA-Z0-9\'-]{3,}(?:\s+[a-zA-Z0-9\'-]{3,}){0,2})\s+(?:is|are|was|were)\s+((?:a|an|the)?\s*.+?)\.', re.IGNORECASE),
+            ]
+            
+            # Pattern 6: Y, called/termed/named X (groups are swapped: group 1 = definition, group 2 = concept)
+            called_pattern = re.compile(r'\b((?:a|an|the)?\s*[a-zA-Z0-9\'-]+(?:\s+[a-zA-Z0-9\'-]+){0,5}),\s+(?:called|termed|named)\s+([a-zA-Z0-9\'-]{3,}(?:\s+[a-zA-Z0-9\'-]{3,}){0,2})\b', re.IGNORECASE)
+            
+            # Extract from defn_patterns
+            for pat in defn_patterns:
+                for m in pat.finditer(text):
+                    concept = m.group(1).strip().lower()
+                    definition = m.group(2).strip()
+                    # Normalize leading article to lowercase
+                    def_words = definition.split()
+                    if def_words and def_words[0].lower() in ('a', 'an', 'the'):
+                        def_words[0] = def_words[0].lower()
+                        definition = " ".join(def_words)
+                    if len(definition) < 10 or len(definition) > 200:
+                        continue
+                    if (concept in query_lower or query_lower in concept
+                            or concept in self._concept_keywords):
+                        existing = self._definitions.get(concept, '')
+                        if concept not in self._definitions or len(definition) > len(existing):
+                            self._definitions[concept] = definition[:200]
+                            if self._trace_enabled:
+                                print(f"  [definition] Regex match: {concept} -> {definition[:80]}...")
+                                
+            # Extract from called_pattern
+            for m in called_pattern.finditer(text):
+                definition = m.group(1).strip()
+                concept = m.group(2).strip().lower()
+                # Normalize leading article to lowercase
+                def_words = definition.split()
+                if def_words and def_words[0].lower() in ('a', 'an', 'the'):
+                    def_words[0] = def_words[0].lower()
+                    definition = " ".join(def_words)
+                if len(definition) < 10 or len(definition) > 200:
+                    continue
+                if (concept in query_lower or query_lower in concept
+                        or concept in self._concept_keywords):
+                    existing = self._definitions.get(concept, '')
+                    if concept not in self._definitions or len(definition) > len(existing):
+                        self._definitions[concept] = definition[:200]
+                        if self._trace_enabled:
+                            print(f"  [definition] Called pattern match: {concept} -> {definition[:80]}...")
+                            
+        except Exception as e:
+            if self._trace_enabled:
+                print(f"  [definition] Regex extraction error: {e}")
+
+        # 2. Heuristic-based definition extraction (Approach 2) as a fallback for the query topic itself
+        concept_key = query_lower
+        suffix = " definition meaning explained"
+        if concept_key.endswith(suffix):
+            concept_key = concept_key[:-len(suffix)].strip()
+
+        if concept_key not in self._definitions:
+            heur_def = self._extract_heuristic_definition(text, concept_key)
+            if heur_def:
+                self._definitions[concept_key] = heur_def[:200]
+                if self._trace_enabled:
+                    print(f"  [definition] Heuristic match: {concept_key} -> {heur_def[:80]}...")
 
     # ─── Core Response Pipeline ───
 
@@ -821,6 +952,34 @@ class WebLearningMixin(ResponseGenMixin):
             return f"{topic_clean} definition meaning"
         else:
             return f"{topic_clean} explained overview"
+
+
+    def _queue_weak_concept_for_learning(self, subject: str, quality_score: float):
+        """
+        Immediately queue a weak-response concept for learning.
+        Bypasses the normal idle-cycle delay -- pushes directly into learning queue.
+        """
+        if not self._bg_learning_active or not subject:
+            return
+        topic = subject.lower().strip()
+        if not topic or len(topic) < 3:
+            return
+
+        # Generate a targeted search query
+        query = self._generate_curiosity_query(topic, source_type="unknown")
+
+        # Queue it with high priority (front of queue)
+        with self._bg_lock:
+            if query not in self._bg_learning_queue:
+                # Prepend to front
+                self._bg_learning_queue.insert(0, query)
+
+        # Wake the background thread immediately
+        self._bg_idle_event.set()
+
+        if self._trace_enabled:
+            print(f"  [curiosity] Emergency queue: '{query}' (quality={quality_score:.2f})")
+
 
     def _auto_select_curiosity_topics(self, max_topics: int = 3) -> List[str]:
 

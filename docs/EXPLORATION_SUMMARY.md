@@ -15,6 +15,11 @@ A **pressure-driven cognitive ML framework** where learning emerges from self-or
 - **Continuous Web Learning** — Autonomous curiosity-driven background learning with multi-API search
 - **Theory of Mind** — UserModel tracks goals, preferences, emotional state, and relationship depth per user
 - **Emotional Mirroring** — User arousal modulates generation temperature, verbosity, and concept breadth
+- **SituationModel & EventSchemaLibrary (DMN Workspace)** — Replaces discrete SVO generation with a blended vector representing the continuous cognitive situation (Default Mode Network) and uses structured process chains to generate fluid narratives
+- **LIFG-ATL Context Modulation & Broca's Area Hierarchy** — Warps semantic vectors using ATL convergence zones with top-down LIFG bias, and merges recursive cell assemblies to construct nested clause hierarchies (Broca's area)
+- **Metamemory & LPFC Pause** — Feeling-of-Knowing (FOK) pre-checks trigger prefrontal cortex (LPFC) pauses when familiarity is low, executing synchronous web queries to resolve ignorance online
+- **Pattern Separation Gate & Recency Boosts** — Suppresses spreading activation of concepts semantically distant from the primary subject (pattern separation) and boosts recently learned relevant concepts (dopamine novelty signal)
+- **ERN Response Quality Loop** — Error-Related Negativity (ERN) quality evaluation system that rates response specificity, penalizes generic templates, and redirects weak responses to trigger sleep pressure, curiosity spikes, and immediate web-learning
 
 ## Demo Results
 
@@ -69,7 +74,7 @@ RAVANA has **three layers**:
 
 1. **`ravana_ml/`** — ML Framework (5,200+ lines): NumPy-only PyTorch-like API with ConceptGraph, RLMv1/v2, Neuromodulator, plasticity rules, free energy accumulation
 2. **`ravana-v2/`** — GRACE Cognitive Core (19,500+ lines): 27-phase architecture (A–P) with Governor, Identity, Sleep, VAD Emotion, Human Memory, Global Workspace, Dual Process, Belief Reasoning, Active Epistemology, Meta-cognition, Social Epistemology
-3. **`ravana/`** — Modular Chat Package: Continuous web learning, decoder-first generation, PFC discourse planning, Basal Ganglia gating, cerebellar n-gram fluency, syntactic cell assembly, SurfaceRealizer (morphology/agreement), Theory of Mind (UserModel), Emotional Mirroring, multi-user BeliefStore, curiosity-driven exploration
+3. **`ravana/`** — Modular Chat Package: Continuous web learning, decoder-first generation, PFC discourse planning, Basal Ganglia gating, cerebellar n-gram fluency, syntactic cell assembly, SurfaceRealizer (morphology/agreement/pattern weights), Theory of Mind (UserModel), Emotional Mirroring, multi-user BeliefStore, curiosity-driven exploration, **SituationModel (DMN Workspace)**, **EventSchemaLibrary**, Feeling-of-Knowing (FOK) pre-checks, LPFC pause, pattern separation gating, recency boosts, and response quality ERN assessment.
 
 ## Key Insights
 

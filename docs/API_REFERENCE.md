@@ -838,6 +838,84 @@ from ravana.world import GridWorld, ContinuousWorld, SymbolicWorld
 from ravana.lab import analyze_concept_graph, plot_activation_dynamics, compute_coherence_trajectory, visualize_sleep_cycle, diagnose_learning
 ```
 
+### `ravana.core.situation_model` — SituationModel (DMN Workspace)
+
+```python
+from ravana.core.situation_model import SituationModel, SituationState
+
+@dataclass
+class SituationState:
+    blended_vector: Optional[np.ndarray] = None
+    dmn_state: Optional[np.ndarray] = None
+    content_vector: Optional[np.ndarray] = None
+    context_vector: Optional[np.ndarray] = None
+    active_concepts: Dict[str, float] = field(default_factory=dict)
+    narrative_theme: str = ""
+    coherence: float = 0.5
+    dmn_decay: float = 0.6
+    blend_temperature: float = 0.7
+
+class SituationModel:
+    """Default Mode Network (DMN) continuous cognitive workspace."""
+    def __init__(self, dim: int = 64, dmn_decay: float = 0.6):
+        self.dim: int
+        self.state: SituationState
+    
+    def update(self,
+               concept_embeddings: Dict[str, np.ndarray],
+               activations: Dict[str, float],
+               graph_get_vector_fn: Optional[Callable] = None,
+               sentence_vector: Optional[np.ndarray] = None,
+               context_vector_input: Optional[np.ndarray] = None) -> np.ndarray:
+        """Update blended vector, DMN decay state, content/context orthogonality, and coherence."""
+        
+    def get_blended_vector(self) -> np.ndarray: ...
+    def get_dmn_state(self) -> np.ndarray: ...
+    def get_content_vector(self) -> np.ndarray: ...
+    def get_context_vector(self) -> np.ndarray: ...
+    def get_coherence(self) -> float: ...
+    def get_narrative_theme(self) -> str: ...
+    def get_active_concepts(self) -> Dict[str, float]: ...
+    def reset(self) -> None: ...
+```
+
+### `ravana.core.event_schema` — EventSchemaLibrary (Procedural Scripts)
+
+```python
+from ravana.core.event_schema import EventSchemaLibrary, EventSchema, ProcessStep
+
+@dataclass
+class ProcessStep:
+    concept: str
+    verb: str
+    description: str = ""
+    duration: str = ""
+    causal_precedents: List[str] = field(default_factory=list)
+    confidence: float = 0.5
+
+@dataclass
+class EventSchema:
+    name: str
+    steps: List[ProcessStep]
+    source: str = "discovered"
+    context: str = ""
+    confidence: float = 0.5
+
+class EventSchemaLibrary:
+    """Library of hippocampal schemas and process chains."""
+    def __init__(self):
+        self._schemas: Dict[str, EventSchema]
+        
+    def seed_default_schemas(self) -> None:
+        """Seed with default universal schemas (trust, love, learning, growth, etc.)."""
+        
+    def get_schema(self, concept: str) -> Optional[EventSchema]: ...
+    def has_schema(self, concept: str) -> bool: ...
+    def add_schema(self, schema: EventSchema) -> None: ...
+    def discover_schema_from_text(self, text: str, concept: str) -> Optional[EventSchema]: ...
+    def blend_schemas(self, s1: EventSchema, s2: EventSchema, name: str) -> EventSchema: ...
+```
+
 ### `ravana.chat.user_model` — UserModel (Theory of Mind)
 
 ```python
@@ -893,6 +971,30 @@ class UserModel:
     
     def set_state(self, state: Dict) -> None:
         """Restore user model state with backward compatibility."""
+```
+
+### `ravana.chat.engine` — CognitiveChatEngine (Quality & Learning Loops)
+
+```python
+from ravana.chat.engine import CognitiveChatEngine
+
+class CognitiveChatEngine:
+    """The central conversational engine orchestrating web learning, spreading activation, and generation."""
+    
+    def _assess_response_quality(self, response: str, strategy: str, ctx) -> float:
+        """
+        Evaluate generated response quality (ACC/ERN analog) on [0-1] scale based on
+        strategy, length, noun diversity, context associations, stop-word ratio, and template specificity.
+        """
+        
+    def _queue_weak_concept_for_learning(self, subject: str, quality_score: float) -> None:
+        """Emergency queue a concept for immediate web learning, waking the background WebLearner thread."""
+        
+    def _extract_definitions(self, text: str, query: str) -> None:
+        """Scan text using regex patterns and heuristic sentence splitting to extract definitional knowledge."""
+        
+    def _extract_heuristic_definition(self, text: str, subject: str) -> Optional[str]:
+        """Heuristic definition parser scanning sentences for copulas and defining verbs (refers to, means, is a)."""
 ```
 
 ---

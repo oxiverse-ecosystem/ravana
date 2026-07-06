@@ -20,7 +20,7 @@ class CognitiveDB:
         
     def init_db(self):
         """Initialize the database schema and enable WAL mode."""
-        self.conn = sqlite3.connect(self.db_path, timeout=10.0)
+        self.conn = sqlite3.connect(self.db_path, timeout=10.0, check_same_thread=False)
         self.conn.execute("PRAGMA journal_mode=WAL;")
         self.conn.execute("PRAGMA synchronous=NORMAL;")
         

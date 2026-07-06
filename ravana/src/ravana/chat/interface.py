@@ -600,7 +600,7 @@ class ChatInterface:
         # Try ventral path (syntactic pipeline, no reasoning)
         try:
             syntax_response = self._generate_with_decoder_and_syntax(ctx)
-            if syntax_response and len(syntax_response) > 10 and not _is_word_salad(syntax_response):
+            if syntax_response and len(syntax_response) > 10 and not _is_word_salad(syntax_response, subject=ctx.subject):
                 _words = syntax_response.lower().split()
                 _unique_ratio = len(set(_words)) / max(1, len(_words))
                 if _unique_ratio >= 0.35:
@@ -1071,7 +1071,7 @@ class ChatInterface:
         # Syntactic pipeline only — no neural decoder generation
         try:
             syntax_response = self._generate_with_decoder_and_syntax(ctx)
-            if syntax_response and len(syntax_response) > 10 and not _is_word_salad(syntax_response):
+            if syntax_response and len(syntax_response) > 10 and not _is_word_salad(syntax_response, subject=ctx.subject):
                 _words = syntax_response.lower().split()
                 _unique_ratio = len(set(_words)) / max(1, len(_words))
                 if _unique_ratio >= 0.35:

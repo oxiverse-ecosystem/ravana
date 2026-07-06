@@ -192,12 +192,12 @@ class SurfaceRealizer:
     # The core SVO is always present; the pattern changes how it's framed.
     SENTENCE_PATTERNS = [
         "{subject} {verb} {object}",                  # 0: Standard SVO (direct, confident)
-        "{subject}: it {verb} {object}",              # 1: Left dislocation / topic-comment
+        "{subject}: {pronoun} {verb} {object}",       # 1: Left dislocation / topic-comment
         "{subject} is what {verb} {object}",          # 2: Pseudo-cleft (definitional focus)
-        "for {subject}, it {verb} {object}",          # 3: Topic fronting (prepositional)
-        "there is {subject} — it {verb} {object}",    # 4: Existential introduction
+        "for {subject}, {pronoun} {verb} {object}",  # 3: Topic fronting (prepositional)
+        "there is {subject} — {pronoun} {verb} {object}",    # 4: Existential introduction
         "it is {subject} that {verb} {object}",        # 5: Cleft sentence (contrastive focus)
-        "as for {subject}, it {verb} {object}",        # 6: As-for topic introduction
+        "as for {subject}, {pronoun} {verb} {object}",        # 6: As-for topic introduction
     ]
 
     # Adverbial modifiers by relation type — adds subtle variety to sentences.
@@ -214,6 +214,8 @@ class SurfaceRealizer:
         self._used_subjects: set = set()
         self._verb_phrase_success: Dict[str, float] = {}
         self._last_free_energy: float = 0.3
+        self.pattern_weights = [1.0] * 7
+        self._last_pattern_idx = None
         try:
             from ravana.language.verb_lexicon import _default_vector_fn
             self._vector_fn = _default_vector_fn
@@ -222,6 +224,12 @@ class SurfaceRealizer:
 
     def set_vector_fn(self, fn):
         self._vector_fn = fn
+
+    def learn_from_feedback(self, pattern_idx: int, success: bool):
+        """Reinforce template weights based on dialogue/comprehension success."""
+        lr = 0.05 if success else -0.025
+        if 0 <= pattern_idx < len(self.pattern_weights):
+            self.pattern_weights[pattern_idx] = max(0.1, min(2.0, self.pattern_weights[pattern_idx] + lr))
 
     def _get_confidence_level(self, free_energy: float) -> str:
         """Map free energy to epistemic confidence level.
@@ -415,8 +423,18 @@ class SurfaceRealizer:
         adverbs = self.ADVERBIAL_MODIFIERS.get(rel_key, ["", "", "", "", ""])
         adverb = random.choice(adverbs) if discourse_context.sentence_index > 0 else ""
         
+        # Resolve hedge (kind of / sort of) from free energy
+        hedge = self._compose_hedge(free_energy) if discourse_context.sentence_index > 0 else ""
+        
+        # Combine adverb and hedge into the verb phrase for correct placement
+        modifiers = []
+        if hedge:
+            modifiers.append(hedge)
         if adverb and dopamine_tone > 0.3:
-            modified_verb = f"{adverb} {verb}"
+            modifiers.append(adverb)
+            
+        if modifiers:
+            modified_verb = f"{' '.join(modifiers)} {verb}"
         else:
             modified_verb = verb
 
@@ -449,7 +467,10 @@ class SurfaceRealizer:
                 if has_copula:
                     pattern_idx = 0
                 else:
-                    pattern_idx = random.choices([0, 2, 5], weights=[0.75, 0.15, 0.10], k=1)[0]
+                    options = [0, 2, 5]
+                    priors = [0.75, 0.15, 0.10]
+                    weights = [p * self.pattern_weights[opt] for opt, p in zip(options, priors)]
+                    pattern_idx = random.choices(options, weights=weights, k=1)[0]
             elif subject_is_pronoun:
                 # Subject was pronominalized — only use patterns that don't hardcode "it"
                 # Patterns 0 (SVO) and 2 (pseudo-cleft) work with pronoun subjects
@@ -458,35 +479,44 @@ class SurfaceRealizer:
                 if has_copula:
                     pattern_idx = 0
                 else:
-                    weights = [0.85, 0.15]  # 0: SVO, 2: pseudo-cleft
-                    pattern_idx = random.choices([0, 2], weights=weights, k=1)[0]
+                    options = [0, 2]
+                    priors = [0.85, 0.15]
+                    weights = [p * self.pattern_weights[opt] for opt, p in zip(options, priors)]
+                    pattern_idx = random.choices(options, weights=weights, k=1)[0]
             else:
                 # Subsequent sentences with full subject: distribute across patterns
                 # But if copula exists, do NOT use pseudo-cleft (pattern 2) or cleft (pattern 5)
                 has_copula = any(modified_verb.lower().startswith(cop) for cop in ("is ", "are ", "was ", "were "))
                 if dopamine_tone > 0.6:
-                    weights = [0.30, 0.15, 0.10, 0.15, 0.10, 0.10, 0.10]
+                    priors = [0.30, 0.15, 0.10, 0.15, 0.10, 0.10, 0.10]
                 elif dopamine_tone > 0.3:
-                    weights = [0.40, 0.15, 0.08, 0.12, 0.08, 0.07, 0.10]
+                    priors = [0.40, 0.15, 0.08, 0.12, 0.08, 0.07, 0.10]
                 else:
-                    weights = [0.55, 0.15, 0.04, 0.08, 0.06, 0.04, 0.07]
+                    priors = [0.55, 0.15, 0.04, 0.08, 0.06, 0.04, 0.07]
                 
                 options = list(range(7))
                 if has_copula:
                     options.pop(5)
-                    weights.pop(5)
+                    priors.pop(5)
                     options.pop(2)
-                    weights.pop(2)
+                    priors.pop(2)
                 
+                weights = [p * self.pattern_weights[opt] for opt, p in zip(options, priors)]
                 total = sum(weights)
                 weights = [w / total for w in weights]
                 pattern_idx = random.choices(options, weights=weights, k=1)[0]
 
+            self._last_pattern_idx = pattern_idx
+            if hasattr(frame, 'pattern_idx'):
+                frame.pattern_idx = pattern_idx
+
             selected_template = self.SENTENCE_PATTERNS[pattern_idx]
+            pronoun = self._get_subject_pronoun(display_subj)
             core = selected_template.format(
                 subject=subject_phrase,
                 object=object_phrase,
                 verb=modified_verb,
+                pronoun=pronoun
             )
             has_punct = False
 
@@ -536,13 +566,7 @@ class SurfaceRealizer:
                     else:
                         sentence = f"{sentence}, {rel} {sub_sentence}"
 
-        hedge = self._compose_hedge(free_energy)
-        if hedge and not has_punct and discourse_context.sentence_index > 0:
-            first_space = sentence.find(" ")
-            if first_space > 0 and first_space < len(sentence) - 3:
-                after_first = sentence[first_space + 1]
-                if after_first.islower():
-                    sentence = sentence[:first_space + 1] + hedge + " " + sentence[first_space + 1:]
+
 
         fe_drop = self._last_free_energy - free_energy
         reflective = self._generate_reflective_clause(fe_drop)
@@ -581,6 +605,15 @@ class SurfaceRealizer:
         self._last_free_energy = free_energy
 
         return sentence
+
+    def _get_subject_pronoun(self, subject_phrase: str) -> str:
+        """Resolve pronoun for subject (singular/plural agreement)."""
+        sl = subject_phrase.lower().strip()
+        if sl.endswith("s") and sl not in self.SINGULAR_ENDING_IN_S:
+            return "they"
+        if sl in ("people", "children", "men", "women", "scientists", "thinkers"):
+            return "they"
+        return "it"
 
     def _resolve_pronoun(self, subject: str, subject_lower: str,
                           context: DiscourseState) -> str:

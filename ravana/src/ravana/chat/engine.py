@@ -179,6 +179,20 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         self._chain_traces: List[ChainTrace] = []
         # Phase 7: Impossible Query Registry
         self._impossible_queries: List[FailedQuery] = []
+        # Template invariance tracker: subject -> list of frame signatures
+        # Each frame signature is a frozenset of structural verbs/relators
+        # used in the response. When the same signature appears across many
+        # different subjects, it indicates generic template reuse (confabulation).
+        self._response_frame_history: Dict[str, List[frozenset]] = {}
+        # FOK pre-check counter: number of times we pre-queued learning this turn
+        self._fok_pre_queued: bool = False
+        self._fok_pause_done: bool = False  # Prevents infinite LPFC loop per turn
+        # Recency boost tracking (dopamine novelty signal analog):
+        # Labels of concepts recently learned from web search. During spread,
+        # these get a 1.5x activation boost, mimicking VTA dopamine signaling
+        # that prioritizes new memories (STC hypothesis, Redondo & Morris 2011).
+        self._recently_learned_labels: Set[str] = set()
+        self._recent_learn_turn: int = 0
         self._last_strategy_used: str = ""
         self._trace_enabled = False
         self._contradiction_map: Dict[str, Set[str]] = {}
@@ -829,6 +843,10 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         self.turn_count += 1
         self._learned_this_turn = False
         self._cascade_for_quality = False
+        self._fok_pause_done = False  # Reset LPFC pause flag each turn
+        # Decay recency boost: clear after 10 turns (synaptic tag window)
+        if hasattr(self, '_recent_learn_turn') and self.turn_count - self._recent_learn_turn > 10:
+            self._recently_learned_labels.clear()
 
         # Intercept direct identity/preference questions about the user: "what is my name", "who am i", etc.
         clean_input = user_input.lower().strip(" ?!.")
@@ -1088,6 +1106,13 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         sl = subject.lower()
         if sl in self._concept_keywords:
             subject_ids.update(self._concept_keywords[sl])
+        else:
+            # Multi-word subject fallback: 'dark energy' won't match single-word
+            # entries in _concept_keywords. Try each word individually so that
+            # primary_ids is populated and the topic relevance gate works.
+            for part in sl.split():
+                if part in self._concept_keywords:
+                    subject_ids.update(self._concept_keywords[part])
 
         # Step 2c: PFC-derived relation preference for spread activation.
         # The PFC determines what KIND of reasoning the question requires
@@ -1262,7 +1287,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             if len(self._last_responses) > 10:
                 self._last_responses = self._last_responses[-10:]
             self.notify_user_idle()
-            return chitchat_response.lower()
+            return chitchat_response
 
         # Step 6: Dual-process route
         confidence = self.identity.state.strength * 0.5 + 0.2
@@ -1315,8 +1340,31 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         schedule_triggered = (self.turn_count - self._last_sleep_episode) >= self._sleep_schedule_turns
         
         if pressure_triggered or schedule_triggered:
+            # Inject weak-response concepts into hippocampal replay BEFORE consolidation
+            for iq in self._impossible_queries:
+                if not iq.resolved and iq.subject:
+                    try:
+                        # Boost sleep pressure specifically for this concept
+                        subj_ids = self._concept_keywords.get(iq.subject.lower(), [])
+                        for nid in subj_ids:
+                            node = self.graph.get_node(nid)
+                            if node:
+                                # Manually trigger SWS-like replay for this node
+                                self.hippocampal_replay.add_experience(
+                                    pair=(iq.subject, iq.subject),
+                                    context=f"unknown concept: {iq.subject}",
+                                    weight=2.0,  # Higher than normal (0.5 default)
+                                    priority=1.0,  # Maximum priority
+                                )
+                    except Exception:
+                        pass
+
             # Run a mini sleep cycle: consolidate knowledge
-            metrics = self._sleep_consolidate()
+            metrics = self._sleep_consolidate()            # Mark impossible queries as resolved after sleep
+            for iq in self._impossible_queries:
+                if not iq.resolved:
+                    iq.resolved = True
+
             self._last_sleep_episode = self.turn_count
             self._sleep_pressure = 0.0
             if self._trace_enabled and metrics:
@@ -1326,6 +1374,118 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
 
         # Step 7: Past topics
         past = self._recall_past(subject, obj)
+
+        # Phase FOK: Feeling-of-Knowing pre-check (metamemory analog)
+        # Before generating, assess whether RAVANA has enough topic-specific 
+        # knowledge to give a meaningful response. The brain does this via 
+        # medial temporal lobe / hippocampal retrieval â€” low FOK = preparatory 
+        # learning signal before the response is even generated.
+        self._fok_pre_queued = False
+        if subject and self.baby_mode:
+            # Count strong noun associations specific to this subject
+            strong_assocs = 0
+            for label, score in associations[:12]:
+                ll = label.lower()
+                if (ll not in self._GRAMMATICAL_CONCEPTS and 
+                    len(ll) >= 3 and 
+                    ll != subject.lower() and
+                    score > 0.2):
+                    strong_assocs += 1
+            
+            # Count definitions and web-learned knowledge
+            subj_lower = subject.lower()
+            has_definition = subj_lower in self._definitions
+            has_web_knowledge = subj_lower in getattr(self, '_concept_sources', {})
+            has_schema = hasattr(self, 'event_schema_lib') and subj_lower in getattr(self.event_schema_lib, 'schemas', {})
+            
+            # RIHO model (Koriat & Levy-Sadot 2001): multi-word subjects require
+            # configural integration — the brain checks if the COMBINATION of words
+            # is familiar, not individual words (Reder 1987 cue-familiarity hypothesis).
+            # If only individual words are known but the phrase isn't in _definitions —
+            # the frontopolar cortex detects a mismatch and signals low FOK.
+            phrase_known = has_definition or has_web_knowledge or has_schema
+            is_multi_word = ' ' in subject.lower().strip()
+            if (strong_assocs < 2 and not phrase_known) or (is_multi_word and not phrase_known):
+                self._fok_pre_queued = True
+                # Immediately queue this subject for learning (before response generation)
+                with self._bg_lock:
+                    topic = subject.lower()
+                    if topic not in self._bg_learning_queue and topic not in self._pending_learning_queue:
+                        self._pending_learning_queue.append(topic)
+                if self._trace_enabled:
+                    print(f"  [FOK] Low feeling-of-knowing for '{subject}' (assocs={strong_assocs}) â€” pre-queued learning")
+                
+                # LPFC pause: do synchronous web search on this subject NOW
+                # instead of waiting for background learning. The brain's LPFC
+                # buys time (~200-500ms) by inhibiting the prepotent generic
+                # response while the hippocampus retrieves specific knowledge.
+                if self.baby_mode and not self._fok_pause_done:
+                    self._fok_pause_done = True
+                    search_query = f"{subject} definition meaning explained"
+                    if self._trace_enabled:
+                        print(f"  [LPFC] Pausing generation â€” searching '{search_query}'...")
+                    try:
+                        self.learn_from_web(search_query, max_results=2)
+                        if self._trace_enabled:
+                            print(f"  [LPFC] Web search complete â€” re-activating concepts")
+                        # Track recently learned concepts for dopamine novelty boost
+                        # During re-spread, these will get 1.5x activation priority
+                        self._recently_learned_labels.clear()
+                        subj_lower = subject.lower()
+                        # Add the subject itself
+                        if subj_lower in self._concept_keywords:
+                            self._recently_learned_labels.add(subj_lower)
+                        # Add any concepts from _definitions that were just learned
+                        for def_word in getattr(self, '_definitions', {}):
+                            self._recently_learned_labels.add(def_word.lower())
+                        # Add all concepts referenced in _concept_sources (web knowledge)
+                        # These include every topic that was ever learned from the web
+                        try:
+                            learned_set = set()
+                            for src_word in list(getattr(self, '_concept_sources', {}).keys()):
+                                learned_set.add(src_word.lower())
+                            # Take the most recently added ones (up to 20)
+                            for lw in list(learned_set)[:20]:
+                                self._recently_learned_labels.add(lw)
+                        except Exception:
+                            pass
+                        self._recent_learn_turn = self.turn_count
+                        # Directly boost activation of recently learned concepts
+                        # for preferential spread (synaptic tag capture mechanism)
+                        for label in self._recently_learned_labels:
+                            nids = self._concept_keywords.get(label, [])
+                            for nid in nids:
+                                self.graph.activate(nid, 0.9)
+                        # Re-activate concepts from the enriched graph
+                        activated = self._activate_from_input(user_input)
+                        # Re-auto-expand to wire new concepts
+                        new_c = self._auto_expand_concepts(user_input)
+                        if new_c > 0:
+                            activated = self._activate_from_input(user_input)
+                        # Re-spread activation with enriched knowledge
+                        associations = self._spread_and_collect(
+                            activated, primary_ids=subject_ids,
+                            relation_preference=spread_pref)
+                        # Re-filter associations
+                        filtered = []
+                        for l, s in associations:
+                            ll = l.lower()
+                            if ll in self._GRAMMATICAL_CONCEPTS:
+                                continue
+                            pos = getattr(self, '_concept_pos', {}).get(ll, 'noun')
+                            if pos != 'noun':
+                                continue
+                            filtered.append((l, s))
+                        associations = filtered
+                        # Re-check FOK after learning
+                        strong_assocs = sum(1 for _, sc in associations[:12] if sc > 0.2)
+                        if strong_assocs >= 2:
+                            self._fok_pre_queued = False  # FOK resolved!
+                            if self._trace_enabled:
+                                print(f"  [FOK] Knowledge acquired! {strong_assocs} associations now available")
+                    except Exception as e:
+                        if self._trace_enabled:
+                            print(f"  [LPFC] Search failed: {e} (continuing with existing knowledge)")
 
         # Step 8: Build context and generate response
         # Phase 12: Detect brain state for schema modulation
@@ -1393,7 +1553,61 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 raise
         self._last_strategy = strategy
 
-        # Phase 3: Register-controlled certainty modulation on response
+        # ─── Self-Improvement Loop: Learn from Weak Responses (ERN -> ACC -> LC-NE -> Hippocampus) ───
+        quality_score = self._assess_response_quality(response, strategy, ctx)
+
+        # Brain-inspired Syntactic & Construction Grammar Feedback Learning
+        user_understood = (quality_score >= 0.55)
+        if hasattr(self.syntactic_assembly, '_last_frame') and self.syntactic_assembly._last_frame:
+            self.syntactic_assembly.learn_from_feedback(self.syntactic_assembly._last_frame, user_understood=user_understood)
+            self.syntactic_assembly._last_frame = None
+        if hasattr(self.surface_realizer, '_last_pattern_idx') and self.surface_realizer._last_pattern_idx is not None:
+            self.surface_realizer.learn_from_feedback(self.surface_realizer._last_pattern_idx, success=user_understood)
+            self.surface_realizer._last_pattern_idx = None
+
+        if quality_score < 0.55 and ctx.subject and self.baby_mode:
+            # Weak response detected -- boost curiosity and queue immediate learning
+
+            # 1. Boost curiosity weight 5x-10x via the impossible queries registry
+            if not any(iq.subject == ctx.subject for iq in self._impossible_queries):
+                self._impossible_queries.append(FailedQuery(
+                    subject=ctx.subject,
+                    query=ctx.raw_input,
+                    turn=self.turn_count,
+                    resolved=False,
+                    response_quality=quality_score,
+                    strategy=strategy,
+                ))
+
+            # 2. Raise sleep pressure more aggressively (NREM tagging)
+            self._sleep_pressure += 0.15 * (1.0 - quality_score)
+
+            # 3. Queue for immediate web learning (not just background idle)
+            with self._bg_lock:
+                topic = ctx.subject.lower()
+                if topic not in self._bg_learning_queue and topic not in self._pending_learning_queue:
+                    self._pending_learning_queue.append(topic)
+
+            # 4. Tag for higher hippocampal replay weight by forcing high prediction error
+            try:
+                subj_ids = self._concept_keywords.get(ctx.subject.lower(), [])
+                for nid in subj_ids:
+                    node = self.graph.get_node(nid)
+                    if node:
+                        node.prediction_free_energy = 0.8  # Force high PE -> curiosity spike
+            except Exception:
+                pass
+
+            # 5. Emergency queue for background learning (wake thread immediately)
+            try:
+                self._queue_weak_concept_for_learning(ctx.subject, quality_score)
+            except Exception:
+                pass
+
+            if self._trace_enabled:
+                print(f"  [self-learn] Weak response ({quality_score:.2f}) for '{ctx.subject}' -- queued for learning")
+
+# Phase 3: Register-controlled certainty modulation on response
         try:
             if response:
                 conf = self.identity.state.strength * 0.5 + 0.3
@@ -1730,7 +1944,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # Syntactic pipeline only — no neural decoder generation
         try:
             syntax_response = self._generate_with_decoder_and_syntax(ctx)
-            if syntax_response and len(syntax_response) > 10 and not _is_word_salad(syntax_response):
+            if syntax_response and len(syntax_response) > 10 and not _is_word_salad(syntax_response, subject=ctx.subject):
                 _words = syntax_response.lower().split()
                 _unique_ratio = len(set(_words)) / max(1, len(_words))
                 if _unique_ratio >= 0.35:
@@ -2238,6 +2452,192 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 chain_labels.append(hop[0])
                 chain_labels.append(hop[1])
         self.cerebellar_ngram.learn_chain(chain_labels, successful=True, chain_hops=hops_list)
+
+    def _assess_response_quality(self, response: str, strategy: str, ctx) -> float:
+        """
+        Rate the quality of the just-generated response (ERN analog).
+
+        Returns 0.0 (terrible) to 1.0 (excellent).
+
+        Factors:
+        - Strategy used: narrative (0.7-1.0), syntax (0.4-0.6), gist_fallback (0.2-0.3), word_salad (0.0-0.1)
+        - Number of unique content nouns (>=3 = good, 0-1 = weak)
+        - Length: 15-60 chars sweet spot, <10 = too short
+        - Has noun_assocs: 0 = very weak, >=2 = strong
+        - Was schema_used: True = higher quality
+        - _is_word_salad check: True = quality 0.0
+        """
+        if not response or not isinstance(response, str):
+            return 0.0
+
+        # Base score from strategy
+        strategy_scores = {
+            "situation_model_narrative": 0.60,
+            "situation_model_decoder": 0.55,
+            "situation_model_syntax": 0.50,
+            "dorsal_reasoned": 0.45,
+            "fast_ventral": 0.35,
+            "graph_fallback": 0.25,
+            "gist_fallback": 0.20,
+            "chitchat": 0.40,
+        }
+        base_score = strategy_scores.get(strategy, 0.3)
+
+        # Word salad check: immediate 0
+        if _is_word_salad(response, subject=ctx.subject):
+            return 0.0
+
+        # Length penalty: too short or too long
+        resp_len = len(response.strip())
+        if resp_len < 8:
+            length_factor = 0.0  # Too short to be meaningful
+        elif resp_len < 15:
+            length_factor = 0.3  # Short but acceptable
+        elif resp_len <= 60:
+            length_factor = 1.0  # Sweet spot
+        elif resp_len <= 120:
+            length_factor = 0.8
+        else:
+            length_factor = 0.5  # Too long, likely rambling
+
+        # Content noun diversity
+        words = re.findall(r"[a-zA-Z']{3,}", response.lower())
+        content_words = [w for w in words if w not in STOP_WORDS and len(w) >= 3]
+        unique_content = len(set(content_words))
+        if unique_content >= 4:
+            content_factor = 1.0
+        elif unique_content >= 3:
+            content_factor = 0.7
+        elif unique_content >= 2:
+            content_factor = 0.4
+        elif unique_content >= 1:
+            content_factor = 0.15
+        else:
+            content_factor = 0.0
+
+        # Association richness from context
+        noun_assocs = 0
+        if ctx and hasattr(ctx, 'associated_concepts') and ctx.associated_concepts:
+            for label, _ in ctx.associated_concepts:
+                ll = label.lower()
+                if ll not in self._GRAMMATICAL_CONCEPTS:
+                    noun_assocs += 1
+        assoc_factor = min(1.0, noun_assocs / 4.0)  # 4+ assocs = max
+
+        # Knowledge-density penalty: penalize generic responses that lack subject-specific content
+        knowledge_density_penalty = 0.0
+        if ctx and hasattr(ctx, 'subject') and ctx.subject:
+            subj = ctx.subject.lower()
+            # Use only the top (strongest) associations â€” not all of them
+            assoc_labels = {a[0].lower() for a in getattr(ctx, 'associated_concepts', [])[:8]}
+            subject_related = sum(1 for w in content_words if w == subj or w in assoc_labels)
+            total = max(len(content_words), 1)
+            specificity = subject_related / total
+            if specificity < 0.15:
+                knowledge_density_penalty = 0.18
+            elif specificity < 0.3:
+                knowledge_density_penalty = 0.10
+
+        # Filler-word penalty: responses heavy on stop words signal low information density
+        total_words = max(len(words), 1)
+        stop_ratio = len([w for w in words if w in STOP_WORDS]) / total_words
+        filler_penalty = 0.1 if stop_ratio > 0.6 else 0.0
+
+        # Schema usage bonus
+        schema_bonus = 0.05 if strategy and ('schema' in strategy.lower() or 'narrative' in strategy.lower()) else 0.0
+
+        # â”€â”€ Specificity-based template detection (Hippocampal specificity signal) â”€â”€
+        # The brain detects generic responses by checking for the absence of specific
+        # episodic details from the posterior hippocampus (Ramey 2022, MasÃ­s-Obando 2022).
+        # If no specific memory trace is retrieved, the response defaults to the
+        # prevailing schematic pattern stored in the neocortex (DMN).
+        # In RAVANA: check if the response references any web-learned knowledge
+        # (_definitions, _concept_sources) vs. only generic GloVe words.
+        template_penalty = 0.0
+        if ctx and hasattr(ctx, 'subject') and ctx.subject and len(response) > 15:
+            subj = ctx.subject.lower()
+            # Build the set of 'specific knowledge' words â€” words that RAVANA
+            # has actually learned from web searches (not just GloVe neighbors)
+            # This is the hippocampal specificity signal: has the hippocampus
+            # contributed any unique details to this response?
+            knowledge_words = set()
+            # 1. Definitions learned from web
+            for def_word in getattr(self, '_definitions', {}):
+                knowledge_words.add(def_word.lower())
+            # 2. Web-sourced concepts (from _concept_sources)
+            for src_word in getattr(self, '_concept_sources', {}):
+                knowledge_words.add(src_word.lower())
+            # 3. Subject itself is always 'known'
+            knowledge_words.add(subj)
+            
+            # Extract content words from the response
+            resp_words_lower = response.lower().split()
+            resp_content = {w.strip(".,!?") for w in resp_words_lower 
+                          if len(w.strip(".,!?")) >= 3 
+                          and w.strip(".,!?") not in STOP_WORDS}
+            
+            # Count how many response content words are 'specific knowledge'
+            # vs. generic structural words that appear in any template response
+            generic_structural = {'begins', 'unfolds', 'grows', 'deepens', 'emerges',
+                'drives', 'shapes', 'follows', 'parallels', 'relates',
+                'journey', 'naturally', 'deliberately', 'gradually',
+                'connected', 'similar', 'leads', 'gives', 'rises', 'akin',
+                'ultimately', 'spark', 'recognition', 'interest', 'vulnerability',
+                'shared', 'experiences', 'something', 'different', 'direction',
+                'pursue', 'desire', 'observation', 'study', 'gathered',
+                'begins', 'unfolds', 'transforms', 'evolves'}
+            
+            specific_words = resp_content - generic_structural
+            total_content = max(len(resp_content), 1)
+            specificity_ratio = len(specific_words) / total_content
+            
+            # Also check: does the subject itself have any web knowledge?
+            subj_has_knowledge = (subj in getattr(self, '_definitions', {}) or 
+                                subj in getattr(self, '_concept_sources', {}) or
+                                subj in getattr(self, '_recently_learned_labels', set()))
+            
+            # Penalty logic:
+            # - If the subject HAS web knowledge but the response doesn't use it â†’ heavy penalty
+            # - If the subject has NO web knowledge AND response is generic â†’ moderate penalty
+            # - If specificity ratio is very low â†’ moderate penalty
+            if subj_has_knowledge and specificity_ratio < 0.3:
+                template_penalty = 0.20  # Has knowledge but didn't use it!
+                if getattr(self, '_trace_enabled', False):
+                    print(f"  [spec] '{subj}' has web knowledge but response is generic (ratio={specificity_ratio:.2f})")
+            elif specificity_ratio < 0.2:
+                template_penalty = 0.12  # Very low specificity
+                if getattr(self, '_trace_enabled', False) and False:  # Noisy, keep quiet
+                    pass
+
+        # FOK note: if we pre-queued learning (brain knows it doesn't know),
+        # the weak response is expected â€” learning is already queued,
+        # no additional penalty needed beyond the template check
+
+        # Combine: weighted average with penalties
+        quality = (
+            base_score * 0.35 +
+            length_factor * 0.15 +
+            content_factor * 0.25 +
+            assoc_factor * 0.25 +
+            schema_bonus -
+            knowledge_density_penalty -
+            filler_penalty -
+            template_penalty
+        )
+
+        # Trace logging for quality score â€” shows even when loop doesn't trigger
+        if getattr(self, '_trace_enabled', False):
+            subj_name = ctx.subject if ctx and hasattr(ctx, 'subject') else '?'
+            spec_info = f", spec_pen={template_penalty:.2f}" if template_penalty > 0 else ""
+            fok_info = " [FOK]" if getattr(self, '_fok_pre_queued', False) else ""
+            lpfc_info = " [LPFC]" if getattr(self, '_fok_pause_done', False) else ""
+            print(f"  [trace]   quality_score={quality:.2f} for '{subj_name}'{fok_info}{lpfc_info} "
+                  f"(strategy={strategy}, content={unique_content}, assoc={noun_assocs}, "
+                  f"len={resp_len}, kd_pen={knowledge_density_penalty:.2f}, "
+                  f"fill_pen={filler_penalty:.2f}{spec_info})")
+
+        return max(0.0, min(1.0, quality))
+
 
     def _sleep_consolidate(self) -> Dict[str, int]:
         result = self.sleep_engine.run_cycle(
@@ -2932,9 +3332,16 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
 
         # Fallback: best activated concept (skip question, topic-skip, and short words)
         # Prefer nouns over adjectives/verbs using POS tags
+        # CRITICAL: Prefer labels that actually appear in the user's input text
+        # over GloVe-neighbor activated words. Prevents extracting 'because'
+        # for 'what is blockchain' when 'blockchain' has no GloVe vector.
         if activated:
+            input_words = set(w.strip(".,!?").lower() for w in text.split() 
+                             if len(w.strip(".,!?")) > 2)
             best_real = None
             best_noun = None
+            in_input_noun = None
+            in_input_real = None
             for nid in activated:
                 node = self.graph.get_node(nid)
                 if node and node.label:
@@ -2942,15 +3349,32 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                     if (len(lbl) > 2 and lbl not in self.QUESTION_WORDS
                             and lbl not in self.TOPIC_SKIP_WORDS):
                         pos = self._concept_pos.get(lbl, 'noun')
+                        # Prioritize: input-text words > arbitrary GloVe neighbors
+                        appears_in_input = lbl in input_words or any(lbl in w for w in input_words)
+                        if appears_in_input and pos == 'noun' and in_input_noun is None:
+                            in_input_noun = (node.label, text)
+                        if appears_in_input and in_input_real is None:
+                            in_input_real = (node.label, text)
                         if pos == 'noun' and best_noun is None:
                             best_noun = (node.label, text)
                         if best_real is None:
                             best_real = (node.label, text)
-            # Prefer noun if available, else first valid
-            if best_noun:
-                return best_noun
-            if best_real:
-                return best_real
+            # Prefer: input-matching noun > input-matching any > graph noun > graph any
+            if in_input_noun:
+                if getattr(self, '_trace_enabled', False):
+                    print(f"  [trace]   topic='{in_input_noun[0]}' (input-match noun from activated)")
+                return in_input_noun
+            if in_input_real:
+                if getattr(self, '_trace_enabled', False):
+                    print(f"  [trace]   topic='{in_input_real[0]}' (input-match from activated)")
+                return in_input_real
+            # CRITICAL: No activated concept matched user input â€” skip to raw text
+            # processing instead of picking an unrelated GloVe neighbor.
+            # This prevents extracting 'because' for 'what is blockchain'.
+            if getattr(self, '_trace_enabled', False):
+                input_vs = ', '.join(sorted(input_words)) if input_words else '(empty)'
+                print(f"  [trace]   no input-match in activated â€” falling through to raw text (input_words={{{input_vs}}})")
+            # Fall through to raw text processing below (don't use best_noun/best_real)
 
         # Fallback: find meaningful words
         words = [w.strip(".,!?") for w in text.lower().split()

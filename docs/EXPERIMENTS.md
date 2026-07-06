@@ -107,6 +107,21 @@ python scripts/run_ablation.py --queries "what causes rain|how does learning wor
 - Total time
 - Error modes
 
+### Web Definition Pipeline Tests — `tests/unit/test_web_definition_pipeline.py`
+
+Validates that the heuristic and regex-based definition extraction rules accurately extract definitional predicates from raw text web crawl results.
+
+```bash
+python -m pytest tests/unit/test_web_definition_pipeline.py -v
+```
+
+**Unit tests verified:**
+- `test_heuristic_multi_word_subject`: Validates multi-word subject parsing (e.g., "dark energy") using copulas.
+- `test_heuristic_alternative_copula`: Checks alternative verbs (e.g., "refers to", "means").
+- `test_regex_also_known_as`: Matches "X, also known as Y" structures.
+- `test_heuristic_pronoun_fallback`: Verifies resolution when definitions start with pronouns (e.g., "It is a...").
+- `test_regex_called_pattern`: Matches "Y, called X" passive patterns.
+
 ### User Model Experiment — `experiments/experiment_user_model.py`
 
 Tests user adaptation and personalization across 3 user personas (curious, skeptical, practical):

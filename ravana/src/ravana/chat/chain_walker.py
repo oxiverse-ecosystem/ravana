@@ -382,7 +382,31 @@ class ChainWalkerMixin:
                 continue
             vec = self._glove_vector(word)
             if vec is None:
-                continue  # Not in GloVe — web search can handle later
+                # OOV fallback: build composite vector from constituent words.
+                # Without this, OOV words (e.g., 'blockchain') are never added to
+                # _concept_keywords, making subject_ids empty and disabling the
+                # topic relevance gate (primary_ids = set() -> falsy -> no gating).
+                part_vecs = []
+                for split_pos in range(3, len(word) - 2):
+                    sub1, sub2 = word[:split_pos], word[split_pos:]
+                    v1 = self._glove_vector(sub1)
+                    v2 = self._glove_vector(sub2)
+                    if v1 is not None and v2 is not None:
+                        part_vecs = [v1, v2]
+                        break
+                if len(part_vecs) >= 2:
+                    composite = np.mean(part_vecs, axis=0).astype(np.float32)
+                    norm = float(np.linalg.norm(composite))
+                    if norm > 0:
+                        vec = composite / norm
+                if vec is None:
+                    # Still no vector: use hash-based random vector (same approach as _seed_concepts)
+                    h = hash(word) % 10000
+                    vr = np.random.RandomState(h + 42)
+                    vec = vr.randn(self.dim).astype(np.float32) * 0.15
+                    norm = float(np.linalg.norm(vec))
+                    if norm > 0:
+                        vec /= norm
             node = self.graph.add_node(vector=vec, label=word)
             self._concept_keywords[word] = self._concept_keywords.get(word, []) + [node.id]
             self._concept_labels.add(word.lower())
@@ -918,6 +942,70 @@ class ChainWalkerMixin:
         # invisible to the spread, defeating causal reasoning.
         block_set = spread_set
 
+        # Pattern separation gate (dentate gyrus analog): compute subject vector
+        # for semantic relevance filtering. During spread, candidate associations
+        # that are too semantically distant from the primary subject are suppressed,
+        # preventing cross-topic knowledge bleeding (Yassa & Stark 2011).
+        subject_vec = None
+        if primary_ids:
+            # ATL semantic hub analog: average ALL primary vectors to create a
+            # unified composite for multi-word subjects (e.g., 'dark' + 'energy'
+            # = 'dark energy'). The anterior temporal lobe binds individual word
+            # meanings into a holistic concept (Pylkkanen 2019, Lambon Ralph 2017).
+            vecs = []
+            for pid in primary_ids:
+                pnode = self.graph.get_node(pid)
+                if pnode and pnode.vector is not None:
+                    vecs.append(pnode.vector)
+            if len(vecs) >= 2:
+                composite = np.mean(vecs, axis=0).astype(np.float32)
+                norm = float(np.linalg.norm(composite))
+                if norm > 0:
+                    subject_vec = composite / norm
+            elif len(vecs) == 1:
+                subject_vec = vecs[0]
+            # Composite vector fallback: when the subject concept isn't in GloVe
+            # vocabulary (e.g., 'blockchain', 'quantum entanglement'), build a
+            # composite vector from the label's constituent words. This prevents
+            # the entire topic relevance gate from being silently disabled for
+            # out-of-vocabulary concepts (Yassa & Stark 2011 - pattern separation
+            # should work even for novel stimuli).
+            if subject_vec is None:
+                for pid in primary_ids:
+                    pnode = self.graph.get_node(pid)
+                    if pnode and pnode.label:
+                        label_parts = re.findall(r'[a-z]+', pnode.label.lower())
+                        part_vecs = []
+                        for part in label_parts:
+                            pv = self._glove_vector(part)
+                            if pv is not None:
+                                part_vecs.append(pv)
+                        # Compound word splitting: for words not in GloVe (e.g.,
+                        # 'blockchain'), try all possible splits at internal positions
+                        # to find constituent sub-words that DO have vectors.
+                        if len(part_vecs) < 2:
+                            for part in label_parts:
+                                if self._glove_vector(part) is not None:
+                                    continue  # Already handled above
+                                for split_pos in range(3, len(part) - 2):
+                                    sub1, sub2 = part[:split_pos], part[split_pos:]
+                                    v1 = self._glove_vector(sub1)
+                                    v2 = self._glove_vector(sub2)
+                                    if v1 is not None and v2 is not None:
+                                        part_vecs = [v1, v2]
+                                        break
+                                if len(part_vecs) >= 2:
+                                    break
+                        if len(part_vecs) >= 2:
+                            composite = np.mean(part_vecs, axis=0).astype(np.float32)
+                            norm = float(np.linalg.norm(composite))
+                            if norm > 0:
+                                subject_vec = composite / norm
+                        elif len(part_vecs) == 1:
+                            # Single constituent vector: use directly as fallback
+                            subject_vec = part_vecs[0]
+                        break
+
         # Base activation: context (0.3) for all seeds, full (1.0) for spread sources
         for nid in seed_ids:
             self.graph.activate(nid, 1.0 if nid in spread_set else 0.3)
@@ -939,6 +1027,38 @@ class ChainWalkerMixin:
                     signal = node.activation * edge.weight * edge.confidence * decay
                     if relation_preference:
                         signal *= relation_preference.get(edge.relation_type, 1.0)
+                    
+                    # Topic relevance gate (pattern separation analog):
+                    # Suppress associations that are semantically distant from the subject.
+                    # This prevents 'water' (learned from love search) from bleeding into
+                    # 'blockchain' responses. Skip for causal edges (causality often links
+                    # semantically unrelated concepts like 'lamp'â†’'explosion').
+                    if subject_vec is not None and edge.relation_type != 'causal':
+                        tgt_node = self.graph.get_node(tid)
+                        if tgt_node and tgt_node.vector is not None:
+                            if primary_ids and tid not in primary_ids:
+                                semantic_sim = float(np.dot(subject_vec, tgt_node.vector))
+                                if semantic_sim < 0.20:
+                                    signal *= 0.05   # Near-orthogonal: almost completely suppress
+                                elif semantic_sim < 0.35:
+                                    signal *= 0.15   # Weakly related: suppress moderately
+                    
+                    # Context-bound recency boost: only boost recently learned concepts
+                    # that are semantically related to the current subject (event boundary).
+                    # The brain's LPFC gates irrelevant recent knowledge (Pitts & Nee 2022).
+                    if hasattr(self, '_recently_learned_labels') and self._recently_learned_labels:
+                        tgt_node = self.graph.get_node(tid)
+                        if tgt_node and tgt_node.label and tgt_node.label.lower() in self._recently_learned_labels:
+                            # Only boost if semantically related to subject (same context)
+                            if subject_vec is not None and tgt_node.vector is not None:
+                                ctx_sim = float(np.dot(subject_vec, tgt_node.vector))
+                                if ctx_sim > 0.30:
+                                    signal *= 1.5  # Same context: boost (dopamine novelty)
+                                else:
+                                    signal *= 0.3  # Different context: strong suppression (event boundary)
+                            else:
+                                signal *= 1.0  # No subject vector available: neutral
+                    
                     if signal > 0.01:
                         new_acts[tid] = new_acts.get(tid, 0.0) + signal
                 # Follow incoming edges (semantic network is effectively undirected)
@@ -948,6 +1068,31 @@ class ChainWalkerMixin:
                     signal = node.activation * edge.weight * edge.confidence * decay
                     if relation_preference:
                         signal *= relation_preference.get(edge.relation_type, 1.0)
+                    
+                    # Topic relevance gate for incoming edges too
+                    if subject_vec is not None and edge.relation_type != 'causal':
+                        src_node = self.graph.get_node(src)
+                        if src_node and src_node.vector is not None:
+                            if primary_ids and src not in primary_ids:
+                                semantic_sim = float(np.dot(subject_vec, src_node.vector))
+                                if semantic_sim < 0.20:
+                                    signal *= 0.05
+                                elif semantic_sim < 0.35:
+                                    signal *= 0.15
+                    
+                    # Context-bound recency boost for incoming edges
+                    if hasattr(self, '_recently_learned_labels') and self._recently_learned_labels:
+                        src_node = self.graph.get_node(src)
+                        if src_node and src_node.label and src_node.label.lower() in self._recently_learned_labels:
+                            if subject_vec is not None and src_node.vector is not None:
+                                ctx_sim = float(np.dot(subject_vec, src_node.vector))
+                                if ctx_sim > 0.30:
+                                    signal *= 1.5
+                                else:
+                                    signal *= 0.3
+                            else:
+                                signal *= 1.5
+                    
                     if signal > 0.01:
                         new_acts[src] = new_acts.get(src, 0.0) + signal
             for nid, sig in new_acts.items():
@@ -957,6 +1102,15 @@ class ChainWalkerMixin:
         collected = []
         for nid, node in self.graph.nodes.items():
             if nid not in block_set and node.activation > 0.05:
+                # Post-hoc topic relevance filter: remove concepts too semantically
+                # distant from the subject, even if they accumulated activation through
+                # multiple edge paths. This catches bleeding that slips through the
+                # per-edge gate (e.g., a concept activated from multiple intermediate nodes).
+                if subject_vec is not None and node.vector is not None and node.label:
+                    if primary_ids and nid not in primary_ids:
+                        final_sim = float(np.dot(subject_vec, node.vector))
+                        if final_sim < 0.15:
+                            continue  # Completely filter out unrelated concepts
                 collected.append((node.label or f"c{nid}", float(node.activation)))
 
         collected.sort(key=lambda x: x[1], reverse=True)
@@ -1578,7 +1732,8 @@ class ChainWalkerMixin:
             return None
         return chain
 
-
+
+
     def _try_surface_realize(self, subject: str, target: str,
                               relation: str = "semantic",
                               discourse_type: str = "explain",

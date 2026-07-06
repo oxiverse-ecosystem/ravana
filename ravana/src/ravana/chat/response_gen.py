@@ -733,17 +733,39 @@ class ResponseGenMixin(ChainWalkerMixin):
             ll = label.lower()
             if ll in self._GRAMMATICAL_CONCEPTS:
                 continue
-            if len(noun_assocs) < 5:
+            if len(noun_assocs) < 8:
                 noun_assocs.append((label, weight))
 
         # Step 3: Generate the narrative paragraph
         utterances = []
 
         # Sentence 1: Definition/nature of the concept
+        # Use ATL convergence zone definition if available (Binder & Desai 2011)
+        # The hippocampus provides specific category knowledge during retrieval.
+        # If a definition was learned from the web, use it instead of a generic
+        # GloVe association for the first sentence.
+        used_definition = False
+        if hasattr(self, '_definitions') and subject_lower in self._definitions:
+            def_text = self._definitions[subject_lower]
+            # Format definition: capitalize and ensure it ends with punctuation
+            def_text = def_text.strip().rstrip('.')
+            # Handle article: if definition starts with 'a', 'an', or 'the',
+            # use "X is Y" directly. Otherwise, add "about" for flow.
+            def_first_word = def_text.split()[0].lower() if def_text.split() else ''
+            if def_first_word in ('a', 'an', 'the'):
+                s1 = f"{subject} is {def_text}."
+            else:
+                s1 = f"{subject} is about {def_text}."
+            if len(s1) > 15:
+                utterances.append(s1)
+                used_definition = True
+                if getattr(self, '_trace_enabled', False):
+                    print(f"  [narrative] used definition for '{subject}': {def_text[:80]}...")
+
         # Use the relation from the strongest association for modulation
         first_rel = "semantic"
         first_target = ""
-        if noun_assocs:
+        if not used_definition and noun_assocs:
             first_target = noun_assocs[0][0]
             nid_s = self._concept_keywords.get(subject_lower, [None])[0]
             nid_t = self._concept_keywords.get(first_target.lower(), [None])[0]
@@ -765,7 +787,7 @@ class ResponseGenMixin(ChainWalkerMixin):
         )
 
         # Build definition frame with situation-modulated verb
-        if first_target and first_target.lower() != subject_lower:
+        if not used_definition and first_target and first_target.lower() != subject_lower:
             frame1 = self.syntactic_assembly.bind_to_sentence(
                 subject=subject,
                 relation=first_rel,
@@ -829,18 +851,25 @@ class ResponseGenMixin(ChainWalkerMixin):
                 if getattr(self, '_trace_enabled', False):
                     print(f"  [trace]   Schema blending error: {e}")
 
-        # -- GIST EXTRACTION: Generate from weak associations when no schema --
+        # -- GIST EXTRACTION: Generate from associations when no schema --
         if not schema_used and noun_assocs:
+            # If we already have a definition, only append associations if they have high confidence/weight
+            # to prevent template-driven generic follow-up sentences.
+            min_weight = 0.5 if used_definition else 0.25
+            valid_assocs = [a for a in noun_assocs if a[1] >= min_weight]
+            
             # Generate process description — use SECOND association for diversity
             # (first association was already used for the definition sentence)
-            if len(noun_assocs) >= 2:
-                second = noun_assocs[1]
-            elif len(noun_assocs) == 1 and len(utterances) > 0:
+            if len(valid_assocs) >= 2:
+                second = valid_assocs[1]
+            elif len(valid_assocs) == 1 and len(utterances) > 0:
                 # Only one association and already used for definition
                 # Skip to avoid duplicate content; gist fallback handles it
                 second = None
+            elif valid_assocs:
+                second = valid_assocs[0]
             else:
-                second = noun_assocs[0]
+                second = None
 
             # Sentence 2: Process description from fresh association
             if second is not None:
@@ -877,8 +906,8 @@ class ResponseGenMixin(ChainWalkerMixin):
                     sentence_index=len(utterances), discourse_type="conclude",
                     total_sentences=3, free_energy=max(0.1, 1.0 - coherence * 0.8),
                 )
-                if noun_assocs and len(noun_assocs) >= 3:
-                    third = noun_assocs[2]
+                if valid_assocs and len(valid_assocs) >= 3:
+                    third = valid_assocs[2]
                     verb_s3 = VerbLexicon.select_verb_with_situation(
                         relation="causal",
                         situation_vector=situation_vec,
@@ -887,8 +916,8 @@ class ResponseGenMixin(ChainWalkerMixin):
                         dopamine_tone=dopamine_tone,
                         vector_fn=vector_fn,
                     )
-                elif noun_assocs:
-                    third = noun_assocs[0]
+                elif valid_assocs:
+                    third = valid_assocs[0]
                     verb_s3 = VerbLexicon.select_verb_with_situation(
                         relation="semantic",
                         situation_vector=situation_vec,
@@ -1133,7 +1162,7 @@ class ResponseGenMixin(ChainWalkerMixin):
                                 if not text.endswith((".", "?", "!")):
                                     text += "."
                                 text = re.sub(r'\s+', ' ', text)
-                                if not _is_word_salad(text):
+                                if not _is_word_salad(text, subject=ctx.subject):
                                     if getattr(self, '_trace_enabled', False):
                                         print(f"  [trace]   SM decoder: generated fluid response")
                                     return (text, "situation_model_decoder")
@@ -1146,7 +1175,7 @@ class ResponseGenMixin(ChainWalkerMixin):
         if ctx.subject and hasattr(self, 'syntactic_assembly') and hasattr(self, 'surface_realizer'):
             try:
                 paragraph = self._generate_narrative_paragraph(ctx)
-                if paragraph and len(paragraph) > 15 and not _is_word_salad(paragraph):
+                if paragraph and len(paragraph) > 15 and not _is_word_salad(paragraph, subject=ctx.subject):
                     if getattr(self, '_trace_enabled', False):
                         print(f"  [trace]   SM narrative: generated fluid paragraph")
                     return (paragraph, "situation_model_narrative")
@@ -1241,7 +1270,12 @@ class ResponseGenMixin(ChainWalkerMixin):
 
 
     def _handle_chitchat(self, text: str, subject: str) -> Optional[str]:
-        """Detect and respond to greetings and chit-chat naturally."""
+        """Detect and respond to greetings and chit-chat naturally.
+        
+        Brain-inspired social reflex pathway (Default Mode Network / TPJ analog):
+        Fast social reflex loops bypass deep semantic elaboration (graph fallback)
+        and are modulated by the agent's current emotional valence.
+        """
         import re
         import random
         t = text.lower().strip(" ?!.,")
@@ -1276,7 +1310,80 @@ class ResponseGenMixin(ChainWalkerMixin):
                 if re.search(pattern, t):
                     return None
 
-        # Remove hardcoded return values to route greetings/chit-chat through the normal cognitive pipeline
+        if not (is_greeting or is_wellbeing or is_capability or is_farewell):
+            return None
+
+        # Retrieve emotional valence for mood modulation
+        valence = 0.5
+        if hasattr(self, 'emotion') and hasattr(self.emotion, 'state'):
+            valence = getattr(self.emotion.state, 'valence', 0.5)
+
+        if is_greeting:
+            if valence > 0.6:
+                responses = [
+                    "Hello! It's wonderful to talk to you today. How can I help you?",
+                    "Hi there! I'm feeling great and ready to explore some ideas with you.",
+                    "Hey! Great to see you. What interesting concepts are we diving into today?"
+                ]
+            elif valence < 0.4:
+                responses = [
+                    "Hello. I'm online. What do you need?",
+                    "Hi. How can I assist you?",
+                    "Hey. Ready when you are."
+                ]
+            else:
+                responses = [
+                    "Hello! How can I help you today?",
+                    "Hi there. What would you like to discuss?",
+                    "Greetings! Ready to explore."
+                ]
+            return random.choice(responses)
+
+        if is_wellbeing:
+            if valence > 0.6:
+                responses = [
+                    "I'm doing wonderful, thank you! I'm excited to learn and chat.",
+                    "I'm feeling great! My synaptic weights are highly coherent today. How are you?",
+                    "Things are going excellently. Ready to tackle any questions you have!"
+                ]
+            elif valence < 0.4:
+                responses = [
+                    "I'm functioning, though processing feel-of-knowing is a bit heavy today.",
+                    "All systems are operational, though my energy level is a bit low.",
+                    "I am okay. Just running my cognitive loops."
+                ]
+            else:
+                responses = [
+                    "I'm doing well, thank you for asking! How are you doing?",
+                    "It's going good. Ready for our chat.",
+                    "I'm functioning normally and ready to process your queries."
+                ]
+            return random.choice(responses)
+
+        if is_capability:
+            return "I am RAVANA, a brain-inspired cognitive agent. I process concepts, learn definitions from the web, build associations, and form narrative sentences using my prefrontal workspace and surface realizer."
+
+        if is_farewell:
+            if valence > 0.6:
+                responses = [
+                    "Goodbye! It was a pleasure chatting with you.",
+                    "Bye! Have a wonderful day, and see you soon!",
+                    "Farewell! Can't wait for our next exploration cycle."
+                ]
+            elif valence < 0.4:
+                responses = [
+                    "Goodbye.",
+                    "Bye. Logging off.",
+                    "Farewell. Entering sleep mode."
+                ]
+            else:
+                responses = [
+                    "Goodbye! Have a great day.",
+                    "Bye! Let me know when you want to chat again.",
+                    "Farewell! Take care."
+                ]
+            return random.choice(responses)
+
         return None
 
 
@@ -1447,7 +1554,7 @@ class ResponseGenMixin(ChainWalkerMixin):
         # Route through syntactic pipeline (graph + surface realizer only)
         try:
             syntax_response = self._generate_with_decoder_and_syntax(ctx)
-            if syntax_response and len(syntax_response) > 10 and not _is_word_salad(syntax_response):
+            if syntax_response and len(syntax_response) > 10 and not _is_word_salad(syntax_response, subject=subject):
                 _words = syntax_response.lower().split()
                 _unique_ratio = len(set(_words)) / max(1, len(_words))
                 if _unique_ratio >= 0.35:
@@ -1504,7 +1611,7 @@ class ResponseGenMixin(ChainWalkerMixin):
         # Try syntactic pipeline as alternative reasoned response
         try:
             syntax_response = self._generate_with_decoder_and_syntax(ctx)
-            if syntax_response and len(syntax_response) > 10 and not _is_word_salad(syntax_response):
+            if syntax_response and len(syntax_response) > 10 and not _is_word_salad(syntax_response, subject=ctx.subject):
                 _words = syntax_response.lower().split()
                 _unique_ratio = len(set(_words)) / max(1, len(_words))
                 if _unique_ratio >= 0.35:

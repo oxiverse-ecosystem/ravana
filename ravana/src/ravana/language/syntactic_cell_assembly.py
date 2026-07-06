@@ -39,6 +39,7 @@ class SyntacticFrame:
     depth: int = 0               # How many hops in the chain
     embedded_frame: Optional['SyntacticFrame'] = None
     embedded_relation: str = "which"
+    pattern_idx: Optional[int] = None
 
 
 class SyntacticCellAssembly:
@@ -96,6 +97,8 @@ class SyntacticCellAssembly:
 
     def __init__(self, learning_rate: float = 0.05):
         self.learning_rate = learning_rate
+        self._last_frame: Optional[SyntacticFrame] = None
+        self.pattern_weights = [1.0] * 7
 
         # Role activation matrices: concept → weight for each role
         # Seeded from POS priors when seed_from_pos is called
@@ -247,7 +250,7 @@ class SyntacticCellAssembly:
         # Tense
         tense = self._determine_tense(relation)
 
-        return SyntacticFrame(
+        frame = SyntacticFrame(
             subject_concept=subject,
             verb_concept=verb_concept,
             object_concept=target,
@@ -263,6 +266,8 @@ class SyntacticCellAssembly:
             tense=tense,
             depth=depth,
         )
+        self._last_frame = frame
+        return frame
 
     def _pick_verb_for_relation(self, relation: str,
                                  subject: str, target: str,
@@ -480,6 +485,13 @@ class SyntacticCellAssembly:
         # Track abstract/uncountable status
         if user_understood and frame.article_subject == '' and sl not in self._abstract_nouns:
             self._abstract_nouns.add(sl)
+
+        # Strengthen/weaken template pattern weight
+        if getattr(frame, 'pattern_idx', None) is not None:
+            pidx = frame.pattern_idx
+            if 0 <= pidx < len(self.pattern_weights):
+                self.pattern_weights[pidx] = max(0.1, min(2.0, self.pattern_weights[pidx] + lr))
+
 
     # ─── Surface Helpers ───
 

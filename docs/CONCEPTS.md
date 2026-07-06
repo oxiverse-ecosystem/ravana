@@ -630,6 +630,122 @@ def route(dissonance, identity, novelty, stakes, time_pressure):
 
 ---
 
+## SituationModel & EventSchemaLibrary (DMN Workspace)
+
+### Default Mode Network Grounding
+The brain maintains a continuously-evolving mental simulation of the current environment, narrative, or conversation, known in cognitive psychology as a **Situation Model** (Zwaan & Radvansky 1998). In neuroscience, the **Default Mode Network (DMN)**—specifically the angular gyrus, precuneus, and medial prefrontal cortex—is responsible for constructing and updating these situation models (Buckner & Carroll 2007). The DMN integrates incoming speech, episodic memories, and semantic concepts into a coherent, high-dimensional mental scene.
+
+### Mathematical Formulation of Situation Blending
+Instead of generating language step-by-step from discrete, disjoint concept triples (subject-relation-object), RAVANA's `SituationModel` computes a **continuous blended vector** representing the entire active cognitive state.
+
+Given a set of activated concepts $C$ with corresponding GloVe embedding vectors $\vec{v}_c$ and current activation values $a_c$ (for $c \in C$), we compute the soft-blended situation vector $\vec{v}_{\text{blend}}$ using a Softmax-like blending temperature $T$:
+
+$$w_c = a_c^{1 / T}$$
+$$\vec{v}_{\text{blend}} = \text{Normalize}\left( \sum_{c \in C} w_c \vec{v}_c \right)$$
+
+where $\text{Normalize}(\vec{x}) = \frac{\vec{x}}{\|\vec{x}\|_2}$. 
+
+The blending temperature $T \in [0.1, 1.0]$ controls the cognitive focus:
+- Low $T \to 0$ approaches a winner-take-all selection (dominated by the single most active concept).
+- High $T \to 1$ yields a uniform semantic integration of all active concepts.
+
+### DMN State Decay and Thematic Continuity
+To maintain thematic continuity across dialogue turns, the DMN state vector $\vec{s}_{\text{dmn}}^{(t)}$ decays slowly, acting as a low-pass filter of cognitive context:
+
+$$\vec{s}_{\text{dmn}}^{(t)} = \text{Normalize}\left( \gamma \vec{s}_{\text{dmn}}^{(t-1)} + (1 - \gamma) \vec{v}_{\text{blend}}^{(t)} \right)$$
+
+where $\gamma \in [0, 1]$ (default 0.6) represents the DMN decay rate.
+
+### Event Schema Library & Scene Construction
+Human procedural and narrative knowledge is structured as sequential scripts or schemas (Schank & Abelson 1977, Zacks & Tversky 2001). The `EventSchemaLibrary` implements this by storing **Process Chains**—linear, directed paths of concepts linked by causal/temporal edges (e.g., `trust` $\xrightarrow{\text{earned}}$ `vulnerability` $\xrightarrow{\text{requires}}$ `bond` $\xrightarrow{\text{strengthens}}$ `reliability`). 
+During sentence generation, if a concept matches an event schema, the system retrieves the entire sequence of steps to guide the discourse planning in the `PrefrontalWorkspace`, producing a coherent multi-sentence narrative rather than isolated, repetitive chitchat statements.
+
+---
+
+## Language Processing (LIFG-ATL Warping & Broca's Area)
+
+### LIFG-ATL Semantic Hub Warping
+The Anterior Temporal Lobe (ATL) acts as a semantic hub that binds individual word meanings into a holistic composite concept (Lambon Ralph 2017). The Left Inferior Frontal Gyrus (LIFG) acts as a top-down control mechanism, dynamically warping semantic vectors to highlight contextually relevant features (Pylkkänen 2019).
+In RAVANA, when a multi-word concept or contextual sentence is processed, the system warps the semantic vectors by combining ATL convergence zones with LIFG top-down bias, preventing cross-domain semantic bleeding.
+
+### Broca's Area Hierarchy Building
+Broca's area (specifically pars opercularis and pars triangularis) handles the assembly of hierarchical syntactic structures from linear sequences of words (Fitch & Hauser 2004). RAVANA models this via recursive syntactic cell assemblies that merge simple semantic frames `(subject, relation, object)` into nested, clause-level structures. This allows resolution of pronoun coreferences (e.g., resolving `who` and `which` relative pronouns for human/non-human concepts) and prevents syntactic errors like double-copulas (e.g., cleft doubling) during sentence planning.
+
+---
+
+## Metamemory: FOK Pre-Checks and LPFC Pause
+
+### Feeling-of-Knowing (FOK)
+Metamemory refers to the brain's ability to monitor its own memory contents and assess whether it knows a fact before attempting to retrieve it (Koriat & Levy-Sadot 2001). In RAVANA, the Feeling-of-Knowing (FOK) pre-check implements the **RIHO model** (Retrieval-Induced Hypothesis Organization) and Reder's **cue-familiarity hypothesis** (Reder 1987).
+
+Before generating a response, the system computes an FOK score based on:
+1. The density of strong semantic associations (nodes in the ConceptGraph with co-activation weights > 0.2).
+2. The existence of stable neocortical definitions (`_definitions`).
+3. Multi-word configural familiarity (whether the specific phrase is known, vs. only its constituent words).
+
+### The Lateral Prefrontal Cortex (LPFC) Pause
+If the FOK score falls below a critical threshold, the system recognizes its own ignorance (low metamemory confidence). Instead of confabulating a generic response, the **Lateral Prefrontal Cortex (LPFC)** analog inhibits the prepotent language output pathway. This buys cognitive time (a simulated ~300ms pause) during which:
+1. The system triggers an emergency synchronous search query (e.g., `"{subject} definition meaning explained"`).
+2. It fetches and parses web pages online.
+3. It extracts definitional knowledge and injects it directly into the neocortical definition store.
+4. It re-spreads activation on the newly enriched graph, resolving the FOK deficit and generating a factual, context-aware response.
+
+---
+
+## Neuromodulation: Pattern Separation & Recency Boost
+
+### Pattern Separation (Dentate Gyrus Analog)
+Pattern separation is the process of transforming overlapping semantic representations into distinct, non-overlapping memory traces (Yassa & Stark 2011), localized in the hippocampus's Dentate Gyrus.
+During graph spreading activation, RAVANA implements a **Pattern Separation Gate**:
+For any non-causal edge propagation, if the target concept's vector has a low cosine similarity with the primary subject vector ($\vec{v}_{\text{subject}}$), the spread signal is heavily suppressed:
+
+$$\text{signal}_{\text{gated}} = \begin{cases}
+0.05 \times \text{signal} & \text{if } \vec{v}_{\text{subject}} \cdot \vec{v}_{\text{target}} < 0.20 \\
+0.15 \times \text{signal} & \text{if } 0.20 \le \vec{v}_{\text{subject}} \cdot \vec{v}_{\text{target}} < 0.35 \\
+\text{signal} & \text{otherwise}
+\end{cases}$$
+
+This prevents unrelated semantic associations (e.g., learning `water` from a parallel search about `love`) from bleeding into unrelated contexts (e.g., a conversation about `blockchain`).
+
+### Context-Bound Recency Boost (VTA Dopamine)
+When the system learns new information, the Ventral Tegmental Area (VTA) releases dopamine, creating a transient **synaptic tag** that prioritizes recently formed memories for consolidation (Synaptic Tagging and Capture hypothesis, Redondo & Morris 2011).
+In the spreading activation loop, concepts recently added to `_recently_learned_labels` receive a $1.5\times$ activation boost, but **only if** they are semantically congruent with the current subject context ($\vec{v}_{\text{subject}} \cdot \vec{v}_{\text{learned}} > 0.30$). If they belong to a different context (an event boundary has been crossed), they are suppressed ($0.3\times$) to prevent unrelated memories from intruding.
+
+---
+
+## Self-Improvement Loop & Response Quality Assessment
+
+### ERN and ACC Monitoring
+The brain monitors its own cognitive errors via the **Anterior Cingulate Cortex (ACC)** and registers an **Error-Related Negativity (ERN)** EEG signal immediately after an erroneous action is performed (Gehring et al. 1993).
+RAVANA implements an ACC/ERN analog through a post-generation **Response Quality Assessment** ($Q \in [0, 1]$):
+
+$$Q = 0.35 \cdot S_{\text{strategy}} + 0.15 \cdot L_{\text{length}} + 0.25 \cdot C_{\text{content}} + 0.25 \cdot A_{\text{association}} + B_{\text{schema}} - P_{\text{kd}} - P_{\text{filler}} - P_{\text{specificity}}$$
+
+Where:
+- $S_{\text{strategy}}$: Base score determined by the generator strategy (e.g., situation model narrative vs. chitchat).
+- $L_{\text{length}}$: Sentence length suitability factor (peaks in the 15-60 character range).
+- $C_{\text{content}}$: Content word diversity (unique content nouns count).
+- $A_{\text{association}}$: Density of ConceptGraph associations activated.
+- $B_{\text{schema}}$: Bonus for utilizing event schemas.
+- $P_{\text{kd}}$: Knowledge density penalty (lack of subject-specific words).
+- $P_{\text{filler}}$: Penalty for high ratio of stop/filler words.
+- $P_{\text{specificity}}$: Template detection penalty. If a response is highly generic and lacks specific web-learned definitions or terms, this penalty suppresses $Q$.
+
+### ERN-Driven Learning Signals
+If $Q < 0.55$:
+1. **Curiosity Spike**: The subject is registered in the `_impossible_queries` list, raising its local prediction free energy to $0.8$ (inducing high learning priority).
+2. **Sleep Pressure**: Sleep pressure is raised by $\Delta P = 0.15 \times (1.0 - Q)$, forcing consolidation sooner.
+3. **Emergency Learning**: The concept is pushed directly to the front of the background learning queue, waking the WebLearner thread immediately.
+4. **Syntactic Feedback**: Syntactic and construction grammar templates that led to the weak response are penalized (lowered selection weights), while successful ones are reinforced.
+
+---
+
+## Social Reflex Pathway (TPJ Analog)
+Simple social interactions like greetings, wellbeing inquiries, and farewells do not require deep cognitive deliberation or graph-based reasoning. The brain routes these through a **social reflex pathway** (linked to the Temporoparietal Junction, TPJ) for rapid response execution.
+In RAVANA, chitchat is intercepted early and resolved through a fast social reflex loop. Crucially, these responses are **mood-modulated**: the agent's VAD emotion engine's current valence level alters the chitchat template selection, generating positive, neutral, or reserved responses based on its internal emotional state.
+
+---
+
 ## Comparative Analysis
 
 ### RAVANA vs Transformers

@@ -465,6 +465,8 @@ python -m ravana.chat --chat "hello|what is trust" --no-vad --no-rlm
 ravana/src/ravana/
 ├── __init__.py              # Module exports
 ├── core/                    # CognitiveCore
+│   ├── situation_model.py   # SituationModel (continuous cognitive workspace)
+│   ├── event_schema.py      # EventSchemaLibrary (procedural event schemas)
 │   ├── emotion.py           # VADEmotionEngine
 │   ├── identity.py          # IdentityEngine
 │   ├── meaning.py           # MeaningEngine
@@ -590,6 +592,8 @@ Continuous web learning and curiosity-driven exploration:
 #### `core/` — CognitiveCore
 
 Includes all core cognitive engines from the modular package:
+- **SituationModel** — DMN-inspired continuous workspace maintaining dense blended activation vectors
+- **EventSchemaLibrary** — Procedural/sequential event schemas (process chains) discovered from the web
 - **VADEmotionEngine** — 3D affective state (Valence, Arousal, Dominance)
 - **IdentityEngine** — Self-coherence with momentum
 - **MeaningEngine** — Intrinsic motivation computation
@@ -725,6 +729,119 @@ logits = model.forward(input_ids)
 ```
 
 **Note:** The `latent_dim` parameter controls the world model latent dimension. For the entity-specific adapter (which enables test-time adaptation for held-out subjects) to work without additional projection overhead, set `latent_dim=embed_dim` (both 64 in the example above). If `latent_dim != embed_dim`, the model automatically projects embeddings to latent space before applying the adapter.
+
+```
+
+### Spreading Activation with Pattern Separation & Recency Boost
+
+In the modular package (`CognitiveChatEngine`), spreading activation is modulated by top-down prefrontal bias, pattern separation gates, and VTA dopamine recency boosts:
+
+```python
+def spread_activation_modulated(graph, seed_ids, primary_ids, recently_learned_labels, relation_preference, steps=3, decay=0.3):
+    # 1. Establish pattern separation context vector (average of primary subject nodes)
+    subject_vec = compute_subject_vector(graph, primary_ids)
+    
+    # Base activations
+    for nid in seed_ids:
+        graph.activate(nid, 1.0 if nid in spread_set else 0.3)
+        
+    for _ in range(steps):
+        new_acts = {}
+        for nid, node in graph.nodes.items():
+            if node.activation > 0.05:
+                # Propagate along outgoing and incoming edges
+                for edge in node.edges:
+                    signal = node.activation * edge.weight * edge.confidence * decay
+                    if relation_preference:
+                        signal *= relation_preference.get(edge.relation_type, 1.0)
+                    
+                    # Pattern Separation Gate (suppress off-topic nodes, skip for causal links)
+                    if subject_vec is not None and edge.relation_type != 'causal':
+                        tgt_node = graph.get_node(edge.target)
+                        if tgt_node and tgt_node.vector is not None:
+                            sim = float(np.dot(subject_vec, tgt_node.vector))
+                            if sim < 0.20:
+                                signal *= 0.05   # Suppress strongly
+                            elif sim < 0.35:
+                                signal *= 0.15   # Suppress moderately
+                                
+                    # Context-Bound Recency Boost (VTA dopamine tag)
+                    if tgt_node.label.lower() in recently_learned_labels:
+                        if subject_vec is not None and tgt_node.vector is not None:
+                            ctx_sim = float(np.dot(subject_vec, tgt_node.vector))
+                            if ctx_sim > 0.30:
+                                signal *= 1.5    # Dopamine novelty boost
+                            else:
+                                signal *= 0.3    # Suppress across event boundary
+                                
+                    if signal > 0.01:
+                        new_acts[edge.target] = new_acts.get(edge.target, 0.0) + signal
+                        
+        # Apply updates & normalize
+        ...
+```
+
+### Metamemory FOK (Feeling-of-Knowing) & LPFC Pause
+
+Evaluates RAVANA's competence on a topic before generating text. If the topic familiarity is low, the prepotent generation pathway is inhibited (LPFC pause) to run a synchronous web search first.
+
+```python
+def check_fok_and_pause(subject, user_input):
+    # 1. Calculate feeling-of-knowing (FOK)
+    strong_assocs = count_strong_associations(subject)
+    has_def = subject.lower() in definitions
+    has_web = subject.lower() in concept_sources
+    
+    phrase_known = has_def or has_web
+    is_multi_word = ' ' in subject.strip()
+    
+    low_fok = (strong_assocs < 2 and not phrase_known) or (is_multi_word and not phrase_known)
+    
+    if low_fok and baby_mode:
+        # LPFC Pause: Inhibits response, performs synchronous web learning
+        search_query = f"{subject} definition meaning explained"
+        learn_from_web(search_query, max_results=2)
+        
+        # Tags learned concepts for dopamine recency boost in next spread cycle
+        tag_recently_learned_concepts(subject)
+        
+        # Re-activate and re-spread activation with enriched graph
+        re_spread_activation(user_input)
+```
+
+### ERN (Error-Related Negativity) Response Quality Loop
+
+Post-generation feedback loop assessing syntactic and semantic response health. If a low-quality response (confabulation or template reuse) is detected, the system immediately tags it for learning.
+
+```python
+def assess_and_adapt(response, strategy, context):
+    # 1. Compute response quality score (ACC analog)
+    quality = (
+        base_strategy_score(strategy) * 0.35 +
+        length_suitability_factor(response) * 0.15 +
+        content_noun_diversity(response) * 0.25 +
+        association_richness(context) * 0.25 -
+        knowledge_density_penalty(response) -
+        filler_word_penalty(response) -
+        specificity_template_penalty(response)
+    )
+    
+    # 2. ERN Learning Signal Trigger
+    if quality < 0.55 and context.subject:
+        # Raise prediction free energy to 0.8 for hippocampal replay tagging
+        tag_graph_nodes_curiosity(context.subject)
+        
+        # Raise sleep pressure aggressively
+        sleep_pressure += 0.15 * (1.0 - quality)
+        
+        # Emergency background queue injection (wake WebLearner thread)
+        queue_emergency_web_learning(context.subject)
+        
+        # Reinforce syntactic templates & construction grammar weights
+        reinforce_grammar(user_understood=False)
+    else:
+        reinforce_grammar(user_understood=True)
+```
 
 ---
 
