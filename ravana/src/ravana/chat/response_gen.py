@@ -1902,6 +1902,83 @@ class ResponseGenMixin(ChainWalkerMixin):
             text = text.rstrip(".!?") + "." + q
         return (text, "definition_with_assoc")
 
+    def _reflective_response(self, ctx: CognitiveResponseContext):
+        """Reflective answer for half-known concepts (associations, no real definition).
+
+        When RAVANA has only shallow, association-level knowledge of a topic
+        (no stored definition / web fact), a human doesn't rattle off three
+        loosely-linked assertions — they admit the gap and share the *gist*
+        they've pieced together, then turn it back to the speaker. We mirror
+        that: acknowledge no neat definition, surface the 1-2 most relevant
+        associations naturally, and ask for the user's take.
+        """
+        subject = ctx.subject
+        if not subject:
+            return None
+        subj_cap = subject.capitalize()
+        subj_vec = self._glove_vector(subject) if hasattr(self, '_glove_vector') else None
+
+        # Subject-verb / pronoun agreement (mirror SurfaceRealizer plural rules).
+        sl = subject.lower()
+        is_plural = sl in ("they", "we", "you", "people", "friends") or \
+                    (sl.endswith("s") and not sl.endswith("ss"))
+        be = "are" if is_plural else "is"
+        pron = "they" if is_plural else "it"
+        pron_obj = "them" if is_plural else "it"
+        make = "make" if is_plural else "makes"
+
+        # Junk associations that aren't useful gist (modals, discourse adverbs).
+        _JUNK = {"cannot", "able", "never", "always", "sometimes", "today",
+                 "yesterday", "maybe", "perhaps", "now", "soon", "here", "there"}
+
+        def _is_ok_assoc(ll):
+            if ll == sl or ll in _JUNK:
+                return False
+            if ll in getattr(self, '_GRAMMATICAL_CONCEPTS', set()):
+                return False
+            return getattr(self, '_concept_pos', {}).get(ll, 'noun') == 'noun'
+
+        related = []
+        for label, _score in (ctx.associated_concepts or []):
+            ll = label.lower()
+            if not _is_ok_assoc(ll):
+                continue
+            v = self._glove_vector(label) if subj_vec is not None else None
+            if subj_vec is not None and v is not None:
+                sim = float(np.dot(subj_vec, v))
+                if sim >= 0.35:
+                    related.append((label, sim))
+        if not related:
+            # Fallback for multi-word/unknown subjects with no clean embedding:
+            # use the strongest activated associations by score.
+            related = [(label, score) for label, score in (ctx.associated_concepts or [])
+                       if _is_ok_assoc(label.lower())][:4]
+        if not related:
+            return None
+        related.sort(key=lambda x: -x[1])
+        top = [l for l, _ in related[:2]]
+
+        if len(top) == 1:
+            openers = [
+                f"i don't have a neat definition for {subj_cap}, but to me {pron} {be} connected to {top[0]}.",
+                f"i can't quite put {subj_cap} into words, though {pron} {make} me think of {top[0]}.",
+                f"i'm still figuring out {subj_cap} — the thread i keep pulling is {top[0]}.",
+                f"{subj_cap} {be} one of those things i can't define cleanly, but {pron} links to {top[0]} in my head.",
+            ]
+        else:
+            openers = [
+                f"i don't have a clean definition for {subj_cap}, but {pron} {be} tied to {top[0]} and {top[1]} to me.",
+                f"i can't fully define {subj_cap}, though {pron} {make} me think of {top[0]} and maybe {top[1]}.",
+                f"{subj_cap} {be} fuzzy for me — i mostly connect {pron_obj} to {top[0]} and {top[1]}.",
+            ]
+        closers = [
+            " what does it mean to you?",
+            " what's your take on it?",
+            " how do you see it?",
+            " where does that land for you?",
+        ]
+        return (random.choice(openers) + random.choice(closers), "reflective_uncertainty")
+
     def _generate_response(self, ctx: CognitiveResponseContext) -> Tuple[str, str]:
         """Dual-path response generation.
 
@@ -2000,24 +2077,22 @@ class ResponseGenMixin(ChainWalkerMixin):
             return self._human_like_uncertainty(ctx)
 
         if try_situation_path:
+            # When the answer would rest only on shallow associations (no clean
+            # stored definition), a human admits the gap and shares the gist
+            # they've pieced together — not three asserted associations. Web-
+            # sourced entries are often garbled/incomplete (especially offline),
+            # so they don't count as confident knowledge here; route to the
+            # reflective, turn-taking answer instead of raw association salad.
+            has_clean_definition = bool(
+                subject and subject.lower() in getattr(self, '_definitions', {}))
+            if not has_clean_definition:
+                refl = self._reflective_response(ctx)
+                if refl:
+                    return refl
             sm_res = self._generate_with_situation_model(ctx)
             if sm_res:
                 if getattr(self, '_trace_enabled', False):
                     print(f"  [trace]   SM path: {sm_res[1]} (coherence={situation_coherence:.2f})")
-                # When the answer rests only on shallow associations (no real
-                # definition/web fact), frame it as a tentative thought and hand
-                # the floor back — a human doesn't assert thin guesses as fact.
-                has_real_knowledge = (subject and subject.lower() in getattr(self, '_definitions', {})) or \
-                                     (subject and subject.lower() in getattr(self, '_concept_sources', {}))
-                if not has_real_knowledge:
-                    tail = random.choice([
-                        " but that's just how i connect it in my head.",
-                        " though i'm still piecing that together.",
-                        " what's your read on it?",
-                        " does that ring true to you?",
-                    ])
-                    sm_text = sm_res[0].rstrip(".!?") + "." + tail
-                    return (sm_text, sm_res[1])
                 return sm_res
 
         # Step 3: PFC Gate — route to Ventral or Dorsal path
