@@ -11,10 +11,12 @@ Usage:
     python scripts/ravana_chat.py
 """
 
-import sys, os, time, random, json, re, argparse, pickle, threading, hashlib
+import sys, os, time, random, json, re, argparse, pickle, threading, hashlib, io
 import urllib.request
 import socket
 socket.setdefaulttimeout(4.0)
+if sys.platform == "win32" and hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
 from urllib.error import URLError
 from urllib.parse import quote
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -255,6 +257,9 @@ def main():
             if args.trace:
                 engine.print_traces(f"Q{i+1}")
             print()
+        # Stop background learning first so any web-learned definitions are
+        # flushed into memory before we persist state (otherwise they're lost).
+        engine.stop_background_learning()
         result = engine.save()
         print(f"  [{result}]")
         print(f"  [Stats] Turns: {engine.turn_count}, Words: {len(engine.graph.nodes)}, Sleeps: {engine.sleep_cycles_completed}")

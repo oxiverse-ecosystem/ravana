@@ -81,9 +81,12 @@ class SearchEngine:
     def __init__(self, config: Optional[SearchConfig] = None):
         self.config = config or SearchConfig()
         self.apis = [
+            # Local search engine is preferred: it is fast, always reachable on
+            # the same machine, and works even with no internet. Remote APIs are
+            # fallbacks only.
             ("local_api", "http://localhost:4000/search?q={}", 5, 10),
-            ("oxiverse", "https://api.oxiverse.com/search?q={}", 3, 10),
             ("duckduckgo", "https://html.duckduckgo.com/html/?q={}", 5, 10),
+            ("oxiverse", "https://api.oxiverse.com/search?q={}", 3, 10),
         ]
         self._api_failure_counts = {name: 0 for name, _, _, _ in self.apis}
         self._api_last_failure_time = {name: 0 for name, _, _, _ in self.apis}
@@ -107,14 +110,41 @@ class SearchEngine:
         self._api_failure_counts[api_name] += 1
         self._api_last_failure_time[api_name] = time.time()
 
-    def search(self, query: str, max_results: int = 10) -> List[Dict[str, Any]]:
-        """Search with automatic fallback across APIs."""
-        query_encoded = quote(query)
+    def search(self, query: str, max_results: int = 10,
+                local_only: bool = False) -> List[Dict[str, Any]]:
+        """Search with automatic fallback across APIs.
+
+        When ``local_only`` is True (used when remote connectivity is down),
+        only the local search engine is consulted — remote APIs are skipped so
+        a working local engine is never blocked by the offline circuit breaker.
+        """
         errors = []
 
+        # Definitional suffixes (e.g. " definition meaning", " explained overview")
+        # improve recall on remote engines (DuckDuckGo/oxiverse) but pollute the
+        # local semantic engine, sending it off-topic (searching "cleopatra
+        # definition meaning" returns pages about "explanation"). Strip them when
+        # the query is destined for the local engine so it gets a clean subject.
+        _LOCAL_SUFFIXES = (
+            " definition meaning explained", " definition meaning",
+            " explained overview", " explained with examples", " explained",
+        )
+
         for api_name, url_template, timeout, api_max_results in self.apis:
+            if local_only and api_name != "local_api":
+                continue
+
             if not self._is_api_available(api_name):
                 continue
+
+            api_query = query
+            if api_name == "local_api":
+                ql = query.lower()
+                for suf in _LOCAL_SUFFIXES:
+                    if ql.endswith(suf):
+                        api_query = query[: len(query) - len(suf)].strip()
+                        break
+            query_encoded = quote(api_query)
 
             try:
                 url = url_template.format(query_encoded)

@@ -13,7 +13,7 @@ from typing import Dict, Any, List, Optional, Tuple, Set
 from collections import deque, Counter
 
 
-from .constants import STOP_WORDS
+from .constants import STOP_WORDS, WEB_GARBAGE, INAPPROPRIATE_WORDS
 from .response_gen import ResponseGenMixin
 # Compute project root (same logic as engine.py)
 _proj_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
@@ -29,10 +29,36 @@ except ImportError:
 
 
 
-
-
 class WebLearningMixin(ResponseGenMixin):
     """Mixin providing web search, background learning, and curiosity drive methods."""
+
+    # ─── Issue 1: OFC Coherence Gating ───
+    # Neuroscience: Orbitofrontal Reality Filtering (Schnider 2013) —
+    # the OFC evaluates whether retrieved information matches the current
+    # context by computing a rapid match/mismatch signal within 200-300ms.
+    # This replaces hardcoded INAPPROPRIATE_WORDS with dynamic coherence checks.
+
+    def _definition_coherence_score(self, subject: str, definition: str) -> float:
+        """OFC-inspired coherence score between a subject and its definition.
+
+        Computes the semantic centroid of the definition's content words and
+        measures its cosine similarity to the subject's GloVe vector.
+        Low coherence (anti-correlated or orthogonal) → definition rejected.
+
+        Returns 0.0 to 1.0 (coherent). Threshold for acceptance: > 0.15.
+        """
+        subj_vec = self._glove_vector(subject)
+        def_words = [w for w in re.findall(r'[a-z]{3,}', definition.lower())
+                     if w not in STOP_WORDS]
+        def_vecs = [self._glove_vector(w) for w in def_words if self._glove_vector(w) is not None]
+        if not def_vecs or subj_vec is None:
+            return 0.0
+        def_centroid = np.mean(def_vecs, axis=0)
+        norm = np.linalg.norm(def_centroid)
+        if norm > 0:
+            def_centroid /= norm
+        coherence = float(np.dot(subj_vec, def_centroid))
+        return max(0.0, coherence)  # Clamp to [0, 1]
 
     def learn_from_web(self, query: str, max_results: int = 3) -> Tuple[str, str]:
         """Search the web, fetch articles, extract concepts, and learn from them.
@@ -44,9 +70,45 @@ class WebLearningMixin(ResponseGenMixin):
         self._learned_this_turn = True
         self._learning_count += 1
 
-        # Phase 5: Skip API call if we already know the network is down
-        # (unless it's time for a retry — check every 20 turns)
+        # Phase 5: When remote connectivity is down, the LOCAL search engine
+        # (localhost:4000) may still be reachable — it must NOT be blocked by the
+        # offline circuit breaker. Try a local-only search before giving up.
         if self._network_available is False:
+            try:
+                local_results = self.search_engine.search(query, max_results=max_results,
+                                                         local_only=True)
+                if local_results:
+                    self._network_available = None  # local works; allow retry later
+                    # Reuse the normal learning pipeline on the local results.
+                    snippets = []
+                    for r in local_results[:3]:
+                        snippet = r.get("content", "") or ""
+                        title = r.get("title", "") or ""
+                        text = f"{title}. {snippet}"
+                        url = r.get("url", "") or ""
+                        if url:
+                            try:
+                                art = self._fetch_article_text(url)
+                                if art and len(art) > len(text):
+                                    text = art[:5000]
+                            except Exception:
+                                pass
+                        snippets.append(text)
+                        if snippet:
+                            self._extract_definitions(snippet, query)
+                        if title:
+                            self._extract_definitions(title, query)
+                    combined = " ".join(snippets)
+                    if combined:
+                        self._extract_definitions(combined, query)
+                    new_c = self._learn_from_text(combined, query,
+                                                   source_url=local_results[0].get("url", "") or query)
+                    if new_c > 0:
+                        return f"learned {new_c} new things about {query}", combined
+                    return f"read about {query} but already knew the words", combined
+            except Exception:
+                pass
+            # Local engine also unavailable — fall back to GloVe-only learning.
             if self._network_retry_turn > 0 and self.turn_count >= self._network_retry_turn:
                 self._network_available = None  # try again
                 self._network_retry_turn = 0
@@ -58,7 +120,6 @@ class WebLearningMixin(ResponseGenMixin):
                     return f"learned {known_count} things about {query}", ""
                 return f"offline - already knew about {query}", ""
             else:
-                # Still try GloVe-only learning from the query text itself
                 known_count = self._learn_from_text(query + " " + query, query, source_url=query)
                 if known_count > 0:
                     return f"learned {known_count} things about {query}", ""
@@ -70,7 +131,8 @@ class WebLearningMixin(ResponseGenMixin):
             # Step 1: Search with fallback engines (circuit breaker)
             try:
                 results = self.search_engine.search(query, max_results=max_results)
-                if self._network_available is None:
+                self._consecutive_network_failures = 0
+                if self._network_available is not True:
                     self._network_available = True
             except SearchError:
                 # All search engines failed
@@ -129,7 +191,9 @@ class WebLearningMixin(ResponseGenMixin):
             # Phase 5: Network failure — mark as unavailable, fall back silently
             if self._trace_enabled:
                 print(f"  [bg] Network error in learn_from_web: {type(e).__name__}")
-            self._network_available = False
+            self._consecutive_network_failures = getattr(self, '_consecutive_network_failures', 0) + 1
+            if self._consecutive_network_failures >= 3:
+                self._network_available = False
             # Still try GloVe-only learning from the query text
             known_count = self._learn_from_text(query + " " + query, query, source_url=query)
             if known_count > 0:
@@ -139,7 +203,9 @@ class WebLearningMixin(ResponseGenMixin):
             # Any other error — also fall back silently
             if self._trace_enabled:
                 print(f"  [bg] Unexpected error in learn_from_web: {type(e).__name__}: {e}")
-            self._network_available = False
+            self._consecutive_network_failures = getattr(self, '_consecutive_network_failures', 0) + 1
+            if self._consecutive_network_failures >= 3:
+                self._network_available = False
             return "offline", ""
 
 
@@ -198,7 +264,7 @@ class WebLearningMixin(ResponseGenMixin):
         word_counts = {}
         for w in words:
             wc = w.strip("'")
-            if wc not in STOP_WORDS and len(wc) >= 3:
+            if wc not in STOP_WORDS and wc not in WEB_GARBAGE and wc not in INAPPROPRIATE_WORDS and len(wc) >= 3:
                 word_counts[wc] = word_counts.get(wc, 0) + 1
 
         if not word_counts:
@@ -211,6 +277,18 @@ class WebLearningMixin(ResponseGenMixin):
         # Always add the topic word
         topic_lower = topic.lower().strip()
         topic_words = [tw for tw in re.findall(r"[a-zA-Z']{3,}", topic_lower) if tw not in STOP_WORDS]
+        
+        # Clean query topic suffix to find base multi-word concept (LIFC Emulation)
+        query_topic = topic_lower
+        for suffix in [" definition meaning explained", " definition meaning", " explained overview", " explained with examples", " explained"]:
+            if query_topic.endswith(suffix):
+                query_topic = query_topic[:-len(suffix)].strip()
+                break
+        
+        if ' ' in query_topic and query_topic not in STOP_WORDS:
+            self._add_composite_concept(query_topic)
+            topic_words = [query_topic] + topic_words
+            
         important_words = topic_words + [w for w in important_words if w not in topic_words]
 
         # Check which words are new vs known (lock graph reads)
@@ -269,8 +347,16 @@ class WebLearningMixin(ResponseGenMixin):
         # Words that appear together in the article get edges
         article_words_lower = [w for w in re.findall(r"[a-zA-Z']{3,}", text.lower())
                               if w not in STOP_WORDS and len(w.strip("'")) >= 3]
-        # Get unique important words that appear in the text
-        present_important = list(set(w for w in article_words_lower if w in important_words))
+        # Get unique important words that appear in the text (scans for both single and multi-word concepts)
+        present_important = []
+        for w in important_words:
+            if ' ' in w:
+                if w in text.lower():
+                    present_important.append(w)
+            else:
+                if w in article_words_lower:
+                    present_important.append(w)
+        present_important = list(set(present_important))
 
         with self._graph_lock:
             for i in range(len(present_important)):
@@ -305,7 +391,10 @@ class WebLearningMixin(ResponseGenMixin):
                 if self.graph._vector_matrix_normed is not None and len(self.graph._node_id_order) > 0:
                     vec_norm = node.vector / (np.linalg.norm(node.vector) + 1e-15)
                     all_sims = self.graph._vector_matrix_normed @ vec_norm.astype(np.float32)
-                    for idx in np.where(all_sims > 0.3)[0]:
+                    
+                    # Find candidate nodes with similarity > 0.45
+                    candidates = []
+                    for idx in np.where(all_sims > 0.45)[0]:
                         existing_nid = self.graph._node_id_order[idx]
                         if existing_nid == nid or existing_nid not in self.graph.nodes:
                             continue
@@ -314,10 +403,14 @@ class WebLearningMixin(ResponseGenMixin):
                             continue
                         if existing_node.label and existing_node.label in important_words:
                             continue
-                        sim = float(all_sims[idx])
+                        candidates.append((existing_nid, float(all_sims[idx]), existing_node.label))
+                    
+                    # Wire at most the top-8 candidates to avoid over-wiring
+                    candidates.sort(key=lambda x: x[1], reverse=True)
+                    for existing_nid, sim, label in candidates[:8]:
                         if self.graph.get_edge(nid, existing_nid) is None:
                             weight = max(0.25, min(0.5, sim * 0.5))
-                            inf_type, _ = self._infer_relation_type(word, existing_node.label, "semantic")
+                            inf_type, _ = self._infer_relation_type(word, label, "semantic")
                             self.graph.add_edge(nid, existing_nid, weight=weight,
                                                 relation_type=inf_type)
                             edge_count += 1
@@ -427,6 +520,30 @@ class WebLearningMixin(ResponseGenMixin):
             return f"learned {count} new things about {query} from search snippets"
         return f"read about {query} but already knew those words"
 
+    # Phrases that mark a "definition" candidate as listicle / social-media junk
+    # rather than a genuine encyclopedic definition (e.g. "Cleopatra: a brat?
+    # These 5 women in history were the OG brat girls..."). Rejecting these keeps
+    # the response generator from surfacing garbage as a learned fact.
+    _DEFINITION_JUNK = (
+        "brat", "og brat", "girls)", "women in history", "these 5", "these 10",
+        "you won't believe", "you wont believe", "tiktok", "meme", "dumbass",
+        "shut up", "get outta here", "watch the", "here's why", "here is why",
+        "will blow your", "goes hard", "no cap", "bestie", "bestie,",
+    )
+
+    def _definition_looks_clean(self, text: str) -> bool:
+        """Reject obviously non-definitional junk sentences."""
+        if not text:
+            return False
+        low = text.lower()
+        if any(tok in low for tok in self._DEFINITION_JUNK):
+            return False
+        # A real definition predicate rarely opens with a conjunction or
+        # first/second-person chatter.
+        if re.match(r"^\s*(but|and|so|because|i |you |we |they )\b", low):
+            return False
+        return True
+
     def _extract_heuristic_definition(self, text: str, subject: str) -> Optional[str]:
         """Extract a definition sentence based on heuristics (Approach 2).
         
@@ -434,8 +551,9 @@ class WebLearningMixin(ResponseGenMixin):
         and extracts the predicate after the verb.
         """
         # Split text into sentences using simple punctuation check
-        sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', text) if s.strip()]
+        sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+|(?<=[.!?]["\'])\s+', text) if s.strip()]
         subject_lower = subject.lower().strip()
+        subject_variants = self._subject_variants(subject)
         
         defining_verbs = [
             ("refers to", 2.0), ("refer to", 2.0),
@@ -462,10 +580,21 @@ class WebLearningMixin(ResponseGenMixin):
                 has_subject = True
                 subject_score = 3.0
             else:
-                sub_words = [w for w in re.findall(r'[a-z]{3,}', subject_lower) if w not in STOP_WORDS]
-                if sub_words and all(w in sent_lower for w in sub_words):
+                # Allow inflected/lemma variants (salty -> salt) so the local
+                # engine's base-noun content still matches the user's term.
+                matched_variant = None
+                for v in subject_variants:
+                    if v in sent_lower:
+                        matched_variant = v
+                        break
+                if matched_variant:
                     has_subject = True
-                    subject_score = 1.5
+                    subject_score = 3.0
+                else:
+                    sub_words = [w for w in re.findall(r'[a-z]{3,}', subject_lower) if w not in STOP_WORDS]
+                    if sub_words and all(w in sent_lower for w in sub_words):
+                        has_subject = True
+                        subject_score = 1.5
             
             # Fallback to pronoun references
             if not has_subject:
@@ -481,13 +610,19 @@ class WebLearningMixin(ResponseGenMixin):
                 search_start = 0
                 if subject_lower in sent_lower:
                     search_start = sent_lower.find(subject_lower) + len(subject_lower)
+                else:
+                    for v in subject_variants:
+                        if v in sent_lower:
+                            search_start = sent_lower.find(v) + len(v)
+                            break
                 
-                verb_idx = sent_lower.find(verb, search_start)
-                if verb_idx == -1:
+                m = re.search(r'\b' + re.escape(verb) + r'\b', sent_lower[search_start:])
+                if not m:
                     continue
+                verb_idx = search_start + m.start()
                     
                 # Skip verb to extract predicate
-                skip_len = len(verb)
+                skip_len = m.end() - m.start()
                 if verb in ("is a", "is an", "is the", "are a", "are an", "are the",
                             "was a", "was an", "was the", "were a", "were an", "were the"):
                     # Keep the article (a/an/the)
@@ -504,13 +639,13 @@ class WebLearningMixin(ResponseGenMixin):
                     predicate = " ".join(pred_words)
                 
                 # Check length constraint
-                if 10 <= len(predicate) <= 200:
+                if 10 <= len(predicate) <= 200 and self._definition_looks_clean(predicate):
                     score = subject_score + verb_weight
                     
                     if 20 <= len(predicate) <= 150:
                         score += 1.0
                         
-                    if sent_lower.startswith(subject_lower):
+                    if sent_lower.startswith(subject_lower) or any(sent_lower.startswith(v) for v in subject_variants):
                         score += 1.0
                         
                     candidates.append((predicate, score))
@@ -519,15 +654,65 @@ class WebLearningMixin(ResponseGenMixin):
         if candidates:
             # Sort by score descending and return the best one
             candidates.sort(key=lambda x: x[1], reverse=True)
-            return candidates[0][0]
+            candidate = candidates[0][0]
+            # Clean up common dictionary/web junk in definitions
+            candidate_clean = re.sub(r'\s*-\s*(?:reverso|collins|oxford|merriam|cambridge|webster|english|french|spanish|german|italian|chinese|portuguese|russian|japanese|korean)?\s*dictionary\b.*', '', candidate, flags=re.IGNORECASE)
+            candidate_clean = re.sub(r'\s*\|\s*(?:wikipedia|dictionary\.com|the\s*free\s*dictionary|britannica|investopedia|techopedia).*', '', candidate_clean, flags=re.IGNORECASE)
+            candidate_clean = candidate_clean.strip()
+            if len(candidate_clean) >= 10:
+                return candidate_clean[:200]
         return None
 
+    def _subject_variants(self, topic: str) -> List[str]:
+        """Generate inflection/lemma variants of a subject word.
+
+        The local search engine often returns content about the base noun
+        ("salt") while the user asked for an inflected/derived form ("salty",
+        "salts"). Matching only the exact surface form leaves the learned
+        definition stranded under the wrong key. We expand to a few cheap
+        variants so the definition lands on the term the user actually used.
+        """
+        topic = topic.lower().strip()
+        if not topic:
+            return []
+        variants = [topic]
+        # trailing 'y' -> drop it (salty -> salt, rainy -> rain)
+        if topic.endswith('y') and len(topic) > 3:
+            variants.append(topic[:-1])
+        # trailing plural 's' (blockchains -> blockchain, salts -> salt)
+        if topic.endswith('s') and len(topic) > 3:
+            variants.append(topic[:-1])
+        # trailing 'ed' (learned -> learn)
+        if topic.endswith('ed') and len(topic) > 3:
+            variants.append(topic[:-2])
+        # de-dup, keep order
+        seen = set()
+        out = []
+        for v in variants:
+            if v and v not in seen:
+                seen.add(v)
+                out.append(v)
+        return out
+
     def _extract_definitions(self, text: str, query: str):
-        """Unified method to extract definitional knowledge from text (Approaches 1, 2, 6)."""
+        """Unified method to extract definitional knowledge from text (Approaches 1, 2, 6).
+
+        Issue 1 (OFC Coherence Gating): Before storing any definition, computes
+        a semantic coherence score between the subject and definition. Only
+        definitions with coherence > 0.15 are stored. INAPPROPRIATE_WORDS is
+        kept as a last-resort override only.
+        """
         if not text:
             return
             
         query_lower = query.lower().strip()
+        
+        # Extract query topic by removing search suffix
+        query_topic = query_lower
+        for suffix in [" definition meaning explained", " definition meaning", " explained overview", " explained with examples", " explained"]:
+            if query_topic.endswith(suffix):
+                query_topic = query_topic[:-len(suffix)].strip()
+                break
         
         # 1. Regex-based pattern matching (Approach 1 & 6)
         try:
@@ -553,56 +738,113 @@ class WebLearningMixin(ResponseGenMixin):
                 for m in pat.finditer(text):
                     concept = m.group(1).strip().lower()
                     definition = m.group(2).strip()
+                    # Clean up common dictionary/web junk in definitions
+                    definition_clean = re.sub(r'\s*-\s*(?:reverso|collins|oxford|merriam|cambridge|webster|english|french|spanish|german|italian|chinese|portuguese|russian|japanese|korean)?\s*dictionary\b.*', '', definition, flags=re.IGNORECASE)
+                    definition_clean = re.sub(r'\s*\|\s*(?:wikipedia|dictionary\.com|the\s*free\s*dictionary|britannica|investopedia|techopedia).*', '', definition_clean, flags=re.IGNORECASE)
+                    definition_clean = definition_clean.strip()
+                    
                     # Normalize leading article to lowercase
-                    def_words = definition.split()
+                    def_words = definition_clean.split()
                     if def_words and def_words[0].lower() in ('a', 'an', 'the'):
                         def_words[0] = def_words[0].lower()
-                        definition = " ".join(def_words)
-                    if len(definition) < 10 or len(definition) > 200:
+                        definition_clean = " ".join(def_words)
+                    
+                    if len(definition_clean) < 10 or len(definition_clean) > 200:
                         continue
-                    if (concept in query_lower or query_lower in concept
-                            or concept in self._concept_keywords):
-                        existing = self._definitions.get(concept, '')
-                        if concept not in self._definitions or len(definition) > len(existing):
-                            self._definitions[concept] = definition[:200]
-                            if self._trace_enabled:
-                                print(f"  [definition] Regex match: {concept} -> {definition[:80]}...")
+                    
+                    # Check relevance using overlapping matching
+                    query_words = set(w for w in query_topic.split() if w not in STOP_WORDS and len(w) > 2)
+                    concept_words = set(w for w in concept.split() if w not in STOP_WORDS and len(w) > 2)
+                    has_word_overlap = bool(query_words & concept_words)
+                    is_relevant = (concept in query_topic or query_topic in concept or has_word_overlap)
+                    
+                    if is_relevant:
+                        # ─── Issue 1: OFC Coherence Gating ───
+                        # Compute semantic coherence between subject and definition.
+                        # Only store if coherence > 0.15 (moderately coherent).
+                        # This filters out gaming wiki definitions for "gravity"
+                        # because "blox fruit" has near-zero overlap with physics vector.
+                        coherence = self._definition_coherence_score(concept, definition_clean)
+                        
+                        # Check INAPPROPRIATE_WORDS as last-resort override
+                        def_has_inappropriate = any(w in INAPPROPRIATE_WORDS for w in re.findall(r'[a-z]{3,}', definition_clean.lower()))
+                        
+                        if (coherence > 0.15 or (coherence > 0.05 and not def_has_inappropriate)) and self._definition_looks_clean(definition_clean):
+                            existing = self._definitions.get(concept, '')
+                            if concept not in self._definitions or len(definition_clean) > len(existing):
+                                self._definitions[concept] = definition_clean[:200]
+                                if self._trace_enabled:
+                                    print(f"  [definition] Regex match (coherence={coherence:.2f}): {concept} -> {definition_clean[:80]}...")
+                            # Mirror to the user's actual term when the matched
+                            # concept is an inflected/multi-word form of it
+                            # (e.g. "cleopatra vii thea philopator" -> "cleopatra",
+                            # "salt" -> "salty"). This also preempts the heuristic
+                            # fallback, which would otherwise grab noisier text.
+                            if concept != query_topic and is_relevant:
+                                eq = self._definitions.get(query_topic, '')
+                                if query_topic not in self._definitions or len(definition_clean) > len(eq):
+                                    self._definitions[query_topic] = definition_clean[:200]
+                        elif self._trace_enabled:
+                            print(f"  [definition] OFC rejected (coherence={coherence:.2f}): {concept} -> {definition_clean[:60]}...")
                                 
             # Extract from called_pattern
             for m in called_pattern.finditer(text):
                 definition = m.group(1).strip()
                 concept = m.group(2).strip().lower()
+                
+                # Clean up common dictionary/web junk in definitions
+                definition_clean = re.sub(r'\s*-\s*(?:reverso|collins|oxford|merriam|cambridge|webster|english|french|spanish|german|italian|chinese|portuguese|russian|japanese|korean)?\s*dictionary\b.*', '', definition, flags=re.IGNORECASE)
+                definition_clean = re.sub(r'\s*\|\s*(?:wikipedia|dictionary\.com|the\s*free\s*dictionary|britannica|investopedia|techopedia).*', '', definition_clean, flags=re.IGNORECASE)
+                definition_clean = definition_clean.strip()
+                
                 # Normalize leading article to lowercase
-                def_words = definition.split()
+                def_words = definition_clean.split()
                 if def_words and def_words[0].lower() in ('a', 'an', 'the'):
                     def_words[0] = def_words[0].lower()
-                    definition = " ".join(def_words)
-                if len(definition) < 10 or len(definition) > 200:
+                    definition_clean = " ".join(def_words)
+                
+                if len(definition_clean) < 10 or len(definition_clean) > 200:
                     continue
-                if (concept in query_lower or query_lower in concept
-                        or concept in self._concept_keywords):
-                    existing = self._definitions.get(concept, '')
-                    if concept not in self._definitions or len(definition) > len(existing):
-                        self._definitions[concept] = definition[:200]
-                        if self._trace_enabled:
-                            print(f"  [definition] Called pattern match: {concept} -> {definition[:80]}...")
+                
+                # Check relevance using overlapping matching
+                query_words = set(w for w in query_topic.split() if w not in STOP_WORDS and len(w) > 2)
+                concept_words = set(w for w in concept.split() if w not in STOP_WORDS and len(w) > 2)
+                has_word_overlap = bool(query_words & concept_words)
+                is_relevant = (concept in query_topic or query_topic in concept or has_word_overlap)
+                
+                if is_relevant:
+                    # ─── Issue 1: OFC Coherence Gating ───
+                    coherence = self._definition_coherence_score(concept, definition_clean)
+                    def_has_inappropriate = any(w in INAPPROPRIATE_WORDS for w in re.findall(r'[a-z]{3,}', definition_clean.lower()))
+                    
+                    if (coherence > 0.15 or (coherence > 0.05 and not def_has_inappropriate)) and self._definition_looks_clean(definition_clean):
+                        existing = self._definitions.get(concept, '')
+                        if concept not in self._definitions or len(definition_clean) > len(existing):
+                            self._definitions[concept] = definition_clean[:200]
+                            if self._trace_enabled:
+                                print(f"  [definition] Called pattern match (coherence={coherence:.2f}): {concept} -> {definition_clean[:80]}...")
+                        if concept != query_topic and is_relevant:
+                            eq = self._definitions.get(query_topic, '')
+                            if query_topic not in self._definitions or len(definition_clean) > len(eq):
+                                self._definitions[query_topic] = definition_clean[:200]
+                    elif self._trace_enabled:
+                        print(f"  [definition] OFC rejected (coherence={coherence:.2f}): {concept} -> {definition_clean[:60]}...")
                             
         except Exception as e:
             if self._trace_enabled:
                 print(f"  [definition] Regex extraction error: {e}")
 
         # 2. Heuristic-based definition extraction (Approach 2) as a fallback for the query topic itself
-        concept_key = query_lower
-        suffix = " definition meaning explained"
-        if concept_key.endswith(suffix):
-            concept_key = concept_key[:-len(suffix)].strip()
-
-        if concept_key not in self._definitions:
-            heur_def = self._extract_heuristic_definition(text, concept_key)
+        if query_topic not in self._definitions:
+            heur_def = self._extract_heuristic_definition(text, query_topic)
             if heur_def:
-                self._definitions[concept_key] = heur_def[:200]
-                if self._trace_enabled:
-                    print(f"  [definition] Heuristic match: {concept_key} -> {heur_def[:80]}...")
+                # Issue 1: OFC coherence check for heuristic definitions too
+                coherence = self._definition_coherence_score(query_topic, heur_def)
+                def_has_inappropriate = any(w in INAPPROPRIATE_WORDS for w in re.findall(r'[a-z]{3,}', heur_def.lower()))
+                if (coherence > 0.15 or (coherence > 0.05 and not def_has_inappropriate)) and self._definition_looks_clean(heur_def):
+                    self._definitions[query_topic] = heur_def[:200]
+                    if self._trace_enabled:
+                        print(f"  [definition] Heuristic match (coherence={coherence:.2f}): {query_topic} -> {heur_def[:80]}...")
 
     # ─── Core Response Pipeline ───
 
@@ -762,7 +1004,7 @@ class WebLearningMixin(ResponseGenMixin):
 
     def notify_user_idle(self):
         """Signal that the user is idle (resume background learning)."""
-        self._bg_idle_event.set()  # thread will wake up and process
+        self._bg_idle_event.set()  # thread will wake and process
         self._curiosity_cycles_this_session = 0  # fresh curiosity budget per idle period
 
     # --- Phase 18: Curiosity Drive - Autonomous Topic Selection ---
@@ -920,7 +1162,6 @@ class WebLearningMixin(ResponseGenMixin):
             if total > 0:
                 ratios[node.label.lower()] = dormant / total
         return ratios
-
 
 
 
