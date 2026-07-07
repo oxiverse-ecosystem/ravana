@@ -77,15 +77,8 @@ class SurfaceRealizer:
     # Pronoun mapping with VARIETY: each abstract concept can be referred to
     # as "it", "this", or "that" for natural discourse variety.
     # The first reference uses the mapping, subsequent references cycle through variants.
-    PRONOUNS = {
-        "person": ["they", "people"], "people": ["they", "many"], "friend": ["they", "a friend"],
-        "dog": ["it", "the animal"], "cat": ["it", "the animal"], "bird": ["it", "the creature"], "tree": ["it", "the plant"],
-        "book": ["it", "the text"], "song": ["it", "the melody"], "machine": ["it", "the device"], "world": ["it", "this world"],
-        "nature": ["it", "this"], "life": ["it", "this"], "death": ["it", "that"], "time": ["it", "this"],
-        "mind": ["it", "this"], "heart": ["it", "this"], "science": ["it", "this field"], "art": ["it", "this form"],
-        "history": ["it", "the past"], "knowledge": ["it", "this"], "wisdom": ["it", "this"],
-        "truth": ["it", "this"], "meaning": ["it", "this"], "love": ["it", "this feeling"], "hope": ["it", "this"],
-        "fear": ["it", "that"], "trust": ["it", "this"], "justice": ["it", "this principle"], "freedom": ["it", "this"],
+    # PRONOUNS replaced by _get_pronouns_for_concept() - GloVe-based classifier
+    PRONOUNS_FALLBACK = {
         "i": "i", "you": "you", "we": "we", "they": "they",
         "he": "he", "she": "she", "it": "it",
     }
@@ -99,43 +92,11 @@ class SurfaceRealizer:
         "that": ["that", "it"],
     }
 
-    ABSTRACT_NOUNS = {
-        "life", "death", "love", "hate", "truth", "beauty",
-        "justice", "freedom", "knowledge", "wisdom", "time",
-        "nature", "science", "art", "history", "meaning",
-        "trust", "hope", "fear", "joy", "grief",
-        "empathy", "respect", "culture", "power", "responsibility",
-        "courage", "patience", "kindness", "honesty", "loyalty",
-        "gratitude", "compassion", "generosity", "humility", "integrity",
-        "dignity", "prudence", "grace", "mercy", "forgiveness",
-        "peace", "faith", "fate", "destiny", "consciousness",
-        "awareness", "education", "healthcare", "democracy", "diversity",
-        "sustainability", "mindfulness", "meditation", "poverty",
-        "hunger", "disease", "wealth", "war", "society",
-        "identity", "culture", "tradition", "heritage",
-    }
+    # ABSTRACT_NOUNS replaced by _is_abstract_noun() - GloVe-based classifier
+    ABSTRACT_NOUNS: set = set()  # Deprecated - kept for back-compat
 
-    UNCOUNTABLE_NOUNS = {
-        "knowledge", "wisdom", "information", "music", "research",
-        "evidence", "advice", "news", "progress", "nature",
-        "life", "death", "time", "space", "love", "hate",
-        "trust", "justice", "freedom", "empathy", "respect",
-        "hope", "fear", "anxiety", "joy", "grief",
-        "power", "culture", "art", "science", "history",
-        "meaning", "truth", "beauty", "courage", "patience",
-        "kindness", "honesty", "loyalty", "gratitude", "compassion",
-        "generosity", "humility", "integrity", "dignity", "prudence",
-        "temperance", "fortitude", "charity", "mercy", "forgiveness",
-        "peace", "faith", "grace", "fate", "destiny",
-        "consciousness", "awareness", "mindfulness",
-        "bonding", "learning", "understanding", "thinking", "feeling",
-        "running", "walking", "swimming", "reading", "writing",
-        "speaking", "listening", "watching", "waiting", "working",
-        "living", "dying", "growing", "changing", "moving",
-        "being", "doing", "having", "making", "taking",
-        "giving", "getting", "seeing", "hearing", "knowing",
-        "trying", "caring", "sharing", "helping", "loving",
-    }
+    # UNCOUNTABLE_NOUNS replaced by _is_uncountable_noun() - GloVe-based classifier
+    UNCOUNTABLE_NOUNS: set = set()  # Deprecated - kept for back-compat
 
     SINGULAR_ENDING_IN_S = {
         "news", "physics", "mathematics", "economics",
@@ -171,33 +132,36 @@ class SurfaceRealizer:
     }
 
     HEDGE_MORPHEMES = [
-        "kind of", "sort of",
+        "kind of", "sort of", "perhaps", "possibly", "partly", "likely", "seemingly",
     ]
 
     EPISTEMIC_FRAMES = {
         "low_confidence": [
-            "i think", "maybe",
+            "i think", "maybe", "perhaps", "it seems to me that", "i suspect that"
         ],
         "medium_confidence": [
-            "i think",
+            "i think", "it appears that", "i believe", "from what i understand,"
         ],
         "high_confidence": [
-            "",
+            "", "", "clearly,", "indeed,"
         ],
     }
 
-    # Sentence structure diversity: five genuinely different grammatical patterns.
-    # Selected based on sentence position, dopamine tone (exploration), and relation type.
-    # Each produces a different discourse structure while preserving meaning.
-    # The core SVO is always present; the pattern changes how it's framed.
-    SENTENCE_PATTERNS = [
-        "{subject} {verb} {object}",                  # 0: Standard SVO (direct, confident)
-        "{subject}: {pronoun} {verb} {object}",       # 1: Left dislocation / topic-comment
-        "{subject} is what {verb} {object}",          # 2: Pseudo-cleft (definitional focus)
-        "for {subject}, {pronoun} {verb} {object}",  # 3: Topic fronting (prepositional)
-        "there is {subject} — {pronoun} {verb} {object}",    # 4: Existential introduction
-        "it is {subject} that {verb} {object}",        # 5: Cleft sentence (contrastive focus)
-        "as for {subject}, {pronoun} {verb} {object}",        # 6: As-for topic introduction
+    # Merge-based structural variants (recursive merge operations, not templates).
+    # Each variant corresponds to a different merge order in the syntactic tree.
+    # Selection is based on discourse features (dopamine, free energy, discourse type).
+    # Add new variants by adding a _variant_* method + a selection rule in _select_variant.
+    MERGE_VARIANTS = [
+        "svo",                     # SVO: canonical head-complement merge
+        "left_dislocation",        # Topic extracted to left periphery (Spec-CP)
+        "pseudo_cleft",            # Focus in pseudo-cleft position
+        "topic_fronting_for",      # PP adjunct in Spec-CP (for-topic)
+        "existential",             # There-insertion (expletive in Spec-TP)
+        "cleft",                   # It-cleft with focus in Spec-CP
+        "as_for_topic",            # As-for topic in Spec-CP
+        "adverb_fronted",          # Adverb in Spec-CP (fronted adverbial)
+        "svo_emphatic",            # SVO + emphatic tail clause
+        "svo_causal",              # SVO + causal extension clause
     ]
 
     # Adverbial modifiers by relation type — adds subtle variety to sentences.
@@ -214,8 +178,9 @@ class SurfaceRealizer:
         self._used_subjects: set = set()
         self._verb_phrase_success: Dict[str, float] = {}
         self._last_free_energy: float = 0.3
-        self.pattern_weights = [1.0] * 7
-        self._last_pattern_idx = None
+        self._variant_weights: Dict[str, float] = {v: 1.0 for v in self.MERGE_VARIANTS}
+        self._last_variant_name: Optional[str] = None
+        self._recent_variants: List[str] = []  # STN fatigue: suppress recently used variants
         try:
             from ravana.language.verb_lexicon import _default_vector_fn
             self._vector_fn = _default_vector_fn
@@ -225,11 +190,11 @@ class SurfaceRealizer:
     def set_vector_fn(self, fn):
         self._vector_fn = fn
 
-    def learn_from_feedback(self, pattern_idx: int, success: bool):
-        """Reinforce template weights based on dialogue/comprehension success."""
+    def learn_from_feedback(self, variant_name: str, success: bool):
+        """Update variant preference based on dialogue success (STN-reinforcement learning)."""
         lr = 0.05 if success else -0.025
-        if 0 <= pattern_idx < len(self.pattern_weights):
-            self.pattern_weights[pattern_idx] = max(0.1, min(2.0, self.pattern_weights[pattern_idx] + lr))
+        if variant_name in self._variant_weights:
+            self._variant_weights[variant_name] = max(0.1, min(2.0, self._variant_weights[variant_name] + lr))
 
     def _get_confidence_level(self, free_energy: float) -> str:
         """Map free energy to epistemic confidence level.
@@ -383,6 +348,7 @@ class SurfaceRealizer:
         art_obj = frame.article_object
         relation = frame.relation_type
         sl, tl = subj.lower(), obj.lower()
+        variant_name = None
 
         free_energy = discourse_context.free_energy
         concept_fe = discourse_context.concept_free_energy
@@ -426,105 +392,63 @@ class SurfaceRealizer:
         # Resolve hedge (kind of / sort of) from free energy
         hedge = self._compose_hedge(free_energy) if discourse_context.sentence_index > 0 else ""
         
-        # Combine adverb and hedge into the verb phrase for correct placement
-        modifiers = []
-        if hedge:
-            modifiers.append(hedge)
-        if adverb and dopamine_tone > 0.3:
-            modifiers.append(adverb)
-            
-        if modifiers:
-            modified_verb = f"{' '.join(modifiers)} {verb}"
-        else:
-            modified_verb = verb
+        # Keep adverb and hedge separate from the verb so merge variants can
+        # decide placement. Only merge for non-fronting variants.
+        selected_adverb = adverb if (adverb and dopamine_tone > 0.3) else ""
+        selected_hedge = hedge
 
-        # Select a diverse sentence pattern based on position, dopamine, and relation.
-        # First sentence: 70% pattern 0 (SVO), 30% pattern 2 (pseudo-cleft for definitional feel)
-        # Subsequent sentences: distributed across all patterns for maximum diversity.
+        # Select a diverse merge variant based on position, dopamine, and relation.
+        # First sentence: 70% SVO, 30% pseudo-cleft (definitional feel)
+        # Subsequent sentences: distributed across all variants for maximum diversity.
         if relation == 'interrogative':
             sentence = frame.object_concept
             has_punct = sentence.endswith('.') or sentence.endswith('?') or sentence.endswith('!')
         elif discourse_context.discourse_type == 'causal_explain':
             # Causal explanations benefit from "because" structure
-            selected_template = "{subject} {verb} {object}"
-            core = selected_template.format(subject=subject_phrase, object=object_phrase, verb=modified_verb)
+            core = f"{subject_phrase} {verb} {object_phrase}"
+            if selected_adverb and not selected_hedge:
+                core = f"{subject_phrase} {selected_adverb} {verb} {object_phrase}"
+            elif selected_hedge and not selected_adverb:
+                core = f"{subject_phrase} {selected_hedge} {verb} {object_phrase}"
+            elif selected_hedge and selected_adverb:
+                core = f"{subject_phrase} {selected_hedge} {selected_adverb} {verb} {object_phrase}"
             has_punct = False
             sentence = core
         else:
-            # Select pattern based on sentence index and dopamine tone
-            # IMPORTANT: patterns 1, 3, 4 hardcode "it" in the template. If the
-            # subject was already replaced with a pronoun (e.g., "it" after first
-            # reference), these patterns would produce "it: it verb object" which
-            # is ungrammatical. So we only allow patterns 1, 3, 4 for the first
-            # sentence (where full subject is used) or when subject is NOT a pronoun.
+            # Select merge variant based on discourse features.
+            # Variants correspond to different merge orders in the syntactic tree
+            # (Broca's area: Spec-CP, Spec-TP, head movement, etc.)
             si = discourse_context.sentence_index
             subject_is_pronoun = display_subj.lower() in ('it', 'this', 'that', 'they', 'he', 'she', 'i', 'you', 'we')
+            has_copula = any(verb.lower().startswith(cop) for cop in ("is ", "are ", "was ", "were "))
+            is_explain_mode = discourse_context.discourse_type in ("explain", "elaborate", "conclude")
+            has_adverb = bool(selected_adverb)
             
-            if si == 0:
-                # First sentence: prefer standard SVO or cleft/pseudo-cleft for definitional tone
-                # But if copula exists, do NOT use cleft/pseudo-cleft (patterns 2 and 5)
-                has_copula = any(modified_verb.lower().startswith(cop) for cop in ("is ", "are ", "was ", "were "))
-                if has_copula:
-                    pattern_idx = 0
-                else:
-                    options = [0, 2, 5]
-                    priors = [0.75, 0.15, 0.10]
-                    weights = [p * self.pattern_weights[opt] for opt, p in zip(options, priors)]
-                    pattern_idx = random.choices(options, weights=weights, k=1)[0]
-            elif subject_is_pronoun:
-                # Subject was pronominalized — only use patterns that don't hardcode "it"
-                # Patterns 0 (SVO) and 2 (pseudo-cleft) work with pronoun subjects
-                # But if copula exists, do NOT use pseudo-cleft (pattern 2)
-                has_copula = any(modified_verb.lower().startswith(cop) for cop in ("is ", "are ", "was ", "were "))
-                if has_copula:
-                    pattern_idx = 0
-                else:
-                    options = [0, 2]
-                    priors = [0.85, 0.15]
-                    weights = [p * self.pattern_weights[opt] for opt, p in zip(options, priors)]
-                    pattern_idx = random.choices(options, weights=weights, k=1)[0]
-            else:
-                # Subsequent sentences with full subject: distribute across patterns
-                # But if copula exists, do NOT use pseudo-cleft (pattern 2) or cleft (pattern 5)
-                has_copula = any(modified_verb.lower().startswith(cop) for cop in ("is ", "are ", "was ", "were "))
-                if dopamine_tone > 0.6:
-                    priors = [0.30, 0.15, 0.10, 0.15, 0.10, 0.10, 0.10]
-                elif dopamine_tone > 0.3:
-                    priors = [0.40, 0.15, 0.08, 0.12, 0.08, 0.07, 0.10]
-                else:
-                    priors = [0.55, 0.15, 0.04, 0.08, 0.06, 0.04, 0.07]
-                
-                options = list(range(7))
-                if has_copula:
-                    options.pop(5)
-                    priors.pop(5)
-                    options.pop(2)
-                    priors.pop(2)
-                
-                weights = [p * self.pattern_weights[opt] for opt, p in zip(options, priors)]
-                total = sum(weights)
-                weights = [w / total for w in weights]
-                pattern_idx = random.choices(options, weights=weights, k=1)[0]
+            # Select variant using discourse-feature-based rules
+            variant_name = self._select_variant(
+                si=si, subject_is_pronoun=subject_is_pronoun, has_copula=has_copula,
+                is_explain_mode=is_explain_mode, has_adverb=has_adverb,
+                discourse_type=discourse_context.discourse_type,
+                dopamine_tone=dopamine_tone,
+                free_energy=free_energy,
+            )
 
-            self._last_pattern_idx = pattern_idx
-            if hasattr(frame, 'pattern_idx'):
-                frame.pattern_idx = pattern_idx
+            self._last_variant_name = variant_name
+            if hasattr(frame, 'variant_name'):
+                frame.variant_name = variant_name
 
-            selected_template = self.SENTENCE_PATTERNS[pattern_idx]
             pronoun = self._get_subject_pronoun(display_subj)
-            core = selected_template.format(
-                subject=subject_phrase,
-                object=object_phrase,
-                verb=modified_verb,
-                pronoun=pronoun
+            core = self._apply_variant(
+                variant_name, subject_phrase, verb, object_phrase,
+                display_subj, pronoun, selected_adverb, selected_hedge
             )
             has_punct = False
 
             # Only prepend epistemic frame for the first sentence
-            # For non-SVO patterns, epistemic frame goes before the entire structure
+            # For non-SVO variants, epistemic frame goes before the entire structure
             if si == 0 or random.random() < 0.15:
                 epistemic_frame = self._generate_epistemic_frame(confidence_level, sl)
-                if epistemic_frame and pattern_idx == 0:
+                if epistemic_frame and variant_name == 'svo':
                     core = f"{epistemic_frame}{core[0].lower()}{core[1:]}"
                 elif epistemic_frame:
                     core = f"{epistemic_frame} {core[0].lower()}{core[1:]}"
@@ -602,9 +526,155 @@ class SurfaceRealizer:
             self._used_subjects.clear()
             self._used_subjects.add(sl)
 
+        if hasattr(self, '_recent_variants') and variant_name is not None:
+            self._recent_variants.append(variant_name)
+            if len(self._recent_variants) > 3:
+                self._recent_variants = self._recent_variants[-3:]
         self._last_free_energy = free_energy
 
         return sentence
+
+    def _select_variant(self, si, subject_is_pronoun, has_copula,
+                         is_explain_mode, has_adverb, discourse_type,
+                         dopamine_tone, free_energy) -> str:
+        """Select a merge variant based on discourse features.
+
+        Each variant corresponds to a different merge order:
+        - svo: canonical Spec-TP merge (subject in specifier, verb-head, object-complement)
+        - left_dislocation: topic extracted to Spec-CP with resumptive pronoun
+        - pseudo_cleft: focus in Spec-CP of copular clause
+        - topic_fronting_for: PP adjunct in Spec-CP
+        - existential: expletive 'there' in Spec-TP, logical subject in complement
+        - cleft: focus in Spec-CP of it-cleft
+        - as_for_topic: topic PP in Spec-CP
+        - adverb_fronted: adverbial adjunct in Spec-CP
+        - svo_emphatic: SVO + emphatic tail clause (focus reinforcement)
+        - svo_causal: SVO + causal extension (result clause)
+        """
+        # Rule 1: First sentence with copula -> always svo
+        # (clefts/pseudo-clefts with copula produce "it is what it is" loops)
+        if si == 0 and has_copula:
+            return 'svo'
+
+        # Rule 2: First sentence without copula, non-explain mode -> can use definitional variants
+        if si == 0 and not is_explain_mode:
+            choices = ['svo', 'pseudo_cleft', 'cleft']
+            weights = [0.85, 0.10, 0.05]
+            return random.choices(choices, weights=weights, k=1)[0]
+
+        # Rule 3: Pronoun subject -> only svo (other variants need full NP)
+        if subject_is_pronoun:
+            return 'svo'
+
+        # Rule 4: Subsequent sentences in explain mode -> controlled diversity
+        if is_explain_mode:
+            # If we have an adverb and dopamine is high, front it
+            if has_adverb and dopamine_tone > 0.5 and random.random() < 0.3:
+                return 'adverb_fronted'
+            # Otherwise distribute across SVO variants with STN fatigue penalty
+            choices = ['svo', 'left_dislocation', 'topic_fronting_for',
+                       'existential', 'as_for_topic', 'svo_emphatic']
+            base_weights = [0.80, 0.05, 0.05, 0.05, 0.03, 0.02]
+            return self._weighted_variant_select(choices, base_weights,
+                                                  dopamine_tone, free_energy)
+
+        # Rule 5: Subsequent sentences, high dopamine -> full diversity
+        if has_adverb and dopamine_tone > 0.5 and random.random() < 0.3:
+            return 'adverb_fronted'
+
+        choices = ['svo', 'left_dislocation', 'pseudo_cleft', 'topic_fronting_for',
+                   'existential', 'cleft', 'as_for_topic', 'svo_emphatic', 'svo_causal']
+        if has_copula:
+            choices = [c for c in choices if c not in ('pseudo_cleft', 'cleft')]
+        base_weights = [0.75, 0.04, 0.03, 0.03, 0.04, 0.03, 0.03, 0.03, 0.02]
+        base_weights = base_weights[:len(choices)]
+        return self._weighted_variant_select(choices, base_weights,
+                                              dopamine_tone, free_energy)
+
+    def _weighted_variant_select(self, choices, base_weights,
+                                   dopamine_tone, free_energy) -> str:
+        """Select variant with dynamic weighting from cognitive state."""
+        # Apply variant weights (learned preferences)
+        var_w = [self._variant_weights.get(v, 1.0) for v in choices]
+        # Dopamine modulation: higher DA -> more exploration of non-SVO variants
+        da_boost = [1.0 + dopamine_tone * 0.3 * (1.0 if v != 'svo' else -0.2)
+                    for v in choices]
+        # Free energy modulation: higher FE -> prefer simpler SVO
+        fe_mod = [1.0 - free_energy * 0.3 * (0.0 if v == 'svo' else 1.0)
+                  for v in choices]
+        # STN fatigue penalty: suppress recently used variants
+        fatigue = [0.5 if v in self._recent_variants else 1.0 for v in choices]
+
+        final_weights = [b * v * d * f * m
+                         for b, v, d, f, m in zip(base_weights, var_w, da_boost, fatigue, fe_mod)]
+        total = sum(final_weights)
+        if total <= 0:
+            return 'svo'
+        final_weights = [w / total for w in final_weights]
+        return random.choices(choices, weights=final_weights, k=1)[0]
+
+    def _apply_variant(self, variant: str, subject_phrase: str,
+                        verb_phrase: str, object_phrase: str,
+                        display_subj: str, pronoun: str,
+                        adverb: str = "", hedge: str = "") -> str:
+        """Build sentence core by applying a merge variant.
+
+        Each variant corresponds to a different syntactic merge order.
+        The merge operations are:
+        - Spec-TP merge: subject in specifier position
+        - Spec-CP merge: topic/focus in complementizer position
+        - Head movement: verb raising to T or C
+        - Expletive insertion: 'there' or 'it' in Spec-TP
+
+        Adverb and hedge are kept separate from verb_phrase so each variant
+        can decide where to place them (fronted, pre-verbal, or omitted).
+        """
+
+        def _build_vp(verb, adv, hdg):
+            """Build verb phrase with adverb before verb, hedge before adverb.
+            Used by all variants except adverb_fronted (which fronts the adverb)."""
+            parts = []
+            if hdg:
+                parts.append(hdg)
+            if adv:
+                parts.append(adv)
+            if parts:
+                return f"{' '.join(parts)} {verb}"
+            return verb
+
+        if variant == 'left_dislocation':
+            vp = _build_vp(verb_phrase, adverb, hedge)
+            return f"{subject_phrase}: {pronoun} {vp} {object_phrase}"
+        elif variant == 'pseudo_cleft':
+            vp = _build_vp(verb_phrase, adverb, hedge)
+            return f"{subject_phrase} is what {vp} {object_phrase}"
+        elif variant == 'topic_fronting_for':
+            vp = _build_vp(verb_phrase, adverb, hedge)
+            return f"for {subject_phrase}, {pronoun} {vp} {object_phrase}"
+        elif variant == 'existential':
+            vp = _build_vp(verb_phrase, adverb, hedge)
+            return f"there is {subject_phrase} — {pronoun} {vp} {object_phrase}"
+        elif variant == 'cleft':
+            vp = _build_vp(verb_phrase, adverb, hedge)
+            return f"it is {subject_phrase} that {vp} {object_phrase}"
+        elif variant == 'as_for_topic':
+            vp = _build_vp(verb_phrase, adverb, hedge)
+            return f"as for {subject_phrase}, {pronoun} {vp} {object_phrase}"
+        elif variant == 'adverb_fronted':
+            adv = adverb if adverb else 'in many ways'
+            # No adverb in verb phrase — it's fronted. Hedge stays.
+            vp = _build_vp(verb_phrase, "", hedge)
+            return f"{adv}, {subject_phrase} {vp} {object_phrase}"
+        elif variant == 'svo_emphatic':
+            vp = _build_vp(verb_phrase, adverb, hedge)
+            return f"{subject_phrase} {vp} {object_phrase} — and that is what matters"
+        elif variant == 'svo_causal':
+            vp = _build_vp(verb_phrase, adverb, hedge)
+            return f"{subject_phrase} {vp} {object_phrase}, shaping how things unfold"
+        else:
+            # Default: canonical SVO (Spec-TP merge)
+            vp = _build_vp(verb_phrase, adverb, hedge)
+            return f"{subject_phrase} {vp} {object_phrase}"
 
     def _get_subject_pronoun(self, subject_phrase: str) -> str:
         """Resolve pronoun for subject (singular/plural agreement)."""
@@ -621,9 +691,12 @@ class SurfaceRealizer:
             return subject
 
         # Get pronoun options for this subject (list of variants or single string)
-        pronoun_opts = self.PRONOUNS.get(subject_lower, ["it"])
-        if isinstance(pronoun_opts, str):
-            return pronoun_opts
+        # Check fallback map for identity pronouns (first/second person)
+        if subject_lower in self.PRONOUNS_FALLBACK:
+            return self.PRONOUNS_FALLBACK[subject_lower]
+
+        # Get pronoun options via GloVe-based classifier (ATL semantic category)
+        pronoun_opts = self._get_pronouns_for_concept(subject_lower)
 
         # Count how many times this subject has been referenced
         ref_count = context.subject_repetitions
@@ -652,6 +725,129 @@ class SurfaceRealizer:
         variants = self.PRONOUN_VARIANTS.get(base, [base])
         cycle_idx = (ref_count - 1) % len(variants)
         return variants[cycle_idx]
+
+    # --- GloVe-based classifiers replacing hardcoded sets ---
+    # ATL classifies concepts by semantic proximity to prototypes (Cousins 2017)
+    _classifier_cache: Dict[str, Dict] = {}
+
+    _ABSTRACT_PROTOTYPES = ["love", "truth", "knowledge", "idea", "feeling",
+                           "thought", "concept", "meaning", "beauty", "justice"]
+    _CONCRETE_PROTOTYPES = ["table", "dog", "mountain", "car", "tree", "house",
+                           "book", "person", "water", "building"]
+    _UNCOUNTABLE_PROTOTYPES = ["water", "knowledge", "music", "research",
+                              "information", "advice", "news", "furniture"]
+    _COUNTABLE_PROTOTYPES = ["dog", "book", "car", "tree", "house", "person", "chair"]
+    _PERSON_PROTOTYPES = ["person", "people", "human", "someone", "friend", "individual"]
+    _ANIMAL_PROTOTYPES = ["dog", "cat", "animal", "bird", "fish", "horse"]
+
+    def _get_vector_fn(self):
+        """Get the best available vector function."""
+        fn = getattr(self, '_vector_fn', None)
+        if fn is not None:
+            return fn
+        try:
+            from ravana.language.verb_lexicon import _default_vector_fn
+            return _default_vector_fn
+        except ImportError:
+            return None
+
+    def _is_abstract_noun(self, word: str) -> bool:
+        """Classify a noun as abstract using GloVe similarity to prototypes.
+
+        The ATL does NOT store a list - it computes abstractness from semantic neighborhood.
+        """
+        wl = word.lower().strip()
+        if wl in self._classifier_cache and 'abstract' in self._classifier_cache[wl]:
+            return self._classifier_cache[wl]['abstract']
+        fn = self._get_vector_fn()
+        result = self._abstract_fallback(wl)
+        if fn is not None:
+            vec = fn(wl)
+            if vec is not None:
+                import numpy as np
+                abs_sims = [float(np.dot(vec, fn(p))) for p in self._ABSTRACT_PROTOTYPES if fn(p) is not None]
+                con_sims = [float(np.dot(vec, fn(p))) for p in self._CONCRETE_PROTOTYPES if fn(p) is not None]
+                if abs_sims and con_sims:
+                    result = float(np.mean(abs_sims)) > float(np.mean(con_sims))
+        self._classifier_cache.setdefault(wl, {})['abstract'] = result
+        return result
+
+    def _is_uncountable_noun(self, word: str) -> bool:
+        """Classify as uncountable using GloVe proximity to uncountable prototypes."""
+        wl = word.lower().strip()
+        if wl in self._classifier_cache and 'uncountable' in self._classifier_cache[wl]:
+            return self._classifier_cache[wl]['uncountable']
+        fn = self._get_vector_fn()
+        result = self._uncountable_fallback(wl)
+        if fn is not None:
+            vec = fn(wl)
+            if vec is not None:
+                import numpy as np
+                unc_sims = [float(np.dot(vec, fn(p))) for p in self._UNCOUNTABLE_PROTOTYPES if fn(p) is not None]
+                cnt_sims = [float(np.dot(vec, fn(p))) for p in self._COUNTABLE_PROTOTYPES if fn(p) is not None]
+                if unc_sims and cnt_sims:
+                    result = float(np.mean(unc_sims)) > float(np.mean(cnt_sims))
+        self._classifier_cache.setdefault(wl, {})['uncountable'] = result
+        return result
+
+    def _get_pronouns_for_concept(self, word: str) -> list:
+        """Determine pronoun options using GloVe category classification.
+        The brain classifies referents online by semantic category (Levelt 1989).
+        """
+        wl = word.lower().strip()
+        if wl in self._classifier_cache and 'pronouns' in self._classifier_cache[wl]:
+            return self._classifier_cache[wl]['pronouns']
+        if wl in ('i', 'you', 'we', 'they', 'he', 'she', 'it'):
+            result = [wl]
+            self._classifier_cache.setdefault(wl, {})['pronouns'] = result
+            return result
+        fn = self._get_vector_fn()
+        result = self._pronoun_fallback(wl)
+        if fn is not None:
+            vec = fn(wl)
+            if vec is not None:
+                import numpy as np
+                person_sim = float(np.mean([float(np.dot(vec, fn(p)))
+                    for p in self._PERSON_PROTOTYPES if fn(p) is not None] or [0]))
+                animal_sim = float(np.mean([float(np.dot(vec, fn(p)))
+                    for p in self._ANIMAL_PROTOTYPES if fn(p) is not None] or [0]))
+                abstract_sim = float(np.mean([float(np.dot(vec, fn(p)))
+                    for p in self._ABSTRACT_PROTOTYPES if fn(p) is not None] or [0]))
+                if person_sim > max(animal_sim, abstract_sim) and person_sim > 0.25:
+                    result = ["they", "people"]
+                elif animal_sim > abstract_sim and animal_sim > 0.25:
+                    result = ["it", "the animal"]
+                elif abstract_sim > 0.1:
+                    result = ["it", "this"]
+                else:
+                    result = ["it", "that"]
+        self._classifier_cache.setdefault(wl, {})['pronouns'] = result
+        return result
+
+    def _abstract_fallback(self, wl: str) -> bool:
+        """Suffix-based heuristics when GloVe unavailable."""
+        if wl.endswith("ness") or wl.endswith("ity") or wl.endswith("tion"): return True
+        if wl.endswith("ism") or wl.endswith("ment") or wl.endswith("ance"): return True
+        if wl.endswith("ence") or wl.endswith("ship") or wl.endswith("dom"): return True
+        if wl.endswith("hood") or wl.endswith("ure") or wl.endswith("age"): return True
+        return False
+
+    def _uncountable_fallback(self, wl: str) -> bool:
+        """Suffix-based heuristics when GloVe unavailable."""
+        if wl.endswith("ing") or wl.endswith("ness") or wl.endswith("tion"): return True
+        if wl.endswith("ism") or wl.endswith("ity") or wl.endswith("ment"): return True
+        return False
+
+    def _pronoun_fallback(self, wl: str) -> list:
+        """Fallback pronoun selection when GloVe unavailable."""
+        if wl in ("person", "people", "friend", "someone", "anyone",
+                  "everyone", "nobody", "individual"):
+            return ["they", "people"]
+        if wl in ("dog", "cat", "bird", "fish", "horse", "animal", "pet"):
+            return ["it", "the animal"]
+        if wl in ("tree", "flower", "plant", "mountain", "river", "ocean"):
+            return ["it", "this"]
+        return ["it"]
 
     def _build_noun_phrase(self, concept: str, article: str,
                             is_subject: bool, dopamine_tone: float) -> str:
@@ -693,10 +889,10 @@ class SurfaceRealizer:
         if cl in ('i', 'you', 'we', 'they', 'he', 'she', 'it', 'me', 'him', 'her'):
             return concept
 
-        if cl in self.ABSTRACT_NOUNS:
+        if self._is_abstract_noun(cl):
             return concept
 
-        if cl in self.UNCOUNTABLE_NOUNS:
+        if self._is_uncountable_noun(cl):
             return concept
 
         if cl in ('someone', 'anyone', 'everyone', 'nobody', 'somebody', 'anybody', 'everybody',
@@ -755,6 +951,32 @@ class SurfaceRealizer:
             vector_fn=vector_fn,
         )
 
+    @staticmethod
+    def _deinflect_third_singular(word: str) -> str:
+        """Convert a 3rd-person-singular English verb form to its plural/base form.
+
+        Handles regular morphology: -ies -> -y (tries->try, copies->copy),
+        -sses -> -ss (passes->pass), -ches/-shes/-xes/-oes -> stem
+        (watches->watch, goes->go), and plain -s (triggers->trigger,
+        sparks->spark). Verbs whose base already ends in "ie" (tie, lie, die,
+        vie) form 3rd-person by adding only -s, so "ties" -> "tie" (handled as
+        irregulars below, not via the -ies -> -y rule which would yield "ty").
+        """
+        _IES_IRREG = {"ties": "tie", "lies": "lie", "dies": "die", "vies": "vie"}
+        if word in _IES_IRREG:
+            return _IES_IRREG[word]
+        if word in ("is", "was", "has", "does", "goes"):
+            return word  # handled by the irregular map in _apply_agreement
+        if word.endswith("ies") and len(word) > 3:
+            return word[:-3] + "y"
+        if word.endswith("sses"):
+            return word[:-2]
+        if word.endswith(("ches", "shes", "zes", "xes", "oes")):
+            return word[:-2]
+        if word.endswith("s") and not word.endswith("ss"):
+            return word[:-1]
+        return word
+
     def _apply_agreement(self, verb_phrase: str, subject_phrase: str,
                           subject_lower: str) -> str:
         is_plural = False
@@ -771,14 +993,33 @@ class SurfaceRealizer:
             verb_phrase = verb_phrase.replace('was ', 'were ')
             verb_phrase = verb_phrase.replace('has ', 'have ')
             verb_phrase = verb_phrase.replace('does ', 'do ')
-            for word in ['creates', 'leads', 'causes', 'connects', 'relates',
-                          'contrasts', 'resembles', 'follows', 'brings', 'gives',
-                          'results', 'contrasts']:
-                verb_phrase = verb_phrase.replace(f' {word} ', f' {word[:-1]} ')
-                if verb_phrase.endswith(f' {word}'):
-                    verb_phrase = verb_phrase[:-len(word)] + word[:-1]
-                if verb_phrase.startswith(f'{word} '):
-                    verb_phrase = word[:-1] + verb_phrase[len(word):]
+            # General 3rd-person-singular -> plural (base) de-inflection.
+            # The Hebbian verb lexicon emits pre-conjugated singular forms
+            # (triggers, sparks, challenges, builds, shapes, ...). A hard-coded
+            # allow-list previously missed most of them, producing "they triggers"
+            # / "they sparks". We now de-inflect ANY verb token ending in -s,
+            # handling the regular English morphology (-ies, -sses, -ches/shes/
+            # -xes/oes, plain -s) and a few irregulars. Prepositions in the
+            # phrase never end in 's', so this is safe for verb phrases.
+            _IRREG_PLURAL = {"is": "are", "was": "were", "has": "have",
+                             "does": "do", "goes": "go", "ties": "tie",
+                             "lies": "lie", "dies": "die", "vies": "vie"}
+            _PREP_STOPS = {"us", "plus", "bus", "thus", "versus"}
+            tokens = verb_phrase.split(' ')
+            new_tokens = []
+            for tok in tokens:
+                bare = tok.rstrip('?.!')
+                punct = tok[len(bare):]
+                if bare in _IRREG_PLURAL:
+                    new_tokens.append(_IRREG_PLURAL[bare] + punct)
+                    continue
+                if (bare.endswith('s') and bare not in _PREP_STOPS
+                        and not bare.endswith('ss')):
+                    base = self._deinflect_third_singular(bare)
+                    new_tokens.append(base + punct)
+                else:
+                    new_tokens.append(tok)
+            verb_phrase = ' '.join(new_tokens)
         else:
             if verb_phrase.startswith('are '):
                 verb_phrase = 'is ' + verb_phrase[4:]

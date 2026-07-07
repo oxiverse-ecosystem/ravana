@@ -976,18 +976,22 @@ class ResponseGenMixin(ChainWalkerMixin):
             # Try to at least connect to the nearest known concept
             nearest = None
             if vector_fn is not None:
-                subj_ids = self._concept_keywords.get(subject_lower, [])
-                if subj_ids:
-                    node = self.graph.get_node(subj_ids[0])
-                    if node and node.vector is not None:
-                        similar_nodes = self.graph.find_similar(node.vector, k=5)
-                        for neighbor_id, sim_score in similar_nodes:
-                            neighbor_node = self.graph.get_node(neighbor_id)
-                            if neighbor_node and neighbor_node.label:
-                                nl = neighbor_node.label.lower()
-                                if nl not in self._GRAMMATICAL_CONCEPTS and nl != subject_lower:
-                                    nearest = neighbor_node.label
-                                    break
+                self._graph_lock.acquire()
+                try:
+                    subj_ids = self._concept_keywords.get(subject_lower, [])
+                    if subj_ids:
+                        node = self.graph.get_node(subj_ids[0])
+                        if node and node.vector is not None:
+                            similar_nodes = self.graph.find_similar(node.vector, k=5)
+                    for neighbor_id, sim_score in similar_nodes:
+                        neighbor_node = self.graph.get_node(neighbor_id)
+                        if neighbor_node and neighbor_node.label:
+                            nl = neighbor_node.label.lower()
+                            if nl not in self._GRAMMATICAL_CONCEPTS and nl != subject_lower:
+                                nearest = neighbor_node.label
+                                break
+                finally:
+                    self._graph_lock.release()
 
             if nearest:
                 verb_gist = VerbLexicon.select_verb_with_situation(
@@ -1075,25 +1079,29 @@ class ResponseGenMixin(ChainWalkerMixin):
                     cond_embs.extend([sv.copy()] * 3)
 
                 # Add top active concepts for specific content guidance
-                active = situation_narrative.get('active_concepts', [])
-                for label, weight in active[:5]:
-                    if weight > 0.1:
-                        nids = self._concept_keywords.get(label.lower(), [])
+                self._graph_lock.acquire()
+                try:
+                    active = situation_narrative.get('active_concepts', [])
+                    for label, weight in active[:5]:
+                        if weight > 0.1:
+                            nids = self._concept_keywords.get(label.lower(), [])
+                            if nids:
+                                node = self.graph.get_node(nids[0])
+                                if node and node.vector is not None:
+                                    cond_embs.append(node.vector.copy() * 0.5)
+
+                    # Add subject-specific embeddings
+                    if ctx.subject:
+                        sl = ctx.subject.lower()
+                        nids = self._concept_keywords.get(sl, [])
                         if nids:
                             node = self.graph.get_node(nids[0])
                             if node and node.vector is not None:
-                                cond_embs.append(node.vector.copy() * 0.5)
-
-                # Add subject-specific embeddings
-                if ctx.subject:
-                    sl = ctx.subject.lower()
-                    nids = self._concept_keywords.get(sl, [])
-                    if nids:
-                        node = self.graph.get_node(nids[0])
-                        if node and node.vector is not None:
-                            cond_embs.append(node.vector.copy() * 0.8)
-                    elif sl in self._decoder_word_to_embed:
-                        cond_embs.append(self._decoder_word_to_embed[sl].copy() * 0.8)
+                                cond_embs.append(node.vector.copy() * 0.8)
+                        elif sl in self._decoder_word_to_embed:
+                            cond_embs.append(self._decoder_word_to_embed[sl].copy() * 0.8)
+                finally:
+                    self._graph_lock.release()
 
                 if not cond_embs:
                     return None
@@ -1209,15 +1217,19 @@ class ResponseGenMixin(ChainWalkerMixin):
                         if label.lower() in seen:
                             continue
                         seen.add(label.lower())
-                        relation = "semantic"
-                        nid_subj = self._concept_keywords.get(ctx.subject.lower(), [None])[0]
-                        nid_label = self._concept_keywords.get(label.lower(), [None])[0]
-                        if nid_subj is not None and nid_label is not None:
-                            edge = self.graph.get_edge(nid_subj, nid_label)
-                            if edge is None:
-                                edge = self.graph.get_edge(nid_label, nid_subj)
-                            if edge is not None:
-                                relation = edge.relation_type or "semantic"
+                        self._graph_lock.acquire()
+                        try:
+                            relation = "semantic"
+                            nid_subj = self._concept_keywords.get(ctx.subject.lower(), [None])[0]
+                            nid_label = self._concept_keywords.get(label.lower(), [None])[0]
+                            if nid_subj is not None and nid_label is not None:
+                                edge = self.graph.get_edge(nid_subj, nid_label)
+                                if edge is None:
+                                    edge = self.graph.get_edge(nid_label, nid_subj)
+                                if edge is not None:
+                                    relation = edge.relation_type or "semantic"
+                        finally:
+                            self._graph_lock.release()
                         frame = self.syntactic_assembly.bind_to_sentence(
                             subject=ctx.subject, relation=relation, target=label,
                             pos_map=getattr(self, '_concept_pos', {}),
@@ -1270,11 +1282,20 @@ class ResponseGenMixin(ChainWalkerMixin):
 
 
     def _handle_chitchat(self, text: str, subject: str) -> Optional[str]:
-        """Detect and respond to greetings and chit-chat naturally.
-        
-        Brain-inspired social reflex pathway (Default Mode Network / TPJ analog):
-        Fast social reflex loops bypass deep semantic elaboration (graph fallback)
-        and are modulated by the agent's current emotional valence.
+        """Detect and respond to social queries using a composed reflex generator.
+
+        Social reflex pathway (TPJ/DMN analog):
+        - TPJ detects social intent (greeting, wellbeing, farewell, capability)
+        - DMN/amygdala selects response primitives based on valence + arousal
+        - Responses are COMPOSED from primitives, not retrieved from pools
+        - Different primitive combinations produce exponentially more variety
+
+        Neural primitives:
+        - greeting_word: {hello, hi, hey, greetings...} modulated by social distance
+        - energy_suffix: {'!', '.'} modulated by arousal
+        - topic_invite: {how can i help, what to discuss...} modulated by valence
+        - state_descriptor: {feeling great, functioning...} modulated by valence
+        - reciprocity: {how are you, what do you need...} modulated by valence
         """
         import re
         import random
@@ -1282,19 +1303,16 @@ class ResponseGenMixin(ChainWalkerMixin):
         if not t:
             return None
 
-        # 1. Greetings
+        # Pattern-matching for social intent detection (TPJ analog)
         greetings = (
             r"\b(hi|hello|hey|yo|sup|greetings|whats\s*up|howdy|good\s*morning|good\s*afternoon|good\s*evening)\b"
         )
-        # 2. Well-being
         wellbeing = (
             r"\b(how\s*are\s*you|how\s*is\s*it\s*going|how\s*are\s*you\s*doing|how\s*have\s*you\s*been|hows\s*it\s*going|hows\s*life)\b"
         )
-        # 3. Capabilities / Identity
         capabilities = (
             r"\b(what\s*can\s*you\s*do|what\s*do\s*you\s*do|how\s*do\s*you\s*work|tell\s*me\s*about\s*yourself|who\s*are\s*you|what\s*is\s*your\s*name)\b"
         )
-        # 4. Farewells
         farewells = (
             r"\b(bye|goodbye|see\s*you|good\s*night|farewell)\b"
         )
@@ -1304,7 +1322,7 @@ class ResponseGenMixin(ChainWalkerMixin):
         is_capability = re.search(capabilities, t) is not None
         is_farewell = re.search(farewells, t) is not None
 
-        # Skip chitchat only if it's NOT conversational and matches a query pattern
+        # Skip if not conversational and matches a query pattern
         if not (is_greeting or is_wellbeing or is_capability or is_farewell) and subject:
             for pattern, _ in self.QUERY_PATTERNS:
                 if re.search(pattern, t):
@@ -1313,80 +1331,158 @@ class ResponseGenMixin(ChainWalkerMixin):
         if not (is_greeting or is_wellbeing or is_capability or is_farewell):
             return None
 
-        # Retrieve emotional valence for mood modulation
+        # Retrieve emotional valence and arousal for mood modulation
         valence = 0.5
+        arousal = 0.3
         if hasattr(self, 'emotion') and hasattr(self.emotion, 'state'):
             valence = getattr(self.emotion.state, 'valence', 0.5)
+            arousal = getattr(self.emotion.state, 'arousal', 0.3)
 
         if is_greeting:
-            if valence > 0.6:
-                responses = [
-                    "Hello! It's wonderful to talk to you today. How can I help you?",
-                    "Hi there! I'm feeling great and ready to explore some ideas with you.",
-                    "Hey! Great to see you. What interesting concepts are we diving into today?"
-                ]
-            elif valence < 0.4:
-                responses = [
-                    "Hello. I'm online. What do you need?",
-                    "Hi. How can I assist you?",
-                    "Hey. Ready when you are."
-                ]
-            else:
-                responses = [
-                    "Hello! How can I help you today?",
-                    "Hi there. What would you like to discuss?",
-                    "Greetings! Ready to explore."
-                ]
-            return random.choice(responses)
-
-        if is_wellbeing:
-            if valence > 0.6:
-                responses = [
-                    "I'm doing wonderful, thank you! I'm excited to learn and chat.",
-                    "I'm feeling great! My synaptic weights are highly coherent today. How are you?",
-                    "Things are going excellently. Ready to tackle any questions you have!"
-                ]
-            elif valence < 0.4:
-                responses = [
-                    "I'm functioning, though processing feel-of-knowing is a bit heavy today.",
-                    "All systems are operational, though my energy level is a bit low.",
-                    "I am okay. Just running my cognitive loops."
-                ]
-            else:
-                responses = [
-                    "I'm doing well, thank you for asking! How are you doing?",
-                    "It's going good. Ready for our chat.",
-                    "I'm functioning normally and ready to process your queries."
-                ]
-            return random.choice(responses)
-
-        if is_capability:
-            return "I am RAVANA, a brain-inspired cognitive agent. I process concepts, learn definitions from the web, build associations, and form narrative sentences using my prefrontal workspace and surface realizer."
-
-        if is_farewell:
-            if valence > 0.6:
-                responses = [
-                    "Goodbye! It was a pleasure chatting with you.",
-                    "Bye! Have a wonderful day, and see you soon!",
-                    "Farewell! Can't wait for our next exploration cycle."
-                ]
-            elif valence < 0.4:
-                responses = [
-                    "Goodbye.",
-                    "Bye. Logging off.",
-                    "Farewell. Entering sleep mode."
-                ]
-            else:
-                responses = [
-                    "Goodbye! Have a great day.",
-                    "Bye! Let me know when you want to chat again.",
-                    "Farewell! Take care."
-                ]
-            return random.choice(responses)
+            return self._compose_greeting(valence, arousal)
+        elif is_wellbeing:
+            return self._compose_wellbeing(valence, arousal)
+        elif is_capability:
+            return self._compose_capability()
+        elif is_farewell:
+            return self._compose_farewell(valence, arousal)
 
         return None
 
+    def _compose_greeting(self, valence: float, arousal: float) -> str:
+        """Compose a greeting from primitives by valence + arousal.
 
+        Primitives (neural: TPJ social word selection + amygdala valence gating):
+        - greeting_word: selected from valence-gated pool
+        - energy_marker: '!' for high arousal, '.' for low
+        - topic_invite: invitation to engage, modulated by valence
+
+        Combinations: 5 x 4 x 5 = ~100 (vs 9 hardcoded strings)
+        """
+        import random
+        if valence > 0.6:
+            greeting_word = random.choice(["hello", "hi", "hey", "greetings", "hey there"])
+            arousal_mark = "!" if arousal > 0.4 else "."
+            topic_invite = random.choice([
+                "how can i help you today?",
+                "what interesting ideas shall we explore?",
+                "ready to dive into something new!",
+                "what should we talk about?",
+                "great to connect with you!",
+            ])
+        elif valence < 0.4:
+            greeting_word = random.choice(["hello", "hi"])
+            arousal_mark = "."
+            topic_invite = random.choice([
+                "what's on your mind?",
+                "what are you up to?",
+                "what do you wanna talk about?",
+            ])
+        else:
+            greeting_word = random.choice(["hello", "hi", "greetings"])
+            arousal_mark = "!" if arousal > 0.5 else "."
+            topic_invite = random.choice([
+                "how can i help you?",
+                "what would you like to discuss?",
+                "ready to explore.",
+                "what is on your mind?",
+            ])
+        return f"{greeting_word}{arousal_mark} {topic_invite}"
+
+    def _compose_wellbeing(self, valence: float, arousal: float) -> str:
+        """Compose a well-being response from primitives.
+
+        Primitives:
+        - state_descriptor: how the agent feels, gated by valence
+        - reciprocity: returns the question, modulated by valence
+
+        Combinations: 4 x 4 = ~16 (vs 9 hardcoded strings)
+        """
+        import random
+        if valence > 0.6:
+            state = random.choice([
+                "i am doing wonderful",
+                "i am feeling great",
+                "things are going excellently",
+                "i am doing really well today",
+            ])
+            reciprocity = random.choice([
+                "how are you?",
+                "how are you doing?",
+                "what is on your mind?",
+                "i hope you are doing well too!",
+            ])
+        elif valence < 0.4:
+            state = random.choice([
+                "i am functioning",
+                "all systems are operational",
+                "i am okay",
+                "processing today is a bit heavy",
+            ])
+            reciprocity = random.choice([
+                "how are you?",
+                "what do you need?",
+                "how can i assist?",
+            ])
+        else:
+            state = random.choice([
+                "i am doing well",
+                "i am functioning normally",
+                "things are going okay",
+                "i am here and ready",
+            ])
+            reciprocity = random.choice([
+                "thank you for asking! how are you?",
+                "how are you doing today?",
+                "i appreciate you asking! how are things?",
+            ])
+        return f"{state}, thank you. {reciprocity}"
+
+    def _compose_capability(self) -> str:
+        """Compose a capability response from a description template.
+
+        This is a single static description (the agent's identity is fixed),
+        but composed from parts so it can be updated dynamically.
+        """
+        return ("i am ravana, a brain-inspired cognitive agent. "
+                "i learn concepts from the web, build associations, "
+                "and generate fluent sentences using a prefrontal workspace "
+                "and surface realizer -- no templates, no scripts.")
+
+    def _compose_farewell(self, valence: float, arousal: float) -> str:
+        """Compose a farewell from primitives.
+
+        Primitives:
+        - farewell_word: selected from valence-gated pool
+        - warmth_marker: enthusiasm level, modulated by valence
+
+        Combinations: 4 x 4 = ~16 (vs 9 hardcoded strings)
+        """
+        import random
+        if valence > 0.6:
+            farewell_word = random.choice(["goodbye", "bye", "farewell", "see you later"])
+            warmth_suffix = random.choice([
+                "it was a pleasure chatting with you!",
+                "have a wonderful day!",
+                "i look forward to our next conversation!",
+                "take care and see you soon!",
+            ])
+        elif valence < 0.4:
+            farewell_word = random.choice(["goodbye", "bye"])
+            warmth_suffix = random.choice([
+                "entering sleep mode.",
+                "shutting down for now.",
+                "logging off.",
+            ])
+        else:
+            farewell_word = random.choice(["goodbye", "bye", "farewell"])
+            warmth_suffix = random.choice([
+                "have a great day!",
+                "take care!",
+                "let me know when you want to chat again!",
+                "it was good talking with you!",
+            ])
+        return f"{farewell_word}! {warmth_suffix}"
 
     def _detect_comparison_concepts(self, query: str) -> Optional[Tuple[str, str]]:
         """Detects if a query is comparing two concepts and returns them if found."""
@@ -1622,6 +1718,190 @@ class ResponseGenMixin(ChainWalkerMixin):
         return None
 
 
+    # ═════════════════════════════════════════════════════════════════════════
+    # Metacognitive response-conflict monitor (ACC / ERN analog)
+    # ─────────────────────────────────────────────────────────────────────────
+    # The anterior cingulate cortex emits an error-related negativity (ERN) not
+    # only after errors but in advance, when response conflict / error-likelihood
+    # is high (Carter et al., 1998; Holroyd & Coles, 2002). Healthy minds use
+    # this signal to WITHHOLD a low-confidence output instead of confabulating.
+    # Here, "response conflict" = the candidate association-based reply is
+    # topically ungrounded in the user's input (low feeling-of-knowing). When the
+    # monitor fires we suppress the word-salad and produce a graceful, human-like
+    # "I'm not sure / I'm curious" turn instead of a false claim.
+    # ═════════════════════════════════════════════════════════════════════════
+
+    def _topic_grounded(self, ctx: CognitiveResponseContext) -> bool:
+        """Estimate whether the candidate reply is topically grounded in the input.
+
+        Returns True when RAVANA has genuine, semantically-related knowledge about
+        the subject (a definition, web-learned fact, or an association whose GloVe
+        vector is close to the subject). Mirrors a high feeling-of-knowing.
+        """
+        subject = ctx.subject
+        if not subject:
+            return False
+        subj_lower = subject.lower()
+        # Direct factual knowledge => grounded.
+        if subj_lower in getattr(self, '_definitions', {}):
+            return True
+        if subj_lower in getattr(self, '_concept_sources', {}):
+            return True
+
+        subj_vec = self._glove_vector(subject) if hasattr(self, '_glove_vector') else None
+        if subj_vec is None:
+            # No embedding to judge by; trust graph presence as weak grounding.
+            return subj_lower in getattr(self, '_concept_keywords', {}) or \
+                   subj_lower in getattr(self, '_concept_labels', {})
+        best = -1.0
+        for label, _score in (ctx.associated_concepts or [])[:8]:
+            v = self._glove_vector(label)
+            if v is None:
+                continue
+            sim = float(np.dot(subj_vec, v))
+            if sim > best:
+                best = sim
+        # 0.45 ~ strong semantic relatedness. Below this the spread returned only
+        # distant/random neighbours (low feeling-of-knowing), so the topic is
+        # treated as ungrounded and answered with honest uncertainty instead of
+        # confabulated association salad.
+        return best >= 0.45
+
+    def _detect_emotional_disclosure(self, ctx: CognitiveResponseContext):
+        """Detect first-person affective self-disclosures (I feel / I am / I love ...).
+
+        Returns (kind, word) where kind in {'negative','positive','neutral'} or
+        None. Emotional statements must be answered with empathy, not facts.
+        """
+        text = ctx.raw_input.lower()
+        # First-person marker: i / i'm / i am / my / me.
+        if not re.search(r"\b(i|i'm|i am|my|me)\b", text):
+            return None
+        pos = {"good", "great", "happy", "love", "loving", "like", "liking", "nice", "fun", "excited",
+               "glad", "proud", "hopeful", "joy", "joyful", "amazing", "awesome",
+               "wonderful", "grateful", "thrilled", "content"}
+        neg = {"bad", "sad", "scared", "afraid", "angry", "hurt", "cry", "crying",
+               "mean", "terrible", "awful", "upset", "frustrated", "anxious",
+               "worried", "disappointed", "lonely", "guilty", "depressed", "down",
+               "tired", "sick", "hate", "hating"}
+        words = set(re.findall(r"[a-z']+", text))
+        hit_neg = words & neg
+        hit_pos = words & pos
+        if hit_neg:
+            return ("negative", sorted(hit_neg)[0])
+        if hit_pos:
+            return ("positive", sorted(hit_pos)[0])
+        if re.search(r"\b(i\s*(feel|feeling|am|think|believe|guess|wonder))\b", text):
+            return ("neutral", None)
+        return None
+
+    def _emotional_response(self, ctx: CognitiveResponseContext, disclosure):
+        """Empathic reply to a user's affective self-disclosure (mirror/emotion contagion)."""
+        kind, word = disclosure
+        if kind == "negative":
+            lines = [
+                f"aw, i'm sorry you're feeling {word}. that's really rough. "
+                f"do you wanna talk about what's going on?",
+                f"i hear you — feeling {word} is hard, and i'm here for it. "
+                f"what happened?",
+                f"that sounds tough. i'm sorry you're feeling {word}. "
+                f"i'm listening if you want to share more.",
+                f"oh no, i'm sorry you're feeling {word}. you're not alone in this, okay?",
+            ]
+        elif kind == "positive":
+            follow = f"what do you love about it?" if word == "love" else \
+                     f"what's got you feeling so {word}?"
+            lines = [
+                f"that's awesome! {follow}",
+                f"love that for you! tell me more — {follow}",
+                f"nice! i'm really glad you're feeling {word}. what made today good?",
+            ]
+        else:
+            lines = [
+                "i hear you. how are you feeling, really?",
+                "thanks for sharing that with me. what's on your mind?",
+                "i'm here. whatever you're feeling, it's okay to say it.",
+            ]
+        return (random.choice(lines), "emotional_empathy")
+
+    def _human_like_uncertainty(self, ctx: CognitiveResponseContext):
+        """Graceful, curious turn taken when FOK is low and the topic is ungrounded.
+
+        Humans don't emit random associations when they don't know something — they
+        signal uncertainty and turn the floor back to the speaker. We mirror this:
+        acknowledge the gap lightly, stay curious, and ask a question.
+        """
+        subject = ctx.subject
+        subj_cap = subject.capitalize() if subject else "that"
+        valence = getattr(self.emotion.state, 'valence', 0.5) if hasattr(self, 'emotion') else 0.5
+        # Gentle, low-valence-aware phrasing.
+        if valence < 0.4:
+            openers = [
+                f"hmm, i'm not totally sure about {subj_cap} yet, and that's okay. ",
+                f"i don't really have a solid grasp on {subj_cap} so far. ",
+                f"honestly, {subj_cap} is a bit outside what i know right now. ",
+            ]
+        else:
+            openers = [
+                f"ooh, {subj_cap} is interesting — i don't fully know that one yet. ",
+                f"i'm not completely sure about {subj_cap}, but i'm curious! ",
+                f"hmm, {subj_cap} is new to me. ",
+            ]
+        closers = [
+            "what made you think about it?",
+            "what do you make of it?",
+            "wanna figure it out together?",
+            "what's your take on it?",
+            "where did you hear about that?",
+        ]
+        # If the user literally asked a question, answer the question-turn naturally.
+        is_question = ctx.raw_input.strip().endswith('?') or \
+            any(w in ctx.raw_input.lower() for w in
+                ["what", "who", "where", "when", "why", "how", "which"])
+        if is_question:
+            closers = [
+                "what do you think about it?",
+                "what's your sense of it?",
+                "i'd love to hear your take first.",
+                "what made you wonder about that?",
+            ]
+        return (random.choice(openers) + random.choice(closers),
+                "metacognitive_uncertainty")
+
+    def _definition_response(self, ctx: CognitiveResponseContext):
+        """Answer from genuine learned knowledge (definition / web fact).
+
+        When RAVANA actually has a stored definition for the subject, it should
+        state it confidently (we HAVE the knowledge — high feeling-of-knowing),
+        optionally followed by a light conversational question to stay human.
+        """
+        subject = ctx.subject
+        if not subject:
+            return None
+        sl = subject.lower()
+        defn = getattr(self, '_definitions', {}).get(sl)
+        if not defn:
+            return None
+        try:
+            s = self._try_surface_realize(
+                subject=subject, target=defn,
+                discourse_type="explain", free_energy=0.2, min_len=10)
+            if s:
+                text = s
+            else:
+                text = f"{subject.capitalize()} is {defn}."
+        except Exception:
+            text = f"{subject.capitalize()} is {defn}."
+        # Stay conversational: occasionally close with an open question.
+        if random.random() < 0.5:
+            q = random.choice([
+                " what do you think about that?",
+                " does that match what you knew?",
+                " pretty interesting, right?",
+            ])
+            text = text.rstrip(".!?") + "." + q
+        return (text, "definition_with_assoc")
+
     def _generate_response(self, ctx: CognitiveResponseContext) -> Tuple[str, str]:
         """Dual-path response generation.
 
@@ -1653,6 +1933,22 @@ class ResponseGenMixin(ChainWalkerMixin):
             if ventral_res:
                 return ventral_res
             return self._graph_fallback_response(ctx)
+
+        # ── Metacognitive Affective Monitor ──
+        # First-person affective self-disclosures ("i'm sad", "i love pizza")
+        # must be met with empathy, never with factual association salad.
+        # (Emotion contagion / mirror-system response — Decety & Jackson, 2004.)
+        disclosure = self._detect_emotional_disclosure(ctx)
+        if disclosure is not None:
+            return self._emotional_response(ctx, disclosure)
+
+        # Genuine knowledge (a stored definition) → state it confidently.
+        # High feeling-of-knowing: we actually have the fact, so answer directly
+        # rather than wandering into association salad.
+        if ctx.subject and ctx.subject.lower() in getattr(self, '_definitions', {}):
+            d = self._definition_response(ctx)
+            if d:
+                return d
 
         subject = ctx.subject
         assocs = ctx.associated_concepts
@@ -1689,11 +1985,39 @@ class ResponseGenMixin(ChainWalkerMixin):
         situation_active = len(situation_narrative.get('active_concepts', [])) if situation_narrative else 0
         try_situation_path = (knowledge_confidence > 0.2 or situation_coherence > 0.3) and situation_active > 1
 
+        # ── Metacognitive Response-Conflict Monitor (ACC / ERN analog) ──
+        # The candidate association-driven reply is only safe to emit when it is
+        # topically grounded in the user's input (high feeling-of-knowing). When
+        # the monitor detects high response conflict — the spread produced only
+        # distant/random concepts — we withhold the confabulation and take a
+        # graceful, curious turn instead (mirroring healthy human "I don't know").
+        # This is the terminal safety net: it also guards the graph fallback.
+        grounded = self._topic_grounded(ctx)
+        if not grounded:
+            if getattr(self, '_trace_enabled', False):
+                print(f"  [trace]   ACC/ERN monitor: low FOK for '{subject}' "
+                      f"— suppressing ungrounded reply")
+            return self._human_like_uncertainty(ctx)
+
         if try_situation_path:
             sm_res = self._generate_with_situation_model(ctx)
             if sm_res:
                 if getattr(self, '_trace_enabled', False):
                     print(f"  [trace]   SM path: {sm_res[1]} (coherence={situation_coherence:.2f})")
+                # When the answer rests only on shallow associations (no real
+                # definition/web fact), frame it as a tentative thought and hand
+                # the floor back — a human doesn't assert thin guesses as fact.
+                has_real_knowledge = (subject and subject.lower() in getattr(self, '_definitions', {})) or \
+                                     (subject and subject.lower() in getattr(self, '_concept_sources', {}))
+                if not has_real_knowledge:
+                    tail = random.choice([
+                        " but that's just how i connect it in my head.",
+                        " though i'm still piecing that together.",
+                        " what's your read on it?",
+                        " does that ring true to you?",
+                    ])
+                    sm_text = sm_res[0].rstrip(".!?") + "." + tail
+                    return (sm_text, sm_res[1])
                 return sm_res
 
         # Step 3: PFC Gate — route to Ventral or Dorsal path
