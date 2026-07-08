@@ -1349,6 +1349,83 @@ class ResponseGenMixin(ChainWalkerMixin):
 
         return None
 
+    # Imperative verbs that signal the user wants RAVANA to *do* something
+    # (build a scraper, write code, send an email, open an app) rather than
+    # ask a factual question. These are "action requests": RAVANA cannot
+    # actually execute them, so it must answer honestly and helpfully instead
+    # of confabulating a definition for a malformed subject like
+    # "build python web".
+    _ACTION_VERBS = {
+        "build", "make", "create", "write", "code", "program", "develop",
+        "generate", "produce", "send", "email", "message", "call", "text",
+        "open", "launch", "run", "execute", "install", "download", "fetch",
+        "find", "search", "look", "book", "buy", "order", "schedule",
+        "remind", "set", "turn", "play", "stop", "start", "do", "help",
+        "compute", "calculate", "translate", "summarize",
+    }
+
+    def _is_action_request(self, text: str) -> Optional[str]:
+        """Detect an imperative/action request and return the action verb (or None).
+
+        Heuristic, not hardcoded intent list: an action request is an
+        imperative sentence (starts with a verb, or "can you / could you /
+        please <verb>") whose verb is in the action-verb set. This lets RAVANA
+        recognise "build me a scraper", "can you write a poem", "please send
+        the email" as requests to *do* something rather than factual queries.
+        """
+        import re
+        t = text.lower().strip(" ?!.")
+        if not t:
+            return None
+        words = t.split()
+        first = words[0]
+        # "can you / could you / would you / please / can ravana ..." + verb
+        if first in ("can", "could", "would", "will", "please", "help"):
+            # next content word
+            for w in words[1:3]:
+                if w in self._ACTION_VERBS or w.rstrip("s") in self._ACTION_VERBS:
+                    return w
+            return None
+        # bare imperative: sentence starts with an action verb
+        if first in self._ACTION_VERBS or first.rstrip("s") in self._ACTION_VERBS:
+            return first
+        return None
+
+    def _handle_action_request(self, text: str, action_verb: str,
+                               subject: str) -> str:
+        """Honest, helpful reply to an action request RAVANA cannot literally do.
+
+        Mirrors a human: acknowledge the request, be straight that it can't
+        click/build/execute in the user's environment, then offer the genuinely
+        useful thing it *can* do (explain, outline steps, discuss). No
+        confabulation, no abstract filler.
+        """
+        import random
+        # Extract the object of the request (what they want built/done).
+        obj = ""
+        try:
+            # crude: text after the verb
+            idx = text.lower().split().index(action_verb) + 1
+            rest = " ".join(text.lower().split()[idx:]).strip(" .,!")
+            # strip common polite/helper words
+            rest = re.sub(r"^(me|us|my|a|an|the|for|to|some|please)\s+", "", rest)
+            obj = rest
+        except Exception:
+            obj = ""
+        obj_disp = f" a {obj}" if obj and not obj.startswith(("a ", "an ", "the ")) else (f" {obj}" if obj else "")
+
+        leads = [
+            f"i can't actually {action_verb} that for you directly",
+            f"i wish i could {action_verb} that, but i don't have a way to act on your system",
+            f"i can't physically {action_verb}{obj_disp}, since i run as a chat brain without tools",
+        ]
+        follows = [
+            f"but i can walk you through how to {action_verb}{obj_disp}, or explain the key ideas if that helps.",
+            f"what i *can* do is break down the steps or explain the concepts behind it — want me to?",
+            f"happy to help you plan it out or explain how it works, though. what part do you want to start with?",
+        ]
+        return random.choice(leads) + " " + random.choice(follows)
+
     def _compose_greeting(self, valence: float, arousal: float) -> str:
         """Compose a greeting from primitives by valence + arousal.
 
@@ -1832,7 +1909,7 @@ class ResponseGenMixin(ChainWalkerMixin):
         acknowledge the gap lightly, stay curious, and ask a question.
         """
         subject = ctx.subject
-        subj_cap = subject.capitalize() if subject else "that"
+        subj_cap = self._capitalize_subject(subject, getattr(ctx, 'raw_input', subject) or subject) if subject else "that"
         valence = getattr(self.emotion.state, 'valence', 0.5) if hasattr(self, 'emotion') else 0.5
         # Gentle, low-valence-aware phrasing.
         if valence < 0.4:
@@ -1882,6 +1959,14 @@ class ResponseGenMixin(ChainWalkerMixin):
         defn = getattr(self, '_definitions', {}).get(sl)
         if not defn:
             return None
+        # Reject low-quality / non-definitional junk before surfacing it.
+        # e.g. "joke is fit for kids and adults" — no article, no definition
+        # shape — would read as abstract filler. Fall back to honest
+        # uncertainty instead of confabulating.
+        if not (getattr(self, '_definition_looks_clean', lambda t: True)(defn)
+                and getattr(self, '_definition_quality', lambda t: 1.0)(defn) > 0.0):
+            return None
+        subj_disp = self._capitalize_subject(subject, getattr(ctx, 'raw_input', subject) or subject)
         try:
             s = self._try_surface_realize(
                 subject=subject, target=defn,
@@ -1889,10 +1974,10 @@ class ResponseGenMixin(ChainWalkerMixin):
             if s:
                 text = s
             else:
-                text = f"{subject.capitalize()} is {defn}."
+                text = f"{subj_disp} is {defn}."
         except Exception:
-            text = f"{subject.capitalize()} is {defn}."
-        # Stay conversational: occasionally close with an open question.
+            text = f"{subj_disp} is {defn}."
+
         if random.random() < 0.5:
             q = random.choice([
                 " what do you think about that?",
@@ -1915,7 +2000,7 @@ class ResponseGenMixin(ChainWalkerMixin):
         subject = ctx.subject
         if not subject:
             return None
-        subj_cap = subject.capitalize()
+        subj_cap = self._capitalize_subject(subject, getattr(ctx, 'raw_input', subject) or subject)
         subj_vec = self._glove_vector(subject) if hasattr(self, '_glove_vector') else None
 
         # Subject-verb / pronoun agreement (mirror SurfaceRealizer plural rules).
@@ -2019,9 +2104,16 @@ class ResponseGenMixin(ChainWalkerMixin):
         if disclosure is not None:
             return self._emotional_response(ctx, disclosure)
 
+        # Web-grounded direct answer for unknown factual queries.
+        # If the live search engine can back the claim with a real snippet,
+        # state it directly — this is fresher and more accurate than any stale
+        # or loosely-learned stored definition. (No LLM, no hardcoding — the
+        # answer is a cleaned, retrieved snippet.)
+        web_ans = self._web_direct_answer(ctx)
+        if web_ans:
+            return web_ans
+
         # Genuine knowledge (a stored definition) → state it confidently.
-        # High feeling-of-knowing: we actually have the fact, so answer directly
-        # rather than wandering into association salad.
         if ctx.subject and ctx.subject.lower() in getattr(self, '_definitions', {}):
             d = self._definition_response(ctx)
             if d:
@@ -2029,6 +2121,7 @@ class ResponseGenMixin(ChainWalkerMixin):
 
         subject = ctx.subject
         assocs = ctx.associated_concepts
+
 
         # Determine knowledge confidence for this subject
         text_lower = ctx.raw_input.lower().strip()
@@ -2125,7 +2218,13 @@ class ResponseGenMixin(ChainWalkerMixin):
 
 
     def _capitalize_subject(self, subject: str, raw_input: str) -> str:
-        """Capitalize subject correctly, preserving original case for proper nouns/acronyms."""
+        """Capitalize subject correctly, preserving original case for proper nouns/acronyms.
+
+        Only capitalizes when the subject is a recognised proper noun (in the
+        proper-noun set) — generic nouns like "life", "dream", "joke" stay
+        lowercase so we don't emit "Life is..." / "Dream is...". If the exact
+        word appears in the user's raw input with its original casing, reuse it.
+        """
         if not subject:
             return ""
         words = raw_input.split()
@@ -2133,6 +2232,9 @@ class ResponseGenMixin(ChainWalkerMixin):
             clean_w = w.strip(".,!?\"'()[]{}*:;")
             if clean_w.lower() == subject.lower():
                 return clean_w
-        return subject.capitalize()
+        proper = getattr(self, '_proper_nouns', set())
+        if subject.lower() in proper:
+            return subject.capitalize()
+        return subject.lower()
 
 

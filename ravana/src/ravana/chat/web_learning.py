@@ -32,11 +32,26 @@ except ImportError:
 class WebLearningMixin(ResponseGenMixin):
     """Mixin providing web search, background learning, and curiosity drive methods."""
 
-    # ─── Issue 1: OFC Coherence Gating ───
-    # Neuroscience: Orbitofrontal Reality Filtering (Schnider 2013) —
-    # the OFC evaluates whether retrieved information matches the current
-    # context by computing a rapid match/mismatch signal within 200-300ms.
-    # This replaces hardcoded INAPPROPRIATE_WORDS with dynamic coherence checks.
+    # Concepts that must NEVER be used as a definition store key. These are
+    # pronouns, generic nouns, and vague relationship words whose web matches
+    # are almost always unrelated fragments (e.g. "you" -> "the stronger
+    # player...", "life" -> "to achieve the goals you set in life"). Storing a
+    # definition under these keys makes every later mention of the word produce
+    # an abstract, off-topic answer.
+    _DEFINITION_CONCEPT_BLOCKLIST = {
+        "you", "i", "we", "they", "he", "she", "it", "me", "my", "your",
+        "our", "their", "us", "them", "him", "her", "this", "that", "these",
+        "those", "what", "who", "when", "where", "why", "how", "which",
+        "life", "lives", "death", "love", "hate", "god", "time", "thing",
+        "things", "world", "people", "person", "man", "woman", "day", "night",
+        "year", "water", "fire", "earth", "mind", "soul", "self", "meaning",
+        "purpose", "truth", "beauty", "knowledge", "wisdom", "freedom",
+        "happiness", "success", "power", "nature", "art", "music", "science",
+        "dream", "dreams", "hope", "fear", "war", "peace", "friend", "family",
+        "home", "money", "work", "play", "game", "book", "story", "idea",
+        "thought", "word", "language", "number", "system", "process",
+    }
+
 
     def _definition_coherence_score(self, subject: str, definition: str) -> float:
         """OFC-inspired coherence score between a subject and its definition.
@@ -531,6 +546,65 @@ class WebLearningMixin(ResponseGenMixin):
         "will blow your", "goes hard", "no cap", "bestie", "bestie,",
     )
 
+    def _definition_acceptable(self, subject: str, definition: str, def_has_inappropriate: bool = False) -> bool:
+        """Decide whether a candidate definition should be stored.
+
+        Issue 1 (OFC Coherence Gating): for subjects present in GloVe we require
+        a minimum semantic coherence between subject and definition. But many
+        legitimate subjects (e.g. 'blockchain', 'cleopatra') are OUT OF VOCAB
+        (OOV) — their GloVe vector is None, so the coherence score collapses to
+        0.00 and every good definition gets wrongly rejected. In that case the
+        relevance is already guaranteed by the extraction pattern (the subject
+        literally appears in the definition sentence), so we fall back to the
+        cleanliness check instead of the unmeasurable coherence gate.
+        """
+        coherence = self._definition_coherence_score(subject, definition)
+        subj_vec = self._glove_vector(subject)
+        if subj_vec is None:
+            # OOV subject — cannot measure coherence; trust the pattern match
+            # plus the inappropriate-word override.
+            return not def_has_inappropriate
+        return (coherence > 0.15 or (coherence > 0.05 and not def_has_inappropriate))
+
+    def _definition_quality(self, definition: str) -> float:
+        """Heuristic quality score (higher = better stand-alone definition).
+
+        The extraction code tends to keep the *longest* match, which often
+        overwrites a clean lead sentence ("a distributed ledger...") with a
+        grammatically broken fragment ("not unalterable, since blockchain
+        forks are possible..."). We down-rank fragments so the most
+        self-contained, definition-like candidate is retained.
+        """
+        if not definition:
+            return -1.0
+        d = definition.lower()
+        # Start from a neutral baseline and reward canonical definition shape.
+        score = 0.0
+        # Canonical definitions open with an article + noun phrase ("a process",
+        # "a mineral", "a distributed ledger") and are concise.
+        if re.match(r"^(a|an|the)\s+[a-z]", d):
+            score += 1.0
+            if len(definition) <= 90:
+                score += 0.5
+        # Fragments that open with a conjunction / conjunctive adverb / pronoun
+        # are run-on clauses, not self-contained definitions.
+        if re.match(r"^(but|and|so|thus|therefore|hence|however|moreover|"
+                    r"furthermore|consequently|in addition|for example|"
+                    r"this|these|such|it is|they are|because|although|while|"
+                    r"since|when|if|not)\b", d):
+            score -= 1.0
+        # History/etymology framings describe origin, not essence.
+        if re.match(r"^(discovered|invented|founded|coined|introduced|"
+                    r"developed|first|originally|initially)\b", d):
+            score -= 0.8
+        # Approximative / clause-laden fragments are rarely canonical.
+        if re.search(r"whereas|however|~|\b\d+%|not just|\bwho showed\b", d):
+            score -= 0.5
+        # Overly long definitions tend to be run-on sentences.
+        if len(definition) > 120:
+            score -= 0.3
+        return score
+
     def _definition_looks_clean(self, text: str) -> bool:
         """Reject obviously non-definitional junk sentences."""
         if not text:
@@ -541,6 +615,12 @@ class WebLearningMixin(ResponseGenMixin):
         # A real definition predicate rarely opens with a conjunction or
         # first/second-person chatter.
         if re.match(r"^\s*(but|and|so|because|i |you |we |they )\b", low):
+            return False
+        # Reject history/etymology framings — these describe the subject's
+        # origin, not what it fundamentally *is* (e.g. "discovered in 1779 by
+        # Jan Ingenhousz...", "first coined in 1899...").
+        if re.match(r"^\s*(discovered|invented|founded|coined|introduced|"
+                    r"developed|first\b|originally\b|initially\b)\b", low):
             return False
         return True
 
@@ -694,6 +774,22 @@ class WebLearningMixin(ResponseGenMixin):
                 out.append(v)
         return out
 
+    def _is_clean_concept_key(self, key: str) -> bool:
+        """A definition should only be stored under a clean single-token concept
+        key. Reject multi-word fragments, quoted/possessive keys, or keys that
+        begin with a stopword — these pollute the store (e.g. "won 2022 world",
+        "the quokka's range", "fast facts quokkas") and produce off-topic answers."""
+        if not key:
+            return False
+        if key in self._DEFINITION_CONCEPT_BLOCKLIST:
+            return False
+        if (" " in key) or ("'" in key) or ('"' in key):
+            return False
+        first = key.split()[0] if key.split() else key
+        if first in STOP_WORDS:
+            return False
+        return True
+
     def _extract_definitions(self, text: str, query: str):
         """Unified method to extract definitional knowledge from text (Approaches 1, 2, 6).
 
@@ -755,9 +851,19 @@ class WebLearningMixin(ResponseGenMixin):
                     # Check relevance using overlapping matching
                     query_words = set(w for w in query_topic.split() if w not in STOP_WORDS and len(w) > 2)
                     concept_words = set(w for w in concept.split() if w not in STOP_WORDS and len(w) > 2)
+                    # Require the matched concept to be the actual query subject,
+                    # not just a stray shared word. "who is the president of
+                    # france" must store under "france" (the subject), not under
+                    # "president" (a generic role word) or "you".
+                    concept_is_subject = (concept == query_topic
+                                          or query_topic.endswith(concept)
+                                          or query_topic.split()[-1] == concept)
                     has_word_overlap = bool(query_words & concept_words)
-                    is_relevant = (concept in query_topic or query_topic in concept or has_word_overlap)
-                    
+                    is_relevant = concept_is_subject or has_word_overlap
+                    # Never store a definition keyed on a generic/pronoun word.
+                    if concept in self._DEFINITION_CONCEPT_BLOCKLIST:
+                        is_relevant = False
+
                     if is_relevant:
                         # ─── Issue 1: OFC Coherence Gating ───
                         # Compute semantic coherence between subject and definition.
@@ -769,9 +875,9 @@ class WebLearningMixin(ResponseGenMixin):
                         # Check INAPPROPRIATE_WORDS as last-resort override
                         def_has_inappropriate = any(w in INAPPROPRIATE_WORDS for w in re.findall(r'[a-z]{3,}', definition_clean.lower()))
                         
-                        if (coherence > 0.15 or (coherence > 0.05 and not def_has_inappropriate)) and self._definition_looks_clean(definition_clean):
+                        if self._definition_acceptable(concept, definition_clean, def_has_inappropriate) and self._definition_looks_clean(definition_clean):
                             existing = self._definitions.get(concept, '')
-                            if concept not in self._definitions or len(definition_clean) > len(existing):
+                            if self._is_clean_concept_key(concept) and (concept not in self._definitions or self._definition_quality(definition_clean) > self._definition_quality(existing)):
                                 self._definitions[concept] = definition_clean[:200]
                                 if self._trace_enabled:
                                     print(f"  [definition] Regex match (coherence={coherence:.2f}): {concept} -> {definition_clean[:80]}...")
@@ -780,9 +886,9 @@ class WebLearningMixin(ResponseGenMixin):
                             # (e.g. "cleopatra vii thea philopator" -> "cleopatra",
                             # "salt" -> "salty"). This also preempts the heuristic
                             # fallback, which would otherwise grab noisier text.
-                            if concept != query_topic and is_relevant:
+                            if concept != query_topic and is_relevant and self._is_clean_concept_key(query_topic) and query_topic not in self._DEFINITION_CONCEPT_BLOCKLIST:
                                 eq = self._definitions.get(query_topic, '')
-                                if query_topic not in self._definitions or len(definition_clean) > len(eq):
+                                if query_topic not in self._definitions or self._definition_quality(definition_clean) > self._definition_quality(eq):
                                     self._definitions[query_topic] = definition_clean[:200]
                         elif self._trace_enabled:
                             print(f"  [definition] OFC rejected (coherence={coherence:.2f}): {concept} -> {definition_clean[:60]}...")
@@ -809,23 +915,33 @@ class WebLearningMixin(ResponseGenMixin):
                 # Check relevance using overlapping matching
                 query_words = set(w for w in query_topic.split() if w not in STOP_WORDS and len(w) > 2)
                 concept_words = set(w for w in concept.split() if w not in STOP_WORDS and len(w) > 2)
+                # Require the matched concept to be the actual query subject,
+                # not just a stray shared word. "who is the president of
+                # france" must store under "france" (the subject), not under
+                # "president" (a generic role word) or "you".
+                concept_is_subject = (concept == query_topic
+                                      or query_topic.endswith(concept)
+                                      or query_topic.split()[-1] == concept)
                 has_word_overlap = bool(query_words & concept_words)
-                is_relevant = (concept in query_topic or query_topic in concept or has_word_overlap)
-                
+                is_relevant = concept_is_subject or has_word_overlap
+                # Never store a definition keyed on a generic/pronoun word.
+                if concept in self._DEFINITION_CONCEPT_BLOCKLIST:
+                    is_relevant = False
+
                 if is_relevant:
                     # ─── Issue 1: OFC Coherence Gating ───
                     coherence = self._definition_coherence_score(concept, definition_clean)
                     def_has_inappropriate = any(w in INAPPROPRIATE_WORDS for w in re.findall(r'[a-z]{3,}', definition_clean.lower()))
                     
-                    if (coherence > 0.15 or (coherence > 0.05 and not def_has_inappropriate)) and self._definition_looks_clean(definition_clean):
+                    if self._definition_acceptable(concept, definition_clean, def_has_inappropriate) and self._definition_looks_clean(definition_clean):
                         existing = self._definitions.get(concept, '')
-                        if concept not in self._definitions or len(definition_clean) > len(existing):
+                        if self._is_clean_concept_key(concept) and (concept not in self._definitions or self._definition_quality(definition_clean) > self._definition_quality(existing)):
                             self._definitions[concept] = definition_clean[:200]
                             if self._trace_enabled:
                                 print(f"  [definition] Called pattern match (coherence={coherence:.2f}): {concept} -> {definition_clean[:80]}...")
-                        if concept != query_topic and is_relevant:
+                        if concept != query_topic and is_relevant and self._is_clean_concept_key(query_topic):
                             eq = self._definitions.get(query_topic, '')
-                            if query_topic not in self._definitions or len(definition_clean) > len(eq):
+                            if query_topic not in self._definitions or self._definition_quality(definition_clean) > self._definition_quality(eq):
                                 self._definitions[query_topic] = definition_clean[:200]
                     elif self._trace_enabled:
                         print(f"  [definition] OFC rejected (coherence={coherence:.2f}): {concept} -> {definition_clean[:60]}...")
@@ -841,7 +957,7 @@ class WebLearningMixin(ResponseGenMixin):
                 # Issue 1: OFC coherence check for heuristic definitions too
                 coherence = self._definition_coherence_score(query_topic, heur_def)
                 def_has_inappropriate = any(w in INAPPROPRIATE_WORDS for w in re.findall(r'[a-z]{3,}', heur_def.lower()))
-                if (coherence > 0.15 or (coherence > 0.05 and not def_has_inappropriate)) and self._definition_looks_clean(heur_def):
+                if self._definition_acceptable(query_topic, heur_def, def_has_inappropriate) and self._definition_looks_clean(heur_def) and self._is_clean_concept_key(query_topic):
                     self._definitions[query_topic] = heur_def[:200]
                     if self._trace_enabled:
                         print(f"  [definition] Heuristic match (coherence={coherence:.2f}): {query_topic} -> {heur_def[:80]}...")
@@ -852,11 +968,14 @@ class WebLearningMixin(ResponseGenMixin):
 
     def _bg_learn_loop(self):
         """Background learning thread: processes pending queue and related searches when idle."""
-        while self._bg_learning_active:
+        while self._bg_learning_active or self._bg_learning_queue or self._pending_learning_queue:
             # Wake periodically (30s timeout) — event is set when user goes idle
             self._bg_idle_event.wait(timeout=30)
             self._bg_idle_event.clear()
-            if not self._bg_learning_active:
+            # Drain any pending queue even while shutting down, then exit.
+            # (stop_background_learning sets _bg_learning_active=False and wakes
+            # the thread, so we must still process queued items before exiting.)
+            if not self._bg_learning_active and not self._bg_learning_queue and not self._pending_learning_queue:
                 break
 
             # Periodic curiosity cycle reset for continuous exploration in background mode
@@ -890,8 +1009,11 @@ class WebLearningMixin(ResponseGenMixin):
                         print(f'  [bg] idle cycle {self._curiosity_cycles_this_session}/5 ({reason}) - selecting curiosity topics...')
                     self._auto_select_curiosity_topics(max_topics=2)
                     with self._bg_lock:
-                        all_queries = list(self._bg_learning_queue)
+                        # APPEND curiosity topics to the existing queue — do NOT
+                        # discard the user-queued items we were asked to learn.
+                        curiosity_queries = list(self._bg_learning_queue)
                         self._bg_learning_queue.clear()
+                    all_queries = all_queries + curiosity_queries
                 elif self._trace_enabled:
                     if not all_queries:
                         print('  [bg] idle: waiting for more user input (curiosity budget used)')
@@ -899,8 +1021,10 @@ class WebLearningMixin(ResponseGenMixin):
                         print(f'  [bg] idle: queue has {queue_size} items, processing...')
             try:
                 for query in all_queries:
-                    if not self._bg_learning_active:
-                        break
+                    # NOTE: do NOT `break` here when _bg_learning_active is False.
+                    # The outer loop now keeps running while queued items remain,
+                    # so we must finish draining the queue even during shutdown
+                    # (otherwise queued learning is silently dropped).
                     self._bg_idle_search_count += 1
                     if self._trace_enabled:
                         print(f'  [bg] ({self._bg_idle_search_count}) researching: {query}')
@@ -913,9 +1037,10 @@ class WebLearningMixin(ResponseGenMixin):
                             print(f'  [bg] saved to {os.path.basename(path)}')
                     except Exception:
                         pass
-            except Exception:
+            except Exception as _e:
                 # Prevent background thread from dying silently
-                pass
+                if self._trace_enabled:
+                    print(f"  [bg] Unexpected error in learn loop: {type(_e).__name__}: {_e}")
 
 
 
@@ -925,8 +1050,10 @@ class WebLearningMixin(ResponseGenMixin):
         2. Extract related terms from results
         3. Search top 2-3 related terms
         All done synchronously within the background thread."""
-        if not self._bg_learning_active:
-            return
+        # NOTE: Do NOT bail out here when _bg_learning_active is False. The
+        # background loop drains the queue during shutdown, so even when
+        # stopping we must still learn the queued items (otherwise learning
+        # is silently lost between runs).
         # Step 1: Search the original query
         try:
             result_summary = self.learn_from_web(query)

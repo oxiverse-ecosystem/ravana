@@ -143,7 +143,7 @@ class SurfaceRealizer:
             "i think", "it appears that", "i believe", "from what i understand,"
         ],
         "high_confidence": [
-            "", "", "clearly,", "indeed,"
+            "", "", "", ""
         ],
     }
 
@@ -362,6 +362,14 @@ class SurfaceRealizer:
             display_subj, art_subj, is_subject=True, dopamine_tone=dopamine_tone
         )
 
+        # Capitalize proper-noun subjects (e.g. "france" -> "France",
+        # "nasa" -> "NASA"). A concept is treated as a proper noun when its
+        # original label was capitalised or it's in the known proper-noun set.
+        proper_nouns = getattr(self, 'proper_nouns', set())
+        is_proper = (subj[:1].isupper() if subj else False) or (sl in proper_nouns)
+        if is_proper and subject_phrase:
+            subject_phrase = subject_phrase[0].upper() + subject_phrase[1:]
+
         object_phrase = self._build_noun_phrase(
             obj, art_obj, is_subject=False, dopamine_tone=dopamine_tone
         )
@@ -571,10 +579,13 @@ class SurfaceRealizer:
             # If we have an adverb and dopamine is high, front it
             if has_adverb and dopamine_tone > 0.5 and random.random() < 0.3:
                 return 'adverb_fronted'
-            # Otherwise distribute across SVO variants with STN fatigue penalty
-            choices = ['svo', 'left_dislocation', 'topic_fronting_for',
-                       'existential', 'as_for_topic', 'svo_emphatic']
-            base_weights = [0.80, 0.05, 0.05, 0.05, 0.03, 0.02]
+            # Otherwise distribute across SVO variants with STN fatigue penalty.
+            # NOTE: 'as_for_topic' and 'topic_fronting_for' are intentionally
+            # excluded — they produce "as for X," / "for X," frontings that read
+            # as broken when X is a concept phrase (e.g. "as for python web").
+            # SVO keeps the output human-natural.
+            choices = ['svo', 'left_dislocation', 'svo_emphatic']
+            base_weights = [0.80, 0.12, 0.08]
             return self._weighted_variant_select(choices, base_weights,
                                                   dopamine_tone, free_energy)
 
@@ -582,11 +593,11 @@ class SurfaceRealizer:
         if has_adverb and dopamine_tone > 0.5 and random.random() < 0.3:
             return 'adverb_fronted'
 
-        choices = ['svo', 'left_dislocation', 'pseudo_cleft', 'topic_fronting_for',
-                   'existential', 'cleft', 'as_for_topic', 'svo_emphatic', 'svo_causal']
+        choices = ['svo', 'left_dislocation', 'pseudo_cleft',
+                   'cleft', 'svo_emphatic', 'svo_causal']
         if has_copula:
             choices = [c for c in choices if c not in ('pseudo_cleft', 'cleft')]
-        base_weights = [0.75, 0.04, 0.03, 0.03, 0.04, 0.03, 0.03, 0.03, 0.02]
+        base_weights = [0.75, 0.06, 0.04, 0.04, 0.06, 0.05]
         base_weights = base_weights[:len(choices)]
         return self._weighted_variant_select(choices, base_weights,
                                               dopamine_tone, free_energy)
@@ -667,7 +678,7 @@ class SurfaceRealizer:
             return f"{adv}, {subject_phrase} {vp} {object_phrase}"
         elif variant == 'svo_emphatic':
             vp = _build_vp(verb_phrase, adverb, hedge)
-            return f"{subject_phrase} {vp} {object_phrase} — and that is what matters"
+            return f"{subject_phrase} {vp} {object_phrase}"
         elif variant == 'svo_causal':
             vp = _build_vp(verb_phrase, adverb, hedge)
             return f"{subject_phrase} {vp} {object_phrase}, shaping how things unfold"

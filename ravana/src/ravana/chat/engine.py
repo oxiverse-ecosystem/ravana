@@ -61,8 +61,9 @@ from ravana.web.learner import SearchEngine
 
 # Re-export _is_word_salad for response validation
 from .constants import _is_word_salad
+from .constants import _is_keyboard_mash
 from ravana.language.verb_lexicon import VerbLexicon
-from .models import FailedQuery, ChainHop, ChainTrace, CognitiveResponseContext
+from .models import FailedQuery, ChainHop, ChainTrace, CognitiveResponseContext, Correction, CorrectionType
 from .user_model import UserModel
 from .belief_store import BeliefStore
 from ravana.nn.rlm import Plasticity
@@ -433,6 +434,9 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         self._concept_sources: Dict[str, Set[str]] = {}  # concept -> set of source URLs
         # Phase 18d: Explored contradiction pairs (prevent re-queuing "good vs bad debate")
         self._explored_contradictions: Set[Tuple[str, str]] = set()
+
+        # Phase: Correction Log (ACC/ERN error correction circuit)
+        self._correction_log: List[Correction] = []
 
         # Neural decoder — initialized lazily after graph is ready
         self.neural_decoder: Optional[NeuralDecoder] = None
@@ -827,8 +831,62 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
 
 
 
+    def _user_input_is_gibberism(self, text: str) -> bool:
+        """Detect user input that contains no real words at all (random
+        letter-salad like 'asdf qwer zxcv'). Such input should not be treated
+        as a learnable concept and confabulated about.
+
+        We refuse only when (a) there is no question/learning intent and
+        (b) not a single meaningful token is found in GloVe / the known
+        concept graph. This keeps genuine (if obscure) learning queries like
+        'what is quokka' flowing through, while blocking pure nonsense."""
+        toks = re.findall(r"[a-zA-Z']+", text.lower())
+        meaningful = [w for w in toks if len(w) >= 2 and w not in STOP_WORDS
+                      and not w.isdigit()]
+        if len(meaningful) < 2:
+            return False
+        question_words = {
+            "what", "why", "who", "how", "where", "when", "which", "is",
+            "are", "was", "were", "do", "does", "did", "can", "could",
+            "would", "should", "will", "tell", "explain", "describe",
+            "define", "name", "give", "show", "make", "help",
+        }
+        if any(w in question_words for w in meaningful):
+            return False
+        if self._glove_vecs is not None:
+            for w in meaningful:
+                # Keyboard mashing (e.g. 'asdf', 'qwer', 'zxcv') is random
+                # letter salad even if a token happens to be in GloVe.
+                if _is_keyboard_mash(w):
+                    continue
+                if self._glove_vector(w) is not None:
+                    return False
+                if w in self._concept_keywords:
+                    return False
+                if w in getattr(self, "_proper_nouns", set()):
+                    return False
+            return True
+        # GloVe unavailable: fall back to the vowel heuristic (real English
+        # words almost always contain a vowel).
+        for w in meaningful:
+            if _is_keyboard_mash(w):
+                continue
+            if any(ch in w for ch in "aeiouy"):
+                return False
+        return True
+
     def process_turn(self, user_input: str) -> str:
         """Process input and generate a response, auto-learning when needed."""
+        # Guard: reject pure letter-salad so it is not treated as a concept and
+        # confabulated about.
+        if self._user_input_is_gibberism(user_input):
+            self._last_strategy = "gibberish_guard"
+            resp = "hmm, that doesn't really make sense to me — could you say it another way?"
+            self._last_responses.append(resp)
+            if len(self._last_responses) > 10:
+                self._last_responses = self._last_responses[-10:]
+            return resp
+
         # Scan user query for proper nouns dynamically
         try:
             words = user_input.strip().split()
@@ -843,7 +901,8 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         self.turn_count += 1
         self._learned_this_turn = False
         self._cascade_for_quality = False
-        self._fok_pause_done = False  # Reset LPFC pause flag each turn
+        self._fok_pause_done = False
+        self.user_model.reset_correction_flags()  # Reset LPFC pause flag each turn
         # Decay recency boost: clear after 10 turns (synaptic tag window)
         if hasattr(self, '_recent_learn_turn') and self.turn_count - self._recent_learn_turn > 10:
             self._recently_learned_labels.clear()
@@ -1289,7 +1348,21 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             self.notify_user_idle()
             return chitchat_response
 
-        # Step 6: Dual-process route
+        # ─── Action / Impossible Request Check ───
+        # "build me a python web scraper", "please send the email" — these are
+        # requests to *do* something, not factual questions. RAVANA cannot
+        # execute them, so answer honestly instead of confabulating a topic.
+        action_verb = self._is_action_request(user_input)
+        if action_verb:
+            resp = self._handle_action_request(user_input, action_verb, subject)
+            self._last_strategy = "action_request"
+            self._last_responses.append(resp)
+            if len(self._last_responses) > 10:
+                self._last_responses = self._last_responses[-10:]
+            self.notify_user_idle()
+            return resp
+
+
         confidence = self.identity.state.strength * 0.5 + 0.2
         route = self.dual_process.decide_route(
             confidence=confidence,
@@ -1539,18 +1612,13 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         except Exception:
             pass
 
-        # Retry on concurrent modification (bg learning racing with chain walk)
+        # Acquire graph lock during generation to prevent background learning
+        # from mutating graph structures during iteration. RLock is reentrant-safe.
+        self._graph_lock.acquire()
         try:
             response, strategy = self._generate_response(ctx)
-        except RuntimeError as _rce:
-            if "dictionary changed size during iteration" in str(_rce):
-                self._graph_lock.acquire(timeout=5)
-                try:
-                    response, strategy = self._generate_response(ctx)
-                finally:
-                    self._graph_lock.release()
-            else:
-                raise
+        finally:
+            self._graph_lock.release()
         self._last_strategy = strategy
 
         # ─── Self-Improvement Loop: Learn from Weak Responses (ERN -> ACC -> LC-NE -> Hippocampus) ───
@@ -1561,9 +1629,9 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         if hasattr(self.syntactic_assembly, '_last_frame') and self.syntactic_assembly._last_frame:
             self.syntactic_assembly.learn_from_feedback(self.syntactic_assembly._last_frame, user_understood=user_understood)
             self.syntactic_assembly._last_frame = None
-        if hasattr(self.surface_realizer, '_last_pattern_idx') and self.surface_realizer._last_pattern_idx is not None:
-            self.surface_realizer.learn_from_feedback(self.surface_realizer._last_pattern_idx, success=user_understood)
-            self.surface_realizer._last_pattern_idx = None
+        if hasattr(self.surface_realizer, '_last_variant_name') and self.surface_realizer._last_variant_name is not None:
+            self.surface_realizer.learn_from_feedback(self.surface_realizer._last_variant_name, success=user_understood)
+            self.surface_realizer._last_variant_name = None
 
         if quality_score < 0.55 and ctx.subject and self.baby_mode:
             # Weak response detected -- boost curiosity and queue immediate learning
@@ -1606,6 +1674,22 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
 
             if self._trace_enabled:
                 print(f"  [self-learn] Weak response ({quality_score:.2f}) for '{ctx.subject}' -- queued for learning")
+
+        # ─── Correction Detection & Processing (ACC -> DA -> BG -> Hippocampus -> PFC) ───
+        # Check if user is correcting RAVANA. This runs AFTER response generation.
+        # The UserModel._detect_correction() was called during observe_user_query.
+        # If detected, process the full 6-stage correction circuit.
+        # Use the PREVIOUS turn's response as the one being corrected,
+        # since the user's correction on this turn refers to what RAVANA
+        # said last turn, not the response just generated.
+        prev_response = self._last_responses[-1] if self._last_responses else response
+        prev_strategy = getattr(self, '_last_strategy', strategy) or strategy
+        self.user_model.store_response_for_correction(
+            prev_response, prev_strategy, self.emotion.state.valence if hasattr(self, 'emotion') else 0.0)
+        correction_ack = self._detect_and_handle_correction(
+            user_input, ctx.subject, response, strategy, quality_score)
+        if correction_ack:
+            response = correction_ack
 
 # Phase 3: Register-controlled certainty modulation on response
         try:
@@ -1738,7 +1822,12 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             pass  # Never break the pipeline for a greeting
 
         self._pending_quantity_result = None
-        return response.lower() if response else response
+        # NOTE: previously this returned ``response.lower()``. That destroyed
+        # proper-noun casing in the final output (e.g. "France" -> "france",
+        # "NASA" -> "nasa"), making RAVANA look broken. All generators already
+        # produce correctly-cased text, and quality/scoring functions lowercase
+        # internally where needed, so we return the response as-is.
+        return response
 
 
 
@@ -1953,6 +2042,271 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             pass
 
         return self._graph_fallback_response(ctx)
+
+    # ═════════════════════════════════════════════════════════════════════════
+    # Web-grounded direct answer (hippocampal fact retrieval from live search)
+    # ─────────────────────────────────────────────────────────────────────────
+    # When RAVANA has no stored definition for a factual query, the live search
+    # engine (localhost:4000) already returns clean, answer-bearing snippets
+    # (e.g. "Argentina won the 2022 FIFA World Cup..."). Earlier code only
+    # stored these as loose graph associations and then emitted weak
+    # association salad. This method fetches the snippets and STATES the fact
+    # directly — no LLM, no templated hardcoding: we surface the best real
+    # snippet (cleaned) so the answer is grounded in retrieved evidence.
+    # ═════════════════════════════════════════════════════════════════════════
+
+    _SNIPPET_NOISE = (
+        "from wikipedia", "from wikimedia", "wikiwand", "britannica",
+        "redirected from", "jump to", "citation needed", "edit source",
+        "view source", "listen to this article", "this article is about",
+        "for other uses", "this page is about", "retrieved", "archived",
+        "©", "all rights reserved", "privacy policy",
+        # Boilerplate / navigation that ships inside search snippets
+        "sign up", "subscribe", "newsletter", "photograph:", "photo:",
+        "download the app", "cookie", "our site", "terms of service",
+        "advertisement", "sponsored", "watch live", "listen now",
+        "follow us", "more from", "get the", "app store", "google play",
+        # News/aggregator boilerplate that is not an answer
+        "recap", "bracket", "tactics", "highlights", "box score",
+        "live updates", "watch:", "read more", "see also", "related:",
+        "full coverage", "breaking:", "trending", "latest news",
+        # HTML / photo-credit fragments that leak through the search API
+        "<img", "getty", "ap images", "alt=", "loading=", "data-nimg",
+        "border-top", "border-radius", "stuart", "buda mendes",
+        # Wikipedia/encyclopedia language-list & navigation junk
+        "toggle the table of contents", "table of contents",
+        "afrikaans", "español", "العربية", "日本語", "繁體", "한국어",
+        "47 languages", "languages", "read edit", "view history",
+        # arXiv / listing / aggregator pages that aren't answers
+        "arxiv", "recent submissions", "authors and titles", "showing up to",
+        "entries per page", "see today's", "total of", "recent entries",
+        "browse by", "this course", "in this course",
+    )
+
+    def _clean_snippet(self, text: str) -> str:
+        """Strip wiki/markup noise and reduce a snippet to a clean statement."""
+        if not text:
+            return ""
+        # Remove reference markers like [1], [23], [edit]
+        text = re.sub(r"\[\d+\]", "", text)
+        text = re.sub(r"\[edit\]", "", text, flags=re.IGNORECASE)
+        # Remove markdown-ish wiki artifacts
+        text = re.sub(r"\{\{[^}]*\}\}", "", text)
+        text = re.sub(r"<[^>]+>", "", text)
+        # Collapse whitespace
+        text = re.sub(r"\s+", " ", text).strip()
+        return text
+
+    def _strip_title_echo(self, text: str, subject: str) -> str:
+        """Remove a redundant leading title echo from a snippet.
+
+        Search snippets sometimes arrive as 'Capital of Japan The capital of
+        Japan is Tokyo.' — the article title is echoed before the real sentence.
+        If the subject word appears (case-insensitively) more than once, keep
+        from the word that starts the *second* mention (backing up to a
+        preceding capitalized word, e.g. 'The'). Heuristic, no LLM."""
+        if not subject or not text:
+            return text
+        subj0 = subject.lower().split()[0]
+        matches = [(m.start(), m.group(0)) for m in re.finditer(r"\b" + re.escape(subj0) + r"\b", text, flags=re.IGNORECASE)]
+        if len(matches) < 2:
+            return text
+        second_pos = matches[1][0]
+        # Find word boundaries around the second occurrence and back up to a
+        # preceding capitalized word (within 6 words) to preserve 'The ...'.
+        words = re.findall(r"\S+", text)
+        cursor = 0
+        second_word_idx = None
+        for i, w in enumerate(words):
+            wstart = cursor
+            wend = cursor + len(w)
+            if wstart <= second_pos <= wend:
+                second_word_idx = i
+                break
+            cursor = wend + 1
+        if second_word_idx is None:
+            return text
+        start_idx = second_word_idx
+        for j in range(second_word_idx - 1, max(-1, second_word_idx - 7), -1):
+            if words[j] and words[j][0].isupper():
+                start_idx = j
+                break
+        trimmed = " ".join(words[start_idx:])
+        if len(trimmed.strip()) >= 15:
+            return trimmed.strip()
+        return text
+
+    def _best_answer_snippet(self, results, subject: str, query: str) -> Optional[str]:
+        """Pick the most answer-like snippet for a factual query.
+
+        Heuristic (no LLM): prefer a snippet that is (a) a complete sentence,
+        (b) mentions the subject or a salient query keyword, (c) reasonably
+        concise (40-320 chars), and (d) free of boilerplate noise.
+        """
+        if not results:
+            return None
+        subj = (subject or "").lower()
+        qkw = set(w for w in query.lower().split()
+                  if len(w) > 3 and w not in STOP_WORDS)
+        candidates = []
+        for r in results[:6]:
+            content = r.get("content", "") or ""
+            title = r.get("title", "") or ""
+            # Skip results that are mostly HTML / CSS fragments (whole-result
+            # junk). Photo-credit words like "getty" are handled at the
+            # sentence level below, NOT here — otherwise we'd throw away a good
+            # article that merely contains a "© ... via Getty Images" credit.
+            raw_low = content.lower()
+            if ("<img" in raw_low or raw_low.count("<") > 3
+                    or "{" in content or "}" in content or "url(" in raw_low
+                    or "@font" in raw_low or "src:" in raw_low):
+                continue
+            blob = self._clean_snippet(content)
+            if not blob:
+                continue
+            low = blob.lower()
+            # Subject-relevance gate: the snippet must actually be about the
+            # subject. For multi-word subjects require the full phrase or all
+            # tokens (so "dark matter" doesn't match a "Dark" TV-series article
+            # that only contains the first token). For single-word subjects
+            # require the word to appear.
+            subj_tokens = subj.split()
+            if len(subj_tokens) >= 2:
+                _phrase_ok = subj in low
+                _all_tokens = all(t in low for t in subj_tokens)
+                if not (_phrase_ok or _all_tokens):
+                    continue
+            elif subj and subj not in low:
+                continue
+            # Reject obvious navigation/boilerplate
+            if any(n in low for n in self._SNIPPET_NOISE):
+                # still keep if it also directly answers; otherwise skip
+                if not (subj and subj in low) and not (qkw and qkw & set(low.split())):
+                    continue
+            # Split into sentences, keep the ones that look like statements
+            sents = re.split(r"(?<=[.!?])\s+", blob)
+            for s in sents:
+                s = s.strip()
+                if len(s) < 20 or len(s) > 400:
+                    continue
+                if not re.search(r"[a-z]", s):
+                    continue
+                # Reject headline/question fragments (they are not answers)
+                if "?" in s:
+                    continue
+                sl = s.lower()
+                # Reject truncated / incomplete sentences
+                if s.rstrip().endswith(("…", "...", "…")):
+                    continue
+                # Strongly reject boilerplate sentences (navigation, promos).
+                if any(n in sl for n in self._SNIPPET_NOISE):
+                    continue
+                # Score: mentions subject or query keywords, prefer answer shape
+                score = 0.0
+                if subj and subj in sl:
+                    score += 2.0
+                score += 0.5 * len(qkw & set(sl.split()))
+                # Answer-pattern bonus: the subject is the grammatical subject
+                # of the sentence with a copula/role verb ("France is the...",
+                # "Argentina won the...", "Tokyo is the capital..."). These are
+                # the sentences that actually answer "who/what is X".
+                _first_words = sl.split()[:4]
+                if subj and subj.split()[0] in _first_words:
+                    score += 1.5
+                if re.match(r"^(who|what|where|when|which|how|why)\b", query.lower()) and \
+                        re.search(r"\b(is|are|was|were|refers to|means|won|beat|defeated|is located|lies|refers|describes|explains|refers to|denotes|consists of|refers)\b", sl):
+                    score += 1.0
+                # Role-answer bonus for "who is X" (president/leader/etc.)
+                if re.match(r"^who\b", query.lower()) and \
+                        re.search(r"\b(president|prime minister|leader|head of state|monarch|king|queen|chancellor|governor|ceo|founder|creator|author|director|commander)\b", sl):
+                    score += 2.0
+                # Penalize list/colon fragments and overly promotional text
+                if sl.endswith((":", "•", "-", "…")):
+                    score -= 0.5
+                candidates.append((score, s))
+        if not candidates:
+            # Fallback: scan results for the first clean, non-boilerplate
+            # snippet and return its first real sentence. Skip HTML/CSS/photo
+            # junk and headline-only results.
+            for r0 in results[:6]:
+                content = r0.get("content", "") or ""
+                raw_low = content.lower()
+                if ("<img" in raw_low or "getty" in raw_low or raw_low.count("<") > 3
+                        or "{" in content or "}" in content or "url(" in raw_low
+                        or "@font" in raw_low or "src:" in raw_low):
+                    continue
+                blob = self._clean_snippet(content)
+                if not blob:
+                    continue
+                if any(n in blob.lower() for n in self._SNIPPET_NOISE):
+                    continue
+                # Fallback must still be about the subject
+                blow = blob.lower()
+                if subj_tokens and len(subj_tokens) >= 2:
+                    if not (subj in blow or all(t in blow for t in subj_tokens)):
+                        continue
+                elif subj and subj not in blow:
+                    continue
+                first = re.split(r"(?<=[.!?])\s+", blob)[0] if blob else ""
+                if first and "?" not in first and len(first) >= 20:
+                    return first.strip()
+            return None
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        return candidates[0][1]
+
+    def _web_direct_answer(self, ctx: CognitiveResponseContext) -> Optional[Tuple[str, str]]:
+        """Answer an unknown factual query directly from live web snippets.
+
+        Returns (answer_text, strategy) or None if no usable snippet.
+        """
+        if not ctx.subject:
+            return None
+        # NOTE: Do NOT bail out just because a stored definition exists — the
+        # live web snippet is fresher and often more accurate than a loosely
+        # learned stored definition (and _generate_response already prefers web
+        # over the stale def). Let web have its chance; _best_answer_snippet
+        # returns None if the snippet doesn't actually back the claim.
+        if not ctx.subject:
+            return None
+        query = ctx.raw_input.strip()
+        if not query:
+            return None
+        # Only for factual/definition-seeking questions
+        if not self._is_informational_query(query, ctx.subject):
+            return None
+        if getattr(self, '_trace_enabled', False):
+            print(f"  [webans] informational query '{query}' subj='{ctx.subject}' — fetching answer")
+        try:
+            results = self.search_engine.search(query, max_results=5)
+        except Exception as ex:
+            if getattr(self, '_trace_enabled', False):
+                print(f"  [webans] search failed: {ex!r}")
+            return None
+        if not results:
+            return None
+        # Do NOT call learn_from_web here: it re-pollutes the definition store
+        # under junk multi-word keys (e.g. "won 2022 world"). The background
+        # learning thread already enriches the graph under clean keys; the
+        # direct answer below is stated live from the retrieved snippet.
+        best = self._best_answer_snippet(results, ctx.subject, query)
+        if getattr(self, '_trace_enabled', False):
+            print(f"  [webans] best snippet: {(best or 'NONE')[:80]}")
+        if not best:
+            return None
+        best = self._strip_title_echo(best.strip(), ctx.subject)
+        if not best.endswith((".", "!", "?")):
+            best = best + "."
+        # Light conversational close (generative, not hardcoded fact)
+        closers = [
+            "",
+            " (that's what i found, at least.)",
+            " let me know if you want more detail.",
+            " hope that helps.",
+        ]
+        closer = ""
+        if random.random() < 0.4:
+            closer = random.choice(closers[1:])
+        return (best + closer, "web_direct_answer")
 
 
     def _try_hippocampal_retrieval(self, ctx) -> Optional[str]:
@@ -2643,15 +2997,17 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         result = self.sleep_engine.run_cycle(
             graph=self.graph,
             episodic_buffer=[],
-            episodic_triples=self.plasticity._episodic_triples,
+            episodic_triples=self.plasticity._episodic_triples if hasattr(self, 'plasticity') else [],
             belief_store=self.belief_store,
             topic_list=self._topic_list,
             user_model=self._get_user_model(),
             impossible_queries=(self.web_learner._impossible_queries if hasattr(self, 'web_learner') and hasattr(self.web_learner, '_impossible_queries') else []),
             contradiction_map=self._contradiction_map,
             drift_defense_threshold=0.7,
-            drift_pull=0.05
+            drift_pull=0.05,
+            concept_vad=self._concept_vad if hasattr(self, '_concept_vad') else None,
         )
+        self.sleep_cycles_completed += 1
         # Phase 3: Hippocampal replay consolidation
         try:
             replay_metrics = self.hippocampal_replay.sleep_cycle(
@@ -2661,6 +3017,13 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         except Exception as e:
             if getattr(self, '_trace_enabled', False):
                 print(f"  [trace] Hippocampal replay error: {e}")
+        # Phase 5: Consolidate corrections from the correction log
+        try:
+            correction_metrics = self._consolidate_corrections_in_sleep()
+            result.update(correction_metrics)
+        except Exception as e:
+            if getattr(self, '_trace_enabled', False):
+                print(f"  [trace] Correction consolidation error: {e}")
         return result
 
     def _update_state(self, ctx: CognitiveResponseContext):
@@ -2749,6 +3112,42 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                         "if", "but", "in", "out", "up", "down",
                         "point", "way", "thing", "stuff",
                         "and", "so"}
+
+    # Words that should never become the conversation TOPIC. They are either
+    # question/verb/sentence glue or generic "role" words whose object is the
+    # real subject ("the president OF france" -> france, "what is the MEANING
+    # OF life" -> life, "what HAPPENED IN 1923" -> 1923). Stripping these from
+    # the extracted subject phrase stops RAVANA from answering a malformed
+    # topic like "president france" or "happened 1923" and producing abstract,
+    # ungrammatical replies.
+    _SUBJECT_CONTEXT_WORDS = {
+        # verbs / sentence glue that leak in from question parsing
+        "happen", "happened", "happening", "occur", "occurred", "occur",
+        "mean", "means", "meaning", "build", "builds", "building",
+        "make", "makes", "made", "create", "creates", "created",
+        "do", "does", "did", "done", "get", "gets", "got", "go", "goes",
+        "went", "use", "uses", "used", "write", "writes", "wrote",
+        "explain", "explains", "describe", "describes", "tell", "tells",
+        "show", "shows", "give", "gives", "find", "finds", "help", "helps",
+        "know", "knows", "think", "thinks", "feel", "feels", "want", "wants",
+        "need", "needs", "like", "likes", "love", "loves", "hate", "hates",
+        "become", "becomes", "became", "call", "calls", "called", "name",
+        "named", "term", "termed", "say", "says", "said",
+        # generic role / relation words whose object is the real subject
+        "president", "prime", "minister", "capital", "king", "queen",
+        "emperor", "author", "creator", "founder", "inventor", "leader",
+        "owner", "winner", "captain", "mayor", "governor", "director",
+        "chief", "boss", "head", "ceo", "population", "population of",
+        # generic quantifiers / category words
+        "best", "worst", "good", "bad", "better", "worse", "most", "least",
+        "types", "type", "kind", "kinds", "sort", "sorts", "example",
+        "examples", "difference", "differences", "definition", "definition of",
+        "meaning of", "reason", "reasons", "fact", "facts", "history",
+        "background", "overview", "summary",
+        # vague filler nouns
+        "some", "many", "much", "thing", "things", "stuff", "way", "ways",
+        "point", "idea", "ideas", "something", "anything", "everything",
+    }
 
 
 
@@ -3081,6 +3480,14 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 loaded_user_model.belief_state = {}
                 loaded_user_model.interaction_history = []
             self.user_model = loaded_user_model
+            # A reask/correction is only meaningful within a single session.
+            # The previous query is persisted in the saved state, which would
+            # otherwise make the very first message of a new session look like a
+            # repeat of the last message of the previous session and trigger a
+            # false "reask correction". Reset it on load so reask detection only
+            # fires between turns of the *same* run.
+            if hasattr(self.user_model, '_previous_user_query'):
+                self.user_model._previous_user_query = None
             # Restore belief store
             bs_state = state.get('belief_store_state', None)
             if bs_state:
@@ -3173,6 +3580,40 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             self._decoder_web_training_count = state.get('decoder_web_training_count', 0)
             self._decoder_seed_training_count = state.get('decoder_seed_training_count', 0)
             self._definitions = state.get('definitions', {})
+            # Purge polluted definition keys on load. Earlier versions stored
+            # incoherent web fragments under generic/pronoun words (e.g.
+            # "you" -> "the stronger player...", "life" -> "war zone"). Drop
+            # those so RAVANA stops answering every mention of them with
+            # abstract, off-topic text.
+            _DEF_PURGE = {
+                "you", "i", "we", "they", "he", "she", "it", "me", "my", "your",
+                "our", "their", "us", "them", "him", "her", "this", "that",
+                "life", "lives", "death", "love", "hate", "god", "time", "thing",
+                "things", "world", "people", "person", "day", "year", "mind",
+                "soul", "self", "meaning", "purpose", "truth", "beauty",
+                "knowledge", "wisdom", "freedom", "happiness", "success",
+                "power", "nature", "art", "music", "science", "dream", "dreams",
+                "hope", "fear", "war", "peace", "friend", "family", "home",
+                "money", "work", "play", "game", "book", "story", "idea",
+                "thought", "word", "language", "number", "system", "process",
+            }
+            if isinstance(self._definitions, dict):
+                _clean_defs = {}
+                for k, v in self._definitions.items():
+                    # Drop generic/pronoun words (above).
+                    if k in _DEF_PURGE:
+                        continue
+                    # Drop junk fragment keys: multi-word phrases, quoted keys,
+                    # or keys that begin with a stopword (e.g. "the quokka's
+                    # range", "won 2022 world", "fast facts quokkas"). Real
+                    # concept keys are single clean tokens.
+                    if (" " in k) or ("'" in k) or ('"' in k):
+                        continue
+                    first = k.split()[0] if k.split() else k
+                    if first in STOP_WORDS:
+                        continue
+                    _clean_defs[k] = v
+                self._definitions = _clean_defs
 
             # Restore Phase 3 state
             ce_state = state.get('curiosity_engine_state', None)
@@ -3406,6 +3847,23 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
 
 
 
+    @classmethod
+    def _clean_subject_phrase(cls, phrase: str) -> str:
+        """Strip question/verb/role words so the real topic survives.
+
+        'happened 1923' -> '1923', 'build python web' -> 'python web',
+        'meaning life' -> 'life', 'president france' -> 'france'.
+        Falls back to the original phrase if everything gets stripped (so we
+        never return an empty subject for a genuinely single-word topic).
+        """
+        words = [w.strip(".,!?") for w in phrase.lower().split()
+                 if w.strip(".,!?") not in STOP_WORDS
+                 and w.strip(".,!?") not in cls.QUESTION_WORDS]
+        kept = [w for w in words if w not in cls._SUBJECT_CONTEXT_WORDS]
+        if kept:
+            return " ".join(kept)
+        return phrase.strip(".,!?")
+
     def _ground_query(self, text: str) -> Tuple[str, float, str]:
         """Multi-strategy query grounding. Returns (subject, confidence, method).
 
@@ -3461,6 +3919,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                         return (last_word, 0.7, "scenario_last_entity")
                 # Use the first 2-3 content words as the search subject (e.g. "time machine")
                 clean_subj = " ".join(words[:3]) if len(words) >= 3 else " ".join(words)
+                clean_subj = self._clean_subject_phrase(clean_subj)
                 return (clean_subj, 0.45, "multi_word_unconnected")
 
             known_words = [w for w in words if w in self._concept_labels or w in self._concept_keywords]
@@ -3470,14 +3929,16 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                     # If there's any unknown word in the multi-word query, keep the clean subject phrase
                     # and return a low confidence to trigger web learning for the whole phrase
                     clean_subj = " ".join(words[:3]) if len(words) >= 3 else " ".join(words)
+                    clean_subj = self._clean_subject_phrase(clean_subj)
                     return (clean_subj, 0.35, "partial_unknown")
                 ratio = len(known_words) / len(words)
                 # Prefer last known word (most specific in English)
                 topic = known_words[-1]
                 return (topic, min(0.85, 0.5 + ratio * 0.4), f"compositional_{ratio:.2f}")
-            # All unknown â€” will trigger web learning for the full phrase
+            # All unknown — will trigger web learning for the full phrase
             if words:
                 clean_subj = " ".join(words[:3]) if len(words) >= 3 else " ".join(words)
+                clean_subj = self._clean_subject_phrase(clean_subj)
                 return (clean_subj, 0.2, "all_unknown")
 
 
@@ -3906,7 +4367,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         self._cascade_for_quality = False
         self._bg_idle_event.set()  # wake up the thread so it can exit
         if self._bg_learning_thread and self._bg_learning_thread.is_alive():
-            self._bg_learning_thread.join(timeout=5)
+            self._bg_learning_thread.join(timeout=30)
         if self._trace_enabled:
             print(f'  [bg] background learning stopped (performed {self._bg_search_count} searches)')
 
@@ -3928,13 +4389,14 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # 2. Logic puzzles, conditional scenarios, riddles, comparison queries are NOT simple definition/fact-seeking queries.
         # These require cognitive reasoning, which should be processed internally.
         reasoning_patterns = [
-            r"\b(if|when|suppose|assume|predict)\b",  # conditional/scenario
+            r"\b(if|suppose|assume|predict)\b",  # conditional/scenario (note: 'when' at sentence start is a question, not conditional)
             r"\b(why|how does|how do|how to)\b",      # causal/procedural reasoning
             r"\b(compare|contrast|difference|similar|opposite|antonym|synonym|analogy|analogies)\b", # relation/comparison
             r"\b(taller|shorter|heavier|lighter|older|younger|better|worse|biggest|tallest|heaviest|smartest)\b", # comparison/ordering
             r"\b(riddle|puzzle|logic|math|solve|calculation)\b", # logic/riddle
             r"\bis to\b", # analogy
             r"\b(you|your|yourself|think|opinion|feel|friendship|love|meaning of life)\b", # personal, opinion, or open philosophical
+            r"\b(joke|riddle|story|poem|tale|fun fact|quote|fact about)\b", # entertainment/trivia — not definition-seeking
         ]
         for pattern in reasoning_patterns:
             if re.search(pattern, q):
@@ -3943,6 +4405,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # 3. Check if the query matches a pattern asking for a definition/fact
         info_patterns = [
             r"^(what|who) (is|are|was|were|refers to|means)\b",
+            r"^(what|who|where|when|which) \w+\b",  # "who won...", "where is...", "when was X built", "which city..."
             r"^define\b",
             r"^explain\b",
             r"^tell me about\b",
@@ -4014,14 +4477,16 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             
         # 2. Logic puzzles, conditional scenarios, riddles, comparison queries are NOT simple definition/fact-seeking queries.
         # These require cognitive reasoning, which should be processed internally.
+        # NOTE: 'when' at sentence start is a QUESTION word, not a conditional
+        # ("when was X built"), so it must not be treated as a scenario here.
         reasoning_patterns = [
-            r"(if|when|suppose|assume|predict)",  # conditional/scenario
-            r"(why|how does|how do|how to)",      # causal/procedural reasoning
-            r"(compare|contrast|difference|similar|opposite|antonym|synonym|analogy|analogies)", # relation/comparison
-            r"(taller|shorter|heavier|lighter|older|younger|better|worse|biggest|tallest|heaviest|smartest)", # comparison/ordering
-            r"(riddle|puzzle|logic|math|solve|calculation)", # logic/riddle
-            r"is to", # analogy
-            r"(you|your|yourself|think|opinion|feel|friendship|love|meaning of life)", # personal, opinion, or open philosophical
+            r"\b(if|suppose|assume|predict)\b",  # conditional/scenario
+            r"\b(why|how does|how do|how to)\b",      # causal/procedural reasoning
+            r"\b(compare|contrast|difference|similar|opposite|antonym|synonym|analogy|analogies)\b", # relation/comparison
+            r"\b(taller|shorter|heavier|lighter|older|younger|better|worse|biggest|tallest|heaviest|smartest)\b", # comparison/ordering
+            r"\b(riddle|puzzle|logic|math|solve|calculation)\b", # logic/riddle
+            r"\bis to\b", # analogy
+            r"\b(you|your|yourself|think|opinion|feel|friendship|love|meaning of life)\b", # personal, opinion, or open philosophical
         ]
         for pattern in reasoning_patterns:
             if re.search(pattern, q):
@@ -4029,12 +4494,13 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 
         # 3. Check if the query matches a pattern asking for a definition/fact
         info_patterns = [
-            r"^(what|who) (is|are|was|were|refers to|means)",
-            r"^define",
-            r"^explain",
-            r"^tell me about",
-            r"^do you know",
-            r"^what do you know about",
+            r"^(what|who) (is|are|was|were|refers to|means)\b",
+            r"^(what|who|where|when|which) \w+\b",  # "who won...", "where is...", "when was X built", "which city..."
+            r"^define\b",
+            r"^explain\b",
+            r"^tell me about\b",
+            r"^do you know\b",
+            r"^what do you know about\b",
         ]
         if any(re.match(pat, q) for pat in info_patterns):
             return True
@@ -4043,3 +4509,245 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # we err on the side of conversational/reasoning to let RAVANA chat like a human.
         return False
 
+
+    # ===================================================================
+    # PHASE: ERROR CORRECTION CIRCUIT (ACC/DA VTA/Hippocampus/PFC analog)
+    # ===================================================================
+
+    def _process_correction_feedback(self, correction):
+        """Phase 2-4: Convert detected correction into system-wide negative prediction error.
+
+        DA VTA/SNc analog: dopamine dip signals the pathway that produced the
+        incorrect response should be weakened.
+
+        1. Raise free energy (uncertainty spikes)
+        2. Set basal ganglia prediction error (raises Go threshold)
+        3. Weaken identity confidence
+        4. Weaken graph edges that led to the incorrect response
+        5. Trigger epistemic mode switch
+        6. Log the correction
+        """
+        if self._trace_enabled:
+            print(f"  [correction] Processing feedback: {correction.correction_type.value} "
+                  f"severity={correction.severity:.2f} subject='{correction.subject}'")
+
+        # Phase 2a: Free energy spike (uncertainty increases)
+        self._free_energy = max(0.5, self._free_energy + 0.3 * correction.severity)
+
+        # Phase 2b: Basal Ganglia prediction error (NoGo gate raised)
+        error_signal = min(0.95, 0.8 * correction.severity)
+        self.basal_ganglia.set_prediction_error(error_signal)
+        if self._trace_enabled:
+            print(f"  [correction][BG] set_prediction_error({error_signal:.2f}) - NoGo threshold raised")
+
+        # Phase 2c: Identity confidence decreases
+        identity_delta = -0.1 * correction.severity
+        if hasattr(self, 'identity') and self.identity is not None:
+            old_strength = self.identity.state.strength
+            self.identity.state.strength = max(0.05, self.identity.state.strength + identity_delta)
+            if self._trace_enabled:
+                print(f"  [correction][ID] strength {old_strength:.2f} -> {self.identity.state.strength:.2f}")
+
+        # Phase 2d: Weaken edges used to generate the response
+        self._weaken_edges_for_response(correction)
+
+        # Phase 4: Epistemic mode switch (PFC behavioral adjustment)
+        # Switch to CAUTIOUS or RECOVERY after correction
+        correction_current_mode = getattr(self.meta_cog, 'current_mode', None)
+        if correction_current_mode and correction_current_mode not in (
+            EpistemicMode.CAUTIOUS, EpistemicMode.RECOVERY):
+            self.meta_cog.current_mode = EpistemicMode.CAUTIOUS if correction.severity < 0.7 else EpistemicMode.RECOVERY
+
+        # Mark correction as processed
+        correction.resolved = True
+
+    def _weaken_edges_for_response(self, correction):
+        """Phase 3: Weaken graph edges that contributed to the incorrect response.
+
+        Hippocampal reconsolidation analog: retrieve the memory (edges),
+        destabilize (weaken), prepare for update.
+
+        Strategy: find edges from the subject concept to its top associations
+        and weaken them proportionally to correction severity.
+        """
+        subj_lower = correction.subject.lower()
+        subj_ids = self._concept_keywords.get(subj_lower, [])
+        if not subj_ids:
+            if self._trace_enabled:
+                print(f"  [correction] No graph nodes for '{subj_lower}', skipping edge weakening")
+            return
+
+        # Also delegate to chain_walker methods for additional edge weakening
+        try:
+            self._weaken_edges_for_correction(subj_lower, correction.severity * 0.5)
+            last_hops = self._last_chain_hops[-1] if self._last_chain_hops else []
+            self._mark_edges_as_incorrect(subj_lower, last_hops)
+        except Exception:
+            pass
+
+        weaken_factor = 1.0 - 0.5 * correction.severity  # e.g. 0.7 for severity=0.6
+        weakened_count = 0
+
+        for src_nid in subj_ids:
+            # Weaken outgoing edges
+            for tgt_nid, edge in list(self.graph.get_outgoing(src_nid)):
+                old_weight = edge.weight
+                edge.weight *= weaken_factor
+                tgt_node = self.graph.get_node(tgt_nid)
+                if tgt_node and tgt_node.label:
+                    correction.weakened_edges.append((src_nid, tgt_nid))
+                weakened_count += 1
+                if self._trace_enabled and weakened_count <= 3:
+                    tgt_label = self.graph.get_node(tgt_nid).label if self.graph.get_node(tgt_nid) else '?'
+                    print(f"  [correction][edge] {subj_lower}->{tgt_label}: {old_weight:.3f} -> {edge.weight:.3f}")
+
+            # Weaken incoming edges
+            for src, edge in list(self.graph.get_incoming(src_nid)):
+                edge.weight *= weaken_factor
+                weakened_count += 1
+
+        if self._trace_enabled:
+            print(f"  [correction] Weakened {weakened_count} edges for '{subj_lower}'")
+
+        # Queue the subject for web learning to get corrected knowledge
+        with self._bg_lock:
+            if subj_lower not in self._bg_learning_queue and subj_lower not in self._pending_learning_queue:
+                self._pending_learning_queue.append(subj_lower)
+
+        # Add corrected fact to belief store if available
+        if correction.corrected_fact:
+            fact_subj, fact_rel, fact_val = correction.corrected_fact
+            self.belief_store.assert_belief(fact_subj, fact_rel, fact_val, confidence=0.9)
+            # Add graph edge for corrected fact
+            fact_nids = self._concept_keywords.get(fact_subj.lower(), [])
+            val_nids = self._concept_keywords.get(fact_val.lower(), [])
+            if fact_nids and val_nids:
+                existing = self.graph.get_edge(fact_nids[0], val_nids[0])
+                if existing is None:
+                    self.graph.add_edge(fact_nids[0], val_nids[0],
+                                        weight=0.5, relation_type="semantic")
+                    correction.added_edges.append((fact_nids[0], val_nids[0]))
+                    if self._trace_enabled:
+                        print(f"  [correction] Added corrected edge: {fact_subj} -> {fact_val}")
+                else:
+                    existing.weight = min(0.7, existing.weight + 0.2)
+                    if self._trace_enabled:
+                        print(f"  [correction] Boosted existing edge: {fact_subj} -> {fact_val}")
+
+    def _detect_and_handle_correction(self, user_input, subject, response, strategy, quality_score):
+        """Phase 6: Full correction detection and processing pipeline.
+
+        Called after response generation to check if the user is correcting RAVANA.
+        Returns the correction apology/acknowledgment response or None.
+        """
+        if not self.user_model.detected_correction:
+            return None
+
+        correction_type = self.user_model.detected_correction_type
+        severity = self.user_model.correction_severity
+
+        # Build correction record
+        correction = Correction(
+            turn=self.turn_count,
+            correction_type=correction_type,
+            subject=subject or self.user_model.correction_subject,
+            incorrect_response=response or "",
+            user_correction_text=user_input,
+            corrected_fact=self.user_model.detected_correction_fact,
+            severity=severity,
+        )
+
+        # Log the correction
+        self._correction_log.append(correction)
+        if self._trace_enabled:
+            print(f"  [correction] Detected {correction_type.value} correction "
+                  f"(severity={severity:.2f})")
+
+        # Process the correction through the full circuit
+        self._process_correction_feedback(correction)
+
+        # Store for sleep consolidation
+        correction.resolved = False
+
+        # Generate acknowledgment response
+        # If user provided corrected fact, acknowledge it specifically
+        if correction.corrected_fact:
+            fact_subj, fact_rel, fact_val = correction.corrected_fact
+            ack = f"thanks for correcting me. i'll remember that {fact_subj} {fact_rel} {fact_val}."
+        elif severity > 0.6:
+            ack = "thanks for the correction. i'm still learning and appreciate your feedback."
+        else:
+            ack = "got it, thanks for the feedback. i'll keep that in mind."
+
+        # Reset user model correction flags for next turn
+        self.user_model.reset_correction_flags()
+
+        if self._trace_enabled:
+            print(f"  [correction] Generated acknowledgment: '{ack}'")
+
+        return ack.lower()
+
+
+    def _consolidate_corrections_in_sleep(self):
+        """Phase 5: During sleep, consolidate corrections into long-term memory.
+Strengthen newly added correct edges (Hebbian replay).
+Further weaken old incorrect edges (synaptic pruning).
+If a concept has been corrected 3+ times, mark for priority web learning.
+        """
+        if not self._correction_log:
+            return {'corrections_consolidated': 0}
+
+        consolidated = 0
+        correction_strengthened = 0
+        correction_pruned = 0
+
+        # Count corrections per subject
+        subject_correction_count = {}
+        for c in self._correction_log:
+            if c.resolved:
+                continue
+            subj = c.subject.lower()
+            subject_correction_count[subj] = subject_correction_count.get(subj, 0) + 1
+
+            # Strengthen newly added correct edges (Hebbian replay)
+            for src, tgt in c.added_edges:
+                edge = self.graph.get_edge(src, tgt)
+                if edge:
+                    edge.weight = min(0.7, edge.weight * 1.3)
+                    correction_strengthened += 1
+
+            # Further weaken old incorrect edges (synaptic pruning)
+            for src, tgt in c.weakened_edges:
+                edge = self.graph.get_edge(src, tgt)
+                if edge:
+                    edge.weight *= 0.7
+                    if edge.weight < 0.05:
+                        self.graph.remove_edge(src, tgt)
+                        correction_pruned += 1
+
+            c.resolved = True
+            consolidated += 1
+
+        # Mark concepts corrected 3+ times for priority web learning
+        for subj, count in subject_correction_count.items():
+            if count >= 3 and subj not in self._pending_learning_queue:
+                with self._bg_lock:
+                    self._pending_learning_queue.append(subj)
+                if self._trace_enabled:
+                    print(f"  [sleep] Concept '{subj}' corrected {count}x - priority web learning queued")
+
+        if self._trace_enabled and consolidated > 0:
+            print(f"  [sleep] Consolidated {consolidated} corrections: "
+                  f"{correction_strengthened} edges strengthened, "
+                  f"{correction_pruned} edges pruned")
+
+        # Clean up resolved corrections (keep last 50)
+        self._correction_log = [c for c in self._correction_log if not c.resolved]
+        if len(self._correction_log) > 50:
+            self._correction_log = self._correction_log[-50:]
+
+        return {
+            'corrections_consolidated': consolidated,
+            'correction_edges_strengthened': correction_strengthened,
+            'correction_edges_pruned': correction_pruned,
+        }
