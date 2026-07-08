@@ -1616,7 +1616,19 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # from mutating graph structures during iteration. RLock is reentrant-safe.
         self._graph_lock.acquire()
         try:
-            response, strategy = self._generate_response(ctx)
+            # Retry on the rare "dictionary changed size during iteration" race
+            # with the background-learning thread: a live dict may be mutated
+            # mid-iteration despite the lock, so re-run the turn up to 3 times.
+            _attempts = 0
+            while True:
+                try:
+                    response, strategy = self._generate_response(ctx)
+                    break
+                except RuntimeError as e:
+                    if "dictionary changed size" in str(e) and _attempts < 3:
+                        _attempts += 1
+                        continue
+                    raise
         finally:
             self._graph_lock.release()
         self._last_strategy = strategy
@@ -2079,9 +2091,71 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         "47 languages", "languages", "read edit", "view history",
         # arXiv / listing / aggregator pages that aren't answers
         "arxiv", "recent submissions", "authors and titles", "showing up to",
-        "entries per page", "see today's", "total of", "recent entries",
-        "browse by", "this course", "in this course",
+        "entries per page", "see today's", "total of", "rss feed",
+        # non-English / discussion-page navigation junk (e.g. Czech Wikipedia
+        # "Diskuse"/"Přidat jazyky" boilerplate that outranks the real article)
+        "diskuse", "přidat", "obsah stránky", "diskuze", "stránky",
+        "přispět", "talk page", "discussion page", "not supported in other languages",
+        "cs.wik", "de.wik", "fr.wik", "es.wik", "ru.wik", "pl.wik",
+        # Promotional / SEO blurbs that aren't real answers
+        "discover everything", "everything there is to know", "let me know if you",
+        "let us know", "book now", "sign up", "subscribe to", "read more about",
+        "find out more", "learn more about", "all you need to know", "click here",
     )
+
+    # Irregular verb forms mapped to their base (for snippet-subject matching,
+    # so "sink" in the query matches "sank"/"sunk" in a snippet, etc.).
+    _IRREGULAR_VERBS = {
+        "sank": "sink", "sunk": "sink", "sung": "sing", "sang": "sing",
+        "rang": "ring", "rung": "ring", "began": "begin", "begun": "begin",
+        "drank": "drink", "drunk": "drink", "swam": "swim", "swum": "swim",
+        "ran": "run", "came": "come", "became": "become", "found": "find",
+        "held": "hold", "told": "tell", "sold": "sell", "got": "get",
+        "sat": "sit", "met": "meet", "led": "lead", "ate": "eat",
+        "gave": "give", "took": "take", "made": "make", "saw": "see",
+        "went": "go", "did": "do", "had": "have", "knew": "know",
+        "grew": "grow", "threw": "throw", "drew": "draw", "fell": "fall",
+        "broke": "break", "spoke": "speak", "wore": "wear", "wrote": "write",
+        "rose": "rise", "drove": "drive", "flew": "fly", "froze": "freeze",
+        "chose": "choose", "hid": "hide", "bit": "bite", "lit": "light",
+        "built": "build", "felt": "feel", "kept": "keep", "left": "leave",
+        "meant": "mean", "paid": "pay", "said": "say", "sent": "send",
+        "slept": "sleep", "spent": "spend", "stood": "stand", "taught": "teach",
+        "thought": "think", "understood": "understand", "won": "win",
+        "caught": "catch", "bought": "buy", "brought": "bring", "fought": "fight",
+        "lost": "lose", "put": "put", "set": "set", "shut": "shut",
+        "cut": "cut", "hit": "hit", "read": "read", "burnt": "burn",
+        "dreamt": "dream", "learnt": "learn", "spelt": "spell", "smelt": "smell",
+        "spoilt": "spoil", "told": "tell", "dealt": "deal", "meant": "mean",
+    }
+
+    @staticmethod
+    def _norm_word(w: str) -> str:
+        """Reduce a word to a comparable base: irregular-verb map, then strip
+        common inflectional suffixes."""
+        w = w.lower()
+        if w in CognitiveChatEngine._IRREGULAR_VERBS:
+            return CognitiveChatEngine._IRREGULAR_VERBS[w]
+        for suf in ("ing", "ed", "es", "s", "er", "est"):
+            if w.endswith(suf) and len(w) - len(suf) >= 3:
+                return w[: -len(suf)]
+        return w
+
+    @staticmethod
+    def _tok_match(token: str, wordset) -> bool:
+        """Does `token` (a subject/query word) appear in `wordset` allowing for
+        verb inflection (sink↔sank, train↔trained, immune↔immunity, ...)?"""
+        t = CognitiveChatEngine._norm_word(token)
+        for w in wordset:
+            if w == token or w == t:
+                return True
+            nw = CognitiveChatEngine._norm_word(w)
+            if nw == t:
+                return True
+            # prefix/root overlap for partial forms (immunity ~ immune)
+            if len(t) >= 4 and (nw.startswith(t) or t.startswith(nw)):
+                return True
+        return False
 
     def _clean_snippet(self, text: str) -> str:
         """Strip wiki/markup noise and reduce a snippet to a clean statement."""
@@ -2157,12 +2231,21 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             # sentence level below, NOT here — otherwise we'd throw away a good
             # article that merely contains a "© ... via Getty Images" credit.
             raw_low = content.lower()
+            # Skip non-English / discussion-page junk (e.g. a Czech Wikipedia
+            # "Diskuse" page sneaks in with mostly non-ASCII navigation text).
+            if content and sum(1 for c in content if ord(c) > 127) / max(1, len(content)) > 0.35:
+                continue
             if ("<img" in raw_low or raw_low.count("<") > 3
                     or "{" in content or "}" in content or "url(" in raw_low
                     or "@font" in raw_low or "src:" in raw_low):
                 continue
             blob = self._clean_snippet(content)
             if not blob:
+                continue
+            # Reject blobs that are largely non-English (discussion/nav pages in
+            # other scripts slip past the whole-result check when the raw
+            # content mixes ASCII boilerplate with a non-ASCII lead sentence).
+            if sum(1 for c in blob if ord(c) > 127) / max(1, len(blob)) > 0.20:
                 continue
             low = blob.lower()
             # Subject-relevance gate: the snippet must actually be about the
@@ -2173,11 +2256,18 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             subj_tokens = subj.split()
             if len(subj_tokens) >= 2:
                 _phrase_ok = subj in low
-                _all_tokens = all(t in low for t in subj_tokens)
+                # Token match tolerant of verb inflection / derivation: a subject
+                # token counts as present if it appears as a word or a matching
+                # inflected/derived form in the snippet (e.g. "sink" matches
+                # "sank", "train" matches "trained", "immune" matches "immunity").
+                wordset = set(low.split())
+                _all_tokens = all(self._tok_match(t, wordset) for t in subj_tokens)
                 if not (_phrase_ok or _all_tokens):
                     continue
             elif subj and subj not in low:
-                continue
+                wordset = set(low.split())
+                if not self._tok_match(subj, wordset):
+                    continue
             # Reject obvious navigation/boilerplate
             if any(n in low for n in self._SNIPPET_NOISE):
                 # still keep if it also directly answers; otherwise skip
@@ -2203,23 +2293,34 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                     continue
                 # Score: mentions subject or query keywords, prefer answer shape
                 score = 0.0
-                if subj and subj in sl:
+                sl_words = set(sl.split())
+                if subj and (subj in sl or self._tok_match(subj.split()[0], sl_words)):
                     score += 2.0
-                score += 0.5 * len(qkw & set(sl.split()))
+                score += 0.5 * len(qkw & sl_words)
                 # Answer-pattern bonus: the subject is the grammatical subject
                 # of the sentence with a copula/role verb ("France is the...",
                 # "Argentina won the...", "Tokyo is the capital..."). These are
                 # the sentences that actually answer "who/what is X".
                 _first_words = sl.split()[:4]
-                if subj and subj.split()[0] in _first_words:
+                if subj and (subj.split()[0] in _first_words
+                             or self._tok_match(subj.split()[0], set(_first_words))):
                     score += 1.5
                 if re.match(r"^(who|what|where|when|which|how|why)\b", query.lower()) and \
                         re.search(r"\b(is|are|was|were|refers to|means|won|beat|defeated|is located|lies|refers|describes|explains|refers to|denotes|consists of|refers)\b", sl):
                     score += 1.0
-                # Role-answer bonus for "who is X" (president/leader/etc.)
+                # Role-answer bonus for "who is X" (person/creator queries):
+                # presidents, founders, painters, authors, inventors, etc.
                 if re.match(r"^who\b", query.lower()) and \
-                        re.search(r"\b(president|prime minister|leader|head of state|monarch|king|queen|chancellor|governor|ceo|founder|creator|author|director|commander)\b", sl):
-                    score += 2.0
+                        re.search(r"\b(president|prime minister|leader|head of state|monarch|"
+                                  r"king|queen|chancellor|governor|ceo|founder|creator|"
+                                  r"author|director|commander|painter|artist|writer|"
+                                  r"composer|inventor|scientist|discoverer|musician|"
+                                  r"novelist|poet|film maker|filmmaker|designer)\b", sl):
+                    score += 2.5
+                # Person-name bonus for "who" queries: a capitalized proper noun
+                # near the subject is usually the answer (e.g. "Leonardo da Vinci").
+                if re.match(r"^who\b", query.lower()) and re.search(r"\b[A-Z][a-z]+ [A-Z][a-z]+\b", s):
+                    score += 1.5
                 # Penalize list/colon fragments and overly promotional text
                 if sl.endswith((":", "•", "-", "…")):
                     score -= 0.5
@@ -2277,7 +2378,26 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         if getattr(self, '_trace_enabled', False):
             print(f"  [webans] informational query '{query}' subj='{ctx.subject}' — fetching answer")
         try:
-            results = self.search_engine.search(query, max_results=5)
+            # Search the grounded SUBJECT first — it yields tighter, more
+            # answer-like snippets than the full raw question ("when did the
+            # titanic sink" returns news/history pages; "titanic sink" returns
+            # the actual sinking fact). Fall back to the raw query if the
+            # subject-targeted search yields no usable snippet.
+            results = None
+            for term in (ctx.subject, query):
+                try:
+                    res = self.search_engine.search(term, max_results=5)
+                except Exception as ex:
+                    if getattr(self, '_trace_enabled', False):
+                        print(f"  [webans] search failed for {term!r}: {ex!r}")
+                    res = None
+                if not res:
+                    continue
+                best = self._best_answer_snippet(res, ctx.subject, query)
+                if best:
+                    results = res
+                    break
+                results = res  # keep last try so the trace shows what we got
         except Exception as ex:
             if getattr(self, '_trace_enabled', False):
                 print(f"  [webans] search failed: {ex!r}")
@@ -3093,6 +3213,23 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 elif visits >= 2:
                     existing.weight = min(0.30, existing.weight + 0.10)
 
+    # Generic/vague nouns that should never be returned as the primary subject
+    # on their own ("system", "process", "thing", "matter", ...). When grounding
+    # lands on one of these, prefer a more specific co-occurring word or the
+    # full multi-word phrase so web grounding stays on-topic.
+    _GENERIC_NOUNS = {
+        "system", "systems", "process", "processes", "thing", "things",
+        "matter", "stuff", "concept", "concepts", "idea", "ideas",
+        "object", "objects", "item", "items", "person", "people",
+        "place", "places", "world", "universe", "life", "reason",
+        "fact", "facts", "way", "ways", "kind", "kinds", "type", "types",
+        "form", "forms", "level", "levels", "part", "parts", "state", "states",
+        "effect", "effects", "result", "results", "change", "changes",
+        "point", "points", "number", "numbers", "word", "words",
+        "language", "thought", "thoughts", "time", "question", "questions",
+        "answer", "answers", "problem", "problems", "method", "methods",
+    }
+
     TOPIC_SKIP_WORDS = {"i", "you", "we", "they", "he", "she", "it", "me", "my",
                         "your", "our", "their", "him", "her", "its", "this", "that",
                         "these", "those", "there", "here", "some", "any", "all",
@@ -3133,6 +3270,26 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         "need", "needs", "like", "likes", "love", "loves", "hate", "hates",
         "become", "becomes", "became", "call", "calls", "called", "name",
         "named", "term", "termed", "say", "says", "said",
+        # query-intent verbs whose object is the real topic
+        "cause", "causes", "caused", "brew", "brews", "brewed",
+        "teach", "teaches", "taught", "train", "trains", "trained",
+        "sing", "sings", "sang", "sung",
+        "learn", "learns", "study", "studies", "read", "reads",
+        "write", "writes", "cook", "cooks", "bake", "bakes", "play", "plays",
+        "draw", "draws", "make", "makes", "find", "finds", "get", "gets",
+        "give", "gives", "show", "shows", "explain", "explains",
+        "describe", "describes", "tell", "tells", "understand", "understands",
+        "avoid", "prevent", "prevents", "stop", "stops", "keep", "keeps",
+        "stay", "stays", "remain", "remains", "become", "becomes",
+        "turn", "turns", "turned", "switch", "switches", "switched",
+        "open", "opens", "close", "closes", "start", "starts", "stop", "stops",
+        # question-frame residuals: "what YEAR did X fall/occur", "when did X happen"
+        "year", "years", "fall", "falls", "fell", "occur", "occurs", "occurred",
+        "did", "does", "do", "take", "takes", "took", "place", "happen",
+        "happened", "happening", "become", "became", "mean", "means",
+        # conditional / hypothetical markers whose payload is the real topic
+        "suppose", "supposing", "assume", "assuming", "imagine", "pretend",
+        "suddenly", "sudden", "instantly", "immediately", "briefly",
         # generic role / relation words whose object is the real subject
         "president", "prime", "minister", "capital", "king", "queen",
         "emperor", "author", "creator", "founder", "inventor", "leader",
@@ -3174,6 +3331,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         (r"(?:tell|show)\s+me\s+about\s+(.+)", 1),              # tell me about X
         (r"(?:explain|describe)\s+(.+)", 1),                     # explain X / describe X
         (r"(?:what|which)\s+(.+)\s+(?:is|are|mean)", 1),         # what X is / what X means
+        (r"how\s+(?:do|does|did|can|to|would|should)\s+(.+)", 1), # how do X / how to X
         (r"(?:do you know|have you heard of)\s+(.+)", 1),        # do you know X
         (r"why\s+(?:is\s+|are\s+)?(.+)", 1),                    # why is X / why does X
     ]
@@ -3913,10 +4071,16 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             if len(words) >= 2:
                 # For scenario/hypothetical/causal queries (e.g. hypothetical, why, how),
                 # the last content/entity word represents the target scenario.
-                if qtype in ("hypothetical", "why", "how", "compare"):
+                # NOTE: only for "hypothetical" — for "why"/"how"/"compare" the
+                # trailing word is usually a predicate ("salty" in "why is the
+                # ocean salty", an adjective), not the actual topic. For those
+                # we keep the multi-word phrase below so web grounding stays
+                # on the real subject ("ocean salty").
+                if qtype == "hypothetical" and len(words) >= 2:
                     last_word = words[-1]
                     if last_word in self._concept_labels or last_word in self._concept_keywords:
-                        return (last_word, 0.7, "scenario_last_entity")
+                        if last_word not in self._GENERIC_NOUNS:
+                            return (last_word, 0.7, "scenario_last_entity")
                 # Use the first 2-3 content words as the search subject (e.g. "time machine")
                 clean_subj = " ".join(words[:3]) if len(words) >= 3 else " ".join(words)
                 clean_subj = self._clean_subject_phrase(clean_subj)
@@ -3932,8 +4096,22 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                     clean_subj = self._clean_subject_phrase(clean_subj)
                     return (clean_subj, 0.35, "partial_unknown")
                 ratio = len(known_words) / len(words)
-                # Prefer last known word (most specific in English)
-                topic = known_words[-1]
+                # Prefer the FIRST known word over the last: in English the head
+                # noun typically trails last, but compositional grounding here
+                # keeps returning trailing generic nouns ("system", "process",
+                # "matter") that collapse the subject. Pick the earliest known
+                # word that isn't a generic/vague concept; fall back to the
+                # whole cleaned phrase if only generic nouns are known.
+                _generic = self._GENERIC_NOUNS
+                specific = [w for w in known_words if w not in _generic]
+                topic = specific[0] if specific else known_words[0]
+                # If the chosen topic is a generic noun but other words exist,
+                # keep the multi-word phrase so web grounding stays on-topic.
+                if topic in _generic and len(words) > 1:
+                    clean_subj = " ".join(words[:3]) if len(words) >= 3 else " ".join(words)
+                    clean_subj = self._clean_subject_phrase(clean_subj)
+                    if clean_subj:
+                        return (clean_subj, 0.4, "compositional_generic_topic")
                 return (topic, min(0.85, 0.5 + ratio * 0.4), f"compositional_{ratio:.2f}")
             # All unknown — will trigger web learning for the full phrase
             if words:
@@ -3962,7 +4140,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             close_matches = []
             for w in words:
                 wl = w.lower()
-                for label in self._concept_labels:
+                for label in list(self._concept_labels):
                     if (label.startswith(wl[:3]) and abs(len(label) - len(wl)) <= 2) or                        (len(wl) >= 4 and label.startswith(wl[:4])):
                         close_matches.append(label)
                         break
@@ -4405,7 +4583,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # 3. Check if the query matches a pattern asking for a definition/fact
         info_patterns = [
             r"^(what|who) (is|are|was|were|refers to|means)\b",
-            r"^(what|who|where|when|which) \w+\b",  # "who won...", "where is...", "when was X built", "which city..."
+            r"^(what|who|where|when|which|how) \w+\b",  # "who won...", "where is...", "when was X built", "which city...", "how do X..."
             r"^define\b",
             r"^explain\b",
             r"^tell me about\b",
@@ -4481,7 +4659,6 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # ("when was X built"), so it must not be treated as a scenario here.
         reasoning_patterns = [
             r"\b(if|suppose|assume|predict)\b",  # conditional/scenario
-            r"\b(why|how does|how do|how to)\b",      # causal/procedural reasoning
             r"\b(compare|contrast|difference|similar|opposite|antonym|synonym|analogy|analogies)\b", # relation/comparison
             r"\b(taller|shorter|heavier|lighter|older|younger|better|worse|biggest|tallest|heaviest|smartest)\b", # comparison/ordering
             r"\b(riddle|puzzle|logic|math|solve|calculation)\b", # logic/riddle
@@ -4495,7 +4672,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # 3. Check if the query matches a pattern asking for a definition/fact
         info_patterns = [
             r"^(what|who) (is|are|was|were|refers to|means)\b",
-            r"^(what|who|where|when|which) \w+\b",  # "who won...", "where is...", "when was X built", "which city..."
+            r"^(what|who|where|when|which|how) \w+\b",  # "who won...", "where is...", "when was X built", "which city...", "how do X..."
             r"^define\b",
             r"^explain\b",
             r"^tell me about\b",

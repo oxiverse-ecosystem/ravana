@@ -1362,6 +1362,14 @@ class ResponseGenMixin(ChainWalkerMixin):
         "find", "search", "look", "book", "buy", "order", "schedule",
         "remind", "set", "turn", "play", "stop", "start", "do", "help",
         "compute", "calculate", "translate", "summarize",
+        # physical / creative actions RAVANA cannot literally perform
+        "brew", "cook", "bake", "draw", "paint", "sing", "compose", "record",
+        "design", "edit", "fix", "clean", "move", "delete", "print", "drive",
+        "fly", "bring", "carry", "water", "plant", "wash", "feed", "turn",
+        "turns", "turned", "turn off", "switch", "switch off", "open", "close",
+        # instructional imperatives RAVANA can only explain, not perform
+        "teach", "show", "learn", "study", "train", "coach", "guide",
+        "recite", "write", "compose", "draw", "paint", "describe",
     }
 
     def _is_action_request(self, text: str) -> Optional[str]:
