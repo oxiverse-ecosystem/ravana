@@ -2817,7 +2817,22 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 variants.append(f"what would happen to earth if {scenario}")
         # Generic fallbacks: the rewritten query, then raw, then bare subject.
         primary = self._rewrite_query_for_web(query, subject)
-        for v in (primary, query, subject):
+        # Sense-biased framing (N400 predictive-coding analog): when the subject
+        # is ambiguous, prepend a context-derived domain hint (e.g. "trust
+        # psychology" for a social query) so the LIVE search pulls the
+        # context-appropriate Wikipedia sense instead of the most-linked one.
+        # This is the loop-closer for Fix 1: the coherence RANKER in
+        # _best_answer_snippet breaks +3.0 ties, but the search itself must
+        # also be steered toward the intended sense.
+        biased = None
+        if hasattr(self, "_sense_biasing_framing"):
+            try:
+                _framed = self._sense_biasing_framing(query, subject)
+                if _framed and _framed != subject:
+                    biased = _framed
+            except Exception:
+                biased = None
+        for v in (biased, primary, query, subject):
             if v and v not in variants:
                 variants.append(v)
         # de-dup preserving order

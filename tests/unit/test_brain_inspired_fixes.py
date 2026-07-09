@@ -132,3 +132,26 @@ def test_causal_forward_simulate_empty_for_unknown():
     eng.graph = g
     eng._concept_keywords = kw
     assert eng._causal_forward_simulate("nonexistent_concept") == []
+
+
+def _engine_with_sense_framing():
+    """Bare engine with the sense-biasing helper + a no-op rewrite stub."""
+    eng = _bare_engine()
+    from ravana.chat.web_learning import WebLearningMixin
+    eng._sense_biasing_framing = WebLearningMixin._sense_biasing_framing.__get__(eng)
+    eng._rewrite_query_for_web = lambda q, s: q
+    return eng
+
+
+def test_web_query_variants_injects_sense_framing_for_context():
+    eng = _engine_with_sense_framing()
+    variants = eng._web_query_variants(
+        "why do people trust each other", "trust", is_conditional=False)
+    assert any("psychology" in v for v in variants), variants
+
+
+def test_web_query_variants_no_bias_for_bare_subject():
+    eng = _engine_with_sense_framing()
+    variants = eng._web_query_variants(
+        "what is trust", "trust", is_conditional=False)
+    assert not any("psychology" in v for v in variants), variants
