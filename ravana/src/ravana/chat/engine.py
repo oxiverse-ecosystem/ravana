@@ -1614,6 +1614,17 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             situation_narrative=self.situation_model.get_narrative_suggestions() if hasattr(self, "situation_model") else {},
         )
 
+        # Behavior 2 (turn-end predictor analog): if the user's turn is a
+        # preamble/fragment rather than a complete, answerable unit, hold with a
+        # light acknowledgment + invitation to continue — don't dump a guessed
+        # full answer to an incomplete turn. Mirrors waiting for the "go-signal".
+        if self._is_preamble_fragment(user_input):
+            hold = self._preamble_hold_response(user_input)
+            self._last_responses.append(hold)
+            self._last_strategy = "preamble_hold"
+            self.turn_count += 1
+            return hold
+
         # Step 11a: Store episodic memory BEFORE generating response
         # (Issue #7-8: store-before-recall fix — new facts must exist before recall check)
         try:
@@ -2252,6 +2263,57 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                      r"pretend that|in a world without)\b", t):
             return True
         return False
+
+    def _is_preamble_fragment(self, text: str) -> bool:
+        """Turn-end predictor analog (brief behavior 2).
+
+        In a streaming dialogue the turn-end predictor fires the "go-signal" to
+        articulate only when the partner's turn is lexically/syntactically
+        complete (Magyari 2014; Barthel 2017). This one-shot CLI has no
+        per-token stream, so we approximate the finality cue with a
+        completeness heuristic: a user turn is a PREamble FRAGMENT (plan-now,
+        wait-for-go-signal) when it is too short to be a complete utterance and
+        reads as an opening lead-in rather than an answerable unit — e.g.
+        "so", "by the way", "that reminds me of", "anyway". Such turns should
+        NOT trigger a full answer dump; the bot holds with a light acknowledgment
+        and an invitation to continue, mirroring a human who waits for the point.
+        """
+        t = (text or "").strip()
+        if not t:
+            return False
+        low = t.lower().rstrip(" .!?")
+        wc = len([w for w in low.split() if w])
+        if wc > 4:
+            return False  # long enough to be a full utterance
+        # Lead-in / filler cues that signal "more is coming"
+        _preamble_cues = (
+            "so", "well", "anyway", "by the way", "btw", "that reminds me",
+            "oh", "right", "um", "uh", "like", "i mean", "speaking of",
+            "before i forget", "got a sec", "quick thing",
+        )
+        if low in _preamble_cues:
+            return True
+        if any(low.startswith(c) and len(low) <= len(c) + 6 for c in _preamble_cues):
+            return True
+        # Single bare word / non-question fragment that isn't a known greeting
+        _closed = ("hi", "hello", "hey", "yo", "bye", "thanks", "yes", "no",
+                   "ok", "okay", "sure", "cool", "nice", "lol", "hmm")
+        if wc <= 2 and low not in _closed and not t.endswith("?"):
+            return True
+        return False
+
+    def _preamble_hold_response(self, text: str) -> str:
+        """Light acknowledgment + invitation to continue for a preamble fragment.
+
+        Mirrors the "wait for the go-signal" behavior: acknowledge receipt but
+        don't volunteer a guessed full answer to an incomplete turn.
+        """
+        low = (text or "").strip().lower().rstrip(" .!?")
+        if low in ("so", "well", "anyway", "right", "oh"):
+            return "go on — i'm listening."
+        if "remind" in low or "speaking of" in low:
+            return "oh yeah? what about it?"
+        return "mm-hmm, what were you going to say?"
 
     def _clean_scenario_subject(self, subject: str, raw_input: str) -> str:
         """Reduce a conditional-query subject to the real concept being asked about.
