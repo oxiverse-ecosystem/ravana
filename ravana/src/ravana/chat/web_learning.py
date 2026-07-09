@@ -1050,34 +1050,38 @@ class WebLearningMixin(ResponseGenMixin):
         2. Extract related terms from results
         3. Search top 2-3 related terms
         All done synchronously within the background thread."""
-        # NOTE: Do NOT bail out here when _bg_learning_active is False. The
-        # background loop drains the queue during shutdown, so even when
-        # stopping we must still learn the queued items (otherwise learning
-        # is silently lost between runs).
-        # Step 1: Search the original query
-        try:
-            result_summary = self.learn_from_web(query)
+        # Hold the graph lock for the whole background work unit. This prevents
+        # the background-learning thread from mutating shared dicts (graph
+        # nodes/edges, _definitions, _concept_keywords) while the main turn is
+        # iterating them during generation — which is exactly what produced the
+        # intermittent "dictionary changed size during iteration" crash. The
+        # main turn already holds this same RLock during generation, so the bg
+        # thread simply blocks until the turn finishes (no deadlock: RLock is
+        # reentrant and the two never nest).
+        with self._graph_lock:
+            try:
+                result_summary = self.learn_from_web(query)
+            except Exception:
+                if self._trace_enabled:
+                    print(f'  [bg]   ! failed to research: {query}')
+                return
             self._bg_search_count += 1
             if self._trace_enabled:
                 print(f'  [bg]   + {result_summary}')
-        except Exception:
-            if self._trace_enabled:
-                print(f'  [bg]   ! failed to research: {query}')
-            return
-        # Step 2: Extract related search terms from the query itself
-        related = self._extract_related_queries(query)
-        # Step 3: Search top related terms
-        for related_query in related[:self._bg_multi_search_max]:
-            if not self._bg_learning_active:
-                break
-            time.sleep(1)  # polite delay between searches
-            try:
-                result_summary = self.learn_from_web(related_query)
-                self._bg_search_count += 1
-                if self._trace_enabled:
-                    print(f'  [bg]   + {result_summary}')
-            except Exception:
-                continue
+            # Step 2: Extract related search terms from the query itself
+            related = self._extract_related_queries(query)
+            # Step 3: Search top related terms
+            for related_query in related[:self._bg_multi_search_max]:
+                if not self._bg_learning_active:
+                    break
+                time.sleep(1)  # polite delay between searches
+                try:
+                    result_summary = self.learn_from_web(related_query)
+                    self._bg_search_count += 1
+                    if self._trace_enabled:
+                        print(f'  [bg]   + {result_summary}')
+                except Exception:
+                    continue
 
 
 

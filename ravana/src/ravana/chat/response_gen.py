@@ -2121,6 +2121,17 @@ class ResponseGenMixin(ChainWalkerMixin):
         if web_ans:
             return web_ans
 
+        # Conditional / hypothetical queries are a special case: they are NOT
+        # definition lookups. If the live web could not surface a hypothetical
+        # answer, do NOT fall through to a stale subject definition (that would
+        # emit "Sun is the star..." for "if the sun disappeared" — exactly the
+        # abstract, off-topic reply we must avoid). Be honest instead.
+        if self._is_conditional_query(ctx.raw_input):
+            hon = self._human_like_uncertainty(ctx)
+            if hon:
+                return hon
+            return self._reflective_response(ctx)
+
         # Genuine knowledge (a stored definition) → state it confidently.
         if ctx.subject and ctx.subject.lower() in getattr(self, '_definitions', {}):
             d = self._definition_response(ctx)

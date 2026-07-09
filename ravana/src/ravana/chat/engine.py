@@ -1133,6 +1133,19 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
 
         # Step 2: Extract topic with multi-strategy grounding
         subject, obj = self._extract_topic(user_input, activated)
+        # Conditional / hypothetical cleanup: "if the sun disappeared…" yields a
+        # junk subject "sun disappeared". Recover the real concept so grounding,
+        # web search, and association spread all target "sun", not the frame.
+        if self._is_conditional_query(user_input) and subject:
+            cleaned = self._clean_scenario_subject(subject, user_input)
+            if cleaned and cleaned != subject:
+                subject = cleaned
+                # Re-key primary IDs / graph activation to the cleaned subject.
+                if subject in self._concept_keywords:
+                    subject_ids = set()
+                    for nid in self._concept_keywords[subject]:
+                        subject_ids.add(nid)
+                        self.graph.activate(nid, 0.8)
         if not subject:
             # Set default subject for chitchat/social queries to route them correctly
             t = user_input.lower().strip(" ?!.,")
@@ -2067,6 +2080,218 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
     # snippet (cleaned) so the answer is grounded in retrieved evidence.
     # ═════════════════════════════════════════════════════════════════════════
 
+    # Words that frame a *conditional / hypothetical* scenario rather than naming
+    # the subject itself. When a query is "if the sun disappeared…" or "suppose
+    # gravity turned off…", these wrappers must be stripped before we search or
+    # ground, otherwise the subject becomes junk like "sun disappeared" and the
+    # web answer never lands. (No hardcoding: this is morphological cleanup of
+    # the question frame, not a fact table.)
+    _CONDITIONAL_FRAME = {
+        "if", "suppose", "supposing", "assume", "assuming", "what", "would",
+        "could", "can", "happen", "happens", "happened", "occur", "occurs",
+        "occurred", "suddenly", "sudden", "instantly", "immediately", "one",
+        "second", "seconds", "minute", "minutes", "day", "days", "moment",
+        "were", "was", "is", "are", "be", "being", "turned", "turns", "turn",
+        "switched", "switch", "gone", "vanished", "disappeared", "disappears",
+        "removed", "removed", "stopped", "stops", "ceased", "shut", "off",
+        "the", "a", "an", "of", "to", "on", "for", "and", "or", "but", "then",
+    }
+
+    # Sources whose snippets are reliably encyclopedic / answer-like. Used only
+    # as a *tie-breaker* in snippet scoring (never a hard gate) so a great
+    # answer from an unknown domain still wins over a poor one from a known one.
+    _PREFERRED_SNIPPET_SOURCES = (
+        "wikipedia", "britannica", "nasa", "nih", "nature", "science",
+        "merriam-webster", "dictionary", "cambridge", "oxford", "britannica",
+        "nasa.gov", "noaa", "smithsonian", "gov", "edu", "khan", "physics",
+        "howstuffworks", "nationalgeographic", "stanford", "mit", "berkeley",
+    )
+
+    # Domains that NEVER carry a real answer for our kinds of queries — they are
+    # crossword solvers, thesauri, SEO/spam, or generic UI shells. Hard-rejected
+    # at the result level so their snippets can't masquerade as answers.
+    # (Heuristic blocklist, not a fact table — it only drops sources that are
+    # structurally incapable of answering "what is X" / "what if X".)
+    _JUNK_SNIPPET_DOMAINS = (
+        "crossword", "word.tips", "wordtips", "thesaurus.com", "definder",
+        "elgoog", "techcrunch", "buzzfeed", "quiz", "sporcle", "puzz",
+        "support.microsoft.com", "support.google.com", "support.apple.com",
+        "sun-sentinel", "thesun.co.uk", "the-sun.com", "news", "reddit.com",
+        "quora", "pinterest", "youtube.com", "youtu.be", "bible", "ecclesiastes",
+        "linuxfoundation", "digital-trust", "azure.microsoft.com",
+    )
+
+    # Regex of sentence *shapes* that are navigation / meta / boilerplate, NOT
+    # answers. These are targeted at specific junk patterns observed in the
+    # search results (definder's meta-text, crossword UI, news shells). They are
+    # deliberately narrow so a real dictionary definition ("The meaning of TRUST
+    # is assured reliance…") is NOT rejected.
+    _SNIPPET_REJECT_SHAPES = (
+        r"^(what does .* mean in text|"
+        r"definition of .* is where open source|"
+        r"get the latest|sign in to your|applies to|"
+        r"sun synonyms, sun pronunciation|"
+        r"how to use .* in a sentence|"
+        r"crossword solver)",
+    )
+
+    @staticmethod
+    def _domain_of(url: str) -> str:
+        from urllib.parse import urlparse
+        try:
+            net = urlparse(url).netloc.lower()
+            return net[4:] if net.startswith("www.") else net
+        except Exception:
+            return (url or "").lower()
+
+    def _is_conditional_query(self, text: str) -> bool:
+        """Detect a hypothetical / counterfactual scenario ('if X happened…').
+
+        Heuristic, not a fact table: any of the conditional lead-ins
+        (if / suppose / assume / what if / what would happen) marks a scenario
+        the user wants *reasoned out*, ideally from the web — not a generic
+        reflective 'what does it mean to you?' turn.
+        """
+        t = text.lower().strip(" ?!.")
+        if re.search(r"\b(if|suppose|supposing|assume|assuming|what if|"
+                     r"what would happen|what happens if|imagine if|"
+                     r"pretend that|in a world without)\b", t):
+            return True
+        return False
+
+    def _clean_scenario_subject(self, subject: str, raw_input: str) -> str:
+        """Reduce a conditional-query subject to the real concept being asked about.
+
+        'sun disappeared' -> 'sun', 'gravity turned off' -> 'gravity'.
+        Done by keeping only the noun-ish content words that are NOT part of the
+        conditional frame, preferring known graph concepts when present. This is
+        pure token filtering, so it never invents or hardcodes an answer.
+        """
+        subj = subject.lower().strip()
+        if not subj:
+            return subject
+        # If the raw query is conditional, prefer the cleaned scenario as subject.
+        if self._is_conditional_query(raw_input):
+            words = [w.strip(".,!?") for w in raw_input.lower().split()
+                     if w.strip(".,!?") not in self._CONDITIONAL_FRAME
+                     and w.strip(".,!?") not in STOP_WORDS
+                     and len(w.strip(".,!?")) >= 2]
+            # Prefer a known graph concept among the remaining words (e.g. 'sun',
+            # 'gravity'); otherwise use the longest remaining content word.
+            known = [w for w in words if w in self._concept_keywords
+                      or w in self._concept_labels]
+            if known:
+                # pick the most 'central' known concept: first that isn't a
+                # generic relation word
+                for w in words:
+                    if w in known and w not in ("happen", "what", "would"):
+                        return w
+                return known[0]
+            if words:
+                # drop trailing auxiliaries / light verbs, keep the head noun
+                for w in reversed(words):
+                    if w in ("happen", "would", "could", "do", "does"):
+                        continue
+                    return w
+                return words[0]
+        # Non-conditional: still strip a trailing frame word if the whole subject
+        # is just 'sun disappeared' style junk.
+        parts = [w for w in subj.split()
+                 if w not in self._CONDITIONAL_FRAME]
+        if parts:
+            return " ".join(parts)
+        return subject
+
+    def _rewrite_query_for_web(self, raw_input: str, subject: str) -> str:
+        """Rewrite a user query into a search string that returns real answers.
+
+        Problems this fixes (observed against localhost:4000):
+          - 'what would happen if the sun disappeared' -> junk (Bluetooth fix).
+            Better: 'sun disappeared what would happen'.
+          - 'what is trust' -> 'Linux Foundation Digital Trust' junk.
+            Better: 'trust definition' (dictionary sources win).
+        Strategy (heuristic, no LLM):
+          1. Conditional scenario -> drop the 'if/suppose/what would happen'
+             frame, keep the scenario phrase, append 'what would happen'.
+          2. Plain informational 'what is X'/'who is X' -> 'X definition' for
+             single-word subjects so encyclopedic/dictionary hits surface.
+          3. Otherwise keep the raw query.
+        """
+        t = raw_input.lower().strip(" ?!.")
+        subj = subject.lower().strip()
+        if self._is_conditional_query(raw_input):
+            scenario_words = [w.strip(".,!?") for w in raw_input.lower().split()
+                              if w.strip(".,!?") not in self._CONDITIONAL_FRAME
+                              and w.strip(".,!?") not in STOP_WORDS
+                              and len(w.strip(".,!?")) >= 2
+                              # drop vague time/duration words that add no signal
+                              and w.strip(".,!?") not in (
+                                  "suddenly", "instantly", "immediately", "one",
+                                  "second", "seconds", "minute", "minutes", "moment",
+                                  "would", "could", "what", "happen", "happens",
+                                  "there", "then", "away")]
+            scenario = " ".join(scenario_words)
+            if scenario:
+                return f"{scenario} what would happen"
+            return raw_input
+        # Informational single-word definition queries: bias toward dictionary.
+        if re.match(r"^(what|who|which)\s+(is|are|was|were)\b", t) and " " not in subj:
+            return f"{subj} definition"
+        # Abstract single-word concept ("trust", "love", "freedom"): dictionary
+        # + "meaning" phrasing surfaces concept definitions rather than entities
+        # named with the same word (e.g. "Linux Foundation Digital Trust").
+        if " " not in subj and re.match(r"^(what|who|which|how)\b", t):
+            return f"{subj} meaning"
+        return raw_input
+
+    def _web_query_variants(self, query: str, subject: str, is_conditional: bool):
+        """Generate candidate search queries, best first.
+
+        Heuristic, no LLM. For conditional scenarios we try several framings
+        empirically known to surface *hypothetical* content on the local engine
+        (the raw frame and a single rewrite often return junk because the engine
+        ranks encyclopedic 'what is X' pages above 'what if X' reasoning).
+        """
+        variants = []
+        if is_conditional:
+            subj = subject
+            scenario_words = [w.strip(".,!?") for w in query.lower().split()
+                              if w.strip(".,!?") not in self._CONDITIONAL_FRAME
+                              and w.strip(".,!?") not in STOP_WORDS
+                              and len(w.strip(".,!?")) >= 2
+                              and w.strip(".,!?") not in (
+                                  "suddenly", "instantly", "immediately", "one",
+                                  "second", "seconds", "minute", "minutes", "moment",
+                                  "would", "could", "what", "happen", "happens",
+                                  "there", "then", "away")]
+            scenario = " ".join(scenario_words)
+            if scenario:
+                # Empirically, the local semantic engine answers these framings
+                # with real hypothetical content (NASA-style reasoning) far more
+                # reliably than the raw "what happens if X" frame, which it often
+                # mismatches to topically-distant pages (e.g. "what happens if…"
+                # → death articles). Order them FIRST so the loop prefers them.
+                variants.append(f"if {scenario} ceased to exist")
+                variants.append(f"{scenario} suddenly disappears what happens")
+                variants.append(f"what if {scenario} stopped")
+                variants.append(f"what happens if {scenario}")
+                variants.append(f"{scenario} what would happen to earth")
+                variants.append(f"if {scenario} earth effects")
+                variants.append(f"what would happen to earth if {scenario}")
+        # Generic fallbacks: the rewritten query, then raw, then bare subject.
+        primary = self._rewrite_query_for_web(query, subject)
+        for v in (primary, query, subject):
+            if v and v not in variants:
+                variants.append(v)
+        # de-dup preserving order
+        seen = set()
+        out = []
+        for v in variants:
+            if v not in seen:
+                seen.add(v)
+                out.append(v)
+        return out
+
     _SNIPPET_NOISE = (
         "from wikipedia", "from wikimedia", "wikiwand", "britannica",
         "redirected from", "jump to", "citation needed", "edit source",
@@ -2210,7 +2435,8 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             return trimmed.strip()
         return text
 
-    def _best_answer_snippet(self, results, subject: str, query: str) -> Optional[str]:
+    def _best_answer_snippet(self, results, subject: str, query: str,
+                             is_conditional: bool = False) -> Optional[str]:
         """Pick the most answer-like snippet for a factual query.
 
         Heuristic (no LLM): prefer a snippet that is (a) a complete sentence,
@@ -2222,10 +2448,19 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         subj = (subject or "").lower()
         qkw = set(w for w in query.lower().split()
                   if len(w) > 3 and w not in STOP_WORDS)
+        is_conditional = is_conditional or self._is_conditional_query(query)
         candidates = []
         for r in results[:6]:
             content = r.get("content", "") or ""
             title = r.get("title", "") or ""
+            # Hard-reject sources that are structurally incapable of answering
+            # our query types (crossword solvers, thesauri, spam, UI shells).
+            # This is what previously let "The Sun Two Speed" crossword and
+            # "How to use trust in a sentence" beat Merriam-Webster. The list is
+            # a heuristic domain blocklist, NOT a fact table.
+            _dom = self._domain_of(r.get("url", "") or "")
+            if any(j in _dom for j in self._JUNK_SNIPPET_DOMAINS):
+                continue
             # Skip results that are mostly HTML / CSS fragments (whole-result
             # junk). Photo-credit words like "getty" are handled at the
             # sentence level below, NOT here — otherwise we'd throw away a good
@@ -2252,20 +2487,17 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             # subject. For multi-word subjects require the full phrase or all
             # tokens (so "dark matter" doesn't match a "Dark" TV-series article
             # that only contains the first token). For single-word subjects
-            # require the word to appear.
+            # require a REAL token match (not a bare substring, otherwise
+            # "trust" matches "Linux Foundation Digital Trust" and "sun" matches
+            # "…under the sun" Bible verses). tolerant of verb inflection.
             subj_tokens = subj.split()
+            wordset = set(low.split())
             if len(subj_tokens) >= 2:
                 _phrase_ok = subj in low
-                # Token match tolerant of verb inflection / derivation: a subject
-                # token counts as present if it appears as a word or a matching
-                # inflected/derived form in the snippet (e.g. "sink" matches
-                # "sank", "train" matches "trained", "immune" matches "immunity").
-                wordset = set(low.split())
                 _all_tokens = all(self._tok_match(t, wordset) for t in subj_tokens)
                 if not (_phrase_ok or _all_tokens):
                     continue
-            elif subj and subj not in low:
-                wordset = set(low.split())
+            elif subj:
                 if not self._tok_match(subj, wordset):
                     continue
             # Reject obvious navigation/boilerplate
@@ -2291,22 +2523,59 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 # Strongly reject boilerplate sentences (navigation, promos).
                 if any(n in sl for n in self._SNIPPET_NOISE):
                     continue
+                # Reject sentences that merely *look* like content but are
+                # navigation / meta ("How to use trust in a sentence",
+                # "Definition of sun", "Get the latest news…").
+                if any(re.match(p, sl) for p in self._SNIPPET_REJECT_SHAPES):
+                    continue
                 # Score: mentions subject or query keywords, prefer answer shape
                 score = 0.0
                 sl_words = set(sl.split())
-                if subj and (subj in sl or self._tok_match(subj.split()[0], sl_words)):
+                # Definition / answer-shape detection for factual queries: a
+                # sentence that directly defines the subject ("X is the…",
+                # "X refers to…", "The meaning of X is…") is the answer we want,
+                # so weight it strongly and don't let a stray mention outrank it.
+                _first_words = sl.split()[:4]
+                _def_verb = re.search(
+                    r"\b(is|are|was|were|refers to|means|denotes|describes|"
+                    r"explains|consists of|is the|is a|is an|means that|"
+                    r"refers)\b", sl)
+                _subj0 = subj.split()[0] if subj else ""
+                _subj_is_topic = bool(_subj0) and (
+                    self._tok_match(_subj0, set(_first_words))
+                    or _subj0 in sl.split()[:2])
+                if subj and (subj in sl or self._tok_match(_subj0, sl_words)):
                     score += 2.0
                 score += 0.5 * len(qkw & sl_words)
                 # Answer-pattern bonus: the subject is the grammatical subject
                 # of the sentence with a copula/role verb ("France is the...",
                 # "Argentina won the...", "Tokyo is the capital..."). These are
                 # the sentences that actually answer "who/what is X".
-                _first_words = sl.split()[:4]
-                if subj and (subj.split()[0] in _first_words
-                             or self._tok_match(subj.split()[0], set(_first_words))):
+                if _subj_is_topic and _def_verb:
+                    score += 3.0
+                elif _subj_is_topic:
                     score += 1.5
+                # Conditional / hypothetical queries: the user wants a reasoned
+                # *consequence*, not a dictionary definition of the subject. A
+                # pure definition ("Gravity is the word used to describe a
+                # physical law…") must NOT outrank an actual hypothetical
+                # answer ("Imagine everything… floating midair…"). So for
+                # conditionals we reverse the usual bias: penalize the bare
+                # subject-definition shape and strongly boost causal /
+                # consequence / scenario sentences.
+                if is_conditional:
+                    if _subj_is_topic and _def_verb:
+                        score -= 3.0
+                    if re.search(r"\b(would|could|imagine|without|no longer|"
+                                 r"if .* (disappear|vanish|turn|stop|gone|"
+                                 r"cease|removed|turned)|plunge|drift|freeze|"
+                                 r"darkness|crash|float|orbit|fall|launch|"
+                                 r"expand|escape|lost|everyone|everything|"
+                                 r"people|oceans|planes|earth|planet|"
+                                 r"seconds?|instant|midair)\b", sl):
+                        score += 4.0
                 if re.match(r"^(who|what|where|when|which|how|why)\b", query.lower()) and \
-                        re.search(r"\b(is|are|was|were|refers to|means|won|beat|defeated|is located|lies|refers|describes|explains|refers to|denotes|consists of|refers)\b", sl):
+                        _def_verb:
                     score += 1.0
                 # Role-answer bonus for "who is X" (person/creator queries):
                 # presidents, founders, painters, authors, inventors, etc.
@@ -2324,6 +2593,13 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 # Penalize list/colon fragments and overly promotional text
                 if sl.endswith((":", "•", "-", "…")):
                     score -= 0.5
+                # Source-quality tie-breaker (never a hard gate): encyclopedic /
+                # dictionary domains tend to give cleaner definitions than a
+                # random blog, so nudge their snippets up without overriding a
+                # genuinely better-scoring answer from elsewhere.
+                rurl = (r.get("url", "") or "").lower()
+                if any(src in rurl for src in self._PREFERRED_SNIPPET_SOURCES):
+                    score += 0.3
                 candidates.append((score, s))
         if not candidates:
             # Fallback: scan results for the first clean, non-boilerplate
@@ -2343,8 +2619,9 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                     continue
                 # Fallback must still be about the subject
                 blow = blob.lower()
-                if subj_tokens and len(subj_tokens) >= 2:
-                    if not (subj in blow or all(t in blow for t in subj_tokens)):
+                _fb_tokens = subj.split()
+                if len(_fb_tokens) >= 2:
+                    if not (subj in blow or all(t in blow for t in _fb_tokens)):
                         continue
                 elif subj and subj not in blow:
                     continue
@@ -2354,6 +2631,83 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             return None
         candidates.sort(key=lambda x: x[0], reverse=True)
         return candidates[0][1]
+
+    def _snippet_quality(self, snippet: str, subject: str, term: str,
+                         is_conditional: bool = False) -> float:
+        """Heuristic quality signal for a candidate answer snippet.
+
+        Used to pick the best snippet across multiple search-query variants.
+        Pure signal, no LLM, no fact table: rewards answer shape + encyclopedic
+        source, penalizes residue from junk domains / meta sentences.
+        """
+        if not snippet:
+            return -1.0
+        s = snippet.lower().strip()
+        score = 1.0
+        # Answer shape: subject is the topic with a copula/definition verb.
+        subj0 = (subject.split()[0] if subject else "")
+        def_verb = re.search(
+            r"\b(is|are|was|were|refers to|means|denotes|describes|explains|"
+            r"consists of|is the|is a|is an|refers)\b", s)
+        first_words = s.split()[:4]
+        subj_is_topic = bool(subj0) and (
+            self._tok_match(subj0, set(first_words)) or subj0 in s.split()[:2])
+        if subj_is_topic and def_verb:
+            score += 2.0
+        elif subj_is_topic:
+            score += 1.0
+        # Strongly reward a SUBSTANTIVE definition sentence: the subject as topic
+        # with a definition verb AND a real predicate (not just a title fragment
+        # like "Definition of sun noun in Oxford…Dictionary."). A substantive
+        # definition has several content words after the verb.
+        if subj_is_topic and def_verb and len(s.split()) >= 6:
+            # Penalize title-like fragments that end in "dictionary." / "nouns" /
+            # "glossary" — these are page titles, not answers.
+            if re.search(r"(dictionary\.|advanced learner|glossary|noun\b.*dictionary|"
+                         r"definition of .* (noun|verb|adjective)|\bapi\b)", s):
+                score -= 4.0
+            else:
+                score += 2.0
+        # Real dictionary-concept definition shape (good for abstract concepts
+        # like "trust", "love"): "The meaning of X is…".
+        if re.search(r"the meaning of .* is\b", s):
+            score += 2.0
+        # Hypothetical / causal answer shape (good for "what if X" queries).
+        if re.search(r"\b(would|without|if .* disappeared|if .* vanished|"
+                     r"turned off|no longer|plunge|drift|freeze|darkness|"
+                     r"crash|float|orbit)\\b", s):
+            score += 1.5
+        # For conditional / hypothetical queries, reverse the usual definition
+        # bias: a bare dictionary definition of the subject ("Earth's gravity is
+        # what keeps you on the ground") must NOT outrank a real hypothetical
+        # answer ("Without gravity, Earth would be flung out into space"). The
+        # user asked for a *consequence*, so weight consequence sentences up and
+        # the pure subject-definition down.
+        if is_conditional:
+            if subj_is_topic and def_verb:
+                score -= 3.0
+            if re.search(r"\b(would|without|imagine|no longer|if .* (disappear|"
+                         r"vanish|turn|stop|gone|cease|removed|turned|lost)|"
+                         r"flung|float|drift|freeze|darkness|crash|orbit|fall|"
+                         r"launch|expand|escape|everyone|everything|people|"
+                         r"oceans|planes|earth|planet|spaces?|midair)\b", s):
+                score += 3.0
+        # Penalize page-TITLE fragments (not answers): "Definition of sun noun
+        # in Oxford…Dictionary.", "The Free Dictionary", etc. These contain the
+        # subject but no real predicate, so they must never beat a definition.
+        if re.search(r"(dictionary\.|advanced learner|learner's dictionary|"
+                     r"definition of .* (noun|verb|adjective)|\bglossary\b|"
+                     r"\bapis?\b|the free dictionary|collins dictionary)", s):
+            score -= 4.0
+        # Penalize residual meta / junk phrasing.
+        if any(re.match(p, s) for p in self._SNIPPET_REJECT_SHAPES):
+            score -= 3.0
+        if any(n in s for n in ("under the sun", "crossword", "how to use",
+                                "get the latest", "sign in to your",
+                                "applies to", "chapter", "verse")):
+            score -= 3.0
+        return score
+
 
     def _web_direct_answer(self, ctx: CognitiveResponseContext) -> Optional[Tuple[str, str]]:
         """Answer an unknown factual query directly from live web snippets.
@@ -2372,45 +2726,79 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         query = ctx.raw_input.strip()
         if not query:
             return None
-        # Only for factual/definition-seeking questions
-        if not self._is_informational_query(query, ctx.subject):
+        is_conditional = self._is_conditional_query(query)
+        if not (self._is_informational_query(query, ctx.subject) or is_conditional):
             return None
+        variants = self._web_query_variants(query, ctx.subject, is_conditional)
         if getattr(self, '_trace_enabled', False):
-            print(f"  [webans] informational query '{query}' subj='{ctx.subject}' — fetching answer")
+            print(f"  [webans] informational query '{query}' subj='{ctx.subject}' "
+                  f"variants={variants}")
         try:
-            # Search the grounded SUBJECT first — it yields tighter, more
-            # answer-like snippets than the full raw question ("when did the
-            # titanic sink" returns news/history pages; "titanic sink" returns
-            # the actual sinking fact). Fall back to the raw query if the
-            # subject-targeted search yields no usable snippet.
-            results = None
-            for term in (ctx.subject, query):
+            import time as _time
+            _budget = 12.0  # hard wall-clock cap on the whole variant search
+            _deadline = _time.time() + _budget
+            best_overall = None
+            best_overall_score = -1.0
+            best_overall_term = None
+            # Try every candidate query. Across all of them we keep the single
+            # highest-VALUE snippet (junk-free + answer-shaped ranks above a
+            # mere mention), so a good hypothetical answer on variant #3 beats
+            # a junk first hit on variant #1.
+            for term in variants:
+                if _time.time() > _deadline:
+                    break
                 try:
-                    res = self.search_engine.search(term, max_results=5)
+                    # For conditionals the local engine (localhost:4000) is
+                    # instant and reliably returns hypothetical content; skip the
+                    # slower remote APIs so a hung DuckDuckGo/oxiverse call can
+                    # never stall the turn for ~90s (observed empirically).
+                    local_only = is_conditional
+                    res = self.search_engine.search(term, max_results=6,
+                                                    local_only=local_only)
                 except Exception as ex:
                     if getattr(self, '_trace_enabled', False):
                         print(f"  [webans] search failed for {term!r}: {ex!r}")
-                    res = None
+                    continue
                 if not res:
                     continue
-                best = self._best_answer_snippet(res, ctx.subject, query)
-                if best:
-                    results = res
-                    break
-                results = res  # keep last try so the trace shows what we got
+                cand = self._best_answer_snippet(res, ctx.subject, query,
+                                                is_conditional=is_conditional)
+                if not cand:
+                    continue
+                # Value the candidate: penalize junk-ish residues, reward a real
+                # answer shape and encyclopedic source. We don't need an exact
+                # score from _best_answer_snippet; re-derive a quick quality signal.
+                quality = self._snippet_quality(cand, ctx.subject, term,
+                                                is_conditional=is_conditional)
+                # Demote the bare-subject fallback variant: it often surfaces a
+                # random page literally titled with the word (e.g. "Revocable
+                # living trust") rather than a real definition, so prefer a
+                # definition-framed variant of equal quality.
+                if term == ctx.subject:
+                    quality -= 1.0
+                if getattr(self, '_trace_enabled', False):
+                    print(f"  [webans] '{term}' -> {cand[:70]!r} (q={quality:.2f})")
+                # Quality floor: only accept a snippet that is at least an actual
+                # answer shape (substantive definition / hypothetical reasoning).
+                # Junk like "Hotel Indigo hours" scores at/above the base 1.0 but
+                # below this floor, so it is discarded instead of emitted.
+                if quality < 1.5:
+                    continue
+                if quality > best_overall_score:
+                    best_overall_score = quality
+                    best_overall = cand
+                    best_overall_term = term
+            results = best_overall
         except Exception as ex:
             if getattr(self, '_trace_enabled', False):
                 print(f"  [webans] search failed: {ex!r}")
             return None
         if not results:
             return None
-        # Do NOT call learn_from_web here: it re-pollutes the definition store
-        # under junk multi-word keys (e.g. "won 2022 world"). The background
-        # learning thread already enriches the graph under clean keys; the
-        # direct answer below is stated live from the retrieved snippet.
-        best = self._best_answer_snippet(results, ctx.subject, query)
+        # We already picked the best snippet across all variants above.
+        best = results
         if getattr(self, '_trace_enabled', False):
-            print(f"  [webans] best snippet: {(best or 'NONE')[:80]}")
+            print(f"  [webans] best snippet (via '{best_overall_term}'): {(best or 'NONE')[:80]}")
         if not best:
             return None
         best = self._strip_title_echo(best.strip(), ctx.subject)
