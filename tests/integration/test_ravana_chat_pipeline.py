@@ -102,6 +102,7 @@ class TestSingleTurn:
         assert engine.turn_count == start_count + 1
         assert engine._last_strategy in (
             "neural_decoder", "neural_decoder_reasoned",
+            "dorsal_reasoned",
             "associative", "graph_fallback", "unknown_subject",
             "syntactic_pipeline")
 

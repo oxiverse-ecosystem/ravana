@@ -998,7 +998,9 @@ class ChatInterface:
             drift_pull=0.05,
             concept_vad=self._concept_vad if hasattr(self, '_concept_vad') else None,
         )
-        self.sleep_cycles_completed += 1
+        self._sleep_metrics['total_sleep_cycles'] += 1
+        self._sleep_metrics['last_sleep_turn'] = self.turn_count
+        self._sleep_metrics['last_sleep_metrics'] = result
         return result
 
     def _metacognitive_review(self):
