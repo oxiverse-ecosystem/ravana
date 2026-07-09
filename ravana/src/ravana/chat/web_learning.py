@@ -242,7 +242,8 @@ class WebLearningMixin(ResponseGenMixin):
                     combined_deep = " ".join(deep_texts)
                     self._extract_definitions(combined_deep, query)
                     self._learn_from_text(combined_deep, query,
-                                          source_url=deep_candidates[0].get("url", "") or query)
+                                          source_url=deep_candidates[0].get("url", "") or query,
+                                          train_decoder=train_decoder)
 
             if deep_candidates:
                 if offload and self._bg_learning_active:
@@ -261,7 +262,8 @@ class WebLearningMixin(ResponseGenMixin):
             combined_text = " ".join(snippets)
             first_url = results[0].get("url", "") if results else ""
             new_concepts_added = self._learn_from_text(combined_text, query,
-                                                       source_url=first_url if first_url else query)
+                                                       source_url=first_url if first_url else query,
+                                                       train_decoder=train_decoder)
             if combined_text:
                 self._extract_definitions(combined_text, query)
 
@@ -339,7 +341,8 @@ class WebLearningMixin(ResponseGenMixin):
 
 
 
-    def _learn_from_text(self, text: str, topic: str, source_url: str = "") -> int:
+    def _learn_from_text(self, text: str, topic: str, source_url: str = "",
+                         train_decoder: bool = False) -> int:
         """Extract important keywords from text, add them as concepts, form connections.
 
         Returns number of new concepts added.
