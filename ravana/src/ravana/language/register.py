@@ -78,7 +78,9 @@ class RegisterController:
 
     def apply_affective_state(self, vad_state, relationship_depth: float = 0.0,
                               conversation_depth: float = 0.0,
-                              uncertainty: float = 0.0) -> None:
+                              uncertainty: float = 0.0,
+                              user_word_count: int = 0,
+                              short_turn: bool = False) -> None:
         """Couple VAD + relationship state into the register knobs.
 
         This is the missing link the brief calls out: nothing previously read
@@ -93,6 +95,10 @@ class RegisterController:
         - relationship_depth high -> ellipsis/terse (verbosity down): close
           rapport is shorter and more elliptical
         - conversation_depth / uncertainty high -> explain more (verbosity up)
+        - length coordination (brief behavior 7, PLOS One 2015): verbosity
+          nudges toward the user's utterance length so the bot partly matches
+          interlocutor length turn-by-turn, while the topic/verbosity confound
+          is resisted by keeping the gain small and skipping chit-chat turns.
 
         Knobs are moved toward the named register base, not replaced, so the
         REINFORCE adaptation in :meth:`adapt_from_feedback` stays meaningful.
@@ -116,9 +122,20 @@ class RegisterController:
         # Depth/uncertainty -> explain more (high PE = longer answer)
         dshift = 0.25 * np.clip(conversation_depth + uncertainty, 0.0, 1.0)
 
+        # Length coordination (brief behavior 7): partly match the user's
+        # utterance length turn-by-turn. Map word count -> target verbosity on
+        # a gentle curve (~4 words->0.18, ~10->0.35, ~20->0.55, ~40+->0.75),
+        # then nudge the knob a fraction of the way there. Skipped on short /
+        # chit-chat turns where matching length is unnatural (a one-word
+        # "hi" should not compress the reply to one word).
+        lshift = 0.0
+        if user_word_count > 0 and not short_turn:
+            target_v = 0.15 + 0.6 * (1.0 - np.exp(-user_word_count / 18.0))
+            lshift = 0.35 * (target_v - base["verbosity"])
+
         k["formality"] = float(np.clip(base["formality"] + vshift * 0.5, 0.0, 1.0))
         k["verbosity"] = float(np.clip(
-            base["verbosity"] + ashift + rshift + dshift, 0.0, 1.0))
+            base["verbosity"] + ashift + rshift + dshift + lshift, 0.0, 1.0))
         k["certainty"] = float(np.clip(base["certainty"] + vshift, 0.0, 1.0))
         self.history.append(("affective", dict(k)))
 

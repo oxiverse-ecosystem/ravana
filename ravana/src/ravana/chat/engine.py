@@ -1727,11 +1727,20 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 rel_depth = getattr(um, "relationship_depth", 0.0)
                 conv_depth = getattr(um, "conversation_depth", 0.0)
                 uncer = float(getattr(ctx, "uncertainty", 0.0) or 0.0)
+                raw = getattr(ctx, "raw_input", user_input) or user_input or ""
+                uwords = len([w for w in raw.split() if w.strip()])
+                # Skip length-coordination on short / social turns (hi, how are
+                # you, bye) — matching those lengths is unnatural.
+                _social = ("hello", "hi", "hey", "yo", "sup", "bye", "goodbye",
+                           "how are you", "how's it going", "how are you doing")
+                short_turn = uwords <= 3 or raw.strip().lower().rstrip("?!.") in _social
                 self.register_controller.apply_affective_state(
                     self.emotion.state,
                     relationship_depth=rel_depth,
                     conversation_depth=conv_depth,
                     uncertainty=uncer,
+                    user_word_count=uwords,
+                    short_turn=short_turn,
                 )
                 conf = self.identity.state.strength * 0.5 + 0.3
                 response = self.register_controller.compose(response, conf)
