@@ -62,10 +62,16 @@ class WebLearningMixin(ResponseGenMixin):
 
         Returns 0.0 to 1.0 (coherent). Threshold for acceptance: > 0.15.
         """
-        subj_vec = self._glove_vector(subject)
+        # Tolerant of missing embedding (test mocks / no-GloVe): treat as
+        # unknown coherence (0.0) rather than raising AttributeError. The caller
+        # already falls back to the cleanliness check when coherence is 0.0.
+        glove_fn = getattr(self, "_glove_vector", None)
+        if not callable(glove_fn):
+            return 0.0
+        subj_vec = glove_fn(subject)
         def_words = [w for w in re.findall(r'[a-z]{3,}', definition.lower())
                      if w not in STOP_WORDS]
-        def_vecs = [self._glove_vector(w) for w in def_words if self._glove_vector(w) is not None]
+        def_vecs = [glove_fn(w) for w in def_words if glove_fn(w) is not None]
         if not def_vecs or subj_vec is None:
             return 0.0
         def_centroid = np.mean(def_vecs, axis=0)
@@ -559,7 +565,15 @@ class WebLearningMixin(ResponseGenMixin):
         cleanliness check instead of the unmeasurable coherence gate.
         """
         coherence = self._definition_coherence_score(subject, definition)
-        subj_vec = self._glove_vector(subject)
+        # The engine always provides _glove_vector, but be tolerant: in stripped
+        # harnesses (e.g. test mocks) or when embedding is unavailable, a missing
+        # callable is equivalent to an OOV subject — fall back to the cleanliness
+        # check rather than raising AttributeError.
+        try:
+            glove_fn = getattr(self, "_glove_vector", None)
+            subj_vec = glove_fn(subject) if callable(glove_fn) else None
+        except Exception:
+            subj_vec = None
         if subj_vec is None:
             # OOV subject — cannot measure coherence; trust the pattern match
             # plus the inappropriate-word override.
@@ -773,17 +787,24 @@ class WebLearningMixin(ResponseGenMixin):
                 seen.add(v)
                 out.append(v)
         return out
-
     def _is_clean_concept_key(self, key: str) -> bool:
-        """A definition should only be stored under a clean single-token concept
-        key. Reject multi-word fragments, quoted/possessive keys, or keys that
-        begin with a stopword — these pollute the store (e.g. "won 2022 world",
-        "the quokka's range", "fast facts quokkas") and produce off-topic answers."""
+        """A definition should only be stored under a clean concept key.
+
+        Reject possessive / quoted keys and keys that begin with a stopword
+        (e.g. "the quokka's range", "fast facts quokkas") — these pollute
+        the store and produce off-topic answers. Multi-word keys ARE allowed
+        when they are clean (e.g. "dark energy", "quantum entanglement"),
+        since the lookup subject for these queries is the multi-word phrase
+        itself (Approach 6). We only reject a leading stopword, a possessive
+        apostrophe, or embedded quotes — not space-separated compound keys.
+        """
         if not key:
             return False
         if key in self._DEFINITION_CONCEPT_BLOCKLIST:
             return False
-        if (" " in key) or ("'" in key) or ('"' in key):
+        # Reject quoted / possessive fragments — these are almost always
+        # navigation or attribution junk, not a real concept to store under.
+        if ("'" in key) or ('"' in key):
             return False
         first = key.split()[0] if key.split() else key
         if first in STOP_WORDS:
