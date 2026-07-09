@@ -1141,10 +1141,14 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
 
         # Step 2: Extract topic with multi-strategy grounding
         subject, obj = self._extract_topic(user_input, activated)
-        # Conditional / hypothetical cleanup: "if the sun disappeared…" yields a
-        # junk subject "sun disappeared". Recover the real concept so grounding,
-        # web search, and association spread all target "sun", not the frame.
-        if self._is_conditional_query(user_input) and subject:
+        # Recover the real concept from the raw subject phrase. This strips
+        # conditional frames ("if the sun disappeared" -> "sun") AND trailing
+        # light verbs / question-frame words ("how do black holes form" ->
+        # "black holes", "what is trust" -> "trust") so grounding, web search,
+        # and association spread target the concept, not the verb. Applied to
+        # every query (conditional and not) — pure token filtering, never
+        # invents or hardcodes an answer.
+        if subject:
             cleaned = self._clean_scenario_subject(subject, user_input)
             if cleaned and cleaned != subject:
                 subject = cleaned
@@ -2351,9 +2355,23 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                     return w
                 return words[0]
         # Non-conditional: still strip a trailing frame word if the whole subject
-        # is just 'sun disappeared' style junk.
+        # is just 'sun disappeared' style junk. Also drop trailing light verbs /
+        # question-frame words so "black holes form", "trust means", "gravity
+        # works" reduce to their head concept "black holes" / "trust" / "gravity"
+        # (the web search + graph should target the concept, not the verb). Pure
+        # token filtering — never invents or hardcodes an answer.
+        _light_verbs = {"form", "forms", "formed", "do", "does", "did", "doing",
+                        "make", "makes", "made", "happen", "happens", "work",
+                        "works", "mean", "means", "meant", "is", "are", "was",
+                        "were", "be", "become", "use", "uses", "used", "exist",
+                        "exists", "occur", "occurs", "affect", "affects",
+                        "orbit", "orbits", "cause", "causes", "cause", "why"}
+        RELATIONAL = _light_verbs | {"why", "what", "when", "where", "who", "how"}
         parts = [w for w in subj.split()
-                 if w not in self._CONDITIONAL_FRAME]
+                 if w not in self._CONDITIONAL_FRAME and w not in RELATIONAL]
+        # Strip trailing light verbs (keep the head noun concept).
+        while len(parts) > 1 and parts[-1] in _light_verbs:
+            parts = parts[:-1]
         if parts:
             return " ".join(parts)
         return subject
@@ -2800,6 +2818,25 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             return -1.0
         s = snippet.lower().strip()
         score = 1.0
+        # Junk/repetition guard: a snippet with consecutive identical tokens
+        # (e.g. "GRAVITY+ GRAVITY+ is an upgrade…") or heavy local repetition is
+        # not a real answer — penalize hard so a clean snippet wins instead of
+        # relying on the downstream self-monitor to repair it post-selection.
+        _rtoks = s.split()
+        _dup_run = 0
+        for i in range(len(_rtoks) - 1):
+            if _rtoks[i] == _rtoks[i + 1] and _rtoks[i] not in (
+                    "that", "had", "bye", "hello", "no", "yeah", "well", "good"):
+                _dup_run += 1
+        if _dup_run > 0:
+            score -= 5.0 * _dup_run
+        # Repeated capitalized acronym or token (e.g. "GRAVITY+ GRAVITY+") also
+        # shows as a token appearing 3+ times in a short snippet.
+        from collections import Counter as _Counter
+        _cnt = _Counter(_rtoks)
+        _max_rep = max(_cnt.values()) if _cnt else 0
+        if _max_rep >= 3 and len(_rtoks) < 25:
+            score -= 4.0
         # Answer shape: subject is the topic with a copula/definition verb.
         subj0 = (subject.split()[0] if subject else "")
         def_verb = re.search(

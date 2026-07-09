@@ -109,7 +109,7 @@ def _is_word_salad(text: str, allow_content_only: bool = False, subject: Optiona
     - Grammatical anchor density with learned weights instead of hardcoded checks"""
     if not text:
         return True
-    words = re.findall(r"\w+", text.lower())
+    words = re.findall(r"\b\w+\b", text.lower())
     if not words:
         return True
     
@@ -130,7 +130,7 @@ def _is_word_salad(text: str, allow_content_only: bool = False, subject: Optiona
     # Content word repetition scoring (continuous)
     content_words = [w for w in words if len(w) >= 3]
     if content_words:
-        subject_words = set(re.findall(r"\w+", subject.lower())) if subject else set()
+        subject_words = set(re.findall(r"\b\w+\b", subject.lower())) if subject else set()
         counts_words = [w for w in content_words if w not in subject_words] or content_words
         counts = Counter(counts_words)
         if counts:
