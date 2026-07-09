@@ -1716,15 +1716,29 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         if correction_ack:
             response = correction_ack
 
-# Phase 3: Register-controlled certainty modulation on response
+        # Phase 3: Register-controlled production — couple VAD + relationship
+        # state into the register knobs, then apply them to the final text.
+        # This is the previously-missing link: the register controller was
+        # instantiated and updated by feedback, but never driven by emotion or
+        # user relationship, and its apply_certainty_hedge was a no-op.
         try:
             if response:
+                um = self.user_model
+                rel_depth = getattr(um, "relationship_depth", 0.0)
+                conv_depth = getattr(um, "conversation_depth", 0.0)
+                uncer = float(getattr(ctx, "uncertainty", 0.0) or 0.0)
+                self.register_controller.apply_affective_state(
+                    self.emotion.state,
+                    relationship_depth=rel_depth,
+                    conversation_depth=conv_depth,
+                    uncertainty=uncer,
+                )
                 conf = self.identity.state.strength * 0.5 + 0.3
-                response = self.register_controller.apply_certainty_hedge(response, conf)
+                response = self.register_controller.compose(response, conf)
         except Exception:
             pass
 
-        # Phase 3: Store chain hops in hippocampal replay buffer
+
         try:
             for hops_list in self._last_chain_hops:
                 for f, t in hops_list:

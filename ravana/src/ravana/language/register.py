@@ -61,23 +61,98 @@ class RegisterController:
     def apply_certainty_hedge(self, text: str, confidence: float) -> str:
         """Modulate text certainty based on register and confidence.
 
-        Instead of hardcoded hedge prefixes, this now works through the
-        free-energy-driven SurfaceRealizer's epistemic frame system.
-        The surface realizer handles hedging dynamically based on the
-        actual confidence of the discourse context, not a separate
-        post-processing step.
-
-        Args:
-            text: The generated response text
-            confidence: Confidence score (0-1) from cognitive state
-
-        Returns:
-            Unmodified text — hedging is handled by the SurfaceRealizer
-            during generation, not as a post-processing step.
+        Kept for backward compatibility. The live path now routes through
+        ``compose`` (which folds the register's certainty knob into the text
+        only when it deviates from neutral, so it never double-hedges the
+        SurfaceRealizer's own free-energy-driven epistemic frame).
         """
-        # Hedging is now handled entirely by the SurfaceRealizer's
-        # free-energy-driven epistemic frame system during generation.
-        # This method is kept as a no-op for backward compatibility.
+        return text
+
+    # Epistemic markers the SurfaceRealizer may already have prepended. Used so
+    # the register certainty knob never stacks a second hedge on top of one the
+    # realizer already produced.
+    _EPISTEMIC_MARKERS = (
+        "i think", "maybe", "perhaps", "it seems", "i suspect", "i believe",
+        "from what i understand", "it appears",
+    )
+
+    def apply_affective_state(self, vad_state, relationship_depth: float = 0.0,
+                              conversation_depth: float = 0.0,
+                              uncertainty: float = 0.0) -> None:
+        """Couple VAD + relationship state into the register knobs.
+
+        This is the missing link the brief calls out: nothing previously read
+        ``VADEmotionEngine.state`` and set the register. Wiring is heuristic
+        (no LLM, no hard thresholds — monotonic gains around neutral 0.5):
+
+        - valence  > 0.2  -> more cooperative / direct (nudge certainty up,
+                             formality up slightly)
+        - valence  < -0.2  -> soften (hedge: certainty down)
+        - arousal  > 0.6   -> compress to the point (verbosity down, urgency)
+        - arousal  < 0.3   -> allow elaboration (verbosity up slightly)
+        - relationship_depth high -> ellipsis/terse (verbosity down): close
+          rapport is shorter and more elliptical
+        - conversation_depth / uncertainty high -> explain more (verbosity up)
+
+        Knobs are moved toward the named register base, not replaced, so the
+        REINFORCE adaptation in :meth:`adapt_from_feedback` stays meaningful.
+        """
+        base = dict(self.REGISTERS.get(self.current_register_name,
+                                       {"formality": 0.5, "verbosity": 0.3,
+                                        "certainty": 0.5}))
+        k = self.knobs
+        v = getattr(vad_state, "valence", 0.0)
+        a = getattr(vad_state, "arousal", 0.3)
+
+        # Valence -> directness / softening
+        vshift = 0.15 * np.tanh(v * 2.0)          # +/-~0.15 around 0
+        # Arousal -> brevity under urgency, slack when calm
+        ashift = -0.20 * np.tanh((a - 0.6) * 3.0)  # <0.6 gives positive slack
+        # Relationship -> closer = terser
+        rshift = -0.25 * np.clip(relationship_depth, 0.0, 1.0)
+        # Depth/uncertainty -> explain more
+        dshift = 0.20 * np.clip(conversation_depth + uncertainty, 0.0, 1.0)
+
+        k["formality"] = float(np.clip(base["formality"] + vshift * 0.5, 0.0, 1.0))
+        k["verbosity"] = float(np.clip(
+            base["verbosity"] + ashift + rshift + dshift, 0.0, 1.0))
+        k["certainty"] = float(np.clip(base["certainty"] + vshift, 0.0, 1.0))
+        self.history.append(("affective", dict(k)))
+
+    def compose(self, text: str, base_confidence: float = 0.5) -> str:
+        """Apply the register knobs to finished text (deviation-only).
+
+        Only acts when a knob deviates enough from its neutral value to matter,
+        and never hedges a response the SurfaceRealizer already hedged.
+        """
+        if not text:
+            return text
+        k = self.knobs
+        verbosity = k["verbosity"]
+        certainty = k["certainty"]
+        formality = k["formality"]
+
+        # 1) Verbosity -> truncate to first sentence when terse.
+        if verbosity < 0.30:
+            first_stop = min(
+                (i for i, ch in enumerate(text) if ch in ".!?"),
+                default=-1)
+            if first_stop > 0:
+                text = text[:first_stop + 1].strip()
+
+        # 2) Certainty -> hedge only if low AND not already hedged by the
+        #    SurfaceRealizer's epistemic frame (avoids double-hedge).
+        lowered = text.lower()
+        already_hedged = any(lowered.startswith(m) for m in self._EPISTEMIC_MARKERS)
+        if certainty < 0.40 and not already_hedged:
+            text = f"i'm not certain, but {text[0].lower()}{text[1:]}"
+
+        # 3) Formality -> casual flattening when high; no-op when low.
+        if formality > 0.75:
+            text = text.replace("gonna", "going to").replace("wanna", "want to")
+            if text.endswith("!"):
+                text = text[:-1] + "."
+
         return text
 
     def _modulate(self, base: float, knob: float) -> float:
