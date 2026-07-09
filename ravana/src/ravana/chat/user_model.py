@@ -1,6 +1,29 @@
 import re
 from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional, Tuple, Set
+from .models import CorrectionType
+
+
+# Correction detection patterns — ACC conflict detection (Error-Related Negativity)
+_CORRECTION_DIRECT_PATTERNS = [
+    r"\bno[!,.]", r"that'?s wrong", r"that'?s not right", r"that'?s incorrect",
+    r"you'?re wrong", r"you are wrong", r"you'?re incorrect", r"you are incorrect",
+    r"not correct", r"actually[!,]", r"not true", r"that'?s false",
+    r"\bwrong[!.]", r"\bincorrect[!.]", r"\bmistake[!.]", r"\berror[!.]",
+    r"no[!,]\s+that", r"no[!,]\s+it", r"wait[!,]\s+",
+    r"that'?s not what", r"that is not what", r"that isn'?t what",
+    r"hold on[!,]",
+]
+
+# Patterns that explicitly supply a corrected fact
+_CORRECTION_FACT_PATTERNS = [
+    # "it's X, not Y"
+    r"it'?s\s+(\w+)[,.]*\s+not\s+(\w+)",
+    r"it is\s+(\w+)[,.]*\s+not\s+(\w+)",
+    # "X is Y, not Z"
+    r"([\w\s]+?)\s+is\s+(\w+)[,.]*\s+not\s+(\w+)",
+    r"([\w\s]+?)\s+are\s+(\w+)[,.]*\s+not\s+(\w+)",
+]
 
 
 @dataclass
@@ -32,6 +55,17 @@ class UserModel:
     topic_followup_count: Dict[str, int] = field(default_factory=dict)
     last_topic: str = ""
     turn_since_topic_change: int = 0
+
+    # ── Phase: Correction pattern tracking (ACC/ERN analog) ──
+    detected_correction: bool = False
+    detected_correction_type: Optional[CorrectionType] = None
+    correction_severity: float = 0.0
+    correction_subject: str = ""
+    detected_correction_fact: Optional[Tuple[str, str, str]] = None
+    _last_user_valence_before_response: float = 0.0
+    _last_response_for_correction: str = ""
+    _last_response_strategy_for_correction: str = ""
+    _previous_user_query: str = ""
 
     def observe_chain(self, hops: List[Tuple[str, str]], is_user_query: bool = False):
         for from_label, to_label in hops:
@@ -83,9 +117,19 @@ class UserModel:
                 self.preferences["favorites"][category] = val
 
         m_name = re.search(r"\b(?:my\s+name\s+is|i\s+am\s+called|call\s+me)\s+(.+)", q_clean, re.IGNORECASE)
+        if not m_name:
+            m_name = re.search(r"\b(?:do\s+you\s+know\s+my\s+name|know\s+my\s+name|is\s+my\s+name)\s+is?\s*(.+)", q_clean, re.IGNORECASE)
+        if not m_name:
+            m_name = re.search(r"\b(?:do\s+you\s+know\s+my\s+name|my\s+name\s+is|know\s+my\s+name|is\s+my\s+name)\s+(.+)", q_clean, re.IGNORECASE)
+            
         if m_name:
             name_cand = m_name.group(1).strip(" .!?")
-            if name_cand and name_cand not in ("happy", "sad", "tired", "busy", "fine", "good"):
+            # Filter out helper verbs or particles from the captured name
+            name_words = name_cand.split()
+            if name_words and name_words[0].lower() in ("is", "are", "was", "were"):
+                name_words = name_words[1:]
+            name_cand = " ".join(name_words)
+            if name_cand and name_cand not in ("happy", "sad", "tired", "busy", "fine", "good", "what", "who", "why", "how"):
                 name_cap = " ".join(w.capitalize() for w in name_cand.split())
                 self.user_name = name_cap
 
@@ -115,6 +159,98 @@ class UserModel:
 
         emotion_vad = self._infer_user_emotion(query)
         self._record_interaction(query, subject, emotion_vad)
+
+        # ── ACC analog: Detect correction patterns ──
+        self._detect_correction(query, subject, valence)
+
+    def _detect_correction(self, query: str, subject: str, valence: float):
+        """ACC conflict detection: detect that the user is correcting RAVANA.
+        
+        Three detection streams:
+        1. Direct: explicit "no", "that's wrong", etc.
+        2. Sentiment drop: valence drops significantly after response
+        3. Re-ask: user repeats similar query within 3 turns
+        """
+        self.detected_correction = False
+        self.detected_correction_type = None
+        self.correction_severity = 0.0
+        self.correction_subject = subject
+        self.detected_correction_fact = None
+
+        q_clean = query.lower().strip()
+
+        # Stream 1: Direct correction patterns
+        for pattern in _CORRECTION_DIRECT_PATTERNS:
+            if re.search(pattern, q_clean, re.IGNORECASE):
+                self.detected_correction = True
+                self.detected_correction_type = CorrectionType.DIRECT
+                self.correction_severity = max(self.correction_severity, 0.5)
+                break
+
+        # Stream 2: Sentiment drop — valence drops significantly from previous turn
+        prev_valence = self._last_user_valence_before_response
+        if prev_valence > 0 and (prev_valence - valence) > 0.4:
+            self.detected_correction = True
+            if self.detected_correction_type != CorrectionType.DIRECT:
+                self.detected_correction_type = CorrectionType.SENTIMENT_DROP
+            self.correction_severity = max(self.correction_severity, 
+                                             min(0.8, (prev_valence - valence) * 1.5))
+
+        # Stream 3: Re-ask — similar query within 3 turns
+        if self._previous_user_query:
+            prev_words = set(self._previous_user_query.lower().split())
+            curr_words = set(q_clean.split())
+            overlap = len(prev_words & curr_words) / max(1, len(prev_words | curr_words))
+            if overlap > 0.6 and len(prev_words) >= 3:
+                self.detected_correction = True
+                if self.detected_correction_type not in (CorrectionType.DIRECT, CorrectionType.SENTIMENT_DROP):
+                    self.detected_correction_type = CorrectionType.INDIRECT_REASK
+                self.correction_severity = max(self.correction_severity, 0.3)
+
+        # Extract corrected fact if user provides one
+        if self.detected_correction:
+            self._extract_correction_fact(query, subject)
+
+        self._previous_user_query = q_clean
+
+    def _extract_correction_fact(self, query: str, subject: str):
+        """Extract (subject, relation, correct_value) from correction sentence.
+        E.g. \"2+2 is 4, not 5\" → (\"2+2\", \"is\", \"4\")
+        """
+        q_clean = query.lower().strip()
+        for pattern in _CORRECTION_FACT_PATTERNS:
+            m = re.search(pattern, q_clean, re.IGNORECASE)
+            if m:
+                groups = m.groups()
+                if len(groups) == 2:
+                    # it's X, not Y
+                    correct_val = groups[0]
+                    wrong_val = groups[1]
+                    self.detected_correction_fact = (subject, "is", correct_val)
+                    self.detected_correction_type = CorrectionType.CORRECTION_WITH_FACT
+                    self.correction_severity = max(self.correction_severity, 0.7)
+                elif len(groups) == 3:
+                    # X is Y, not Z
+                    fact_subject = groups[0].strip()
+                    correct_val = groups[1]
+                    wrong_val = groups[2]
+                    self.detected_correction_fact = (fact_subject, "is", correct_val)
+                    self.detected_correction_type = CorrectionType.CORRECTION_WITH_FACT
+                    self.correction_severity = max(self.correction_severity, 0.8)
+
+    def store_response_for_correction(self, response: str, strategy: str, valence: float):
+        """Store the last response so correction detection can reference it."""
+        self._last_response_for_correction = response
+        self._last_response_strategy_for_correction = strategy
+        self._last_user_valence_before_response = valence
+
+    def reset_correction_flags(self):
+        """Reset correction flags for next turn."""
+        self.detected_correction = False
+        self.detected_correction_type = None
+        self.correction_severity = 0.0
+        self.correction_subject = ""
+        self.detected_correction_fact = None
 
     def _ensure_emotion_detector(self):
         if self._emotion_detector is None or not hasattr(self._emotion_detector, '_vad_matrix'):

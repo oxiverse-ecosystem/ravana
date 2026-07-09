@@ -1167,16 +1167,13 @@ class ConceptGraph:
                     child.parent = node.parent
                     if node.parent is not None and node.parent in self.nodes:
                         self.nodes[node.parent].children.add(child_id)
-            del self.nodes[nid]
             # Remove connected edges and clean adjacency indices
             edges_to_remove = [k for k in self.edges if k[0] == nid or k[1] == nid]
             for (s, t) in edges_to_remove:
-                del self.edges[(s, t)]
+                self.remove_edge(s, t)
+            del self.nodes[nid]
             self._outgoing.pop(nid, None)
             self._incoming.pop(nid, None)
-            # Clean references to this node from other adjacency lists
-            for t in self._incoming:
-                self._incoming[t] = [(s, e) for s, e in self._incoming[t] if s != nid]
             self._active_nodes.discard(nid)
             self._adj_dirty = True
             self.version = getattr(self, "version", 0) + 1

@@ -332,30 +332,13 @@ class GraphEngine:
         # Contradiction map
         self._contradiction_map: Dict[str, Set[str]] = {}
 
-        # Edge type connectors
-        self._EDGE_CONNECTORS = {
-            "causal": [("cause", ["because", "since", "as"]), ("result", ["leads to", "causes"]), ("effect", ["so", "therefore"])],
-            "contrastive": [("contrast", ["but", "however", "yet"]), ("unexpected", ["nevertheless", "still"])],
-            "semantic": [("identity", ["is like", "refers to", "means"]), ("relation", ["relates to", "connects with"])],
-            "temporal": [("after", ["after", "then", "next"]), ("during", ["while", "during"])],
-            "analogical": [("simile", ["like", "similar to"]), ("meta", ["acts as", "functions like"])],
-            "episodic": [("memory", ["remember", "recall"]), ("event", ["when", "at"])],
-        }
-        self._EDGE_TO_GRAPH_LABEL = {
-            "causal": "cause", "analogical": "like", "semantic": "connect",
-            "contrastive": "but", "temporal": "change", "episodic": "connect",
-        }
-        self._EDGE_TO_STARTER = {
-            "causal": "because", "contrastive": "but", "semantic": "and",
-            "analogical": "like", "temporal": "then", "episodic": "and",
-        }
+        # Phase 4: Edge type connectors (learned from ConnectorLearner)
+        self._EDGE_CONNECTORS = {}
+        self._EDGE_TO_GRAPH_LABEL = {}
+        self._EDGE_TO_STARTER = {}
         self._CONNECTOR_TO_REL: Dict[str, str] = {}
-        for rel_type, tiers in self._EDGE_CONNECTORS.items():
-            for entry in tiers:
-                options = entry[1] if isinstance(entry, tuple) and len(entry) == 2 else entry[2]
-                for opt in options:
-                    self._CONNECTOR_TO_REL[opt] = rel_type
-        self._CONNECTOR_SET = set(self._CONNECTOR_TO_REL.keys())
+        self._CONNECTOR_SET: set = set()
+        self._connector_learner = None
 
         # Dual stores (Phase 15)
         self._episodic_edges: Dict[Tuple[int, int], Any] = {}
@@ -393,166 +376,90 @@ class GraphEngine:
     # ─── Seeding ───
 
     def seed_concepts(self):
-        """Seed the graph with teenager-level vocabulary and typed relationships."""
+        """Seed the graph using corpus-driven PMI bootstrapping.
+        Replaces all hardcoded TEEN_CONCEPTS, semantic_edges, causal_edges,
+        contrastive_edges, etc. with data-driven PMI statistics."""
         self._concept_labels = set()
-        all_labels = {label.lower() for label, _ in TEEN_CONCEPTS}
-        for label, keywords in TEEN_CONCEPTS:
-            vec = self._glove_vector(label)
+        
+        from ravana.bootstrap.pmi_seeder import PMISeeder, load_corpus, compute_pmi_from_corpus  # local import
+        corpus_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                                    "data", "corpora", "teen_seeds.txt")
+        import math
+        
+        pmi_sentences = load_corpus(corpus_path)
+        concepts, pmi_edges = compute_pmi_from_corpus(
+            pmi_sentences, min_freq=2, min_pmi=0.3, max_concepts=200,
+            stop_words=STOP_WORDS
+        )
+        
+        if len(concepts) < 20:
+            fallback = PMISeeder().get_fallback_concepts()
+            existing = set(concepts)
+            for fc in fallback:
+                if fc not in existing:
+                    concepts.append(fc)
+        
+        label_to_id = {}
+        for word in concepts:
+            vec = self._glove_vector(word)
             if vec is None:
-                h = hash(label) % 10000
+                h = hash(word) % 10000
                 vr = np.random.RandomState(h + 42)
                 vec = vr.randn(self.dim).astype(np.float32) * 0.15
-                for kw in keywords.split():
-                    kh = hash(kw) % 5000
-                    kr = np.random.RandomState(kh)
-                    vec += kr.randn(self.dim).astype(np.float32) * 0.05
-                norm = np.linalg.norm(vec)
+                norm = float(np.linalg.norm(vec))
                 if norm > 0:
                     vec /= norm
-            node = self.graph.add_node(vector=vec, label=label)
-            self._concept_labels.add(label.lower())
-
-            for kw in keywords.split():
-                kl = kw.lower()
-                if kl in all_labels:
-                    continue
-                self._concept_keywords.setdefault(kl, []).append(node.id)
-            self._concept_keywords.setdefault(label, []).append(node.id)
-            if "_" in label:
-                for part in label.split("_"):
-                    if len(part) >= 3:
-                        self._concept_keywords.setdefault(part, []).append(node.id)
-
-        # Build label_to_id map
-        label_to_id = {}
-        for nid, node in self.graph.nodes.items():
-            if node.label:
-                label_to_id[node.label] = nid
-
-        # Typed edges
-        semantic_edges = [
-            ("hello", "bye"), ("hello", "thanks"), ("thanks", "sorry"),
-            ("yes", "no"), ("good", "bad"), ("big", "small"), ("hot", "cold"),
-            ("up", "down"), ("in", "out"), ("here", "there"),
-            ("now", "later"), ("more", "some"), ("one", "many"),
-            ("happy", "sad"), ("joy", "grief"), ("excited", "bored"),
-            ("love", "hate"), ("hope", "fear"),
-            ("trust", "respect"), ("freedom", "responsibility"),
-            ("knowledge", "wisdom"), ("knowledge", "truth"),
-            ("sun", "moon"), ("sun", "light"), ("tree", "bird"),
-            ("dog", "cat"), ("dog", "friend"),
-            ("water", "rain"), ("food", "eat"),
-            ("book", "read"), ("book", "story"), ("song", "music"),
-            ("science", "knowledge"), ("history", "story"),
-            ("life", "death"), ("mind", "heart"),
-            ("time", "change"), ("world", "nature"),
-            ("time", "future"), ("time", "past"), ("future", "past"),
-            ("machine", "invention"), ("invention", "create"),
-            ("imagination", "dream"), ("imagination", "create"),
-            ("impossible", "possible"), ("possibility", "maybe"),
-            ("future", "change"), ("past", "history"),
-            ("invent", "create"), ("invent", "explore"),
-            ("journey", "explore"), ("experiment", "discovery"),
-        ]
-
-        causal_edges = [
-            ("sun", "hot"), ("sun", "light"),
-            ("eat", "food"), ("drink", "water"),
-            ("sleep", "tired"), ("play", "happy"),
-            ("love", "joy"), ("fear", "anxiety"),
-            ("cause", "change"), ("learn", "knowledge"),
-            ("study", "understanding"), ("practice", "skill"),
-            ("challenge", "struggle"), ("struggle", "growth"),
-            ("power", "responsibility"), ("freedom", "choice"),
-            ("question", "curiosity"), ("explore", "discovery"),
-            ("trust", "friendship"), ("hypocrisy", "distrust"),
-            ("grief", "sadness"), ("hope", "motivation"),
-            ("rejection", "loneliness"), ("acceptance", "belonging"),
-            ("anger", "conflict"), ("empathy", "understanding"),
-            ("criticism", "growth"), ("failure", "learning"),
-            ("change", "growth"), ("time", "change"),
-            ("knowledge", "wisdom"), ("experience", "wisdom"),
-            ("art", "expression"), ("science", "progress"),
-            ("imagination", "invention"), ("experiment", "knowledge"),
-            ("machine", "future"), ("journey", "discovery"),
-        ]
-
-        temporal_edges = [
-            ("birth", "life"), ("life", "death"),
-            ("morning", "noon"), ("noon", "night"),
-            ("question", "answer"), ("cause", "effect"),
-            ("learn", "understand"), ("struggle", "succeed"),
-        ]
-
-        contrastive_edges = [
-            ("good", "bad"), ("love", "hate"), ("life", "death"),
-            ("truth", "lie"), ("freedom", "oppression"),
-            ("courage", "fear"), ("hope", "despair"),
-            ("knowledge", "ignorance"), ("justice", "injustice"),
-            ("create", "destroy"), ("accept", "reject"),
-            ("always", "never"),
-        ]
-
-        analogical_edges = [
-            ("mind", "garden"), ("life", "journey"),
-            ("knowledge", "light"), ("time", "river"),
-            ("society", "organism"), ("identity", "building"),
-            ("memory", "library"), ("heart", "engine"),
-        ]
-
-        # Phase 6: New cognitive reasoning edge types (edge types registered in ConceptGraph)
-        # Specific fact pairs should be learned via RLMv2 from data, not hardcoded
-        # negation_edges, antonym_edges, transitive_edges, physical_cause_edges,
-        # comparison_edges, pragmatic_edges will be learned during training
-
-        self._apply_edges(label_to_id, semantic_edges, "semantic", 0.35)
-        self._apply_edges(label_to_id, causal_edges, "causal", 0.45)
-        self._apply_edges(label_to_id, temporal_edges, "temporal", 0.40)
-        self._apply_edges(label_to_id, contrastive_edges, "contrastive", 0.50)
-        self._apply_edges(label_to_id, analogical_edges, "analogical", 0.30)
-        # Phase 6 edge types are registered in ConceptGraph but populated via learning
-
-        # Hub edges
+            node = self.graph.add_node(vector=vec, label=word)
+            self._concept_labels.add(word.lower())
+            self._concept_keywords.setdefault(word, []).append(node.id)
+            label_to_id[word] = node.id
+        
+        auto_count = min(len(pmi_edges), 300)
+        for w1, w2, pmi in pmi_edges[:300]:
+            nid1 = label_to_id.get(w1)
+            nid2 = label_to_id.get(w2)
+            if nid1 is not None and nid2 is not None:
+                if self.graph.get_edge(nid1, nid2) is None and self.graph.get_edge(nid2, nid1) is None:
+                    weight = 0.15 + 0.6 * (1.0 / (1.0 + math.exp(-pmi + 1.0)))
+                    weight = min(0.75, max(0.15, weight))
+                    self.graph.add_edge(nid1, nid2, weight=weight + self.rng.uniform(0, 0.08),
+                                       relation_type="semantic")
+        
+        for word in ["i", "you", "we", "think", "feel", "know", "want", "like", "say"]:
+            if word not in label_to_id:
+                vec = self._glove_vector(word)
+                if vec is None:
+                    h = hash(word) % 10000
+                    vr = np.random.RandomState(h + 42)
+                    vec = vr.randn(self.dim).astype(np.float32) * 0.15
+                    norm = float(np.linalg.norm(vec))
+                    if norm > 0:
+                        vec /= norm
+                node = self.graph.add_node(vector=vec, label=word)
+                self._concept_labels.add(word.lower())
+                self._concept_keywords.setdefault(word, []).append(node.id)
+                label_to_id[word] = node.id
+        
         hub_edges = [
-            ("i", "think", "causal"), ("i", "feel", "causal"),
-            ("i", "know", "causal"), ("i", "want", "causal"),
-            ("i", "like", "causal"), ("i", "say", "causal"),
-            ("we", "people", "semantic"), ("we", "they", "semantic"),
-            ("you", "person", "semantic"), ("you", "friend", "semantic"),
-            ("think", "knowledge", "causal"), ("think", "question", "causal"),
-            ("think", "analyze", "causal"), ("think", "explore", "causal"),
-            ("feel", "love", "causal"), ("feel", "happy", "causal"),
-            ("feel", "sad", "causal"), ("feel", "fear", "causal"),
-            ("feel", "excited", "causal"),
-            ("know", "learn", "causal"), ("know", "truth", "semantic"),
-            ("know", "knowledge", "semantic"), ("know", "understand", "causal"),
-            ("want", "freedom", "causal"), ("want", "love", "causal"),
-            ("want", "more", "causal"), ("want", "power", "causal"),
-            ("like", "love", "semantic"), ("like", "play", "causal"),
-            ("like", "friend", "semantic"), ("like", "music", "semantic"),
-            ("like", "art", "semantic"),
-            ("people", "society", "semantic"), ("people", "culture", "semantic"),
-            ("learn", "knowledge", "causal"), ("learn", "understand", "causal"),
-            ("understand", "knowledge", "semantic"),
-            ("question", "curious", "causal"), ("explore", "discover", "causal"),
+            ("i", "think", 0.45), ("i", "feel", 0.45),
+            ("i", "know", 0.45), ("i", "want", 0.45),
+            ("think", "knowledge", 0.35), ("feel", "love", 0.35),
+            ("know", "learn", 0.35), ("know", "understand", 0.35),
         ]
-        for src, tgt, rel in hub_edges:
+        for src, tgt, bw in hub_edges:
             sid = label_to_id.get(src)
             tid = label_to_id.get(tgt)
             if sid is not None and tid is not None and self.graph.get_edge(sid, tid) is None:
-                bw = 0.35 if rel == "semantic" else 0.45
-                self.graph.add_edge(sid, tid, weight=bw + self.rng.uniform(0, 0.15),
-                                   relation_type=rel)
-
-        # Auto-wire: connect GloVe-similar concepts (>0.65) as semantic edges.
-        # Higher threshold and dormant confidence reduces noise from weak associations.
-        auto_count = 0
+                self.graph.add_edge(sid, tid, weight=bw + self.rng.uniform(0, 0.1),
+                                   relation_type="causal")
+        
         nids = list(label_to_id.values())
-        for i in range(len(nids)):
+        gwired = 0
+        for i in range(min(len(nids), 100)):
             ni = self.graph.get_node(nids[i])
             if ni is None or ni.vector is None:
                 continue
-            for j in range(i + 1, len(nids)):
+            for j in range(i + 1, min(len(nids), i + 50)):
                 if self.graph.get_edge(nids[i], nids[j]) is not None or self.graph.get_edge(nids[j], nids[i]) is not None:
                     continue
                 nj = self.graph.get_node(nids[j])
@@ -561,18 +468,31 @@ class GraphEngine:
                 sim = float(np.dot(ni.vector, nj.vector))
                 if sim > 0.65:
                     weight = min(0.5, sim * 0.5)
-                    inf_type, _ = self._infer_relation_type(ni.label, nj.label, "semantic")
-                    edge = self.graph.add_edge(nids[i], nids[j], weight=weight, relation_type=inf_type)
-                    edge.confidence = 0.02  # requires multiple visits to wake (up from 0.001)
+                    edge = self.graph.add_edge(nids[i], nids[j], weight=weight, relation_type="semantic")
+                    edge.confidence = 0.02
                     self._dormant_edges.add((nids[i], nids[j]))
-                    auto_count += 1
-
+                    gwired += 1
+        
         self._all_labels = label_to_id
-        self._build_contradiction_map(contrastive_edges)
+        contrastive_pairs = []
+        for i in range(min(len(nids), 80)):
+            ni = self.graph.get_node(nids[i])
+            if ni is None or ni.vector is None or not ni.label:
+                continue
+            for j in range(i + 1, min(len(nids), 80)):
+                nj = self.graph.get_node(nids[j])
+                if nj is None or nj.vector is None or not nj.label:
+                    continue
+                cos = float(np.dot(ni.vector, nj.vector))
+                if cos < -0.15:
+                    contrastive_pairs.append((ni.label, nj.label))
+        self._build_contradiction_map(contrastive_pairs)
+        self._init_connector_learner()
         migrated = self._correct_relation_types()
         self._build_concept_pos()
         extra = f", {migrated} reclassified" if migrated else ""
-        print(f"  [Graph] Seeded {len(self.graph.nodes)} concepts, {len(self.graph.edges)} connections ({auto_count} auto-wired) across 5 relation types{extra}")
+        print(f"  [PMI] Seeded {len(self.graph.nodes)} concepts, {len(self.graph.edges)} connections"
+              f" ({auto_count} PMI-wired, {gwired} GloVe-wired){extra}")
 
     def _apply_edges(self, label_to_id: Dict[str, int], edge_list: List[Tuple[str, str]],
                      rel_type: str, base_weight: float):
@@ -583,6 +503,21 @@ class GraphEngine:
             if sid is not None and tid is not None and self.graph.get_edge(sid, tid) is None:
                 self.graph.add_edge(sid, tid, weight=base_weight + self.rng.uniform(0, 0.15),
                                    relation_type=rel_type)
+
+    def _init_connector_learner(self):
+        """Initialize connector learner from seeded concepts and GloVe."""
+        try:
+            from ravana.chat.synaptic_dynamics import ConnectorLearner
+            self._connector_learner = ConnectorLearner(glove_fn=self._glove_vector)
+            concepts = []
+            for nid, node in list(self.graph.nodes.items())[:200]:
+                if node and node.label and node.vector is not None:
+                    concepts.append((node.label.lower(), node.vector))
+            self._connector_learner.initialize(graph_concepts=concepts)
+            self._CONNECTOR_TO_REL = self._connector_learner.get_connector_to_rel()
+            self._CONNECTOR_SET = self._connector_learner.get_connector_set()
+        except Exception as e:
+            self._connector_learner = None
 
     def _build_contradiction_map(self, contrastive_edges: List[Tuple[str, str]]):
         """Build map of concept -> antonym concepts from contrastive edges."""
@@ -638,16 +573,12 @@ class GraphEngine:
 
     def _infer_relation_type(self, src_label: str, tgt_label: str,
                               current_type: str = "semantic") -> Tuple[str, float]:
-        """Infer correct relation type for a concept pair."""
+        """Infer nearest relation type using relational direction vector.
+        Relation types are descriptive labels, not functional categories."""
         sl = src_label.lower()
         tl = tgt_label.lower()
         pair = tuple(sorted([sl, tl]))
-        if pair in CONTRASTIVE_PAIRS:
-            return ("contrastive", 0.85)
-        if pair in CAUSAL_PAIRS:
-            return ("causal", 0.80)
-        if pair in IS_A_PAIRS:
-            return ("semantic", 0.80)
+        # No hardcoded pair checks - use vector prototypes only
         ranked = self._rank_relations(src_label, tgt_label, current_type)
         if ranked:
             best_type, best_score = ranked[0]
@@ -661,7 +592,9 @@ class GraphEngine:
 
     def _rank_relations(self, source_label: str, target_label: str,
                         default_type: str) -> List[Tuple[str, float]]:
-        """Rank relation types by vector-based plausibility."""
+        """Score relation types by prototype-vector alignment.
+        No hardcoded formulas or predefined pair lookups.
+        Pure vector-based: compares relational direction to prototypes."""
         src_nids = self._concept_keywords.get(source_label.lower(), [])
         tgt_nids = self._concept_keywords.get(target_label.lower(), [])
         if not src_nids or not tgt_nids:
@@ -670,22 +603,26 @@ class GraphEngine:
         tgt_node = self.graph.get_node(tgt_nids[0])
         if src_node is None or tgt_node is None or src_node.vector is None or tgt_node.vector is None:
             return [(default_type, 0.5)]
-        src_vec = src_node.vector
-        tgt_vec = tgt_node.vector
-        cosine = float(np.dot(src_vec, tgt_vec))
-        mag_ratio = float(np.linalg.norm(tgt_vec) / max(np.linalg.norm(src_vec), 0.001))
-        scores = {
-            "semantic": max(0.0, cosine),
-            "causal": max(0.0, 0.3 + 0.3 * mag_ratio - 0.2 * (1.0 - abs(cosine))),
-            "contrastive": max(0.0, 0.5 - 0.5 * cosine),
-            "analogical": max(0.0, 0.2 + 0.3 * cosine - 0.3 * abs(mag_ratio - 1.0)),
-            "temporal": 0.1,
-            "emotional": 0.1,
-        }
+        
+        rel_vec = tgt_node.vector - src_node.vector
+        rel_norm = np.linalg.norm(rel_vec)
+        if rel_norm < 0.01:
+            return [(default_type, 0.5)]
+        rel_vec = rel_vec / rel_norm
+        
+        rel_vecs = [v for v in getattr(self, '_relation_prototypes', {}).values()]
+        if not rel_vecs:
+            return [(default_type, 0.3)]
+        
+        scores = {}
+        for rtype, proto_vec in getattr(self, '_relation_prototypes', {}).items():
+            score = float(np.dot(rel_vec, proto_vec))
+            scores[rtype] = max(0.0, score)
         return sorted(scores.items(), key=lambda x: -x[1])
 
     def _correct_relation_types(self) -> int:
-        """Iterate edges and reclassify mis-typed relations."""
+        """Re-label edges as descriptive labels (not functional categories).
+        Edge WEIGHT determines behavior, not the type label."""
         migrated = 0
         for (sid, tid), edge in list(self.graph.edges.items()):
             src_node = self.graph.get_node(sid)

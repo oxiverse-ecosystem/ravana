@@ -196,6 +196,8 @@ class CognitiveDB:
                 node = graph.nodes[node_id]
                 if vector is not None:
                     node.vector = vector.copy()
+                    node.core_vector = vector.copy()
+                    node.genesis_vector = vector.copy()
             else:
                 if vector is None:
                     vector = np.zeros(graph.dim, dtype=np.float32)

@@ -82,6 +82,9 @@ class CerebellarNgram:
             successful: Whether the utterance was well-received
             chain_hops: Optional list of (from, to) concept pairs (excluding connectors)
         """
+        # Issue 6: Cerebellar n-gram diversity — track rejected transitions too.
+        # When successful=False, the transition strength between template phrases
+        # decreases, making them less likely to be chosen in the future.
         lr = self.learning_rate if successful else -self.learning_rate * 0.5
 
         # Learn from chain hops (concept-to-concept transitions without connectors)

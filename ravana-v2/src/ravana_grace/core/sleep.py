@@ -1704,7 +1704,8 @@ class SleepConsolidation:
     def run_cycle(self, graph=None, episodic_buffer=None, episodic_triples=None,
                    belief_store=None, topic_list=None, user_model=None,
                    impossible_queries=None, contradiction_map=None,
-                   drift_defense_threshold=0.7, drift_pull=0.05) -> Dict[str, int]:
+                   drift_defense_threshold=0.7, drift_pull=0.05,
+                   concept_vad=None) -> Dict[str, int]:
         state_snapshot = {
             "graph": graph,
             "episodic_triples": episodic_triples or [],

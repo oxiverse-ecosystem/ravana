@@ -1,11 +1,11 @@
 """
-RAVANA Verb Lexicon — Hebbian-Compositional Verb Selection
+RAVANA Verb Lexicon - Hebbian-Compositional Verb Selection
 ===========================================================
 Replaces hardcoded VERB_PATTERNS (57 canned phrases) + COMPLEXITY dict
 with a learnable Hebbian matrix over morphemic primitives.
 
 Neuroscience grounding:
-- Hebb (1949): "Neurons that fire together, wire together" — the Hebbian
+- Hebb (1949): "Neurons that fire together, wire together" - the Hebbian
   weight matrix tracks co-activation strength between relation types and
   verb morphemes.
 - Pulvermüller (1999): Words are not atomic lookups but distributed
@@ -21,18 +21,18 @@ Architecture:
 - MORPHEMIC_SEEDS: irreducible building blocks (base verbs, particles,
   prepositions). These are the "phoneme-level" assembly primitives.
   ~25 seeds replace 57 canned phrases.
-- _hebbian_weight[relation][morpheme] : float — learned co-activation
+- _hebbian_weight[relation][morpheme] : float - learned co-activation
   strength. Initialized uniformly, updated via reinforce().
-- _hebbian_bigram[relation][(seed_i, seed_j)] : float — tracks which
+- _hebbian_bigram[relation][(seed_i, seed_j)] : float - tracks which
   morpheme pairs tend to co-occur for a given relation.
 - compose_phrase(relation, dopamine_tone): builds verb phrase by
   Hebbian-weighted sampling from morpheme pools, then arranging via
   compositional rules.
 - Complexity is EMERGENT: complexity = 1.0 - normalized_hebbian_weight.
-  Frequently-used phrases have low complexity (direct, efficient) —
+  Frequently-used phrases have low complexity (direct, efficient) -
   mirroring P600 integration cost (Brouwer et al., 2012).
 - reinforce(relation, phrase): strengthens Hebbian traces for the
-  morphemes that composed the successful phrase — the system learns
+  morphemes that composed the successful phrase - the system learns
   which primitives work best for which relation types.
 """
 
@@ -56,7 +56,7 @@ _VECTOR_PROJECTION /= np.sqrt(_VECTOR_DIM)
 def _default_vector_fn(word: str) -> Optional[np.ndarray]:
     """Character n-gram hash + random projection word vector.
     
-    Zero external dependencies — works out of the box.
+    Zero external dependencies - works out of the box.
     Replaces GloVe when no glove file is available.
     """
     word = word.lower().strip()
@@ -83,7 +83,7 @@ class VerbLexicon:
     """Hebbian-compositional verb lexicon.
 
     Morphemic primitives are combined into verb phrases based on learned
-    Hebbian weights. No hardcoded phrases — every phrase is composed
+    Hebbian weights. No hardcoded phrases - every phrase is composed
     dynamically.
 
     Hebbian weight matrix:
@@ -268,7 +268,27 @@ class VerbLexicon:
 
     @classmethod
     def reset_refractory(cls):
-        cls._refractory.clear()
+        # Issue 6: STN (Subthalamic Nucleus) gradual decay instead of full clear.
+        # Refractory decays gradually with half-life ~3 turns, so each time
+        # a verb is selected, its refractory period increases by 2 turns.
+        # This prevents immediate perseveration while still allowing reuse.
+        if not hasattr(cls, '_refractory_decay'):
+            cls._refractory_decay = 0.0
+        decay_factor = 0.5  # Half-life ~1 turn for active words
+        new_refractory = set()
+        for word in cls._refractory:
+            if hasattr(cls, '_refractory_counts') and word in cls._refractory_counts:
+                cls._refractory_counts[word] -= 1
+                if cls._refractory_counts[word] > 0:
+                    new_refractory.add(word)
+        if not hasattr(cls, '_refractory_counts'):
+            cls._refractory_counts = {}
+        # Also decay all counts by half
+        for word in list(cls._refractory_counts.keys()):
+            cls._refractory_counts[word] = max(0, cls._refractory_counts[word] - 1)
+            if cls._refractory_counts[word] == 0:
+                del cls._refractory_counts[word]
+        cls._refractory = new_refractory
         cls._refractory_relation = ""
 
     @classmethod
@@ -314,6 +334,10 @@ class VerbLexicon:
         for word in phrase.split():
             if len(word) > 2:
                 cls._refractory.add(word)
+                # Issue 6: Track refractory count (each use adds 2 turns)
+                if not hasattr(cls, '_refractory_counts'):
+                    cls._refractory_counts = {}
+                cls._refractory_counts[word] = cls._refractory_counts.get(word, 0) + 2
 
     @classmethod
     def _conjugate_root(cls, root: str, subject: str = "") -> str:
@@ -426,7 +450,7 @@ class VerbLexicon:
 
     @classmethod
     def get_phrases(cls, relation: str) -> List[str]:
-        """Legacy compatibility — delegates to select_verb for a single phrase."""
+        """Legacy compatibility - delegates to select_verb for a single phrase."""
         return [cls.select_verb(relation=relation)]
 
     @classmethod
@@ -603,7 +627,7 @@ class VerbLexicon:
                 if wrong in fixed:
                     fixed = fixed.replace(wrong, correct)
         
-        # Fix "causes [noun]" pattern — the issue is that verbs like "cause"
+        # Fix "causes [noun]" pattern - the issue is that verbs like "cause"
         # are being used where they shouldn't precede a noun directly
         # This happens when "compare" is used as a noun but the verb is "causes"
         # Fix: detect POS mismatch
@@ -679,7 +703,7 @@ class VerbLexicon:
     def _init_hebbian_priors(cls):
         """Seed Hebbian weights with innate linguistic priors.
 
-        These are NOT hardcoded phrases — they're bias weights on
+        These are NOT hardcoded phrases - they're bias weights on
         morpheme-relation associations, analogous to innate language
         biases (Pinker, 1994; Chomsky, 1965). Each weight biases
         which morphemes are preferred for which relation types.

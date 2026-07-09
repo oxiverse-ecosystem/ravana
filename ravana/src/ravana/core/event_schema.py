@@ -424,38 +424,48 @@ class EventSchemaLibrary:
     def get_narrative_from_schema(self, concept: str) -> Optional[List[str]]:
         """Generate narrative sentence descriptions from a schema.
 
-        Returns a list of 2-3 sentences describing the process.
+        Returns a list of 2-4 sentences describing the process.
         """
         schema = self.get_schema(concept)
         if not schema or len(schema.steps) < 2:
             return None
 
         sentences = []
-        # Introduction: "Concept is about [overall process]"
-        if schema.steps:
-            first = schema.steps[0]
-            intro = f"{concept.capitalize()} {first.verb} {first.description}"
-            if first.duration:
-                intro = intro.rstrip('.') + f", {first.duration}"
-            sentences.append(intro + ".")
+        concept_disp = concept.capitalize()
 
-        # Middle steps: "It then [verb] through [process]"
+        # Step 1: Introduction
+        first = schema.steps[0]
+        if first.concept.lower() == concept.lower():
+            intro = f"{concept_disp} {first.verb} {first.description}"
+        else:
+            intro = f"For {concept_disp.lower()}, the process begins when {first.concept} {first.verb} {first.description}"
+        
+        if first.duration:
+            intro = intro.rstrip('.') + f", {first.duration}"
+        sentences.append(intro + ".")
+
+        # Step 2: Middle steps
         for i, step in enumerate(schema.steps[1:-1], 1):
+            # Formulate transition/subject
             if i == 1:
-                prefix = "it then"
+                prefix = f"This process unfolds as {step.concept}"
             else:
-                prefix = "over time, it"
+                prefix = f"Through this development, {step.concept}"
+                
             duration = f", {step.duration}" if step.duration else ""
             sentence = f"{prefix} {step.verb} {step.description}{duration}."
             sentences.append(sentence)
 
-        # Final step: describing culmination/significance
-        if len(schema.steps) >= 2:
-            last = schema.steps[-1]
-            significance = f"and this {last.verb} {last.description}"
-            if last.duration:
-                significance += f" {last.duration}"
-            sentences.append(f"{significance}.")
+        # Step 3: Final step
+        last = schema.steps[-1]
+        if last.concept.lower() == concept.lower():
+            significance = f"Ultimately, {concept_disp.lower()} {last.verb} {last.description}"
+        else:
+            significance = f"Ultimately, this leads to {last.concept} which {last.verb} {last.description}"
+            
+        if last.duration:
+            significance += f", {last.duration}"
+        sentences.append(significance + ".")
 
         return sentences
 

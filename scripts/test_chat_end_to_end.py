@@ -30,6 +30,9 @@ from scripts.ravana_chat import CognitiveChatEngine
 
 print("=== INITIALIZING ===", flush=True)
 engine = CognitiveChatEngine(dim=64, seed=42, baby_mode=True)
+engine._network_available = False  # Skip web search to avoid network/DNS hangs in offline sandbox environments
+engine._needs_seed_training = False
+engine._needs_synthetic_training = False
 print("=== INITIALIZED ===", flush=True)
 
 # Test Phase C: CerebellarNgram

@@ -496,7 +496,7 @@ class NeuralDecoder(Module):
                     break
                 wl = w.lower().strip(".,!?").strip("'")
                 if wl not in function_words_set and wl in word_to_embed and wl not in seen_cond and len(wl) >= 3:
-                    known_embs.append(word_to_embed[wl] * random.uniform(0.7, 1.0))
+                    known_embs.append(word_to_embed[wl] * _rand_mod.uniform(0.7, 1.0))
                     seen_cond.add(wl)
                     content_count += 1
             

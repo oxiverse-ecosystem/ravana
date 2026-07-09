@@ -2,12 +2,15 @@
 Sleep Consolidation for RAVANA.
 
 Implements complementary learning systems (McClelland et al., 1995):
-- Hippocampal replay: fast, sparse episodic replay
-- Neocortical consolidation: slow, overlapping weight updates
+- Hippocampal replay: fast, sparse episodic replay (NREM)
+- Neocortical consolidation: slow, overlapping weight updates (NREM)
 - Synaptic homeostasis: renormalize weights (Tononi & Cirelli, 2006)
+- REM dream sabotage: counterfactual edges, emotional reconsolidation
 - Prediction-error-driven updates (Active Inference during sleep)
 """
 import numpy as np
+import random
+import time
 from dataclasses import dataclass, field
 from typing import Dict, Any, Optional, List
 from collections import defaultdict
@@ -22,9 +25,16 @@ class SleepConfig:
     downscaling_budget: float = 5.0
     prune_threshold: float = 0.1
 
+    # REM dream sabotage parameters
+    rem_counterfactual_rate: float = 0.12
+    rem_emotional_decay: float = 0.05
+    rem_flip_rate: float = 0.03
+    rem_creative_rate: float = 0.06
+    rem_sampling_k: int = 20
+
 
 class SleepConsolidation:
-    """Sleep consolidation engine: offline replay, renormalization, pruning."""
+    """Sleep consolidation engine: offline replay, renormalization, pruning, REM sabotage."""
 
     def __init__(self, config: Optional[SleepConfig] = None):
         self.config = config or SleepConfig()
@@ -36,6 +46,10 @@ class SleepConsolidation:
             "total_sleep_cycles": 0,
             "last_sleep_turn": 0,
             "last_sleep_metrics": {},
+            "rem_counterfactual_edges": 0,
+            "rem_flipped_edges": 0,
+            "rem_creative_edges": 0,
+            "rem_emotional_decays": 0,
         }
 
     def run_cycle(self, graph, episodic_buffer: List[Dict],
@@ -46,8 +60,9 @@ class SleepConsolidation:
                   impossible_queries: List,
                   contradiction_map: Dict,
                   drift_defense_threshold: float = 0.7,
-                  drift_pull: float = 0.05) -> Dict[str, int]:
-        """Run a full sleep consolidation cycle.
+                  drift_pull: float = 0.05,
+                  concept_vad: Optional[Dict[int, tuple]] = None) -> Dict[str, int]:
+        """Run a full sleep consolidation cycle with NREM and REM stages.
 
         Args:
             graph: ConceptGraph instance
@@ -60,6 +75,8 @@ class SleepConsolidation:
             contradiction_map: Dict of concept -> antonym set
             drift_defense_threshold: Threshold for drift correction
             drift_pull: Strength of drift correction
+            concept_vad: Optional dict of node_id -> (valence, arousal, dominance)
+                         for emotional reconsolidation during REM
 
         Returns:
             Dict with sleep metrics
@@ -68,8 +85,12 @@ class SleepConsolidation:
         edges_pruned = 0
         episodic_consolidated = 0
         impossible_resolved = 0
+        rem_counterfactual = 0
+        rem_flipped = 0
+        rem_creative = 0
+        rem_emotional = 0
 
-        # 1. Hippocampal replay: replay recent/important triples
+        # NREM STAGE 1: Hippocampal replay
         if episodic_triples:
             n_replay = min(10, len(episodic_triples))
             replay_triples = episodic_triples[-n_replay:]
@@ -83,21 +104,19 @@ class SleepConsolidation:
                 if edge is None:
                     continue
 
-                # Strengthen through replay
                 edge.weight = min(1.0, edge.weight + 0.02)
                 edge.confidence = min(1.0, edge.confidence + 0.01)
                 edges_strengthened += 1
 
-                # Hebbian co-activation replay
                 graph.hebbian_update(subj_cid, obj_cid, coactivation=0.5, lr=0.005)
 
-        # 2. Homeostatic downscaling: prevent runaway strengthening
+        # NREM STAGE 2: Homeostatic downscaling
         self._normalize_outgoing_weights(graph, budget=self.config.downscaling_budget)
 
-        # 3. Prune weak edges
+        # NREM STAGE 3: Prune weak edges
         edges_pruned = self._prune_weak_edges(graph, threshold=self.config.prune_threshold)
 
-        # 4. Drift defense: pull concept vectors back toward core
+        # NREM STAGE 4: Drift defense
         for nid, node in graph.nodes.items():
             drift = getattr(node, 'drift_magnitude', 0.0)
             if drift > drift_defense_threshold:
@@ -107,24 +126,27 @@ class SleepConsolidation:
                 if norm > 0:
                     node.vector /= norm
 
-        # 5. Episodic -> semantic consolidation
+        # REM STAGE 5: Dream sabotage (counterfactuals, emotional processing, creativity)
+        rem_counterfactual, rem_flipped, rem_creative, rem_emotional = self._rem_dream_sabotage(
+            graph=graph,
+            concept_vad=concept_vad,
+        )
+
+        # NREM STAGE 6: Episodic -> semantic consolidation
         for ep in episodic_buffer:
             if ep['correct'] and ep['error'] < 0.3:
                 importance = ep.get('importance', 0.5)
                 is_novel = ep.get('consolidation_state', 'fresh') == 'fresh'
-                strength_delta = 0.05 * importance * (1.5 if is_novel else 1.0)
                 for cid in ep['concepts']:
                     if cid in graph.nodes:
-                        # Mark for semantic consolidation (handled by graph)
                         pass
                     episodic_consolidated += 1
 
-        # 6. Belief reconciliation
+        # NREM STAGE 7: Belief reconciliation
         if belief_store and belief_store.users:
             resolved = belief_store.reconcile()
-            # Metrics logged externally
 
-        # 7. Sleep-replay impossible queries
+        # NREM STAGE 8: Sleep-replay impossible queries
         for iq in impossible_queries:
             if iq.resolved:
                 continue
@@ -148,13 +170,17 @@ class SleepConsolidation:
                         iq.resolved = True
                         impossible_resolved += 1
 
-        # 8. Correct mis-typed relations during sleep
+        # STAGE 9: Correct mis-typed relations during sleep
         # (Handled by GraphEngine._correct_relation_types)
 
         self.metrics["edges_strengthened"] += edges_strengthened
         self.metrics["edges_pruned"] += edges_pruned
         self.metrics["episodic_consolidated"] += episodic_consolidated
         self.metrics["impossible_queries_resolved"] += impossible_resolved
+        self.metrics["rem_counterfactual_edges"] += rem_counterfactual
+        self.metrics["rem_flipped_edges"] += rem_flipped
+        self.metrics["rem_creative_edges"] += rem_creative
+        self.metrics["rem_emotional_decays"] += rem_emotional
         self.metrics["total_sleep_cycles"] += 1
 
         return {
@@ -162,6 +188,10 @@ class SleepConsolidation:
             "edges_pruned": edges_pruned,
             "episodic_consolidated": episodic_consolidated,
             "impossible_queries_resolved": impossible_resolved,
+            "rem_counterfactual_edges": rem_counterfactual,
+            "rem_flipped_edges": rem_flipped,
+            "rem_creative_edges": rem_creative,
+            "rem_emotional_decays": rem_emotional,
         }
 
     def _normalize_outgoing_weights(self, graph, budget: float = 5.0):
@@ -186,3 +216,156 @@ class SleepConsolidation:
         for src, tgt in edges_to_remove:
             graph.remove_edge(src, tgt)
         return len(edges_to_remove)
+
+    def _rem_dream_sabotage(self, graph, concept_vad: Optional[Dict[int, tuple]] = None) -> tuple:
+        """REM dream sabotage: counterfactual edges, emotional processing, creative recombination.
+
+        Models three key REM sleep functions:
+        1. Counterfactual generation: edges between weakly similar nodes (cos sim 0.2-0.45)
+           with randomly flipped relation types
+        2. Creative hub recombination: edges between distant high-degree hubs
+        3. Emotional reconsolidation: decay emotional charge on high-VAD concepts
+
+        Returns:
+            (counterfactual_created, edges_flipped, creative_edges, emotional_decays)
+        """
+        cfg = self.config
+        rng = random.Random()
+        rng.seed(hash(str(time.time())) % (2 ** 32))
+
+        n_nodes = len(graph.nodes)
+        if n_nodes < 5:
+            return (0, 0, 0, 0)
+
+        node_ids = list(graph.nodes.keys())
+        counterfactual_created = 0
+        edges_flipped = 0
+        creative_created = 0
+        emotional_decays = 0
+
+        # Helper: compute degree (outgoing + incoming) for a node
+        def _node_degree(nid: int) -> int:
+            return len(graph._outgoing.get(nid, [])) + len(graph._incoming.get(nid, []))
+
+        relation_types = ["semantic", "causal", "temporal", "analogical", "contextual"]
+
+        # ── 1. Counterfactual edge generation ──
+        n_counterfactual = max(1, int(n_nodes * cfg.rem_counterfactual_rate))
+        candidate_nodes = rng.sample(node_ids, min(n_counterfactual, n_nodes))
+
+        for src_nid in candidate_nodes:
+            src_node = graph.get_node(src_nid)
+            if src_node is None or src_node.vector is None:
+                continue
+
+            other_ids = [nid for nid in node_ids if nid != src_nid]
+            if len(other_ids) < 2:
+                continue
+            samples = rng.sample(other_ids, min(cfg.rem_sampling_k, len(other_ids)))
+
+            for tgt_nid in samples:
+                tgt_node = graph.get_node(tgt_nid)
+                if tgt_node is None or tgt_node.vector is None:
+                    continue
+                if graph.get_edge(src_nid, tgt_nid) is not None:
+                    continue
+                if graph.get_edge(tgt_nid, src_nid) is not None:
+                    continue
+
+                sim = float(np.dot(src_node.vector, tgt_node.vector))
+                norms_prod = float(np.linalg.norm(src_node.vector) * np.linalg.norm(tgt_node.vector))
+                if norms_prod > 0:
+                    cos_sim = sim / norms_prod
+                else:
+                    continue
+
+                # Counterfactual sweet spot: weakly similar
+                if 0.2 <= cos_sim <= 0.45:
+                    flipped_type = rng.choice(relation_types)
+                    if flipped_type == "semantic" and rng.random() < 0.6:
+                        flipped_type = rng.choice(["causal", "temporal", "analogical"])
+
+                    weight = 0.25 + 0.3 * cos_sim
+                    edge = graph.add_edge(src_nid, tgt_nid, weight=weight,
+                                         relation_type=flipped_type,
+                                         confidence=0.02)
+                    edge.stability = 0.05
+                    counterfactual_created += 1
+                    break
+
+        # ── 2. Relation type flipping ──
+        n_flip = max(1, int(len(graph.edges) * cfg.rem_flip_rate))
+        all_edges = list(graph.edges.items())
+        flip_candidates = rng.sample(all_edges, min(n_flip, len(all_edges)))
+
+        for (src, tgt), edge in flip_candidates:
+            if edge.edge_type == "inhibitory":
+                continue
+            current = edge.relation_type
+            alternatives = [rt for rt in relation_types if rt != current]
+            if not alternatives:
+                continue
+            new_type = rng.choice(alternatives)
+            edge.relation_type = new_type
+            edge.stability *= 0.8
+            edges_flipped += 1
+
+        # ── 3. Creative hub recombination ──
+        n_creative = max(1, int(n_nodes * cfg.rem_creative_rate))
+        degree_order = sorted(node_ids, key=_node_degree, reverse=True)
+        hub_nodes = degree_order[:max(10, n_creative)]
+
+        for src_nid in hub_nodes:
+            src_node = graph.get_node(src_nid)
+            if src_node is None or src_node.vector is None:
+                continue
+
+            for tgt_nid in hub_nodes:
+                if tgt_nid <= src_nid:
+                    continue
+                tgt_node = graph.get_node(tgt_nid)
+                if tgt_node is None or tgt_node.vector is None:
+                    continue
+                if graph.get_edge(src_nid, tgt_nid) is not None:
+                    continue
+                if graph.get_edge(tgt_nid, src_nid) is not None:
+                    continue
+
+                sim = float(np.dot(src_node.vector, tgt_node.vector))
+                norms_prod = float(np.linalg.norm(src_node.vector) * np.linalg.norm(tgt_node.vector))
+                if norms_prod > 0:
+                    cos_sim = sim / norms_prod
+                else:
+                    continue
+
+                # Distant but both important: creative recombination
+                if cos_sim < 0.15 and cos_sim > -0.15:
+                    weight = 0.15 + abs(cos_sim) * 0.2
+                    flip_type = rng.choice(["analogical", "contextual", "inferred"])
+                    edge = graph.add_edge(src_nid, tgt_nid, weight=weight,
+                                         relation_type=flip_type,
+                                         confidence=0.01)
+                    edge.stability = 0.02
+                    creative_created += 1
+                    break
+
+        # ── 4. Emotional reconsolidation ──
+        if concept_vad and len(concept_vad) > 0:
+            vad_nids = list(concept_vad.keys())
+            for nid in vad_nids:
+                if nid not in graph.nodes:
+                    continue
+                vad = concept_vad[nid]
+                if vad is None or len(vad) < 3:
+                    continue
+                valence, arousal, dominance = vad
+
+                emotional_intensity = abs(valence) * arousal
+                if emotional_intensity > 0.3:
+                    decay = cfg.rem_emotional_decay
+                    new_valence = valence * (1.0 - decay)
+                    new_arousal = max(0.0, arousal - decay * 0.5)
+                    concept_vad[nid] = (new_valence, new_arousal, dominance)
+                    emotional_decays += 1
+
+        return (counterfactual_created, edges_flipped, creative_created, emotional_decays)

@@ -979,7 +979,7 @@ class ChatInterface:
         return temp
 
     def _sleep_consolidate(self) -> Dict[str, int]:
-        return self.sleep_engine.run_cycle(
+        result = self.sleep_engine.run_cycle(
             graph=self.graph_engine.graph,
             episodic_buffer=[],
             episodic_triples=self.plasticity._episodic_triples,
@@ -989,8 +989,11 @@ class ChatInterface:
             impossible_queries=self.web_learner._impossible_queries if hasattr(self.web_learner, '_impossible_queries') else [],
             contradiction_map=self.graph_engine._contradiction_map,
             drift_defense_threshold=0.7,
-            drift_pull=0.05
+            drift_pull=0.05,
+            concept_vad=self._concept_vad if hasattr(self, '_concept_vad') else None,
         )
+        self.sleep_cycles_completed += 1
+        return result
 
     def _metacognitive_review(self):
         pass

@@ -11,10 +11,20 @@ from typing import Dict, Any, List, Optional, Tuple, Set
 from collections import deque, Counter
 
 
-from .constants import TEEN_CONCEPTS, WEB_GARBAGE, STOP_WORDS
+from .constants import TEEN_CONCEPTS, WEB_GARBAGE, STOP_WORDS, INAPPROPRIATE_WORDS, _is_keyboard_mash
 from .models import ChainHop, ChainTrace, CognitiveResponseContext
-from ravana.graph.engine import DOMAIN_CONCEPTS, CONTRASTIVE_PAIRS, CAUSAL_PAIRS, IS_A_PAIRS
+from ravana.graph.engine import DOMAIN_CONCEPTS
 from ravana.language.surface_realizer import DiscourseState
+from ravana.bootstrap.pmi_seeder import PMISeeder, load_corpus, compute_pmi_from_corpus
+from ravana.chat.synaptic_dynamics import (
+    relevance_suppression_dual, degree_suppression,
+    recency_modulation, task_relevance_gate,
+    post_hoc_relevance_filter, rlm_confidence_modulation,
+    valence_modulation, dominance_modulation,
+    edge_strength_suppression, repetition_penalty,
+    dormant_edge_modulation, self_penalty_gate,
+    sigmoid_gate,
+)
 
 # Compute project root (same logic as engine.py)
 _proj_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
@@ -24,206 +34,133 @@ class ChainWalkerMixin:
     """Mixin providing graph traversal, relation inference, and chain walking methods."""
 
     def _seed_concepts(self):
-        """Seed the graph with teenager-level vocabulary and typed relationships."""
+        """Seed the graph using corpus-driven PMI bootstrapping.
+        Replaces all hardcoded TEEN_CONCEPTS, semantic_edges, causal_edges,
+        contrastive_edges, etc. with data-driven PMI statistics from corpus."""
         self._concept_labels = set()
-        all_labels = {label.lower() for label, _ in TEEN_CONCEPTS}
-        for label, keywords in TEEN_CONCEPTS:
-            # GloVe vector if available, else hash-based random
-            vec = self._glove_vector(label)
+        
+        # PMI-driven seeding from corpus
+        corpus_path = os.path.join(_proj_root, "data", "corpora", "teen_seeds.txt")
+        import math
+        
+        # Load sentences from corpus or use fallback
+        pmi_sentences = load_corpus(corpus_path)
+        concepts, pmi_edges = compute_pmi_from_corpus(
+            pmi_sentences, min_freq=2, min_pmi=0.3, max_concepts=200,
+            stop_words=STOP_WORDS
+        )
+        
+        # Supplement with essential fallback if corpus too small
+        if len(concepts) < 20:
+            fallback = PMISeeder().get_fallback_concepts()
+            existing = set(concepts)
+            for fc in fallback:
+                if fc not in existing:
+                    concepts.append(fc)
+        
+        # Add concepts to graph
+        label_to_id = {}
+        for word in concepts:
+            vec = self._glove_vector(word)
             if vec is None:
-                h = hash(label) % 10000
+                h = hash(word) % 10000
                 vr = np.random.RandomState(h + 42)
                 vec = vr.randn(self.dim).astype(np.float32) * 0.15
-                for kw in keywords.split():
-                    kh = hash(kw) % 5000
-                    kr = np.random.RandomState(kh)
-                    vec += kr.randn(self.dim).astype(np.float32) * 0.05
-                norm = np.linalg.norm(vec)
+                norm = float(np.linalg.norm(vec))
                 if norm > 0:
                     vec /= norm
-            node = self.graph.add_node(vector=vec, label=label)
-            self._concept_labels.add(label.lower())
-
-            # Map keywords, skipping those that shadow another concept's label
-            for kw in keywords.split():
-                kl = kw.lower()
-                if kl in all_labels:
-                    continue
-                self._concept_keywords.setdefault(kl, []).append(node.id)
-            self._concept_keywords.setdefault(label, []).append(node.id)
-            if "_" in label:
-                for part in label.split("_"):
-                    if len(part) >= 3:
-                        self._concept_keywords.setdefault(part, []).append(node.id)
-
-        # Build concept_id map after seeding
-        label_to_id = {}
-        for nid, node in self.graph.nodes.items():
-            if node.label:
-                label_to_id[node.label] = nid
-
-        # ── Typed Edges: (source, target, relation_type, weight) ──
-        # Semantic (is-a, similar to): baseline connections
-        semantic_edges = [
-            ("hello", "bye"), ("hello", "thanks"), ("thanks", "sorry"),
-            ("yes", "no"), ("good", "bad"), ("big", "small"), ("hot", "cold"),
-            ("up", "down"), ("in", "out"), ("here", "there"),
-            ("now", "later"), ("more", "some"), ("one", "many"),
-            ("happy", "sad"), ("joy", "grief"), ("excited", "bored"),
-            ("love", "hate"), ("hope", "fear"),
-            ("trust", "respect"), ("freedom", "responsibility"),
-            ("knowledge", "wisdom"), ("knowledge", "truth"),
-            ("sun", "moon"), ("sun", "light"), ("tree", "bird"),
-            ("dog", "cat"), ("dog", "friend"),
-            ("water", "rain"), ("food", "eat"),
-            ("book", "read"), ("book", "story"), ("song", "music"),
-            ("science", "knowledge"), ("history", "story"),
-            ("life", "death"), ("mind", "heart"),
-            ("time", "change"), ("world", "nature"),
-            ("time", "future"), ("time", "past"), ("future", "past"),
-            ("machine", "invention"), ("invention", "create"),
-            ("imagination", "dream"), ("imagination", "create"),
-            ("impossible", "possible"), ("possibility", "maybe"),
-            ("future", "change"), ("past", "history"),
-            ("invent", "create"), ("invent", "explore"),
-            ("journey", "explore"), ("experiment", "discovery"),
-            ("i", "we"), ("i", "you"),
-            ("all", "many"), ("work", "effort"),
-            ("play", "fun"), ("play", "game"),
-            ("why", "because"), ("if", "maybe"),
-        ]
-
-        # Causal: A causes/creates/produces B
-        causal_edges = [
-            ("sun", "hot"), ("sun", "light"),
-            ("eat", "food"), ("drink", "water"),
-            ("sleep", "tired"), ("play", "happy"),
-            ("love", "joy"), ("fear", "anxiety"),
-            ("cause", "change"), ("learn", "knowledge"),
-            ("study", "understanding"), ("practice", "skill"),
-            ("challenge", "struggle"), ("struggle", "growth"),
-            ("power", "responsibility"), ("freedom", "choice"),
-            ("question", "curiosity"), ("explore", "discovery"),
-            ("trust", "friendship"), ("hypocrisy", "distrust"),
-            ("grief", "sadness"), ("hope", "motivation"),
-            ("rejection", "loneliness"), ("acceptance", "belonging"),
-            ("anger", "conflict"), ("empathy", "understanding"),
-            ("criticism", "growth"), ("failure", "learning"),
-            ("change", "growth"), ("time", "change"),
-            ("knowledge", "wisdom"), ("experience", "wisdom"),
-            ("art", "expression"), ("science", "progress"),
-            ("imagination", "invention"), ("experiment", "knowledge"),
-            ("machine", "future"), ("journey", "discovery"),
-        ]
-
-        # Temporal: A then/before/after B
-        temporal_edges = [
-            ("birth", "life"), ("life", "death"),
-            ("morning", "noon"), ("noon", "night"),
-            ("question", "answer"), ("cause", "effect"),
-            ("learn", "understand"), ("struggle", "succeed"),
-        ]
-
-        # Contrastive: A vs B (opposites)
-        contrastive_edges = [
-            ("good", "bad"), ("love", "hate"), ("life", "death"),
-            ("truth", "lie"), ("freedom", "oppression"),
-            ("courage", "fear"), ("hope", "despair"),
-            ("knowledge", "ignorance"), ("justice", "injustice"),
-            ("create", "destroy"), ("accept", "reject"),
-            ("always", "never"),
-        ]
-
-        # Analogical: A is like B (different domains, similar pattern)
-        analogical_edges = [
-            ("mind", "garden"), ("life", "journey"),
-            ("knowledge", "light"), ("time", "river"),
-            ("society", "organism"), ("identity", "building"),
-            ("memory", "library"), ("heart", "engine"),
-        ]
-
-        # Apply all edges with their types
-        self._apply_edges(label_to_id, semantic_edges, "semantic", 0.35)
-        self._apply_edges(label_to_id, causal_edges, "causal", 0.45)
-        self._apply_edges(label_to_id, temporal_edges, "temporal", 0.40)
-        self._apply_edges(label_to_id, contrastive_edges, "contrastive", 0.50)
-        self._apply_edges(label_to_id, analogical_edges, "analogical", 0.30)
-
-        # ── Hub edges: connect self-referential and high-frequency concepts
-        # This densifies the graph so response generation can walk richer paths
+            node = self.graph.add_node(vector=vec, label=word)
+            self._concept_labels.add(word.lower())
+            self._concept_keywords.setdefault(word, []).append(node.id)
+            label_to_id[word] = node.id
+        
+        # Apply PMI edges
+        auto_count = min(len(pmi_edges), 300)
+        for w1, w2, pmi in pmi_edges[:300]:
+            nid1 = label_to_id.get(w1)
+            nid2 = label_to_id.get(w2)
+            if nid1 is not None and nid2 is not None:
+                if self.graph.get_edge(nid1, nid2) is None and self.graph.get_edge(nid2, nid1) is None:
+                    weight = 0.15 + 0.6 * (1.0 / (1.0 + math.exp(-pmi + 1.0)))
+                    weight = min(0.75, max(0.15, weight))
+                    self.graph.add_edge(nid1, nid2, weight=weight + self.rng.uniform(0, 0.08),
+                                       relation_type="semantic")
+        
+        # Minimal hub wiring (self -> cognitive action) - irreducible primitives
+        for word in ["i", "you", "we", "think", "feel", "know", "want", "like", "say"]:
+            if word not in label_to_id:
+                vec = self._glove_vector(word)
+                if vec is None:
+                    h = hash(word) % 10000
+                    vr = np.random.RandomState(h + 42)
+                    vec = vr.randn(self.dim).astype(np.float32) * 0.15
+                    norm = float(np.linalg.norm(vec))
+                    if norm > 0:
+                        vec /= norm
+                node = self.graph.add_node(vector=vec, label=word)
+                self._concept_labels.add(word.lower())
+                self._concept_keywords.setdefault(word, []).append(node.id)
+                label_to_id[word] = node.id
+        
         hub_edges = [
-            # Self → cognitive actions
-            ("i", "think", "causal"), ("i", "feel", "causal"),
-            ("i", "know", "causal"), ("i", "want", "causal"),
-            ("i", "like", "causal"), ("i", "say", "causal"),
-            ("we", "people", "semantic"), ("we", "they", "semantic"),
-            ("you", "person", "semantic"), ("you", "friend", "semantic"),
-            # Cognitive hubs → content
-            ("think", "knowledge", "causal"), ("think", "question", "causal"),
-            ("think", "analyze", "causal"), ("think", "explore", "causal"),
-            ("feel", "love", "causal"), ("feel", "happy", "causal"),
-            ("feel", "sad", "causal"), ("feel", "fear", "causal"),
-            ("feel", "excited", "causal"),
-            ("know", "learn", "causal"), ("know", "truth", "semantic"),
-            ("know", "knowledge", "semantic"), ("know", "understand", "causal"),
-            ("want", "freedom", "causal"), ("want", "love", "causal"),
-            ("want", "more", "causal"), ("want", "power", "causal"),
-            ("like", "love", "semantic"), ("like", "play", "causal"),
-            ("like", "friend", "semantic"), ("like", "music", "semantic"),
-            ("like", "art", "semantic"),
-            # Extra connective density
-            ("people", "society", "semantic"), ("people", "culture", "semantic"),
-            ("learn", "knowledge", "causal"), ("learn", "understand", "causal"),
-            ("understand", "knowledge", "semantic"),
-            ("question", "curious", "causal"), ("explore", "discover", "causal"),
+            ("i", "think", 0.45), ("i", "feel", 0.45),
+            ("i", "know", 0.45), ("i", "want", 0.45),
+            ("think", "knowledge", 0.35), ("feel", "love", 0.35),
+            ("know", "learn", 0.35), ("know", "understand", 0.35),
         ]
-        for src, tgt, rel in hub_edges:
+        for src, tgt, bw in hub_edges:
             sid = label_to_id.get(src)
             tid = label_to_id.get(tgt)
             if sid is not None and tid is not None and self.graph.get_edge(sid, tid) is None:
-                bw = 0.35 if rel == "semantic" else 0.45
-                self.graph.add_edge(sid, tid, weight=bw + self.rng.uniform(0, 0.15),
-                                   relation_type=rel)
-
-        # ── Auto-wire: connect GloVe-similar concepts (>0.6) as semantic edges
-        auto_count = 0
+                self.graph.add_edge(sid, tid, weight=bw + self.rng.uniform(0, 0.1),
+                                   relation_type="causal")
+        
+        # Auto-wire GloVe-similar concepts
         nids = list(label_to_id.values())
-        for i in range(len(nids)):
+        gwired = 0
+        for i in range(min(len(nids), 100)):
             ni = self.graph.get_node(nids[i])
             if ni is None or ni.vector is None:
                 continue
-            for j in range(i + 1, len(nids)):
+            for j in range(i + 1, min(len(nids), i + 50)):
                 if self.graph.get_edge(nids[i], nids[j]) is not None or self.graph.get_edge(nids[j], nids[i]) is not None:
                     continue
                 nj = self.graph.get_node(nids[j])
                 if nj is None or nj.vector is None:
                     continue
                 sim = float(np.dot(ni.vector, nj.vector))
-                # Higher threshold (0.65 instead of 0.6) and dormant confidence raised from 0.001 to 0.02
-                # This reduces noise edges while keeping strong semantic connections.
                 if sim > 0.65:
                     weight = min(0.5, sim * 0.5)
-                    # Infer proper relation type instead of always "semantic"
-                    inf_type, _ = self._infer_relation_type(ni.label, nj.label, "semantic")
-                    edge = self.graph.add_edge(nids[i], nids[j], weight=weight, relation_type=inf_type)
-                    edge.confidence = 0.02  # dormant: require 2+ visits to wake (raised from 0.001)
+                    edge = self.graph.add_edge(nids[i], nids[j], weight=weight, relation_type="semantic")
+                    edge.confidence = 0.02
                     self._dormant_edges.add((nids[i], nids[j]))
-                    auto_count += 1
-
+                    gwired += 1
+        
         self._all_labels = label_to_id
-        self._build_contradiction_map(contrastive_edges)
-        # Fix seeded edge types using relation inference
+        # Build contradiction map from antipodal GloVe pairs
+        contrastive_pairs = []
+        for i in range(min(len(nids), 80)):
+            ni = self.graph.get_node(nids[i])
+            if ni is None or ni.vector is None or not ni.label:
+                continue
+            for j in range(i + 1, min(len(nids), 80)):
+                nj = self.graph.get_node(nids[j])
+                if nj is None or nj.vector is None or not nj.label:
+                    continue
+                cos = float(np.dot(ni.vector, nj.vector))
+                if cos < -0.15:
+                    contrastive_pairs.append((ni.label, nj.label))
+        self._build_contradiction_map(contrastive_pairs)
+        
         migrated = self._correct_relation_types()
-        # Phase A: Build concept POS tags from seeded concepts
         self._build_concept_pos()
-        # Phase C: Seed cerebellar n-gram from concept POS tags
         if hasattr(self, 'cerebellar_ngram') and hasattr(self, '_concept_pos'):
             self.cerebellar_ngram.seed_from_pos(self._concept_pos)
-        # Phase E: Seed syntactic cell assemblies from concept POS tags
         if hasattr(self, 'syntactic_assembly') and hasattr(self, '_concept_pos'):
             self.syntactic_assembly.seed_from_pos(self._concept_pos)
         extra = f", {migrated} reclassified" if migrated else ""
-        print(f"  [Teen] Seeded {len(self.graph.nodes)} concepts, {len(self.graph.edges)} connections ({auto_count} auto-wired) across 5 relation types{extra}")
+        print(f"  [PMI] Seeded {len(self.graph.nodes)} concepts, {len(self.graph.edges)} connections"
+              f" ({auto_count} PMI-wired, {gwired} GloVe-wired){extra}")
 
     def _build_concept_pos(self):
         """Build POS tags for seeded concepts based on word characteristics."""
@@ -257,7 +194,6 @@ class ChainWalkerMixin:
                     self._concept_pos[ll] = FUNCTION_POS.get(ll, 'adv')
                 else:
                     self._concept_pos[ll] = 'noun'
-
 
 
     def _bootstrap_domain_concepts(self):
@@ -345,7 +281,6 @@ class ChainWalkerMixin:
                 pass
 
 
-
     def _auto_expand_concepts(self, text: str) -> int:
         """Phase 1.1+1.2: Auto-expand graph from user input.
 
@@ -362,7 +297,11 @@ class ChainWalkerMixin:
         meaningful = set()
         for w in words:
             wc = w.strip("'")
-            if wc not in STOP_WORDS and wc not in WEB_GARBAGE and len(wc) >= 3:
+            if wc not in STOP_WORDS and wc not in WEB_GARBAGE and wc not in INAPPROPRIATE_WORDS and len(wc) >= 3:
+                # Never auto-expand keyboard-mashed gibberish (e.g. 'asdf',
+                # 'qwer') into permanent graph concepts.
+                if _is_keyboard_mash(wc):
+                    continue
                 meaningful.add(wc)
         if not meaningful:
             return 0
@@ -400,13 +339,8 @@ class ChainWalkerMixin:
                     if norm > 0:
                         vec = composite / norm
                 if vec is None:
-                    # Still no vector: use hash-based random vector (same approach as _seed_concepts)
-                    h = hash(word) % 10000
-                    vr = np.random.RandomState(h + 42)
-                    vec = vr.randn(self.dim).astype(np.float32) * 0.15
-                    norm = float(np.linalg.norm(vec))
-                    if norm > 0:
-                        vec /= norm
+                    # Skip completely OOV words in auto-expansion to let web search discover them
+                    continue
             node = self.graph.add_node(vector=vec, label=word)
             self._concept_keywords[word] = self._concept_keywords.get(word, []) + [node.id]
             self._concept_labels.add(word.lower())
@@ -486,7 +420,6 @@ class ChainWalkerMixin:
         return new_count
 
 
-
     def _init_causal_detection(self):
         """Precompute causal seed vectors for semantic causal detection.
 
@@ -517,7 +450,6 @@ class ChainWalkerMixin:
             self._causal_proto = None
 
 
-
     def _word_causal_score(self, word: str) -> float:
         """Return max GloVe similarity between word and any causal seed vector.
 
@@ -536,7 +468,6 @@ class ChainWalkerMixin:
             if sim > best:
                 best = sim
         return best
-
 
 
     def _init_relation_prototypes(self):
@@ -578,7 +509,6 @@ class ChainWalkerMixin:
                 self._relation_prototypes[rel_type] = proto
 
 
-
     def _relation_modulation_for_word(self, word: str
                                       ) -> Optional[Dict[str, float]]:
         """Compute relation modulation from a single word using GloVe semantics.
@@ -618,7 +548,6 @@ class ChainWalkerMixin:
         return out
 
 
-
     def _compute_relation_modulation(self, plan, intent
                                      ) -> Optional[Dict[str, float]]:
         """PFC top-down modulation: which relation types to bias for this intent.
@@ -636,7 +565,6 @@ class ChainWalkerMixin:
             if qtype:
                 out = self._relation_modulation_for_word(qtype)
         return out
-
 
 
     def _extract_and_store_causal_relations(self, text: str) -> int:
@@ -724,17 +652,15 @@ class ChainWalkerMixin:
         return edges_created
 
 
-
     def _extract_content_words(self, text: str) -> List[str]:
         """Extract meaningful content words from text, filtering stop/garbage words."""
         words = re.findall(r"[a-zA-Z']{3,}", text.lower())
         meaningful = []
         for w in words:
             wc = w.strip("'")
-            if wc not in STOP_WORDS and wc not in WEB_GARBAGE and len(wc) >= 3:
+            if wc not in STOP_WORDS and wc not in WEB_GARBAGE and wc not in INAPPROPRIATE_WORDS and len(wc) >= 3:
                 meaningful.append(wc)
         return meaningful
-
 
 
     def _create_causal_edge(self, cause_word: str, effect_word: str,
@@ -784,7 +710,6 @@ class ChainWalkerMixin:
     # from the edge weight, prediction error drives learning — not additive increments.
 
 
-
     def _prediction_error(self, src_vec: np.ndarray, tgt_vec: np.ndarray,
                            current_weight: float) -> Tuple[float, float]:
         """Compute prediction error and gradient for an edge weight.
@@ -799,7 +724,6 @@ class ChainWalkerMixin:
         error = (current_weight - actual_sim) ** 2
         gradient = 2.0 * (current_weight - actual_sim)
         return error, gradient
-
 
 
     def _update_edge_from_error(self, edge, src_vec: np.ndarray,
@@ -828,14 +752,12 @@ class ChainWalkerMixin:
         return error
 
 
-
     def _build_contradiction_map(self, contrastive_edges: List[Tuple[str, str]]):
         """Build a map of concept → set of antonym concepts from contrastive edges."""
         for a, b in contrastive_edges:
             al, bl = a.lower(), b.lower()
             self._contradiction_map.setdefault(al, set()).add(bl)
             self._contradiction_map.setdefault(bl, set()).add(al)
-
 
 
     def _rebuild_contradiction_map(self):
@@ -849,7 +771,6 @@ class ChainWalkerMixin:
                 al, bl = sn.label.lower(), tn.label.lower()
                 self._contradiction_map.setdefault(al, set()).add(bl)
                 self._contradiction_map.setdefault(bl, set()).add(al)
-
 
 
     def _is_contradictory(self, source_label: str, target_label: str,
@@ -871,10 +792,9 @@ class ChainWalkerMixin:
         return False
 
 
-
     def _log_assertions(self, chains: List[str], subject: str):
         """Extract and log (subject, relation, object) triples from generated chains."""
-        starter_values = set(self._EDGE_TO_STARTER.values())
+        starter_values = self._get_connector_set()
         for chain_str in chains:
             parts = chain_str.strip(".").split()
             # Skip discourse starter if present (e.g. "but", "then", "like")
@@ -892,13 +812,66 @@ class ChainWalkerMixin:
                 connector = parts[j]
                 obj = parts[j + 1]
                 rel_type = "semantic"
-                for rtype, glabel in self._EDGE_TO_GRAPH_LABEL.items():
-                    if glabel == connector:
-                        rel_type = rtype
-                        break
+                rel_type = self._get_relation_for_connector(connector)
                 self._belief_assertions.append((cur_subj, rel_type, obj))
                 cur_subj = obj
 
+
+    def _add_composite_concept(self, phrase: str) -> Optional[int]:
+        """Add a multi-word phrase as a composite concept node in the graph.
+
+        For phrases like 'dark energy' or 'quantum computing', composites the
+        GloVe vectors of the individual words into a single node, then wires
+        it to the constituent word nodes with strong semantic edges.
+
+        Returns the node ID, or None if the phrase is already known or
+        cannot be composited.
+        """
+        phrase_lower = phrase.lower().strip()
+        if not phrase_lower or ' ' not in phrase_lower:
+            return None
+
+        # Check if already exists as a graph node
+        existing_nids = self._concept_keywords.get(phrase_lower, [])
+        if existing_nids:
+            return existing_nids[0]  # Already known
+
+        # Split into individual words, filter stop words
+        words = [w for w in re.findall(r'[a-zA-Z]+', phrase_lower)
+                 if len(w) >= 3 and w not in STOP_WORDS]
+        if len(words) < 2:
+            return None
+
+        # Get GloVe vectors for constituent words
+        vecs = []
+        for w in words:
+            v = self._glove_vector(w)
+            if v is not None:
+                vecs.append(v)
+
+        if len(vecs) < 2:
+            return None
+
+        # Composite: average + normalize
+        composite = np.mean(vecs, axis=0).astype(np.float32)
+        norm = float(np.linalg.norm(composite))
+        if norm > 0:
+            composite /= norm
+
+        # Add the composite node to the graph
+        node = self.graph.add_node(vector=composite, label=phrase_lower)
+        self._concept_keywords[phrase_lower] = [node.id]
+        self._concept_labels.add(phrase_lower)
+
+        # Wire to constituent words
+        for w in words:
+            w_nids = self._concept_keywords.get(w, [])
+            for wn in w_nids:
+                if self.graph.get_edge(node.id, wn) is None and self.graph.get_edge(wn, node.id) is None:
+                    self.graph.add_edge(node.id, wn, weight=0.55,
+                                       relation_type="semantic", confidence=0.6)
+
+        return node.id
 
 
     def _apply_edges(self, label_to_id, edge_list, rel_type, base_weight):
@@ -911,7 +884,6 @@ class ChainWalkerMixin:
                                    relation_type=rel_type)
 
     # ─── Web Learning ───
-
 
 
     def _spread_and_collect(self, seed_ids: List[int],
@@ -1006,6 +978,17 @@ class ChainWalkerMixin:
                             subject_vec = part_vecs[0]
                         break
 
+        
+        # GloVe phrase fallback: if primary_ids is empty, try the subject label phrase.
+        # Without this, unknown concepts (e.g. "quantum computing" with no graph nodes)
+        # have no subject_vec, which disables the entire topic relevance gate.
+        if subject_vec is None and primary_ids and seed_ids:
+            # Try using the subject label from the engine's extracted topic
+            subj_label = getattr(self, '_last_extracted_topic', None)
+            if subj_label:
+                subj_vec = self._glove_vector(subj_label)
+                if subj_vec is not None:
+                    subject_vec = subj_vec
         # Base activation: context (0.3) for all seeds, full (1.0) for spread sources
         for nid in seed_ids:
             self.graph.activate(nid, 1.0 if nid in spread_set else 0.3)
@@ -1028,6 +1011,32 @@ class ChainWalkerMixin:
                     if relation_preference:
                         signal *= relation_preference.get(edge.relation_type, 1.0)
                     
+                    # Issue 4: LIFG Task-Set Biasing (pre-filter before topic gate)
+                    # Left Inferior Frontal Gyrus exerts top-down control that biases
+                    # semantic retrieval toward task-relevant associations (Zhang 2021).
+                    if subject_vec is not None and edge.relation_type != 'causal':
+                        tgt_node = self.graph.get_node(tid)
+                        if tgt_node and tgt_node.vector is not None:
+                            if primary_ids and tid not in primary_ids:
+                                task_relevance = float(np.dot(subject_vec, tgt_node.vector))
+                                signal *= task_relevance_gate(task_relevance)
+                    
+                    # Semantic neighborhood dynamic threshold:
+                    # High-degree concepts (e.g. 'thing', 'way') have higher thresholds.
+                    if subject_vec is not None and edge.relation_type != 'causal':
+                        tgt_node = self.graph.get_node(tid)
+                        if tgt_node and tgt_node.vector is not None:
+                            tgt_degree = len(list(self.graph.get_outgoing(tid))) + len(list(self.graph.get_incoming(tid)))
+                            all_nids = list(self.graph.nodes.keys())[:100] if self.graph.nodes else [tid]
+                            max_degree = 1
+                            for n in all_nids:
+                                if n in self.graph.nodes:
+                                    d = len(list(self.graph.get_outgoing(n))) + len(list(self.graph.get_incoming(n)))
+                                    max_degree = max(max_degree, d)
+                            if primary_ids and tid not in primary_ids:
+                                sim = float(np.dot(subject_vec, tgt_node.vector))
+                                signal *= degree_suppression(tgt_degree, max_degree, sim)
+                    
                     # Topic relevance gate (pattern separation analog):
                     # Suppress associations that are semantically distant from the subject.
                     # This prevents 'water' (learned from love search) from bleeding into
@@ -1038,10 +1047,7 @@ class ChainWalkerMixin:
                         if tgt_node and tgt_node.vector is not None:
                             if primary_ids and tid not in primary_ids:
                                 semantic_sim = float(np.dot(subject_vec, tgt_node.vector))
-                                if semantic_sim < 0.20:
-                                    signal *= 0.05   # Near-orthogonal: almost completely suppress
-                                elif semantic_sim < 0.35:
-                                    signal *= 0.15   # Weakly related: suppress moderately
+                                signal *= relevance_suppression_dual(semantic_sim)
                     
                     # Context-bound recency boost: only boost recently learned concepts
                     # that are semantically related to the current subject (event boundary).
@@ -1052,10 +1058,7 @@ class ChainWalkerMixin:
                             # Only boost if semantically related to subject (same context)
                             if subject_vec is not None and tgt_node.vector is not None:
                                 ctx_sim = float(np.dot(subject_vec, tgt_node.vector))
-                                if ctx_sim > 0.30:
-                                    signal *= 1.5  # Same context: boost (dopamine novelty)
-                                else:
-                                    signal *= 0.3  # Different context: strong suppression (event boundary)
+                                signal *= recency_modulation(ctx_sim)
                             else:
                                 signal *= 1.0  # No subject vector available: neutral
                     
@@ -1075,10 +1078,7 @@ class ChainWalkerMixin:
                         if src_node and src_node.vector is not None:
                             if primary_ids and src not in primary_ids:
                                 semantic_sim = float(np.dot(subject_vec, src_node.vector))
-                                if semantic_sim < 0.20:
-                                    signal *= 0.05
-                                elif semantic_sim < 0.35:
-                                    signal *= 0.15
+                                signal *= relevance_suppression_dual(semantic_sim)
                     
                     # Context-bound recency boost for incoming edges
                     if hasattr(self, '_recently_learned_labels') and self._recently_learned_labels:
@@ -1086,10 +1086,7 @@ class ChainWalkerMixin:
                         if src_node and src_node.label and src_node.label.lower() in self._recently_learned_labels:
                             if subject_vec is not None and src_node.vector is not None:
                                 ctx_sim = float(np.dot(subject_vec, src_node.vector))
-                                if ctx_sim > 0.30:
-                                    signal *= 1.5
-                                else:
-                                    signal *= 0.3
+                                signal *= recency_modulation(ctx_sim)
                             else:
                                 signal *= 1.5
                     
@@ -1109,15 +1106,14 @@ class ChainWalkerMixin:
                 if subject_vec is not None and node.vector is not None and node.label:
                     if primary_ids and nid not in primary_ids:
                         final_sim = float(np.dot(subject_vec, node.vector))
-                        if final_sim < 0.15:
-                            continue  # Completely filter out unrelated concepts
+                        if post_hoc_relevance_filter(final_sim) < 0.2:
+                            continue  # Only skip if gate output is very low
                 collected.append((node.label or f"c{nid}", float(node.activation)))
 
         collected.sort(key=lambda x: x[1], reverse=True)
         for node in self.graph.nodes.values():
             node.activation = 0.0
         return collected[:12]
-
 
 
     def _find_bridge(self, assoc: List[Tuple[str, float]], subj: str) -> str:
@@ -1129,37 +1125,48 @@ class ChainWalkerMixin:
         return best
 
 
-
     def _infer_relation_type(self, src_label: str, tgt_label: str,
                               current_type: str = "semantic") -> Tuple[str, float]:
-        """Infer the correct relation type for a concept pair.
-        Returns (inferred_type, confidence).
-        Uses label-pair heuristics first, then vector-based ranking."""
+        """Infer nearest relation type using relational direction vector.
+        Relation types are purely DESCRIPTIVE labels, not functional categories.
+        Edge weight (learned from prediction error) determines strength.
+        Returns (inferred_type, confidence)."""
         sl = src_label.lower()
         tl = tgt_label.lower()
-        pair = tuple(sorted([sl, tl]))
-        if pair in CONTRASTIVE_PAIRS:
-            return ("contrastive", 0.85)
-        if pair in CAUSAL_PAIRS:
-            return ("causal", 0.80)
-        if pair in IS_A_PAIRS:
-            return ("semantic", 0.80)
-        # Vector-based ranking
-        ranked = self._rank_relations(src_label, tgt_label, current_type)
-        if ranked:
-            best_type, best_score = ranked[0]
-            # Only reclassify if clearly a different type
-            if len(ranked) > 1:
-                second_score = ranked[1][1]
-                margin = best_score - second_score
-                if margin > 0.10 and best_type != current_type:
-                    return (best_type, min(0.75, best_score))
-            return (current_type, max(0.3, best_score))
-        return (current_type, 0.3)
+        src_nids = self._concept_keywords.get(sl, [])
+        tgt_nids = self._concept_keywords.get(tl, [])
+        if not src_nids or not tgt_nids:
+            return (current_type, 0.3)
+        src_node = self.graph.get_node(src_nids[0])
+        tgt_node = self.graph.get_node(tgt_nids[0])
+        if src_node is None or tgt_node is None or src_node.vector is None or tgt_node.vector is None:
+            return (current_type, 0.3)
+        # Relational direction: vector from source toward target
+        rel_vec = tgt_node.vector - src_node.vector
+        rel_norm = np.linalg.norm(rel_vec)
+        if rel_norm < 0.01:
+            return ("semantic", 0.5)
+        rel_vec = rel_vec / rel_norm
+        if not hasattr(self, '_relation_prototypes') or not self._relation_prototypes:
+            self._init_relation_prototypes()
+        if not self._relation_prototypes:
+            return (current_type, 0.3)
+        best_type = current_type
+        best_conf = 0.0
+        for rtype, proto_vec in self._relation_prototypes.items():
+            conf = float(np.dot(rel_vec, proto_vec))
+            if conf > best_conf:
+                best_conf = conf
+                best_type = rtype
+        confidence = 0.2 + 0.7 * max(0.0, best_conf)
+        return (best_type, confidence)
 
 
     def _rank_relations(self, source_label: str, target_label: str,
                         default_type: str) -> List[Tuple[str, float]]:
+        """Score relation types by prototype-vector alignment.
+        No hardcoded formulas or predefined pair lookups.
+        Pure vector-based: compares relational direction to prototypes."""
         src_nids = self._concept_keywords.get(source_label.lower(), [])
         tgt_nids = self._concept_keywords.get(target_label.lower(), [])
         if not src_nids or not tgt_nids:
@@ -1168,42 +1175,44 @@ class ChainWalkerMixin:
         tgt_node = self.graph.get_node(tgt_nids[0])
         if src_node is None or tgt_node is None or src_node.vector is None or tgt_node.vector is None:
             return [(default_type, 0.5)]
-        src_vec = src_node.vector
-        tgt_vec = tgt_node.vector
-        cosine = float(np.dot(src_vec, tgt_vec))
-        mag_ratio = float(np.linalg.norm(tgt_vec) / max(np.linalg.norm(src_vec), 0.001))
-        scores = {
-            "semantic": max(0.0, cosine),
-            "causal": max(0.0, 0.3 + 0.3 * mag_ratio - 0.2 * (1.0 - abs(cosine))),
-            "contrastive": max(0.0, 0.5 - 0.5 * cosine),
-            "analogical": max(0.0, 0.2 + 0.3 * cosine - 0.3 * abs(mag_ratio - 1.0)),
-            "temporal": 0.1,
-            "emotional": 0.1,
-        }
+        
+        rel_vec = tgt_node.vector - src_node.vector
+        rel_norm = np.linalg.norm(rel_vec)
+        if rel_norm < 0.01:
+            return [(default_type, 0.5)]
+        rel_vec = rel_vec / rel_norm
+        
+        if not hasattr(self, '_relation_prototypes') or not self._relation_prototypes:
+            self._init_relation_prototypes()
+        if not self._relation_prototypes:
+            return [(default_type, 0.3)]
+        
+        scores = {}
+        for rtype, proto_vec in self._relation_prototypes.items():
+            score = float(np.dot(rel_vec, proto_vec))
+            scores[rtype] = max(0.0, score)
         return sorted(scores.items(), key=lambda x: -x[1])
 
 
     def _correct_relation_types(self) -> int:
-        """Iterate edges and reclassify mis-typed relations.
-        Returns number of edges migrated."""
+        """Re-label edges using relational direction prototypes.
+        Relation types are descriptive labels only - edge WEIGHT determines
+        functional behavior. This assigns the most appropriate label."""
         migrated = 0
         for (sid, tid), edge in list(self.graph.edges.items()):
             src_node = self.graph.get_node(sid)
             tgt_node = self.graph.get_node(tid)
             if src_node is None or tgt_node is None or not src_node.label or not tgt_node.label:
                 continue
-            # Skip high-confidence edges (manually seeded or user-confirmed)
             if edge.confidence >= 0.8:
                 continue
             inferred_type, inferred_conf = self._infer_relation_type(
                 src_node.label, tgt_node.label, edge.relation_type)
             if inferred_type != edge.relation_type:
-                old_type = edge.relation_type
                 edge.relation_type = inferred_type
                 edge.confidence = max(edge.confidence, inferred_conf * 0.8)
                 migrated += 1
         return migrated
-
 
 
     def _get_edge_info(self, src_label: str, tgt_label: str) -> Optional[Dict]:
@@ -1221,7 +1230,6 @@ class ChainWalkerMixin:
                     return {'weight': edge.weight, 'confidence': edge.confidence,
                             'relation_type': edge.relation_type, 'reversed': True}
         return None
-
 
 
     def _group_associations(self, subject: str, assocs: List,
@@ -1242,7 +1250,6 @@ class ChainWalkerMixin:
         return groups
 
 
-
     def _rel_clause(self, subject: str, rel: str, concepts: List[str]) -> str:
         """Build a clause like 'subject cause concept1 concept2'."""
         connector = self._pick_connector(rel, 0.5, 1.0, 0.25)
@@ -1254,21 +1261,55 @@ class ChainWalkerMixin:
         return f"{subject} {' '.join(concepts)}"
 
 
-
     def _build_phrase(self, subject: str, groups: Dict[str, List[str]]) -> str:
         """Build a phrase from grouped associations: subject connector group1 group2..."""
         parts = [subject]
         for rel, concepts in groups.items():
-            connector = self._EDGE_TO_GRAPH_LABEL.get(rel, "")
+            connector = self._pick_connector(rel, 0.5, 1.0, 0.25)
             if connector:
                 if parts[-1] != connector:
                     parts.append(connector)
                 concepts = [c for c in concepts if c.lower() != connector]
             parts.extend(concepts)
         return " ".join(parts)
+    # --- Phase 4: Connector Selection (Learned from GloVe) ---
+
+    def _pick_connector(self, rel_type: str, weight: float = 0.5,
+                         confidence: float = 0.5, temperature: float = 0.25) -> str:
+        """Pick a connector word for a relation type using learned probabilities."""
+        if hasattr(self, '_connector_learner') and self._connector_learner is not None:
+            return self._connector_learner.get_connector(
+                rel_type, weight, confidence, temperature, rng=self.rng
+            )
+        fallback = {
+            "causal": "because", "contrastive": "but", "semantic": "and",
+            "temporal": "then", "analogical": "like", "episodic": "when",
+        }
+        return fallback.get(rel_type, "and")
+
+    def _get_connector_set(self) -> set:
+        if hasattr(self, '_connector_learner') and self._connector_learner is not None:
+            return self._connector_learner.get_connector_set()
+        return {"because", "but", "and", "then", "like", "when", "so", "yet", "although"}
+
+    def _get_relation_for_connector(self, word: str) -> str:
+        """Deterministic reverse lookup: get relation type for a connector word."""
+        if hasattr(self, '_connector_learner') and self._connector_learner is not None:
+            return self._connector_learner.get_relation_for_connector(word)
+        static_map = {
+            "because": "causal", "since": "causal", "therefore": "causal",
+            "so": "causal", "thus": "causal", "hence": "causal",
+            "but": "contrastive", "however": "contrastive", "yet": "contrastive",
+            "although": "contrastive", "though": "contrastive", "unlike": "contrastive",
+            "and": "semantic", "also": "semantic", "connect": "semantic",
+            "like": "analogical", "similar": "analogical", "resemble": "analogical",
+            "then": "temporal", "after": "temporal", "before": "temporal",
+            "when": "temporal", "remember": "episodic", "recall": "episodic",
+        }
+        return static_map.get(word.lower(), "semantic")
+
 
     # ─── VAD Modulation ───
-
 
 
     def _get_temperature(self, sentence_idx: int,
@@ -1308,7 +1349,6 @@ class ChainWalkerMixin:
         return temp
 
 
-
     def _vad_decay(self, rate: float = 0.95):
         """Return VAD toward neutral each turn."""
         if not getattr(self, 'use_vad', True):
@@ -1319,7 +1359,6 @@ class ChainWalkerMixin:
         s.dominance = 0.5 + (s.dominance - 0.5) * rate
 
     # ─── Relation Verifier (lightweight RLMv2 wrapper) ───
-
 
 
     def _walk_chain(self, label: str, seen: Set[str], max_hops: int,
@@ -1366,8 +1405,8 @@ class ChainWalkerMixin:
                 # Filter: skip function words (closed-class items that add noise to chains)
                 if tn.label.lower() in self._GRAMMATICAL_CONCEPTS:
                     continue
-                # Filter: skip weak edges (below auto-wire minimum threshold)
-                if edge.weight < 0.35:
+                # Filter: continuous suppression for weak edges (below auto-wire minimum)
+                if edge_strength_suppression(edge.weight) < 0.35:
                     continue
                 # Self-penalty: penalize edges to concepts too semantically different from subject
                 # SKIP for causal edges: causality often links semantically unrelated
@@ -1378,9 +1417,9 @@ class ChainWalkerMixin:
                     tgt_node = tn
                     if src_node and src_node.vector is not None and tgt_node and tgt_node.vector is not None:
                         semantic_sim = float(np.dot(src_node.vector, tgt_node.vector))
-                        # Penalize edges where target is too semantically distant from subject
-                        if semantic_sim < 0.3 and score > 0.1:
-                            score *= 0.5
+                        # Continuous self-penalty for semantically distant concepts
+                        if score > 0.1:
+                            score *= self_penalty_gate(semantic_sim)
                 candidates.append((score, tn.label, edge, "out"))
             for src, edge in self.graph.get_incoming(cur_nid):
                 sn = self.graph.nodes.get(src)
@@ -1440,14 +1479,15 @@ class ChainWalkerMixin:
             for _sig, _tgt_lbl, _edge, _d in candidates:
                 _pair = (cur_nid, _edge.target) if _d == "out" else (_edge.source, cur_nid)
 
-                # 1. Dormant edge boost (side effect: may wake edges)
+                # 1. Dormant edge boost (continuous modulation)
                 if self._dormant_edges and _pair in self._dormant_edges:
                     _key = (cur_label.lower(), _tgt_lbl.lower())
                     _vc = self.user_model.edge_reactivations.get(_key, 0)
-                    if _vc > 0 or _edge.confidence > 0.15:
+                    new_conf, sig_factor = dormant_edge_modulation(_edge.confidence, _vc)
+                    if sig_factor > 0.1:
                         self._dormant_edges.discard(_pair)
-                        _edge.confidence = 0.3
-                        _sig = _edge.weight * 0.3
+                        _edge.confidence = new_conf
+                        _sig = _edge.weight * sig_factor
 
                 # 2. Contradiction penalty
                 if contradiction_penalty > 0 and self._contradiction_map and                    self._is_contradictory(cur_label, _tgt_lbl, _edge.relation_type):
@@ -1463,25 +1503,16 @@ class ChainWalkerMixin:
                 if activation_boost:
                     _sig *= activation_boost.get(_tgt_lbl.lower(), 1.0)
 
-                # 5. Edge repetition penalty
+                # 5. Edge repetition penalty (continuous recovery)
                 if self._recent_traversals and _pair in _recent_set:
                     _turn_idx = self._recent_traversal_map.get(_pair, 0)
                     _dist = len(self._recent_traversals) - _turn_idx
-                    if _dist < 10:
-                        _sig *= 0.3
-                    elif _dist < 20:
-                        _sig *= 0.6
-                    else:
-                        _sig *= 0.8
+                    _sig *= repetition_penalty(_dist)
 
-                # 6. VAD Edge Preference (uses raw edge.weight, not modified sig)
+                # 6. VAD Edge Preference (continuous sigmoid modulation)
                 if _use_vad:
-                    if _valence > 0.10:
-                        _sig *= (1.0 + 0.15 * (_edge.weight / _max_w))
-                    elif _valence < -0.10:
-                        _sig *= 0.9
-                    if _dominance < 0.35:
-                        _sig *= (0.6 + 0.4 * _edge.weight / _max_w)
+                    _sig *= valence_modulation(_valence, _edge.weight, _max_w)
+                    _sig *= dominance_modulation(_dominance, _edge.weight, _max_w)
 
                 # 7. Context-Dependent Vector Modulation
                 if _ctx_mod_avail:
@@ -1506,10 +1537,7 @@ class ChainWalkerMixin:
                     _triple = self._classify_triple(cur_label, _tgt_lbl, _edge.relation_type)
                     _rlm_conf = _triple['confidence']
                     rlm_data[_tgt_lbl.lower()] = _rlm_conf
-                    if _rlm_conf < 0.4:
-                        _sig *= 0.7
-                    elif _rlm_conf > 0.75:
-                        _sig *= 1.15
+                    _sig *= rlm_confidence_modulation(_rlm_conf)
                     if _triple['is_analogical']:
                         _sig *= 0.85
 
@@ -1659,10 +1687,15 @@ class ChainWalkerMixin:
             # Phase 17.1: Update per-concept confidence (only when PE computed)
             if _hop_pe > 0:
                 self._update_concept_confidence(best_label, _hop_pe)
-            # Phase 13.1: Activation fatigue for traversed nodes
+            # Phase 13.1: Synaptic depression for traversed nodes (continuous STP)
             for _nid in [cur_nid, best_edge.source, best_edge.target]:
                 if _nid is not None and _nid >= 0:
                     self._activation_fatigue[_nid] = self._activation_fatigue.get(_nid, 0.0) + 0.15
+            # Apply synaptic depression to traversed nodes (fractional depletion)
+            if hasattr(self, '_synaptic_depression'):
+                for _dep_nid in [cur_nid, best_edge.source, best_edge.target]:
+                    if _dep_nid is not None and _dep_nid >= 0:
+                        self._synaptic_depression.activate(_dep_nid)
             # Phase 13.2: Track recent traversals
             if best_edge.source is not None and best_edge.target is not None:
                 pair = (best_edge.source, best_edge.target)
@@ -1733,7 +1766,6 @@ class ChainWalkerMixin:
         return chain
 
 
-
     def _try_surface_realize(self, subject: str, target: str,
                               relation: str = "semantic",
                               discourse_type: str = "explain",
@@ -1766,6 +1798,51 @@ class ChainWalkerMixin:
     # ─── Phase 7: Multi-Strategy Reasoning ───
 
 
+    # --- Issue 7: Hippocampal Scene Construction (A* causal chain search) ---
+    # Neuroscience: Schacter & Addis (2007) - hippocampus supports mental time travel
+    # by recombining past experience fragments to simulate novel causal sequences.
+    # The DMN (hippocampal-PFC loop) enables counterfactual simulation.
+
+    def _causal_chain_search(self, start_concept: str, end_concept: str, max_steps: int = 5) -> List[str]:
+        """Hippocampal scene construction: find a causal path from A to B.
+        Uses A* search over causal edges with semantic coherence heuristic."""
+        start_ids = self._concept_keywords.get(start_concept.lower(), [])
+        end_ids = self._concept_keywords.get(end_concept.lower(), [])
+        if not start_ids or not end_ids:
+            return []
+
+        start_id = start_ids[0]
+        end_id = end_ids[0]
+        end_node = self.graph.get_node(end_id)
+        if end_node is None or end_node.vector is None:
+            return []
+
+        from heapq import heappush, heappop
+        open_set = [(0, start_id, [start_concept])]
+        visited = {start_id: 0}
+
+        while open_set:
+            cost, current_id, path = heappop(open_set)
+            if current_id == end_id:
+                return path
+            if len(path) >= max_steps:
+                continue
+
+            for neighbor_id, edge in self.graph.get_outgoing(current_id):
+                if neighbor_id in visited and visited[neighbor_id] <= cost:
+                    continue
+                neighbor = self.graph.get_node(neighbor_id)
+                if neighbor and neighbor.label:
+                    if neighbor.vector is not None and end_node.vector is not None:
+                        heuristic = 1.0 - float(np.dot(neighbor.vector, end_node.vector))
+                    else:
+                        heuristic = 1.0
+                    edge_cost = 0.2 if edge.relation_type == 'causal' else 1.0
+                    new_cost = cost + edge_cost
+                    heappush(open_set, (new_cost + heuristic, neighbor_id, path + [neighbor.label]))
+                    visited[neighbor_id] = new_cost
+        return []
+
 
     def _graph_fallback_response(self, ctx: CognitiveResponseContext) -> Tuple[str, str]:
         """Graph-walk fallback when decoder / syntactic pipeline are not enough.
@@ -1789,12 +1866,30 @@ class ChainWalkerMixin:
         assocs = ctx.associated_concepts
 
         if not subject:
-            return ("...", "associative")
-
+            # Follow-up fallback: use last topic if available
+            topic_list = getattr(self, '_topic_list', None)
+            if topic_list:
+                last_topic = topic_list[-1]
+                ctx.subject = last_topic
+                subject = last_topic
+            else:
+                # Issue 2: DMN Gist Generation (PCC/Precuneus analog)
+                try:
+                    gist = self._generate_dmn_gist(ctx)
+                    if gist:
+                        return (gist, 'dmn_gist')
+                    s = self._try_surface_realize('i', 'feel', 'semantic', 'reflect', free_energy=0.6)
+                    if s:
+                        return (s, 'dmn_self')
+                except Exception:
+                    pass
+                return ('...', 'associative')
         subj_lower = subject.lower()
 
         # --- Priority 1: Definitional knowledge with SurfaceRealizer ---
-        if subj_lower in self._definitions:
+        with self._vocab_lock:
+            _has_local_defn = subj_lower in self._definitions
+        if _has_local_defn:
             defn = self._definitions[subj_lower]
             try:
                 # Route through surface realizer for the definition sentence
@@ -1873,7 +1968,7 @@ class ChainWalkerMixin:
                     discourse_type="acknowledge", free_energy=0.4, min_len=8)
                 if s:
                     return (s, "associative")
-            return (f"i know about {subject}.", "associative")
+                return (f"i know about {subject}.", "associative")
             
             # For truly unknown concepts, generate based on the question type
             q_lower = ctx.raw_input.lower()
@@ -1910,6 +2005,15 @@ class ChainWalkerMixin:
                 # If all assocs were filtered out (e.g. only function words remain), skip to last-resort
                 if not filtered_assocs:
                     raise StopIteration("all assocs were function words")
+
+                # NoGo gate: if associations are too weak (GloVe noise, not real knowledge),
+                # don't generate meaningless "it traces back to X" output.
+                # The brain's BG NoGo pathway inhibits prepotent responding when evidence is weak.
+                max_score = max(s for _, s in filtered_assocs)
+                if max_score < 0.15:
+                    if subj_lower in self._concept_keywords:
+                        return (f"i know a little about {subject}, but not enough to explain it well.", "associative")
+                    return (f"i don't have enough knowledge about {subject} to give a meaningful answer.", "conversational_fallback")
                 
                 # Build discourse context
                 num_sentences = min(3, len(filtered_assocs))
@@ -2025,5 +2129,84 @@ class ChainWalkerMixin:
         if s:
             return (s, "associative")
         return (f"i see. {subject.lower()} is something i am still exploring.", "associative")
+
+
+    # ─── Phase 3: Correction Edge Weakening (Hippocampal Reconsolidation analog) ───
+
+    def _weaken_edges_for_correction(self, subject: str, weaken_factor: float = 0.5):
+        """Weaken graph edges associated with an incorrect response.
+
+        Called by _weaken_edges_for_response in engine.py.
+        This is the chain_walker-level implementation that identifies and weakens
+        the specific edges that were traversed during the incorrect response.
+
+        Hippocampal reconsolidation: retrieve the memory trace, destabilize (weaken),
+        prepare for reconsolidation with corrected information.
+
+        Args:
+            subject: The concept label that was the subject of the incorrect response
+            weaken_factor: How much to weaken edges (0.0 = no weakening, 1.0 = complete)
+        """
+        subj_lower = subject.lower()
+        subj_ids = self._concept_keywords.get(subj_lower, [])
+        if not subj_ids:
+            return 0
+
+        weakened = 0
+        for nid in subj_ids:
+            # Weaken outgoing edges from the subject
+            for tgt_nid, edge in list(self.graph.get_outgoing(nid)):
+                edge.weight *= (1.0 - weaken_factor * 0.5)
+                weakened += 1
+            # Weaken incoming edges to the subject
+            for src_nid, edge in list(self.graph.get_incoming(nid)):
+                edge.weight *= (1.0 - weaken_factor * 0.5)
+                weakened += 1
+
+        # Also weaken recent chain hop edges that were traversed
+        if hasattr(self, '_last_chain_hops') and self._last_chain_hops:
+            for hops_list in self._last_chain_hops:
+                for from_label, to_label in hops_list:
+                    from_nids = self._concept_keywords.get(from_label.lower(), [])
+                    to_nids = self._concept_keywords.get(to_label.lower(), [])
+                    if from_nids and to_nids:
+                        edge = self.graph.get_edge(from_nids[0], to_nids[0])
+                        if edge:
+                            edge.weight *= (1.0 - weaken_factor * 0.3)
+                            weakened += 1
+
+        return weakened
+
+    def _mark_edges_as_incorrect(self, subject: str, hops_list: List[Tuple[str, str]]):
+        """Mark edges used in an incorrect response for future pruning.
+
+        Tags edges with a 'correction_mark' attribute so sleep consolidation
+        can identify and prune them.
+
+        Args:
+            subject: The concept that was the subject
+            hops_list: The chain hops that generated the response
+        """
+        marked = 0
+        subj_lower = subject.lower()
+        subj_ids = self._concept_keywords.get(subj_lower, [])
+
+        # Mark subject's edges
+        for nid in subj_ids:
+            for tgt_nid, edge in list(self.graph.get_outgoing(nid)):
+                edge.correction_mark = getattr(edge, 'correction_mark', 0) + 1
+                marked += 1
+
+        # Mark traversed edges
+        for from_label, to_label in hops_list:
+            from_nids = self._concept_keywords.get(from_label.lower(), [])
+            to_nids = self._concept_keywords.get(to_label.lower(), [])
+            if from_nids and to_nids:
+                edge = self.graph.get_edge(from_nids[0], to_nids[0])
+                if edge:
+                    edge.correction_mark = getattr(edge, 'correction_mark', 0) + 1
+                    marked += 1
+
+        return marked
 
 

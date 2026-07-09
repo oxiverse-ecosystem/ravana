@@ -747,36 +747,78 @@ class PrefrontalWorkspace:
 
     def _plan_continue(self, subject: str, associations: List[Tuple[str, float]],
                         seen: set, qtype: str) -> DiscoursePlan:
-        """Plan: [CONTINUE → ELABORATE → CONNECT] — for follow-ups"""
+        """Plan: [CONTINUE → ELABORATE → CONNECT] — for follow-ups.
+
+        Three-layer fallback for target selection:
+        1. Try _pick_best_association (highest-scoring unseen)
+        2. If all seen, try _pick_random_relation (random exploration)
+        3. If even that fails, generate a fresh question to the user
+        """
         plan = DiscoursePlan(original_subject=subject, question_type=qtype)
 
+        # --- Sentence 1: CONTINUE ---
         target1 = self._pick_best_association(associations, seen)
-
-        plan.intents.append(DiscourseIntent(
-            type=DiscourseType.CONTINUE,
-            subject=subject,
-            target_concept=target1,
-            seen_so_far=seen.copy(),
-        ))
+        if not target1:
+            target1 = self._pick_random_relation(associations, seen)
 
         if target1:
+            plan.intents.append(DiscourseIntent(
+                type=DiscourseType.CONTINUE,
+                subject=subject,
+                target_concept=target1,
+                seen_so_far=seen.copy(),
+            ))
             seen.add(target1.lower())
+        else:
+            # All associations exhausted — generate a question instead
+            question = self._generate_follow_up_question(subject, target_concept=None)
+            plan.intents.append(DiscourseIntent(
+                type=DiscourseType.ASK_BACK,
+                subject=subject,
+                target_concept=question,
+                end_with_question=True,
+                primary_relation="interrogative",
+                seen_so_far=seen.copy(),
+            ))
 
-        target2 = self._pick_best_association(associations, seen, exclude_subject=target1)
+        # --- Sentence 2: ELABORATE ---
+        if target1:
+            target2 = self._pick_best_association(associations, seen, exclude_subject=target1)
+            if not target2:
+                target2 = self._pick_random_relation(associations, seen)
 
-        plan.intents.append(DiscourseIntent(
-            type=DiscourseType.ELABORATE,
-            subject=subject,
-            target_concept=target2,
-            seen_so_far=seen.copy(),
-        ))
+            if target2:
+                plan.intents.append(DiscourseIntent(
+                    type=DiscourseType.ELABORATE,
+                    subject=subject,
+                    target_concept=target2,
+                    seen_so_far=seen.copy(),
+                ))
+                seen.add(target2.lower())
 
-        plan.intents.append(DiscourseIntent(
-            type=DiscourseType.CONNECT,
-            subject=subject,
-            target_concept=self._pick_best_association(associations, seen, exclude_subject=target2 or "") or "people",
-            seen_so_far=seen.copy(),
-        ))
+        # --- Sentence 3: CONNECT or ASK_BACK ---
+        if target1 and target2:
+            target3 = self._pick_best_association(associations, seen, exclude_subject=target2)
+            if not target3:
+                target3 = self._pick_random_relation(associations, seen)
+            plan.intents.append(DiscourseIntent(
+                type=DiscourseType.CONNECT,
+                subject=subject,
+                target_concept=target3 or "people",
+                end_with_question=(not target3),
+                seen_so_far=seen.copy(),
+            ))
+        elif target1 and not target2:
+            # Only have one topic — ask about it
+            question = self._generate_follow_up_question(subject, target1)
+            plan.intents.append(DiscourseIntent(
+                type=DiscourseType.ASK_BACK,
+                subject=target1,
+                target_concept=question,
+                end_with_question=True,
+                primary_relation="interrogative",
+                seen_so_far=seen.copy(),
+            ))
 
         return plan
 
@@ -787,160 +829,185 @@ class PrefrontalWorkspace:
 
     # ─── Helpers ───
 
-    ABSTRACT_NOUNS = {
-        "life", "death", "love", "hate", "truth", "beauty",
-        "justice", "freedom", "knowledge", "wisdom", "time",
-        "nature", "science", "art", "history", "meaning",
-        "trust", "hope", "fear", "joy", "grief",
-        "empathy", "respect", "culture", "power", "responsibility",
-        "courage", "patience", "kindness", "honesty", "loyalty",
-        "gratitude", "compassion", "generosity", "humility", "integrity",
-        "dignity", "prudence", "grace", "mercy", "forgiveness",
-        "peace", "faith", "fate", "destiny", "consciousness",
-        "awareness", "education", "healthcare", "democracy", "diversity",
-        "sustainability", "mindfulness", "meditation", "poverty",
-        "hunger", "disease", "wealth", "war", "society",
-        "identity", "culture", "tradition", "heritage",
-        "morality", "ethics", "principle", "virtue", "soul",
-        "spirit", "destiny", "providence", "enlightenment",
-        "happiness", "suffering", "existence", "being",
-    }
+    # ABSTRACT_NOUNS replaced by GloVe-based _is_abstract_concept
+    ABSTRACT_NOUNS: set = set()  # Deprecated - kept for back-compat
 
     def _is_abstract_concept(self, subject: str) -> bool:
-        """Check if a subject is an abstract concept that needs multi-perspective treatment."""
+        """Check if a subject is abstract using GloVe-based classifier.
+
+        ATL computes abstractness from semantic neighborhood (Cousins 2017),
+        not a stored list. Falls back to suffix heuristics when GloVe unavailable.
+        """
         if not subject:
             return False
         sl = subject.lower().strip()
-        # Direct match against abstract nouns list
-        if sl in self.ABSTRACT_NOUNS:
+        try:
+            from ravana.language.verb_lexicon import _default_vector_fn
+            fn = _default_vector_fn
+            vec = fn(sl)
+            if vec is not None:
+                import numpy as np
+                abstract_protos = ["love", "truth", "knowledge", "idea", "meaning", "beauty"]
+                concrete_protos = ["table", "dog", "mountain", "car", "tree", "house"]
+                abs_sims = [float(np.dot(vec, fn(p))) for p in abstract_protos if fn(p) is not None]
+                con_sims = [float(np.dot(vec, fn(p))) for p in concrete_protos if fn(p) is not None]
+                if abs_sims and con_sims:
+                    return float(np.mean(abs_sims)) > float(np.mean(con_sims))
+        except Exception:
+            pass
+        if sl.endswith('ness') or sl.endswith('ity') or sl.endswith('tion') or sl.endswith('ism'):
             return True
-        # Check for abstractness by length/type heuristics
-        # Abstract concepts tend to be singular uncountable nouns
-        if sl.endswith("ness") or sl.endswith("ity") or sl.endswith("tion") or sl.endswith("ism"):
+        if sl.endswith('ment') or sl.endswith('ance') or sl.endswith('ence'):
             return True
-        if sl.endswith("ment") or sl.endswith("ance") or sl.endswith("ence"):
-            return True
-        if sl.endswith("ship") or sl.endswith("dom") or sl.endswith("hood"):
+        if sl.endswith('ship') or sl.endswith('dom') or sl.endswith('hood'):
             return True
         return False
 
     def _pick_best_association(self, associations: List[Tuple[str, float]],
-                                seen: set,
-                                exclude_verbs: bool = False,
-                                prefer_causal: bool = False,
-                                prefer_contrast: bool = False,
-                                exclude_subject: str = "") -> str:
-        """Pick the best association not already seen."""
-        # Minimal closed-class function words that should never be discourse targets.
-        # Based on linguistic universals (closed-class items across languages):
-        # pronouns, determiners, prepositions, conjunctions, auxiliaries.
-        GRAMMATICAL_CONCEPTS = {
-            "a", "an", "the", "this", "that", "these", "those",
-            "i", "you", "he", "she", "it", "we", "they", "me", "him", "her",
-            "us", "them", "my", "your", "his", "its", "our", "their",
-            "in", "on", "at", "to", "for", "with", "by", "from", "of", "as",
-            "and", "or", "but", "so", "if", "not", "no",
-            "is", "are", "was", "were", "be", "been", "being",
-            "have", "has", "had", "do", "does", "did",
-            "can", "could", "will", "would", "shall", "should", "may", "might", "must",
-            "here", "there", "where", "when", "why", "how", "what", "who",
-            "very", "too", "also", "just", "only", "still", "yet", "already",
-            "up", "down", "out", "off", "on", "over",
-            # Conjunctions — missing from original set
-            "because", "since", "although", "though", "unless",
-            "while", "whereas", "until", "once", "whether",
-            "after", "before", "despite", "nor", "neither",
-        }
-        # Generic causal filler verbs — they describe causation without being
-        # the actual cause or effect entity. When prefer_causal=True, the PFC
-        # task-set should pick the ENTITY (explosion, lights) over the process
-        # verb (occurs, happens) as the discourse target.
-        CAUSAL_FILLER_VERBS = {
-            "occurs", "occur", "occurred", "occurring",
-            "happens", "happen", "happened", "happening",
-            "causes", "cause", "caused", "causing",
-            "leads", "lead", "led", "leading",
-            "results", "result", "resulted", "resulting",
-            "creates", "create", "created", "creating",
-            "triggers", "trigger", "triggered", "triggering",
-            "produces", "produce", "produced", "producing",
-            "makes", "make", "made", "making",
-        }
+                                   seen: set,
+                                   exclude_verbs: bool = False,
+                                   exclude_subject: Optional[str] = None,
+                                   prefer_causal: bool = False,
+                                   prefer_contrast: bool = False) -> Optional[str]:
+        """Pick the best association from a scored list, respecting constraints.
+
+        Selects the highest-scoring item from associations that:
+        - Is not already in the seen set
+        - Is not a verb (if exclude_verbs=True)
+        - Is not the exclude_subject
+        - Prioritizes causal/contrastive relations if preferred
+
+        Returns the label string, or None if no valid association found.
+        """
+        if not associations:
+            return None
+
+        # Filter by constraints
+        candidates = []
         for label, score in associations:
-            ll = label.lower()
+            ll = label.lower().strip()
             if ll in seen:
                 continue
-            if ll in GRAMMATICAL_CONCEPTS:
+            if exclude_verbs and self._is_verb_label(ll):
                 continue
-            if exclude_subject and ll == exclude_subject.lower():
+            if exclude_subject and ll == exclude_subject.lower().strip():
                 continue
-            if exclude_verbs:
-                from ravana.language.verb_lexicon import VerbLexicon
-                verb_roots = set(VerbLexicon.MORPHEMIC_SEEDS["roots"])
-                if ll in verb_roots or any(ll.endswith(s) for s in ("ing", "ed", "es", "ion", "ment")):
-                    continue
-            if prefer_causal and ll in CAUSAL_FILLER_VERBS:
-                continue
-            return label
-        return ""
+            candidates.append((label, score))
+
+        if not candidates:
+            return None
+
+        # Apply preference boosts
+        boosted = []
+        for label, score in candidates:
+            ll = label.lower()
+            boost = 1.0
+            if prefer_causal or prefer_contrast:
+                if prefer_causal and self._has_causal_hint(ll):
+                    boost *= 1.5
+                if prefer_contrast and self._has_contrast_hint(ll):
+                    boost *= 1.5
+            boosted.append((label, score * boost))
+
+        # Sort by boosted score descending and return best
+        boosted.sort(key=lambda x: x[1], reverse=True)
+        return boosted[0][0]
+
+    def _is_verb_label(self, label: str) -> bool:
+        """Check if a label is likely a verb."""
+        ll = label.lower()
+        verb_suffixes = ("ing", "ed", "en", "ify", "ize", "ate", "ish")
+        verb_forms = {
+            "be", "do", "have", "make", "take", "give", "get", "go", "come",
+            "see", "know", "think", "feel", "say", "tell", "ask", "use",
+            "find", "want", "seem", "need", "help", "work", "call", "try",
+            "leave", "keep", "let", "begin", "show", "hear", "play", "run",
+            "move", "live", "believe", "hold", "bring", "happen", "write",
+            "provide", "sit", "stand", "lose", "pay", "meet", "include",
+            "continue", "set", "learn", "change", "lead", "understand",
+            "watch", "follow", "stop", "create", "cause", "let", "mean",
+            "exist", "form", "act", "result", "produce", "connect", "relate",
+        }
+        if ll in verb_forms:
+            return True
+        if any(ll.endswith(s) for s in verb_suffixes):
+            return True
+        return False
+
+    def _has_causal_hint(self, label: str) -> bool:
+        """Check if a label has causal semantics."""
+        ll = label.lower()
+        causal_words = {
+            "cause", "effect", "result", "consequence", "impact", "influence",
+            "lead", "lead", "trigger", "produce", "create", "make", "generate",
+            "force", "drive", "push", "enable", "allow", "prevent", "block",
+            "because", "since", "hence", "therefore", "reaction", "response",
+        }
+        return ll in causal_words or any(ll.startswith(w) for w in causal_words)
+
+    def _has_contrast_hint(self, label: str) -> bool:
+        """Check if a label has contrastive semantics."""
+        ll = label.lower()
+        contrast_words = {
+            "but", "however", "although", "though", "yet", "nevertheless",
+            "contrast", "opposite", "different", "vs", "versus", "unlike",
+            "instead", "rather", "still", "while", "whereas", "conversely",
+            "on the other hand", "difference", "conflict", "against",
+        }
+        return ll in contrast_words
 
     def _pick_random_relation(self, associations: List[Tuple[str, float]],
-                               seen: set) -> str:
-        """Pick any unseen association."""
-        for label, _ in associations:
-            if label.lower() not in seen:
-                return label
-        return ""
+                               seen: set) -> Optional[str]:
+        """Pick a random unseen relation from associations.
 
-    def _pick_marker(self, marker_type: str) -> str:
-        """Pick a discourse marker for the given type."""
+        Basal ganglia analog: when no directed selection is possible,
+        a random exploration step is used (Go/NoGo pathway).
+        """
+        if not associations:
+            return None
         import random
-        markers = self.DISCOURSE_MARKERS.get(marker_type, ["also"])
-        if markers:
-            return random.choice(markers)
-        return ""
+        unseen = [(l, s) for l, s in associations if l.lower().strip() not in seen]
+        if not unseen:
+            return None
+        return random.choice(unseen)[0]
 
-    def _generate_follow_up_question(self, subject: str, last_target: str) -> str:
-        """Generate a follow-up question from epistemic curiosity.
+    def _generate_follow_up_question(self, subject: str,
+                                      target_concept: Optional[str] = None) -> str:
+        """Generate a follow-up question to engage the user.
 
-        Replaces hardcoded templates with a generative approach:
-        Questions are composed from:
-        - Question type (exploratory, clarifying, connecting) selected
-          by how much is known about the subject
-        - Question frame (what/how/why) determined by discourse depth
-        - Subject or last_target as the focus
-
-        When subject is novel → exploratory questions
-        When subject is familiar → clarifying/connecting questions
-        When last_target exists → targeted follow-up
+        Composes a context-appropriate question from primitives.
+        Inspired by the DMN's social-cognitive questioning reflex.
         """
         import random
-
-        is_novel = subject.lower() not in [t.lower() for t in self.topic_history[-3:]]
-
-        if is_novel:
-            frames = [
-                f"What do you think about {subject}?",
-                f"Have you experienced {subject} before?",
-                f"What aspects of {subject} interest you most?",
-                f"How does {subject} relate to your experience?",
-            ]
-        elif last_target:
-            frames = [
-                f"What about {last_target} — any thoughts?",
-                f"Should we explore {last_target} further?",
-                f"How does {last_target} connect to what we were discussing?",
+        if not target_concept:
+            questions = [
+                f"what do you think about {subject}?",
+                f"have you experienced {subject} yourself?",
+                f"what aspects of {subject} interest you?",
+                f"would you like to explore more about {subject}?",
             ]
         else:
-            frames = [
-                f"Would you like to know more about {subject}?",
-                f"Does that perspective on {subject} make sense?",
-                f"What else comes to mind about {subject}?",
+            questions = [
+                f"does that match your understanding of {target_concept}?",
+                f"have you noticed this about {target_concept}?",
+                f"what is your perspective on {target_concept}?",
+                f"how does {target_concept} relate to your experience?",
+                f"would you like to know more about {target_concept}?",
             ]
+        return random.choice(questions)
 
-        return random.choice(frames)
+    def _pick_marker(self, marker_type: str) -> str:
+        """Pick a discourse marker for the given type.
 
-    # ─── State ───
+        Selects from the DISCOURSE_MARKERS dict. If the type has markers,
+        returns the first one and rotates the list for next time.
+        Falls back to empty string.
+        """
+        import random
+        markers = self.DISCOURSE_MARKERS.get(marker_type, [])
+        if not markers:
+            return ""
+        return random.choice(markers)
 
     def get_state(self) -> Dict:
         return {

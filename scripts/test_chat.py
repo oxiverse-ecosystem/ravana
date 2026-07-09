@@ -7,6 +7,7 @@ from scripts.ravana_chat import CognitiveChatEngine
 
 print('Loading engine...')
 engine = CognitiveChatEngine(dim=64, seed=42, baby_mode=True)
+engine._network_available = False  # Skip web search to avoid network/DNS hangs in offline sandbox environments
 print('Engine loaded!')
 
 print('Decoder training count:', engine._decoder_training_count)
