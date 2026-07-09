@@ -34,7 +34,7 @@ class System1Attractor:
         
         # Build adjacency for fast propagation
         adjacency: Dict[int, List[Tuple[int, float]]] = {nid: [] for nid in self.graph.nodes}
-        for (s, t), edge in self.graph.edges.items():
+        for (s, t), edge in list(self.graph.edges.items()):
             # Excitatory edge weights propagate positive activation, inhibitory negative
             weight = edge.weight if getattr(edge, 'edge_type', 'excitatory') == 'excitatory' else -edge.weight
             adjacency[s].append((t, weight))

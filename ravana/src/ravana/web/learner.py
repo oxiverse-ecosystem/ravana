@@ -68,6 +68,14 @@ class SearchConfig:
     timeout: int = 5
     cooldown: int = 60
     max_failures: int = 3
+    # Phase 19e: ALWAYS prefer the local engine (your SearXNG on localhost:4000).
+    # It may be slow at times, but it's the authoritative source and should be
+    # awaited up to local_timeout seconds. Remote APIs are only consulted if the
+    # local engine is genuinely UNAVAILABLE (circuit breaker / exception / stall
+    # past local_timeout) — never merely because it was slow-but-returned, and
+    # never as a supplement when local already answered (even with empty results).
+    local_prefer: bool = True
+    local_timeout: int = 10
 
 
 class SearchError(Exception):
@@ -81,10 +89,11 @@ class SearchEngine:
     def __init__(self, config: Optional[SearchConfig] = None):
         self.config = config or SearchConfig()
         self.apis = [
-            # Local search engine is preferred: it is fast, always reachable on
-            # the same machine, and works even with no internet. Remote APIs are
-            # fallbacks only.
-            ("local_api", "http://localhost:4000/search?q={}", 5, 10),
+            # Local search engine is PREFERRED: awaited up to local_timeout
+            # seconds (Phase 19e). It is your SearXNG aggregator and the
+            # authoritative source; remote APIs are fallbacks only when local
+            # is genuinely unavailable.
+            ("local_api", "http://localhost:4000/search?q={}", self.config.local_timeout, 10),
             ("duckduckgo", "https://html.duckduckgo.com/html/?q={}", 5, 10),
             ("oxiverse", "https://api.oxiverse.com/search?q={}", 3, 10),
         ]
@@ -93,6 +102,14 @@ class SearchEngine:
         self._headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 RAVANA/1.0'
         }
+        # Per-session search cache: the generation pipeline (decomposition +
+        # web-direct-answer) issues the SAME query many times per turn
+        # (sub-questions x variants x retry). Caching identical searches within
+        # a session collapses ~18 network round-trips into a handful. Keyed by
+        # (normalized term, local_only, max_results). Bounded; cleared per call
+        # to self.clear_search_cache() (call at the start of each process_turn).
+        self._search_cache: Dict[tuple, List[Dict[str, Any]]] = {}
+        self._search_cache_max = 64
 
     def _is_api_available(self, api_name: str) -> bool:
         if self._api_failure_counts[api_name] < self.config.max_failures:
@@ -110,6 +127,39 @@ class SearchEngine:
         self._api_failure_counts[api_name] += 1
         self._api_last_failure_time[api_name] = time.time()
 
+    def clear_search_cache(self):
+        """Drop cached search results. Call at the start of each user turn so
+        the cache reflects only the current turn's queries (not stale results
+        from many turns ago)."""
+        self._search_cache.clear()
+
+    def _threaded_fetch(self, api_name: str, url: str, timeout: int, max_results: int):
+        """Fetch one API in a daemon thread and join with a hard ``timeout``.
+
+        Phase 19c: urllib's own ``urlopen(timeout=...)`` can be defeated on some
+        stacks (a connection that connects but then stalls on the response
+        status line), leaving ``socket.readinto`` blocked far past the requested
+        timeout. Running the fetch in a thread and ``join(timeout)`` guarantees
+        the call can never exceed ``timeout`` seconds, so the turn can't hang.
+
+        Returns ``(thread, result_dict)`` where ``result_dict`` is either
+        ``{'v': <list>}`` on success or ``{'err': <exception>}`` on failure.
+        If the thread is still alive after the join, the fetch stalled — the
+        caller should treat it as a failure and consult the next API.
+        """
+        _fetch_res = {}
+
+        def _do_fetch():
+            try:
+                _fetch_res['v'] = self._call_api(api_name, url, timeout, max_results)
+            except Exception as _fe:  # noqa: BLE001 - we re-raise via dict
+                _fetch_res['err'] = _fe
+
+        _ft = threading.Thread(target=_do_fetch, daemon=True)
+        _ft.start()
+        _ft.join(timeout)
+        return _ft, _fetch_res
+
     def search(self, query: str, max_results: int = 10,
                 local_only: bool = False) -> List[Dict[str, Any]]:
         """Search with automatic fallback across APIs.
@@ -118,11 +168,35 @@ class SearchEngine:
         only the local search engine is consulted — remote APIs are skipped so
         a working local engine is never blocked by the offline circuit breaker.
         """
+        # Per-session cache: identical (term, local_only, max_results) requests
+        # within a turn return the cached list instead of hitting the network.
+        _cache_key = (query.strip().lower(), bool(local_only), int(max_results))
+        if _cache_key in self._search_cache:
+            return self._search_cache[_cache_key]
+
+        # Phase 19c: Hard wall-clock deadline for the ENTIRE search() call.
+        # The per-API `urlopen(timeout=...)` can be defeated on some stacks
+        # (e.g. a connection that connects but then stalls on the response
+        # status line) — observed as a 40s+ hang inside socket.readinto even
+        # though the per-call timeout was 5s. A turn-level deadline guarantees
+        # search() can NEVER block the user turn longer than this, regardless
+        # of per-API timeout quirks. On deadline we return whatever we have
+        # (possibly empty) and let the caller fall back to stored knowledge.
+        _search_deadline = time.time() + float(getattr(self.config, 'search_deadline', 8.0))
+
         errors = []
+
+        # Phase 19e (supersedes 19b): local is ALWAYS preferred. The block below
+        # consults local_api first and returns its answer verbatim — including an
+        # EMPTY list — without ever falling through to remote as a "supplement".
+        # Remote fallbacks are only reached if local_api is genuinely UNAVAILABLE
+        # (circuit breaker / exception / stall past local_timeout). So an empty
+        # local result is treated as authoritative and remote is not consulted.
+        # This is exactly the "always prefer local, even when slow" rule.
 
         # Definitional suffixes (e.g. " definition meaning", " explained overview")
         # improve recall on remote engines (DuckDuckGo/oxiverse) but pollute the
-        # local semantic engine, sending it off-topic (searching "cleopatra
+
         # definition meaning" returns pages about "explanation"). Strip them when
         # the query is destined for the local engine so it gets a clean subject.
         _LOCAL_SUFFIXES = (
@@ -130,7 +204,62 @@ class SearchEngine:
             " explained overview", " explained with examples", " explained",
         )
 
+        # ── Phase 19e: ALWAYS PREFER LOCAL ──────────────────────────────────
+        # The local engine (your SearXNG on localhost:4000) is the authoritative
+        # source. We await it up to local_timeout seconds even when it's slow.
+        # We only consult remote fallbacks if the local engine is GENUINELY
+        # unavailable (circuit breaker / exception / stall past local_timeout).
+        # If local answers — even with an empty result — we commit to it and
+        # never query remote as a "supplement". Remote is a last resort, not a
+        # parallel/backup source.
+        if self.config.local_prefer and not local_only:
+            # local_only callers already force local; this branch handles the
+            # general case where remote COULD be used but we prefer local.
+            _local_available = self._is_api_available("local_api")
+            if _local_available:
+                api_query = query
+                ql = query.lower()
+                for suf in _LOCAL_SUFFIXES:
+                    if ql.endswith(suf):
+                        api_query = query[: len(query) - len(suf)].strip()
+                        break
+                query_encoded = quote(api_query)
+                try:
+                    url = "http://localhost:4000/search?q={}".format(query_encoded)
+                    _ft, _fetch_res = self._threaded_fetch(
+                        "local_api", url, self.config.local_timeout, max_results)
+                    if _ft.is_alive():
+                        self._record_failure("local_api")
+                        errors.append("local_api: fetch stalled past "
+                                      f"{self.config.local_timeout}s")
+                    elif 'err' in _fetch_res:
+                        self._record_failure("local_api")
+                        errors.append(f"local_api: {_fetch_res['err']}")
+                    else:
+                        results = _fetch_res.get('v')
+                        self._record_success("local_api")
+                        out = (results or [])[:max_results]
+                        if len(self._search_cache) < self._search_cache_max:
+                            self._search_cache[_cache_key] = out
+                        return out
+                        # NOTE: we return local's answer (incl. empty) as final.
+                        # Remote is NOT consulted — local is authoritative.
+                except Exception as e:  # pragma: no cover - defensive
+                    self._record_failure("local_api")
+                    errors.append(f"local_api: {e}")
+                # If we reach here, local genuinely failed → fall through to
+                # remote fallbacks below.
+
         for api_name, url_template, timeout, api_max_results in self.apis:
+            # Phase 19c: bail out if we've exceeded the turn-level deadline.
+            if time.time() > _search_deadline:
+                break
+            if api_name == "local_api":
+                # Already handled (and preferred) above; skip to avoid a
+                # redundant/duplicate local call when local_prefer is on.
+                if self.config.local_prefer:
+                    continue
+                continue
             if local_only and api_name != "local_api":
                 continue
 
@@ -138,20 +267,26 @@ class SearchEngine:
                 continue
 
             api_query = query
-            if api_name == "local_api":
-                ql = query.lower()
-                for suf in _LOCAL_SUFFIXES:
-                    if ql.endswith(suf):
-                        api_query = query[: len(query) - len(suf)].strip()
-                        break
             query_encoded = quote(api_query)
 
             try:
                 url = url_template.format(query_encoded)
-                results = self._call_api(api_name, url, timeout, max_results)
+                # Phase 19c: thread+join hard cap on a stalled fetch.
+                _ft, _fetch_res = self._threaded_fetch(
+                    api_name, url, timeout, max_results)
+                if _ft.is_alive():
+                    self._record_failure(api_name)
+                    errors.append(f"{api_name}: fetch stalled past {timeout}s")
+                    continue
+                if 'err' in _fetch_res:
+                    raise _fetch_res['err']
+                results = _fetch_res.get('v')
                 if results:
                     self._record_success(api_name)
-                    return results[:max_results]
+                    out = results[:max_results]
+                    if len(self._search_cache) < self._search_cache_max:
+                        self._search_cache[_cache_key] = out
+                    return out
             except Exception as e:
                 self._record_failure(api_name)
                 errors.append(f"{api_name}: {e}")

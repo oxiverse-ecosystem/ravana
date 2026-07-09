@@ -167,7 +167,7 @@ class AbstractionEngine:
         if node:
             for depth in range(self.config.max_hierarchy_depth):
                 # Find outgoing edges that are hierarchical (semantic with superordinate labels)
-                for (src, tgt), edge in self.graph.edges.items():
+                for (src, tgt), edge in list(self.graph.edges.items()):
                     if src == node.id:
                         tgt_node = self.graph.nodes.get(tgt)
                         if tgt_node and edge.relation_type in ("semantic", "inferred"):
@@ -212,14 +212,14 @@ class AbstractionEngine:
         """Find concepts connected via specified edge types."""
         supporting = []
 
-        for (src, tgt), edge in self.graph.edges.items():
+        for (src, tgt), edge in list(self.graph.edges.items()):
             if src == node.id and edge.relation_type in edge_types:
                 tgt_node = self.graph.nodes.get(tgt)
                 if tgt_node and tgt_node.activation > 0.01:
                     supporting.append(tgt_node.label)
 
         # Also check incoming edges
-        for (src, tgt), edge in self.graph.edges.items():
+        for (src, tgt), edge in list(self.graph.edges.items()):
             if tgt == node.id and edge.relation_type in edge_types:
                 src_node = self.graph.nodes.get(src)
                 if src_node and src_node.activation > 0.01:
@@ -294,7 +294,7 @@ class AbstractionEngine:
 
     def _find_node(self, label: str) -> Optional[ConceptNode]:
         """Find node by label."""
-        for node in self.graph.nodes.values():
+        for node in list(self.graph.nodes.values()):
             if node.label.lower() == label.lower():
                 return node
         return None

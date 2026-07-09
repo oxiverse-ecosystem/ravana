@@ -536,9 +536,15 @@ class ChatInterface:
         self._store_episodic(subject, associations)
 
         if response is not None:
-            self._last_responses.append(response)
-            if len(self._last_responses) > 10:
-                self._last_responses = self._last_responses[-10:]
+            # Defensive: only strings belong in response history. A generator
+            # that accidentally returns a (text, strategy) tuple must never
+            # poison _last_responses (downstream code calls resp.split()).
+            if isinstance(response, tuple) and response:
+                response = response[0]
+            if isinstance(response, str):
+                self._last_responses.append(response)
+                if len(self._last_responses) > 10:
+                    self._last_responses = self._last_responses[-10:]
 
         # Update cerebellar n-gram
         for hops_list in self._last_chain_hops:
@@ -639,7 +645,7 @@ class ChatInterface:
                     node = self.graph_engine.graph.nodes.get(nid)
                     pos_boost = 0.5 if node and node.label and self._concept_pos.get(node.label.lower()) == 'noun' else 0.0
                     scores[nid] = scores.get(nid, 0) + 5.0 + pos_boost
-        for nid, node in self.graph_engine.graph.nodes.items():
+        for nid, node in list(self.graph_engine.graph.nodes.items()):
             if not node.label:
                 continue
             label = node.label.lower()
@@ -893,7 +899,7 @@ class ChatInterface:
         pe = getattr(self, '_mean_prediction_error', 0.3)
         threshold = 0.6 if pe < 0.2 else (0.4 if pe > 0.5 else 0.5)
         schema_ids = {subj_nid}
-        for other_nid, other_node in self.graph_engine.graph.nodes.items():
+        for other_nid, other_node in list(self.graph_engine.graph.nodes.items()):
             if other_nid == subj_nid or other_node.vector is None:
                 continue
             cos = float(np.dot(subj_node.vector, other_node.vector))
@@ -1716,7 +1722,7 @@ class ChatInterface:
 
             loaded_graph = state['graph']
             if loaded_graph and loaded_graph.nodes:
-                first_node = next(iter(loaded_graph.nodes.values()))
+                first_node = next(iter(list(loaded_graph.nodes.values())))
                 if first_node.vector is not None and len(first_node.vector) != self.config.dim:
                     print(f"  [Load warning] Dimension mismatch: loaded graph has dim {len(first_node.vector)} but interface has dim {self.config.dim}. Discarding saved state.")
                     return False
@@ -1726,7 +1732,8 @@ class ChatInterface:
             self._topic_list = state.get('topic_list', [])
             self._topic_store = state.get('topic_store', {})
             self._response_context = state.get('response_context', [])
-            self._last_responses = [r for r in state['last_responses'] if r is not None]
+            self._last_responses = [r for r in state['last_responses']
+                                    if isinstance(r, str)]
             self._last_strategy = state['last_strategy']
             self._free_energy = state['free_energy']
             self._learning_count = state['learning_count']
@@ -1749,7 +1756,7 @@ class ChatInterface:
                 self.meta_cog.current_mode = EpistemicMode(meta_mode_str)
             except ValueError:
                 self.meta_cog.current_mode = EpistemicMode.EXPLORATORY
-            for edge in self.graph_engine.graph.edges.values():
+            for edge in list(self.graph_engine.graph.edges.values()):
                 edge.parent_graph = self.graph_engine.graph
             self.graph_engine._contradiction_map = state.get('contradiction_map', {})
             user_model = state.get('user_model', None)
@@ -1862,9 +1869,9 @@ def main():
     if args.export_graph:
         import json
         g = engine.graph_engine.graph
-        data = {"nodes": [{"id": n.id, "label": n.label} for n in g.nodes.values()],
+        data = {"nodes": [{"id": n.id, "label": n.label} for n in list(g.nodes.values())],
                 "edges": [{"source": src, "target": tgt, "relation": e.relation_type, "weight": e.weight}
-                         for (src, tgt), e in g.edges.items()]}
+                         for (src, tgt), e in list(g.edges.items())]}
         with open(args.export_graph, "w") as f:
             json.dump(data, f, indent=2)
         print(f"  [Export] Exported {len(data['nodes'])} nodes + {len(data['edges'])} edges to {args.export_graph}")

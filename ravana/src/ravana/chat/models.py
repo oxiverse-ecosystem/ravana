@@ -91,3 +91,5 @@ class CognitiveResponseContext:
     fok_unresolved: bool = False
     situation_vector: Any = None
     situation_narrative: Dict[str, Any] = field(default_factory=dict)
+    decomposition: Any = None
+    sub_questions: List[Dict[str, Any]] = field(default_factory=list)

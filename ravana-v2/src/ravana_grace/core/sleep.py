@@ -176,7 +176,7 @@ class SleepConsolidation:
                     if len(word) > 3:
                         keywords.add(word)
                 if keywords:
-                    for nid, node in graph.nodes.items():
+                    for nid, node in list(graph.nodes.items()):
                         label = (node.label or "").lower()
                         if any(kw in label or label in kw for kw in keywords):
                             matched_nids.append(nid)
@@ -190,7 +190,7 @@ class SleepConsolidation:
             graph.spread_activation(steps=1, k_active=5, decay=0.3)
 
             # Hebbian strengthening between co-activated concepts
-            active = [(n.id, n.activation) for n in graph.nodes.values() if n.activation > 0.1]
+            active = [(n.id, n.activation) for n in list(graph.nodes.values()) if n.activation > 0.1]
             for i, (a_id, a_act) in enumerate(active):
                 for b_id, b_act in active[i + 1:]:
                     edge = graph.get_edge(a_id, b_id)
@@ -200,7 +200,7 @@ class SleepConsolidation:
                         edges_strengthened += 1
 
             # Reset activation after replay
-            for node in graph.nodes.values():
+            for node in list(graph.nodes.values()):
                 node.activation = 0.0
 
             replayed += 1
@@ -233,8 +233,15 @@ class SleepConsolidation:
         pre_coherence = coherence_fn(state_snapshot) if coherence_fn else 0.5
         pre_pressure = self._accumulated_pressure
         
-        # Save pre-sleep snapshot for rollback
-        self._snapshot = copy.deepcopy(state_snapshot)
+        # Save pre-sleep snapshot for rollback.
+        # The graph dicts can be mutated concurrently by the background web
+        # learner while deepcopy iterates them — hold the graph's internal lock
+        # so the snapshot is a consistent (non-racing) view.
+        if graph is not None and hasattr(graph, "_lock"):
+            with graph._lock:
+                self._snapshot = copy.deepcopy(state_snapshot)
+        else:
+            self._snapshot = copy.deepcopy(state_snapshot)
         total_perturbations = 0
         total_sabotages = 0
         
@@ -384,7 +391,7 @@ class SleepConsolidation:
                 keywords = set(w for w in content.split() if len(w) > 3)
                 keywords.update(t.strip() for t in tags.split(",") if t.strip())
                 matched_nids = [
-                    nid for nid, node in graph.nodes.items()
+                    nid for nid, node in list(graph.nodes.items())
                     if any(kw in (node.label or "").lower() for kw in keywords)
                 ]
         # Sort by importance * predictive_utility
@@ -418,7 +425,7 @@ class SleepConsolidation:
                 keywords = set(w for w in content.split() if len(w) > 3)
                 keywords.update(t.strip() for t in tags.split(",") if t.strip())
                 matched_nids = [
-                    nid for nid, node in graph.nodes.items()
+                    nid for nid, node in list(graph.nodes.items())
                     if any(kw in (node.label or "").lower() for kw in keywords)
                 ]
         # Sort by importance * predictive_utility
@@ -452,7 +459,7 @@ class SleepConsolidation:
                 keywords = set(w for w in content.split() if len(w) > 3)
                 keywords.update(t.strip() for t in tags.split(",") if t.strip())
                 matched_nids = [
-                    nid for nid, node in graph.nodes.items()
+                    nid for nid, node in list(graph.nodes.items())
                     if any(kw in (node.label or "").lower() for kw in keywords)
                 ]
         # Sort by importance * predictive_utility
@@ -486,7 +493,7 @@ class SleepConsolidation:
                 keywords = set(w for w in content.split() if len(w) > 3)
                 keywords.update(t.strip() for t in tags.split(",") if t.strip())
                 matched_nids = [
-                    nid for nid, node in graph.nodes.items()
+                    nid for nid, node in list(graph.nodes.items())
                     if any(kw in (node.label or "").lower() for kw in keywords)
                 ]
         # Sort by importance * predictive_utility
@@ -520,7 +527,7 @@ class SleepConsolidation:
                 keywords = set(w for w in content.split() if len(w) > 3)
                 keywords.update(t.strip() for t in tags.split(",") if t.strip())
                 matched_nids = [
-                    nid for nid, node in graph.nodes.items()
+                    nid for nid, node in list(graph.nodes.items())
                     if any(kw in (node.label or "").lower() for kw in keywords)
                 ]
         # Sort by importance * predictive_utility
@@ -554,7 +561,7 @@ class SleepConsolidation:
                 keywords = set(w for w in content.split() if len(w) > 3)
                 keywords.update(t.strip() for t in tags.split(",") if t.strip())
                 matched_nids = [
-                    nid for nid, node in graph.nodes.items()
+                    nid for nid, node in list(graph.nodes.items())
                     if any(kw in (node.label or "").lower() for kw in keywords)
                 ]
         # Sort by importance * predictive_utility
@@ -588,7 +595,7 @@ class SleepConsolidation:
                 keywords = set(w for w in content.split() if len(w) > 3)
                 keywords.update(t.strip() for t in tags.split(",") if t.strip())
                 matched_nids = [
-                    nid for nid, node in graph.nodes.items()
+                    nid for nid, node in list(graph.nodes.items())
                     if any(kw in (node.label or "").lower() for kw in keywords)
                 ]
         # Sort by importance * predictive_utility
@@ -622,7 +629,7 @@ class SleepConsolidation:
                 keywords = set(w for w in content.split() if len(w) > 3)
                 keywords.update(t.strip() for t in tags.split(",") if t.strip())
                 matched_nids = [
-                    nid for nid, node in graph.nodes.items()
+                    nid for nid, node in list(graph.nodes.items())
                     if any(kw in (node.label or "").lower() for kw in keywords)
                 ]
         # Sort by importance * predictive_utility
@@ -656,7 +663,7 @@ class SleepConsolidation:
                 keywords = set(w for w in content.split() if len(w) > 3)
                 keywords.update(t.strip() for t in tags.split(",") if t.strip())
                 matched_nids = [
-                    nid for nid, node in graph.nodes.items()
+                    nid for nid, node in list(graph.nodes.items())
                     if any(kw in (node.label or "").lower() for kw in keywords)
                 ]
         # Sort by importance * predictive_utility
@@ -690,7 +697,7 @@ class SleepConsolidation:
                 keywords = set(w for w in content.split() if len(w) > 3)
                 keywords.update(t.strip() for t in tags.split(",") if t.strip())
                 matched_nids = [
-                    nid for nid, node in graph.nodes.items()
+                    nid for nid, node in list(graph.nodes.items())
                     if any(kw in (node.label or "").lower() for kw in keywords)
                 ]
         # Sort by importance * predictive_utility
@@ -724,7 +731,7 @@ class SleepConsolidation:
                 keywords = set(w for w in content.split() if len(w) > 3)
                 keywords.update(t.strip() for t in tags.split(",") if t.strip())
                 matched_nids = [
-                    nid for nid, node in graph.nodes.items()
+                    nid for nid, node in list(graph.nodes.items())
                     if any(kw in (node.label or "").lower() for kw in keywords)
                 ]
         # Sort by importance * predictive_utility
@@ -758,7 +765,7 @@ class SleepConsolidation:
                 keywords = set(w for w in content.split() if len(w) > 3)
                 keywords.update(t.strip() for t in tags.split(",") if t.strip())
                 matched_nids = [
-                    nid for nid, node in graph.nodes.items()
+                    nid for nid, node in list(graph.nodes.items())
                     if any(kw in (node.label or "").lower() for kw in keywords)
                 ]
         # Sort by importance * predictive_utility
@@ -792,7 +799,7 @@ class SleepConsolidation:
                 keywords = set(w for w in content.split() if len(w) > 3)
                 keywords.update(t.strip() for t in tags.split(",") if t.strip())
                 matched_nids = [
-                    nid for nid, node in graph.nodes.items()
+                    nid for nid, node in list(graph.nodes.items())
                     if any(kw in (node.label or "").lower() for kw in keywords)
                 ]
         # Sort by importance * predictive_utility
@@ -826,7 +833,7 @@ class SleepConsolidation:
                 keywords = set(w for w in content.split() if len(w) > 3)
                 keywords.update(t.strip() for t in tags.split(",") if t.strip())
                 matched_nids = [
-                    nid for nid, node in graph.nodes.items()
+                    nid for nid, node in list(graph.nodes.items())
                     if any(kw in (node.label or "").lower() for kw in keywords)
                 ]
         # Sort by importance * predictive_utility
@@ -860,7 +867,7 @@ class SleepConsolidation:
                 keywords = set(w for w in content.split() if len(w) > 3)
                 keywords.update(t.strip() for t in tags.split(",") if t.strip())
                 matched_nids = [
-                    nid for nid, node in graph.nodes.items()
+                    nid for nid, node in list(graph.nodes.items())
                     if any(kw in (node.label or "").lower() for kw in keywords)
                 ]
         # Sort by importance * predictive_utility
@@ -894,7 +901,7 @@ class SleepConsolidation:
                 keywords = set(w for w in content.split() if len(w) > 3)
                 keywords.update(t.strip() for t in tags.split(",") if t.strip())
                 matched_nids = [
-                    nid for nid, node in graph.nodes.items()
+                    nid for nid, node in list(graph.nodes.items())
                     if any(kw in (node.label or "").lower() for kw in keywords)
                 ]
         # Sort by importance * predictive_utility
@@ -928,7 +935,7 @@ class SleepConsolidation:
                 keywords = set(w for w in content.split() if len(w) > 3)
                 keywords.update(t.strip() for t in tags.split(",") if t.strip())
                 matched_nids = [
-                    nid for nid, node in graph.nodes.items()
+                    nid for nid, node in list(graph.nodes.items())
                     if any(kw in (node.label or "").lower() for kw in keywords)
                 ]
         # Sort by importance * predictive_utility
@@ -962,7 +969,7 @@ class SleepConsolidation:
                 keywords = set(w for w in content.split() if len(w) > 3)
                 keywords.update(t.strip() for t in tags.split(",") if t.strip())
                 matched_nids = [
-                    nid for nid, node in graph.nodes.items()
+                    nid for nid, node in list(graph.nodes.items())
                     if any(kw in (node.label or "").lower() for kw in keywords)
                 ]
         # Sort by importance * predictive_utility
@@ -996,7 +1003,7 @@ class SleepConsolidation:
                 keywords = set(w for w in content.split() if len(w) > 3)
                 keywords.update(t.strip() for t in tags.split(",") if t.strip())
                 matched_nids = [
-                    nid for nid, node in graph.nodes.items()
+                    nid for nid, node in list(graph.nodes.items())
                     if any(kw in (node.label or "").lower() for kw in keywords)
                 ]
         # Sort by importance * predictive_utility
@@ -1030,7 +1037,7 @@ class SleepConsolidation:
                 keywords = set(w for w in content.split() if len(w) > 3)
                 keywords.update(t.strip() for t in tags.split(",") if t.strip())
                 matched_nids = [
-                    nid for nid, node in graph.nodes.items()
+                    nid for nid, node in list(graph.nodes.items())
                     if any(kw in (node.label or "").lower() for kw in keywords)
                 ]
         # Sort by importance * predictive_utility
@@ -1064,7 +1071,7 @@ class SleepConsolidation:
                 keywords = set(w for w in content.split() if len(w) > 3)
                 keywords.update(t.strip() for t in tags.split(",") if t.strip())
                 matched_nids = [
-                    nid for nid, node in graph.nodes.items()
+                    nid for nid, node in list(graph.nodes.items())
                     if any(kw in (node.label or "").lower() for kw in keywords)
                 ]
         # Sort by importance * predictive_utility
@@ -1098,7 +1105,7 @@ class SleepConsolidation:
                 keywords = set(w for w in content.split() if len(w) > 3)
                 keywords.update(t.strip() for t in tags.split(",") if t.strip())
                 matched_nids = [
-                    nid for nid, node in graph.nodes.items()
+                    nid for nid, node in list(graph.nodes.items())
                     if any(kw in (node.label or "").lower() for kw in keywords)
                 ]
         # Sort by importance * predictive_utility
@@ -1132,7 +1139,7 @@ class SleepConsolidation:
                 keywords = set(w for w in content.split() if len(w) > 3)
                 keywords.update(t.strip() for t in tags.split(",") if t.strip())
                 matched_nids = [
-                    nid for nid, node in graph.nodes.items()
+                    nid for nid, node in list(graph.nodes.items())
                     if any(kw in (node.label or "").lower() for kw in keywords)
                 ]
         # Sort by importance * predictive_utility
@@ -1166,7 +1173,7 @@ class SleepConsolidation:
                 keywords = set(w for w in content.split() if len(w) > 3)
                 keywords.update(t.strip() for t in tags.split(",") if t.strip())
                 matched_nids = [
-                    nid for nid, node in graph.nodes.items()
+                    nid for nid, node in list(graph.nodes.items())
                     if any(kw in (node.label or "").lower() for kw in keywords)
                 ]
         # Sort by importance * predictive_utility
@@ -1200,7 +1207,7 @@ class SleepConsolidation:
                 keywords = set(w for w in content.split() if len(w) > 3)
                 keywords.update(t.strip() for t in tags.split(",") if t.strip())
                 matched_nids = [
-                    nid for nid, node in graph.nodes.items()
+                    nid for nid, node in list(graph.nodes.items())
                     if any(kw in (node.label or "").lower() for kw in keywords)
                 ]
         # Sort by importance * predictive_utility
@@ -1234,7 +1241,7 @@ class SleepConsolidation:
                 keywords = set(w for w in content.split() if len(w) > 3)
                 keywords.update(t.strip() for t in tags.split(",") if t.strip())
                 matched_nids = [
-                    nid for nid, node in graph.nodes.items()
+                    nid for nid, node in list(graph.nodes.items())
                     if any(kw in (node.label or "").lower() for kw in keywords)
                 ]
         # Sort by importance * predictive_utility
@@ -1268,7 +1275,7 @@ class SleepConsolidation:
                 keywords = set(w for w in content.split() if len(w) > 3)
                 keywords.update(t.strip() for t in tags.split(",") if t.strip())
                 matched_nids = [
-                    nid for nid, node in graph.nodes.items()
+                    nid for nid, node in list(graph.nodes.items())
                     if any(kw in (node.label or "").lower() for kw in keywords)
                 ]
         # Sort by importance * predictive_utility
@@ -1302,7 +1309,7 @@ class SleepConsolidation:
                 keywords = set(w for w in content.split() if len(w) > 3)
                 keywords.update(t.strip() for t in tags.split(",") if t.strip())
                 matched_nids = [
-                    nid for nid, node in graph.nodes.items()
+                    nid for nid, node in list(graph.nodes.items())
                     if any(kw in (node.label or "").lower() for kw in keywords)
                 ]
         # Sort by importance * predictive_utility
@@ -1336,7 +1343,7 @@ class SleepConsolidation:
                 keywords = set(w for w in content.split() if len(w) > 3)
                 keywords.update(t.strip() for t in tags.split(",") if t.strip())
                 matched_nids = [
-                    nid for nid, node in graph.nodes.items()
+                    nid for nid, node in list(graph.nodes.items())
                     if any(kw in (node.label or "").lower() for kw in keywords)
                 ]
         # Sort by importance * predictive_utility
@@ -1370,7 +1377,7 @@ class SleepConsolidation:
                 keywords = set(w for w in content.split() if len(w) > 3)
                 keywords.update(t.strip() for t in tags.split(",") if t.strip())
                 matched_nids = [
-                    nid for nid, node in graph.nodes.items()
+                    nid for nid, node in list(graph.nodes.items())
                     if any(kw in (node.label or "").lower() for kw in keywords)
                 ]
         # Sort by importance * predictive_utility
@@ -1404,7 +1411,7 @@ class SleepConsolidation:
                 keywords = set(w for w in content.split() if len(w) > 3)
                 keywords.update(t.strip() for t in tags.split(",") if t.strip())
                 matched_nids = [
-                    nid for nid, node in graph.nodes.items()
+                    nid for nid, node in list(graph.nodes.items())
                     if any(kw in (node.label or "").lower() for kw in keywords)
                 ]
 
@@ -1419,7 +1426,7 @@ class SleepConsolidation:
             graph.spread_activation(steps=1, k_active=5, decay=0.3)
 
             # Hebbian strengthening between co-activated concepts
-            active = [(n.id, n.activation) for n in graph.nodes.values() if n.activation > 0.1]
+            active = [(n.id, n.activation) for n in list(graph.nodes.values()) if n.activation > 0.1]
             for i, (a_id, a_act) in enumerate(active):
                 for b_id, b_act in active[i + 1:]:
                     coact = a_act * b_act
@@ -1447,7 +1454,7 @@ class SleepConsolidation:
             graph.reset_activation()
 
         # 2. Prune low-confidence unreinforced edges
-        for (src, tgt), edge in list(graph.edges.items()):
+        for (src, tgt), edge in list(list(graph.edges.items())):
             if hasattr(edge, 'confidence') and hasattr(edge, 'prediction_count'):
                 if edge.confidence < 0.05 and edge.prediction_count == 0:
                     graph.remove_edge(src, tgt)

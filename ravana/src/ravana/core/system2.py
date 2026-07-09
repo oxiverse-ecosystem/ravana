@@ -22,7 +22,7 @@ class System2Simulator:
         seed_nids = self.graph.get_node_ids(seed_concept) if hasattr(self.graph, 'get_node_ids') else []
         if not seed_nids:
             # Fallback to keyword matching
-            for nid, node in self.graph.nodes.items():
+            for nid, node in list(self.graph.nodes.items()):
                 if node.label.lower() == seed_concept.lower():
                     seed_nids = [nid]
                     break

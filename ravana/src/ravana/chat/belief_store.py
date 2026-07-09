@@ -72,6 +72,26 @@ class BeliefStore:
             resolved[key] = self.beliefs[key]
         return resolved
 
+    def prune_stale(self, min_confidence: float = 0.4,
+                    stale_after: int = 10) -> int:
+        """Forget low-confidence beliefs that were never reinforced.
+
+        P7: unverified web claims (asserted with conf ~0.5, demoted to <0.4 on
+        conflict, or simply never boosted by reinforcement) that have gone
+        untouched for ``stale_after`` turns are junk memory — drop them so sleep
+        forgets them like real memory. A belief's ``turn`` field is refreshed on
+        every assert/reconcile, so "no reinforcement" == turn is old.
+
+        Returns the number of beliefs pruned.
+        """
+        to_remove = []
+        for key, (value, conf, turn) in self.beliefs.items():
+            if conf < min_confidence and (self.turn_num - turn) >= stale_after:
+                to_remove.append(key)
+        for key in to_remove:
+            del self.beliefs[key]
+        return len(to_remove)
+
     def get_state(self) -> Dict:
         return {
             'beliefs': self.beliefs,

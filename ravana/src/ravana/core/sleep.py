@@ -117,7 +117,7 @@ class SleepConsolidation:
         edges_pruned = self._prune_weak_edges(graph, threshold=self.config.prune_threshold)
 
         # NREM STAGE 4: Drift defense
-        for nid, node in graph.nodes.items():
+        for nid, node in list(graph.nodes.items()):
             drift = getattr(node, 'drift_magnitude', 0.0)
             if drift > drift_defense_threshold:
                 pull = drift_pull * (node.core_vector - node.vector)
@@ -155,7 +155,7 @@ class SleepConsolidation:
                 subj_node = graph.get_node(subj_nids[0])
                 if subj_node and subj_node.vector is not None:
                     new_edges = 0
-                    for other_nid, other_node in graph.nodes.items():
+                    for other_nid, other_node in list(graph.nodes.items()):
                         if other_nid == subj_nids[0]:
                             continue
                         if other_node.vector is not None and other_node.label:
@@ -196,7 +196,7 @@ class SleepConsolidation:
 
     def _normalize_outgoing_weights(self, graph, budget: float = 5.0):
         """Normalize outgoing edge weights per node."""
-        for nid in graph._outgoing:
+        for nid in list(graph._outgoing):
             edges = graph._outgoing.get(nid, [])
             if not edges:
                 continue
@@ -209,7 +209,7 @@ class SleepConsolidation:
     def _prune_weak_edges(self, graph, threshold: float = 0.1) -> int:
         """Remove edges with weight below threshold."""
         edges_to_remove = []
-        for (src, tgt), edge in graph.edges.items():
+        for (src, tgt), edge in list(graph.edges.items()):
             if edge.weight < threshold:
                 edges_to_remove.append((src, tgt))
 

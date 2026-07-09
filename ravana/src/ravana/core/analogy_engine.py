@@ -139,7 +139,7 @@ class AnalogyEngine:
             return []
 
         candidates = []
-        for (src, tgt), edge in self.graph.edges.items():
+        for (src, tgt), edge in list(self.graph.edges.items()):
             if src == c_node.id and edge.relation_type == rel_type:
                 tgt_node = self.graph.nodes.get(tgt)
                 if tgt_node:
@@ -228,7 +228,7 @@ class AnalogyEngine:
         """Get outgoing edges from a node."""
         exclude = exclude or set()
         neighbors = []
-        for (src, tgt), edge in self.graph.edges.items():
+        for (src, tgt), edge in list(self.graph.edges.items()):
             if src == node_id and tgt not in exclude:
                 neighbors.append((tgt, edge))
         return neighbors
@@ -250,7 +250,7 @@ class AnalogyEngine:
             if hops >= max_hops:
                 continue
 
-            for (s, t), edge in self.graph.edges.items():
+            for (s, t), edge in list(self.graph.edges.items()):
                 if s == current and t not in path:
                     new_score = score * edge.weight * edge.confidence
                     queue.append((path + [t], hops + 1, new_score))
@@ -259,7 +259,7 @@ class AnalogyEngine:
 
     def _find_node(self, label: str) -> Optional[ConceptNode]:
         """Find node by label."""
-        for node in self.graph.nodes.values():
+        for node in list(self.graph.nodes.values()):
             if node.label.lower() == label.lower():
                 return node
         return None
