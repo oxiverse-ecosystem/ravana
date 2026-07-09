@@ -283,6 +283,43 @@ class TestSurfaceRealizer:
         assert sentence[0].isupper()
         assert sentence.endswith('.')
 
+    def test_realize_rejects_subtoken_selfbind(self):
+        """A multi-word subject whose object is one of its own sub-tokens must
+        NOT produce self-referential text (e.g. 'the sun rise causes rise').
+        realize() must return '' so the caller falls through to a better
+        association / honest fallback. Regression guard for the Q4/Q11
+        self-referential phrasing bug."""
+        sr = SurfaceRealizer()
+        from ravana.language.syntactic_cell_assembly import SyntacticFrame
+        # subject='sun rise', object='rise' -> degenerate sub-token collision
+        frame = SyntacticFrame(
+            subject_concept="sun rise", verb_phrase="causes",
+            object_concept="rise", relation_type="causal")
+        ctx = DiscourseState(sentence_index=0, total_sentences=1)
+        out = sr.realize(frame, ctx)
+        assert out == "", f"expected empty (dropped) realization, got {out!r}"
+
+        # Sanity: a genuinely distinct object still realizes normally (the
+        # subject "sun rise" may appear in the output, but the object "day"
+        # must be the relation target, not the subject's own sub-token).
+        good = SyntacticFrame(
+            subject_concept="sun rise", verb_phrase="causes",
+            object_concept="day", relation_type="causal")
+        ok = sr.realize(good, ctx)
+        assert ok and "day" in ok, f"good frame mis-handled: {ok!r}"
+
+    def test_realize_rejects_empty_object(self):
+        """An empty object concept has nothing to realize -> return ''."""
+        sr = SurfaceRealizer()
+        from ravana.language.syntactic_cell_assembly import SyntacticFrame
+        frame = SyntacticFrame(
+            subject_concept="time", verb_phrase="", object_concept="",
+            relation_type="semantic")
+        ctx = DiscourseState(sentence_index=0, total_sentences=1)
+        assert sr.realize(frame, ctx) == ""
+
+
+
     def test_realize_interrogative(self):
         sr = SurfaceRealizer()
         from ravana.language.syntactic_cell_assembly import SyntacticFrame

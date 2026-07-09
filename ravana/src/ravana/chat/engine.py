@@ -3,7 +3,7 @@ RAVANA Cognitive Chat Engine — main orchestrator.
 Contains CognitiveChatEngine with __init__, process_turn, save/_load.
 Helper classes in models.py, user_model.py, belief_store.py.
 """
-import sys, os, time, random, json, re, threading, hashlib
+import sys, os, time, random, json, re, threading, hashlib, operator
 import urllib.request
 import socket
 socket.setdefaulttimeout(4.0)
@@ -77,6 +77,8 @@ from ravana.core.vsa import VSAManager
 from ravana.language.schemas import SchemaLibrary
 from ravana.core.system1 import System1Attractor
 from ravana.core.system2 import System2Simulator
+from ravana.core.question_decomposition import QuestionDecompositionEngine, QuestionCategory
+from ravana.core.sub_answer_synthesizer import SubAnswerSynthesizer
 
 # Phase 3 Imports
 from ravana.learn.curiosity import CuriosityEngine
@@ -149,6 +151,9 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         self._response_context: List[Dict] = []
         self._last_responses: List[str] = []
         self._last_strategy: str = ""
+        # Phase 19g: set True when the generated response was flagged as word
+        # salad/tautology, so process_turn can substitute an honest fallback.
+        self._last_response_was_salad: bool = False
         # Behavior 8: interlocutor forward simulation (covert other-monitoring).
         # After each turn we predict the user's likely next concept from the
         # activated subgraph; on the next turn we compare what arrived to the
@@ -419,6 +424,18 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # Search engine (instance-specific so circuit breaker settings apply)
         self.search_engine = SearchEngine()
 
+        # Phase 19: Relevance/confidence-gated deep reading.
+        # Snippets are cheap and fed in unconditionally. Full-article fetches
+        # are expensive (timeout ~8s each) and were previously done for ALL
+        # results[:3] synchronously, blocking the user turn for ~30s. Now we
+        # rank results by subject relevance and only deep-read the top few
+        # that clear the gate. Offload pushes deep reads to the background
+        # thread so a turn returns from snippets in ~search latency.
+        self._deep_read_max = 1          # max full articles fetched per query
+        self._deep_read_timeout = 6      # per-article fetch timeout (s)
+        self._deep_read_relevance_gate = 0.12  # min relevance to deep-read
+        self._deep_read_offload = True   # offload deep reads to background
+
         # Phase 18: Curiosity Drive - autonomous topic selection for background learning
         self._curiosity_drive_enabled: bool = True  # can be disabled via --no-curiosity
         self._curiosity_cycles_this_session: int = 0  # bg auto-select count per idle session
@@ -443,6 +460,12 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # Phase 18d: Explored contradiction pairs (prevent re-queuing "good vs bad debate")
         self._explored_contradictions: Set[Tuple[str, str]] = set()
 
+                # Question Decomposition Engine (frontopolar BA 10 analog)
+        # Holds the main question while managing sub-questions (Braver & Bongiolatti, 2002)
+        self.question_decomposer = QuestionDecompositionEngine()
+        self.answer_synthesizer = SubAnswerSynthesizer()
+        self._current_decomposition_result = None
+        
         # Phase: Correction Log (ACC/ERN error correction circuit)
         self._correction_log: List[Correction] = []
 
@@ -464,6 +487,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             loaded = self._load()
             if loaded:
                 self._revector_existing_nodes()
+                self._sanitize_graph()  # prune poison nodes (self-loops, question phrases)
                 self._bootstrap_domain_concepts()
                 # Load decoder FIRST (before building vocab) to detect saved vocab size
                 if hasattr(self, '_saved_decoder_state') and self._saved_decoder_state:
@@ -839,6 +863,57 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
 
 
 
+
+    def _is_philosophical_paradox(self, text: str) -> bool:
+        """Detect philosophical paradoxes/impossible questions (frontopolar BA 10 N400 analog).
+        
+        Before the action-request check fires, the brain's BA 10 detects semantic 
+        incongruity (N400 effect) and routes paradoxical questions to deliberation.
+        These are NOT action requests — they are semantic puzzles that need 
+        counterfactual reasoning.
+        
+        Patterns detected:
+        - Theological paradoxes: "can god create a stone so heavy..."
+        - Classical paradoxes: "unstoppable force meets immovable object"
+        - Self-referential: "this statement is false"
+        - Impossible scenarios: "can you prove you exist"
+        """
+        t = text.lower().strip(" ?!.")
+        
+        # Theological/omni-paradoxes (the classic "can god create a stone...")
+        if re.search(r"\b(can|could)\s+(god|you|one|a\s+being)\s+(create|make|find)\s+(a|an)\s+(.+?)\s+(so|that|which)\s+(heavy|powerful|big|strong|large|hot|cold)", t):
+            return True
+        
+        # Self-referential paradoxes
+        if re.search(r"\b(this\s+statement|the\s+following\s+sentence|the\s+next\s+thing)\b.*\b(false|true|paradox|contradict)", t):
+            return True
+        
+        # Classical paradoxes (unstoppable force, omnipotence, etc.)
+        classical = [
+            "unstoppable force", "irresistible force", "immovable object",
+            "irresistible force meets", "immovable object meets",
+            "can god create a stone", "could god create a stone",
+            "can you create a stone", "what happens when an unstoppable",
+            "what is the sound of one hand", "one hand clapping",
+            "can you prove you exist", "can we know anything for certain",
+            "is reality real", "are we living in a simulation",
+            "what is the answer to life the universe and everything",
+        ]
+        for phrase in classical:
+            if phrase in t:
+                return True
+        
+        # Semantic contradiction markers: X so Y that Z (where Y is an extreme)
+        # "heavy" + "cannot lift" pattern
+        if re.search(r"\b(so\s+(heavy|powerful|big|strong|large|hot|cold)\s+that\s+(.+?)\s+(can't|cannot|couldn't|not|never))", t):
+            return True
+        
+        # Question about impossibility itself
+        if re.search(r"\b(impossible|paradox|contradiction|contradictory)\b", t):
+            return True
+
+        return False
+
     def _user_input_is_gibberism(self, text: str) -> bool:
         """Detect user input that contains no real words at all (random
         letter-salad like 'asdf qwer zxcv'). Such input should not be treated
@@ -883,6 +958,56 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 return False
         return True
 
+    def _try_arithmetic(self, user_input: str) -> Optional[str]:
+        """Phase 19f: Answer simple arithmetic directly instead of routing it
+        through the web/decomposition pipeline (which would fail to find a
+        numeric fact and fall back to metacognitive uncertainty).
+
+        Handles plain two- or three-operand expressions with + - * / and
+        integer powers (^), with or without a leading question frame
+        ("what is 2 + 2", "calculate 10 * 5"). Uses a whitelisted ``operator``
+        map — never ``eval``. Returns a natural-language answer string, or None
+        if the input is not simple arithmetic (so the normal pipeline runs).
+        """
+        # Normalize unicode operators and strip a leading question frame.
+        s = user_input.lower()
+        s = s.replace("×", "*").replace("÷", "/").replace("x", "*")
+        # Remove common framing words; keep only the math expression.
+        s = re.sub(r"^(what(?:'s| is)|calculate|compute|solve|find|tell me|how much is|how many is)\s+",
+                   "", s).strip()
+        s = s.rstrip("?.").strip()
+        # Match either "a op b" or "a op b op c" with whitespace-flexible ops.
+        m = re.fullmatch(
+            r"\s*([-+]?\d+(?:\.\d+)?)\s*([+\-*/^])\s*([-+]?\d+(?:\.\d+)?)"
+            r"(?:\s*([+\-*/^])\s*([-+]?\d+(?:\.\d+)?))?\s*",
+            s,
+        )
+        if not m:
+            return None
+        try:
+            ops = {
+                "+": operator.add, "-": operator.sub,
+                "*": operator.mul, "/": operator.truediv,
+                "^": operator.pow,
+            }
+            a = float(m.group(1)); op1 = m.group(2); b = float(m.group(3))
+            c = ops[op1](a, b)
+            if m.group(4) is not None:  # three-operand: (a op1 b) op2 c
+                op2 = m.group(4); d = float(m.group(5))
+                c = ops[op2](c, d)
+            # Format cleanly: integers stay integers, else trim long floats.
+            if c == int(c) and abs(c) < 1e15:
+                result = str(int(c))
+            else:
+                result = f"{c:.4g}".rstrip("0").rstrip(".")
+            # Mirror the user's phrasing for a natural reply.
+            expr = user_input.strip().rstrip("?.")
+            return f"{expr} = {result}."
+        except (ZeroDivisionError, OverflowError, ValueError):
+            return None
+
+
+
     def process_turn(self, user_input: str) -> str:
         """Process input and generate a response, auto-learning when needed."""
         # Guard: reject pure letter-salad so it is not treated as a concept and
@@ -893,6 +1018,24 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             self._last_responses.append(resp)
             if len(self._last_responses) > 10:
                 self._last_responses = self._last_responses[-10:]
+            return resp
+
+        # ── Phase 19f: Arithmetic pre-pass ───────────────────────────────────
+        # Plain arithmetic is deterministic and should never be routed to the
+        # web/decomposition pipeline (which would fail to find a numeric fact
+        # and fall back to metacognitive uncertainty — e.g. "what is 2 + 2"
+        # answering "I'm not sure"). Compute directly with a whitelisted operator
+        # set (NO eval). Only simple two/three-operand expressions are handled;
+        # symbolic or transcendental queries ("1000th digit of pi") are left for
+        # the honest-uncertainty path.
+        _arith = self._try_arithmetic(user_input)
+        if _arith is not None:
+            self._last_strategy = "arithmetic"
+            resp = _arith
+            self._last_responses.append(resp)
+            if len(self._last_responses) > 10:
+                self._last_responses = self._last_responses[-10:]
+            self.notify_user_idle()
             return resp
 
         # Scan user query for proper nouns dynamically
@@ -910,6 +1053,12 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         self._learned_this_turn = False
         self._cascade_for_quality = False
         self._fok_pause_done = False
+        # Phase 19: clear per-turn search cache so cached snippets reflect only
+        # this turn's queries (avoids serving stale results from prior turns).
+        try:
+            self.search_engine.clear_search_cache()
+        except Exception:
+            pass
         self.user_model.reset_correction_flags()  # Reset LPFC pause flag each turn
         # Decay recency boost: clear after 10 turns (synaptic tag window)
         if hasattr(self, '_recent_learn_turn') and self.turn_count - self._recent_learn_turn > 10:
@@ -1245,8 +1394,17 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
 
         # Filter associations to only contain nouns (and not grammatical/function words)
         filtered_associations = []
+        # Sub-token set of the subject phrase. A constituent word of a multi-word
+        # subject (e.g. "rise" in "sun rise") is returned by spread as a "related"
+        # concept but is NOT a meaningful association with itself — binding it
+        # yields self-referential garbage ("sun rise causes rise", the Q4/Q11
+        # residual phrasing bug). Drop such sub-token collisions here so every
+        # downstream consumer (syntactic pipeline, gist, reflective) is protected.
+        _subj_tokens = set(re.findall(r"[a-z']+", sl))
         for l, s in associations:
             ll = l.lower()
+            if ll in _subj_tokens and ll != sl:
+                continue
             if ll in self._GRAMMATICAL_CONCEPTS:
                 continue
             pos = getattr(self, '_concept_pos', {}).get(ll, 'noun')
@@ -1377,15 +1535,26 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # "build me a python web scraper", "please send the email" — these are
         # requests to *do* something, not factual questions. RAVANA cannot
         # execute them, so answer honestly instead of confabulating a topic.
-        action_verb = self._is_action_request(user_input)
-        if action_verb:
-            resp = self._handle_action_request(user_input, action_verb, subject)
-            self._last_strategy = "action_request"
-            self._last_responses.append(resp)
-            if len(self._last_responses) > 10:
-                self._last_responses = self._last_responses[-10:]
-            self.notify_user_idle()
-            return resp
+        #
+        # CRITICAL: Philosophical paradoxes like "can god create a stone so heavy
+        # he cannot lift it" must be detected BEFORE the action-request check.
+        # The frontopolar cortex (BA 10) detects semantic incongruity (N400
+        # effect) and routes paradoxes to deliberation, not action.
+        if self._is_philosophical_paradox(user_input):
+            if self._trace_enabled:
+                print(f"  [paradox] Philosophical paradox detected: '{user_input}'")
+            # Route through the normal pipeline — paradoxes need reasoning, not action
+            pass  # Fall through to reasoning pipeline
+        else:
+            action_verb = self._is_action_request(user_input)
+            if action_verb:
+                resp = self._handle_action_request(user_input, action_verb, subject)
+                self._last_strategy = "action_request"
+                self._last_responses.append(resp)
+                if len(self._last_responses) > 10:
+                    self._last_responses = self._last_responses[-10:]
+                self.notify_user_idle()
+                return resp
 
 
         confidence = self.identity.state.strength * 0.5 + 0.2
@@ -1566,8 +1735,14 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                             relation_preference=spread_pref)
                         # Re-filter associations
                         filtered = []
+                        # Sub-token collision drop (same as the primary spread
+                        # filter above) so re-spread after web learning is also
+                        # protected from self-referential associations.
+                        _subj_tokens = set(re.findall(r"[a-z']+", sl))
                         for l, s in associations:
                             ll = l.lower()
+                            if ll in _subj_tokens and ll != sl:
+                                continue
                             if ll in self._GRAMMATICAL_CONCEPTS:
                                 continue
                             pos = getattr(self, '_concept_pos', {}).get(ll, 'noun')
@@ -1585,6 +1760,33 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                         if self._trace_enabled:
                             print(f"  [LPFC] Search failed: {e} (continuing with existing knowledge)")
 
+                # ─── Question Decomposition (Frontopolar BA 10 analog) ───
+        # Decompose complex questions into sub-questions for more comprehensive answers.
+        # Each sub-question has a specific relation_type (causal, semantic, contrastive)
+        # that guides the activation spread and chain walking.
+        self._current_decomposition_result = None
+        if subject and user_input:
+            try:
+                decomposition = self.question_decomposer.decompose(user_input)
+                if decomposition.category not in (QuestionCategory.GENERAL, QuestionCategory.SOCIAL):
+                    self._current_decomposition_result = decomposition
+                    # Use decomposition to refine spread preference for each sub-question
+                    if decomposition.sub_questions:
+                        # Use the first sub-question's relation type for the main spread
+                        decomp_rel = decomposition.sub_questions[0].relation_type
+                        if decomp_rel and decomp_rel != "semantic":
+                            spread_pref = self._relation_modulation_for_word(decomp_rel)
+                    if self._trace_enabled:
+                        n_sub = len(decomposition.sub_questions)
+                        print(f"  [decomp] {decomposition.category.value}: {n_sub} sub-questions")
+                        for sq in decomposition.sub_questions:
+                            print(f"    [{sq.id}] {sq.text} ({sq.relation_type})")
+            except Exception as e:
+                if self._trace_enabled:
+                    print(f"  [decomp] Error: {e}")
+                self._current_decomposition_result = None
+
+
         # Step 8: Build context and generate response
         # Phase 12: Detect brain state for schema modulation
         state = self._detect_brain_state()
@@ -1594,6 +1796,8 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             if self._trace_enabled and schema_ids:
                 print(f'  [trace]   {state} mode: schema activated {len(schema_ids)} concepts')
 
+        # Attach decomposition result to context for discourse planning
+        decomp_ctx = self._current_decomposition_result
         ctx = CognitiveResponseContext(
             subject=subject, relation=relation, object=obj, raw_input=user_input,
             associated_concepts=associations,
@@ -1616,6 +1820,8 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             context_vector=self._context_vector,
             situation_vector=self.situation_model.get_blended_vector() if hasattr(self, "situation_model") else None,
             situation_narrative=self.situation_model.get_narrative_suggestions() if hasattr(self, "situation_model") else {},
+            decomposition=decomp_ctx,
+            sub_questions=[sq.to_dict() for sq in (decomp_ctx.sub_questions if decomp_ctx else [])],
         )
 
         # Behavior 2 (turn-end predictor analog): if the user's turn is a
@@ -1669,8 +1875,27 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             self._graph_lock.release()
         self._last_strategy = strategy
 
+        # Phase 19g: reset the per-turn salad flag (set by _assess_response_quality
+        # if the generated response was tautological/empty).
+        self._last_response_was_salad = False
+
         # ─── Self-Improvement Loop: Learn from Weak Responses (ERN -> ACC -> LC-NE -> Hippocampus) ───
         quality_score = self._assess_response_quality(response, strategy, ctx)
+
+        # Phase 19g: if the generated response was flagged as word salad /
+        # tautology (e.g. "gravity and time causes time"), do NOT emit it.
+        # Substitute a concise, honest uncertainty response instead. The weak-
+        # response self-improvement loop below still runs (queues learning,
+        # boosts curiosity) so RAVANA keeps trying to learn the topic — but the
+        # user sees an honest "still figuring it out" rather than empty text.
+        if getattr(self, '_last_response_was_salad', False):
+            subject_label = (ctx.subject or 'that').strip()
+            response = (
+                f"honestly, i'm still piecing together what {subject_label} really "
+                f"means — i don't want to give you a hollow answer. what's your take?"
+            )
+            strategy = "salad_fallback"
+            self._last_strategy = strategy
 
         # Brain-inspired Syntactic & Construction Grammar Feedback Learning
         user_understood = (quality_score >= 0.55)
@@ -1831,9 +2056,15 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         self._store_episodic(subject, associations)
 
         if response is not None:
-            self._last_responses.append(response)
-            if len(self._last_responses) > 10:
-                self._last_responses = self._last_responses[-10:]
+            # Defensive: only strings belong in response history. A generator
+            # that accidentally returns a (text, strategy) tuple must never
+            # poison _last_responses (downstream code calls resp.split()).
+            if isinstance(response, tuple) and response:
+                response = response[0]
+            if isinstance(response, str):
+                self._last_responses.append(response)
+                if len(self._last_responses) > 10:
+                    self._last_responses = self._last_responses[-10:]
 
         # Phase 16.5: Update cerebellar n-gram model
         for hops_list in self._last_chain_hops:
@@ -2056,7 +2287,8 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                     scores[nid] = scores.get(nid, 0) + base * n400_boost
 
             # Label matching (same as before)
-            for nid, node in self.graph.nodes.items():
+            # Snapshot: background learner may add nodes mid-turn.
+            for nid, node in list(self.graph.nodes.items()):
                 if not node or not node.label:
                     continue
                 label = node.label.lower()
@@ -3007,7 +3239,68 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         closer = ""
         if random.random() < 0.4:
             closer = random.choice(closers[1:])
-        return (best + closer, "web_direct_answer")
+        answer_text = best + closer
+
+        # ---- P6: verify the web claim against established belief before emitting ----
+        # The web snippet is a *candidate*, not gospel. Check it against what we
+        # already believe about the subject, adjust confidence accordingly, and
+        # (the key move) store it in the BeliefStore so it can be contradicted,
+        # reconciled, or forgotten later (see _sleep_consolidate / P7).
+        subject_key = ctx.subject.lower()
+        confidence = 0.5  # web claims start low-confidence (no RLM verification yet)
+        try:
+            existing = self.belief_store.query_belief(subject_key, "def")
+        except Exception:
+            existing = None
+        if existing is not None:
+            prior_val = existing[0]
+            overlap = self._belief_value_overlap(prior_val, best)
+            if overlap >= 0.5:
+                # Web corroborates what we already knew -> boost confidence.
+                confidence = max(confidence, min(0.9, existing[1] + 0.2))
+                if getattr(self, '_trace_enabled', False):
+                    print(f"  [webans] belief match on '{subject_key}' "
+                          f"(overlap={overlap:.2f}) -> conf {confidence:.2f}")
+            elif overlap < 0.15:
+                # Nontrivial conflict: web disagrees with an established belief.
+                confidence = max(0.1, confidence - 0.25)
+                old_triple = (subject_key, "def", prior_val)
+                new_triple = (subject_key, "def", best)
+                self.belief_store.contradictions.append(
+                    (old_triple, new_triple, self.belief_store.turn_num))
+                answer_text = "[unverified: conflicts with what I knew] " + answer_text
+                if getattr(self, '_trace_enabled', False):
+                    print(f"  [webans] belief conflict on '{subject_key}': "
+                          f"prior={prior_val[:40]!r} web={best[:40]!r} "
+                          f"(overlap={overlap:.2f}) -> conf {confidence:.2f}")
+        # The web claim now LIVES in the belief store as a low-confidence
+        # candidate; a matching prior boosted it, a conflicting prior demoted it.
+        # Either way sleep can reconcile it against local knowledge and prune it
+        # if it stays unverified and unreinforced.
+        try:
+            self.belief_store.assert_belief(subject_key, "def", best,
+                                            confidence=confidence)
+        except Exception:
+            pass
+        return (answer_text, "web_direct_answer")
+
+
+    def _belief_value_overlap(self, a: Optional[str], b: Optional[str]) -> float:
+        """Content-word Jaccard overlap between two belief value strings (0..1).
+
+        Used to decide whether a fresh web claim MATCHES an established belief
+        (high overlap -> corroboration) or NONTRIVIALLY conflicts with it (near
+        zero overlap -> disagreement). Stop-words and short tokens are dropped
+        so shared filler doesn't inflate the score.
+        """
+        ta = {w for w in re.findall(r"[a-z0-9]+", (a or "").lower())
+              if len(w) >= 3 and w not in STOP_WORDS}
+        tb = {w for w in re.findall(r"[a-z0-9]+", (b or "").lower())
+              if len(w) >= 3 and w not in STOP_WORDS}
+        if not ta or not tb:
+            return 0.0
+        union = ta | tb
+        return len(ta & tb) / len(union) if union else 0.0
 
 
     def _try_hippocampal_retrieval(self, ctx) -> Optional[str]:
@@ -3342,7 +3635,9 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         pe = getattr(self, '_mean_prediction_error', 0.3)
         threshold = 0.6 if pe < 0.2 else (0.4 if pe > 0.5 else 0.5)
         schema_ids = {subj_nid}
-        for other_nid, other_node in self.graph.nodes.items():
+        # Snapshot: background learner may add nodes mid-turn (avoid
+        # "dictionary changed size during iteration").
+        for other_nid, other_node in list(self.graph.nodes.items()):
             if other_nid == subj_nid or other_node.vector is None:
                 continue
             cos = float(np.dot(subj_node.vector, other_node.vector))
@@ -3540,6 +3835,12 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
 
         # Word salad check: immediate 0
         if _is_word_salad(response, subject=ctx.subject):
+            # Phase 19g: record the cause so the caller can substitute an honest
+            # fallback instead of emitting tautological/empty text to the user.
+            try:
+                self._last_response_was_salad = True
+            except Exception:
+                pass
             return 0.0
 
         # Length penalty: too short or too long
@@ -3709,6 +4010,23 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             concept_vad=self._concept_vad if hasattr(self, '_concept_vad') else None,
         )
         self.sleep_cycles_completed += 1
+        # P7: reconcile & prune beliefs — close the web-grounding loop.
+        # The grace sleep engine ignores the chat BeliefStore, so drive
+        # belief maintenance here: reconcile contradictions (recency-decayed
+        # winner) and forget low-confidence web claims that were never
+        # reinforced, so unverified junk gets forgotten like real memory.
+        try:
+            reconciled = self.belief_store.reconcile()
+            beliefs_pruned = self.belief_store.prune_stale(
+                min_confidence=0.4, stale_after=10)
+            result['beliefs_reconciled'] = len(reconciled)
+            result['beliefs_pruned'] = beliefs_pruned
+            if getattr(self, '_trace_enabled', False) and (reconciled or beliefs_pruned):
+                print(f"  [sleep] beliefs: {len(reconciled)} reconciled, "
+                      f"{beliefs_pruned} pruned")
+        except Exception as e:
+            if getattr(self, '_trace_enabled', False):
+                print(f"  [trace] Belief reconcile/prune error: {e}")
         # Phase 3: Hippocampal replay consolidation
         try:
             replay_metrics = self.hippocampal_replay.sleep_cycle(
@@ -4152,7 +4470,8 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             self._topic_list = state.get('topic_list', [])
             self._topic_store = state.get('topic_store', {})
             self._response_context = state.get('response_context', [])
-            self._last_responses = [r for r in state['last_responses'] if r is not None]
+            self._last_responses = [r for r in state['last_responses']
+                                    if isinstance(r, str)]
             self._last_strategy = state['last_strategy']
             self._free_energy = state['free_energy']
             self._learning_count = state['learning_count']
@@ -4184,7 +4503,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 self.meta_cog.current_mode = EpistemicMode.EXPLORATORY
 
             # Ensure parent_graph is set on all edges (pickle might not preserve this)
-            for edge in self.graph.edges.values():
+            for edge in list(self.graph.edges.values()):
                 edge.parent_graph = self.graph
 
             # Restore contradiction map (may not exist in old saves)
@@ -4706,7 +5025,8 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         if phrase_vec is not None:
             best_sim = 0.0
             best_label = None
-            for nid, node in self.graph.nodes.items():
+            # Snapshot: background learner may add nodes mid-turn.
+            for nid, node in list(self.graph.nodes.items()):
                 if node.label and node.vector is not None:
                     sim = float(np.dot(phrase_vec, node.vector))
                     if sim > best_sim:
@@ -5201,7 +5521,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # Not in graph at all → definitely needs web search
         if subj_lower not in self._concept_keywords and subj_lower not in self._concept_labels:
             with self._graph_lock:
-                for nid, node in self.graph.nodes.items():
+                for nid, node in list(self.graph.nodes.items()):
                     if node.label and node.label.lower() == subj_lower:
                         break
                 else:

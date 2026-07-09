@@ -22,6 +22,8 @@ from ravana_ml.nn.neuromodulator import NeuromodulatorEngine
 
 from .models import CognitiveResponseContext
 from .constants import _is_word_salad
+from ravana.core.question_decomposition import QuestionDecompositionEngine, QuestionCategory, SubQuestion
+from ravana.core.sub_answer_synthesizer import SubAnswerSynthesizer
 
 
 class ResponseGenMixin(ChainWalkerMixin):
@@ -97,7 +99,7 @@ class ResponseGenMixin(ChainWalkerMixin):
         # Add graph concept labels (highest priority after function words)
         with self._graph_lock:
             concept_labels = set()
-            for nid, node in self.graph.nodes.items():
+            for nid, node in list(self.graph.nodes.items()):
                 if node.label:
                     concept_labels.add(node.label.lower())
 
@@ -2013,6 +2015,8 @@ class ResponseGenMixin(ChainWalkerMixin):
 
         # Subject-verb / pronoun agreement (mirror SurfaceRealizer plural rules).
         sl = subject.lower()
+        # Sub-token set of the subject phrase, for collision detection below.
+        _subj_tokens = set(re.findall(r"[a-z']+", sl))
         is_plural = sl in ("they", "we", "you", "people", "friends") or \
                     (sl.endswith("s") and not sl.endswith("ss"))
         be = "are" if is_plural else "is"
@@ -2026,6 +2030,12 @@ class ResponseGenMixin(ChainWalkerMixin):
 
         def _is_ok_assoc(ll):
             if ll == sl or ll in _JUNK:
+                return False
+            # Reject sub-token collisions: a constituent word of a multi-word
+            # subject (e.g. "rise" in "sun rise") is not a meaningful association
+            # with itself. Prevents self-referential output like
+            # "sun rise is tied to rise" (Q4/Q11 residual phrasing bug).
+            if ll in _subj_tokens and ll != sl:
                 return False
             if ll in getattr(self, '_GRAMMATICAL_CONCEPTS', set()):
                 return False
@@ -2112,6 +2122,23 @@ class ResponseGenMixin(ChainWalkerMixin):
         if disclosure is not None:
             return self._emotional_response(ctx, disclosure)
 
+        # ── Procedural/Priority Decomposition Path (PMd / 'how' network) ──
+        # For HOW/causal/complex questions, the brain's premotor-parietal 'how'
+        # network activates procedural schemas that should override the
+        # temporal 'what' network's associative retrieval. Try decomposition FIRST
+        # for these question types to get step-by-step procedural answers.
+        # (Dual-stream model: dorsal 'how' stream > ventral 'what' stream for procedures)
+        decomposition = getattr(ctx, 'decomposition', None)
+        if decomposition and getattr(decomposition, 'sub_questions', None):
+            cat = getattr(decomposition, 'category', None)
+            try_first = cat and cat.value in ('how', 'why', 'compare', 'complex', 'hypothetical', 'abstract', 'impossible')
+            if try_first:
+                decomp_res = self._decomposition_generation_path(ctx)
+                if decomp_res:
+                    if getattr(self, '_trace_enabled', False):
+                        print(f"  [trace]   Decomposition path (priority): {decomp_res[1]}")
+                    return decomp_res
+
         # Web-grounded direct answer for unknown factual queries.
         # If the live search engine can back the claim with a real snippet,
         # state it directly — this is fresher and more accurate than any stale
@@ -2120,6 +2147,20 @@ class ResponseGenMixin(ChainWalkerMixin):
         web_ans = self._web_direct_answer(ctx)
         if web_ans:
             return web_ans
+
+
+        # ── Question Decomposition Path (BA 10 / Rostral PFC analog) ──
+        # If the question was decomposed into sub-questions (and we didn't
+        # already try it above for priority types), enter the decomposition
+        # path now. Each sub-question gets its own activation spread with
+        # the appropriate relation_type.
+        decomposition = getattr(ctx, 'decomposition', None)
+        if decomposition and getattr(decomposition, 'sub_questions', None):
+            decomp_res = self._decomposition_generation_path(ctx)
+            if decomp_res:
+                if getattr(self, '_trace_enabled', False):
+                    print(f"  [trace]   Decomposition path: {decomp_res[1]}")
+                return decomp_res
 
         # Conditional / hypothetical queries are a special case: they are NOT
         # definition lookups. If the live web could not surface a hypothetical
@@ -2236,6 +2277,207 @@ class ResponseGenMixin(ChainWalkerMixin):
         return self._graph_fallback_response(ctx)
 
 
+    def _decomposition_generation_path(self, ctx: CognitiveResponseContext) -> Optional[Tuple[str, str]]:
+        """Generate a multi-perspective response using question decomposition.
+        
+        BA 10 / Rostral PFC analog: holds main goal while pursuing sub-goals.
+        Each sub-question gets relation-guided activation spread + search.
+        
+        Flow:
+        1. For each sub-question:
+           a. Relation-guided activation spread (parahippocampal gating)
+           b. Iterative web search for targeted knowledge
+           c. Mini-response generation with per-sub-question context
+           d. Store answer
+        2. Synthesize all sub-answers into coherent narrative (DMN analog)
+        3. Return synthesized response
+        """
+        decomposition = getattr(ctx, 'decomposition', None)
+        if not decomposition:
+            return None
+        sub_questions = getattr(decomposition, 'sub_questions', [])
+        if not sub_questions:
+            return None
+        if getattr(self, '_trace_enabled', False):
+            print(f"  [decomp-gen] Generating from {len(sub_questions)} sub-questions")
+        synthesizer = getattr(self, 'answer_synthesizer', None)
+        answered_sqs = []
+        
+        for sq in sub_questions:
+            if sq.is_answered:
+                answered_sqs.append(sq)
+                continue
+            sq_text = sq.text
+            sq_rel = sq.relation_type
+            sq_target = sq.target_concept
+            if getattr(self, '_trace_enabled', False):
+                print(f"  [decomp-gen]   [{sq.id}] {sq_text} ({sq_rel})")
+            
+            # Step 0: Reset discourse state to prevent context contamination
+            # (Koechlin cascade model: each sub-goal has its own task-set
+            # that prevents cross-talk between goals in the goal stack)
+            self._sentence_vector = None
+            self._context_vector = None
+            self._current_context_vector = None
+            if hasattr(self, '_prefrontal_buffer'):
+                self._prefrontal_buffer = []
+            if hasattr(self, 'surface_realizer'):
+                self.surface_realizer.reset_turn()
+            
+            # Step 1: Relation-guided activation spread
+            # (Parahippocampal gating: bias spread toward causal/semantic/contrastive edges)
+            relation_spread_pref = 1.0
+            if hasattr(self, '_relation_modulation_for_word'):
+                relation_spread_pref = self._relation_modulation_for_word(sq_rel)
+            subj_ids = set()
+            if sq_target:
+                nids = getattr(self, '_concept_keywords', {}).get(sq_target.lower(), [])
+                if nids:
+                    subj_ids.update(nids)
+            elif ctx.subject:
+                nids = getattr(self, '_concept_keywords', {}).get(ctx.subject.lower(), [])
+                if nids:
+                    subj_ids.update(nids)
+            for nid in subj_ids:
+                try:
+                    self.graph.activate(nid, 0.8)
+                except Exception:
+                    pass
+            sub_assocs = []
+            try:
+                if hasattr(self, '_spread_and_collect'):
+                    sub_assocs = self._spread_and_collect(
+                        list(subj_ids), primary_ids=subj_ids,
+                        relation_preference=relation_spread_pref,
+                    )
+            except Exception:
+                pass
+            
+            # Step 2: Iterative web search (ACC-driven refinement)
+            searched = [sq_text]
+            for attempt in range(2):
+                try:
+                    if hasattr(self, 'learn_from_web') and getattr(self, 'baby_mode', False):
+                        self.learn_from_web(searched[-1], max_results=1)
+                        if sq_target:
+                            got = sq_target.lower() in getattr(self, '_definitions', {})
+                            if not got and attempt == 0:
+                                searched.append(f"{sq_text} explained")
+                                continue
+                        break
+                except Exception:
+                    break
+            
+            # Step 3: Build mini-response
+            answer_text = ""
+            answer_conf = 0.0
+            
+            # Try A: Web direct answer with per-sub-question context
+            try:
+                if hasattr(self, '_web_direct_answer'):
+                    from .models import CognitiveResponseContext as _CRC
+                    mini_ctx = _CRC(
+                        subject=sq_target or ctx.subject or "",
+                        raw_input=sq_text,
+                        associated_concepts=sub_assocs or ctx.associated_concepts,
+                        valence=ctx.valence, arousal=ctx.arousal,
+                        dominance=ctx.dominance,
+                        emotional_label=ctx.emotional_label,
+                        identity_strength=ctx.identity_strength,
+                        processing_route=ctx.processing_route,
+                        turn_count=ctx.turn_count,
+                    )
+                    wa = self._web_direct_answer(mini_ctx)
+                    if wa:
+                        answer_text = wa[0] if isinstance(wa, tuple) else wa
+                        answer_conf = 0.7
+            except Exception:
+                pass
+            
+            # Try B: Stored definition
+            if not answer_text and sq_target:
+                try:
+                    if sq_target.lower() in getattr(self, '_definitions', {}):
+                        defn = self._definitions[sq_target.lower()]
+                        if defn and len(defn) > 10:
+                            answer_text = f"{sq_target} is {defn}."
+                            answer_conf = 0.6
+                except Exception:
+                    pass
+            
+            # Try C: Relation-guided surface realizer
+            if not answer_text and hasattr(self, 'syntactic_assembly') and hasattr(self, 'surface_realizer'):
+                try:
+                    pool = sub_assocs or ctx.associated_concepts
+                    target_label = ""
+                    subj_lower = (sq_target or ctx.subject or "").lower()
+                    for label, sc in pool[:8]:
+                        if label.lower() != subj_lower and sc > 0.12:
+                            target_label = label
+                            break
+                    if target_label:
+                        frame = self.syntactic_assembly.bind_to_sentence(
+                            subject=sq_target or ctx.subject or "it",
+                            relation=sq_rel, target=target_label,
+                            pos_map=getattr(self, '_concept_pos', {}),
+                        )
+                        disc_ctx = DiscourseState(
+                            sentence_index=len(answered_sqs),
+                            discourse_type="explain",
+                            total_sentences=max(1, len(sub_questions)),
+                            free_energy=0.3,
+                        )
+                        sent = self.surface_realizer.realize(
+                            frame=frame, discourse_context=disc_ctx,
+                            dopamine_tone=getattr(self, '_dopamine_tone', 0.5),
+                            cerebellar_ngram=getattr(self, 'cerebellar_ngram', None),
+                        )
+                        if sent and len(sent) > 5:
+                            answer_text = sent
+                            answer_conf = 0.4
+                except Exception:
+                    pass
+            
+            if answer_text:
+                sq.answer = answer_text
+                sq.confidence = answer_conf
+                sq.is_answered = True
+                answered_sqs.append(sq)
+            if getattr(self, '_trace_enabled', False):
+                print(f"  [decomp-gen]     answer: {answer_text[:60] if answer_text else 'NONE'}...")
+        
+        if not answered_sqs:
+            return None
+        
+        # Step 4: Synthesize (DMN integration)
+        synthesis_text = ""
+        if synthesizer and hasattr(synthesizer, 'synthesize'):
+            try:
+                synthesis_text = synthesizer.synthesize(
+                    result=decomposition,
+                    answered=sorted(answered_sqs, key=lambda sq: sq.id),
+                    surface_realizer=getattr(self, 'surface_realizer', None),
+                    syntactic_assembly=getattr(self, 'syntactic_assembly', None),
+                )
+            except Exception as e:
+                if getattr(self, '_trace_enabled', False):
+                    print(f"  [decomp-gen] Synthesizer error: {e}")
+        if not synthesis_text:
+            parts = [sq.answer for sq in sorted(answered_sqs, key=lambda sq: sq.id) if sq.answer and len(sq.answer) > 5]
+            if parts:
+                synthesis_text = " ".join(parts)
+        if not synthesis_text:
+            return None
+        synthesis_text = synthesis_text[0].upper() + synthesis_text[1:] if synthesis_text else synthesis_text
+        if not synthesis_text.endswith((".", "?", "!")):
+            synthesis_text += "."
+        synthesis_text = re.sub(r'\s+', ' ', synthesis_text)
+        if getattr(self, '_trace_enabled', False):
+            print(f"  [decomp-gen] Final synthesis ({len(synthesis_text)} chars)")
+        cat_name = decomposition.category.value if decomposition.category else "unknown"
+        return (synthesis_text, f"decomposed_{cat_name}")
+
+
     def _capitalize_subject(self, subject: str, raw_input: str) -> str:
         """Capitalize subject correctly, preserving original case for proper nouns/acronyms.
 
@@ -2292,7 +2534,12 @@ class ResponseGenMixin(ChainWalkerMixin):
             if getattr(self, "_trace_enabled", False):
                 print("  [trace]   forward-model monitor: candidate echoes "
                       "user input — repairing")
-            return self._reflective_response(ctx) or self._human_like_uncertainty(ctx)[0]
+            refl = self._reflective_response(ctx)
+            if refl:
+                # _reflective_response returns (text, strategy); this monitor
+                # must return a plain string.
+                return refl[0] if isinstance(refl, tuple) else refl
+            return self._human_like_uncertainty(ctx)[0]
         return text
 
 

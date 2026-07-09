@@ -100,6 +100,42 @@ from collections import Counter
 import re
 
 
+# Question / sentence frames that must NEVER become graph concept nodes.
+# A phrase that contains an interrogative word (what/why/how/which/when/who/
+# does/is/are) reads as a QUESTION, not a concept. Creating a node for the
+# whole question (e.g. "what causes the sun rise") and wiring it back to its
+# own subject ("sun rise") produces self-referential output ("the sun rise is
+# what causes the sun rise"). The brain stores CONCEPTS, not questions — it
+# resolves the question by retrieving the concept. Filter these at the single
+# choke point where composite nodes are minted.
+_QUESTION_WORDS = {
+    "what", "why", "how", "which", "when", "who", "whom", "whose", "where",
+    "does", "do", "did", "is", "are", "was", "were", "can", "could", "would",
+    "should", "will", "has", "have", "explain", "describe", "define",
+}
+
+
+def _is_question_phrase(phrase: str) -> bool:
+    """True if `phrase` is a question/sentence frame rather than a concept.
+
+    Heuristic: multi-word phrase containing an interrogative word, or a phrase
+    whose first word is a question word. Used to stop whole questions becoming
+    graph nodes (which then self-reference)."""
+    if not phrase or " " not in phrase:
+        return False
+    toks = re.findall(r"[a-z']+", phrase.lower())
+    if not toks:
+        return False
+    # Leading question word, or any interrogative anywhere in a multi-word phrase.
+    if toks[0] in _QUESTION_WORDS:
+        return True
+    # Phrases long enough to be full sentences (>=5 words) are almost never
+    # atomic concepts worth storing.
+    if len(toks) >= 5:
+        return True
+    return False
+
+
 def _is_word_salad(text: str, allow_content_only: bool = False, subject: Optional[str] = None) -> bool:
     """Detect if generated text is word salad using learned distributional features.
     Replaces hardcoded thresholds with continuous scoring based on:
@@ -208,5 +244,55 @@ def _is_word_salad(text: str, allow_content_only: bool = False, subject: Optiona
         if len(words) >= 10 and anchor_count < 2:
             salad_score += 0.2
     
+    # ── Semantic-substance / tautology check (Phase 19g) ────────────────────
+    # The structural checks above cannot catch grammatical-but-empty text such
+    # as "gravity and time causes time" or "life is how do people relate to
+    # life": every word is unique, there is no repetition, and it has anchors,
+    # so the structural salad_score stays ~0. This check detects when the
+    # response introduces NO information beyond the subject — i.e. its content
+    # words are a subset of the subject's words (plus glue verbs like
+    # "causes/connected/relates"). Such a response is tautological and should
+    # be treated as word salad so the engine falls back instead of emitting it.
+    if not allow_content_only and subject:
+        subj_words = set(re.findall(r"\b\w+\b", subject.lower()))
+        # Glue/relation verbs that don't add informational substance.
+        glue = {
+            "causes", "cause", "caused", "leads", "lead", "triggers", "trigger",
+            "connected", "connects", "connect", "relates", "relate", "related",
+            "links", "link", "ties", "tie", "means", "is", "are", "was", "were",
+            "does", "do", "makes", "make", "paves", "challenges", "challenge",
+            "opens", "springs", "weaves", "influences", "influence", "matters",
+            "differs", "differ", "compared", "compare", "vs", "and", "with",
+            "to", "from", "of", "the", "a", "an", "in", "on", "for", "at",
+            # Self-referential relation verbs: the response relates the subject
+            # back to itself (e.g. "runs counter to time", "opposes change")
+            # without introducing genuinely novel information.
+            "runs", "counter", "opposes", "opposed", "oppose", "contrasts",
+            "contrast", "contradicts", "contradict", "differs", "reverses",
+            "reverse", "mirrors", "mirror", "reflects", "reflect", "aligns",
+            "align", "parallels", "parallel", "echoes", "echo", "symbolizes",
+            "symbolize", "represents", "represent",
+        }
+        resp_content = [w for w in words if w not in glue and w not in high_freq_structural]
+        # Novel content = response words not present in the subject.
+        novel = [w for w in resp_content if w not in subj_words]
+        # SAFETY VALVE (Phase 19g): if the response introduces several genuinely
+        # novel content words relative to the subject, it is clearly
+        # informative and must NOT be flagged as salad — even if it happens to
+        # trip the structural "consecutive content-word run" heuristic (e.g. a
+        # dense factual sentence like "gravity pulls things toward massive
+        # objects"). Pure tautologies have 0 novel words, so this never shields
+        # them. This prevents the salad guard from destroying good answers.
+        if len(novel) >= 3:
+            return False
+        if resp_content and len(novel) == 0:
+            # Response contains only subject words + glue → pure tautology.
+            salad_score += 0.8
+        elif resp_content and len(novel) >= 1:
+            # One novel word may still be a near-synonym; require at least 2
+            # genuinely novel content words to consider it informative.
+            if len(novel) < 2 and all(len(w) <= 7 for w in novel):
+                salad_score += 0.4
+
     # Final decision: salad_score >= 0.7 means word salad
     return salad_score >= 0.7

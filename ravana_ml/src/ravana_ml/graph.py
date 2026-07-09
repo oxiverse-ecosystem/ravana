@@ -1023,6 +1023,14 @@ class ConceptGraph:
         self._adaptive_downscale = adaptive_downscale
         self.nodes: Dict[int, ConceptNode] = {}
         self.edges: Dict[Tuple[int, int], ConceptEdge] = {}
+        # Thread-safety: the web learner / background thread mutate the graph
+        # concurrently with turn-time reasoning that iterates these dicts.
+        # All mutators below take this lock; read loops in callers snapshot
+        # via list(self.graph.nodes.items()) so they never iterate a live dict
+        # the writer can resize (which raises
+        # "dictionary changed size during iteration").
+        import threading as _threading
+        self._lock = _threading.RLock()
         self.version = 0
 
         # Scalability: optional FAISS index for O(log N) similarity search
@@ -1093,6 +1101,12 @@ class ConceptGraph:
         # compute_curvature/basin_depth reuse the cached vector matrix
         self._cached_norms: Optional[np.ndarray] = None
 
+    def __getstate__(self):
+        """Exclude non-picklable / recreated-at-load state (the thread lock)."""
+        state = self.__dict__.copy()
+        state.pop('_lock', None)
+        return state
+
     def __setstate__(self, state):
         """Handle deserialization of older checkpoints missing newer attributes."""
         self.__dict__.update(state)
@@ -1125,6 +1139,10 @@ class ConceptGraph:
         for attr, default in defaults.items():
             if not hasattr(self, attr):
                 setattr(self, attr, default)
+        # Locks are never pickled — recreate the internal thread-safety lock
+        # on every load so saved state is immediately reentrant.
+        import threading as _threading
+        self._lock = _threading.RLock()
         # Re-detect FAISS availability
         try:
             import faiss
@@ -1139,44 +1157,46 @@ class ConceptGraph:
     # ── node management ──
 
     def add_node(self, vector: Optional[np.ndarray] = None, label: str = "") -> ConceptNode:
-        if len(self.nodes) >= self.max_nodes:
-            self._prune_oldest()
-        nid = self.next_id
-        self.next_id += 1
-        v = vector.copy() if vector is not None else np.random.randn(self.dim).astype(np.float32) * 0.1
-        node = ConceptNode(nid, v, label)
-        self.nodes[nid] = node
-        self._vectors_dirty = True
-        self._adj_dirty = True
-        self.version = getattr(self, "version", 0) + 1
-        return node
+        with self._lock:
+            if len(self.nodes) >= self.max_nodes:
+                self._prune_oldest()
+            nid = self.next_id
+            self.next_id += 1
+            v = vector.copy() if vector is not None else np.random.randn(self.dim).astype(np.float32) * 0.1
+            node = ConceptNode(nid, v, label)
+            self.nodes[nid] = node
+            self._vectors_dirty = True
+            self._adj_dirty = True
+            self.version = getattr(self, "version", 0) + 1
+            return node
 
     def get_node(self, nid: int) -> Optional[ConceptNode]:
         return self.nodes.get(nid)
 
     def remove_node(self, nid: int):
-        if nid in self.nodes:
-            node = self.nodes[nid]
-            # Unlink from parent
-            if node.parent is not None and node.parent in self.nodes:
-                self.nodes[node.parent].children.discard(nid)
-            # Orphan children (move them up one level)
-            for child_id in node.children:
-                child = self.nodes.get(child_id)
-                if child:
-                    child.parent = node.parent
-                    if node.parent is not None and node.parent in self.nodes:
-                        self.nodes[node.parent].children.add(child_id)
-            # Remove connected edges and clean adjacency indices
-            edges_to_remove = [k for k in self.edges if k[0] == nid or k[1] == nid]
-            for (s, t) in edges_to_remove:
-                self.remove_edge(s, t)
-            del self.nodes[nid]
-            self._outgoing.pop(nid, None)
-            self._incoming.pop(nid, None)
-            self._active_nodes.discard(nid)
-            self._adj_dirty = True
-            self.version = getattr(self, "version", 0) + 1
+        with self._lock:
+            if nid in self.nodes:
+                node = self.nodes[nid]
+                # Unlink from parent
+                if node.parent is not None and node.parent in self.nodes:
+                    self.nodes[node.parent].children.discard(nid)
+                # Orphan children (move them up one level)
+                for child_id in node.children:
+                    child = self.nodes.get(child_id)
+                    if child:
+                        child.parent = node.parent
+                        if node.parent is not None and node.parent in self.nodes:
+                            self.nodes[node.parent].children.add(child_id)
+                # Remove connected edges and clean adjacency indices
+                edges_to_remove = [k for k in self.edges if k[0] == nid or k[1] == nid]
+                for (s, t) in edges_to_remove:
+                    self.remove_edge(s, t)
+                del self.nodes[nid]
+                self._outgoing.pop(nid, None)
+                self._incoming.pop(nid, None)
+                self._active_nodes.discard(nid)
+                self._adj_dirty = True
+                self.version = getattr(self, "version", 0) + 1
 
     # ── adjacency helpers ──
 
@@ -1295,69 +1315,91 @@ class ConceptGraph:
                  shortcut: bool = False, edge_type: str = "excitatory",
                  relation_type: str = "semantic",
                  confidence: Optional[float] = None) -> ConceptEdge:
-        key = (source, target)
-        if key in self.edges:
-            edge = self.edges[key]
+        with self._lock:
+            # Guard: never wire a concept to itself. A self-loop (source == target)
+            # has no directional/relational content and is a degenerate edge that
+            # pollutes spreading activation and chain walking. Several call sites
+            # (web learning, auto-expand, domain seeding) can reach src==tgt when a
+            # concept label coincides with a relation target; this is the single
+            # choke point that rejects all of them. Discovered via the self-
+            # referential phrasing bug ("X causes X" / "time is similar to time").
+            if source == target:
+                existing = self.edges.get((source, target))
+                if existing is not None:
+                    return existing
+                # Create a dummy edge object only so callers that dereference
+                # add_edge(...).weight/.confidence don't crash; it is never
+                # inserted into the adjacency structures, so it never propagates.
+                return ConceptEdge(source, target, weight or 0.0,
+                                    shortcut=shortcut, edge_type=edge_type,
+                                    relation_type=relation_type,
+                                    relation_dim=self._relation_dim,
+                                    confidence=confidence or 0.5)
+            key = (source, target)
+            if key in self.edges:
+                edge = self.edges[key]
+                edge.parent_graph = self
+                if weight is not None:
+                    edge.weight = max(0.0, min(1.0, weight))
+                if shortcut:
+                    edge.shortcut = True
+                if edge_type == "inhibitory":
+                    edge.edge_type = "inhibitory"
+                if relation_type != "semantic":
+                    edge.relation_type = relation_type
+                if confidence is not None:
+                    edge.confidence = confidence
+                return edge
+            if confidence is None:
+                confidence = 0.5
+            # Use relation-type-specific defaults if weight/edge_type not explicitly provided
+            default_weight = ConceptEdge.RELATION_DEFAULT_WEIGHTS.get(relation_type, 0.5)
+            default_edge_type = ConceptEdge.RELATION_DEFAULT_EDGE_TYPES.get(relation_type, "excitatory")
+            # Only use defaults if caller didn't override (weight != 0.5 or edge_type != "excitatory")
+            if weight is None:
+                weight = default_weight
+            if edge_type == "excitatory":
+                edge_type = default_edge_type
+            edge = ConceptEdge(source, target, weight, shortcut=shortcut,
+                              edge_type=edge_type, relation_type=relation_type,
+                              relation_dim=self._relation_dim, confidence=confidence)
             edge.parent_graph = self
-            if weight is not None:
-                edge.weight = max(0.0, min(1.0, weight))
-            if shortcut:
-                edge.shortcut = True
-            if edge_type == "inhibitory":
-                edge.edge_type = "inhibitory"
-            if relation_type != "semantic":
-                edge.relation_type = relation_type
-            if confidence is not None:
-                edge.confidence = confidence
+            # Ablation: randomize relation vector if type-anchoring is disabled
+            if not self._anchor_relation_vectors:
+                edge.relation_vector = np.random.randn(self._relation_dim).astype(np.float32)
+                edge.relation_vector /= (np.linalg.norm(edge.relation_vector) + 1e-15)
+            self.edges[key] = edge
+            # Maintain adjacency indices
+            self._outgoing[source].append((target, edge))
+            self._incoming[target].append((source, edge))
+            # Maintain relation-type bucket index for scalable contrastive sampling
+            self._edges_by_relation_type[relation_type].append((key, edge))
+            self._adj_dirty = True
+            self.version = getattr(self, "version", 0) + 1
             return edge
-        if confidence is None:
-            confidence = 0.5
-        # Use relation-type-specific defaults if weight/edge_type not explicitly provided
-        default_weight = ConceptEdge.RELATION_DEFAULT_WEIGHTS.get(relation_type, 0.5)
-        default_edge_type = ConceptEdge.RELATION_DEFAULT_EDGE_TYPES.get(relation_type, "excitatory")
-        # Only use defaults if caller didn't override (weight != 0.5 or edge_type != "excitatory")
-        if weight is None:
-            weight = default_weight
-        if edge_type == "excitatory":
-            edge_type = default_edge_type
-        edge = ConceptEdge(source, target, weight, shortcut=shortcut,
-                          edge_type=edge_type, relation_type=relation_type,
-                          relation_dim=self._relation_dim, confidence=confidence)
-        edge.parent_graph = self
-        # Ablation: randomize relation vector if type-anchoring is disabled
-        if not self._anchor_relation_vectors:
-            edge.relation_vector = np.random.randn(self._relation_dim).astype(np.float32)
-            edge.relation_vector /= (np.linalg.norm(edge.relation_vector) + 1e-15)
-        self.edges[key] = edge
-        # Maintain adjacency indices
-        self._outgoing[source].append((target, edge))
-        self._incoming[target].append((source, edge))
-        # Maintain relation-type bucket index for scalable contrastive sampling
-        self._edges_by_relation_type[relation_type].append((key, edge))
-        self._adj_dirty = True
-        self.version = getattr(self, "version", 0) + 1
-        return edge
 
     def get_edge(self, source: int, target: int) -> Optional[ConceptEdge]:
         return self.edges.get((source, target))
 
     def remove_edge(self, source: int, target: int):
-        edge = self.edges.pop((source, target), None)
-        if edge is not None:
-            self._outgoing[source] = [(t, e) for t, e in self._outgoing.get(source, []) if t != target]
-            self._incoming[target] = [(s, e) for s, e in self._incoming.get(target, []) if s != source]
-            self._adj_dirty = True
-            self.version = getattr(self, "version", 0) + 1
+        with self._lock:
+            edge = self.edges.pop((source, target), None)
+            if edge is not None:
+                self._outgoing[source] = [(t, e) for t, e in self._outgoing.get(source, []) if t != target]
+                self._incoming[target] = [(s, e) for s, e in self._incoming.get(target, []) if s != source]
+                self._adj_dirty = True
+                self.version = getattr(self, "version", 0) + 1
 
     # ── activation ──
 
     def activate(self, nid: int, amount: float = 1.0, context_vector: Optional[np.ndarray] = None):
-        node = self.nodes.get(nid)
-        if node:
-            node.activation = min(3.0, node.activation + amount)
-            node.record_activation(context_vector)
-            self._active_nodes.add(nid)
-            self._activated_since_sleep.add(nid)  # track for incremental consolidation
+        with self._lock:
+            node = self.nodes.get(nid)
+            if node:
+                node.activation = min(3.0, node.activation + amount)
+                node.record_activation(context_vector)
+                self._active_nodes.add(nid)
+                self._activated_since_sleep.add(nid)  # track for incremental consolidation
 
     def update_temporal_context(self):
         """Drift temporal context toward the centroid of currently active concepts.
@@ -1728,7 +1770,7 @@ class ConceptGraph:
             sample_edges = list(self.edges.values())[:200]
             if self._edges_by_relation_type:
                 negatives = []
-                for rtype, bucket in self._edges_by_relation_type.items():
+                for rtype, bucket in list(self._edges_by_relation_type.items()):
                     if rtype != edge.relation_type:
                         for item in bucket[:20]:
                             e = item[1] if isinstance(item, tuple) and hasattr(item[1], 'relation_vector') else item

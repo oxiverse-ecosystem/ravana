@@ -350,6 +350,22 @@ class SurfaceRealizer:
         sl, tl = subj.lower(), obj.lower()
         variant_name = None
 
+        # Guard: reject degenerate self-referential binds. Two cases:
+        # 1. No object at all (empty frame from a dropped collision) -> nothing
+        #    to realize; return "" so the caller falls through to the next
+        #    association or the honest "still figuring it out" fallback.
+        # 2. The object is a single token that is ALSO a constituent word of a
+        #    multi-word subject (e.g. subject="sun rise", object="rise"). Binding
+        #    a phrase's own sub-token as its relation yields tautological garbage
+        #    ("the sun rise causes rise"). The brain integrates multi-word phrases
+        #    configurally rather than relating a word to itself (RIHO /
+        #    cue-familiarity hypothesis). Return "" so generation skips it.
+        _subj_tokens = set(re.findall(r"[a-z']+", sl))
+        if not tl:
+            return ""
+        if tl.split()[0] == tl and tl in _subj_tokens and sl != tl:
+            return ""
+
         free_energy = discourse_context.free_energy
         concept_fe = discourse_context.concept_free_energy
         confidence_level = self._get_confidence_level(free_energy)

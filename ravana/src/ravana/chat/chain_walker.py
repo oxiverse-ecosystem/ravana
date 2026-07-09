@@ -11,7 +11,7 @@ from typing import Dict, Any, List, Optional, Tuple, Set
 from collections import deque, Counter
 
 
-from .constants import TEEN_CONCEPTS, WEB_GARBAGE, STOP_WORDS, INAPPROPRIATE_WORDS, _is_keyboard_mash
+from .constants import TEEN_CONCEPTS, WEB_GARBAGE, STOP_WORDS, INAPPROPRIATE_WORDS, _is_keyboard_mash, _is_question_phrase
 from .models import ChainHop, ChainTrace, CognitiveResponseContext
 from ravana.graph.engine import DOMAIN_CONCEPTS
 from ravana.language.surface_realizer import DiscourseState
@@ -170,7 +170,7 @@ class ChainWalkerMixin:
         adj_suffixes = ['able', 'ible', 'ful', 'less', 'ous', 'al', 'ic', 'ive']
 
         # Iterate over all graph node labels, not just _concept_labels
-        for node in self.graph.nodes.values():
+        for node in list(self.graph.nodes.values()):
             if node.label:
                 ll = node.label.lower()
                 is_verb = ll in KNOWN_VERBS
@@ -206,7 +206,7 @@ class ChainWalkerMixin:
         }
 
         def _ensure_concept(label):
-            for n in self.graph.nodes.values():
+            for n in list(self.graph.nodes.values()):
                 if n.label == label:
                     return n.id
             vec = self._glove_vector(label)
@@ -228,7 +228,7 @@ class ChainWalkerMixin:
 
         created = []
         for concept_name, meta in DOMAIN_CONCEPTS.items():
-            if any(node.label == concept_name for node in self.graph.nodes.values()):
+            if any(node.label == concept_name for node in list(self.graph.nodes.values())):
                 continue
             node_id = _ensure_concept(concept_name)
             for kw in meta["keywords"].split():
@@ -308,7 +308,7 @@ class ChainWalkerMixin:
 
         # Build set of existing graph labels for fast lookup
         existing_labels = set()
-        for nid, node in self.graph.nodes.items():
+        for nid, node in list(self.graph.nodes.items()):
             if node.label:
                 existing_labels.add(node.label.lower())
 
@@ -762,7 +762,7 @@ class ChainWalkerMixin:
 
     def _rebuild_contradiction_map(self):
         """Rebuild contradiction map from graph edges (used after load)."""
-        for (src, tgt), edge in self.graph.edges.items():
+        for (src, tgt), edge in list(self.graph.edges.items()):
             if edge.relation_type != "contrastive":
                 continue
             sn = self.graph.nodes.get(src)
@@ -830,6 +830,12 @@ class ChainWalkerMixin:
         phrase_lower = phrase.lower().strip()
         if not phrase_lower or ' ' not in phrase_lower:
             return None
+        # Never mint a graph node for a question/sentence frame (e.g.
+        # "what causes the sun rise"). Such nodes wire back to their own
+        # subject and produce self-referential output. The brain stores the
+        # CONCEPT (sun rise), not the question about it.
+        if _is_question_phrase(phrase_lower):
+            return None
 
         # Check if already exists as a graph node
         existing_nids = self._concept_keywords.get(phrase_lower, [])
@@ -872,6 +878,58 @@ class ChainWalkerMixin:
                                        relation_type="semantic", confidence=0.6)
 
         return node.id
+
+
+    def _sanitize_graph(self):
+        """Prune degenerate nodes/edges accumulated in saved weights.
+
+        Two classes of poison are removed so they can never be retrieved or
+        self-referenced during generation:
+        1. Self-loop edges (source == target) — already prevented at add_edge
+           time, but legacy weights may contain them (e.g. the real 'oxiverse'
+           self-loop found in the deployed checkpoint).
+        2. Question/sentence-phrase concept nodes (e.g. "what causes the sun
+           rise") — whole questions that were wrongly minted as graph concepts
+           and then wired back to their own subject, producing self-referential
+           output ("the sun rise is what causes the sun rise").
+
+        Removing a poison node also removes its incident edges and clears its
+        keyword/label bookkeeping. This is a pure cleanup; no real concept is lost.
+        """
+        # 1. Remove self-loop edges.
+        for (sid, tid) in list(self.graph.edges.keys()):
+            if sid == tid:
+                self.graph.remove_edge(sid, tid)
+
+        # 2. Remove question-phrase nodes.
+        poison_nids = []
+        for nid, node in list(self.graph.nodes.items()):
+            if node.label and _is_question_phrase(node.label):
+                poison_nids.append(nid)
+        for nid in poison_nids:
+            node = self.graph.nodes.get(nid)
+            if node is None:
+                continue
+            lbl = node.label
+            # Drop incident edges both directions.
+            for (src, tgt) in list(self.graph.edges.keys()):
+                if src == nid or tgt == nid:
+                    self.graph.remove_edge(src, tgt)
+            # Remove from keyword/label indexes.
+            if lbl:
+                ll = lbl.lower()
+                self._concept_labels.discard(ll)
+                nids = self._concept_keywords.get(ll, [])
+                if nid in nids:
+                    nids.remove(nid)
+                    if not nids:
+                        self._concept_keywords.pop(ll, None)
+            # Remove the node itself.
+            self.graph.nodes.pop(nid, None)
+
+        if poison_nids:
+            print(f"  [Sanitize] Pruned {len(poison_nids)} question-phrase nodes "
+                  f"and any self-loops from loaded weights.")
 
 
     def _apply_edges(self, label_to_id, edge_list, rel_type, base_weight):
@@ -1097,7 +1155,7 @@ class ChainWalkerMixin:
                     self.graph.activate(nid, sig)
 
         collected = []
-        for nid, node in self.graph.nodes.items():
+        for nid, node in list(self.graph.nodes.items()):
             if nid not in block_set and node.activation > 0.05:
                 # Post-hoc topic relevance filter: remove concepts too semantically
                 # distant from the subject, even if they accumulated activation through
@@ -1111,7 +1169,7 @@ class ChainWalkerMixin:
                 collected.append((node.label or f"c{nid}", float(node.activation)))
 
         collected.sort(key=lambda x: x[1], reverse=True)
-        for node in self.graph.nodes.values():
+        for node in list(self.graph.nodes.values()):
             node.activation = 0.0
         return collected[:12]
 

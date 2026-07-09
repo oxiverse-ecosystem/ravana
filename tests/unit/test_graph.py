@@ -300,14 +300,20 @@ class TestConceptGraph:
         e = g.add_edge(n1.id, n2.id, weight=0.7, relation_type="causal")
         assert (n1.id, n2.id) in g.edges
         assert e.weight == 0.7
-
-    def test_add_edge_strengthen_existing(self):
+    def test_add_edge_rejects_self_loop(self):
+        """A concept must never be wired to itself. add_edge(src, src) must NOT
+        insert a self-loop into the adjacency structures (it previously allowed
+        the genuine 'oxiverse' self-loop found in saved weights)."""
         g = ConceptGraph(dim=8, max_nodes=100)
-        n1 = g.add_node(label="a")
-        n2 = g.add_node(label="b")
-        g.add_edge(n1.id, n2.id, weight=0.3)
-        e = g.add_edge(n1.id, n2.id, weight=0.7)
-        assert e.weight == 0.7
+        n1 = g.add_node(label="oxiverse")
+        # Returns an edge object (so callers dereferencing .weight don't crash)
+        # but it is NOT stored in the graph.
+        e = g.add_edge(n1.id, n1.id, weight=0.4, relation_type="semantic")
+        assert e is not None
+        assert (n1.id, n1.id) not in g.edges
+        # No adjacency entries for the self-loop.
+        assert all(t != n1.id for (t, _) in g.get_outgoing(n1.id))
+        assert all(s != n1.id for (s, _) in g.get_incoming(n1.id))
 
     def test_get_edge(self):
         g = ConceptGraph(dim=8, max_nodes=100)
@@ -329,6 +335,8 @@ class TestConceptGraph:
         g = ConceptGraph(dim=8, max_nodes=100)
         n = g.add_node()
         g.activate(n.id, amount=0.5)
+        assert g.nodes[n.id].activation == 0.5
+
         assert g.nodes[n.id].activation == 0.5
 
     def test_activate_caps(self):

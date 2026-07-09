@@ -13,7 +13,7 @@ from typing import Dict, Any, List, Optional, Tuple, Set
 from collections import deque, Counter
 
 
-from .constants import STOP_WORDS, WEB_GARBAGE, INAPPROPRIATE_WORDS
+from .constants import STOP_WORDS, WEB_GARBAGE, INAPPROPRIATE_WORDS, _is_question_phrase
 from .response_gen import ResponseGenMixin
 # Compute project root (same logic as engine.py)
 _proj_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
@@ -81,12 +81,20 @@ class WebLearningMixin(ResponseGenMixin):
         coherence = float(np.dot(subj_vec, def_centroid))
         return max(0.0, coherence)  # Clamp to [0, 1]
 
-    def learn_from_web(self, query: str, max_results: int = 3) -> Tuple[str, str]:
+    def learn_from_web(self, query: str, max_results: int = 3,
+                     train_decoder: bool = False) -> Tuple[str, str]:
         """Search the web, fetch articles, extract concepts, and learn from them.
 
         Phase 5: Auto offline fallback. If the network API fails (timeout, DNS,
         HTTP error), sets _network_available = False and falls back silently.
         No error messages leak to the user — just returns a short summary.
+
+        ``train_decoder`` controls whether the (expensive, ~10-60s) neural
+        decoder training pass runs inline. It is OFF by default so the
+        synchronous user turn is never blocked on unsupervised LM training —
+        the graph + definition learning (cheap, needed for the response) still
+        happens. The background learning thread passes train_decoder=True so
+        the decoder still gets enriched, just not on the critical path.
         """
         self._learned_this_turn = True
         self._learning_count += 1
@@ -100,16 +108,29 @@ class WebLearningMixin(ResponseGenMixin):
                                                          local_only=True)
                 if local_results:
                     self._network_available = None  # local works; allow retry later
-                    # Reuse the normal learning pipeline on the local results.
+                    # Phase 19: snippet-first grounding for the offline path too.
+                    # Feed snippets always; only deep-read the top relevant page.
                     snippets = []
-                    for r in local_results[:3]:
+                    def _rel(r):
+                        subj = query
+                        for suf in [" definition meaning explained", " definition meaning",
+                                    " explained overview", " explained with examples", " explained"]:
+                            if subj.endswith(suf):
+                                subj = subj[:-len(suf)].strip()
+                                break
+                        return self._definition_coherence_score(subj, f"{r.get('title','')}. {r.get('content','')}")
+                    ranked_local = sorted(local_results[:3], key=_rel, reverse=True)
+                    gate_local = getattr(self, '_deep_read_relevance_gate', 0.12)
+                    deep_local = [r for r in ranked_local if _rel(r) >= gate_local][:getattr(self, '_deep_read_max', 1)]
+                    for r in ranked_local:
                         snippet = r.get("content", "") or ""
                         title = r.get("title", "") or ""
                         text = f"{title}. {snippet}"
                         url = r.get("url", "") or ""
-                        if url:
+                        if url and r in deep_local:
                             try:
-                                art = self._fetch_article_text(url)
+                                art = self._fetch_article_text(url,
+                                      timeout=getattr(self, '_deep_read_timeout', 6))
                                 if art and len(art) > len(text):
                                     text = art[:5000]
                             except Exception:
@@ -162,43 +183,85 @@ class WebLearningMixin(ResponseGenMixin):
             if not results:
                 return self._learn_from_snippets(query, [])
 
-            # Extract definitions from search snippets directly (Approach 3: Google featured snippets)
-            for r in results[:3]:
+            # Phase 19: Snippet-first grounding.
+            # Search snippets are cheap (already fetched) and are fed in
+            # UNCONDITIONALLY — this is what answers the user turn fast.
+            # Full-article fetches are expensive (timeout ~8s each, previously
+            # done for ALL results[:3] synchronously) so we now gate them by
+            # relevance/confidence and cap the count. Deep reads can also be
+            # offloaded to the background thread so the user turn is never
+            # blocked on an article that takes >search-latency to retrieve.
+            topn = min(max_results, 3)
+            snippets = []
+            for r in results[:topn]:
                 snippet = r.get("content", "") or ""
                 title = r.get("title", "") or ""
+                url = r.get("url", "") or ""
+                # Snippet-only text (always retained for learning).
+                snippets.append(f"{title}. {snippet}")
                 if snippet:
                     self._extract_definitions(snippet, query)
                 if title:
                     self._extract_definitions(title, query)
 
-            # Step 2: Get snippets and try to fetch article text
-            snippets = []
+            # Rank results by subject relevance so we only deep-read the
+            # most informative page(s). Reuses the existing OFC coherence
+            # score between the query subject and the snippet text.
+            def _relevance(r):
+                subj = query
+                for suf in [" definition meaning explained", " definition meaning",
+                            " explained overview", " explained with examples", " explained"]:
+                    if subj.endswith(suf):
+                        subj = subj[:-len(suf)].strip()
+                        break
+                blob = f"{r.get('title','')}. {r.get('content','')}"
+                return self._definition_coherence_score(subj, blob)
 
-            # Parallel article fetching (ThreadPoolExecutor)
-            def _fetch_single(r):
-                snippet = r.get("content", "") or ""
-                title = r.get("title", "") or ""
-                url = r.get("url", "") or ""
-                text = f"{title}. {snippet}"
-                if url:
+            ranked = sorted(results[:topn], key=_relevance, reverse=True)
+            gate = getattr(self, '_deep_read_relevance_gate', 0.12)
+            deep_candidates = [r for r in ranked if _relevance(r) >= gate][:getattr(self, '_deep_read_max', 1)]
+
+            # WebLearningMixin IS the engine instance, so the Phase 19 knobs
+            # live directly on `self` (set in CognitiveChatEngine.__init__).
+            offload = getattr(self, '_deep_read_offload', True)
+
+            def _deep_read_and_learn():
+                deep_texts = []
+                for r in deep_candidates:
+                    url = r.get("url", "") or ""
+                    if not url:
+                        continue
                     try:
-                        article_text = self._fetch_article_text(url)
-                        if article_text and len(article_text) > len(text):
-                            text = article_text[:5000]
+                        art = self._fetch_article_text(url,
+                                  timeout=getattr(self, '_deep_read_timeout', 6))
+                        if art:
+                            deep_texts.append(art[:5000])
                     except Exception:
                         pass
-                return text
-            with ThreadPoolExecutor(max_workers=3) as executor:
-                futures = [executor.submit(_fetch_single, r) for r in results[:3]]
-                for future in as_completed(futures):
-                    snippets.append(future.result())
+                if deep_texts:
+                    combined_deep = " ".join(deep_texts)
+                    self._extract_definitions(combined_deep, query)
+                    self._learn_from_text(combined_deep, query,
+                                          source_url=deep_candidates[0].get("url", "") or query)
 
-            # Step 3: Extract and learn concepts from all gathered text
+            if deep_candidates:
+                if offload and self._bg_learning_active:
+                    # Fire-and-forget: don't block the user turn.
+                    with self._bg_lock:
+                        self._bg_deep_read_tasks = getattr(self, '_bg_deep_read_tasks', []) + [
+                            (query, deep_candidates[:])]
+                    # Still learn from snippets now (synchronous, cheap).
+                    pass
+                else:
+                    # Synchronous (used when background thread is off, e.g.
+                    # --no-curiosity / deterministic batch without bg loop).
+                    _deep_read_and_learn()
+
+            # Step 3: Extract and learn concepts from snippet text (always).
             combined_text = " ".join(snippets)
             first_url = results[0].get("url", "") if results else ""
-            new_concepts_added = self._learn_from_text(combined_text, query, source_url=first_url if first_url else query)
-
-            # --- Extract definitional knowledge (ATL convergence zone) ---
+            new_concepts_added = self._learn_from_text(combined_text, query,
+                                                       source_url=first_url if first_url else query)
             if combined_text:
                 self._extract_definitions(combined_text, query)
 
@@ -231,8 +294,9 @@ class WebLearningMixin(ResponseGenMixin):
 
 
 
-    def _fetch_article_text(self, url: str) -> Optional[str]:
+    def _fetch_article_text(self, url: str, timeout: int = 8) -> Optional[str]:
         """Fetch a URL and extract readable article text."""
+
         # Skip video/social media URLs that don't have extractable article content
         skip_domains = ('youtube.com', 'youtu.be', 'facebook.com', 'twitter.com', 'x.com',
                         'instagram.com', 'tiktok.com', 'reddit.com', 'linkedin.com',
@@ -250,7 +314,7 @@ class WebLearningMixin(ResponseGenMixin):
             req = urllib.request.Request(url, headers={
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
             })
-            resp = urllib.request.urlopen(req, timeout=8)
+            resp = urllib.request.urlopen(req, timeout=timeout)
             html = resp.read().decode('utf-8', errors='replace')
 
             if HAS_BS4:
@@ -307,15 +371,19 @@ class WebLearningMixin(ResponseGenMixin):
                 break
         
         if ' ' in query_topic and query_topic not in STOP_WORDS:
-            self._add_composite_concept(query_topic)
-            topic_words = [query_topic] + topic_words
-            
+            # Never treat a question/sentence frame as a multi-word concept
+            # (e.g. "what causes the sun rise"). Such phrases wire back to their
+            # own subject and produce self-referential output. Only mint a
+            # composite node + topic word when it's a genuine concept phrase.
+            if not _is_question_phrase(query_topic):
+                self._add_composite_concept(query_topic)
+                topic_words = [query_topic] + topic_words
         important_words = topic_words + [w for w in important_words if w not in topic_words]
 
         # Check which words are new vs known (lock graph reads)
         with self._graph_lock:
             existing_labels = set()
-            for nid, node in self.graph.nodes.items():
+            for nid, node in list(self.graph.nodes.items()):
                 if node.label:
                     existing_labels.add(node.label.lower())
 
@@ -334,6 +402,12 @@ class WebLearningMixin(ResponseGenMixin):
 
         # Add new concepts (locked to prevent graph mutation during save iteration)
         for word in important_words:
+            # Belt-and-suspenders: never mint a graph node for a question/
+            # sentence frame, even if the phrase appeared verbatim in fetched
+            # web text. Such nodes self-reference their own subject.
+            if _is_question_phrase(word):
+                self._concept_sources.setdefault(word, set()).add(source_id)
+                continue
             if word in existing_labels:
                 # Concept already exists - reinforce by tracking additional source
                 self._concept_sources.setdefault(word, set()).add(source_id)
@@ -455,7 +529,11 @@ class WebLearningMixin(ResponseGenMixin):
                         self.graph.add_edge(nid, best_nid, weight=weight, relation_type=inf_type)
 
         # Train neural decoder on article text (unsupervised next-word prediction)
-        if self.neural_decoder is not None and self._decoder_vocab_built:
+        # Gated by train_decoder: skipped on the synchronous turn's critical path
+        # (Phase 19d) so a long article can't stall the user turn; the background
+        # learning thread calls learn_from_web(train_decoder=True) to still enrich
+        # the LM off the critical path.
+        if train_decoder and self.neural_decoder is not None and self._decoder_vocab_built:
             with self._vocab_lock:
                 # Build graph walk conditioning from the article's important words
                 article_words = re.findall(r"[a-zA-Z']{3,}", text.lower())
@@ -463,7 +541,7 @@ class WebLearningMixin(ResponseGenMixin):
 
                 # Expand decoder vocab with newly added concepts (lock graph read)
                 with self._graph_lock:
-                    new_labels = [n.label for nid, n in self.graph.nodes.items()
+                    new_labels = [n.label for nid, n in list(self.graph.nodes.items())
                                   if n.label and n.label.lower() not in self._decoder_word_to_idx
                                   and n.label.lower() not in ('<pad>', '<unk>', '<bos>', '<eos>')]
                 if new_labels:
@@ -482,7 +560,7 @@ class WebLearningMixin(ResponseGenMixin):
 
                 # FIX: Expand vocab selectively — only add words appearing >=3 times
                 with self._graph_lock:
-                    new_labels_all = [n.label for nid, n in self.graph.nodes.items()
+                    new_labels_all = [n.label for nid, n in list(self.graph.nodes.items())
                                       if n.label and n.label.lower() not in self._decoder_word_to_idx
                                       and n.label.lower() not in ('<pad>', '<unk>', '<bos>', '<eos>')]
                     if new_labels_all:
@@ -1040,6 +1118,38 @@ class WebLearningMixin(ResponseGenMixin):
                         print('  [bg] idle: waiting for more user input (curiosity budget used)')
                     else:
                         print(f'  [bg] idle: queue has {queue_size} items, processing...')
+            # Phase 19: Drain offloaded deep-read tasks (relevance-gated article
+            # fetches that were pushed from the synchronous turn to keep the user
+            # turn fast). Run under the same graph lock as normal bg learning.
+            _deep_tasks = []
+            with self._bg_lock:
+                _deep_tasks = getattr(self, '_bg_deep_read_tasks', [])
+                if _deep_tasks:
+                    self._bg_deep_read_tasks = []
+            for _dq, _dcands in _deep_tasks:
+                try:
+                    _deep_texts = []
+                    for _r in _dcands:
+                        _u = _r.get("url", "") or ""
+                        if not _u:
+                            continue
+                        try:
+                            _a = self._fetch_article_text(_u,
+                                  timeout=getattr(self, '_deep_read_timeout', 6))
+                            if _a:
+                                _deep_texts.append(_a[:5000])
+                        except Exception:
+                            pass
+                    if _deep_texts:
+                        _combined = " ".join(_deep_texts)
+                        self._extract_definitions(_combined, _dq)
+                        self._learn_from_text(_combined, _dq,
+                                              source_url=_dcands[0].get("url", "") or _dq)
+                        if self._trace_enabled:
+                            print(f'  [bg] deep-read learned from {len(_deep_texts)} article(s) for {_dq}')
+                except Exception as _de:
+                    if self._trace_enabled:
+                        print(f"  [bg] deep-read error for {_dq}: {type(_de).__name__}: {_de}")
             try:
                 for query in all_queries:
                     # NOTE: do NOT `break` here when _bg_learning_active is False.
@@ -1081,7 +1191,7 @@ class WebLearningMixin(ResponseGenMixin):
         # reentrant and the two never nest).
         with self._graph_lock:
             try:
-                result_summary = self.learn_from_web(query)
+                result_summary = self.learn_from_web(query, train_decoder=True)
             except Exception:
                 if self._trace_enabled:
                     print(f'  [bg]   ! failed to research: {query}')
@@ -1097,7 +1207,7 @@ class WebLearningMixin(ResponseGenMixin):
                     break
                 time.sleep(1)  # polite delay between searches
                 try:
-                    result_summary = self.learn_from_web(related_query)
+                    result_summary = self.learn_from_web(related_query, train_decoder=True)
                     self._bg_search_count += 1
                     if self._trace_enabled:
                         print(f'  [bg]   + {result_summary}')
@@ -1266,7 +1376,7 @@ class WebLearningMixin(ResponseGenMixin):
 
 
 
-        for nid, node in self.graph.nodes.items():
+        for nid, node in list(self.graph.nodes.items()):
             if not node.label:
                 continue
             total = 0
