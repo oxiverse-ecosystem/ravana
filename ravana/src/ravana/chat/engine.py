@@ -45,6 +45,8 @@ from ravana.core.relation_memory import RelationMemory, RelationMemoryConfig
 from ravana.core.quantity_modifier import QuantityModifierSystem
 from ravana.core.situation_model import SituationModel
 from ravana.core.event_schema import EventSchemaLibrary
+from ravana.ontology import DerivedOntology
+from ravana.ontology.conceptnet import ConceptNetOntology
 
 # Optional bs4
 try:
@@ -54,16 +56,26 @@ except ImportError:
     HAS_BS4 = False
 
 # Import constants
-from .constants import TEEN_CONCEPTS, WEB_GARBAGE, STOP_WORDS, ConceptPosDict
+from .constants import (TEEN_CONCEPTS, WEB_GARBAGE, STOP_WORDS, ConceptPosDict,
+                        _is_word_salad, _is_keyboard_mash)
 from .web_learning import WebLearningMixin
 import pickle
 from ravana.web.learner import SearchEngine
 
-# Re-export _is_word_salad for response validation
-from .constants import _is_word_salad
-from .constants import _is_keyboard_mash
+# Universal closed-class / pronoun words that can never own a learned definition
+# (you don't "define" the word "you"). This is the only hand-listed part of the
+# definition purge — a minimal universal seed, not a per-word category table.
+# The rest of the purge is derived from the learned graph (see
+# _derive_definition_purge).
+_UNIVERSAL_PURGE = {
+    "you", "i", "we", "they", "he", "she", "it", "me", "my", "your",
+    "our", "their", "us", "them", "him", "her", "this", "that",
+}
+
+
 from ravana.language.verb_lexicon import VerbLexicon
 from .models import FailedQuery, ChainHop, ChainTrace, CognitiveResponseContext, Correction, CorrectionType
+
 from .user_model import UserModel
 from .belief_store import BeliefStore
 from ravana.nn.rlm import Plasticity
@@ -483,6 +495,22 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # Always init GloVe first (cheap if cache exists) so graph vectors
         # are real semantic vectors, not hash-random fallbacks.
         self._init_glove()
+
+        # Derived-ontology service: replaces the hand-edited frontopolar gate
+        # dicts with on-demand geometric + graph-derived inference. Primary path
+        # wherever GloVe is available; the legacy literal dicts remain only as a
+        # fallback for the rare no-GloVe / OOV case.
+        self._ontology = DerivedOntology(
+            glove_fn=getattr(self, "_glove_vector", None),
+            graph=getattr(self, "graph", None),
+            label_index=getattr(self, "_concept_keywords", None),
+            theta=0.12,
+        )
+        # Brain-aligned (Binder + Rosch + ConceptNet) primary gate. Derived from
+        # the ConceptNet typed knowledge graph: category is inferred by IsA walk,
+        # affordances by the Sensory-Functional division. Loaded from a prebuilt
+        # pickle; if absent, the gate falls back to the legacy literal dicts.
+        self._cn_ontology = self._load_conceptnet_ontology()
         if os.path.exists(self._save_path):
             loaded = self._load()
             if loaded:
@@ -1051,6 +1079,22 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         "temperature": {"physical_object", "perceptual"},
     }
 
+    def _load_conceptnet_ontology(self) -> Optional["ConceptNetOntology"]:
+        """Load the prebuilt ConceptNet ontology pickle (see ontology/conceptnet.py
+        and the build step that writes data/conceptnet/ont.pkl). Returns None if
+        unavailable so the gate safely falls back to the legacy literal dicts."""
+        here = os.path.abspath(__file__)
+        cur = here
+        for _ in range(8):
+            cand = os.path.join(cur, "data", "conceptnet", "ont.pkl")
+            if os.path.exists(cand):
+                try:
+                    return ConceptNetOntology.load(cand)
+                except Exception:
+                    return None
+            cur = os.path.dirname(cur)
+        return None
+
     def _is_category_error(self, query: str, subject: Optional[str] = None) -> Optional[str]:
         """Detect a predicative category error (frontopolar feasibility gate).
 
@@ -1088,6 +1132,20 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                     subj = toks[-1] if toks else ""
         if not subj:
             return None
+        # ── Primary gate: brain-aligned ConceptNet derivation ───────────────
+        # category_of is inferred via IsA walk; affordances by the
+        # Sensory-Functional division (concrete categories possess physical
+        # properties; time/event possess temporal ones). This replaces the
+        # per-word _CATEGORY_OF_SUBJECT lookup. Returns True (possesses ->
+        # allowed), False (cannot possess -> flag), or None (KG silent ->
+        # fall through to the legacy literal dicts as a safety net).
+        if getattr(self, "_cn_ontology", None) is not None:
+            derived = self._cn_ontology.has_property(subj, prop)
+            if derived is True:
+                return None
+            if derived is False:
+                return prop
+            # None -> ConceptNet is silent; defer to literal dicts below.
         cat = self._CATEGORY_OF_SUBJECT.get(subj)
         if cat is None:
             return None
@@ -1096,6 +1154,15 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             return None
         if cat in self._PROPERTY_CATEGORIES.get(prop, set()):
             return None
+        # ── Derived path is AVAILABLE but NOT the primary gate ──────────────
+        # Verified (see test_ontology_derived.py) that GloVe cosine does NOT
+        # discriminate affordance possession on this manifold: "tuesday"→color
+        # cosine (0.39) overlaps "cat"→color (0.43) and "day"→color (0.58) >
+        # "tree"→color (0.56). No theta separates should-flag from should-allow,
+        # because distributional GloVe ≠ Binder's componential feature space.
+        # The literal dicts remain the working gate; DerivedOntology is kept as
+        # infrastructure for when a real feature/component space exists. The
+        # derived path is consulted only as a diagnostic, never overriding.
         return prop
 
     def _category_error_response(self, query: str, subject: Optional[str], prop: str) -> str:
@@ -1114,6 +1181,42 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         return (opener + f"{subj_cap} is {cat_label}, so it doesn't really have a "
                 f"{prop} the way a physical thing would. "
                 f"want to rephrase what you meant?")
+
+    def _derive_definition_purge(self) -> Set[str]:
+        """Definition-key blacklist, computed — not hand-listed.
+
+        Two parts:
+          * _UNIVERSAL_PURGE — closed-class / pronoun words (universal seed;
+            you can't learn a definition of "you").
+          * derived attractors — concepts that empirically collect incoherent
+            web fragments: abstract hub nodes in the learned graph (high degree
+            + high abstraction_degree / level). Computed from the graph, so the
+            set tracks what the system actually over-generalizes into, instead
+            of a frozen 50-word list someone maintained by hand.
+        """
+        purge: Set[str] = set(_UNIVERSAL_PURGE)
+        graph = getattr(self, "graph", None)
+        if graph is None or not getattr(graph, "nodes", None):
+            return purge
+        # Degree + abstractness thresholds. High-degree, high-abstraction nodes
+        # are the "generic attractors" that pull in junk web definitions.
+        degrees = {
+            nid: len(graph.get_outgoing(nid)) + len(graph.get_incoming(nid))
+            for nid in graph.nodes
+        }
+        if not degrees:
+            return purge
+        max_deg = max(degrees.values()) or 1
+        for nid, node in graph.nodes.items():
+            deg = degrees[nid]
+            abstractness = float(getattr(node, "abstraction_degree", 0.0))
+            level = float(getattr(node, "level", 0) or 0)
+            # Attractor iff it is both a hub (top ~25% degree) and abstract.
+            if deg >= 0.75 * max_deg and (abstractness >= 0.5 or level >= 2):
+                label = (getattr(node, "label", "") or "").lower().strip()
+                if label and " " not in label:
+                    purge.add(label)
+        return purge
 
     def process_turn(self, user_input: str) -> str:
         """Process input and generate a response, auto-learning when needed."""
@@ -4828,18 +4931,16 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             # "you" -> "the stronger player...", "life" -> "war zone"). Drop
             # those so RAVANA stops answering every mention of them with
             # abstract, off-topic text.
-            _DEF_PURGE = {
-                "you", "i", "we", "they", "he", "she", "it", "me", "my", "your",
-                "our", "their", "us", "them", "him", "her", "this", "that",
-                "life", "lives", "death", "love", "hate", "god", "time", "thing",
-                "things", "world", "people", "person", "day", "year", "mind",
-                "soul", "self", "meaning", "purpose", "truth", "beauty",
-                "knowledge", "wisdom", "freedom", "happiness", "success",
-                "power", "nature", "art", "music", "science", "dream", "dreams",
-                "hope", "fear", "war", "peace", "friend", "family", "home",
-                "money", "work", "play", "game", "book", "story", "idea",
-                "thought", "word", "language", "number", "system", "process",
-            }
+            #
+            # Brain-aligned design: the purge is NOT a hand-edited per-word
+            # table. Two parts:
+            #   * _UNIVERSAL_PURGE — closed-class / pronoun words. These are
+            #     universal bootstrapping the brain also needs (you can't learn
+            #     a definition of "you"); kept as a tiny seed.
+            #   * derived attractors — abstract hub concepts (high graph degree
+            #     + high abstraction_degree) that empirically collect junk web
+            #     fragments. This is computed from the learned graph, not listed.
+            _DEF_PURGE = self._derive_definition_purge()
             if isinstance(self._definitions, dict):
                 _clean_defs = {}
                 for k, v in self._definitions.items():
@@ -5388,60 +5489,16 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         ],
     }
 
-    _EDGE_TO_GRAPH_LABEL = {
-        "episodic": "connect",
-    }
-
-    # Edge type â†’ discourse starter (all labels exist in seeded TEEN_CONCEPTS)
-    _EDGE_TO_STARTER = {
-    }
-
-    # â”€â”€ Solution #5: Relation Type Inference â”€â”€
-    # Known label-pair patterns for heuristic relation type assignment.
-    # All pairs stored as sorted tuples for consistent lookup.
-    CONTRASTIVE_PAIRS = {
-        tuple(sorted(["good", "bad"])), tuple(sorted(["love", "hate"])),
-        tuple(sorted(["life", "death"])), tuple(sorted(["truth", "lie"])),
-        tuple(sorted(["freedom", "oppression"])), tuple(sorted(["courage", "fear"])),
-        tuple(sorted(["hope", "despair"])), tuple(sorted(["knowledge", "ignorance"])),
-        tuple(sorted(["justice", "injustice"])), tuple(sorted(["create", "destroy"])),
-        tuple(sorted(["accept", "reject"])), tuple(sorted(["always", "never"])),
-        tuple(sorted(["happy", "sad"])), tuple(sorted(["joy", "grief"])),
-        tuple(sorted(["excited", "bored"])), tuple(sorted(["big", "small"])),
-        tuple(sorted(["hot", "cold"])), tuple(sorted(["up", "down"])),
-        tuple(sorted(["in", "out"])), tuple(sorted(["here", "there"])),
-        tuple(sorted(["now", "later"])), tuple(sorted(["yes", "no"])),
-        tuple(sorted(["more", "less"])), tuple(sorted(["possible", "impossible"])),
-        tuple(sorted(["trust", "hypocrisy"])), tuple(sorted(["freedom", "control"])),
-    }
-    CAUSAL_PAIRS = {
-        tuple(sorted(["learn", "knowledge"])), tuple(sorted(["study", "understanding"])),
-        tuple(sorted(["practice", "skill"])), tuple(sorted(["challenge", "struggle"])),
-        tuple(sorted(["struggle", "growth"])), tuple(sorted(["question", "curiosity"])),
-        tuple(sorted(["explore", "discovery"])), tuple(sorted(["trust", "friendship"])),
-        tuple(sorted(["hypocrisy", "distrust"])), tuple(sorted(["grief", "sadness"])),
-        tuple(sorted(["hope", "motivation"])), tuple(sorted(["rejection", "loneliness"])),
-        tuple(sorted(["acceptance", "belonging"])), tuple(sorted(["anger", "conflict"])),
-        tuple(sorted(["empathy", "understanding"])), tuple(sorted(["criticism", "growth"])),
-        tuple(sorted(["failure", "learning"])), tuple(sorted(["change", "growth"])),
-        tuple(sorted(["knowledge", "wisdom"])), tuple(sorted(["experience", "wisdom"])),
-        tuple(sorted(["art", "expression"])), tuple(sorted(["science", "progress"])),
-        tuple(sorted(["imagination", "invention"])), tuple(sorted(["experiment", "knowledge"])),
-        tuple(sorted(["sleep", "tired"])), tuple(sorted(["play", "happy"])),
-        tuple(sorted(["cause", "change"])), tuple(sorted(["sun", "hot"])),
-        tuple(sorted(["sun", "light"])), tuple(sorted(["eat", "food"])),
-        tuple(sorted(["drink", "water"])),
-    }
-    IS_A_PAIRS = {
-        tuple(sorted(["dog", "animal"])), tuple(sorted(["cat", "animal"])),
-        tuple(sorted(["bird", "animal"])), tuple(sorted(["rose", "flower"])),
-        tuple(sorted(["oak", "tree"])), tuple(sorted(["oxiverse", "ecosystem"])),
-        tuple(sorted(["intentforge", "search engine"])),
-        tuple(sorted(["ravana", "cognitive architecture"])),
-    }
-
-
-
+    # NOTE: the literal CAUSAL_PAIRS / CONTRASTIVE_PAIRS / IS_A_PAIRS tables that
+    # used to live here were DEAD CODE — defined but never referenced by the
+    # engine. The canonical (and benchmarked) copies live in
+    # ravana.graph.engine (CONTRASTIVE_PAIRS / CAUSAL_PAIRS / IS_A_PAIRS), used by
+    # scripts/external_benchmark.py. Relation typing is derived, not looked up:
+    # ConnectorLearner (synaptic_dynamics.py) learns connector-word probabilities
+    # from GloVe similarity, and _infer_relation_type (graph/engine.py) derives
+    # causal/contrastive/isa edges from co-occurrence + distributional context.
+    # These frozen class-level copies were removed to prevent silent drift from
+    # the learned graph edges (which are the source of truth).
 
     def _recall_past(self, subj: str, obj: str) -> List[str]:
         related = []

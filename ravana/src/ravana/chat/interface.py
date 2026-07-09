@@ -185,6 +185,13 @@ class ChatInterface:
         # Cognitive core
         self.emotion = VADEmotionEngine(VADConfig(eta_valence=0.3, eta_arousal=0.4, eta_dominance=0.25))
         self.mirror_engine = EmotionalMirrorEngine(MirrorConfig(mirror_strength=0.55, contagion_rate=0.45))
+        # Learned VAD detector — the single source of truth for word affect,
+        # replacing the duplicated hardcoded positive/negative sets that used to
+        # live inline in _update_emotion / response_gen. Cold-starts from a tiny
+        # universal seed and learns the rest from interaction (Barsalou 1999 /
+        # Hebb 1949 — affective load is acquired, not looked up).
+        from ravana.core import UserEmotionDetector
+        self._affect_detector = UserEmotionDetector()
         self.identity = IdentityEngine(IdentityConfig(initial_strength=0.25, momentum_factor=0.3, recovery_bias=0.15))
         self.web_learner.emotion = self.emotion
         self.web_learner.identity = self.identity
@@ -821,20 +828,25 @@ class ChatInterface:
         return best
 
     def _update_emotion(self, text: str):
-        positive = {"good", "great", "happy", "love", "nice", "fun", "yay", "wow",
-                    "cool", "amazing", "awesome", "wonderful", "beautiful", "excited",
-                    "grateful", "proud", "hopeful", "joy", "interesting"}
-        negative = {"bad", "sad", "scared", "angry", "hurt", "cry", "mean",
-                    "terrible", "awful", "upset", "frustrated", "anxious",
-                    "worried", "disappointed", "lonely", "guilty", "afraid"}
-        curious = {"why", "how", "what", "wonder", "curious", "interesting",
-                    "really", "tell me", "explain", "mean"}
+        # ── Learned affective signal (replaces hardcoded positive/negative
+        # sets) ── The brain's affect is a dimensional signal (valence/
+        # arousal/dominance) grounded in limbic systems (OFC/amygdala/striatum),
+        # not a word list. Route the lexical valence kick through the learned
+        # VAD detector; unknown words contribute ~0 and are learned over time.
+        uv, ua, _ud = self._affect_detector.detect(text)
         words = set(w.lower().strip(".,!?") for w in text.split())
         sv, sa = 0.0, 0.2
-        if words & positive:
-            sv += 0.4; sa += 0.2
-        if words & negative:
-            sv -= 0.4; sa += 0.25
+        # Positive / negative valence kick driven by the learned detector, not a
+        # frozen set. Magnitude preserved (+0.4 / -0.4) so system affect stays in
+        # the same operating range as before; direction comes from the manifold.
+        if uv > 0.05:
+            sv += 0.4
+            sa += 0.2 * min(1.0, ua + 0.2)
+        elif uv < -0.05:
+            sv -= 0.4
+            sa += 0.25 * min(1.0, ua + 0.2)
+        curious = {"why", "how", "what", "wonder", "curious", "interesting",
+                   "really", "tell me", "explain", "mean"}
         if words & curious:
             sa += 0.3
             if sv == 0.0:

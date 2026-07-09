@@ -154,29 +154,50 @@ class AbstractionEngine:
         )
 
     def _walk_hierarchy(self, concept: str) -> List[str]:
-        """Walk IS_A/HYPERNYM edges upward to find superordinates."""
-        path = [concept]
-        current = concept.lower()
+        """Walk upward through the learned concept graph to find superordinates.
 
-        # First check seeded hierarchy
-        if current in self.ABSTRACTION_HIERARCHY:
-            path.extend(self.ABSTRACTION_HIERARCHY[current][:self.config.max_hierarchy_depth])
+        Brain-aligned: category membership / hierarchy emerges from the learned
+        graph (feature-overlap clusters, IS_A edges) — NOT a frozen lookup table.
+        The graph path is PRIMARY; ABSTRACTION_HIERARCHY is only a fallback seed
+        used when the graph has no hierarchical edges for this concept.
+        """
+        concept_l = concept.lower()
+        path: List[str] = [concept_l]
+        seen: Set[str] = {concept_l}
 
-        # Then check graph edges for IS_A/HYPERNYM relations
         node = self._find_node(concept)
-        if node:
-            for depth in range(self.config.max_hierarchy_depth):
-                # Find outgoing edges that are hierarchical (semantic with superordinate labels)
-                for (src, tgt), edge in list(self.graph.edges.items()):
-                    if src == node.id:
-                        tgt_node = self.graph.nodes.get(tgt)
-                        if tgt_node and edge.relation_type in ("semantic", "inferred"):
-                            # Check if target is more abstract (higher level or abstract type)
-                            if tgt_node.level > node.level or tgt_node.label.lower() not in path:
-                                if tgt_node.label.lower() not in path:
-                                    path.append(tgt_node.label)
-                                    node = tgt_node
-                                    break
+        if node is not None:
+            # BFS upward over explicit hierarchical edges first.
+            frontier = [node.id]
+            depth = 0
+            while frontier and depth < self.config.max_hierarchy_depth:
+                nxt = []
+                for nid in frontier:
+                    for tgt, edge in self.graph.get_outgoing(nid):
+                        if edge.relation_type in ("isa", "is_a", "hypernym",
+                                                   "hyponym"):
+                            tgt_node = self.graph.nodes.get(tgt)
+                            if tgt_node and tgt_node.label.lower() not in seen:
+                                seen.add(tgt_node.label.lower())
+                                path.append(tgt_node.label)
+                                nxt.append(tgt)
+                    # Also ascend semantic edges to strictly-more-abstract nodes
+                    # (higher level => superordinate, family-resemblance style).
+                    for tgt, edge in self.graph.get_outgoing(nid):
+                        if edge.relation_type == "semantic":
+                            tgt_node = self.graph.nodes.get(tgt)
+                            if (tgt_node and tgt_node.label.lower() not in seen
+                                    and tgt_node.level > node.level):
+                                seen.add(tgt_node.label.lower())
+                                path.append(tgt_node.label)
+                                nxt.append(tgt)
+                frontier = nxt
+                depth += 1
+
+        # Fallback seed: only if the graph contributed nothing.
+        if len(path) <= 1 and concept_l in self.ABSTRACTION_HIERARCHY:
+            path.extend(self.ABSTRACTION_HIERARCHY[concept_l]
+                        [:self.config.max_hierarchy_depth])
 
         return path[:self.config.max_hierarchy_depth + 1]
 

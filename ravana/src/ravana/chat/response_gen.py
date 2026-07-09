@@ -1859,25 +1859,32 @@ class ResponseGenMixin(ChainWalkerMixin):
 
         Returns (kind, word) where kind in {'negative','positive','neutral'} or
         None. Emotional statements must be answered with empathy, not facts.
+
+        Lexical valence is taken from the learned VAD detector (ravana.core
+        UserEmotionDetector) rather than a duplicated hardcoded positive/negative
+        set — affect is a dimensional signal acquired from experience, not a
+        frozen table. The first-person scope and the neutral fallback are kept.
         """
         text = ctx.raw_input.lower()
         # First-person marker: i / i'm / i am / my / me.
         if not re.search(r"\b(i|i'm|i am|my|me)\b", text):
             return None
-        pos = {"good", "great", "happy", "love", "loving", "like", "liking", "nice", "fun", "excited",
-               "glad", "proud", "hopeful", "joy", "joyful", "amazing", "awesome",
-               "wonderful", "grateful", "thrilled", "content"}
-        neg = {"bad", "sad", "scared", "afraid", "angry", "hurt", "cry", "crying",
-               "mean", "terrible", "awful", "upset", "frustrated", "anxious",
-               "worried", "disappointed", "lonely", "guilty", "depressed", "down",
-               "tired", "sick", "hate", "hating"}
-        words = set(re.findall(r"[a-z']+", text))
-        hit_neg = words & neg
-        hit_pos = words & pos
+        from ravana.core import UserEmotionDetector
+        _det = getattr(self, "_affect_detector", None) or UserEmotionDetector()
+        uv, _ua, _ud = _det.detect(text)
+        # Capture the strongest affective word for the (kind, word) signature.
+        hit_pos = []
+        hit_neg = []
+        for w in re.findall(r"[a-z']+", text):
+            wv, _a, _d = _det.detect(w)
+            if wv > 0.05:
+                hit_pos.append((wv, w))
+            elif wv < -0.05:
+                hit_neg.append((wv, w))
         if hit_neg:
-            return ("negative", sorted(hit_neg)[0])
+            return ("negative", sorted(hit_neg, key=lambda x: x[0])[0][1])
         if hit_pos:
-            return ("positive", sorted(hit_pos)[0])
+            return ("positive", sorted(hit_pos, key=lambda x: x[0])[1][1])
         if re.search(r"\b(i\s*(feel|feeling|am|think|believe|guess|wonder))\b", text):
             return ("neutral", None)
         return None
