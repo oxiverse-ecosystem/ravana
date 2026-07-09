@@ -80,7 +80,8 @@ class RegisterController:
                               conversation_depth: float = 0.0,
                               uncertainty: float = 0.0,
                               user_word_count: int = 0,
-                              short_turn: bool = False) -> None:
+                              short_turn: bool = False,
+                              common_ground: float = 0.0) -> None:
         """Couple VAD + relationship state into the register knobs.
 
         This is the missing link the brief calls out: nothing previously read
@@ -133,9 +134,14 @@ class RegisterController:
             target_v = 0.15 + 0.6 * (1.0 - np.exp(-user_word_count / 18.0))
             lshift = 0.35 * (target_v - base["verbosity"])
 
+        # Common ground (brief behavior 8): when the user's actual next topic
+        # matches our prediction, shared ground is established — be concise
+        # (Gricean Quantity: don't re-explain what's mutually understood).
+        cgshift = -0.20 * np.clip(common_ground, 0.0, 1.0)
+
         k["formality"] = float(np.clip(base["formality"] + vshift * 0.5, 0.0, 1.0))
         k["verbosity"] = float(np.clip(
-            base["verbosity"] + ashift + rshift + dshift + lshift, 0.0, 1.0))
+            base["verbosity"] + ashift + rshift + dshift + lshift + cgshift, 0.0, 1.0))
         k["certainty"] = float(np.clip(base["certainty"] + vshift, 0.0, 1.0))
         self.history.append(("affective", dict(k)))
 

@@ -149,6 +149,14 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         self._response_context: List[Dict] = []
         self._last_responses: List[str] = []
         self._last_strategy: str = ""
+        # Behavior 8: interlocutor forward simulation (covert other-monitoring).
+        # After each turn we predict the user's likely next concept from the
+        # activated subgraph; on the next turn we compare what arrived to the
+        # prediction. High alignment => common ground established, so the bot
+        # may be more concise (Gricean: don't re-explain shared ground).
+        self._predicted_user_next: str = ""
+        self._predicted_user_conf: float = 0.0
+        self._common_ground: float = 0.0
         self._free_energy = 0.0
         self._learning_count = 0
         self._learned_this_turn = False
@@ -1734,6 +1742,9 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 _social = ("hello", "hi", "hey", "yo", "sup", "bye", "goodbye",
                            "how are you", "how's it going", "how are you doing")
                 short_turn = uwords <= 3 or raw.strip().lower().rstrip("?!.") in _social
+                # Behavior 8: compare this turn's subject to the prediction made
+                # last turn; high alignment => common ground established.
+                self._common_ground = self._common_ground_score(subject or "")
                 self.register_controller.apply_affective_state(
                     self.emotion.state,
                     relationship_depth=rel_depth,
@@ -1741,6 +1752,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                     uncertainty=uncer,
                     user_word_count=uwords,
                     short_turn=short_turn,
+                    common_ground=self._common_ground,
                 )
                 conf = self.identity.state.strength * 0.5 + 0.3
                 response = self.register_controller.compose(response, conf)
@@ -1817,6 +1829,10 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         for hops_list in self._last_chain_hops:
             for f, t in hops_list:
                 hop_labels.append((f, t))
+        # Behavior 8: predict the user's likely next concept from the subgraph
+        # co-activated with this turn's subject (covert other-monitoring), to
+        # be compared against the actual next turn in _common_ground_score.
+        self._predict_user_next(subject or "", ctx.associated_concepts)
         self._response_context.append({
             'subject': subject,
             'response': response,
@@ -1916,6 +1932,58 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             return meaningful[-1]
         return None
 
+
+    def _predict_user_next(self, subject: str, assocs) -> None:
+        """Covert other-monitoring (brief behavior 8): predict the user's likely
+        next concept from the subgraph co-activated with the current subject.
+
+        This is the lightweight forward simulation of the interlocutor — the bot
+        internally "simulates" what the user will say next (mirroring Castellucci
+        / Pickering & Garrod other-monitoring) so the relevant subgraph is
+        pre-activated and common ground can be tracked. The prediction is the
+        most salient association to the current subject that isn't the subject
+        itself, weighted by edge strength. Stored for comparison next turn.
+        """
+        best, best_score = "", 0.0
+        try:
+            for label, score in (assocs or []):
+                ll = label.lower()
+                if ll == (subject or "").lower():
+                    continue
+                if ll in getattr(self, "_GRAMMATICAL_CONCEPTS", set()):
+                    continue
+                s = float(score) if score else 0.0
+                if s > best_score:
+                    best, best_score = ll, s
+        except Exception:
+            pass
+        self._predicted_user_next = best
+        self._predicted_user_conf = best_score
+
+    def _common_ground_score(self, subject: str) -> float:
+        """Compare this turn's subject to the predicted next concept.
+
+        Returns a 0..1 common-ground signal: 1.0 when the user's actual next
+        topic matches the prediction (shared mental model), falling off with
+        topic distance via GloVe cosine when available, else 0.5 on a near
+        match and 0.0 on a miss. Feeds the verbosity knob so the bot stays
+        concise once ground is established rather than re-explaining.
+        """
+        pred = self._predicted_user_next
+        if not pred or not subject:
+            return 0.0
+        subj = subject.lower()
+        if pred == subj:
+            return 1.0
+        sv = self._glove_vector(pred) if hasattr(self, "_glove_vector") else None
+        tv = self._glove_vector(subj) if hasattr(self, "_glove_vector") else None
+        if sv is not None and tv is not None:
+            sim = float(np.dot(sv, tv))
+            if sim > 0.55:
+                return float(np.clip(0.5 + sim * 0.5, 0.0, 1.0))
+        if pred in subj or subj in pred:
+            return 0.5
+        return 0.0
 
     def _activate_from_input(self, text: str) -> List[int]:
         """Activate concepts using N400/P600 sequential per-word processing.
