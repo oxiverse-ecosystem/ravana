@@ -323,7 +323,18 @@ class QuestionAnalyzer:
                 if len(groups) >= 2:
                     return (QuestionCategory.COMPARE, groups[0], 0.6)
         
-        # Step 5: Check hypothetical patterns
+        # Step 5: Check for impossible/paradoxical markers FIRST.
+        # A paradox ("unstoppable force meets immovable object") can
+        # superficially match hypothetical/why patterns, but the brain's
+        # paradox network (rIFG/BA47 identification of contradiction +
+        # ACC conflict detection) flags it before simulation. Mirror that by
+        # testing impossibility before hypothetical, so the contradiction is
+        # routed to the paradox handler rather than a literal simulation.
+        for marker in cls._IMPOSSIBLE_MARKERS:
+            if marker in query_clean:
+                return (QuestionCategory.IMPOSSIBLE, query_clean, 0.9)
+
+        # Step 6: Check hypothetical patterns
         for pat in cls.HYPOTHETICAL_PATTERNS:
             m = pat.search(query_clean)
             if m:
@@ -335,23 +346,23 @@ class QuestionAnalyzer:
             m = pat.match(query_clean)
             if m:
                 subject = m.group(1).strip() if m.lastindex >= 1 else query_clean
-                return (QuestionCategory.WHY, subject, 0.5)
-        
+                return (QuestionCategory.WHY, cls._clean_subject(subject), 0.5)
+
         # Step 7: Check "how" patterns
         for pat in cls.HOW_PATTERNS:
             m = pat.match(query_clean)
             if m:
                 subject = m.group(1).strip() if m.lastindex >= 1 else query_clean
-                return (QuestionCategory.HOW, subject, 0.6)
-        
+                return (QuestionCategory.HOW, cls._clean_subject(subject), 0.6)
+
         # Step 8: Check "tell me" patterns
         for pat in cls.TELL_ME_PATTERNS:
             m = pat.match(query_clean)
             if m:
                 subject = m.group(1).strip()
                 if _is_abstract(subject, vector_fn):
-                    return (QuestionCategory.ABSTRACT, subject, 0.7)
-                return (QuestionCategory.TELL_ME, subject, 0.4)
+                    return (QuestionCategory.ABSTRACT, cls._clean_subject(subject), 0.7)
+                return (QuestionCategory.TELL_ME, cls._clean_subject(subject), 0.4)
         
         # Step 9: Check "what is" patterns
         for pat in cls.WHAT_IS_PATTERNS:
@@ -361,11 +372,6 @@ class QuestionAnalyzer:
                 if _is_abstract(subject, vector_fn):
                     return (QuestionCategory.ABSTRACT, subject, 0.7)
                 return (QuestionCategory.WHAT_IS, subject, 0.3)
-        
-        # Step 10: Check for impossible/paradoxical markers
-        for marker in cls._IMPOSSIBLE_MARKERS:
-            if marker in query_clean:
-                return (QuestionCategory.IMPOSSIBLE, query_clean, 0.9)
         
         # Step 11: Check for multi-part questions (multiple "?" or conjunctions between clauses)
         num_questions = query.count("?")
@@ -407,6 +413,83 @@ class QuestionAnalyzer:
         result = re.sub(r'^(an?|the)\s+', '', result, flags=re.IGNORECASE).strip()
         
         return result if result else subject
+
+    # ─── Subject cleaning (dependency-aware head recovery) ───
+    # The brain's left inferior frontal gyrus / Broca's area performs *dependency*
+    # parsing: it binds each verb to its argument (who did what to whom) and
+    # recovers the head noun phrase, rather than taking the raw surface residual
+    # as "the subject". RAVANA's regex patterns are greedy and frequently
+    # capture relational framing ("similar to time", "the causes of WW1",
+    # "the sun to rise") as the subject. _clean_subject implements the
+    # dependency-aware head-recovery analog: strip relational modifiers,
+    # "of"-framing heads, and infinitive/light-verb complements so the
+    # graph walk and web search target the true concept, not the surface string.
+    _SUBJECT_OF_HEADS = {
+        "cause", "causes", "reason", "reasons", "meaning", "definition",
+        "nature", "purpose", "result", "results", "effect", "effects",
+        "significance", "difference", "differences", "relationship", "relation",
+        "relations", "origin", "origins", "importance", "role", "roles",
+        "source", "value", "problem", "issue",
+    }
+    _SUBJECT_LEAD_MODS = (
+        r"^(?:similar|related|opposite|different|contrasted|analogous|comparable)\s+(?:to|from|than|with)\s+",
+        r"^instead\s+of\s+",
+        r"^versus\s+",
+    )
+    _SUBJECT_TRAIL_VERBS = {
+        "rise", "fall", "go", "come", "happen", "happens", "occur", "occurs",
+        "exist", "exists", "work", "works", "function", "operate", "form",
+        "forms", "appear", "disappear", "change", "move", "grow", "develop",
+        "emerge", "remain", "stay", "become", "rotate", "orbit", "expand",
+        "shrink", "flow", "burn", "shine", "erupt", "freeze", "melt", "boil",
+        "react", "evolve", "survive", "thrive", "fail", "win", "lose", "die",
+        "live", "fly", "run", "eat", "see", "know", "make", "take", "give",
+        "get", "find", "use", "create", "build", "play", "show", "tell",
+        "feel", "think", "learn", "help", "lift", "meet", "do", "does",
+        "did", "is", "are", "was", "were", "be", "been", "being",
+    }
+
+    @classmethod
+    def _clean_subject(cls, subject: str) -> str:
+        """Recover the true head noun phrase from a raw extracted subject.
+
+        Mirrors IFG dependency parsing: remove relational wrappers and verb
+        complements so the subject is the concept, not the surface residual.
+        """
+        if not subject:
+            return subject
+        original = subject
+        s = subject.lower().strip(" ?!.,;:()\"'")
+        if not s:
+            return original
+
+        # 1. Strip leading relational modifiers ("similar to X" -> "X").
+        for pat in cls._SUBJECT_LEAD_MODS:
+            s = re.sub(pat, "", s, flags=re.IGNORECASE).strip()
+
+        # 2. Strip a leading determiner + relational "of"-head
+        #    ("the causes of WW1" -> "WW1"). Deliberately excludes valid
+        #    compounds like "speed of light", "law of X", "capital of X".
+        m = re.match(r"^(?:the|an?)\s+([a-z]+(?:s)?)\s+of\s+(.+)$", s)
+        if m and m.group(1) in cls._SUBJECT_OF_HEADS:
+            s = m.group(2).strip()
+
+        # 3. Strip a trailing infinitive complement ("the sun to rise" -> "the sun").
+        s = re.sub(r"\s+to\s+[a-z]+(?:s|ed|ing)?$", "", s, flags=re.IGNORECASE).strip()
+
+        # 4. (Removed) A bare trailing-verb strip destroyed valid noun
+        #    compounds: "sun rise" -> "sun", "stock market" -> "stock". The
+        #    infinitive case ("the sun TO rise") is already handled by step 3.
+        #    Genuine verb-complement subjects are rare in practice and the
+        #    over-trim caused web search to target the wrong (too-short) head.
+
+        # 5. Strip a leading determiner for a clean head.
+        s = re.sub(r"^(?:the|an?)\s+", "", s, flags=re.IGNORECASE).strip()
+
+        # 6. Guard against over-cleaning -> fall back to the original.
+        if not s:
+            return original
+        return s
 
     @classmethod
     def extract_subject(cls, query: str) -> str:
@@ -1053,10 +1136,15 @@ class QuestionDecompositionEngine:
         """
         # Step 1: Analyze the question
         category, subject, complexity = QuestionAnalyzer.analyze(query, self.vector_fn)
-        
+
+        # IFG-style dependency cleanup: recover the true head noun phrase from
+        # the greedily-captured surface subject ("similar to time" -> "time",
+        # "the causes of WW1" -> "world war 1", "the sun to rise" -> "sun").
+        subject = QuestionAnalyzer._clean_subject(subject)
+
         # If no subject was extracted, try harder
         if not subject or subject == query.lower().strip(" ?!.,;:"):
-            subject = QuestionAnalyzer.extract_subject(query)
+            subject = QuestionAnalyzer._clean_subject(QuestionAnalyzer.extract_subject(query))
         
         result = None
         
@@ -1070,11 +1158,21 @@ class QuestionDecompositionEngine:
             how_subject = QuestionAnalyzer._clean_verb_phrases(subject)
             result = DecompositionStrategies.procedural(how_subject, query)
         elif category == QuestionCategory.COMPARE:
-            # For compare, extract both concepts
-            concept_b = QuestionAnalyzer.extract_subject(
-                re.sub(r"(?:compare|difference|contrast|versus|vs)\s+.+?\s+(?:and|vs|versus|with|to)\s+(.+)", 
-                       r"\1", query.lower(), flags=re.IGNORECASE)
-            ) if query else ""
+            # For compare, extract BOTH concepts from the two capture groups.
+            # (Previously used re.sub(..., r"\1", ...) which KEPT the first
+            # concept as concept_b, and then extract_subject dropped
+            # multi-word tails like "world war 2" -> "world". Capture
+            # group(2) directly and clean it with the IFG-style helper.)
+            _cmp = re.search(
+                r"(?:compare|difference|contrast|versus|vs)\s+(.+?)\s+"
+                r"(?:and|vs|versus|with|to)\s+(.+)",
+                query.lower(), flags=re.IGNORECASE)
+            concept_a_raw = _cmp.group(1) if _cmp else subject
+            concept_b_raw = _cmp.group(2) if _cmp else ""
+            concept_a = QuestionAnalyzer._clean_subject(concept_a_raw)
+            concept_b = QuestionAnalyzer._clean_subject(concept_b_raw) if concept_b_raw else ""
+            # Keep the cleaned subject consistent with concept_a.
+            subject = concept_a or subject
             if not concept_b or concept_b == subject:
                 concept_b = "other"
             result = DecompositionStrategies.comparative(subject, concept_b, query)
@@ -1127,6 +1225,7 @@ class QuestionDecompositionEngine:
             part_cat, part_subj, _ = QuestionAnalyzer.analyze(part, self.vector_fn)
             if not part_subj:
                 part_subj = QuestionAnalyzer.extract_subject(part)
+            part_subj = QuestionAnalyzer._clean_subject(part_subj)
             
             sq = SubQuestion(
                 id=i + 1,

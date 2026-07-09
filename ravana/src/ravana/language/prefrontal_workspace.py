@@ -70,6 +70,24 @@ class PrefrontalWorkspace:
     # ─── Question Type Detection ───
 
     QUESTION_PATTERNS = {
+        # Paradox / impossibility is tested FIRST (before hypothetical/why).
+        # The brain's paradox network (rIFG/BA47 contradiction detection +
+        # ACC conflict) flags an impossible scenario before it is simulated
+        # as a literal "what if". Without this, "unstoppable force meets
+        # immovable object" is misrouted to the hypothetical handler.
+        "impossible": [
+            re.compile(r"can\s+god\s+create", re.IGNORECASE),
+            re.compile(r"unstoppable\s+force", re.IGNORECASE),
+            re.compile(r"irresistible\s+force", re.IGNORECASE),
+            re.compile(r"immovable\s+object", re.IGNORECASE),
+            re.compile(r"what\s+is\s+the\s+sound", re.IGNORECASE),
+            re.compile(r"one\s+hand\s+clapping", re.IGNORECASE),
+            re.compile(r"can\s+you\s+prove", re.IGNORECASE),
+            re.compile(r"can\s+we\s+know", re.IGNORECASE),
+            re.compile(r"is\s+reality\s+real", re.IGNORECASE),
+            re.compile(r"unstoppable\s+force\s+meets?\s+immovable", re.IGNORECASE),
+            re.compile(r"immovable\s+object\s+meets?\s+unstoppable", re.IGNORECASE),
+        ],
         "what_is": [
             re.compile(r"what\s+is\s+(.+)", re.IGNORECASE),
             re.compile(r"what\s+are\s+(.+)", re.IGNORECASE),
@@ -91,9 +109,14 @@ class PrefrontalWorkspace:
             re.compile(r"what'?s?\s+the\s+difference\s+between\s+(.+)\s+and\s+(.+)", re.IGNORECASE),
         ],
         "hypothetical": [
+            re.compile(r"what\s+if\s+(.+)", re.IGNORECASE),
             re.compile(r"what\s+happens\s+if\s+(.+)", re.IGNORECASE),
             re.compile(r"what\s+would\s+happen\s+if\s+(.+)", re.IGNORECASE),
             re.compile(r"what\s+happens\s+when\s+(.+)", re.IGNORECASE),
+            re.compile(r"what\s+would\s+happen\s+when\s+(.+)", re.IGNORECASE),
+            re.compile(r"suppose\s+(.+?)(?:\?|$)", re.IGNORECASE),
+            re.compile(r"imagine\s+(.+?)(?:\?|$)", re.IGNORECASE),
+            re.compile(r"if\s+(.+?)(?:,?\s*what|,what|what)\s+(?:would|will|does|happens?)", re.IGNORECASE),
         ],
         "do_you_know": [
             re.compile(r"do\s+you\s+know\s+(.+)", re.IGNORECASE),
@@ -150,6 +173,7 @@ class PrefrontalWorkspace:
         "tell_me": "semantic",
         "compare": "contrastive",
         "hypothetical": "causal",
+        "impossible": "causal",
         "do_you_know": "semantic",
         "follow_up": "semantic",
         "general": "semantic",

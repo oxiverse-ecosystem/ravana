@@ -2411,10 +2411,26 @@ class ResponseGenMixin(ChainWalkerMixin):
                     pool = sub_assocs or ctx.associated_concepts
                     target_label = ""
                     subj_lower = (sq_target or ctx.subject or "").lower()
-                    for label, sc in pool[:8]:
-                        if label.lower() != subj_lower and sc > 0.12:
-                            target_label = label
-                            break
+                    # Reality-monitoring guard (anterior PFC / Johnson source-
+                    # monitoring): the first association above a tiny threshold
+                    # is frequently a high-degree HUB ("trust", "life",
+                    # "amount") with no semantic link to the subject. Binding
+                    # it produces a confabulation, exactly the failure the
+                    # evaluator flagged for complex/multi-concept questions.
+                    # Require the bound target to be semantically related to
+                    # the (cleaned) subject (GloVe sim >= 0.30) so an
+                    # ungrounded spread cannot silently fall back to a hub.
+                    subj_vec = self._glove_vector(subj_lower) if hasattr(self, '_glove_vector') else None
+                    for label, sc in pool[:12]:
+                        ll = label.lower()
+                        if ll == subj_lower or sc <= 0.12:
+                            continue
+                        if subj_vec is not None:
+                            tv = self._glove_vector(ll)
+                            if tv is None or float(np.dot(subj_vec, tv)) < 0.30:
+                                continue
+                        target_label = label
+                        break
                     if target_label:
                         frame = self.syntactic_assembly.bind_to_sentence(
                             subject=sq_target or ctx.subject or "it",
@@ -2468,6 +2484,22 @@ class ResponseGenMixin(ChainWalkerMixin):
                 synthesis_text = " ".join(parts)
         if not synthesis_text:
             return None
+
+        # ── Reality-monitoring gate (anterior PFC / Johnson source-monitoring) ──
+        # The decomposition path otherwise returns BEFORE the ACC/ERN
+        # _topic_grounded monitor in _generate_response, so a synthesis built
+        # only from loose/hub associations could be emitted as fact. The brain
+        # withholds such confabulations via a "feeling of knowing" signal
+        # (medial PFC; Modirrousta & Fellows, 2008) — when the main subject has
+        # no verified source (no definition, no web fact) and the spread is
+        # ungrounded, we decline to assert and return None so the pipeline
+        # falls through to honest metacognitive uncertainty instead.
+        if not self._decomp_grounded(ctx, decomposition):
+            if getattr(self, '_trace_enabled', False):
+                print(f"  [decomp-gen] Reality-monitoring: '{decomposition.main_subject}' "
+                      f"ungrounded — withholding confabulation")
+            return None
+
         synthesis_text = synthesis_text[0].upper() + synthesis_text[1:] if synthesis_text else synthesis_text
         if not synthesis_text.endswith((".", "?", "!")):
             synthesis_text += "."
@@ -2477,6 +2509,55 @@ class ResponseGenMixin(ChainWalkerMixin):
         cat_name = decomposition.category.value if decomposition.category else "unknown"
         return (synthesis_text, f"decomposed_{cat_name}")
 
+    def _decomp_grounded(self, ctx: CognitiveResponseContext,
+                         decomposition) -> bool:
+        """Reality-monitoring gate for the decomposition path.
+
+        Mirrors the brain's "feeling of knowing" / source-monitoring
+        (anterior PFC; Johnson, 1993; Modirrousta & Fellows, 2008):
+        a claim built only from unverified, low-similarity associations
+        is a confabulation, not knowledge, and should be withheld.
+        Grounded when the (cleaned) main subject has a stored definition,
+        a web-learned source, or at least one association whose GloVe
+        vector is semantically close (sim >= 0.30) to it.
+        """
+        if decomposition is None:
+            return False
+        main = (getattr(decomposition, 'main_subject', '') or '').lower().strip()
+        if not main:
+            return False
+        # Evidence-based grounding: if the decomposition path ALREADY
+        # produced answered sub-questions (real web/association retrieval
+        # happened during generation), we have a source and must NOT
+        # discard it. Without this, the gate threw away correct web
+        # answers for "why do quantum effects violate..." because `main`
+        # (the cleaned head) had no *local* definition yet — even though
+        # the sub-questions returned valid text. Mirrors the brain keeping
+        # a retrieved memory rather than feigning ignorance.
+        sqs = getattr(decomposition, 'sub_questions', None) or []
+        if any(getattr(sq, 'is_answered', False) and getattr(sq, 'answer', '')
+                for sq in sqs):
+            return True
+        # Direct factual / web-learned source => grounded.
+        if main in getattr(self, '_definitions', {}):
+            return True
+        if main in getattr(self, '_concept_sources', {}):
+            return True
+        # Otherwise require a semantically close association (high FOK).
+        vec = self._glove_vector(main) if hasattr(self, '_glove_vector') else None
+        if vec is None:
+            # No embedding to judge by: trust graph presence as weak grounding.
+            return main in getattr(self, '_concept_keywords', {}) or \
+                   main in getattr(self, '_concept_labels', {})
+        best = -1.0
+        for label, _score in (ctx.associated_concepts or [])[:12]:
+            v = self._glove_vector(label)
+            if v is None:
+                continue
+            sim = float(np.dot(vec, v))
+            if sim > best:
+                best = sim
+        return best >= 0.30
 
     def _capitalize_subject(self, subject: str, raw_input: str) -> str:
         """Capitalize subject correctly, preserving original case for proper nouns/acronyms.
