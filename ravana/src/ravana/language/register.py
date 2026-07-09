@@ -106,12 +106,15 @@ class RegisterController:
 
         # Valence -> directness / softening
         vshift = 0.15 * np.tanh(v * 2.0)          # +/-~0.15 around 0
-        # Arousal -> brevity under urgency, slack when calm
-        ashift = -0.20 * np.tanh((a - 0.6) * 3.0)  # <0.6 gives positive slack
+        # Arousal -> brevity only under genuine urgency (engine keeps arousal
+        # elevated ~0.6-0.9 most turns from novelty/PE stimulation, so a naive
+        # (a-0.6) compression would make the bot monotonously terse). Compress
+        # only above 0.78, and weakly, so calm/neutral turns stay full.
+        ashift = -0.15 * max(0.0, np.tanh((a - 0.78) * 3.0))
         # Relationship -> closer = terser
-        rshift = -0.25 * np.clip(relationship_depth, 0.0, 1.0)
-        # Depth/uncertainty -> explain more
-        dshift = 0.20 * np.clip(conversation_depth + uncertainty, 0.0, 1.0)
+        rshift = -0.22 * np.clip(relationship_depth, 0.0, 1.0)
+        # Depth/uncertainty -> explain more (high PE = longer answer)
+        dshift = 0.25 * np.clip(conversation_depth + uncertainty, 0.0, 1.0)
 
         k["formality"] = float(np.clip(base["formality"] + vshift * 0.5, 0.0, 1.0))
         k["verbosity"] = float(np.clip(
@@ -132,8 +135,8 @@ class RegisterController:
         certainty = k["certainty"]
         formality = k["formality"]
 
-        # 1) Verbosity -> truncate to first sentence when terse.
-        if verbosity < 0.30:
+        # 1) Verbosity -> truncate to first sentence only under strong urgency.
+        if verbosity < 0.20:
             first_stop = min(
                 (i for i, ch in enumerate(text) if ch in ".!?"),
                 default=-1)
