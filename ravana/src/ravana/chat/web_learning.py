@@ -81,6 +81,80 @@ class WebLearningMixin(ResponseGenMixin):
         coherence = float(np.dot(subj_vec, def_centroid))
         return max(0.0, coherence)  # Clamp to [0, 1]
 
+    def _context_query_vector(self, subject: str, query: str) -> Optional[np.ndarray]:
+        """Build a *context-augmented* subject vector (N400 predictive-coding analog).
+
+        The bare-GloVe vector for an ambiguous noun ("trust", "humans") is a
+        blend of ALL its senses, so the coherence gate in ``_definition_coherence_score``
+        can't tell senses apart. The brain instead pre-activates the
+        context-appropriate sense from the discourse (cloze/predictability). We
+        emulate that by averaging the subject vector with the vectors of the
+        other *content* words in the full query, so the resulting vector is
+        biased toward the sense implied by the question framing
+        ("what is trust" alone vs "why do people trust each other").
+
+        Returns the mean vector, or the bare subject vector when no other
+        content words have embeddings (falls back gracefully).
+        """
+        glove_fn = getattr(self, "_glove_vector", None)
+        if not callable(glove_fn):
+            return None
+        subj_vec = glove_fn(subject)
+        if subj_vec is None:
+            return None
+        vec = np.asarray(subj_vec, dtype=float)
+        words = [w for w in re.findall(r"[a-z']{3,}", (query or "").lower())
+                 if w not in STOP_WORDS and w != subject.lower()]
+        vecs = []
+        for w in words:
+            v = glove_fn(w)
+            if v is not None:
+                vecs.append(np.asarray(v, dtype=float))
+        if vecs:
+            # Weight the subject 50% so context nudges rather than overrides.
+            ctx = np.mean(vecs, axis=0)
+            vec = 0.5 * vec + 0.5 * ctx
+        return vec
+
+    def _sense_biasing_framing(self, query: str, subject: str) -> str:
+        """Return a better search term that biases toward the intended sense.
+
+        Used for grounding web queries about ambiguous subjects. Instead of
+        searching the bare noun (which returns the most-linked Wikipedia sense),
+        we append a domain hint derived from the query framing, emulating the
+        brain's context-conditioned predictive selection of word sense.
+
+        Examples:
+          "what is trust"                 -> "trust"
+          "why do people trust each other"-> "trust psychology"
+          "humans could photosynthesize"  -> "human biology"
+        """
+        q = (query or "").lower()
+        s = (subject or "").lower()
+        # Domain hints keyed by co-occurring query terms. The subject word
+        # itself is excluded so "what is trust" (subject=trust, no other
+        # context) does NOT bias to psychology — only genuine context words
+        # (people, relationship, estate, ...) select a sense, mirroring the
+        # brain's context-conditioned predictive sense selection.
+        ctx_words = [w for w in q.split() if w != s and w not in STOP_WORDS]
+        ctx_set = set(ctx_words)
+        hints = []
+        if any(w in ctx_set for w in ["company", "business", "legal", "law", "estate",
+                                 "financial", "stock", "money", "invest"]):
+            hints.append("finance")
+        if any(w in ctx_set for w in ["people", "person", "relationship", "each other",
+                                 "friend", "love", "society", "feel"]):
+            hints.append("psychology")
+        if any(w in ctx_set for w in ["body", "biology", "brain", "cell", "health",
+                                 "medicine", "disease", "human"]):
+            hints.append("science")
+        if any(w in ctx_set for w in ["computer", "software", "ai", "tech", "data",
+                                 "algorithm", "internet"]):
+            hints.append("technology")
+        if hints:
+            return f"{s} {hints[0]}"
+        return s
+
     def learn_from_web(self, query: str, max_results: int = 3,
                      train_decoder: bool = False) -> Tuple[str, str]:
         """Search the web, fetch articles, extract concepts, and learn from them.

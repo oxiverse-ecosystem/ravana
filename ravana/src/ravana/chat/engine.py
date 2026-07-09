@@ -1008,6 +1008,113 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
 
 
 
+    # ── Frontopolar (BA 10) feasibility gate ───────────────────────────────
+    _CATEGORY_AFFORDANCES = {
+        "time": {"duration", "order", "sequence", "cycle", "moment", "pass", "flow"},
+        "mental_state": {"content", "valence", "intensity", "clarity", "meaning"},
+        "abstract": {"meaning", "importance", "truth", "value"},
+        "physical_object": {"mass", "weight", "color", "shape", "size", "temperature",
+                             "volume", "position"},
+        "perceptual": {"color", "brightness", "loudness", "taste", "smell", "texture"},
+        "social": {"trust", "power", "status", "relationship"},
+        "living": {"growth", "reproduction", "metabolism", "death", "color", "colour"},
+        "event": {"cause", "duration", "consequence"},
+    }
+    _CATEGORY_OF_SUBJECT = {
+        "day": "time", "days": "time", "week": "time", "month": "time", "year": "time",
+        "hour": "time", "minute": "time", "time": "time", "tuesday": "time",
+        "monday": "time", "wednesday": "time", "thursday": "time", "friday": "time",
+        "saturday": "time", "sunday": "time", "moment": "time", "century": "time",
+        "thought": "mental_state", "thoughts": "mental_state", "idea": "mental_state",
+        "ideas": "mental_state", "dream": "mental_state", "emotion": "mental_state",
+        "love": "mental_state", "hate": "mental_state", "memory": "mental_state",
+        "concept": "abstract", "concepts": "abstract", "meaning": "abstract",
+        "truth": "abstract", "beauty": "abstract", "freedom": "abstract",
+        "sun": "physical_object", "earth": "physical_object", "rock": "physical_object",
+        "stone": "physical_object", "table": "physical_object", "car": "physical_object",
+        "book": "physical_object", "tree": "living", "trees": "living", "human": "living",
+        "humans": "living", "cat": "living", "dog": "living", "plant": "living",
+        "trust": "social", "relationship": "social", "friendship": "social",
+    }
+    _PROPERTY_CATEGORIES = {
+        "color": {"physical_object", "perceptual"},
+        "colour": {"physical_object", "perceptual"},
+        "weight": {"physical_object"},
+        "weigh": {"physical_object"}, "weighs": {"physical_object"},
+        "mass": {"physical_object"},
+        "taste": {"physical_object", "perceptual"},
+        "smell": {"physical_object", "perceptual"},
+        "sound": {"physical_object", "perceptual"},
+        "size": {"physical_object"},
+        "shape": {"physical_object"},
+        "texture": {"physical_object", "perceptual"},
+        "temperature": {"physical_object", "perceptual"},
+    }
+
+    def _is_category_error(self, query: str, subject: Optional[str] = None) -> Optional[str]:
+        """Detect a predicative category error (frontopolar feasibility gate).
+
+        Returns the property word the subject's category cannot possess, else
+        None. Only flags clear mismatches (time/mental/abstract subject +
+        physical/perceptual property) — conservative to avoid false positives
+        on legitimate "what color is the sun" questions.
+        """
+        q = (query or "").lower()
+        prop = None
+        for p in self._PROPERTY_CATEGORIES:
+            if re.search(r"\b" + re.escape(p) + r"\b", q):
+                prop = p
+                break
+        if prop is None:
+            return None
+        subj = (subject or "").lower().strip(" ?!.")
+        if not subj:
+            # Head noun after the copula, skipping determiners (a/an/the) which
+            # the naive regex would otherwise capture (e.g. "what colour is a
+            # day" -> "day", not "a").
+            m = re.search(r"\b(what|which|how)\s+\w+\s+(is|are|does|do|has|have)\s+(?:a\s+|an\s+|the\s+)?(\w+)", q)
+            if m:
+                subj = m.group(3)
+            else:
+                # "how many kilograms does a thought weigh" -> capture "thought"
+                m2 = re.search(r"\b(?:a|an|the)\s+(\w+)\s+(weigh|weighs|weighing|mass|taste|smell|sound|cost)\b", q)
+                if m2:
+                    subj = m2.group(1)
+                else:
+                    toks = [w for w in re.findall(r"[a-z']+", q)
+                            if w not in STOP_WORDS and w not in ("what", "which", "how",
+                            "is", "are", "does", "do", "has", "have", "the", "a", "an",
+                            "of", "to", "in", "on", "for", "with", "my", "your", "our")]
+                    subj = toks[-1] if toks else ""
+        if not subj:
+            return None
+        cat = self._CATEGORY_OF_SUBJECT.get(subj)
+        if cat is None:
+            return None
+        allowed = self._CATEGORY_AFFORDANCES.get(cat, set())
+        if prop in allowed:
+            return None
+        if cat in self._PROPERTY_CATEGORIES.get(prop, set()):
+            return None
+        return prop
+
+    def _category_error_response(self, query: str, subject: Optional[str], prop: str) -> str:
+        """Honest response for a detected category error (BA 10 gate output)."""
+        cat = self._CATEGORY_OF_SUBJECT.get((subject or "").lower(), "that kind of thing")
+        cat_label = {
+            "time": "a measure of time", "mental_state": "a mental state or thought",
+            "abstract": "an abstract concept", "physical_object": "a physical object",
+            "perceptual": "something you perceive", "social": "a social relation",
+            "living": "a living thing", "event": "an event",
+        }.get(cat, "that kind of thing")
+        subj_cap = (subject or "that").strip().capitalize()
+        opener = ("hmm, that's a bit like asking what flavor a Tuesday has — "
+                  if random.random() < 0.5 else
+                  "i don't think that quite works: ")
+        return (opener + f"{subj_cap} is {cat_label}, so it doesn't really have a "
+                f"{prop} the way a physical thing would. "
+                f"want to rephrase what you meant?")
+
     def process_turn(self, user_input: str) -> str:
         """Process input and generate a response, auto-learning when needed."""
         # Guard: reject pure letter-salad so it is not treated as a concept and
@@ -1037,6 +1144,30 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 self._last_responses = self._last_responses[-10:]
             self.notify_user_idle()
             return resp
+
+        # ── Frontopolar (BA 10) feasibility gate ────────────────────────────
+        # Catch ill-posed / category-error queries BEFORE committing resources
+        # to grounding + web search. Conservative: only flags clear affordance
+        # mismatches (time/mental/abstract subject predicated with a physical/
+        # perceptual property). Legitimate queries pass through untouched.
+        try:
+            _cat_prop = self._is_category_error(user_input)
+            if _cat_prop is not None:
+                _subj_guess = None
+                try:
+                    _g = self._ground_query(user_input)
+                    if _g:
+                        _subj_guess = _g[0]
+                except Exception:
+                    _subj_guess = None
+                self._last_strategy = "category_error"
+                resp = self._category_error_response(user_input, _subj_guess, _cat_prop)
+                self._last_responses.append(resp)
+                if len(self._last_responses) > 10:
+                    self._last_responses = self._last_responses[-10:]
+                return resp
+        except Exception:
+            pass
 
         # Scan user query for proper nouns dynamically
         try:
@@ -2855,6 +2986,16 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         qkw = set(w for w in query.lower().split()
                   if len(w) > 3 and w not in STOP_WORDS)
         is_conditional = is_conditional or self._is_conditional_query(query)
+        # Context-augmented sense vector (N400 predictive-coding analog): bias
+        # the coherence gate toward the sense implied by the full query, not the
+        # bare blended noun. Used as a ranker (not a hard filter) below so it
+        # breaks +3.0 ties between same-shape definitions of different senses.
+        _ctx_vec = None
+        if hasattr(self, "_context_query_vector"):
+            try:
+                _ctx_vec = self._context_query_vector(subject, query)
+            except Exception:
+                _ctx_vec = None
         candidates = []
         for r in results[:6]:
             content = r.get("content", "") or ""
@@ -3006,6 +3147,35 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 rurl = (r.get("url", "") or "").lower()
                 if any(src in rurl for src in self._PREFERRED_SNIPPET_SOURCES):
                     score += 0.3
+                # Context-augmented sense ranker (N400 analog): when the
+                # context vector is available, reward candidates whose content
+                # words align with the *intended* sense of the query. This
+                # breaks the +3.0 ties between same-shape definitions of
+                # different senses (e.g. legal vs interpersonal "trust") by
+                # ranking the context-fitting sense higher rather than letting
+                # search-engine result order decide.
+                if _ctx_vec is not None and hasattr(self, "_definition_coherence_score"):
+                    try:
+                        coh = self._definition_coherence_score(subject, s)
+                        # _definition_coherence_score uses the bare subject by
+                        # default; re-rank against the context vector directly.
+                        glove_fn = getattr(self, "_glove_vector", None)
+                        if callable(glove_fn):
+                            def_words = [w for w in re.findall(r"[a-z']{3,}", s.lower())
+                                         if w not in STOP_WORDS]
+                            def_vecs = [glove_fn(w) for w in def_words if glove_fn(w) is not None]
+                            if def_vecs:
+                                dcent = np.mean(def_vecs, axis=0)
+                                n = np.linalg.norm(dcent)
+                                if n > 0:
+                                    dcent /= n
+                                    ctx_n = np.linalg.norm(_ctx_vec)
+                                    if ctx_n > 0:
+                                        csim = float(np.dot(dcent, _ctx_vec / ctx_n))
+                                        coh = max(0.0, csim)
+                        score += 0.6 * coh
+                    except Exception:
+                        pass
                 candidates.append((score, s))
         if not candidates:
             # Fallback: scan results for the first clean, non-boilerplate

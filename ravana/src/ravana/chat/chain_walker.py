@@ -1901,6 +1901,67 @@ class ChainWalkerMixin:
                     visited[neighbor_id] = new_cost
         return []
 
+    def _causal_forward_simulate(self, start_concept: str, max_steps: int = 4,
+                                 top_k: int = 3) -> List[str]:
+        """DMN + hippocampus generative counterfactual simulator (open-ended).
+
+        Revived from the dead-code ``_causal_chain_search`` (which required a
+        pre-specified end node and so always bailed at ``if not end_ids``). The
+        brain does not need a target outcome to simulate — given an intervention
+        do(X) it forward-chains along causal edges to *discover* consequences
+        (Schacter & Addis constructive episodic simulation; Gerstenberg 2024
+        Counterfactual Simulation Model).
+
+        Returns an ordered list of consequence concept labels reachable from
+        ``start_concept`` via causal edges (cost 0.2 — cheap, so the walk
+        branches widely), or [] if the start concept isn't in the graph or has
+        no causal out-edges.
+        """
+        start_ids = self._concept_keywords.get((start_concept or "").lower(), [])
+        if not start_ids:
+            return []
+        start_id = start_ids[0]
+
+        from heapq import heappush, heappop
+        _start_label = self.graph.get_node(start_id).label if self.graph.get_node(start_id) else start_concept
+        open_set = [(0.0, 0, [_start_label])]
+        visited = {start_id: 0.0}
+        consequences: List[Tuple[float, List[str]]] = []
+
+        while open_set:
+            cost, depth, path = heappop(open_set)
+            if depth >= max_steps:
+                continue
+            current_id = self._concept_keywords.get(path[-1].lower(), [None])[0]
+            if current_id is None:
+                if depth == 0:
+                    current_id = start_id
+                else:
+                    continue
+            for neighbor_id, edge in self.graph.get_outgoing(current_id):
+                if edge.relation_type != "causal":
+                    continue
+                if neighbor_id in visited and visited[neighbor_id] <= cost + 0.2:
+                    continue
+                visited[neighbor_id] = cost + 0.2
+                neighbor = self.graph.get_node(neighbor_id)
+                if neighbor and neighbor.label:
+                    npath = path + [neighbor.label]
+                    ncost = cost + 0.2
+                    heappush(open_set, (ncost, depth + 1, npath))
+                    consequences.append((ncost, npath))
+
+        seen = set()
+        out = []
+        for _cost, path in sorted(consequences, key=lambda x: x[0]):
+            tail = path[-1].lower()
+            if tail in seen:
+                continue
+            seen.add(tail)
+            out.append(" → ".join(path))
+            if len(out) >= top_k:
+                break
+        return out
 
     def _graph_fallback_response(self, ctx: CognitiveResponseContext) -> Tuple[str, str]:
         """Graph-walk fallback when decoder / syntactic pipeline are not enough.

@@ -1911,6 +1911,49 @@ class ResponseGenMixin(ChainWalkerMixin):
             ]
         return (random.choice(lines), "emotional_empathy")
 
+    def _simulate_counterfactual(self, ctx: CognitiveResponseContext) -> Optional[Tuple[str, str]]:
+        """Generative counterfactual simulation for conditional queries.
+
+        Brain analog: DMN + hippocampus + OFC + ACC as a forward simulator
+        (Gerstenberg 2024; Schacter & Addis). Given the grounded subject as the
+        intervened node do(X), forward-chain along causal edges to discover
+        consequences, then realize a short causal narrative. Returns None when
+        the graph has no causal material for the subject (caller falls through
+        to honest uncertainty).
+        """
+        # Determine the intervention subject. Prefer the grounded subject;
+        # otherwise fall back to a salient noun from the query.
+        start = (ctx.subject or "").strip().lower()
+        if not start or start not in getattr(self, "_concept_keywords", {}):
+            # Try query nouns that exist in the graph.
+            for w in re.findall(r"[a-z']+", (ctx.raw_input or "").lower()):
+                if w in getattr(self, "_concept_keywords", {}) and w not in STOP_WORDS:
+                    start = w
+                    break
+        if not start or start not in getattr(self, "_concept_keywords", {}):
+            return None
+        if not hasattr(self, "_causal_forward_simulate"):
+            return None
+        try:
+            chains = self._causal_forward_simulate(start, max_steps=4, top_k=3)
+        except Exception:
+            return None
+        if not chains:
+            return None
+        # Realize a causal narrative (no templates: causal connector phrases).
+        subj_cap = start.capitalize()
+        lead = f"if {subj_cap.lower()} were different, here's what I'd expect to follow:"
+        lines = []
+        for ch in chains[:3]:
+            parts = [p.strip() for p in ch.split("→")]
+            if len(parts) >= 2:
+                a, b = parts[0], parts[-1]
+                lines.append(f"{a} would lead to {b}")
+        if not lines:
+            return None
+        body = "; ".join(lines)
+        return (f"{lead} {body}.", "counterfactual_simulation")
+
     def _human_like_uncertainty(self, ctx: CognitiveResponseContext):
         """Graceful, curious turn taken when FOK is low and the topic is ungrounded.
 
@@ -2128,6 +2171,16 @@ class ResponseGenMixin(ChainWalkerMixin):
         # temporal 'what' network's associative retrieval. Try decomposition FIRST
         # for these question types to get step-by-step procedural answers.
         # (Dual-stream model: dorsal 'how' stream > ventral 'what' stream for procedures)
+        # NOTE: counterfactual simulation (DMN generative simulator) is attempted
+        # *before* decomposition for conditional queries, because hypotheticals
+        # ("what if X disappeared") should forward-chain consequences from the
+        # causal graph rather than merely decomposing web sub-questions.
+        if self._is_conditional_query(ctx.raw_input):
+            _sim = self._simulate_counterfactual(ctx)
+            if _sim:
+                if getattr(self, '_trace_enabled', False):
+                    print("  [trace]   Counterfactual simulation path")
+                return _sim
         decomposition = getattr(ctx, 'decomposition', None)
         if decomposition and getattr(decomposition, 'sub_questions', None):
             cat = getattr(decomposition, 'category', None)
@@ -2168,6 +2221,14 @@ class ResponseGenMixin(ChainWalkerMixin):
         # emit "Sun is the star..." for "if the sun disappeared" — exactly the
         # abstract, off-topic reply we must avoid). Be honest instead.
         if self._is_conditional_query(ctx.raw_input):
+            # Attempt generative counterfactual simulation (DMN + hippocampus
+            # analog) BEFORE falling back to uncertainty: given an intervention
+            # do(X) on the grounded subject, forward-chain along causal edges to
+            # surface consequences. This is the brain's "what would happen"
+            # simulator, and avoids collapsing to a stale definition.
+            sim = self._simulate_counterfactual(ctx)
+            if sim:
+                return sim
             hon = self._human_like_uncertainty(ctx)
             if hon:
                 return hon
