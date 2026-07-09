@@ -1744,6 +1744,9 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 )
                 conf = self.identity.state.strength * 0.5 + 0.3
                 response = self.register_controller.compose(response, conf)
+                # Pre-emission forward-model self-monitor (brief behavior 6):
+                # refuse degenerate/echo replies before they are articulated.
+                response = self._forward_model_check(response, ctx)
         except Exception:
             pass
 

@@ -2256,4 +2256,43 @@ class ResponseGenMixin(ChainWalkerMixin):
             return subject.capitalize()
         return subject.lower()
 
+    def _forward_model_check(self, text: str, ctx: "CognitiveResponseContext") -> str:
+        """Pre-emission forward-model self-monitor (brief behavior 6).
+
+        Inner speech / efference-copy analog (Pickering & Garrod; Yao 2025):
+        before the utterance is "articulated", silently simulate it and compare
+        the predicted percept to the conversational intent. If the candidate is
+        degenerate, empty, or just echoes the user, refuse to emit it and fall
+        back to a graceful, curiosity-preserving turn instead — exactly what a
+        self-monitoring speaker does when the inner rehearsal doesn't match the
+        intended message. This is the pre-articulation guard that
+        conversational_repair.py only does post-hoc.
+
+        Reuses the engine's own ``_is_word_salad`` degeneracy detector so the
+        monitor shares one notion of "broken output" with the rest of the
+        pipeline (no second, divergent definition). Returns the (possibly
+        repaired) text unchanged when it passes.
+        """
+        if not text or not text.strip():
+            return self._human_like_uncertainty(ctx)[0]
+        # Degenerate / word-salad candidate -> refuse.
+        if _is_word_salad(text, subject=ctx.subject):
+            if getattr(self, "_trace_enabled", False):
+                print("  [trace]   forward-model monitor: candidate failed "
+                      "degeneracy check — repairing")
+            return self._human_like_uncertainty(ctx)[0]
+        # Echo: reply is (near) verbatim the user's own words. A human doesn't
+        # repeat the interlocutor as an answer; covert repair turns it back.
+        user_norm = re.sub(r"\W+", " ", ctx.raw_input.lower()).strip()
+        cand_norm = re.sub(r"\W+", " ", text.lower()).strip()
+        if user_norm and cand_norm and (
+                cand_norm == user_norm
+                or cand_norm in user_norm
+                or user_norm in cand_norm):
+            if getattr(self, "_trace_enabled", False):
+                print("  [trace]   forward-model monitor: candidate echoes "
+                      "user input — repairing")
+            return self._reflective_response(ctx) or self._human_like_uncertainty(ctx)[0]
+        return text
+
 
