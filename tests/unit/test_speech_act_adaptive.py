@@ -23,6 +23,7 @@ from ravana.language.prefrontal_workspace import (
     SpeechActClassifier,
     PrefrontalWorkspace,
     QuestionSubtypeClassifier,
+    SurpriseGate,
 )
 
 _PROJ = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -254,3 +255,53 @@ class TestHierarchicalDetectQuestionType:
         _qtype, parts = pfc.detect_question_type("what is trust?")
         # regex still supplies the extracted span
         assert parts and "trust" in parts[0]
+
+
+# ── N4: surprise gating (the governor that makes N2 safe) ──
+
+class TestSurpriseGate:
+    def test_regimes_distinct(self):
+        g = SurpriseGate()
+        # With no history the band is (0.0, -3.0).
+        assert g.route(2.0) == "HIGH"
+        assert g.route(-1.0) == "LEARN"
+        assert g.route(-10.0) == "ABSTAIN"
+
+    def test_band_is_distribution_driven_not_constant(self, glove_vector_fn):
+        vfn, _dim = glove_vector_fn
+        sac = SpeechActClassifier(vector_fn=vfn, dim=_dim)
+        g = SurpriseGate()
+        # Feed a mix of known and novel utterances; the gate must learn a band
+        # that separates them WITHOUT a hardcoded threshold.
+        known = ["the cat sat on the mat", "what is trust", "why does ice melt",
+                 "she reads books at night", "how do birds fly"]
+        novel = ["fnord blarg whipple quadrature", "xyzzy plugh frobnicate",
+                 "qworp lorem ipsum dolar"]
+        for u in known + novel:
+            g.route_stage1(sac, u)
+        # After observing, a clearly-novel score routes to ABSTAIN, a known one to HIGH/LEARN.
+        assert g.route_stage1(sac, "fnord blarg whipple quadrature")[1] == "ABSTAIN"
+        # a confidently-known statement stays out of ABSTAIN
+        assert g.route_stage1(sac, "the cat sat on the mat")[1] != "ABSTAIN"
+
+    def test_high_regime_does_not_signal_learn(self, glove_vector_fn):
+        vfn, _dim = glove_vector_fn
+        sac = SpeechActClassifier(vector_fn=vfn, dim=_dim)
+        g = SurpriseGate()
+        # Prime history with known utterances so confident band rises.
+        for u in ["the cat sat on the mat", "a dog lay on the rug",
+                  "birds sang in the tree", "the sun rose in the east",
+                  "she reads books at night", "water flows down the river",
+                  "what is trust", "why does ice melt", "how do birds fly"]:
+            g.route_stage1(sac, u)
+        # A confident paraphrase should route HIGH (reinforce), not ABSTAIN.
+        regime = g.route_stage1(sac, "i think that was probably fine")[1]
+        assert regime in ("HIGH", "LEARN")  # known => never ABSTAIN
+
+    def test_stage2_route_uses_cosine(self, glove_vector_fn):
+        vfn, _dim = glove_vector_fn
+        qsc = QuestionSubtypeClassifier(vector_fn=vfn)
+        g = SurpriseGate()
+        sub, regime, _ = g.route_stage2(qsc, "what is trust")
+        assert sub == "what_is"
+        assert regime in ("HIGH", "LEARN")

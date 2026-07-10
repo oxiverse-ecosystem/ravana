@@ -281,6 +281,23 @@ class SpeechActClassifier:
             return ("question", {}, "default")
         return (best, raw, "semantic")
 
+    def confidence(self, text: str) -> Tuple[Optional[str], float, float]:
+        """N4 seam: return (best_class, z_score, mean_raw_cosine).
+
+        The z-score (cos - mu_c)/sigma_c IS the inverse-surprise / precision
+        signal N4 routes on: high z -> confident -> don't perturb; low z ->
+        learn; z below the class floor -> abstain (clarify). classify() drops
+        z; this method exposes it so the gating controller reuses the exact
+        same adaptive boundary instead of recomputing.
+        """
+        store = self._store()
+        sv = self._sentence_vector(text)
+        if sv is None or not store:
+            return None, 0.0, 0.0
+        best, z, raw = self.nearest_prototype(sv, store)
+        mean_raw = float(np.mean(list(raw.values()))) if raw else 0.0
+        return best, (z.get(best, 0.0) if best else 0.0), mean_raw
+
 
 class QuestionSubtypeClassifier:
     """Stage-2 of hierarchical (N1) question-type detection.
@@ -433,6 +450,99 @@ class QuestionSubtypeClassifier:
             if cos[best] < floor:
                 return "ABSTAIN", cos
         return best, cos
+
+
+class SurpriseGate:
+    """N4 — surprise gating: the governor that makes N2 (emergent categories) safe.
+
+    Feldman & Friston 2010 (precision-weighted plasticity) + Friston 2017
+    (active inference / epistemic action): prediction error (surprise) is the
+    learning signal. This gate routes each utterance into one of three regimes
+    from a classifier's confidence, so prototypes are perturbed ONLY on high
+    error — preventing the two failure modes of an un-gated learner:
+      * HYPER-stability: never updating => can't learn new phrasings.
+      * HYPER-plasticity: updating on everything => centroid DRIFT and
+        catastrophic interference / class explosion.
+
+    Regimes:
+      HIGH    (confident)  -> reinforce only (rehearsal); do NOT perturb centroid.
+      LEARN   (low error, known class) -> precision-weighted bounded update.
+      ABSTAIN (novel / high error) -> epistemic action: ask to clarify, or
+                                    (N2) spawn a candidate prototype in the
+                                    hippocampal buffer. Never silently fold into
+                                    an existing class.
+
+    BAND IS NOT A CONSTANT. It is derived from the classifier's own score
+    distribution (experiments/n4_surprise_gating.py): known utterances occupy a
+    tight band (e.g. z in [-2.4, +1.5]) and genuine novelty a far tail (z < -8).
+    A running percentile of recently-seen scores splits them — so the boundary
+    tracks the live distribution, like a learned threshold, not a magic number.
+    """
+
+    # Percentile of the live score distribution used as the confident/learn split.
+    CONFIDENT_PERCENTILE = 50.0   # top half of live scores => confident
+    # Novelty tail: scores below this many of the live min are hard ABSTAIN.
+    # (Fallback gap; the live band is computed from observed scores.)
+    NOVELTY_GAP_FRAC = 0.5        # floor sits mid-way between known-min and novel-min
+
+    def __init__(self, window: int = 200):
+        self._scores: List[float] = []   # rolling history of observed scores
+        self.window = window
+
+    def observe(self, score: float) -> None:
+        """Feed a freshly-computed confidence score into the rolling window."""
+        if score is None:
+            return
+        self._scores.append(score)
+        if len(self._scores) > self.window:
+            self._scores.pop(0)
+
+    def _bands(self) -> Tuple[float, float]:
+        """Compute (confident_z, learn_floor) from the live score history.
+
+        confident_z = percentile(CONFIDENT_PERCENTILE) of known-ish scores.
+        learn_floor  = mid-gap between the low tail and the confident band, so
+                       genuinely novel scores (far below) become ABSTAIN.
+        With no/short history we fall back to the classifier's own semantics:
+        a single neutral split that still routes extreme-negatives to ABSTAIN.
+        """
+        if len(self._scores) < 8:
+            # Not enough history: use a conservative split around 0; rely on the
+            # caller also passing an explicit novelty floor for hard-ABSTAIN.
+            return 0.0, -3.0
+        arr = np.array(self._scores)
+        confident_z = float(np.percentile(arr, self.CONFIDENT_PERCENTILE))
+        low = float(arr.min())
+        # learn_floor midway between the low tail and the confident band
+        learn_floor = (low + confident_z) / 2.0
+        return confident_z, learn_floor
+
+    def route(self, score: float) -> str:
+        """Map a confidence score to a regime. score may be a z-score (Stage 1)
+        or a raw cosine (Stage 2) — the band adapts to whichever distribution is
+        fed via observe(). Returns 'HIGH' | 'LEARN' | 'ABSTAIN'."""
+        self.observe(score)
+        confident_z, learn_floor = self._bands()
+        if score is None or score < learn_floor:
+            return "ABSTAIN"
+        if score >= confident_z:
+            return "HIGH"
+        return "LEARN"
+
+    def route_stage1(self, sac: "SpeechActClassifier", text: str) -> Tuple[str, str, float]:
+        """Convenience: route using the Stage-1 z-margin signal directly."""
+        best, z, _raw = sac.confidence(text)
+        regime = self.route(z)
+        return best or "question", regime, z
+
+    def route_stage2(self, qsc: "QuestionSubtypeClassifier", text: str) -> Tuple[str, str, float]:
+        """Route using the Stage-2 cosine (with the classifier's abstain floor)."""
+        sub, cos = qsc.classify(text)
+        if sub == "ABSTAIN" or sub is None:
+            return "ABSTAIN", "ABSTAIN", 0.0
+        best_cos = max(cos.values())
+        regime = self.route(best_cos)
+        return sub, regime, best_cos
 
 
 class PrefrontalWorkspace:
