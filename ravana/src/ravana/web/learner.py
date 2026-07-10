@@ -992,6 +992,53 @@ class WebLearner:
         self._last_auto_learn_turn = len(self.graph_engine._topic_list)
         return selected
 
+    def curiosity_e_step(self, candidate_topics: Optional[List[str]] = None) -> Optional[str]:
+        """E: active-inference control step.
+
+        Builds an ActiveInferenceController from the thin C-time KnowledgeGap
+        EFE interface (C-lite) + the existing node prediction_free_energy, and
+        returns the argmax-EFE topic = the best epistemic action (curious web
+        read). ADDITIVE: this does not replace _auto_select_curiosity_topics;
+        it is the principled unification of the uncertainty signals that engine
+        already gathers. Returns None if there is nothing uncertain to ask.
+
+        The epistemic-action loop is closed by the caller: after reading about
+        the returned topic, its EFE (via knowledge_gap) drops, confirming the
+        uncertainty was reduced (Friston 2015; Schmidhuber 2010).
+        """
+        try:
+            from ravana.core.active_inference import ActiveInferenceController
+
+            def gap_fn(topic):
+                return self.knowledge_gap(topic)
+
+            def pfe_fn(topic):
+                nid = self.graph_engine._all_labels.get(topic.lower().strip())
+                if nid is None:
+                    return 0.0
+                node = self.graph_engine.graph.get_node(nid)
+                if node is None:
+                    return 0.0
+                return float(getattr(node, "prediction_free_energy", 0.0) or 0.0)
+
+            cands = candidate_topics
+            if not cands:
+                # default candidate pool: all known labels + user-query topics
+                cands = list(self.graph_engine._all_labels.keys())
+                if self._user_query_topics:
+                    cands = cands + [t for t in self._user_query_topics if t]
+            if not cands:
+                return None
+
+            ctrl = ActiveInferenceController(gap_fn=gap_fn, pfe_fn=pfe_fn)
+            target = ctrl.select_target(cands)
+            if target is None or ctrl.score(target).total <= 0.0:
+                return None
+            return target
+        except Exception:
+            # E must never break the existing curiosity engine.
+            return None
+
     def _get_concept_confidence(self, concept_label: str) -> float:
         nids = self.graph_engine._concept_keywords.get(concept_label.lower(), [])
         if not nids:
