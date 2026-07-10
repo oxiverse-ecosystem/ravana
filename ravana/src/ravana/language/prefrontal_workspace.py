@@ -545,6 +545,133 @@ class SurpriseGate:
         return sub, regime, best_cos
 
 
+class EmergentCategoryLearner:
+    """N2 — emergent categories: RAVANA learns a NEW intent by chatting.
+
+    The hippocampal-VTA novelty loop (Lisman & Grace 2005): when SurpriseGate
+    routes an utterance to ABSTAIN (high prediction error = "unlike anything I
+    know"), spawn a CANDIDATE prototype. The spawn trigger is the gate's output
+    — a prediction-error quantity, NOT a constant threshold (this is exactly why
+    N4 must precede N2).
+
+    Without consolidation this would explode into classes / suffer catastrophic
+    interference. The brain avoids it via fast hippocampal encoding + SLOW
+    neocortical consolidation (McClelland et al. 1995 CLS): a candidate stays
+    ephemeral in the hippocampal buffer until rehearsed/confirmed, then is
+    promoted to a stable prototype. We use the REAL HippocampalBuffer as the
+    fast store (it already tracks confidence + rehearsal_count and exposes
+    get_consolidation_candidates). Merge collapses near-duplicate candidates;
+    sleep prunes un-rehearsed singletons.
+
+    KNOWN LIMITATION (measured in experiments/n2_emergent_categories.py): in
+    64D, mean-pooled intent centroids of different intents sit close (e.g.
+    "remind me" vs "tell me a joke" = 0.90 cosine), so MERGE is unreliable for
+    loose paraphrases — the same crowding that bounded A0/HRR. Merge radius is
+    therefore conservative (0.95): it collapses near-identical phrasings, not
+    semantic neighbours. Robust merge needs A0's high-D HRR space. Spawn/prune/
+    consolidate (the explosion guard) are unaffected and validated.
+    """
+
+    MERGE_RADIUS = 0.95       # conservative: only near-identical phrasings merge
+    CONSOLIDATE_REHEARSALS = 2
+    CONSOLIDATE_CONFIDENCE = 0.7
+
+    def __init__(self, vector_fn=None, hippocampal_buffer=None, merge_radius=None):
+        self.vector_fn = vector_fn
+        self.merge_radius = merge_radius or self.MERGE_RADIUS
+        # Fast, ephemeral candidate store. Real HippocampalBuffer when supplied;
+        # otherwise a lightweight in-memory map (still vector-native so merge works).
+        self.hb = hippocampal_buffer
+        self._candidates: Dict[str, dict] = {}
+        self._next_id = 0
+        self.pruned_count = 0
+        self.promoted_count = 0
+
+    def _sentence_vector(self, text: str) -> Optional[np.ndarray]:
+        if self.vector_fn is None:
+            return None
+        words = re.findall(r"[a-z']+", text.lower())
+        vecs = [self.vector_fn(w) for w in words]
+        vecs = [v for v in vecs if v is not None]
+        if not vecs:
+            return None
+        a = np.stack(vecs).mean(axis=0)
+        n = np.linalg.norm(a)
+        return a / n if n > 0 else a
+
+    def _new_id(self) -> str:
+        cid = f"emergent_{self._next_id}"
+        self._next_id += 1
+        return cid
+
+    def learn_novel(self, text: str) -> str:
+        """Spawn-or-merge a candidate category from an ABSTAIN utterance.
+
+        Returns the candidate id. Caller MUST have already confirmed the gate
+        routed this utterance to ABSTAIN (N4 governs spawning).
+        """
+        vec = self._sentence_vector(text)
+        if vec is None:
+            return ""
+        # merge into nearest existing candidate within radius
+        best_id, best_sim = None, -1.0
+        for cid, c in self._candidates.items():
+            sim = float(np.dot(vec, c["vec"]))
+            if sim > best_sim:
+                best_sim, best_id = sim, cid
+        if best_id is not None and best_sim >= self.merge_radius:
+            c = self._candidates[best_id]
+            c["exemplars"].append(text)
+            n = len(c["exemplars"])
+            c["vec"] = (c["vec"] * (n - 1) + vec) / n
+            c["rehearsal"] = c.get("rehearsal", 0) + 1
+            c["confidence"] = min(1.0, c.get("confidence", 0.5) + 0.1)
+            return best_id
+        # spawn new candidate (fast hippocampal encoding)
+        cid = self._new_id()
+        self._candidates[cid] = {
+            "vec": vec, "exemplars": [text],
+            "rehearsal": 1, "confidence": 0.5, "stable": False,
+        }
+        if self.hb is not None:
+            self.hb.store(subject=cid, predicate="candidate_intent",
+                          object=text, confidence=0.5,
+                          aliases=[w for w in text.lower().split() if len(w) >= 2])
+        return cid
+
+    def reinforce(self, cid: str) -> None:
+        """Rehearsal: bump confidence + rehearsal (drives consolidation gate)."""
+        c = self._candidates.get(cid)
+        if c:
+            c["rehearsal"] = c.get("rehearsal", 0) + 1
+            c["confidence"] = min(1.0, c.get("confidence", 0.5) + 0.1)
+
+    def sleep_consolidate(self) -> Dict[str, int]:
+        """NREM/REM analogue: promote rehearsed candidates to stable, prune the
+        rest (forgetting). Mirrors McClelland 1995 slow consolidation."""
+        promoted = pruned = 0
+        survivors = {}
+        for cid, c in self._candidates.items():
+            if (c.get("rehearsal", 0) >= self.CONSOLIDATE_REHEARSALS
+                    and c.get("confidence", 0) >= self.CONSOLIDATE_CONFIDENCE):
+                c["stable"] = True
+                survivors[cid] = c
+                promoted += 1
+            else:
+                pruned += 1
+        self._candidates = survivors
+        self.promoted_count += promoted
+        self.pruned_count += pruned
+        return {"promoted": promoted, "pruned": pruned,
+                "stable": len(survivors)}
+
+    def candidate_ids(self) -> List[str]:
+        return list(self._candidates.keys())
+
+    def stable_ids(self) -> List[str]:
+        return [cid for cid, c in self._candidates.items() if c.get("stable")]
+
+
 class PrefrontalWorkspace:
     """Structured buffer that plans discourse BEFORE chain generation.
 
@@ -567,6 +694,8 @@ class PrefrontalWorkspace:
         self.vector_fn = vector_fn
         self._sac: Optional[SpeechActClassifier] = None
         self._qsc: Optional[QuestionSubtypeClassifier] = None
+        self._gate: Optional[SurpriseGate] = None
+        self._n2: Optional[EmergentCategoryLearner] = None
 
     # ─── Question Type Detection ───
 
@@ -727,6 +856,50 @@ class PrefrontalWorkspace:
         if sub is None or sub == "ABSTAIN":
             return (regex_qtype, groups)
         return (sub, groups)
+
+    # ─── N4→N2: surprise-gated emergent learning ───
+
+    def learn_from_turn(self, text: str) -> Tuple[str, str, str]:
+        """N4→N2: route one user utterance through the surprise gate and, on
+        ABSTAIN, spawn a candidate category. Returns (act, regime, candidate_id).
+
+        This is the single seam where the unified layer actually LEARNS a new
+        intent by chatting. The flow:
+          1. SpeechActClassifier.confidence() -> Stage-1 z-margin signal.
+          2. SurpriseGate routes it: HIGH (reinforce), LEARN (precision-weighted
+             update), or ABSTAIN (novel / high prediction error).
+          3. On ABSTAIN, EmergentCategoryLearner spawns/merges a candidate
+             prototype in the fast (hippocampal) store — the VTA novelty loop.
+             The spawn trigger is the gate's prediction-error output, never a
+             constant. Stable promotion happens later via sleep_consolidate().
+
+        Without a semantic space (no vector_fn) this is a no-op returning the
+        rule-cascade hint.
+        """
+        if self.vector_fn is None:
+            from ravana.language.prefrontal_workspace import PrefrontalWorkspace as _P
+            return (_P.classify_speech_act_rules(text), "n/a", "")
+        if self._sac is None:
+            self._sac = SpeechActClassifier(vector_fn=self.vector_fn)
+        if self._gate is None:
+            self._gate = SurpriseGate()
+        if self._n2 is None:
+            from ravana.core.hippocampal_buffer import HippocampalBuffer
+            self._n2 = EmergentCategoryLearner(
+                vector_fn=self.vector_fn, hippocampal_buffer=HippocampalBuffer())
+        act, regime, z = self._gate.route_stage1(self._sac, text)
+        candidate_id = ""
+        if regime == "ABSTAIN":
+            candidate_id = self._n2.learn_novel(text)
+        return (act, regime, candidate_id)
+
+    def sleep(self) -> Dict[str, int]:
+        """N2 consolidation: promote rehearsed candidates, prune singletons."""
+        if self._n2 is None:
+            return {"promoted": 0, "pruned": 0, "stable": 0}
+        return self._n2.sleep_consolidate()
+
+    # ─── Remaining symbolic priors (unchanged) ───
 
     @classmethod
     def _detect_question_type_regex(cls, text: str, concept_pos: Optional[Dict[str, str]] = None) -> Tuple[str, List[str]]:

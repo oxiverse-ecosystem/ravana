@@ -24,6 +24,7 @@ from ravana.language.prefrontal_workspace import (
     PrefrontalWorkspace,
     QuestionSubtypeClassifier,
     SurpriseGate,
+    EmergentCategoryLearner,
 )
 
 _PROJ = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -305,3 +306,80 @@ class TestSurpriseGate:
         sub, regime, _ = g.route_stage2(qsc, "what is trust")
         assert sub == "what_is"
         assert regime in ("HIGH", "LEARN")
+
+
+# ── N2: emergent categories (learn a new intent by chatting) ──
+
+from ravana.core.hippocampal_buffer import HippocampalBuffer  # noqa: E402
+
+
+class TestEmergentCategoryLearner:
+    def test_spawn_only_on_absent_novelty(self, glove_vector_fn):
+        vfn, _dim = glove_vector_fn
+        n2 = EmergentCategoryLearner(vector_fn=vfn)
+        gate = SurpriseGate()
+        sac = SpeechActClassifier(vector_fn=vfn, dim=_dim)
+        # known utterances must NOT spawn
+        for u in ["the cat sat on the mat", "what is trust", "why does ice melt"]:
+            regime = gate.route_stage1(sac, u)[1]
+            if regime == "ABSTAIN":
+                n2.learn_novel(u)
+        assert len(n2.candidate_ids()) == 0
+        # a novel utterance DOES spawn
+        regime = gate.route_stage1(sac, "fnord blarg whipple quadrature")[1]
+        assert regime == "ABSTAIN"
+        cid = n2.learn_novel("fnord blarg whipple quadrature")
+        assert cid and len(n2.candidate_ids()) == 1
+
+    def test_merge_radius_default(self):
+        assert EmergentCategoryLearner.MERGE_RADIUS == 0.95
+
+    def test_sleep_promotes_rehearsed_prunes_singleton(self, glove_vector_fn):
+        vfn, _dim = glove_vector_fn
+        n2 = EmergentCategoryLearner(vector_fn=vfn)
+        # rehearsed new intent
+        rid = n2.learn_novel("can you remind me to call mom")
+        n2.reinforce(rid)
+        n2.reinforce(rid)
+        # one-off nonce
+        n2.learn_novel("fnord blarg whipple quadrature")
+        res = n2.sleep_consolidate()
+        # rehearsed promoted (confidence cleared via 2 reinforces -> 0.7), nonce pruned
+        assert res["promoted"] == 1
+        assert res["pruned"] == 1
+        assert len(n2.stable_ids()) == 1
+
+    def test_uses_real_hippocampal_buffer(self, glove_vector_fn):
+        vfn, _dim = glove_vector_fn
+        hb = HippocampalBuffer()
+        n2 = EmergentCategoryLearner(vector_fn=vfn, hippocampal_buffer=hb)
+        cid = n2.learn_novel("set a reminder for the meeting")
+        # the candidate was written to the real fast store
+        facts = hb.get_facts_for_subject(cid)
+        assert facts and facts[0].predicate == "candidate_intent"
+
+
+class TestWorkspaceLearnFromTurn:
+    def test_learn_from_turn_spawns_on_absent(self, glove_vector_fn):
+        vfn, _dim = glove_vector_fn
+        pfc = PrefrontalWorkspace(vector_fn=vfn)
+        act, regime, cid = pfc.learn_from_turn("fnord blarg whipple quadrature")
+        assert regime == "ABSTAIN"
+        assert cid  # a candidate was spawned via the gate
+
+    def test_learn_from_turn_noop_without_vector_fn(self):
+        pfc = PrefrontalWorkspace()  # no vector_fn
+        act, regime, cid = pfc.learn_from_turn("hello there")
+        assert regime == "n/a"
+        assert cid == ""
+
+    def test_sleep_consolidates(self, glove_vector_fn):
+        vfn, _dim = glove_vector_fn
+        pfc = PrefrontalWorkspace(vector_fn=vfn)
+        # use a genuinely novel utterance so the gate routes ABSTAIN -> spawn
+        rid = pfc.learn_from_turn("fnord blarg whipple quadrature")[2]
+        assert rid
+        pfc._n2.reinforce(rid)
+        pfc._n2.reinforce(rid)
+        res = pfc.sleep()
+        assert res["promoted"] == 1
