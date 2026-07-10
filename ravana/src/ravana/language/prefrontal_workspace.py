@@ -282,6 +282,159 @@ class SpeechActClassifier:
         return (best, raw, "semantic")
 
 
+class QuestionSubtypeClassifier:
+    """Stage-2 of hierarchical (N1) question-type detection.
+
+    Rosch et al. 1976 (basic-level first) + Lambon Ralph 2017 (hub-and-spoke
+    coarse->fine) + Friston & Kiebel 2009 (hierarchical inference): the coarse
+    question/statement cut (SpeechActClassifier, shipped at 87%) is the basic
+    level; the wh-subtype is subordinate and is only resolved INSIDE the
+    question branch. This avoids packing 12 pragmatic classes flat into
+    non-orthogonal GloVe-64, where near-synonyms (who/what, why/how) collapse —
+    the same 64D crowding that regresses HRR here.
+
+    Two empirically-forced design choices (experiments/n1_question_subtype.py):
+      * FIRST-TOKEN EMPHASIS (weight ~3x): wh-subtypes are defined by the
+        leading function word (what/why/how/compare/...), which plain
+        mean-pooling averages away. Weighting the first token lifts cosine
+        60% -> 90% (beats the regex cascade's 85%).
+      * COSINE, not the z-score used at Stage 1: within-question subtypes share
+        stems ("what is" vs "what if"), so per-class z-normalisation amplifies
+        their confusion. Raw cosine + first-token emphasis separates them
+        (cosine 90% vs z-score 55%). Stage 1 keeps z-score; Stage 2 uses cosine
+        — different geometry, measured, not assumed.
+
+    Abstain gate (the N4 surprise seam): cosine decides the argmax, but a
+    per-class confidence floor mu_c - k*sigma_c (exemplar spread) can reject
+    low-confidence inputs. Measured: k=2.0 -> 100% accuracy on 80% coverage.
+    An ABSTAIN routes to the regex fallback now, and will trigger a clarifying
+    question / prototype-spawn under N4/N2.
+    """
+
+    # Only the SEMANTIC wh-subtypes belong here. Social/structural types
+    # (greeting, introduction, analogy, impossible, farewell, ...) stay in the
+    # regex cascade — they are genuinely pattern-shaped ("my name is X", "hi",
+    # "A:B::C:D") and prototypes buy nothing there.
+    SUBTYPE_SEEDS = {
+        "what_is": [
+            "what is trust", "what are black holes", "what is gravity",
+            "what is a neuron", "what are dreams", "what is democracy",
+            "what is photosynthesis", "what is inflation", "define entropy",
+            "define a concept", "what does it mean",
+        ],
+        "why": [
+            "why does ice melt", "why is the sky blue", "why do birds sing",
+            "why are we here", "why does it rain", "why do people lie",
+            "why is water wet", "why do stars shine",
+        ],
+        "how": [
+            "how does gravity work", "how do planes fly", "how does a battery work",
+            "how do vaccines work", "how does memory work", "how do engines run",
+            "how does the heart pump", "how do computers think",
+        ],
+        "tell_me": [
+            "tell me about freedom", "tell me about the ocean",
+            "tell me more about jazz", "tell me about ancient rome",
+            "tell me about quantum physics", "describe the process",
+        ],
+        "compare": [
+            "compare cats and dogs", "difference between love and lust",
+            "what is the difference between weather and climate",
+            "compare python and java", "socialism versus capitalism",
+            "difference between a virus and bacteria",
+        ],
+        "hypothetical": [
+            "what if the sun disappeared", "what would happen if we stopped sleeping",
+            "what happens if you fall into a black hole", "suppose gravity reversed",
+            "imagine a world without money", "what if humans could fly",
+        ],
+        "do_you_know": [
+            "do you know about einstein", "have you heard of the beatles",
+            "do you know what dna is", "do you know who wrote hamlet",
+            "have you heard about the big bang", "do you know any good books",
+        ],
+    }
+
+    FIRST_TOKEN_WEIGHT = 3.0   # empirically best (sweep peak at 3.0)
+    ABSTAIN_K = 2.0            # mu - k*sigma confidence floor; None disables
+
+    _DEFAULT = object()  # sentinel so abstain_k=None can explicitly DISABLE
+
+    def __init__(self, vector_fn=None, first_token_weight: Optional[float] = None,
+                 abstain_k=_DEFAULT):
+        self.vector_fn = vector_fn
+        self.first_token_weight = (first_token_weight
+                                   if first_token_weight is not None
+                                   else self.FIRST_TOKEN_WEIGHT)
+        # abstain_k: omitted -> class default; None -> disabled; float -> that value.
+        self.abstain_k = self.ABSTAIN_K if abstain_k is self._DEFAULT else abstain_k
+        self.exemplars: Dict[str, List[str]] = {
+            c: list(v) for c, v in self.SUBTYPE_SEEDS.items()
+        }
+        self._cen: Dict[str, np.ndarray] = {}
+        self._mu: Dict[str, float] = {}
+        self._sigma: Dict[str, float] = {}
+        self._fitted = False
+
+    def add_exemplar(self, subtype: str, text: str) -> None:
+        """Grow the bank at runtime (learn-by-chatting / N2 spawn seam)."""
+        self.exemplars.setdefault(subtype, []).append(text)
+        self._fitted = False
+
+    def _sentence_vector(self, text: str) -> Optional[np.ndarray]:
+        if self.vector_fn is None:
+            return None
+        words = re.findall(r"[a-z']+", text.lower())
+        vecs = [self.vector_fn(w) for w in words]
+        vecs = [v for v in vecs if v is not None]
+        if not vecs:
+            return None
+        M = np.stack(vecs)
+        weights = np.ones(len(M))
+        if self.first_token_weight != 1.0:
+            weights[0] = self.first_token_weight
+        arr = (M * weights[:, None]).sum(axis=0) / weights.sum()
+        n = np.linalg.norm(arr)
+        return arr / n if n > 0 else arr
+
+    def _fit(self) -> None:
+        if self._fitted:
+            return
+        cen, mu, sigma = {}, {}, {}
+        for c, phrases in self.exemplars.items():
+            vs = [self._sentence_vector(p) for p in phrases]
+            vs = [v for v in vs if v is not None]
+            if not vs:
+                continue
+            M = np.stack(vs)
+            ce = M.mean(axis=0)
+            nn = np.linalg.norm(ce)
+            if nn > 0:
+                ce = ce / nn
+            sims = M @ ce
+            cen[c] = ce
+            mu[c] = float(sims.mean())
+            sigma[c] = float(sims.std()) or 1e-3
+        self._cen, self._mu, self._sigma = cen, mu, sigma
+        self._fitted = True
+
+    def classify(self, text: str) -> Tuple[Optional[str], Dict[str, float]]:
+        """Return (subtype, cosine_scores). subtype is None when there is no
+        embedding signal, or "ABSTAIN" when below the confidence floor — both
+        signal the caller to fall back to the regex cascade."""
+        self._fit()
+        sv = self._sentence_vector(text)
+        if sv is None or not self._cen:
+            return None, {}
+        cos = {c: float(np.dot(sv, cen)) for c, cen in self._cen.items()}
+        best = max(cos, key=cos.get)
+        if self.abstain_k is not None:
+            floor = self._mu[best] - self.abstain_k * self._sigma[best]
+            if cos[best] < floor:
+                return "ABSTAIN", cos
+        return best, cos
+
+
 class PrefrontalWorkspace:
     """Structured buffer that plans discourse BEFORE chain generation.
 
@@ -303,6 +456,7 @@ class PrefrontalWorkspace:
         # (prototype semantics + symbolic syntax) instead of pure rules.
         self.vector_fn = vector_fn
         self._sac: Optional[SpeechActClassifier] = None
+        self._qsc: Optional[QuestionSubtypeClassifier] = None
 
     # ─── Question Type Detection ───
 
@@ -423,12 +577,54 @@ class PrefrontalWorkspace:
         """Return the PFC's task-set relation for a given question type."""
         return cls.QTYPE_PRIMARY_RELATION.get(qtype, "semantic")
 
-    @classmethod
-    def detect_question_type(cls, text: str, concept_pos: Optional[Dict[str, str]] = None) -> Tuple[str, List[str]]:
-        """Detect question type from user input.
+    def detect_question_type(self, text: str, concept_pos: Optional[Dict[str, str]] = None) -> Tuple[str, List[str]]:
+        """Hierarchical (N1) question-type detection.
+
+        Stage 1 (coarse) + Stage 2 (subtype), Rosch basic-level-first:
+          1. The regex cascade runs first — it owns SOCIAL/STRUCTURAL types
+             (greeting, wellbeing, capability, introduction, farewell, analogy,
+             follow_up, impossible/paradox), which are genuinely pattern-shaped,
+             and it ALSO does span extraction (the returned parts).
+          2. When a semantic space is wired (self.vector_fn) and the regex landed
+             on a SEMANTIC wh-subtype or on 'general' (a miss), the Stage-2
+             prototype bank (QuestionSubtypeClassifier) refines the label. It
+             beats the regex cascade on subtype (measured 90% vs 85%) and rescues
+             misses like "socialism versus capitalism" -> compare.
+          3. Prototype ABSTAIN (low confidence, the N4 surprise seam) or no
+             embedding signal -> fall back to the regex label. Extraction parts
+             always come from regex (callers also have their own fallback).
+
+        Falls back entirely to regex when no vector_fn is present (keeps the
+        classmethod-era behaviour for embedding-less callers/tests).
 
         Returns:
             (question_type, extracted_parts)
+        """
+        regex_qtype, groups = self._detect_question_type_regex(text, concept_pos)
+
+        if getattr(self, "vector_fn", None) is None:
+            return (regex_qtype, groups)
+
+        # Stage 2 only refines the semantic subtypes it models (+ 'general'
+        # misses). Social/structural/paradox regex results are authoritative.
+        proto_eligible = set(QuestionSubtypeClassifier.SUBTYPE_SEEDS) | {"general"}
+        if regex_qtype not in proto_eligible:
+            return (regex_qtype, groups)
+
+        if getattr(self, "_qsc", None) is None:
+            self._qsc = QuestionSubtypeClassifier(vector_fn=self.vector_fn)
+        sub, _scores = self._qsc.classify(text)
+        if sub is None or sub == "ABSTAIN":
+            return (regex_qtype, groups)
+        return (sub, groups)
+
+    @classmethod
+    def _detect_question_type_regex(cls, text: str, concept_pos: Optional[Dict[str, str]] = None) -> Tuple[str, List[str]]:
+        """The symbolic regex cascade (Stage-1 fallback + span extraction).
+
+        Retained as the interpretable 'core' and the source of extracted parts.
+        Stage-2 prototypes refine its SEMANTIC subtype output when embeddings
+        are available; social/structural types are resolved here only.
         """
         text_lower = text.lower().strip(" ?!.")
 

@@ -177,24 +177,24 @@ class TestPrefrontalWorkspace:
         assert pfc.topic_history == []
 
     def test_detect_question_type_what_is(self):
-        qtype, parts = PrefrontalWorkspace.detect_question_type("What is trust?")
+        qtype, parts = PrefrontalWorkspace().detect_question_type("What is trust?")
         assert qtype == "what_is"
         assert len(parts) >= 1
 
     def test_detect_question_type_why(self):
-        qtype, parts = PrefrontalWorkspace.detect_question_type("Why does ice melt?")
+        qtype, parts = PrefrontalWorkspace().detect_question_type("Why does ice melt?")
         assert qtype == "why"
 
     def test_detect_question_type_how(self):
-        qtype, parts = PrefrontalWorkspace.detect_question_type("How does gravity work?")
+        qtype, parts = PrefrontalWorkspace().detect_question_type("How does gravity work?")
         assert qtype == "how"
 
     def test_detect_question_type_tell_me(self):
-        qtype, parts = PrefrontalWorkspace.detect_question_type("Tell me about freedom")
+        qtype, parts = PrefrontalWorkspace().detect_question_type("Tell me about freedom")
         assert qtype == "tell_me"
 
     def test_detect_question_type_general(self):
-        qtype, parts = PrefrontalWorkspace.detect_question_type("Trust is important")
+        qtype, parts = PrefrontalWorkspace().detect_question_type("Trust is important")
         assert qtype == "general"
 
     def test_plan_discourse_returns_plan(self):

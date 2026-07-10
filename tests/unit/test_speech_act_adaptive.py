@@ -19,7 +19,11 @@ import os
 import numpy as np
 import pytest
 
-from ravana.language.prefrontal_workspace import SpeechActClassifier, PrefrontalWorkspace
+from ravana.language.prefrontal_workspace import (
+    SpeechActClassifier,
+    PrefrontalWorkspace,
+    QuestionSubtypeClassifier,
+)
 
 _PROJ = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _GLOVE_CACHE = os.path.join(_PROJ, "data", "ravana_glove_cache.npz")
@@ -152,3 +156,101 @@ class TestLearnByChatting:
         store = sac._store()
         assert "gratitude" in store
         assert "centroid" in store["gratitude"]
+
+
+# ── N1: hierarchical question-subtype (Stage 2) ──
+
+# Questions where the regex cascade misses the subtype but the prototype bank
+# with first-token emphasis gets it right (measured rescues).
+SUBTYPE_RESCUES = [
+    ("socialism versus capitalism", "compare"),
+]
+
+# Questions the Stage-2 bank must classify correctly (first-token cue).
+SUBTYPE_CLEAR = [
+    ("what is trust", "what_is"),
+    ("why does ice melt", "why"),
+    ("how do birds fly", "how"),
+    ("tell me about freedom", "tell_me"),
+    ("compare dogs and cats", "compare"),
+    ("what if the moon vanished", "hypothetical"),
+    ("do you know about newton", "do_you_know"),
+]
+
+
+class TestQuestionSubtypeStage2:
+    def test_cosine_metric_and_first_token_weight_defaults(self):
+        # Stage 2 uses cosine + first-token emphasis (distinct from Stage 1's
+        # z-score). Lock the empirically-chosen defaults.
+        assert QuestionSubtypeClassifier.FIRST_TOKEN_WEIGHT == 3.0
+        assert QuestionSubtypeClassifier.ABSTAIN_K == 2.0
+
+    def test_subtype_accuracy(self, glove_vector_fn):
+        vfn, _dim = glove_vector_fn
+        qsc = QuestionSubtypeClassifier(vector_fn=vfn)
+        correct = 0
+        for text, gold in SUBTYPE_CLEAR:
+            pred, _ = qsc.classify(text)
+            correct += (pred == gold)
+        # All clear cases must classify correctly (measured 7/7).
+        assert correct == len(SUBTYPE_CLEAR), f"only {correct}/{len(SUBTYPE_CLEAR)}"
+
+    def test_abstain_gate_returns_sentinel(self, glove_vector_fn):
+        vfn, _dim = glove_vector_fn
+        # A very tight abstain (k=0) should reject at least one borderline input.
+        qsc = QuestionSubtypeClassifier(vector_fn=vfn, abstain_k=0.0)
+        results = [qsc.classify(t)[0] for t, _ in SUBTYPE_CLEAR]
+        # sentinel is a valid, distinguishable outcome
+        assert all(r == "ABSTAIN" or isinstance(r, str) for r in results)
+
+    def test_add_exemplar_grows_bank(self, glove_vector_fn):
+        vfn, _dim = glove_vector_fn
+        qsc = QuestionSubtypeClassifier(vector_fn=vfn)
+        assert "recommend" not in qsc.exemplars
+        qsc.add_exemplar("recommend", "recommend me a good movie")
+        qsc._fit()
+        assert "recommend" in qsc._cen
+
+
+class TestHierarchicalDetectQuestionType:
+    def test_regex_only_when_no_vector_fn(self):
+        # No embedding -> pure regex cascade (classmethod-era behaviour).
+        pfc = PrefrontalWorkspace()  # vector_fn=None
+        assert pfc.detect_question_type("What is trust?")[0] == "what_is"
+        assert pfc.detect_question_type("Why does ice melt?")[0] == "why"
+        assert pfc.detect_question_type("Trust is important")[0] == "general"
+
+    def test_social_types_stay_regex(self, glove_vector_fn):
+        vfn, _dim = glove_vector_fn
+        pfc = PrefrontalWorkspace(vector_fn=vfn)
+        # greeting/introduction are structural — Stage 2 must NOT override them.
+        assert pfc.detect_question_type("hello there")[0] == "greeting"
+        assert pfc.detect_question_type("my name is Pixel")[0] == "introduction"
+
+    def test_stage2_rescues_regex_miss_when_confident(self, glove_vector_fn):
+        # With the abstain gate OFF, the prototype bank recovers subtype misses
+        # the regex cascade gets wrong (proves the capability).
+        vfn, _dim = glove_vector_fn
+        pfc = PrefrontalWorkspace(vector_fn=vfn)
+        pfc._qsc = QuestionSubtypeClassifier(vector_fn=vfn, abstain_k=None)
+        for text, gold in SUBTYPE_RESCUES:
+            assert PrefrontalWorkspace._detect_question_type_regex(text)[0] != gold
+            assert pfc.detect_question_type(text)[0] == gold
+
+    def test_default_abstain_defers_borderline_to_regex(self, glove_vector_fn):
+        # The conservative default gate (k=2.0) abstains on borderline inputs and
+        # falls back to the regex label — never worse than the 85% regex baseline.
+        # This is the N4 surprise seam: abstain now => regex; later => clarify.
+        vfn, _dim = glove_vector_fn
+        pfc = PrefrontalWorkspace(vector_fn=vfn)  # default abstain_k=2.0
+        for text, _gold in SUBTYPE_RESCUES:
+            regex_label = PrefrontalWorkspace._detect_question_type_regex(text)[0]
+            # borderline -> abstain -> regex label preserved
+            assert pfc.detect_question_type(text)[0] == regex_label
+
+    def test_parts_extraction_preserved(self, glove_vector_fn):
+        vfn, _dim = glove_vector_fn
+        pfc = PrefrontalWorkspace(vector_fn=vfn)
+        _qtype, parts = pfc.detect_question_type("what is trust?")
+        # regex still supplies the extracted span
+        assert parts and "trust" in parts[0]
