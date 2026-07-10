@@ -105,10 +105,14 @@ class SpeechActClassifier:
         ],
     }
 
-    # Margin (cosine gap between top-2 prototypes) needed to trust the
-    # semantic signal over the symbolic prior. Tuned to be confident but not
-    # brittle: below this we defer to syntax (the robust "core" anchor).
-    SEMANTIC_MARGIN = 0.12
+    # No hardcoded margin. The decision boundary is a LEARNED property of each
+    # class: an utterance's membership is the z-score of its cosine to the class
+    # centroid, normalised by how tightly that class's own exemplars cluster
+    # (mu_c, sigma_c). Empirically (experiments/regex_vs_prototype_speechact.py)
+    # this beats the regex cascade +5/30 with zero constants, and — unlike a
+    # fixed 0.12 gate — it re-shapes itself as chat adds exemplars, which is the
+    # "learn by chatting" requirement. A fixed threshold is just relocated
+    # hardcoding; the exemplar spread is not.
 
     def __init__(self, vector_fn=None, dim: int = 64):
         """
@@ -119,25 +123,98 @@ class SpeechActClassifier:
         """
         self.vector_fn = vector_fn
         self.dim = dim
+        # Mutable exemplar store, seeded from PROTOTYPES and grown at runtime via
+        # add_exemplar() (confirmed chat turns). This is the "learn by chatting"
+        # substrate — new classes appear simply by adding exemplars under a new
+        # key; no enum edit, no redeploy.
+        self.exemplars: Dict[str, List[str]] = {
+            cls: list(phrases) for cls, phrases in self.PROTOTYPES.items()
+        }
+        # Fitted per-class stats (centroid + exemplar-spread mean/std).
+        self._centroid: Dict[str, np.ndarray] = {}
+        self._mu: Dict[str, float] = {}
+        self._sigma: Dict[str, float] = {}
+        self._fitted = False
+        # Back-compat alias: older callers/tests may read _proto_vecs (centroids).
         self._proto_vecs: Optional[Dict[str, np.ndarray]] = None
 
-    def _build_prototypes(self) -> None:
-        if self._proto_vecs is not None:
+    def add_exemplar(self, cls: str, text: str) -> None:
+        """Append a learned exemplar (e.g. a confirmed chat turn) under class
+        `cls`, marking stats dirty for lazy refit. Unseen classes are created
+        automatically — this is how new intents emerge without code edits."""
+        self.exemplars.setdefault(cls, []).append(text)
+        self._fitted = False
+
+    def _fit(self) -> None:
+        """Compute each class's centroid and its exemplar-to-centroid similarity
+        spread (mu, sigma). The spread IS the boundary — no hardcoded margin."""
+        if self._fitted:
             return
-        pv: Dict[str, np.ndarray] = {}
-        for cls, phrases in self.PROTOTYPES.items():
-            vecs = []
-            for ph in phrases:
-                v = self._sentence_vector(ph)
-                if v is not None:
-                    vecs.append(v)
-            if vecs:
-                proto = np.stack(vecs).mean(axis=0)
-                n = np.linalg.norm(proto)
-                if n > 0:
-                    proto = proto / n
-                pv[cls] = proto
-        self._proto_vecs = pv
+        cen: Dict[str, np.ndarray] = {}
+        mu: Dict[str, float] = {}
+        sigma: Dict[str, float] = {}
+        for cls, phrases in self.exemplars.items():
+            vecs = [self._sentence_vector(p) for p in phrases]
+            vecs = [v for v in vecs if v is not None]
+            if not vecs:
+                continue
+            M = np.stack(vecs)
+            c = M.mean(axis=0)
+            n = np.linalg.norm(c)
+            if n > 0:
+                c = c / n
+            sims = M @ c  # each exemplar's cosine to its own class centroid
+            cen[cls] = c
+            mu[cls] = float(sims.mean())
+            # Floor sigma so a single/degenerate exemplar set can't div-by-zero.
+            sigma[cls] = float(sims.std()) or 1e-3
+        self._centroid = cen
+        self._mu = mu
+        self._sigma = sigma
+        self._proto_vecs = cen  # back-compat
+        self._fitted = True
+
+    def _build_prototypes(self) -> None:
+        """Back-compat shim for external callers of the old name."""
+        self._fit()
+
+    def _store(self) -> Dict[str, Dict]:
+        """Serialise fitted stats into the interface-agnostic store shape
+        consumed by nearest_prototype()."""
+        self._fit()
+        return {
+            cls: {"centroid": self._centroid[cls],
+                  "mu": self._mu[cls],
+                  "sigma": self._sigma[cls]}
+            for cls in self._centroid
+        }
+
+    @staticmethod
+    def nearest_prototype(vec, store):
+        """Interface-agnostic nearest-prototype lookup (the unified mechanism).
+
+        `vec` is ANY utterance representation — a GloVe centroid today, a
+        Word2HyperVec high-D hypervector after A0 — and `store` is a dict
+        {class: {"centroid": ndarray, "mu": float, "sigma": float}}. Returns
+        (best_class, z_scores, raw_cosines). The decision is argmax of the
+        exemplar-spread z-score  (cos(vec, centroid) - mu) / sigma. Because the
+        boundary is a learned per-class property, the A0 high-D lift drops in
+        behind this exact signature with no rewrite.
+        """
+        if vec is None or not store:
+            return None, {}, {}
+        vnorm = float(np.linalg.norm(vec))
+        z: Dict[str, float] = {}
+        raw: Dict[str, float] = {}
+        for cls, stat in store.items():
+            cen = stat["centroid"]
+            denom = vnorm * float(np.linalg.norm(cen))
+            sim = float(np.dot(vec, cen) / denom) if denom > 0 else 0.0
+            raw[cls] = sim
+            sig = stat.get("sigma") or 1e-3
+            z[cls] = (sim - stat.get("mu", 0.0)) / sig
+        best = max(z, key=z.get)
+        return best, z, raw
 
     def _sentence_vector(self, text: str) -> Optional[np.ndarray]:
         """Mean-pooled, unit-normalised embedding of the utterance's known
@@ -159,44 +236,50 @@ class SpeechActClassifier:
         return arr
 
     def scores(self, text: str) -> Dict[str, float]:
-        """Cosine similarity of the utterance to each class prototype."""
-        self._build_prototypes()
-        if not self._proto_vecs:
+        """Raw cosine similarity of the utterance to each class centroid.
+
+        Kept for introspection/back-compat. The DECISION uses classify(), which
+        applies the exemplar-spread z-score — raw cosines alone are not the
+        boundary."""
+        store = self._store()
+        if not store:
             return {}
         sv = self._sentence_vector(text)
         if sv is None:
             return {}
-        return {cls: float(np.dot(sv, proto))
-                for cls, proto in self._proto_vecs.items()}
+        _best, _z, raw = self.nearest_prototype(sv, store)
+        return raw
 
     def classify(self, text: str,
                  syntactic_hint: Optional[str] = None) -> Tuple[str, Dict[str, float], str]:
-        """Hybrid decision.
+        """Adaptive-margin semantic decision (no hardcoded threshold).
 
-        Returns (act, semantic_scores, method) where method ∈
-        {"semantic", "hybrid", "syntactic", "default"}.
+        Returns (act, raw_cosines, method) where method ∈
+        {"semantic", "syntactic", "default"}.
 
-          * semantic : prototype margin was decisive
-          * hybrid   : low semantic margin, deferred to symbolic prior
-          * syntactic: no usable embedding signal, used rule cascade
+          * semantic : nearest-prototype by exemplar-spread z-score decided it
+          * syntactic: no usable embedding signal, used the rule-cascade hint
           * default  : nothing fired, fell back to 'question'
+
+        The boundary is the per-class z-score  (cos - mu_c)/sigma_c, a learned
+        property of the exemplar set (see nearest_prototype). syntactic_hint is
+        used ONLY when there is no embedding signal at all — we no longer defer
+        to it on a fixed margin, because that made the classifier a regex
+        confirmant (measured: 100% agreement, 0 rescues). With the adaptive
+        boundary the semantic path beats the cascade +5/30 (86.7% vs 70%).
         """
-        sem = self.scores(text)
-        if not sem:
+        store = self._store()
+        sv = self._sentence_vector(text)
+        if sv is None or not store:
             if syntactic_hint:
                 return (syntactic_hint, {}, "syntactic")
             return ("question", {}, "default")
-
-        ranked = sorted(sem.items(), key=lambda kv: kv[1], reverse=True)
-        best_cls, best_sim = ranked[0]
-        second_sim = ranked[1][1] if len(ranked) > 1 else best_sim - 1.0
-        margin = best_sim - second_sim
-
-        if margin >= self.SEMANTIC_MARGIN:
-            return (best_cls, sem, "semantic")
-        if syntactic_hint and syntactic_hint != best_cls:
-            return (syntactic_hint, sem, "hybrid")
-        return (best_cls, sem, "semantic")
+        best, _z, raw = self.nearest_prototype(sv, store)
+        if best is None:
+            if syntactic_hint:
+                return (syntactic_hint, {}, "syntactic")
+            return ("question", {}, "default")
+        return (best, raw, "semantic")
 
 
 class PrefrontalWorkspace:
