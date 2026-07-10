@@ -398,6 +398,8 @@ class WebLearner:
 
         # Deferred learning queue
         self._pending_learning_queue: List[str] = []
+        # C-lite: structured fact acquisition (web -> OpenIE -> typed graph)
+        self._web_to_graph = None
 
     def learn_from_web(self, query: str) -> str:
         """Search web, fetch articles, extract concepts, learn."""
@@ -618,7 +620,40 @@ class WebLearner:
                 self.decoder_engine._expand_vocab(new_labels)
             self.decoder_engine.train_on_text(text, topic, self.graph_engine, self._glove_vector, cond_embs, passes=10)
 
+        # C-lite: structured fact acquisition (web -> OpenIE -> typed graph).
+        # Additive pass AFTER the co-occurrence edges above: facts become typed
+        # is_a/has_property/causes/located_in edges with provenance, NOT vectors.
+        # No dimensionality change (the graph is already a KG). The thin EFE
+        # knowledge-gap interface is exercised here to feed the future E spine.
+        try:
+            if self._web_to_graph is None:
+                from ravana.web.web_to_graph import WebToGraph
+                self._web_to_graph = WebToGraph(self.graph_engine, source=source_url or topic)
+            facts = self._web_to_graph.learn_text(text, source_url=source_url)
+            if facts:
+                # record the topic as a curiosity-resolved node (gap shrinks)
+                self._web_to_graph._topic_edges[topic.lower().strip()] = \
+                    self._web_to_graph._topic_edges.get(topic.lower().strip(), 0) + facts
+        except Exception:
+            # Fact acquisition must never break web learning.
+            facts = 0
+
         return new_count
+
+    def knowledge_gap(self, topic: str):
+        """Thin EFE interface (sketch for E): how uncertain are we about `topic`?
+
+        Returns a KnowledgeGap; high efe => curiosity target. Built at C-time,
+        consumed by the full active-inference control spine later (E).
+        """
+        if self._web_to_graph is None:
+            from ravana.web.web_to_graph import WebToGraph
+            self._web_to_graph = WebToGraph(self.graph_engine)
+        return self._web_to_graph.knowledge_gap(topic)
+
+    def last_fact_count(self) -> int:
+        """Number of structured facts written by the C-lite pass (this session)."""
+        return self._web_to_graph.fact_count() if self._web_to_graph else 0
 
     def _build_conditioning(self, topic: str, text_words: List[str]) -> Optional[np.ndarray]:
         """Build graph walk conditioning embeddings."""
