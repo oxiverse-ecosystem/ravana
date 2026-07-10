@@ -685,6 +685,21 @@ class WebLearningMixin(ResponseGenMixin):
                 if self._trace_enabled:
                     print(f"  [schema] Discovery error: {e}")
 
+        # ---- C-lite: additive OpenIE fact-writing into the typed graph ----
+        # Mirrors the ChatInterface/WebLearner C-lite path. ADDITIVE: lives
+        # alongside the existing co-occurrence learning and can never break it
+        # (any failure is swallowed). Writes typed 'web_fact' edges (is_a,
+        # causes, has_property, ...) derived from the same text. No dimensionality
+        # change — facts need a graph (which exists), not binding.
+        try:
+            if text:
+                w2g = self._get_web_to_graph()
+                if w2g is not None:
+                    w2g.learn_text(text, source_url=source_url or topic)
+        except Exception as _e:
+            if getattr(self, "_trace_enabled", False):
+                print(f"  [C-lite] suppressed error: {_e}")
+
         return new_count
 
 
@@ -1851,5 +1866,83 @@ class WebLearningMixin(ResponseGenMixin):
 
         self._last_auto_learn_turn = self.turn_count
         return selected
+
+    # ─── C-lite / E: additive active-inference curiosity (engine path) ───
+    # Mirrors ravana.web.learner.WebLearner.knowledge_gap / curiosity_e_step
+    # (the ChatInterface path). The engine uses ConceptGraph (not a GraphEngine
+    # wrapper), so we adapt the engine's graph + label index into the
+    # GraphEngine-shaped interface WebToGraph / ActiveInferenceController expect.
+    # Fully additive: existing mixin behaviour is untouched; these are opt-in
+    # helpers driven by the live learning loop.
+
+    def _get_web_to_graph(self):
+        """Lazily build (and cache) a WebToGraph over the engine's own graph.
+
+        Returns None if the dependencies are unavailable so callers stay safe.
+        """
+        if getattr(self, "_web_to_graph", None) is not None:
+            return self._web_to_graph
+        try:
+            from ravana.web.web_to_graph import WebToGraph
+            shim = _EngineGraphShim(self)
+            self._web_to_graph = WebToGraph(shim, source="engine")
+        except Exception:
+            self._web_to_graph = None
+        return self._web_to_graph
+
+    def knowledge_gap(self, topic: str):
+        """EFE proxy for a topic via the engine's own graph (C-lite/E bridge)."""
+        w2g = self._get_web_to_graph()
+        if w2g is None:
+            # graceful fallback: no signal
+            from ravana.web.web_to_graph import KnowledgeGap
+            return KnowledgeGap(topic=topic, known_edges=0, efe=0.0)
+        return w2g.knowledge_gap(topic)
+
+    def curiosity_e_step(self, candidate_topics: Optional[List[str]] = None) -> Optional[str]:
+        """E: one active-inference curiosity step over the engine's graph.
+
+        Picks the argmax-EFE topic (sparse neighbourhood = most uncertain) and
+        returns it — the epistemic action. Additive to _auto_select_curiosity_topics.
+        """
+        if candidate_topics is None:
+            # default pool: all known concept labels
+            candidate_topics = list(getattr(self, "_concept_keywords", {}).keys())
+        if not candidate_topics:
+            return None
+        try:
+            from ravana.core.active_inference import ActiveInferenceController
+            w2g = self._get_web_to_graph()
+            if w2g is None:
+                return candidate_topics[0]
+            def _pfe(t):
+                nid = self._concept_keywords.get(t.lower().strip(), [None])[0]
+                if nid is None:
+                    return 0.0
+                node = self.graph.get_node(nid)
+                return float(getattr(node, "prediction_free_energy", 0.0) or 0.0)
+            ctrl = ActiveInferenceController(gap_fn=w2g.knowledge_gap, pfe_fn=_pfe)
+            return ctrl.select_target(candidate_topics)
+        except Exception:
+            return candidate_topics[0]
+
+
+class _EngineGraphShim:
+    """Adapt CognitiveChatEngine's ConceptGraph + label index to the
+    GraphEngine-shaped interface WebToGraph expects (_all_labels, graph,
+    _glove_vector, dim). Read-only view; WebToGraph mints nodes via graph.add_node.
+    """
+
+    def __init__(self, engine):
+        self._engine = engine
+        self.graph = engine.graph
+        self.dim = engine.dim
+        self._glove_vector = engine._glove_vector
+
+    @property
+    def _all_labels(self):
+        # engine maps label -> list of nids; WebToGraph wants label -> first nid
+        kw = getattr(self._engine, "_concept_keywords", {}) or {}
+        return {lab: nids[0] for lab, nids in kw.items() if nids}
 
 
