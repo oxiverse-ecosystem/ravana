@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 import sys
 
-_PROJ = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_PROJ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # repo root = .../ravana
 sys.path.insert(0, os.path.join(_PROJ, "ravana", "src"))
 
 import numpy as np  # noqa: E402
