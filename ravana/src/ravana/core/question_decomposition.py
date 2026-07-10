@@ -227,8 +227,8 @@ class QuestionAnalyzer:
     ]
     
     COMPARE_PATTERNS = [
-        re.compile(r"(?:compare|difference|contrast|versus|vs)\s+(.+?)\s+(?:and|vs|versus|with|to)\s+(.+)", re.IGNORECASE),
-        re.compile(r"what's?\s+the\s+difference\s+between\s+(.+?)\s+and\s+(.+)", re.IGNORECASE),
+        re.compile(r"(?:compare|difference|contrast|versus|vs)\s+(?:the\s+)?(?:between\s+)?(.+?)\s+(?:and|vs|versus|with|to)\s+(.+)", re.IGNORECASE),
+        re.compile(r"what\s*(?:is\s+|'s\s+)?the\s+difference\s+between\s+(.+?)\s+and\s+(.+)", re.IGNORECASE),
         re.compile(r"how\s+(?:is|are)\s+(.+?)\s+(?:different|similar)\s+(?:to|from|than)\s+(.+)", re.IGNORECASE),
         re.compile(r"what\s+do\s+(.+?)\s+and\s+(.+?)\s+have\s+in\s+common", re.IGNORECASE),
     ]
@@ -1164,7 +1164,7 @@ class QuestionDecompositionEngine:
             # multi-word tails like "world war 2" -> "world". Capture
             # group(2) directly and clean it with the IFG-style helper.)
             _cmp = re.search(
-                r"(?:compare|difference|contrast|versus|vs)\s+(.+?)\s+"
+                r"(?:compare|difference|contrast|versus|vs)\s+(?:the\s+)?(?:between\s+)?(.+?)\s+"
                 r"(?:and|vs|versus|with|to)\s+(.+)",
                 query.lower(), flags=re.IGNORECASE)
             concept_a_raw = _cmp.group(1) if _cmp else subject

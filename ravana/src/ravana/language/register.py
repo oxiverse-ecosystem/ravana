@@ -145,11 +145,18 @@ class RegisterController:
         k["certainty"] = float(np.clip(base["certainty"] + vshift, 0.0, 1.0))
         self.history.append(("affective", dict(k)))
 
-    def compose(self, text: str, base_confidence: float = 0.5) -> str:
+    def compose(self, text: str, base_confidence: float = 0.5,
+                multi_sentence: bool = False) -> str:
         """Apply the register knobs to finished text (deviation-only).
 
         Only acts when a knob deviates enough from its neutral value to matter,
         and never hedges a response the SurfaceRealizer already hedged.
+
+        `multi_sentence` guards synthesized decompositions (compare / why /
+        how / hypothetical / complex answers): those are intentionally several
+        sentences stitched from sub-questions, so the verbosity-first-sentence
+        truncation must NOT fire on them — otherwise a full A-vs-B comparison
+        collapses to only the first sub-answer.
         """
         if not text:
             return text
@@ -159,7 +166,7 @@ class RegisterController:
         formality = k["formality"]
 
         # 1) Verbosity -> truncate to first sentence only under strong urgency.
-        if verbosity < 0.20:
+        if verbosity < 0.20 and not multi_sentence:
             first_stop = min(
                 (i for i, ch in enumerate(text) if ch in ".!?"),
                 default=-1)

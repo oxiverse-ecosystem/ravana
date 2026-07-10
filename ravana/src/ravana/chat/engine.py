@@ -2447,7 +2447,12 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                     common_ground=self._common_ground,
                 )
                 conf = self.identity.state.strength * 0.5 + 0.3
-                response = self.register_controller.compose(response, conf)
+                # A synthesized decomposition (compare / why / how / hypothetical /
+                # complex) is intentionally multi-sentence — do NOT let verbosity
+                # truncation collapse it to one sentence.
+                _is_decomposed = strategy and strategy.startswith("decomposed_")
+                response = self.register_controller.compose(
+                    response, conf, multi_sentence=_is_decomposed)
                 # Pre-emission forward-model self-monitor (brief behavior 6):
                 # refuse degenerate/echo replies before they are articulated.
                 response = self._forward_model_check(response, ctx)
@@ -3199,6 +3204,22 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         "discover everything", "everything there is to know", "let me know if you",
         "let us know", "book now", "sign up", "subscribe to", "read more about",
         "find out more", "learn more about", "all you need to know", "click here",
+        # Promo / sale / affiliate spam that leaks through the search API
+        # (e.g. "This point in the year is perfect for 40% off 10,000+ programs.")
+        "% off", "perfect for", "this point in the year", "limited time",
+        "free shipping", "buy now", "order now", "shop now", "shop today",
+        "today only", "save big", "hurry", "while supplies last", "deal of",
+        "best price", "lowest price", "coupon", "promo code", "special offer",
+        "act now", "don't miss", "get started today", "programs.",
+        # Course / MOOC landing-page spam (leaks through the search API as a
+        # "definition" snippet, e.g. "...Instructor: Charles Severance Enroll
+        # now 148,862 already enrolled Included with Coursera Plus · Learn
+        # more 11 modules Gain insight...").
+        "enroll now", "already enrolled", "coursera", "included with",
+        "learn more 11 modules", "gain insight into a topic", "modules",
+        "instructor:", "instructor ", "start your free", "free trial",
+        "sign up for", "watch now", "subscribe for", "get full access",
+        "unlock", "premium", "membership", "limited offer", "last chance",
     )
 
     # Irregular verb forms mapped to their base (for snippet-subject matching,
@@ -3696,6 +3717,19 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                                                 is_conditional=is_conditional)
                 if not cand:
                     continue
+                # Reject dictionary/UI/promo CHROME before scoring: a snippet
+                # that is entirely boilerplate (e.g. "TRUST definition: 1." or
+                # "This point in the year is perfect for 40% off…") is not an
+                # answer and must never win the candidate race. Previously the
+                # sanitizer only ran *after* selection, so chrome with a high
+                # shape score could still become the emitted answer (and even
+                # get stored as a "belief"). Sanitizing up-front closes that.
+                _cand_san = self._sanitize_definition_text(cand)
+                if not _cand_san:
+                    if getattr(self, '_trace_enabled', False):
+                        print(f"  [webans] chrome-only / promo snippet rejected: {cand[:50]!r}")
+                    continue
+                cand = _cand_san
                 # Value the candidate: penalize junk-ish residues, reward a real
                 # answer shape and encyclopedic source. We don't need an exact
                 # score from _best_answer_snippet; re-derive a quick quality signal.
@@ -3766,14 +3800,22 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             existing = None
         if existing is not None:
             prior_val = existing[0]
+            prior_conf = existing[1] if isinstance(existing, (tuple, list)) and len(existing) > 1 else 0.0
             overlap = self._belief_value_overlap(prior_val, best)
+            # Only treat a divergence as a real *conflict* when the prior belief
+            # is itself well-established (reinforced beyond a single low-conf
+            # web snippet). Otherwise two equally-uncertain web snippets of the
+            # SAME sense just collide (e.g. legal "trust" vs interpersonal
+            # "trust" both land sub-0.15 overlap) and a correct answer gets
+            # wrongly stamped "[unverified: conflicts with what I knew]".
+            _prior_established = prior_conf >= 0.6
             if overlap >= 0.5:
                 # Web corroborates what we already knew -> boost confidence.
                 confidence = max(confidence, min(0.9, existing[1] + 0.2))
                 if getattr(self, '_trace_enabled', False):
                     print(f"  [webans] belief match on '{subject_key}' "
                           f"(overlap={overlap:.2f}) -> conf {confidence:.2f}")
-            elif overlap < 0.15:
+            elif overlap < 0.15 and _prior_established:
                 # Nontrivial conflict: web disagrees with an established belief.
                 confidence = max(0.1, confidence - 0.25)
                 old_triple = (subject_key, "def", prior_val)
@@ -3784,7 +3826,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 if getattr(self, '_trace_enabled', False):
                     print(f"  [webans] belief conflict on '{subject_key}': "
                           f"prior={prior_val[:40]!r} web={best[:40]!r} "
-                          f"(overlap={overlap:.2f}) -> conf {confidence:.2f}")
+                          f"(overlap={overlap:.2f}, prior_conf={prior_conf:.2f}) -> conf {confidence:.2f}")
         # The web claim now LIVES in the belief store as a low-confidence
         # candidate; a matching prior boosted it, a conflicting prior demoted it.
         # Either way sleep can reconcile it against local knowledge and prune it
@@ -5448,7 +5490,16 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             if hasattr(self, 'pfc_workspace'):
                 qtype, groups = self.pfc_workspace.detect_question_type(text, self._concept_pos)
                 if groups:
-                    query_phrase = groups[0].strip()
+                    # Compare queries carry BOTH concepts in groups[0]/groups[1].
+                    # The generic 'what_is' pattern can swallow a "difference between
+                    # A and B" query and only surface group(1) as the subject; when
+                    # the PFC already classified this as compare, reconstruct the A/B
+                    # pair so web grounding + the decomposer both target the real
+                    # concepts instead of a garbled "between privacy".
+                    if qtype == "compare" and len(groups) >= 2:
+                        query_phrase = groups[0].strip()
+                    else:
+                        query_phrase = groups[0].strip()
         except Exception:
             pass
 

@@ -251,21 +251,33 @@ class SubAnswerSynthesizer:
                           syntactic_assembly=None,
                           discourse_state=None) -> List[Dict[str, str]]:
         """Build structured utterances with transitions from sub-answers.
-        
+
         Each utterance has a 'text' and 'transition_type' for weaving.
+        Near-duplicate sub-answers (the web search repeatedly surfacing the
+        same dominant snippet for every sub-question) are collapsed so a
+        decomposition does not parrot one sentence 3-4 times.
         """
+        seen_norm: List[str] = []
         utterances = []
-        
+
         for i, plan_item in enumerate(synthesis_plan):
             if i >= len(answered):
                 break
-            
+
             sq = answered[i]
             answer_text = sq.answer
-            
+
             if not answer_text or len(answer_text) < 5:
                 continue
-            
+
+            # Deduplicate: drop a sub-answer that is a near-copy of one already
+            # woven (长短/whitespace-insensitive; keep the first occurrence).
+            _norm = re.sub(r"\s+", " ", answer_text.strip().lower())
+            _norm_core = _norm[:120]  # leading 120 chars catch sentence-level repeats
+            if any(_norm_core == s[:120] for s in seen_norm):
+                continue
+            seen_norm.append(_norm)
+
             # Pick the appropriate transition for this plan item
             transition = self._pick_transition(plan_item, i == 0)
             

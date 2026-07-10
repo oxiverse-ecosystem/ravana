@@ -735,8 +735,8 @@ class PrefrontalWorkspace:
             re.compile(r"tell\s+me\s+more\s+about\s+(.+)", re.IGNORECASE),
         ],
         "compare": [
-            re.compile(r"(?:compare|difference|versus|vs)\s+(.+)\s+(?:and|vs|versus|with)\s+(.+)", re.IGNORECASE),
-            re.compile(r"what'?s?\s+the\s+difference\s+between\s+(.+)\s+and\s+(.+)", re.IGNORECASE),
+            re.compile(r"(?:compare|difference|contrast|versus|vs)\s+(?:the\s+)?(?:between\s+)?(.+?)\s+(?:and|vs|versus|with|to)\s+(.+)", re.IGNORECASE),
+            re.compile(r"what\s*(?:is\s+|'s\s+)?the\s+difference\s+between\s+(.+?)\s+and\s+(.+)", re.IGNORECASE),
         ],
         "hypothetical": [
             re.compile(r"what\s+if\s+(.+)", re.IGNORECASE),
@@ -949,6 +949,18 @@ class PrefrontalWorkspace:
         for qtype, patterns in cls.QUESTION_PATTERNS.items():
             if qtype in social_types:
                 continue
+            # Compare/contrast must be tested BEFORE the greedy 'what_is' pattern
+            # (which is "what\s+is\s+(.+)" and would swallow "what is the
+            # difference between A and B" as a plain what_is, surfacing only the
+            # garbled payload "the difference between privacy and security").
+            if qtype == "what_is":
+                # Test compare first if present.
+                for cpat in cls.QUESTION_PATTERNS.get("compare", []):
+                    m = cpat.match(text_lower)
+                    if m:
+                        groups = [g.strip() for g in m.groups() if g]
+                        if groups:
+                            return ("compare", groups)
             for pattern in patterns:
                 m = pattern.match(text_lower)
                 if m:
