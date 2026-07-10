@@ -1351,6 +1351,82 @@ class ResponseGenMixin(ChainWalkerMixin):
 
         return None
 
+    def _handle_assertion(self, text: str, subject: str) -> Optional[str]:
+        """Respond when the user is *telling* RAVANA something (an assertion)
+        rather than *asking* a question.
+
+        Speech-act routing (PFC illocutionary-force gate): the brain tags an
+        utterance as assertion vs question and routes it to the appropriate
+        downstream system — memory/explanation for questions, social
+        acknowledgment for assertions (rTPJ / mPFC intent decoding). Without
+        this gate, a statement like "nice to meet you" is misrouted into the
+        concept-explanation pipeline and RAVANA confabulates a definition of
+        "meet". Here we acknowledge the *speech act* instead of explaining a
+        concept.
+
+        If the assertion is about the user (first person), we also store it as
+        a belief so RAVANA remembers what it was told (episodic consolidation).
+        """
+        import random
+        t = text.lower().strip(" ?!.,")
+        if not t:
+            return None
+        # Only handle clear assertions. Questions (incl. mixed "nothing much
+        # what are you doing?") fall through to the normal pipeline.
+        if not hasattr(self, "pfc_workspace"):
+            return None
+        if self.pfc_workspace.classify_speech_act(text) != "statement":
+            return None
+        if re.search(r"\b(what|who|where|when|why|how|which)\b", t):
+            return None
+
+        # Reflect the user's stated content. Prefer a concrete concept if one
+        # was grounded; otherwise fall back to a light social acknowledgment.
+        topic = (subject or "").strip().lower()
+        is_about_user = bool(re.match(r"^(i|i'm|im|i am|we|we're|my|me)\b", t))
+
+        # Remember what the user told us (belief store) — brain-inspired memory.
+        try:
+            if is_about_user and hasattr(self, "belief_store") and topic and \
+                    topic not in ("i", "we", "me", "my", "you", "ravana"):
+                pred = f"told:{self.turn_count}"
+                self.belief_store.assert_belief(
+                    "user", pred, text.strip(), confidence=0.7)
+        except Exception:
+            pass
+
+        # Compose an acknowledgment from primitives (mirrors _handle_chitchat).
+        if is_about_user:
+            leads = [
+                f"got it — so you're {topic}." if topic else "got it.",
+                f"ah, i see — you're {topic}." if topic else "ah, i see.",
+                f"nice, so you're {topic}." if topic else "nice, noted.",
+                f"makes sense. you're {topic}." if topic else "makes sense.",
+            ]
+        else:
+            leads = [
+                f"right, {topic}." if topic else "right.",
+                f"got it — {topic}." if topic else "got it.",
+                f"ok, noted: {topic}." if topic else "ok, noted.",
+                f"yeah, {topic}." if topic else "yeah.",
+            ]
+        follows = [
+            "what made you think of that?",
+            "tell me more about it?",
+            "anything else on your mind?",
+            "what do you make of it?",
+        ]
+        # Short, casual statements (backchannels like "nothing") stay brief.
+        if len(t.split()) <= 3:
+            return random.choice([
+                "haha fair enough.",
+                "nice.",
+                "gotcha.",
+                "makes sense.",
+                "alright.",
+            ])
+        return random.choice(leads) + " " + random.choice(follows)
+
     # Imperative verbs that signal the user wants RAVANA to *do* something
     # (build a scraper, write code, send an email, open an app) rather than
     # ask a factual question. These are "action requests": RAVANA cannot
@@ -1398,6 +1474,15 @@ class ResponseGenMixin(ChainWalkerMixin):
             return None
         # bare imperative: sentence starts with an action verb
         if first in self._ACTION_VERBS or first.rstrip("s") in self._ACTION_VERBS:
+            # Interrogative inversion ("do you...", "does she...", "did they...")
+            # is a *question*, not an imperative — never treat it as an action
+            # request. Otherwise "do you have feelings" becomes an imperative
+            # "do!" and RAVANA claims it cannot physically 'do' a feeling.
+            _PRON = ("you", "i", "we", "they", "he", "she", "it", "one")
+            if first in ("do", "does", "did", "is", "are", "am", "will",
+                         "would", "can", "could", "should", "may", "might"):
+                if len(words) >= 2 and words[1] in _PRON:
+                    return None
             return first
         return None
 

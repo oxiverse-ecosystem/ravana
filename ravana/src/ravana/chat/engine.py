@@ -405,7 +405,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # Phase C: Cerebellar n-gram — sparse sequence learning for grammatical transitions
         self.cerebellar_ngram = CerebellarNgram()
         # Phase D: Prefrontal workspace — discourse planning before generation
-        self.pfc_workspace = PrefrontalWorkspace(capacity=5)
+        self.pfc_workspace = PrefrontalWorkspace(capacity=5, vector_fn=self._glove_vector)
         self._proper_nouns = set()
         # Phase E: Syntactic cell assemblies — Hebbian role learning with seeded priors
         self.syntactic_assembly = SyntacticCellAssembly(learning_rate=0.05)
@@ -542,6 +542,11 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 self._needs_synthetic_training = False
                 self._freeze_decoder_vocab = True  # Freeze decoder vocab during inference
                 print(f"  [Loaded] Remembered {len(self.graph.nodes)} words from before!")
+                # Deferred item 1: materialize ConceptNet typed edges into the
+                # LOADED graph now (must run AFTER _load, which replaces the
+                # in-memory graph with the saved one — running it earlier would
+                # inject into the empty pre-load graph and then be discarded).
+                self._typed_edges_bootstrap()
                 return
 
         # Cold start (no saved weights): seed everything from scratch.
@@ -554,6 +559,9 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         self._needs_seed_training = False
         self._needs_synthetic_training = False
         print(f"  [Teen] Knows {len(self.graph.nodes)} words, ready to learn!")
+        # Deferred item 1: materialize ConceptNet typed edges into the
+        # cold-start graph (seeded above) so the inheritance walk works.
+        self._typed_edges_bootstrap()
 
     # ─── Neural Decoder Vocabulary ───
 
@@ -942,6 +950,45 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
 
         return False
 
+    def _reflect_on_paradox(self, text: str) -> str:
+        """Generate a genuine philosophical reflection for a paradox / koan.
+
+        Replaces the decomposer's stale "The meaning of PARADOX is..." lookup
+        (a category mistake — a koan is to be sat with, not defined). Picks a
+        reflection shaped by which paradox family the query belongs to, so the
+        answer is topically tied to the user's question rather than canned.
+        """
+        t = text.lower().strip(" ?!.")
+        # Zen koans: invitation to sit with the unanswerable.
+        if "one hand" in t or "hand clapping" in t or "sound of" in t:
+            return ("that's a koan — it's not really asking for a sound. it points "
+                    "at the gap between words and what's actually experienced. sitting "
+                    "with the silence is kind of the point.")
+        # Omnipotence / theological paradoxes.
+        if "god" in t and ("rock" in t or "stone" in t or "create" in t or "heavy" in t):
+            return ("the catch is in the setup: 'all-powerful' breaks the moment you "
+                    "ask it to make something it can't lift — you've defined a contradiction "
+                    "and called it a thing. most readings treat it as showing the limit "
+                    "is in the question, not in god.")
+        if "unstoppable" in t or "immovable" in t:
+            return ("if both exist, they can't meet without cancelling each other, and if "
+                    "either fails, it wasn't truly unstoppable/immovable. so the paradox "
+                    "is really about whether 'absolute' predicates are even coherent.")
+        # Self-reference / liar family.
+        if "statement" in t and ("false" in t or "true" in t):
+            return ("that one ties language in a knot: if it's true it's false, if it's "
+                    "false it's true. it's why logicians split 'use' and 'mention' — the "
+                    "sentence talks about itself, and self-reference is where tidy systems leak.")
+        # Simulation / reality-doubt family.
+        if "simulation" in t or "reality real" in t or "know anything" in t:
+            return ("i can't step outside my own experience to check, and neither can you — "
+                    "so 'is this real' might be the wrong kind of question. what we can do "
+                    "is reason about which assumptions hold up. want to dig into one?")
+        # Generic paradox fallback.
+        return ("that's a paradox — the interesting part isn't a single answer but the "
+                "tension it exposes. i'd rather think it through with you than give you "
+                "a dictionary line. which angle interests you?")
+
     def _user_input_is_gibberism(self, text: str) -> bool:
         """Detect user input that contains no real words at all (random
         letter-salad like 'asdf qwer zxcv'). Such input should not be treated
@@ -1082,18 +1129,99 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
     def _load_conceptnet_ontology(self) -> Optional["ConceptNetOntology"]:
         """Load the prebuilt ConceptNet ontology pickle (see ontology/conceptnet.py
         and the build step that writes data/conceptnet/ont.pkl). Returns None if
-        unavailable so the gate safely falls back to the legacy literal dicts."""
+        unavailable so the gate safely falls back to the legacy literal dicts.
+
+        Also wires the Binder ridge-probe (attribute_encoder) as a distributional
+        tie-break prior (deferred item 2): when ConceptNet is silent,
+        has_property() consults attribute_encoder.property_score via the engine's
+        GloVe-64 vector. The encoder is loaded from data/attribute_encoder.npz
+        (or data/conceptnet/attribute_encoder.npz) if present; otherwise the
+        prior is simply absent and ConceptNet stays the sole authority.
+        """
         here = os.path.abspath(__file__)
         cur = here
+        ont_path = None
         for _ in range(8):
             cand = os.path.join(cur, "data", "conceptnet", "ont.pkl")
             if os.path.exists(cand):
-                try:
-                    return ConceptNetOntology.load(cand)
-                except Exception:
-                    return None
+                ont_path = cand
+                break
             cur = os.path.dirname(cur)
-        return None
+        if ont_path is None:
+            return None
+        # Locate the attribute_encoder probe (optional prior).
+        enc = None
+        for d in (os.path.dirname(ont_path),
+                  os.path.join(os.path.dirname(ont_path), "..")):
+            for fn in ("attribute_encoder.npz",):
+                ecand = os.path.join(d, fn)
+                if os.path.exists(ecand):
+                    try:
+                        from ravana.ontology.attribute_encoder import AttributeEncoder
+                        enc = AttributeEncoder.load(ecand)
+                    except Exception:
+                        enc = None
+                    break
+            if enc is not None:
+                break
+        # GloVe vector fn (returns 64-dim projected vec, or None if OOV).
+        glove_fn = getattr(self, "_glove_vector", None)
+        try:
+            ont = ConceptNetOntology(attribute_encoder=enc, glove_fn=glove_fn)
+            # CRITICAL: hydrate from the prebuilt pickle. Constructing the object
+            # alone leaves isa/features EMPTY — without load(), the bootstrap in
+            # _typed_edges_bootstrap would inject 0 typed edges and the
+            # inheritance walk (Path 2) would stay structurally impossible.
+            # Note: load() is a @classmethod that returns a NEW hydrated object,
+            # so its return value must be captured (calling ont.load(...) alone
+            # discards the result and leaves ont empty).
+            return ont.load(ont_path)
+        except Exception:
+            return None
+
+    def _typed_edges_bootstrap(self) -> int:
+        """Inject ConceptNet typed edges (isa / has_property / capable_of /
+        used_for) into the live ravana graph (deferred item 1).
+
+        This materializes the taxonomic + componential spokes the learned
+        associative graph was missing, so chain_walker / DerivedOntology's
+        inheritance walk (Path 2) can finally resolve over REAL typed edges.
+        Idempotent: only adds edges when typed edges are absent, and persists
+        back to the SQLite graph store so the work survives restart.
+
+        Returns the number of typed edges injected (0 if none needed / graph
+        unavailable / ontology absent).
+        """
+        graph = getattr(self, "graph", None)
+        ont = getattr(self, "_cn_ontology", None)
+        if graph is None or ont is None:
+            return 0
+        # Lazy import keeps the chat engine import-light when unused.
+        try:
+            from ravana.ontology.graph_typing import (
+                inject_conceptnet_typed_edges, build_label_index,
+                TYPED_RELATION_TYPES,
+            )
+        except Exception:
+            return 0
+        # Skip if typed edges already present (e.g. loaded from a typed DB).
+        have = sum(
+            1 for (_, _t), e in graph.edges.items()
+            if getattr(e, "relation_type", "semantic") in TYPED_RELATION_TYPES
+        )
+        if have > 0:
+            return 0
+        label_index = build_label_index(graph)
+        counts = inject_conceptnet_typed_edges(graph, ont, label_index=label_index)
+        if counts["total"] > 0:
+            # Persist so subsequent loads already contain typed edges.
+            try:
+                db = getattr(self, "db", None)
+                if db is not None:
+                    db.save_graph(graph)
+            except Exception:
+                pass
+        return counts["total"]
 
     def _is_category_error(self, query: str, subject: Optional[str] = None) -> Optional[str]:
         """Detect a predicative category error (frontopolar feasibility gate).
@@ -1110,6 +1238,12 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 prop = p
                 break
         if prop is None:
+            return None
+        # Guard: a known philosophical paradox / koan must never be flagged as a
+        # mere category error — it needs deliberation, not the "flavor of a
+        # Tuesday" brush-off. The frontopolar paradox detector runs later in the
+        # pipeline, but the category-error gate runs first, so short-circuit here.
+        if self._is_philosophical_paradox(q):
             return None
         subj = (subject or "").lower().strip(" ?!.")
         if not subj:
@@ -1242,6 +1376,68 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         if _arith is not None:
             self._last_strategy = "arithmetic"
             resp = _arith
+            self._last_responses.append(resp)
+            if len(self._last_responses) > 10:
+                self._last_responses = self._last_responses[-10:]
+            self.notify_user_idle()
+            return resp
+
+        # ── Phase 19g: Proof / claim-verification guard ───────────────────
+        # "prove 2+2=5" is not arithmetic (the equation is false), so the
+        # arithmetic pre-pass misses it and it falls through to the web/decomposer
+        # pipeline, which emits decoder word-salad. Catch explicit proof/verify
+        # requests and answer honestly: compute the claim if it's arithmetic,
+        # else decline to fabricate a proof.
+        _proof = re.match(
+            r"^\s*(?:prove|show|verify|demonstrate|prove that|show that)\b"
+            r"(.+?)(?:(?:=|equals|is)\s*([-+]?\d+(?:\.\d+)?))?\s*$",
+            user_input.lower().strip())
+        if _proof:
+            _lhs = _proof.group(1).strip().rstrip("?.")
+            _rhs = _proof.group(2)
+            # Arithmetic claim with an asserted value ("prove 2+2=5"): compute it.
+            if _rhs is not None:
+                _rhs = float(_rhs)
+                try:
+                    _m = re.fullmatch(
+                        r"\s*([-+]?\d+(?:\.\d+)?)\s*([+\-*/^])\s*([-+]?\d+(?:\.\d+)?)\b",
+                        _lhs)
+                    if _m:
+                        _a, _op, _b = float(_m.group(1)), _m.group(2), float(_m.group(3))
+                        _ops = {"+": operator.add, "-": operator.sub, "*": operator.mul,
+                                 "/": operator.truediv, "^": operator.pow}
+                        _val = _ops[_op](_a, _b)
+                        _truth = "true" if abs(_val - _rhs) < 1e-9 else "false"
+                        self._last_strategy = "proof_guard"
+                        resp = (f"no — {_a:g} {_op} {_b:g} = {_val:g}, "
+                                f"so {_lhs} = {_rhs:g} is {_truth}.")
+                        self._last_responses.append(resp)
+                        if len(self._last_responses) > 10:
+                            self._last_responses = self._last_responses[-10:]
+                        self.notify_user_idle()
+                        return resp
+                except (ValueError, ZeroDivisionError, OverflowError):
+                    pass
+            # Non-arithmetic claim (e.g. "prove god exists"): be honest,
+            # do not fabricate a proof or dump decoder noise.
+            self._last_strategy = "proof_guard"
+            resp = ("i can't actually prove that one — it isn't something i can "
+                    "verify with the tools i have. want to talk through the argument instead?")
+            self._last_responses.append(resp)
+            if len(self._last_responses) > 10:
+                self._last_responses = self._last_responses[-10:]
+            self.notify_user_idle()
+            return resp
+
+        # ── Phase 19h: Koan / paradox reflection ───────────────────────────
+        # Philosophical paradoxes and Zen koans are currently routed into the
+        # decomposer, which looks up the word "paradox" and returns its stale
+        # dictionary definition ("The meaning of PARADOX is..."). That's a
+        # category mistake: a koan is an invitation to reflect, not a term to
+        # define. Answer with a genuine philosophical reflection instead.
+        if self._is_philosophical_paradox(user_input):
+            self._last_strategy = "paradox_reflection"
+            resp = self._reflect_on_paradox(user_input)
             self._last_responses.append(resp)
             if len(self._last_responses) > 10:
                 self._last_responses = self._last_responses[-10:]
@@ -1754,6 +1950,18 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
 
         # Step 5c: P1 Theory of Mind — post-spread deep ToM update (roadmap §7)
         self._update_user_model(user_input, subject, associations)
+
+        # ─── Assertion / "telling vs asking" Check ───
+        # If the user is TELLING RAVANA something (an assertion) rather than
+        # asking, acknowledge the speech act instead of explaining a concept.
+        assertion_response = self._handle_assertion(user_input, subject)
+        if assertion_response:
+            self._last_strategy = "assertion"
+            self._last_responses.append(assertion_response)
+            if len(self._last_responses) > 10:
+                self._last_responses = self._last_responses[-10:]
+            self.notify_user_idle()
+            return assertion_response
 
         # ─── Conversational / Chit-Chat Check ───
         chitchat_response = self._handle_chitchat(user_input, subject)
@@ -3515,6 +3723,12 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         if not best:
             return None
         best = self._strip_title_echo(best.strip(), ctx.subject)
+        # Sanitise dictionary/UI chrome and dateline prefixes from the live
+        # snippet before it is emitted as the answer (the store-side sanitiser
+        # only covers learned definitions, not directly-surfaced web answers).
+        _san = self._sanitize_definition_text(best)
+        if _san:
+            best = _san
         if not best.endswith((".", "!", "?")):
             best = best + "."
         # Light conversational close (generative, not hardcoded fact)

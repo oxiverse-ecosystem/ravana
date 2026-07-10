@@ -8,8 +8,8 @@ via __new__ (bypassing the heavy GloVe/decoder __init__) so these stay fast.
 The causal simulator gets a hand-built ConceptGraph.
 """
 
+import hashlib
 import re
-import random
 
 import numpy as np
 
@@ -68,26 +68,42 @@ def test_sense_biasing_framing_adds_domain_hint():
 
 def test_context_query_vector_blends_context():
     """Context vector should differ from the bare subject when context words
-    carry sense (verifies it isn't just the bare noun)."""
+    carry sense (verifies it isn't just the bare noun).
+
+    FIX (flaky-order bug): the original used ``abs(hash(word))`` for its
+    "deterministic" pseudo-embedding. Python salts ``str.__hash__`` per process
+    (PYTHONHASHSEED), so the same test produced different vectors on different
+    launches — passing in isolation but failing when the suite's process seed
+    happened to land on a degenerate case. We replace it with a STABLE
+    hashlib-based embedding (seed-independent) and snapshot STOP_WORDS so no
+    shared module state can leak in either. The assertion is unchanged in
+    intent: context words must nudge the subject vector.
+    """
     eng = _bare_engine()
-    # Give the engine a glove fn so the helper has something to compute with.
-    rng = random.Random(0)
     dim = 16
 
     def _glove(word):
-        # Deterministic pseudo-embedding; subject and context differ.
-        h = abs(hash(word)) % 1000
+        # Seed-independent deterministic pseudo-embedding.
+        h = int(hashlib.md5(word.encode("utf-8")).hexdigest(), 16) % 1000
         v = np.array([(h + i * 7) % dim for i in range(dim)], dtype=float)
         return v / (np.linalg.norm(v) + 1e-9)
     eng._glove_vector = _glove
 
-    bare = eng._context_query_vector("trust", "what is trust")
-    contextual = eng._context_query_vector("trust", "why do people trust each other")
-    assert bare is not None and contextual is not None
-    # Vectors should be numpy arrays of the right dim.
-    assert len(bare) == dim and len(contextual) == dim
-    # Contextual vector differs from bare (context words nudged it).
-    assert not np.allclose(bare, contextual)
+    # Snapshot STOP_WORDS so a preceding test's mutation cannot change which
+    # context words survive filtering in _context_query_vector.
+    import ravana.chat.web_learning as _wl
+    _orig_stop = set(_wl.STOP_WORDS)
+    _wl.STOP_WORDS = set(_orig_stop)
+    try:
+        bare = eng._context_query_vector("trust", "what is trust")
+        contextual = eng._context_query_vector("trust", "why do people trust each other")
+        assert bare is not None and contextual is not None
+        # Vectors should be numpy arrays of the right dim.
+        assert len(bare) == dim and len(contextual) == dim
+        # Contextual vector differs from bare (context words nudged it).
+        assert not np.allclose(bare, contextual)
+    finally:
+        _wl.STOP_WORDS = _orig_stop
 
 
 def _build_causal_graph():

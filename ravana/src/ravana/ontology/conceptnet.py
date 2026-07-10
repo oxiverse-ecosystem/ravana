@@ -34,13 +34,36 @@ import collections
 import json
 import os
 import pickle
+import numpy as np
 from typing import Dict, List, Optional, Set, Tuple
 
-# ── ConceptNet term parsing ──────────────────────────────────────────────────
+
 def _term(uri: str) -> str:
     """/c/en/tree/n -> 'tree'; /c/en/physical_object -> 'physical_object'."""
     parts = uri.split("/")
     return parts[3].lower() if len(parts) > 3 else uri.lower()
+
+
+def _weight_of(meta: str) -> float:
+    """Extract the ConceptNet assertion weight from the col-4 JSON metadata.
+    Falls back to 1.0 when the payload is malformed (rare)."""
+    try:
+        d = json.loads(meta)
+        w = float(d.get("weight", 1.0))
+        return w if w > 0 else 1.0
+    except (ValueError, TypeError, json.JSONDecodeError):
+        return 1.0
+
+
+def _accum(store: Dict[str, Dict[str, float]], key: str, sub: str, w: float) -> None:
+    """Accumulate a running mean of assertion weights for (key -> sub)."""
+    submap = store[key]
+    prev = submap.get(sub)
+    if prev is None:
+        submap[sub] = w
+    else:
+        # running mean (CN gives several assertions per pair)
+        submap[sub] = (prev + w) / 2.0
 
 
 # ── Property seed terms (object lemmas that indicate a gate property) ────────
@@ -130,11 +153,33 @@ TEMPORAL_CATS = {"time", "event"}
 class ConceptNetOntology:
     """Typed-knowledge-graph ontology over ConceptNet English assertions."""
 
-    def __init__(self):
+    def __init__(self, attribute_encoder=None, glove_fn=None, prior_theta: float = 4.5):
         self.isa: Dict[str, Set[str]] = collections.defaultdict(set)
         self.features: Dict[str, Set[str]] = collections.defaultdict(set)
         self.anchors: Set[str] = set(ANCHOR_TO_CATEGORY.keys())
         self.category_affordances: Dict[str, Set[str]] = {}
+        # ── assertion strength (typed-edge weighting, Item 1) ──────────────
+        # isa_weight[child][parent]   = mean ConceptNet /r/IsA assertion weight
+        # feature_weight[concept][feature] = mean ConceptNet feature assertion
+        #                                    weight (HasProperty/CapableOf/UsedFor)
+        # feature_rel[concept][feature] = the relation that licensed it
+        #   ("HasProperty" / "CapableOf" / "UsedFor"), so the graph-typing
+        #   pass can emit distinct typed edges (has_property / capable_of /
+        #   used_for) rather than collapsing them into one bucket.
+        self.isa_weight: Dict[str, Dict[str, float]] = collections.defaultdict(dict)
+        self.feature_weight: Dict[str, Dict[str, float]] = collections.defaultdict(dict)
+        self.feature_rel: Dict[str, Dict[str, str]] = collections.defaultdict(dict)
+        # ── distributional tie-break prior (Deferred item 2) ───────────────
+        # When ConceptNet is SILENT (has_property returns None), fall back to
+        # the Binder ridge probe (attribute_encoder.property_score) trained on
+        # the GloVe-64 manifold. ConceptNet stays authoritative: this prior is
+        # consulted ONLY at the silent return points, never overrides a
+        # True/False verdict. Calibrated on the Binder norms + 7 gate cases;
+        # locked at prior_theta=4.5 (precision 1.00, recall 0.30, 0 FP on the
+        # labeled color set; see GATE_DERIVATION_FINDINGS.md).
+        self.attribute_encoder = attribute_encoder
+        self.glove_fn = glove_fn
+        self.prior_theta = float(prior_theta)
 
     # ── construction ──────────────────────────────────────────────────────
     @classmethod
@@ -147,10 +192,15 @@ class ConceptNetOntology:
                 if len(parts) < 4:
                     continue
                 rel, start, end = parts[0].replace("/r/", ""), _term(parts[1]), _term(parts[2])
+                # Assertion weight is in the JSON metadata (col 4).
+                w = _weight_of(parts[3])
                 if rel == "IsA":
                     ont.isa[start].add(end)
+                    _accum(ont.isa_weight, start, end, w)
                 elif rel in _FEATURE_RELS:
                     ont.features[start].add(end)
+                    ont.feature_rel[start][end] = rel
+                    _accum(ont.feature_weight, start, end, w)
                 n += 1
                 if max_lines and n >= max_lines:
                     break
@@ -163,6 +213,11 @@ class ConceptNetOntology:
                 "isa": dict(self.isa),
                 "features": dict(self.features),
                 "category_affordances": self.category_affordances,
+                # Item 1: assertion-strength + relation-typed features so the
+                # graph-typing pass can emit weighted typed edges.
+                "isa_weight": dict(self.isa_weight),
+                "feature_weight": dict(self.feature_weight),
+                "feature_rel": dict(self.feature_rel),
             }, f)
 
     @classmethod
@@ -173,6 +228,9 @@ class ConceptNetOntology:
         ont.isa = collections.defaultdict(set, d["isa"])
         ont.features = collections.defaultdict(set, d["features"])
         ont.category_affordances = d.get("category_affordances", {})
+        ont.isa_weight = collections.defaultdict(dict, d.get("isa_weight", {}))
+        ont.feature_weight = collections.defaultdict(dict, d.get("feature_weight", {}))
+        ont.feature_rel = collections.defaultdict(dict, d.get("feature_rel", {}))
         return ont
 
     # ── derivation of category affordances from membership statistics ───────
@@ -275,6 +333,31 @@ class ConceptNetOntology:
             depth += 1
         return False
 
+    def _prior_property(self, word: str, prop: str) -> Optional[bool]:
+        """Distributional tie-break prior (Deferred item 2).
+
+        Used ONLY when ConceptNet is silent. Returns the Binder ridge-probe
+        verdict (attribute_encoder.property_score(vec64, prop) >= prior_theta)
+        when both the encoder and a GloVe vector for `word` are available,
+        else None (cannot determine). Never consulted when ConceptNet already
+        returned True/False, so it can never contradict or override the KG.
+        Calibrated at self.prior_theta=4.5 (precision 1.00 on the labeled
+        color set; see GATE_DERIVATION_FINDINGS.md)."""
+        if self.attribute_encoder is None or self.glove_fn is None:
+            return None
+        from .attribute_encoder import PROPERTY_TO_DIMS
+        pl = prop.lower()
+        if pl not in PROPERTY_TO_DIMS:
+            return None
+        vec = self.glove_fn(word)
+        if vec is None:
+            return None  # subject OOV -> prior cannot speak
+        score = self.attribute_encoder.property_score(
+            np.asarray(vec, dtype=np.float32), prop)
+        if score is None:
+            return None
+        return bool(score >= self.prior_theta)
+
     def has_property(self, word: str, prop: str) -> Optional[bool]:
         """Does `word` possess `prop`?
 
@@ -283,7 +366,13 @@ class ConceptNetOntology:
           * physical/perceptual props require a concrete category;
           * temporal props require a time/event category.
         Direct HasProperty evidence is a bonus that only overrides when the KG
-        category is unknown (avoids noise from distant abstract ancestors)."""
+        category is unknown (avoids noise from distant abstract ancestors).
+
+        When ConceptNet is genuinely SILENT (category unknown for a physical
+        prop, or an abstract/social property), the distributional
+        attribute_encoder prior is consulted as a tie-break (Deferred item 2);
+        ConceptNet's explicit True/False verdicts remain authoritative and are
+        never overridden by the prior."""
         cat = self.category_of(word)
         pl = prop.lower()
         if pl in PHYSICAL_PROPS:
@@ -291,8 +380,18 @@ class ConceptNetOntology:
                 return True
             if cat is None and self._has_feature(word, prop, max_depth=0):
                 return True
+            # cat is a known non-concrete category -> KG says no.
+            # cat is None (truly silent) -> consult the distributional prior.
+            if cat is None:
+                prior = self._prior_property(word, prop)
+                if prior is not None:
+                    return prior
             return False
         if pl in TEMPORAL_PROPS:
             return cat in TEMPORAL_CATS
-        # abstract/social properties: not gated; fall back to literal dicts.
+        # abstract/social properties: not gated by ConceptNet; fall back to the
+        # literal dicts. Break silence with the prior if available.
+        prior = self._prior_property(word, prop)
+        if prior is not None:
+            return prior
         return None

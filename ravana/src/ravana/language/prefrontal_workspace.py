@@ -15,6 +15,7 @@ KEY DESIGN DECISIONS:
 from typing import List, Optional, Dict, Any, Tuple
 from dataclasses import dataclass, field
 import re
+import numpy as np
 
 
 class DiscourseType:
@@ -27,6 +28,7 @@ class DiscourseType:
     ASK_BACK = "ask_back"           # end with a question to the user
     CONTINUE = "continue"           # continue previous topic
     SELF_REFERENCE = "self_reference"  # "I think", "I feel" — epistemic stance
+    STATEMENT = "statement"         # user is TELLING RAVANA something (assertion)
 
 
 @dataclass
@@ -51,6 +53,152 @@ class DiscoursePlan:
     question_type: str = "unknown"
 
 
+class SpeechActClassifier:
+    """Hybrid neuro-symbolic speech-act (illocutionary-force) classifier.
+
+    Why hybrid & future-proof (cognitive-science grounding)
+    -------------------------------------------------------
+    The literature is unanimous that robust speech-act recognition needs
+    BOTH signals, not either alone:
+      * Distributional / embedding semantics abstract to higher-level
+        meaning and handle paraphrases the brittle rule cascade misses
+        (Conrad et al. 2026; TweetAct logistic regression reaches F1 .70 by
+        fusing SEMANTIC + SYNTACTIC features, and dropping either group
+        hurts F1).
+      * But embeddings alone are weak on short declaratives — "classification
+        of declaratives remained difficult" (Conrad et al.).
+      * Best results come from PROTOTYPE vectors in semantic space
+        (Snell et al. prototypical networks; centroid-in-semantic-space
+        analyses in psychiatry). A class is the centroid of seed exemplars;
+        an utterance is classified by nearest prototype (cosine). This is
+        few-shot / extensible: add exemplar phrases and the prototype moves
+        — no retraining.
+      * Logical-symbolic priors (first word, aux-inversion) stabilise the
+        "core" of each class (Lyutikova hybrid: contextual embeddings +
+        minimal logical implicants).
+
+    So we classify by semantic PROTOTYPE proximity, refined by a symbolic
+    syntactic prior — robust to wording, transparent (we can report the
+    nearest prototype + score), and future-proof (extend PROTOTYPES).
+    """
+
+    # Seed exemplars per illocutionary force. Adding phrases == learning a
+    # new instance; no retraining (prototype networks are few-shot).
+    # Kept small and balanced so cosine distances are comparable across
+    # classes. Extend freely for directives / expressives / commissives.
+    PROTOTYPES = {
+        "question": [
+            "what is", "what are", "what do", "what does", "what can", "what would",
+            "why is", "why are", "why do", "why does", "how is", "how are",
+            "how do", "how does", "how can", "who is", "who are", "who was",
+            "where is", "where are", "when is", "when did", "which one",
+            "are you", "do you", "did you", "can you", "will you", "would you",
+            "is it", "was he", "have they", "should i", "could we", "may i",
+            "tell me about", "explain", "define", "describe",
+        ],
+        "statement": [
+            "i am", "i'm", "i was", "i have", "we are", "we were", "my name is",
+            "he is", "she is", "they are", "it is", "this is", "that was",
+            "nothing much", "not much", "i think", "i feel", "i like", "i love",
+            "i hate", "he said", "she went", "they made",
+            "thanks", "thank you", "nice to meet you", "good to see you",
+        ],
+    }
+
+    # Margin (cosine gap between top-2 prototypes) needed to trust the
+    # semantic signal over the symbolic prior. Tuned to be confident but not
+    # brittle: below this we defer to syntax (the robust "core" anchor).
+    SEMANTIC_MARGIN = 0.12
+
+    def __init__(self, vector_fn=None, dim: int = 64):
+        """
+        Args:
+            vector_fn: callable word -> Optional[np.ndarray] (unit vector).
+                       Supplies the semantic space (e.g. RAVANA's GloVe).
+            dim: embedding dimensionality.
+        """
+        self.vector_fn = vector_fn
+        self.dim = dim
+        self._proto_vecs: Optional[Dict[str, np.ndarray]] = None
+
+    def _build_prototypes(self) -> None:
+        if self._proto_vecs is not None:
+            return
+        pv: Dict[str, np.ndarray] = {}
+        for cls, phrases in self.PROTOTYPES.items():
+            vecs = []
+            for ph in phrases:
+                v = self._sentence_vector(ph)
+                if v is not None:
+                    vecs.append(v)
+            if vecs:
+                proto = np.stack(vecs).mean(axis=0)
+                n = np.linalg.norm(proto)
+                if n > 0:
+                    proto = proto / n
+                pv[cls] = proto
+        self._proto_vecs = pv
+
+    def _sentence_vector(self, text: str) -> Optional[np.ndarray]:
+        """Mean-pooled, unit-normalised embedding of the utterance's known
+        words (the 'centroid in semantic space' representation)."""
+        if self.vector_fn is None:
+            return None
+        words = re.findall(r"[a-z']+", text.lower())
+        vecs = []
+        for w in words:
+            v = self.vector_fn(w)
+            if v is not None:
+                vecs.append(v)
+        if not vecs:
+            return None
+        arr = np.stack(vecs).mean(axis=0)
+        n = np.linalg.norm(arr)
+        if n > 0:
+            arr = arr / n
+        return arr
+
+    def scores(self, text: str) -> Dict[str, float]:
+        """Cosine similarity of the utterance to each class prototype."""
+        self._build_prototypes()
+        if not self._proto_vecs:
+            return {}
+        sv = self._sentence_vector(text)
+        if sv is None:
+            return {}
+        return {cls: float(np.dot(sv, proto))
+                for cls, proto in self._proto_vecs.items()}
+
+    def classify(self, text: str,
+                 syntactic_hint: Optional[str] = None) -> Tuple[str, Dict[str, float], str]:
+        """Hybrid decision.
+
+        Returns (act, semantic_scores, method) where method ∈
+        {"semantic", "hybrid", "syntactic", "default"}.
+
+          * semantic : prototype margin was decisive
+          * hybrid   : low semantic margin, deferred to symbolic prior
+          * syntactic: no usable embedding signal, used rule cascade
+          * default  : nothing fired, fell back to 'question'
+        """
+        sem = self.scores(text)
+        if not sem:
+            if syntactic_hint:
+                return (syntactic_hint, {}, "syntactic")
+            return ("question", {}, "default")
+
+        ranked = sorted(sem.items(), key=lambda kv: kv[1], reverse=True)
+        best_cls, best_sim = ranked[0]
+        second_sim = ranked[1][1] if len(ranked) > 1 else best_sim - 1.0
+        margin = best_sim - second_sim
+
+        if margin >= self.SEMANTIC_MARGIN:
+            return (best_cls, sem, "semantic")
+        if syntactic_hint and syntactic_hint != best_cls:
+            return (syntactic_hint, sem, "hybrid")
+        return (best_cls, sem, "semantic")
+
+
 class PrefrontalWorkspace:
     """Structured buffer that plans discourse BEFORE chain generation.
 
@@ -59,13 +207,19 @@ class PrefrontalWorkspace:
     that form a coherent narrative arc.
     """
 
-    def __init__(self, capacity: int = 5, analogy_engine=None, abstraction_engine=None):
+    def __init__(self, capacity: int = 5, analogy_engine=None, abstraction_engine=None,
+                 vector_fn=None):
         self.capacity = capacity  # teen capacity (adults = 7)
         self.last_plan: Optional[DiscoursePlan] = None
         self.topic_history: List[str] = []  # last 10 topics discussed
         # Optional cognitive engines for advanced reasoning
         self.analogy_engine = analogy_engine
         self.abstraction_engine = abstraction_engine
+        # Semantic space supplier (word -> unit vector) for the speech-act
+        # classifier. When provided, illocutionary-force detection is hybrid
+        # (prototype semantics + symbolic syntax) instead of pure rules.
+        self.vector_fn = vector_fn
+        self._sac: Optional[SpeechActClassifier] = None
 
     # ─── Question Type Detection ───
 
@@ -178,6 +332,7 @@ class PrefrontalWorkspace:
         "follow_up": "semantic",
         "general": "semantic",
         "analogy": "analogical",
+        "statement": "semantic",
     }
 
     @classmethod
@@ -230,6 +385,97 @@ class PrefrontalWorkspace:
 
         # Default: treat as general statement/query
         return ("general", [text_lower])
+
+    @classmethod
+    def classify_speech_act_rules(cls, text: str) -> str:
+        """Symbolic prior: the transparent syntactic rule cascade (the cheap,
+        interpretable 'core' of each speech-act class).
+
+        Neuroscience basis — how the brain tells "telling" from "asking"
+        -------------------------------------------------------------------
+        The human brain does not need an explicit '?' to know a sentence is a
+        question. Pragmatic / illocutionary-force decoding (Austin's speech
+        acts; Searle) is distributed and happens EARLY (~100 ms, in parallel
+        with semantics):
+
+          * Syntax — left IFG (BA 45-47) + posterior temporal cortex parse
+            form. Subject–auxiliary INVERSION ("are you…", "do they…") and
+            sentence-initial wh- words (what/why/how…) reliably flag an
+            interrogative. Declarative word order ("i am…", "nothing…") flags
+            an assertion.
+          * Prosody — superior temporal / auditory cortex reads the terminal
+            pitch contour: rising = question, falling = statement (the cue
+            Italian relies on almost exclusively). We approximate it with a
+            trailing '?'.
+          * Intent (theory-of-mind) — the right TPJ + medial PFC decode the
+            speaker's communicative goal: requesting info vs stating a fact.
+            Lesions here impair exactly this distinction.
+
+        Rule cascade:
+          1. explicit '?' or wh-/aux-inversion → question
+          2. first-/third-person declarative markers → assertion
+          3. otherwise default to question (preserve prior query behaviour).
+        """
+        t = text.lower().strip(" ?!.,")
+        if not t:
+            return "question"
+
+        # 1) Explicit interrogatives (rising pitch / '?')
+        if text.strip().endswith("?"):
+            return "question"
+        # wh-word at sentence start
+        if re.match(r"^(what|who|whom|whose|where|when|why|which|how)\b", t):
+            return "question"
+        # subject–auxiliary inversion: aux then (pro)nominal ("are you", "can i")
+        _invert = (r"^(am|is|are|was|were|do|does|did|have|has|had|can|could|"
+                   r"would|will|shall|should|may|might|must)\b")
+        if re.match(_invert, t):
+            return "question"
+        # explicit info/request verbs
+        if re.match(r"^(tell me|explain|define|describe|show me|give me|list|recite)\b", t):
+            return "question"
+
+        # 2) Declarative / first-person assertions (the user is TELLING us)
+        _first = (r"^(i|i'm|im|i am|we|we're|we are|my|me)\b")
+        if re.match(_first, t):
+            return "statement"
+        _third = (r"^(he|she|they|it|you|this|that|the|my|his|her|their)\b")
+        # third-person declarative WITH a copula / verb
+        if re.match(_third, t) and re.search(
+                r"\b(is|are|was|were|has|have|had|went|goes|likes|loves|hates|"
+                r"did|does|will|would|can|should|made|makes|thinks|feels|said|says)\b", t):
+            return "statement"
+
+        # social assertion markers (gratitude, meeting, mood, backchannels)
+        if re.search(r"\b(nice to meet you|good to (see|meet)|thanks|thank you|"
+                     r"cheers|appreciate|pleasure to meet)\b", t):
+            return "statement"
+        if re.match(r"^(nothing|not much|same old|nada|ditto)\b", t):
+            return "statement"
+        if re.match(r"^(no|yes|yeah|yep|yup|nope|sure|ok|okay|alright|right)\b", t):
+            return "statement"
+
+        # 3) Default: preserve previous behaviour — treat as a question/query
+        return "question"
+
+    def classify_speech_act(self, text: str) -> str:
+        """Hybrid illocutionary-force classifier (semantic prototypes + symbolic
+        syntax). Returns 'question' or 'statement'.
+
+        When a semantic space is wired (`self.vector_fn`), the decision is made
+        by proximity to per-class PROTOTYPE vectors in that space
+        (`SpeechActClassifier`), refined by the symbolic rule cascade as a
+        prior. This is robust to wording/paraphrase and extensible, while the
+        symbolic rules anchor the confident "core" cases (Lyutikova hybrid).
+        Falls back entirely to the rule cascade when no vectors are available.
+        """
+        hint = self.classify_speech_act_rules(text)
+        if self.vector_fn is None:
+            return hint
+        if self._sac is None:
+            self._sac = SpeechActClassifier(vector_fn=self.vector_fn, dim=getattr(self, "capacity", 64) or 64)
+        act, _scores, _method = self._sac.classify(text, syntactic_hint=hint)
+        return act
 
     @classmethod
     def detect_concept_drift(cls, current_topic: str, next_hop: str,

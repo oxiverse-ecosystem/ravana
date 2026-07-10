@@ -793,6 +793,70 @@ class WebLearningMixin(ResponseGenMixin):
             return False
         return True
 
+    # ── Definition-text sanitiser ───────────────────────────────────────────
+    # ROOT CAUSE of the "Add to word list / collocation" garbage leak (Q9-style):
+    # WEB_GARBAGE is only used as a *concept-key* filter (chain_walker /
+    # web_learning extractor), so it never touches the *text* of a stored
+    # definition. Dictionary-learner pages (Cambridge, Oxford Learner's) ship
+    # UI chrome ("Add to word list", "collocation", "Your browser doesn't...")
+    # that survives into the emitted fact. This cleans the text and rejects a
+    # definition that is fundamentally a UI fragment.
+    _DEFINITION_UI_RESIDUE = (
+        "add to word list", "word list", "collocation", "collocations",
+        "browse thesaurus", "your browser doesn't", "britannica.com",
+        "dictionary.com", "cambridge dictionary", "oxford learner",
+        "learner's dictionary", "a1 b1 c1", "c2 b2", "translations of",
+        "click to listen", "listen to", "play audio", "sign in",
+        "your score", "multiple choice", "got it right", "example sentences",
+        "examples of", "i.e.", "e.g.", "see more", "more example",
+        "essential british", "essential american", "powered by",
+    )
+
+    def _sanitize_definition_text(self, text: str) -> Optional[str]:
+        """Strip dictionary/UI chrome from a candidate definition; reject if
+        the residue is all the snippet contained. Returns cleaned text, or None
+        if nothing usable remains. Idempotent."""
+        if not text:
+            return None
+        s = text.strip()
+        # Trim a "SUBJECT definition:" / "SUBJECT:" title-echo prefix. Some
+        # search hits are literally titled "TRUST definition: 1." — the head
+        # word + the label "definition:" is article chrome, not the answer.
+        # (Run this BEFORE the list-marker strip, because stripping the title
+        # can expose a leading "1." that the marker strip must then catch.)
+        s = re.sub(r"^\s*[A-Z][A-Za-z]*(?:\s+[A-Z][A-Za-z]*)?\s+definition:\s*", "", s,
+                   flags=re.IGNORECASE)
+        s = re.sub(r"^\s*[A-Z][A-Za-z]*(?:\s+[A-Z][A-Za-z]*)?:\s*", "", s)
+        # Trim dateline / byline prefixes the search API prepends, e.g.
+        # "Reviewed by Gary Drevitch on November 10, 2025 Trust—or the belief..."
+        # or a bare "November 10, 2025 Trust—or...". Strip any leading
+        # "Reviewed by <Name> on " and/or a date token before the real sentence.
+        s = re.sub(r"^\s*reviewed by [^,]*? on\s+", "", s, flags=re.IGNORECASE)
+        s = re.sub(r"^\s*(?:[A-Z][a-z]+\.? )?"
+                   r"(?:[A-Z][a-z]+\.? \d{1,2},? \d{4}|"
+                   r"\d{1,2} [A-Z][a-z]+ \d{4}|"
+                   r"[A-Z][a-z]+\.? \d{1,2},? \d{4})\s*", "", s).strip()
+        # Trim leading/trailing list markers like "1." / "a." that are artefacts
+        # of numbered dictionary entries (the source of "TRUST definition: 1.").
+        # Done last so a marker exposed by the title/dateline strips above is
+        # still caught.
+        s = re.sub(r"^\s*[\d]+[\.\)]\s*", "", s)
+        s = re.sub(r"^\s*[a-z][\.\)]\s*", "", s)
+        # Remove dictionary-UI fragments (case-insensitive, whole-phrase).
+        for frag in self._DEFINITION_UI_RESIDUE:
+            s = re.sub(re.escape(frag), " ", s, flags=re.IGNORECASE)
+        # Remove leftover "X noun" / "X verb" POS tags and bracketed senses.
+        s = re.sub(r"\b[A-Za-z][A-Za-z\- ]{0,20}?\b\s*(noun|verb|adjective|adverb|transitive|intransitive|uncountable|countable|singular|plural)\b", " ", s, flags=re.IGNORECASE)
+        s = re.sub(r"\(\s*(of a|used to|especially|figurative|informal|formal|old-fashioned|humorous)\b", " (", s, flags=re.IGNORECASE)
+        s = re.sub(r"\s{2,}", " ", s).strip().strip(".,;:- ")
+        # Reject if what's left is too short or still a pure UI fragment.
+        low = s.lower()
+        if not s or len(s) < 12:
+            return None
+        if any(tok in low for tok in ("add to word list", "collocation", "your browser")):
+            return None
+        return s
+
     def _extract_heuristic_definition(self, text: str, subject: str) -> Optional[str]:
         """Extract a definition sentence based on heuristics (Approach 2).
         
@@ -908,7 +972,8 @@ class WebLearningMixin(ResponseGenMixin):
             candidate_clean = re.sub(r'\s*-\s*(?:reverso|collins|oxford|merriam|cambridge|webster|english|french|spanish|german|italian|chinese|portuguese|russian|japanese|korean)?\s*dictionary\b.*', '', candidate, flags=re.IGNORECASE)
             candidate_clean = re.sub(r'\s*\|\s*(?:wikipedia|dictionary\.com|the\s*free\s*dictionary|britannica|investopedia|techopedia).*', '', candidate_clean, flags=re.IGNORECASE)
             candidate_clean = candidate_clean.strip()
-            if len(candidate_clean) >= 10:
+            candidate_clean = self._sanitize_definition_text(candidate_clean)
+            if candidate_clean and len(candidate_clean) >= 10:
                 return candidate_clean[:200]
         return None
 
@@ -1014,7 +1079,13 @@ class WebLearningMixin(ResponseGenMixin):
                     definition_clean = re.sub(r'\s*-\s*(?:reverso|collins|oxford|merriam|cambridge|webster|english|french|spanish|german|italian|chinese|portuguese|russian|japanese|korean)?\s*dictionary\b.*', '', definition, flags=re.IGNORECASE)
                     definition_clean = re.sub(r'\s*\|\s*(?:wikipedia|dictionary\.com|the\s*free\s*dictionary|britannica|investopedia|techopedia).*', '', definition_clean, flags=re.IGNORECASE)
                     definition_clean = definition_clean.strip()
-                    
+                    # Sanitise dictionary-UI chrome ("Add to word list", POS tags,
+                    # numbered-list artefacts). If nothing usable remains, skip.
+                    _san = self._sanitize_definition_text(definition_clean)
+                    if _san is None:
+                        continue
+                    definition_clean = _san
+
                     # Normalize leading article to lowercase
                     def_words = definition_clean.split()
                     if def_words and def_words[0].lower() in ('a', 'an', 'the'):
@@ -1078,7 +1149,13 @@ class WebLearningMixin(ResponseGenMixin):
                 definition_clean = re.sub(r'\s*-\s*(?:reverso|collins|oxford|merriam|cambridge|webster|english|french|spanish|german|italian|chinese|portuguese|russian|japanese|korean)?\s*dictionary\b.*', '', definition, flags=re.IGNORECASE)
                 definition_clean = re.sub(r'\s*\|\s*(?:wikipedia|dictionary\.com|the\s*free\s*dictionary|britannica|investopedia|techopedia).*', '', definition_clean, flags=re.IGNORECASE)
                 definition_clean = definition_clean.strip()
-                
+                # Sanitise dictionary-UI chrome ("Add to word list", POS tags,
+                # numbered-list artefacts). If nothing usable remains, skip.
+                _san = self._sanitize_definition_text(definition_clean)
+                if _san is None:
+                    continue
+                definition_clean = _san
+
                 # Normalize leading article to lowercase
                 def_words = definition_clean.split()
                 if def_words and def_words[0].lower() in ('a', 'an', 'the'):

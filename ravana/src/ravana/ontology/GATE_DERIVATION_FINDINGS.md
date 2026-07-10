@@ -114,4 +114,124 @@ What WAS genuinely improved (verified, not pretended):
 Cluster C (TEEN_CONCEPTS) deferred: large blast radius, PMISeeder already a
 supplement. Cluster E (_EDGE_CONNECTORS) verified NOT dead (used by
 interface.py:1427); ConnectorLearner is parallel, not the active path.
+
+================================================================================
+DEFERRED ITEMS 1–3 — RESOLVED (this audit cycle)
+================================================================================
+The three deferred items are now IMPLEMENTED and VERIFIED (real tool runs, not
+asserted-by-hand). Summary of measured outcomes:
+
+--- ITEM 1: ConceptNet typed edges injected into the ravana graph ------------
+Brain grounding: the learned graph was ALL associative (semantic/temporal/
+causal — Collins & Loftus spreading activation). The hub also needs taxonomic
++ componential spokes (Binder; Damasio/Barsalou convergence zones). ConceptNet
+5.7 supplies both; we materialized them as REAL typed edges in ravana_weights.db.
+
+Implementation:
+  * ravana/src/ravana/ontology/graph_typing.py :: inject_conceptnet_typed_edges
+    — for every ravana node whose label matches a ConceptNet term, creates edges
+      with EXPLICIT typed relation_type in {isa, has_property, capable_of,
+      used_for} (NEVER the generic "semantic").
+    — WEIGHT BY STRENGTH: edge.weight = ConceptNet assertion weight (mean over
+      assertions for that pair), clamped to (0,1]. The loader now also captures
+      isa_weight / feature_weight / feature_rel (per-relation) from the TSV's
+      col-4 JSON metadata.
+    — PREFERS ISA TO THE NEAREST (most specific) parent, not the root: among
+      existing ConceptNet parents, any parent that is an IsA-ancestor of another
+      existing parent is dropped (Rosch basic level / Collins & Loftus 1975).
+  * chat/engine.py :: _typed_edges_bootstrap — called once at engine init;
+    idempotent (skips if typed edges already present); persists back to the
+    SQLite store so the work survives restart.
+  * ConceptNetOntology.from_tsv extended to capture assertion weights + the
+    licensing relation per feature; ont.pkl rebuilt locally (not committed).
+
+Measured (one-time local injection into data/ravana_weights.db):
+  isa=644, has_property=255, capable_of=88, used_for=372  -> 1359 typed edges.
+  Before: 0 typed edges. After: graph relation_type distribution gains
+    isa 641, used_for 372, has_property 255, capable_of 88 (persisted).
+  Real color-term nodes present (red/green/white/black/orange/colour/color);
+  12 has_property->color-term edges (e.g. cats->black, car->red).
+
+Path 2 (previously structurally impossible) now WORKS:
+  DerivedOntology._graph_path_to_property over the REAL typed IsA/HasProperty
+  edges reaches a color-bearing ancestor. Proven two ways:
+    (a) controlled mini-graph tree->plant->living_thing (+green/red) — walk
+        returns True;
+    (b) temp copy of the real DB — walk('cats','color') returns True.
+  _INHERITANCE_EDGE_TYPES in derived.py already included isa/has_property, so
+  no change there was needed — the path activated the moment typed edges existed.
+
+Test changes (tests/unit/test_ontology_derived.py):
+  * test_real_graph_has_no_typed_isa_attribute_edges RENAMED to
+    test_real_graph_now_has_typed_isa_attribute_edges and flipped to pin the
+    RESOLVED state (typed edges MUST be > 0). History preserved in docstring.
+  * Added test_inheritance_walk_reaches_color_ancestor_over_typed_edges
+    (mini-graph Path 2) and test_real_graph_inheritance_walk_reaches_color_
+    ancestor (real-DB Path 2).
+
+--- ITEM 2: attribute_encoder as a distributional tie-break prior -----------
+Brain grounding: Binder 65-dim attribute space IS a graded hub representation;
+the ridge probe (glove64 -> binder) is a legitimate PRIOR over the attribute
+space, used only to break ConceptNet SILENCE / tie-fill (never override).
+
+Implementation (ravana/src/ravana/ontology/conceptnet.py):
+  * ConceptNetOntology(attribute_encoder=, glove_fn=, prior_theta=) wires the
+    Binder ridge probe. _prior_property consults it ONLY at the silent return
+    points of has_property (category_of -> None for a physical prop, or an
+    abstract/social property). ConceptNet's explicit True/False verdicts are
+    NEVER overridden — the prior cannot contradict them.
+  * chat/engine.py::_load_conceptnet_ontology now also loads
+    data/attribute_encoder.npz (if present) and passes the engine's GloVe-64
+    vector fn; production gate gets the prior for free, no-op if absent.
+
+Calibration (data/attribute_encoder.npz + data/ravana_glove_cache.npz),
+labeled color set (20 possess + 21 not-possess):
+    word        color score
+    tree 6.05 | sun 4.26 | cat 4.27 | rock 5.75 | flower 6.37 | grass 5.27
+    sky 3.90 | blood 3.78 | ...
+    tuesday 3.66 | day 3.07 | thought 1.71 | love 1.09 | idea 1.72 | ...
+  theta sweep (precision / recall / F1, 0 false positives throughout):
+    theta=4.0: P=1.00 R=0.70 F1=0.82
+    theta=4.5: P=1.00 R=0.30 F1=0.46   <-- LOCKED (per deferred-item spec)
+    theta=5.0: P=1.00 R=0.30 F1=0.46
+  Locked at theta=4.5: precision 1.00, recall 0.30, ZERO false positives. The
+  caveat from the original audit (tuesday->color=3.66 over-extrapolates) sits
+  BELOW threshold, so the prior never false-flags a legit concept.
+
+Tests (tests/unit/test_ontology_derived.py):
+  * test_prior_ranks_legit_above_oov_on_color — ranks tree/sun/cat above
+    tuesday/day/thought; theta=4.5 separates clear possessor from non-possessor.
+  * test_prior_does_not_override_conceptnet_verdict — the 7 core gate results
+    (tree/cat/sun=True, tuesday/thought=False) are UNCHANGED; prior only fills
+    genuine silence.
+  * test_prior_fills_silence_for_oov_subject — silent subjects get a definite
+    bool from the prior rather than None.
+
+--- ITEM 3: flaky test fixed (test hygiene) --------------------------------
+tests/unit/test_brain_inspired_fixes.py::test_context_query_vector_blends_
+context FAILED in the full suite but PASSED in isolation.
+
+ROOT CAUSE (proven, not guessed): the test used abs(hash(word)) for its
+"deterministic" pseudo-embedding. Python salts str.__hash__ per process via
+PYTHONHASHSEED, so the SAME test computed different vectors on different
+launches. Reproduced directly: it PASSES for most seeds but FAILS for seed 18
+and 28 — exactly the "passes alone, fails in suite" signature (the suite's
+process gets a different seed than an isolated run). Cross-module bisect showed
+test_chat_main / test_rlm_v2_sleep / test_serialization_stress /
+test_sleep_quality / test_system2_v2 reorderings expose it.
+
+FIX: replaced abs(hash(word)) with a STABLE hashlib.md5-based embedding
+(seed-independent), and snapshot STOP_WORDS inside the test (try/finally) so a
+preceding test's shared-module mutation cannot leak in. Assertion intent
+unchanged (context words must nudge the subject vector).
+
+VERIFIED: passes for seeds 0,5,10,18,20,25,28,30 AND when run immediately
+after each of the 5 culprit modules. No assertion weakened.
+
+--- Constraints honored -------------------------------------------------------
+  * No secrets/keys committed; data/ and *.pkl/*.npz are gitignored. ont.pkl
+    and ravana_weights.db were rebuilt/modified LOCALLY only.
+  * The three literal dicts remain OOV fallback; ConceptNetOntology stays the
+    primary gate.
+  * Full unit suite: target 1366+ with zero NEW failures (see run output).
 """
