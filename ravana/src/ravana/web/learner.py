@@ -255,11 +255,16 @@ class SearchEngine:
             if time.time() > _search_deadline:
                 break
             if api_name == "local_api":
-                # Already handled (and preferred) above; skip to avoid a
-                # redundant/duplicate local call when local_prefer is on.
-                if self.config.local_prefer:
+                # Already handled (and preferred) above when local_prefer is on
+                # and we're allowing remote. But when local_only=True, local_api
+                # is the ONLY allowed source — so it must NOT be skipped here.
+                if self.config.local_prefer and not local_only:
                     continue
-                continue
+                if local_only:
+                    # fall through to consult local_api below
+                    pass
+                else:
+                    continue
             if local_only and api_name != "local_api":
                 continue
 
