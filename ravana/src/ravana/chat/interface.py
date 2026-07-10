@@ -220,7 +220,11 @@ class ChatInterface:
         # Language modules
         self.basal_ganglia = BasalGangliaGate()
         self.cerebellar_ngram = CerebellarNgram()
-        self.pfc_workspace = PrefrontalWorkspace(capacity=5, analogy_engine=self.analogy_engine, abstraction_engine=self.abstraction_engine)
+        self.pfc_workspace = PrefrontalWorkspace(
+            capacity=5, analogy_engine=self.analogy_engine,
+            abstraction_engine=self.abstraction_engine,
+            vector_fn=self.graph_engine._glove_vector
+            if hasattr(self.graph_engine, '_glove_vector') else None)
         self.syntactic_assembly = SyntacticCellAssembly(learning_rate=0.05)
         self.surface_realizer = SurfaceRealizer()
 
@@ -329,6 +333,22 @@ class ChatInterface:
         self.turn_count += 1
         self._learned_this_turn = False
         self._cascade_for_quality = False
+
+        # ── Unified semantic layer: learn-by-chatting (N4→N2) ───────────────
+        # Route this user turn through the surprise gate; on ABSTAIN (high
+        # prediction error) spawn/merge a candidate category in the fast
+        # hippocampal store. Periodic sleep consolidates rehearsed candidates
+        # and prunes un-rehearsed singletons (class-explosion guard).
+        # No-op if no semantic space is wired (vector_fn is None).
+        try:
+            _act, _regime, _cid = self.pfc_workspace.learn_from_turn(user_input)
+            if _cid:
+                self._learned_this_turn = True
+            if self.turn_count % 25 == 0:
+                self._last_sleep = self.pfc_workspace.sleep()
+        except Exception:
+            # Learning must never break the conversation.
+            pass
 
         # Turn-scoped context isolation
         self._current_context_vector = None

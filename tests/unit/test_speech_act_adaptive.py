@@ -383,3 +383,40 @@ class TestWorkspaceLearnFromTurn:
         pfc._n2.reinforce(rid)
         res = pfc.sleep()
         assert res["promoted"] == 1
+
+
+class TestLiveLoopIntegration:
+    """Prove the seam the live chat loop calls actually learns + consolidates."""
+
+    def test_novel_intent_spawns_then_consolidates(self, glove_vector_fn):
+        vfn, _dim = glove_vector_fn
+        pfc = PrefrontalWorkspace(vector_fn=vfn)
+        # A genuinely novel utterance -> ABSTAIN (far prediction-error tail) -> spawn
+        act, regime, cid = pfc.learn_from_turn("fnord blarg whipple quadrature")
+        assert regime == "ABSTAIN"
+        assert cid
+        # same phrasing again -> reinforce (merge within radius)
+        act2, regime2, cid2 = pfc.learn_from_turn("fnord blarg whipple quadrature")
+        assert cid2 == cid
+        # enough rehearsals to clear the consolidation gate, then sleep
+        pfc._n2.reinforce(cid)
+        pfc._n2.reinforce(cid)
+        res = pfc.sleep()
+        assert res["promoted"] == 1
+        assert len(pfc._n2.stable_ids()) == 1
+
+    def test_command_like_phrasing_gets_learn_not_spawn(self, glove_vector_fn):
+        # "remind me to X" resembles known intents -> LEARN (bounded refine),
+        # NOT ABSTAIN -> no spurious new category. This is the explosion guard.
+        vfn, _dim = glove_vector_fn
+        pfc = PrefrontalWorkspace(vector_fn=vfn)
+        act, regime, cid = pfc.learn_from_turn("please remind me to drink water")
+        assert regime == "LEARN"
+        assert cid == ""  # LEARN does not spawn a candidate
+
+    def test_known_intent_does_not_spawn(self, glove_vector_fn):
+        vfn, _dim = glove_vector_fn
+        pfc = PrefrontalWorkspace(vector_fn=vfn)
+        act, regime, cid = pfc.learn_from_turn("what is trust?")
+        assert regime != "ABSTAIN" or cid == ""
+        assert len(pfc._n2.candidate_ids()) == 0 if pfc._n2 else True

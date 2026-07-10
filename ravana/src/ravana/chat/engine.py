@@ -1429,7 +1429,17 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             self.notify_user_idle()
             return resp
 
-        # ── Phase 19h: Koan / paradox reflection ───────────────────────────
+        # ── Unified semantic layer: learn-by-chatting (N4→N2) ───────────────
+        # Route this user turn through the surprise gate; on ABSTAIN spawn a
+        # candidate category in the fast hippocampal store. Periodic sleep
+        # consolidates rehearsed candidates / prunes singletons. No-op if no
+        # semantic space is wired. Learning must never break the conversation.
+        try:
+            _act, _regime, _cid = self.pfc_workspace.learn_from_turn(user_input)
+            if self.turn_count % 25 == 0:
+                self._last_sleep = self.pfc_workspace.sleep()
+        except Exception:
+            pass
         # Philosophical paradoxes and Zen koans are currently routed into the
         # decomposer, which looks up the word "paradox" and returns its stale
         # dictionary definition ("The meaning of PARADOX is..."). That's a
