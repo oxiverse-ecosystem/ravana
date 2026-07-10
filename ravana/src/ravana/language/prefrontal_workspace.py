@@ -887,6 +887,16 @@ class PrefrontalWorkspace:
             from ravana.core.hippocampal_buffer import HippocampalBuffer
             self._n2 = EmergentCategoryLearner(
                 vector_fn=self.vector_fn, hippocampal_buffer=HippocampalBuffer())
+        # Strongest novelty signal: an utterance with ZERO known semantic atoms.
+        # A fully-OOV phrase IS "unlike anything I know" — the truest prediction
+        # error. The gate's z-margin is undefined here (no embeddings), so we
+        # route to ABSTAIN directly and spawn. (This is the real novel-intent
+        # case; relying on the gate alone misses it because the glove fallback
+        # would fabricate a plausible-looking vector.)
+        vec = self._n2._sentence_vector(text)
+        if vec is None:
+            candidate_id = self._n2.learn_novel(text)
+            return (self._sac.classify_speech_act_rules(text) if hasattr(self._sac, "classify_speech_act_rules") else "statement", "ABSTAIN", candidate_id)
         act, regime, z = self._gate.route_stage1(self._sac, text)
         candidate_id = ""
         if regime == "ABSTAIN":

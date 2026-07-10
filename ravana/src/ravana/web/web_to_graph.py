@@ -126,12 +126,25 @@ class WebToGraph:
     def knowledge_gap(self, topic: str, max_known: int = 8) -> KnowledgeGap:
         """EFE proxy for a topic: sparse neighbourhood => high uncertainty.
 
+        Combines two signals of "how much we know about this topic":
+          - C-lite facts written about it (self._topic_edges)
+          - the node's actual graph edge-degree (a sparse/isolated node in the
+            existing graph is genuinely uncertain — the brain-faithful EFE:
+            pattern completion is weak where associations are few)
         efe = max(0, max_known - known_edges). Higher = more curious.
         """
-        known = self._topic_edges.get(topic.lower().strip(), 0)
-        # also count nodes the engine already had for this label
-        if known == 0 and topic.lower().strip() in self.ge._all_labels:
-            known = 1
+        t = topic.lower().strip()
+        known = self._topic_edges.get(t, 0)
+        # also count the node's real graph neighbourhood (edge degree)
+        nid = self.ge._all_labels.get(t)
+        if nid is not None:
+            node = self.ge.graph.get_node(nid)
+            if node is not None:
+                # a topic that EXISTS in the graph is at least minimally known;
+                # a topic absent from the graph entirely is the MOST uncertain.
+                known = max(known, 1)
+                deg = len(list(self.ge.graph.get_outgoing(nid))) if hasattr(self.ge.graph, "get_outgoing") else 0
+                known = max(known, min(max_known, deg))
         efe = max(0.0, max_known - known)
         return KnowledgeGap(topic=topic, known_edges=known, efe=efe)
 
