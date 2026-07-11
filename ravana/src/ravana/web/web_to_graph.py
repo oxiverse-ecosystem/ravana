@@ -112,10 +112,17 @@ class WebToGraph:
             edge = self.ge.graph.add_edge(
                 source=subj_id, target=obj_id, weight=0.5,
                 relation_type=edge_type, confidence=f.confidence)
-            # provenance: tag on the edge if the engine supports it
-            if edge is not None and hasattr(edge, "metadata"):
-                edge.metadata = {"source": source_url or self.source,
-                                 "relation": f.relation}
+            # provenance: tag on the edge. ConceptEdge stores provenance in
+            # `source_metadata` (NOT `metadata` — the old attribute name below
+            # never existed, so the `hasattr` guard silently skipped tagging and
+            # every web-fact edge arrived untagged). Merge so the defaults
+            # (source_agent='system', epistemic_status='fact', ...) are kept.
+            if edge is not None and hasattr(edge, "source_metadata"):
+                edge.source_metadata.update({
+                    "source": source_url or self.source,
+                    "relation": f.relation,
+                    "edge_kind": "web_fact",
+                })
             # gap tracking (both endpoints are now a bit more known)
             for t in (f.subject, f.obj):
                 self._topic_edges[t] = self._topic_edges.get(t, 0) + 1

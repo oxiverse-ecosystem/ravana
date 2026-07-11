@@ -583,7 +583,14 @@ class WebLearner:
                     existing = self.graph_engine.graph.get_edge(nid1, nid2)
                     if existing is None:
                         weight = max(0.3, min(0.7, 0.2 + word_counts.get(w1, 1) * word_counts.get(w2, 1) * 0.001))
-                        self.graph_engine.graph.add_edge(nid1, nid2, weight=weight, relation_type="semantic")
+                        e = self.graph_engine.graph.add_edge(nid1, nid2, weight=weight, relation_type="semantic")
+                        # Provenance: tag co-occurrence edges so pruning can tell
+                        # noisy web co-occurrence from verified web facts.
+                        if e is not None and hasattr(e, "source_metadata"):
+                            e.source_metadata.update({
+                                "source": source_id, "edge_kind": "co_occurrence",
+                                "relation": "semantic",
+                            })
                     else:
                         existing.weight = min(0.9, existing.weight + 0.05)
 
@@ -613,7 +620,12 @@ class WebLearner:
                     if self.graph_engine.graph.get_edge(nid, existing_nid) is None:
                         weight = max(0.25, min(0.5, sim * 0.5))
                         inf_type, _ = self.graph_engine._infer_relation_type(word, existing_node.label, "semantic")
-                        self.graph_engine.graph.add_edge(nid, existing_nid, weight=weight, relation_type=inf_type)
+                        e2 = self.graph_engine.graph.add_edge(nid, existing_nid, weight=weight, relation_type=inf_type)
+                        if e2 is not None and hasattr(e2, "source_metadata"):
+                            e2.source_metadata.update({
+                                "source": source_id, "edge_kind": "co_occurrence",
+                                "relation": inf_type,
+                            })
 
         # Train neural decoder
         if self.decoder_engine.neural_decoder and self.decoder_engine._decoder_vocab_built:

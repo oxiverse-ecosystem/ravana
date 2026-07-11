@@ -11,7 +11,7 @@ from typing import Dict, Any, List, Optional, Tuple, Set
 from collections import deque, Counter
 
 
-from .constants import STOP_WORDS
+from .constants import STOP_WORDS, WEB_GARBAGE
 from .chain_walker import ChainWalkerMixin
 from ravana.language.surface_realizer import DiscourseState
 # Compute project root (same logic as engine.py)
@@ -855,10 +855,102 @@ class ResponseGenMixin(ChainWalkerMixin):
 
         # -- GIST EXTRACTION: Generate from associations when no schema --
         if not schema_used and noun_assocs:
+            # If a verified definition was already emitted as sentence 1, STOP
+            # here. Appending free-association elaboration (subject -> vague
+            # verb -> any graph edge) is exactly the unmonitored decoding that
+            # produces drift ("whales mammals leads to deer"): the loose graph
+            # edges seeded for a glued subject are off-frame and survive every
+            # lexical filter because animals cluster in embedding space. The
+            # definition sentence is real, web-verified content — emitting it
+            # alone is honest and never confabulates. This is Levelt's monitor
+            # at the generator: do not articulate low-information sentences
+            # when the genuine fact is already stated. (A real event schema,
+            # when one exists, is still used via the schema path above — that
+            # is curated structure, not loose-edge drift.)
+            if used_definition:
+                if utterances:
+                    return " ".join(utterances)
+                return None
+            # For subjects WITHOUT a definition, we still elaborate — but only
+            # from associations that clear the self/redundancy/coherence gates
+            # below, so the worst tautology and off-frame drift are filtered.
             # If we already have a definition, only append associations if they have high confidence/weight
             # to prevent template-driven generic follow-up sentences.
             min_weight = 0.5 if used_definition else 0.25
-            valid_assocs = [a for a in noun_assocs if a[1] >= min_weight]
+            # Exclude self-referential associations (the subject itself, or a
+            # label that contains/equals the subject) from ELABORATION
+            # candidates. Binding the subject to its own association yields
+            # vacuous tautological follow-ons ("whales mammals is similar to
+            # whales mammals") — associative drift that the grounding gate then
+            # has to catch. Skipping them keeps the genuine definition sentence
+            # and avoids emitting confabulation. (Mirrors Levelt's monitor: do
+            # not articulate a sentence that says nothing but X-verbs-X.)
+            _subj_l = subject_lower
+            # Redundancy guard: if we already emitted a definition sentence,
+            # exclude follow-on associations whose words were just stated in it
+            # ("large and charismatic marine species" -> 'species' must not be
+            # re-bound as "whales mammals partly spring from species"). Binding a
+            # subject to an association it already expressed yields a
+            # near-tautological, low-information elaboration. When no distinct
+            # concept remains, the generator stays silent after the definition
+            # (honest) instead of emitting confabulation (Levelt's monitor).
+            _used_words = set()
+            if utterances:
+                _used_words = {w for w in re.findall(r"[a-z']+", utterances[0].lower())
+                               if len(w) >= 3 and w not in STOP_WORDS}
+            # Semantic-coherence guard (shares the 0.30 floor the grounding gate
+            # uses): only bind the subject to an association that is actually
+            # *about* the subject (GloVe cosine >= 0.30). Weak/heterogeneous
+            # associations ("fly", "tiny") produce incoherent elaborations
+            # ("whales mammals brings about tiny") — free decoding with no
+            # reality constraint, exactly the word-salad architecture. When no
+            # association is coherent, emit just the definition sentence and
+            # stop. GloVe-independent when unavailable (filter is skipped).
+            _gvec = getattr(self, "_glove_vector", None)
+            _subj_vec = _gvec(subject) if _gvec else None
+            # When a verified definition was used for sentence 1, elaborate only
+            # within that definition's semantic frame — not the bare subject.
+            # Animals like "deer"/"pygmy" are GloVe-near the subject ("whales
+            # mammals") but are NOT in the definition frame ("marine
+            # species/cetaceans"), so binding them yields incoherent drift
+            # ("whales mammals lead to deer"). The frame vector is the mean of
+            # the definition's content-word embeddings.
+            _frame_vec = None
+            if used_definition and _gvec is not None and _subj_vec is not None:
+                _fw = [w for w in re.findall(r"[a-z']+", def_text.lower())
+                       if len(w) >= 3 and w not in STOP_WORDS
+                       and w not in WEB_GARBAGE]
+                _fvecs = [(_gvec(w)) for w in _fw]
+                _fvecs = [v for v in _fvecs if v is not None]
+                if _fvecs:
+                    _frame_vec = np.mean(_fvecs, axis=0)
+                    _fn = np.linalg.norm(_frame_vec)
+                    if _fn > 0:
+                        _frame_vec /= _fn
+
+            def _coherent(label):
+                if _gvec is None:
+                    return True
+                v = _gvec(label)
+                if v is None:
+                    return False
+                # Prefer the definition frame; fall back to the subject vector.
+                _ref = _frame_vec if _frame_vec is not None else _subj_vec
+                if _ref is None:
+                    return True
+                n = float(np.linalg.norm(_ref)) * float(np.linalg.norm(v))
+                if n <= 0:
+                    return False
+                return float(np.dot(_ref, v)) / n >= 0.30
+
+            valid_assocs = [a for a in noun_assocs
+                            if a[1] >= min_weight
+                            and a[0].lower() != _subj_l
+                            and _subj_l not in a[0].lower()
+                            and a[0].lower() not in _subj_l
+                            and not any(tok in _used_words
+                                        for tok in a[0].lower().split())
+                            and _coherent(a[0].lower())]
             
             # Generate process description — use SECOND association for diversity
             # (first association was already used for the definition sentence)
@@ -1172,10 +1264,16 @@ class ResponseGenMixin(ChainWalkerMixin):
                                 if not text.endswith((".", "?", "!")):
                                     text += "."
                                 text = re.sub(r'\s+', ' ', text)
-                                if not _is_word_salad(text, subject=ctx.subject):
+                                if (not _is_word_salad(text, subject=ctx.subject)
+                                        and (getattr(self, "_disable_grounding_gate", False)
+                                             or self._sm_response_grounded(ctx, text))):
                                     if getattr(self, '_trace_enabled', False):
                                         print(f"  [trace]   SM decoder: generated fluid response")
                                     return (text, "situation_model_decoder")
+                                # Ungrounded fluent text (train/serve mismatch in
+                                # the neural decoder) is withheld — fall through to
+                                # narrative / syntax / honest uncertainty rather
+                                # than emit confident garbage (Levelt monitor).
             except Exception as e:
                 if getattr(self, '_trace_enabled', False):
                     print(f"  [trace]   SM decoder error: {e}")
@@ -1185,7 +1283,10 @@ class ResponseGenMixin(ChainWalkerMixin):
         if ctx.subject and hasattr(self, 'syntactic_assembly') and hasattr(self, 'surface_realizer'):
             try:
                 paragraph = self._generate_narrative_paragraph(ctx)
-                if paragraph and len(paragraph) > 15 and not _is_word_salad(paragraph, subject=ctx.subject):
+                if (paragraph and len(paragraph) > 15
+                        and not _is_word_salad(paragraph, subject=ctx.subject)
+                        and (getattr(self, "_disable_grounding_gate", False)
+                             or self._sm_response_grounded(ctx, paragraph))):
                     if getattr(self, '_trace_enabled', False):
                         print(f"  [trace]   SM narrative: generated fluid paragraph")
                     return (paragraph, "situation_model_narrative")
@@ -1254,7 +1355,13 @@ class ResponseGenMixin(ChainWalkerMixin):
                             utterance_frames.append(frame)
                     if utterances:
                         response = " ".join(utterances)
-                        return (response, "situation_model_syntax")
+                        if (getattr(self, "_disable_grounding_gate", False)
+                                or self._sm_response_grounded(ctx, response)):
+                            return (response, "situation_model_syntax")
+                        # H2: syntax path previously returned with NO salad or
+                        # grounding check, so hub nouns ("life","time","trust")
+                        # were bound into confident confabulations. Withhold and
+                        # let the caller fall back to honest uncertainty.
         except Exception as e:
             if getattr(self, '_trace_enabled', False):
                 print(f"  [trace]   SM syntax error: {e}")
@@ -1379,6 +1486,15 @@ class ResponseGenMixin(ChainWalkerMixin):
             return None
         if re.search(r"\b(what|who|where|when|why|how|which)\b", t):
             return None
+        # Yes/no and modal factual questions ("is pluto a planet?",
+        # "does the sun rise in the east?", "can dogs eat chocolate?") have no
+        # wh-word, so they would be mislabeled "statement" by
+        # classify_speech_act and wrongly acknowledged as assertions instead of
+        # routed to the factual web-answer path. Exempt aux-led questions here
+        # (mirrors the exemption above for wh-words), reusing the same detector
+        # that opens the web-answer gate — one definition of "yes/no question".
+        if hasattr(self, "_is_yesno_factual_query") and self._is_yesno_factual_query(t):
+            return None
 
         # Reflect the user's stated content. Prefer a concrete concept if one
         # was grounded; otherwise fall back to a light social acknowledgment.
@@ -1482,6 +1598,15 @@ class ResponseGenMixin(ChainWalkerMixin):
             if first in ("do", "does", "did", "is", "are", "am", "will",
                          "would", "can", "could", "should", "may", "might"):
                 if len(words) >= 2 and words[1] in _PRON:
+                    return None
+                # An auxiliary-led utterance that ends in '?' is a yes/no or
+                # modal *question* ("do birds fly?", "does the sun rise in the
+                # east?"), not an imperative — even when the word after the
+                # auxiliary is a noun rather than a pronoun. The trailing '?'
+                # was stripped above, so re-check the original text. This fixes
+                # the M2-adjacent misroute where "do/does...?" fell through to
+                # action_request instead of the factual web-answer path.
+                if text.rstrip().endswith("?"):
                     return None
             return first
         return None
@@ -1938,6 +2063,200 @@ class ResponseGenMixin(ChainWalkerMixin):
         # treated as ungrounded and answered with honest uncertainty instead of
         # confabulated association salad.
         return best >= 0.45
+
+    def _sm_response_grounded(self, ctx: CognitiveResponseContext,
+                              response_text: str) -> bool:
+        """Levelt-style pre-articulation monitor for Situation-Model free output.
+
+        The Situation-Model path (neural decoder + syntax) does *free*
+        generation, then only a permissive degeneracy check
+        (`_is_word_salad`, whose >=3-novel-word safety valve lets fluent-but-false
+        text through). Free decoding with no reality constraint is exactly the
+        architecture that produces word salad; biology instead gates at the
+        lemma/conceptual level *before* articulation (Levelt, Roelofs & Meyer
+        1999) via an internal monitor that intercepts errors before they are
+        uttered. Nothing is articulated unless it is conceptually anchored.
+
+        This gate is that monitor. A generated reply is safe to emit ONLY IF:
+
+          1. the subject has at least one graph- or web-verified fact (a stored
+             definition, a web-learned source, or a strongly-associated concept
+             whose GloVe vector is close, sim >= 0.30 — mirroring the
+             decomposition path's `_decomp_grounded` source-monitoring), AND
+          2. the reply actually *references* that verified knowledge: the subject
+             itself or one of its top associated concepts appears in the emitted
+             text.
+
+        Without (1) the utterance has nothing to anchor to → ungrounded. Without
+        (2) the fluent string may be drift that mentions neither the subject nor
+        anything we know → withhold it. In both cases the caller falls back to
+        honest uncertainty / reflective response instead of confident garbage.
+
+        Cheaper than running the GRU: a couple of set/GloVe lookups.
+        """
+        if not response_text or not response_text.strip():
+            return False
+        subject = (ctx.subject or "").lower().strip()
+        if not subject:
+            return False
+
+        # (1) Verified factual anchor for the subject — reuse the SAME evidence
+        # the decomposition path trusts, so the two monitors share one notion of
+        # "knowing" (no second, divergent definition of grounding).
+        has_verified_fact = False
+        if subject in getattr(self, "_definitions", {}):
+            has_verified_fact = True
+        elif subject in getattr(self, "_concept_sources", {}):
+            has_verified_fact = True
+        else:
+            subj_vec = self._glove_vector(subject) if hasattr(self, "_glove_vector") else None
+            if subj_vec is None:
+                # No embedding to judge by: weak grounding from graph presence.
+                has_verified_fact = (
+                    subject in getattr(self, "_concept_keywords", {})
+                    or subject in getattr(self, "_concept_labels", {})
+                )
+            else:
+                best = -1.0
+                for label, _score in (ctx.associated_concepts or [])[:12]:
+                    v = self._glove_vector(label)
+                    if v is None:
+                        continue
+                    sim = float(np.dot(subj_vec, v))
+                    if sim > best:
+                        best = sim
+                has_verified_fact = best >= 0.30
+
+        if not has_verified_fact:
+            # Nothing verified to anchor the utterance to → ungrounded.
+            return False
+
+        # (2) Does the reply actually reference the VERIFIED knowledge, not
+        # merely the subject? Free-decoded text trivially contains the subject
+        # ("trust is ...", "life is ..."), so subject presence alone proves
+        # nothing — it is exactly the hub-noun confabulation class
+        # ("trust is the light and the space where the matter and the time
+        # bend"). Require the reply to touch a verified neighbour (one of the
+        # subject's associated concepts) or the stored definition's own content
+        # words; otherwise the fluent string is drift that anchors to nothing
+        # we actually know and must be withheld.
+        resp_lower = response_text.lower()
+        resp_words = set(re.findall(r"[a-z']+", resp_lower))
+        assoc_set = {label.lower() for label, _ in (ctx.associated_concepts or [])[:8]}
+        reference_ok = False
+        for a in assoc_set:
+            a_words = a.split()
+            if a in resp_lower:                      # whole multi-word label present
+                reference_ok = True
+                break
+            if len(a_words) > 1 and all(w in resp_words for w in a_words):
+                reference_ok = True
+                break
+        if not reference_ok:
+            # Definition-content overlap (when a stored definition exists).
+            defn = getattr(self, "_definitions", {}).get(subject)
+            if defn:
+                defn_words = {w for w in re.findall(r"[a-z']+", defn.lower())
+                              if w not in STOP_WORDS and len(w) >= 3}
+                if defn_words and (defn_words & resp_words):
+                    reference_ok = True
+        if not reference_ok:
+            # Fluent text that names neither an association nor the stored
+            # definition is drift that anchors to nothing we know → withhold.
+            return False
+
+        # (3) TOPICAL COHERENCE — M4-grade factual gate.
+        # Anchoring (1)+(2) is necessary but NOT sufficient: a name-dropped
+        # subject can still be wrapped in off-topic web junk. "is pluto a
+        # planet?" → "pluto planet is about currently seeking energetic and
+        # motivated interns to join our dynamic team" passes (1)+(2) because
+        # "pluto" appears and has associations, yet it is about the COMPANY
+        # Pluto, not the planet — ungrounded emission dressed as knowledge.
+        #
+        # Biology doesn't emit text whose *meaning* has drifted from the
+        # intended concept (Levelt's monitor intercepts it). So the reply must
+        # stay on-topic with the subject. We measure this as the FRACTION of
+        # the reply's content words that are semantically anchored to the
+        # subject (per-word GloVe cosine >= 0.30) — a distribution check, not a
+        # single centroid threshold. Measured on real cases: a good answer
+        # anchors ~0.4-1.0 of its words (pluto "dwarf planet ... neptune"
+        # =1.0; ravana "cognitive architecture ... web" =0.4), while off-topic
+        # junk anchors only ~0.2 (pluto "interns to join our dynamic team"
+        # =0.2). Requiring>=0.30 reliably separates them without a hard cutoff
+        # on the whole text. This is the same 0.30 floor `_decomp_grounded`
+        # already uses for the decomposition path, so the two monitors share
+        # one notion of "anchored."
+        try:
+            subj_vec = self._glove_vector(subject) if hasattr(self, "_glove_vector") else None
+            if subj_vec is not None:
+                # Content words of the reply, excluding stop words / web-garbage
+                # / first-second-person chatter — reuse the SAME junk notion as
+                # _definition_looks_clean so the gate shares one definition of
+                # "clean fact-shaped text".
+                _CHATTER = (
+                    "i", "you", "we", "they", "he", "she", "it", "my", "our",
+                    "your", "their", "me", "us", "him", "her",
+                )
+                cw = [w for w in resp_words
+                      if len(w) >= 3 and w not in STOP_WORDS
+                      and w not in WEB_GARBAGE and w not in _CHATTER]
+                sims = []
+                for w in cw:
+                    v = self._glove_vector(w)
+                    if v is None:
+                        continue
+                    n = float(np.linalg.norm(v)) * float(np.linalg.norm(subj_vec))
+                    sims.append(float(np.dot(v, subj_vec)) / n if n > 0 else -1.0)
+                if sims:
+                    # Fraction of content words genuinely about the subject.
+                    frac_anchored = sum(1 for s in sims if s >= 0.30) / len(sims)
+                    if frac_anchored < 0.30:
+                        # Reply is mostly off-topic drift (e.g. "interns to join
+                        # our dynamic team") wrapped around the subject token.
+                        return False
+                    # Secondary guard: the whole-reply centroid must not be
+                    # anti-aligned with the subject (handles hub-noun salads
+                    # whose words are mutually near the subject but say nothing
+                    # specific). A clearly negative centroid is incoherent.
+                    mean = np.mean([self._glove_vector(w) for w in cw
+                                    if self._glove_vector(w) is not None], axis=0)
+                    nc = float(np.linalg.norm(mean)) * float(np.linalg.norm(subj_vec))
+                    align = float(np.dot(mean, subj_vec)) / nc if nc > 0 else -1.0
+                    if align < 0.10:
+                        return False
+        except Exception:
+            # A monitor failure must err toward withholding (safe), not emit.
+            if getattr(self, "_trace_enabled", False):
+                print("  [trace]   SM gate: coherence check errored — withholding")
+            return False
+
+        # (4) SENTENCE-LEVEL SELF-REFERENCE (tautological drift).
+        # Steps (1)-(3) only judge the reply *as a whole*, so a paragraph with
+        # one good sentence + one associative-drift sentence still passes. The
+        # drift sentence is exactly the hub-noun confabulation class: it merely
+        # restates the subject ("whales mammals possibly bring about whales
+        # mammals"). Biology does not articulate a sentence that says nothing
+        # but X-verbs-X. Reject any single sentence that repeats the FULL
+        # multi-word subject >= 2x (single-word subject >= 3x) — a strong,
+        # GloVe-independent tautology signal that needs no embeddings, so it
+        # works even when the lexical check above is unavailable.
+        _stoks = subject.split()
+        _multi = len(_stoks) >= 2
+        _repeat_thresh = 2 if _multi else 3
+        for _s in re.split(r"(?<=[.!?])\s+", response_text):
+            _sl = _s.lower().strip()
+            if not _sl:
+                continue
+            if _multi:
+                _reps = _sl.count(subject)
+            else:
+                _reps = len(re.findall(r"\b" + re.escape(subject) + r"\b", _sl))
+            if _reps >= _repeat_thresh:
+                if getattr(self, "_trace_enabled", False):
+                    print("  [trace]   SM gate: self-referential tautology withheld")
+                return False
+
+        return True
 
     def _detect_emotional_disclosure(self, ctx: CognitiveResponseContext):
         """Detect first-person affective self-disclosures (I feel / I am / I love ...).

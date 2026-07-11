@@ -1505,10 +1505,33 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             self._recently_learned_labels.clear()
 
         # Intercept direct identity/preference questions about the user: "what is my name", "who am i", etc.
+        # M5 fix: the old detector was an exact-match allowlist
+        # (["what is my name", "do you know my name", ...]) plus two
+        # endswith() checks, so natural variants like "do you remember my
+        # name?" / "can you recall my name?" / "what's my name again?" fell
+        # straight through to a generic reflective fallback. Replace with
+        # intent-based detection: any QUESTION that is about the user's name or
+        # identity. Question shape is required so statements ("my name is X",
+        # handled by the belief/user_model path) are NOT miscaught.
         clean_input = user_input.lower().strip(" ?!.")
-        identity_questions = [
-            "what is my name", "what's my name", "do you know my name", "who am i", "tell me my name", "who i am"
-        ]
+        _qa_shape = (user_input.lower().rstrip().endswith("?")
+                     or re.search(r"^(what|who|where|when|why|how|do|does|did|"
+                                  r"is|are|can|could|would|will|should|have|has)\b",
+                                  clean_input) is not None)
+        _name_q = bool(re.search(r"\bmy name\b", clean_input))
+        is_identity_query = (
+            clean_input in ("what is my name", "what's my name",
+                            "do you know my name", "who am i",
+                            "tell me my name", "who i am")
+            or clean_input.endswith("who am i")
+            or clean_input.endswith("what is my name")
+            or re.search(r"\bwho am i\b", clean_input) is not None
+            or re.search(r"\bwhat(?:'s| is) my name\b", clean_input) is not None
+            or re.search(r"\b(do|did|can|could|would|will|have|has)\b.{0,15}"
+                         r"\b(remember|know|recall|forget)\b.{0,15}\bmy name\b",
+                         clean_input) is not None
+            or (_name_q and _qa_shape)
+        )
         likes_questions = [
             "what do i like", "what do i love", "do you know what i like", "do you know what i love", 
             "tell me what i like", "tell me what i love", "what i like", "what i love"
@@ -1519,7 +1542,6 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             "what i am interested in"
         ]
         
-        is_identity_query = clean_input in identity_questions or clean_input.endswith("who am i") or clean_input.endswith("what is my name")
         is_likes_query = clean_input in likes_questions or clean_input.endswith("what do i like") or clean_input.endswith("what do i love")
         is_interests_query = clean_input in interests_questions or clean_input.endswith("what am i interested in") or clean_input.endswith("what do i want to learn")
         
@@ -2333,6 +2355,10 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
 
         # ─── Self-Improvement Loop: Learn from Weak Responses (ERN -> ACC -> LC-NE -> Hippocampus) ───
         quality_score = self._assess_response_quality(response, strategy, ctx)
+        # Persist the last quality score so benchmarking/ablation harnesses can
+        # read it without re-scoring (used by experiments/experiment_ablation.py
+        # and the pre-arc vs post-arc benchmark as the always-on cheap signal).
+        self._last_quality_score = quality_score
 
         # Phase 19g: if the generated response was flagged as word salad /
         # tautology (e.g. "gravity and time causes time"), do NOT emit it.
@@ -2447,12 +2473,19 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                     common_ground=self._common_ground,
                 )
                 conf = self.identity.state.strength * 0.5 + 0.3
-                # A synthesized decomposition (compare / why / how / hypothetical /
-                # complex) is intentionally multi-sentence — do NOT let verbosity
-                # truncation collapse it to one sentence.
+                # A synthesized multi-sentence answer must NOT be collapsed to
+                # its first sentence by the verbosity truncation once verbosity
+                # decays (< 0.20) after a few friendly turns. This covers
+                # decomposed_* comparisons/explanations AND the Situation-Model
+                # narrative/syntax outputs (M1: the guard previously only
+                # protected decomposed_*, so narrative/syntax paragraphs were
+                # silently truncated to one sentence).
                 _is_decomposed = strategy and strategy.startswith("decomposed_")
+                _is_sm_multi = strategy in (
+                    "situation_model_narrative", "situation_model_syntax")
                 response = self.register_controller.compose(
-                    response, conf, multi_sentence=_is_decomposed)
+                    response, conf,
+                    multi_sentence=(_is_decomposed or _is_sm_multi))
                 # Pre-emission forward-model self-monitor (brief behavior 6):
                 # refuse degenerate/echo replies before they are articulated.
                 response = self._forward_model_check(response, ctx)
@@ -2957,6 +2990,59 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             return True
         return False
 
+    def _is_yesno_factual_query(self, text: str) -> bool:
+        """Detect a yes/no or modal *factual* question ('is X a Y?', 'can dogs
+        eat chocolate?', 'are whales mammals?').
+
+        These are fact-seeking exactly like 'what is X?' — they want a
+        definitional/encyclopedic fact — yet `_is_informational_query` only
+        accepts wh-/define- prefixed questions (its info_patterns are anchored
+        to ^(what|who|where|when|which|how)), so yes/no factual questions fall
+        through the live web-answer path and never retrieve an easy fact. That
+        is M2: a confident-but-wrong SM reply (or a shrug) instead of the
+        encyclopedic answer the web would give in a blink.
+
+        This mirrors `_is_conditional_query`: a non-wh question that is still
+        fact-seeking routes to the same web retrieval + learning loop. We keep
+        it deliberately narrow so we don't sweep opinion/personal/conditional
+        turns into factual lookup:
+          - must be a question (ends with '?' or reads as one), AND
+          - lead with an auxiliary/modal verb (is/are/was/were/can/could/
+            do/does/did/should/would/may/might/must), AND
+          - the subject is NOT a personal/opinion/conditional frame
+            (you/your/yourself/opinion/feel/love/meaning of life/if...).
+
+        Note: web *learning* for an unknown subject already happens via the
+        FOK/LPFC pre-queue (that path keys on associations, not query form), so
+        the only missing piece is the LIVE answer retrieval — fixed by folding
+        this into the `_web_direct_answer` gate alongside `_is_conditional_query`.
+        """
+        t = text.lower().strip(" ?!.")
+        if not t.endswith("?") and not re.search(
+                r"\b(is|are|was|were|can|could|do|does|did|should|"
+                r"would|may|might|must)\b", t):
+            return False
+        # Must lead with an auxiliary/modal verb (yes/no / modal shape).
+        if not re.match(
+                r"\b(is|are|was|were|can|could|do|does|did|should|"
+                r"would|may|might|must)\b", t):
+            return False
+        # Exclude personal / opinion / open-philosophical / conditional frames —
+        # those are not factual lookups (mirrors _is_informational_query's
+        # reasoning_patterns exclusions). We block opinion verbs and second-
+        # person address ("do YOU think/feel/believe..."), not bare first/
+        # third-person pronouns — "should I drink water?" is a factual question,
+        # not an opinion, and must stay in.
+        _nonfactual = [
+            r"\b(if|suppose|assume|predict)\b",
+            r"\b(you|your|yourself|opinion|think|feel|love|"
+            r"meaning of life|believe|prefer)\b",
+        ]
+        for pat in _nonfactual:
+            if re.search(pat, t):
+                return False
+        return True
+
     def _is_preamble_fragment(self, text: str) -> bool:
         """Turn-end predictor analog (brief behavior 2).
 
@@ -3097,6 +3183,15 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             if scenario:
                 return f"{scenario} what would happen"
             return raw_input
+        # Yes/no & modal factual questions ("is pluto a planet?", "can dogs eat
+        # chocolate?") start with an auxiliary, so the wh-branch above never
+        # fires — they fell through to the raw "is X a Y?" query, which the
+        # search backend ranks poorly (junk/entity-collision). Recast as a
+        # definition-seeking query so encyclopedic/dictionary pages surface.
+        # This is the same signal my _web_direct_answer gate uses to route
+        # yes/no questions to the web path in the first place.
+        if self._is_yesno_factual_query(raw_input):
+            return f"what is {subj}"
         # Informational single-word definition queries: bias toward dictionary.
         if re.match(r"^(what|who|which)\s+(is|are|was|were)\b", t) and " " not in subj:
             return f"{subj} definition"
@@ -3679,7 +3774,9 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         if not query:
             return None
         is_conditional = self._is_conditional_query(query)
-        if not (self._is_informational_query(query, ctx.subject) or is_conditional):
+        if not (self._is_informational_query(query, ctx.subject)
+                or is_conditional
+                or self._is_yesno_factual_query(query)):
             return None
         variants = self._web_query_variants(query, ctx.subject, is_conditional)
         if getattr(self, '_trace_enabled', False):
@@ -5967,53 +6064,6 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         if self._trace_enabled:
             print(f'  [bg] background learning stopped (performed {self._bg_search_count} searches)')
 
-
-
-
-    def _is_informational_query(self, query: str, subject: str) -> bool:
-        """Determines if a query is informational/fact-seeking (asks for a definition,
-        factual knowledge, or explanation of an unknown concept) rather than
-        conversational, logical, relational, or conditional.
-        """
-        q = query.lower().strip(" ?!.")
-        
-        # 1. Statements are never informational queries
-        is_question = query.strip().endswith('?') or any(w in q for w in ["what", "who", "where", "when", "why", "how", "define", "explain", "describe", "tell me about"])
-        if not is_question:
-            return False
-            
-        # 2. Logic puzzles, conditional scenarios, riddles, comparison queries are NOT simple definition/fact-seeking queries.
-        # These require cognitive reasoning, which should be processed internally.
-        reasoning_patterns = [
-            r"\b(if|suppose|assume|predict)\b",  # conditional/scenario (note: 'when' at sentence start is a question, not conditional)
-            r"\b(why|how does|how do|how to)\b",      # causal/procedural reasoning
-            r"\b(compare|contrast|difference|similar|opposite|antonym|synonym|analogy|analogies)\b", # relation/comparison
-            r"\b(taller|shorter|heavier|lighter|older|younger|better|worse|biggest|tallest|heaviest|smartest)\b", # comparison/ordering
-            r"\b(riddle|puzzle|logic|math|solve|calculation)\b", # logic/riddle
-            r"\bis to\b", # analogy
-            r"\b(you|your|yourself|think|opinion|feel|friendship|love|meaning of life)\b", # personal, opinion, or open philosophical
-            r"\b(joke|riddle|story|poem|tale|fun fact|quote|fact about)\b", # entertainment/trivia — not definition-seeking
-        ]
-        for pattern in reasoning_patterns:
-            if re.search(pattern, q):
-                return False
-                
-        # 3. Check if the query matches a pattern asking for a definition/fact
-        info_patterns = [
-            r"^(what|who) (is|are|was|were|refers to|means)\b",
-            r"^(what|who|where|when|which|how) \w+\b",  # "who won...", "where is...", "when was X built", "which city...", "how do X..."
-            r"^define\b",
-            r"^explain\b",
-            r"^tell me about\b",
-            r"^do you know\b",
-            r"^what do you know about\b",
-        ]
-        if any(re.match(pat, q) for pat in info_patterns):
-            return True
-            
-        # If it's a question but didn't match the reasoning patterns or explicit informational patterns,
-        # we err on the side of conversational/reasoning to let RAVANA chat like a human.
-        return False
 
 
 
