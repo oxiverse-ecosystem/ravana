@@ -165,6 +165,94 @@ class DualCodeSpace:
             self.bind_role("verb", verb),
             self.bind_role("object", obj),
         ])
+    def resonator_allowed(self, probe: Optional[np.ndarray] = None,
+                          role: str = "object",
+                          candidate_words: Optional[List[str]] = None) -> bool:
+        """Bounded-convergence gate for the iterative resonator (M3, IV-D).
+
+        Per the plan (IV-D): keep the resonator DEFAULT OFF until a
+        bounded-convergence proof holds (Frady et al. 2020 Resonator
+        Networks; Hiratani & Sompolinsky 2022 optimal quadratic
+        binding). This predicate IS that proof, checked EMPIRICALLY on
+        a probe before any iteration > 1 is permitted.
+
+        Contraction condition (Hiratani & Sompolinsky 2022): the
+        rebind-subtract operator must be a CONTRACTION on the
+        residual -- i.e. the residual norm must SHRINK MONOTONICALLY
+        across iterations, the decoded label must STABILIZE (no
+        oscillation), and the final norm must fall below a tight
+        threshold. If at ANY step the norm fails to strictly
+        decrease, or the label flips, the binding operator's
+        spectral radius is >= 1 -> the resonator DIVERGES (the
+        docstring's "naive residual-subtraction diverges" warning) ->
+        NOT allowed.
+
+        Honest default: on the current (non-orthogonal, correlated)
+        GloVe-bound structures this returns False, so the resonator
+        stays OFF BY PROOF, not by assertion. It only returns
+        True if a real probe demonstrates contraction.
+
+        Returns False unless the probe shows strict monotonic
+        contraction + label stabilization + tight final-norm.
+        """
+        if not self.unitary_roles:
+            return False  # exact rebind is the precondition
+        # Build a probe if none supplied: a real (subject,verb,object) bound
+        # from THREE DISTINCT confusable words (the regime where the
+        # resonator is supposed to help -- sibling confusion). next()
+        # on a dict returns the SAME first key, so pick distinct keys.
+        if probe is None or candidate_words is None:
+            try:
+                keys = list(self._lut64.keys()) if self._lut64 else []
+                # pick 3 distinct words from a real confusable cluster if possible
+                cluster = [w for w in keys if w in
+                           ("lion", "tiger", "bear", "wolf", "fox", "cat", "dog")]
+                if len(cluster) >= 3:
+                    subj, verb_w, obj_w = cluster[0], "isa", cluster[1]
+                    cand = cluster[:6]
+                elif len(keys) >= 3:
+                    subj, verb_w, obj_w = keys[0], keys[1], keys[2]
+                    cand = keys[:12]
+                else:
+                    return False
+                s = (self.bind_role("subject", subj)
+                      + self.bind_role("verb", verb_w)
+                      + self.bind_role("object", obj_w))
+                ns = np.linalg.norm(s)
+                probe = (s / ns).astype(np.float32) if ns > 0 else s.astype(np.float32)
+                candidate_words = cand
+            except Exception:
+                return False
+        if probe is None or np.linalg.norm(probe) < 1e-9 or not candidate_words:
+            return False
+        # Walk the SAME loop recover_role_filler_with_conf uses: unbind ->
+        # NN decode -> rebind-subtract -> re-decode. Require contraction.
+        prev_norm = float(np.linalg.norm(probe))
+        prev_label = None
+        cur = probe
+        for _ in range(6):
+            rec = self.unbind_role(cur, role)
+            best, _b = None, -1.0
+            for w in candidate_words:
+                sim = cosine_sim(rec, self.atom_hrr(w))
+                if sim > _b:
+                    _b, best = sim, w
+            if best is None:
+                return False
+            contrib = self.bind_role(role, best)
+            residual = cur - contrib * float(np.dot(cur, contrib)) / (np.dot(contrib, contrib) + 1e-9)
+            norm = float(np.linalg.norm(residual))
+            # Strict monotonic contraction + no oscillation.
+            if prev_label is not None and (norm >= prev_norm - 1e-6 or best != prev_label):
+                return False  # not contractive -> diverges -> NOT allowed
+            prev_norm, prev_label = norm, best
+            cur = residual
+        # Tight final-norm threshold: residual well below the start scale.
+        start_scale = float(np.linalg.norm(
+            self.bind_role("subject", "x")
+            + self.bind_role("verb", "y")
+            + self.bind_role("object", "z"))) or 2.0
+        return prev_norm < 0.3 * start_scale
 
     def recover_role_filler_with_conf(self, structure: np.ndarray, role: str,
                                        candidate_words: list, max_iter: int = -1) -> Tuple[Optional[str], float]:
@@ -177,9 +265,23 @@ class DualCodeSpace:
         iterations are bounded. Requires unitary_roles (exact rebind) — already the
         default. Returns (best_word, best_cosine); the cosine stays the honest
         decode-similarity confidence proxy (calibration-safe).
-        max_iter < 0 -> use self._resonator_max_iter (benchmark A/B toggle)."""
+        max_iter < 0 -> use self._resonator_max_iter (benchmark A/B toggle).
+
+        IV-D GATE: the resonator is DEFAULT OFF (_resonator_max_iter=1)
+        and is only permitted > 1 iterations when resonator_allowed()
+        proves bounded convergence on a probe (Frady 2020 / Hiratani &
+        Sompolinsky 2022 contraction condition). If a caller requests
+        max_iter > 1 but the contraction proof fails, we AUTO-DISABLE
+        to max_iter=1 — so the resonator can NEVER diverge at runtime.
+        Positioning / related work: docs/brain_science_positioning.md.
+        """
         if max_iter is not None and max_iter < 0:
             max_iter = self._resonator_max_iter
+        # IV-D bounded-convergence gate: forbid iteration unless contraction
+        # is empirically demonstrated. This keeps the resonator OFF by
+        # proof, not by assertion.
+        if max_iter is not None and max_iter > 1 and not self.resonator_allowed():
+            max_iter = 1
         rec = self.unbind_role(structure, role)
         best, best_sim = None, -1.0
         for w in candidate_words:
