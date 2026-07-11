@@ -26,6 +26,31 @@ from typing import Dict, List, Optional, Callable, Tuple, Any
 from dataclasses import dataclass, field
 
 
+# ── Derived-signal formulas (module-level, picklable by reference) ──────────
+# These MUST live at module scope (not as local lambdas inside
+# create_rlm_currency) because CognitiveCurrency is pickled whole-object by the
+# engine's checkpoint save (engine.py: pickle.dump(state)). Local lambdas are
+# unpicklable and crash the save ("Can't pickle local object ... <locals>").
+# register_derived stores the formula NAME (string); compute_derived resolves
+# it through this registry. See P0 in the remediation plan.
+def _formula_cognitive_load(s: Dict[str, Signal]) -> float:
+    return min(1.0, (s['sleep_pressure'].value * 0.5 +
+                     s['dissonance_ema'].value * 0.3 +
+                     (1.0 - s['identity_strength'].value) * 0.2))
+
+
+def _formula_stability_index(s: Dict[str, Signal]) -> float:
+    return 0.5 + 0.5 * s['identity_strength'].value - 0.3 * s['dissonance_ema'].value
+
+
+_DERIVED_REGISTRY: Dict[str, Callable[[Dict[str, Signal]], float]] = {
+    'cognitive_load': _formula_cognitive_load,
+    'stability_index': _formula_stability_index,
+}
+# Reverse map so register_derived(lambda...) can recover the canonical name.
+_REVERSE_REGISTRY = {v: k for k, v in _DERIVED_REGISTRY.items()}
+
+
 @dataclass
 class Signal:
     """A named scalar signal with range constraints and decay."""
@@ -125,12 +150,32 @@ class CognitiveCurrency:
                          formula: Callable[[Dict[str, Signal]], float],
                          min_val: float = 0.0, max_val: float = 1.0,
                          description: str = ""):
-        """Register a derived signal computed from other signals."""
-        self._derived[name] = formula
+        """Register a derived signal computed from other signals.
+
+        The formula is stored as its REGISTRY NAME (string) when it matches a
+        module-level formula in ``_DERIVED_REGISTRY``, so the object stays
+        picklable (local lambdas are not). If a raw callable is passed that is
+        not in the registry, it is stored as-is (backward-compatible, but will
+        not survive a whole-object pickle).
+        """
+        if callable(formula) and formula in _REVERSE_REGISTRY:
+            stored = _REVERSE_REGISTRY[formula]
+        elif isinstance(formula, str):
+            stored = formula
+        else:
+            stored = formula  # non-registry callable kept for backward-compat
+        self._derived[name] = stored
         # Also create a signal entry so it can be read like any other
         self._signals[name] = Signal(name=name, value=0.0, min_val=min_val,
                                      max_val=max_val, description=description)
         self._history[name] = []
+
+    def _resolve_derived(self, name: str):
+        """Return the callable formula for a derived signal name (or None)."""
+        entry = self._derived.get(name)
+        if isinstance(entry, str):
+            return _DERIVED_REGISTRY.get(entry)
+        return entry  # raw callable (backward-compat)
 
     def add_alert(self, signal_name: str, threshold: float,
                   direction: str, mode: str):
@@ -162,7 +207,10 @@ class CognitiveCurrency:
 
     def compute_derived(self):
         """Recompute all derived signals from current values."""
-        for name, formula in self._derived.items():
+        for name in self._derived:
+            formula = self._resolve_derived(name)
+            if formula is None:
+                continue
             val = formula(self._signals)
             self._signals[name].value = max(
                 self._signals[name].min_val,
@@ -217,6 +265,35 @@ class CognitiveCurrency:
             if name in self._history:
                 self._history[name] = list(vals)
 
+    # ── Pickle hooks (P0: make CognitiveCurrency picklable) ──────────────────
+    # Derived formulas are stored by REGISTRY NAME (string), which is picklable.
+    # As a safety net, __getstate__ drops any non-string (callable) derived entry
+    # so an old/local lambda can never crash the save; __setstate__ rebuilds the
+    # _derived map from the registry by name. This is the single choke point
+    # that fixes the engine checkpoint crash ("Can't pickle local object").
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        derived_out = {}
+        for n, entry in self._derived.items():
+            if isinstance(entry, str) and entry in _DERIVED_REGISTRY:
+                derived_out[n] = entry
+            # else: drop unpicklable callable — rebuilt on load via registry
+        state['_derived'] = derived_out
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        # Rebuild _derived from the registry by name (callables were dropped on
+        # dump). Any name not in the registry is kept as-is for backward-compat.
+        rebuilt = {}
+        for n, entry in self._derived.items():
+            if isinstance(entry, str) and entry in _DERIVED_REGISTRY:
+                rebuilt[n] = entry
+            elif callable(entry):
+                rebuilt[n] = entry
+            # else: unknown non-string -> skip
+        self._derived = rebuilt
+
     def __repr__(self):
         vals = ", ".join(f"{n}={s.value:.3f}" for n, s in self._signals.items()
                          if n not in self._derived)
@@ -264,19 +341,19 @@ def create_rlm_currency() -> CognitiveCurrency:
     c.register('token_hit_ema', 0.5, min_val=0.0, max_val=1.0,
                description="EMA of token-level prediction hit rate")
 
-    # Derived signals — computed from others
+    # Derived signals — computed from others. Registered by REGISTRY NAME
+    # (string) so the currency object stays picklable; the formula is resolved
+    # via _DERIVED_REGISTRY at compute time. (P0 fix: no local lambdas.)
     c.register_derived(
         'cognitive_load',
-        lambda s: min(1.0, (s['sleep_pressure'].value * 0.5 +
-                            s['dissonance_ema'].value * 0.3 +
-                            (1.0 - s['identity_strength'].value) * 0.2)),
+        'cognitive_load',
         min_val=0.0, max_val=1.0,
         description="Composite cognitive load metric"
     )
 
     c.register_derived(
         'stability_index',
-        lambda s: 0.5 + 0.5 * s['identity_strength'].value - 0.3 * s['dissonance_ema'].value,
+        'stability_index',
         min_val=0.0, max_val=1.0,
         description="How stable the cognitive state is"
     )

@@ -138,3 +138,42 @@ def test_full_rlm_currency_lifecycle():
     assert 'signals' in data
     assert 'history' in data
     assert len(data['history']['sleep_pressure']) == 10
+
+
+def test_pickle_roundtrip():
+    """P0: CognitiveCurrency must survive a whole-object pickle (the engine
+    checkpoint save at engine.py: pickle.dump(state) embeds self.currency).
+    Local-lambda derived formulas previously crashed the save; now formulas are
+    stored by registry name (string). After roundtrip, signal values are
+    preserved and derived signals RECOMPUTE correctly from the restored values.
+    """
+    import pickle
+    c = create_rlm_currency()
+    # Set some non-default values and recompute derived.
+    c.update('sleep_pressure', 0.4)
+    c.update('dissonance_ema', 0.9)
+    c.update('identity_strength', 0.6)
+    c.compute_derived()
+    pre_load = c.get('cognitive_load')
+    pre_stab = c.get('stability_index')
+    pre_sleep = c.get('sleep_pressure')
+
+    blob = pickle.dumps(c)
+    c2 = pickle.loads(blob)
+
+    # Signals preserved.
+    assert abs(c2.get('sleep_pressure') - pre_sleep) < 1e-10
+    # Derived map rebuilt from registry (names, not lambdas).
+    assert 'cognitive_load' in c2._derived
+    assert 'stability_index' in c2._derived
+    # Derived signals recompute from restored signal values.
+    c2.compute_derived()
+    assert abs(c2.get('cognitive_load') - pre_load) < 1e-10
+    assert abs(c2.get('stability_index') - pre_stab) < 1e-10
+    # History preserved too.
+    assert len(c2._history.get('sleep_pressure', [])) == len(c._history['sleep_pressure'])
+
+
+if __name__ == "__main__":
+    import pytest
+    raise SystemExit(pytest.main([__file__, "-v"]))

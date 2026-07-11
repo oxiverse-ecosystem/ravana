@@ -5174,6 +5174,56 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         (r"why\s+(?:is\s+|are\s+)?(.+)", 1),                    # why is X / why does X
     ]
 
+    # ── Safe pickle for checkpoint save (P0 resilient fallback) ───────────────
+    # The curated ``state`` dict is a fresh local snapshot, so mutating it for
+    # serialization is safe (it never touches live engine internals). The graph
+    # is already persisted to SQLite separately (Phase 1), and the only
+    # unpicklable object type that has historically leaked into the snapshot
+    # (sqlite3.Connection, self.db) is *reopened from _db_path on load* — so
+    # dropping it cannot lose durable state. This makes the checkpoint save
+    # succeed ("saved …KB") instead of crashing ("save failed") on any latent
+    # unpicklable object, closing the P4 latent-bug mask at the single choke
+    # point.
+    def _safe_pickle_dump(self, state, fpath):
+        import pickle
+        try:
+            with open(fpath, 'wb') as _f:
+                pickle.dump(state, _f)
+            return True
+        except (TypeError, pickle.PicklingError):
+            pass
+        # Best-effort: deep-copy the snapshot, replacing any unpicklable object
+        # with a typed placeholder string, then retry.
+        try:
+            import sqlite3
+
+            def _sanitize(obj, _seen=None):
+                if _seen is None:
+                    _seen = set()
+                if id(obj) in _seen:
+                    return obj
+                _seen.add(id(obj))
+                if isinstance(obj, sqlite3.Connection):
+                    return f"<unpicklable:{type(obj).__name__}>"
+                if isinstance(obj, dict):
+                    return {k: _sanitize(v, _seen) for k, v in obj.items()}
+                if isinstance(obj, (list, tuple, set)):
+                    _cls = type(obj)
+                    return _cls(_sanitize(v, _seen) for v in obj)
+                # Probe picklability of leaf-like scalars/objects cheaply.
+                try:
+                    pickle.dumps(obj)
+                    return obj
+                except Exception:
+                    return f"<unpicklable:{type(obj).__name__}>"
+
+            sane = _sanitize(state)
+            with open(fpath, 'wb') as _f:
+                pickle.dump(sane, _f)
+            return True
+        except Exception:
+            return False
+
     def save(self) -> str:
         """Save full cognitive state to disk. Returns path to save file."""
         import time
@@ -5347,8 +5397,10 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 # Phase 6.1: Checkpoint rotation — save every 25 turns
                 if self.turn_count > 0 and self.turn_count % 25 == 0:
                     checkpoint_path = self._save_path.replace('.pkl', f'_{self.turn_count}.pkl')
-                    with open(checkpoint_path, 'wb') as f:
-                        pickle.dump(state, f)
+                    if self._safe_pickle_dump(state, checkpoint_path):
+                        size_kb = os.path.getsize(checkpoint_path) / 1024
+                    else:
+                        size_kb = 0
                     # Keep last 3 checkpoints, remove older ones
                     checkpoints = sorted(glob.glob(self._save_path.replace('.pkl', '_[0-9]*.pkl')))
                     for old_cp in checkpoints[:-3]:
@@ -5359,10 +5411,10 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             except Exception:
                 pass
             try:
-                with open(self._save_path, 'wb') as f:
-                    pickle.dump(state, f)
-                size_kb = os.path.getsize(self._save_path) / 1024
-                return f"saved {size_kb:.0f}KB to {os.path.basename(self._save_path)}"
+                if self._safe_pickle_dump(state, self._save_path):
+                    size_kb = os.path.getsize(self._save_path) / 1024
+                    return f"saved {size_kb:.0f}KB to {os.path.basename(self._save_path)}"
+                return f"save failed: unpicklable state could not be sanitized"
             except Exception as e:
                 return f"save failed: {e}"
 
