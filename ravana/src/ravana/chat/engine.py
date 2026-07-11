@@ -4774,10 +4774,20 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         """Populate the HRR store from every graph edge (called by the
         ConceptGraph._fact_encode_hook wired in __init__). Integrative encoding
         (Zeithamova): storing by (subject, verb) makes transitive chains
-        (A->B, B->C => A->C) cheaply reachable."""
+        (A->B, B->C => A->C) cheaply reachable.
+
+        The graph node labels may be SUFFIXED (e.g. 'lion#c3') to give each
+        chain a unique graph identity (decoupling graph-node identity from
+        HRR-word identity — see reasoning_bench.inject_controlled_chains).
+        HRR must key on the BARE word ('lion') so the confusable-sibling
+        regime (lion/tiger/bear share embeddings) is preserved for the
+        vector-composition measurement. We strip the '#...' suffix here.
+        """
         if self.hrr_reasoner is not None:
             try:
-                self.hrr_reasoner.encode(subject, verb, obj)
+                def _bare(w):
+                    return w.split("#", 1)[0] if w else w
+                self.hrr_reasoner.encode(_bare(subject), verb, _bare(obj))
             except Exception:
                 pass
 
@@ -4827,7 +4837,14 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             hrr_chain, hrr_confs, hrr_topks = self.hrr_reasoner.query_chain_with_conf(
                 head, verb, max_hops=max_hops, top_k=max(1, top_k))
 
-        label2id = {nd.label.lower(): nid for nid, nd in self.graph.nodes.items()}
+        # label2id maps the BARE word (e.g. 'lion') to the (unique, suffixed)
+        # graph node id (e.g. 'lion#c3'). This decouples HRR-word identity from
+        # graph-node identity: HRR compares bare words, the graph walk uses the
+        # real node ids so there is no label-collision ambiguity.
+        label2id = {}
+        for nid, nd in self.graph.nodes.items():
+            if nd.label:
+                label2id.setdefault(nd.label.split("#", 1)[0].lower(), nid)
 
         sel_chain: List[str] = []
         sel_confs: List[float] = []
@@ -4837,22 +4854,24 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         graph_conf: List[float] = []
 
         if hrr_chain:
-            cur_label = head.lower()
+            cur_id = label2id.get(head.lower())
             for i, hop_obj in enumerate(hrr_chain):
                 topk = hrr_topks[i] if i < len(hrr_topks) else []
                 # M5' active graph-select: pick the HRR top-k candidate that
-                # is a real graph edge of (cur, verb).
+                # is a real graph edge of (cur, verb). Map bare target label ->
+                # the SPECIFIC target node id so the walk can advance on the
+                # exact node (collision-free even with suffixed identities).
                 chosen = None
-                cur_id = label2id.get(cur_label)
-                edge_targets = set()
+                edge_targets = {}  # bare label -> target node id
                 if cur_id is not None:
                     for eid in self.graph._outgoing.get(cur_id, []):
                         tgt, e = eid if isinstance(eid, tuple) else (None, None)
                         if tgt is None:
                             continue
                         if (getattr(e, "relation_type", "") or "").lower() == verb.lower():
-                            if self.graph.nodes.get(tgt):
-                                edge_targets.add(self.graph.nodes[tgt].label.lower())
+                            if tgt in self.graph.nodes and self.graph.nodes[tgt].label:
+                                bare = self.graph.nodes[tgt].label.split("#", 1)[0].lower()
+                                edge_targets[bare] = tgt
                 for w, _s in topk:
                     if w.lower() in edge_targets:
                         chosen = w
@@ -4869,43 +4888,29 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 # canonical hippocampal->neocortical deferral (McClelland 1995;
                 # Spens & Burgess 2026 RAG-as-HC->neocortex), NOT a replacement.
                 if graph_override and chosen is None:
-                    # Resolve the CURRENT graph node despite possible label
-                    # collisions (the benchmark may create multiple nodes with
-                    # the same word label). Pick the node whose label matches
-                    # AND that actually has an outgoing edge of type `verb` —
-                    # that is the true current node for this chain's walk.
-                    cur_label_l = (chosen if chosen is not None else hop_obj).lower()
-                    cand_ids = [nid for nid, nd in self.graph.nodes.items()
-                                if nd.label and nd.label.lower() == cur_label_l]
-                    start_id = None
-                    for nid in cand_ids:
-                        for _tgt, _e in self.graph._outgoing.get(nid, []):
-                            if (getattr(_e, "relation_type", "") or "").lower() == verb.lower():
-                                start_id = nid
-                                break
-                        if start_id is not None:
-                            break
-                    if start_id is None:
-                        start_id = cand_ids[0] if cand_ids else None
+                    # Walk from the ACTUAL current node id (collision-free) when
+                    # HRR failed to propose a graph-coherent candidate. infer_chain
+                    # does an exact on-verb edge traversal from this node.
+                    start_id = cur_id
                     if start_id is not None:
                         try:
                             gchain = self.graph.infer_chain(start_id, max_hops=max_hops - i, verb=verb)
                             if gchain:
                                 for (t, _gs, _p) in gchain:
                                     if t in self.graph.nodes and self.graph.nodes[t].label:
-                                        lbl = self.graph.nodes[t].label
+                                        lbl = self.graph.nodes[t].label.split("#", 1)[0]
                                         sel_chain.append(lbl)
                                         sel_confs.append(hrr_conf)  # keep HRR cosine, NOT 1.0
                                         graph_support.append(1.0)
                                         topks_out.append(topk)
                                         sources.append("graph_corrected")
                                         graph_conf.append(float(_gs))
+                                cur_id = gchain[-1][0]  # advance to last graph node
                                 break  # remaining chain supplied by graph
                         except Exception:
                             pass
                     if len(sel_chain) > len(graph_support):
-                        # graph supplied at least this hop; stop HRR walk
-                        break
+                        break  # graph supplied at least this hop; stop HRR walk
                     # fallback: keep HRR best + support=0 (honest)
                     sel_chain.append(hop_obj)
                     sel_confs.append(hrr_conf)
@@ -4913,27 +4918,28 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                     topks_out.append(topk)
                     sources.append("hrr")
                     graph_conf.append(0.0)
-                    cur_label = (chosen if chosen is not None else hop_obj).lower()
                 else:
                     if chosen is not None:
                         sel_chain.append(chosen)
                         graph_support.append(1.0)
                         sources.append("hrr")
+                        cur_id = edge_targets[chosen.lower()]  # advance on exact node
                     else:
                         sel_chain.append(hop_obj)
                         graph_support.append(0.0)
                         sources.append("hrr")
+                        # no graph edge -> cannot advance cur_id reliably
                     sel_confs.append(hrr_conf)
                     topks_out.append(topk)
                     graph_conf.append(0.0)
-                    cur_label = (chosen if chosen is not None else hop_obj).lower()
         elif fallback_to_graph:
             # HRR has nothing for this (head, verb): defer to graph as before.
             nid = getattr(self, "_concept_keywords", {}).get(head.lower(), [None])[0]
             if nid is not None:
                 try:
                     gchain = self.graph.infer_chain(nid, max_hops=max_hops, verb=verb)
-                    sel_chain = [self.graph.nodes[t].label for (t, _s, _p) in gchain
+                    sel_chain = [self.graph.nodes[t].label.split("#", 1)[0]
+                                 for (t, _s, _p) in gchain
                                  if t in self.graph.nodes and self.graph.nodes[t].label]
                     sel_confs = [0.0] * len(sel_chain)  # no HRR conf when HRR empty
                     graph_support = [1.0] * len(sel_chain)

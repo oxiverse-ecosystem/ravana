@@ -65,17 +65,27 @@ def inject_controlled_chains(engine, seed: int = 7):
     """Build linear chains of each length from words WITHIN an embedding-similar
     cluster, one SHARED relation per family. Add ONLY adjacent edges. The composed
     tail is NEVER stored -> composition-only probes. Many chains per relation ->
-    decode competes among correlated objects (crosstalk foil)."""
+    decode competes among correlated objects (crosstalk foil).
+
+    DECOUPLED IDENTITY (fixes the pre-existing label-collision bug): each graph
+    node is uniquely SUFFIXED (e.g. 'lion#c1', 'lion#c2') so no two chains share
+    a graph node — this gives 1:1 label->node identity and lets the exact graph
+    walk (M5' select + graph-override) start from the correct node. The HRR
+    store keys on the BARE word ('lion') via the engine's encode hook (which
+    strips the suffix), so the confusable-sibling regime (lion/tiger/bear share
+    GloVe embeddings) is preserved for the vector-composition measurement.
+    head/expected_tail are bare words (the HRR comparison), head_id is the
+    suffixed node id (the graph walk start).
+    """
     rng = np.random.RandomState(seed)
     chains = []
+    cid = 0
     for rel, cluster in CLUSTERS.items():
         for _ in range(CHAINS_PER_REL):
             length = int(rng.choice(LENGTHS))
             words = list(rng.choice(cluster, size=length, replace=False))
-            ids = []
-            for t in words:
-                node = engine.graph.add_node(label=t)
-                ids.append(node.id)
+            slabels = [f"{w}#{cid}" for w in words]  # unique per chain
+            ids = [engine.graph.add_node(label=s).id for s in slabels]
             for i in range(length - 1):
                 engine.graph.add_edge(ids[i], ids[i + 1],
                                       relation_type=rel, confidence=0.9)
@@ -84,6 +94,7 @@ def inject_controlled_chains(engine, seed: int = 7):
                 "expected_tail": words[1:], "length": length,
                 "head_id": ids[0], "words": words,
             })
+            cid += 1
     return chains
 
 
@@ -101,7 +112,7 @@ def _graph_tail(engine, head_id, relation, max_hops):
                 break
         if nxt is None or nxt in seen:
             break
-        tail.append(engine.graph.nodes[nxt].label)
+        tail.append(engine.graph.nodes[nxt].label.split("#", 1)[0])
         seen.add(nxt)
         cur = nxt
     return tail
