@@ -57,10 +57,14 @@ class WebToGraph:
     }
 
     def __init__(self, graph_engine, openie: Optional[OpenIEExtractor] = None,
-                 source: str = "web"):
+                 source: str = "web", xdg: bool = True):
         self.ge = graph_engine
         self.openie = openie or OpenIEExtractor()
         self.source = source
+        self.xdg = xdg  # XdG (context-dependent gating, Masse et al. PMC 2018):
+        # protect synapses established in ONE context from being overwritten
+        # when a DIFFERENT context is ingested. Cheap complement to EWC/SI
+        # for the multi-task web-ingest regime.
         # provenance + gap tracking
         self._topic_edges: Dict[str, int] = {}
         self._fact_count = 0
@@ -90,11 +94,21 @@ class WebToGraph:
         self.ge._all_labels[label_l] = node.id
         return node.id
 
-    def learn_text(self, text: str, source_url: str = "") -> int:
+    def learn_text(self, text: str, source_url: str = "",
+                 context: Optional[str] = None) -> int:
         """Extract facts from text and write them as typed edges.
 
         Returns number of NEW facts written (dedup by existing edge).
+
+        context: logical ingest context (e.g. topic/domain). Defaults to
+        source_url or self.source. Used by XdG gating: an edge
+        established in context A is protected from being overwritten when
+        a DIFFERENT context B is ingested (Mas se et al. 2018 context-
+        dependent gating — a cheap complement to EWC/SI for the
+        multi-task web-ingest regime).
         """
+        ctx = (context or source_url or self.source or "web").lower().strip()
+        ctx_id = "ctx_" + str(abs(hash(ctx)) % 100000)
         facts = self.openie.extract(text)
         written = 0
         for f in facts:
@@ -105,23 +119,38 @@ class WebToGraph:
             edge_type = self.RELATION_TO_EDGE.get(f.relation, "semantic")
             existing = self.ge.graph.get_edge(subj_id, obj_id)
             if existing is not None:
-                # strengthen confidence slightly on repeat (Hebbian)
+                # XdG gating: record the context this synapse was
+                # established in. If a NEW context tries to re-bump/overwrite
+                # an edge from a DIFFERENT established context, PROTECT it
+                # (do not let later contexts erase earlier ones).
+                meta = existing.source_metadata if hasattr(existing, "source_metadata") else None
+                if meta is not None:
+                    ctxs = set(meta.get("contexts", []))
+                    if not ctxs:
+                        ctxs = {meta.get("context", ctx_id)}
+                    if self.xdg and ctx_id not in ctxs and len(ctxs) >= 1:
+                        # cross-context: do NOT bump confidence (protect
+                        # the established synapse); just record exposure.
+                        ctxs.add(ctx_id)
+                        meta["contexts"] = sorted(ctxs)
+                        continue
+                    ctxs.add(ctx_id)
+                    meta["contexts"] = sorted(ctxs)
+                # same-context (or XdG off): Hebbian confidence bump.
                 if existing.confidence is not None:
                     existing.confidence = min(1.0, existing.confidence + 0.05)
                 continue
             edge = self.ge.graph.add_edge(
                 source=subj_id, target=obj_id, weight=0.5,
                 relation_type=edge_type, confidence=f.confidence)
-            # provenance: tag on the edge. ConceptEdge stores provenance in
-            # `source_metadata` (NOT `metadata` — the old attribute name below
-            # never existed, so the `hasattr` guard silently skipped tagging and
-            # every web-fact edge arrived untagged). Merge so the defaults
-            # (source_agent='system', epistemic_status='fact', ...) are kept.
+            # provenance: tag on the edge.
             if edge is not None and hasattr(edge, "source_metadata"):
                 edge.source_metadata.update({
                     "source": source_url or self.source,
                     "relation": f.relation,
                     "edge_kind": "web_fact",
+                    "context": ctx_id,
+                    "contexts": [ctx_id],
                 })
             # gap tracking (both endpoints are now a bit more known)
             for t in (f.subject, f.obj):
