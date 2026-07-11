@@ -134,16 +134,20 @@ def probe_chain(engine, chain, top_k=1, graph_override=False, override_threshold
                                  top_k=max(1, top_k), return_topk=True,
                                  graph_override=graph_override,
                                  override_conf_threshold=override_threshold)
-    hrr_tail, hrr_confs, graph_support, topks, sources, graph_conf = out
+    hrr_tail, hrr_confs, graph_support, topks, sources, graph_conf, conflict_signal = out
     graph_tail = _graph_tail(engine, chain["head_id"], rel, max_hops)
     hrr_correct = (hrr_tail[:max_hops] == expected[:max_hops])
     rows = []
+    conflict_any = False
     for i, exp in enumerate(expected):
         got = hrr_tail[i] if i < len(hrr_tail) else None
         conf = hrr_confs[i] if i < len(hrr_confs) else 0.0
         gs = graph_support[i] if i < len(graph_support) else 0.0
         src = sources[i] if i < len(sources) else "hrr"
         gc = graph_conf[i] if i < len(graph_conf) else 0.0
+        csig = conflict_signal[i] if i < len(conflict_signal) else None
+        if csig is not None and getattr(csig, "conflict", False):
+            conflict_any = True
         # top-k hit: is the CORRECT object even in HRR's top-k for this hop?
         hit = None
         if i < len(topks) and topks[i]:
@@ -157,6 +161,7 @@ def probe_chain(engine, chain, top_k=1, graph_override=False, override_threshold
             "source": src,            # 'hrr' vs 'graph_corrected' per hop
             "graph_conf": float(gc),
             "topk_hit": hit,
+            "conflict": bool(getattr(csig, "conflict", False)),
         })
     return {
         "length": chain["length"], "relation": rel,
@@ -276,6 +281,7 @@ def run_arm(whiten, sparse_k, unitary_roles, seed=7, m1=True, m3=True, m5=True,
     all_src = []          # 'hrr' / 'graph_corrected' per hop
     n_override = 0      # hops where the override fired
     n_graph_total = 0     # hops ultimately attributed to graph
+    n_conflict = 0        # hops where the Botvinick ACC monitor raised conflict
     for r in results:
         for row in r["rows"]:
             all_conf.append(row["conf"])
@@ -283,6 +289,8 @@ def run_arm(whiten, sparse_k, unitary_roles, seed=7, m1=True, m3=True, m5=True,
             all_prov.append(row["provenance"])
             all_gs.append(row["graph_support"])
             all_src.append(row["source"])
+            if row.get("conflict", False):
+                n_conflict += 1
             if row["source"] == "graph_corrected":
                 n_graph_total += 1
             if row["topk_hit"] is not None:
@@ -359,6 +367,7 @@ def run_arm(whiten, sparse_k, unitary_roles, seed=7, m1=True, m3=True, m5=True,
         "topk_hit_rate": topk_hit_rate,
         "override_rate": override_rate,
         "n_graph_total": n_graph_total,
+        "conflict_rate": (n_conflict / n_total) if n_total else None,  # Botvinick ACC conflict hops
         "recal": recal,
     }
 

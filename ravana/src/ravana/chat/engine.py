@@ -4829,8 +4829,13 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
           return_conf=False            -> List[str]
           return_conf=True             -> (chain, confs, graph_support)
           return_topk=True (+return_conf) -> (chain, confs, graph_support,
-                                                 topks, sources, graph_conf)
+                                                 topks, sources, graph_conf,
+                                                 conflict_signal)
         confs / graph_support / graph_conf are THREE SEPARATE channels.
+        conflict_signal[i] is a ConflictSignal (Botvinick ACC monitor, IV-B):
+        the top-1/top-2 HRR decode gap + whether an on-verb graph edge exists;
+        conflict==True means genuine uncertainty that recruits RECOLLECT (the
+        graph-override), NOT a wholesale System-2 handoff.
         """
         hrr_chain, hrr_confs, hrr_topks = [], [], []
         if self.hrr_reasoner is not None and self.hrr_reasoner.has_fact(head, verb):
@@ -4852,6 +4857,10 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         topks_out: List[List[Tuple[str, float]]] = []
         sources: List[str] = []
         graph_conf: List[float] = []
+        # Botvinick ACC-style conflict signal per hop (IV-B). Computed from the
+        # HRR top-1/top-2 gap + graph-edge availability; NOT from raw decode
+        # conf (uncalibrated ~0.58 -> would fire on every hop).
+        conflict_signal: List[Any] = []
 
         if hrr_chain:
             cur_id = label2id.get(head.lower())
@@ -4877,6 +4886,15 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                         chosen = w
                         break
                 hrr_conf = hrr_confs[i] if i < len(hrr_confs) else 0.0
+                # Botvinick ACC conflict signal (IV-B): gate on the HRR top-1
+                # vs top-2 GAP (local competition), not raw decode conf. A near
+                # tie + an available on-verb graph edge => genuine conflict that
+                # recruits the RECOLLECT route (graph exact-edge correction).
+                top1 = topk[0][1] if len(topk) > 0 else 0.0
+                top2 = topk[1][1] if len(topk) > 1 else 0.0
+                graph_has_edge = bool(edge_targets)
+                csig = self.dual_process.conflict_monitor(
+                    top1, top2, graph_has_edge, no_coherent_candidate=(chosen is None))
                 # graph_override (gated): fire ONLY when HRR FAILED to propose
                 # a graph-coherent candidate on this hop (chosen is None) — i.e.
                 # no top-k candidate is a real edge of (cur, verb). This is the
@@ -4906,6 +4924,14 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                                         sources.append("graph_corrected")
                                         graph_conf.append(float(_gs))
                                 cur_id = gchain[-1][0]  # advance to last graph node
+                                # Record calibration against graph truth (the graph
+                                # IS ground truth here): HRR's predicted conf vs the
+                                # fact that the graph-corrected hop is correct.
+                                try:
+                                    self.meta_cog.record_calibration(hrr_conf, True)
+                                except Exception:
+                                    pass
+                                conflict_signal.append(csig)
                                 break  # remaining chain supplied by graph
                         except Exception:
                             pass
@@ -4918,6 +4944,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                     topks_out.append(topk)
                     sources.append("hrr")
                     graph_conf.append(0.0)
+                    conflict_signal.append(csig)
                 else:
                     if chosen is not None:
                         sel_chain.append(chosen)
@@ -4932,6 +4959,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                     sel_confs.append(hrr_conf)
                     topks_out.append(topk)
                     graph_conf.append(0.0)
+                    conflict_signal.append(csig)
         elif fallback_to_graph:
             # HRR has nothing for this (head, verb): defer to graph as before.
             nid = getattr(self, "_concept_keywords", {}).get(head.lower(), [None])[0]
@@ -4950,7 +4978,8 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                     sources, graph_conf = [], []
 
         if return_topk:
-            return sel_chain, sel_confs, graph_support, topks_out, sources, graph_conf
+            return (sel_chain, sel_confs, graph_support, topks_out,
+                    sources, graph_conf, conflict_signal)
         if return_conf:
             return sel_chain, sel_confs, graph_support
         return sel_chain
