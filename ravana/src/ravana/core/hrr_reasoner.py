@@ -44,6 +44,16 @@ class HRRReasoner:
         # the clean-up NN search to the real object pool of a typed relation,
         # shrinking the wrong-sibling set from all-atoms to the relation's objects.
         self._by_verb: Dict[str, Set[str]] = {}
+        # M2 (subtractive probe-cleaning), gated + default OFF. At query time we
+        # know subject+verb, so we subtract their KNOWN bindings from the stored
+        # structure before unbinding the object. This removes the two dominant
+        # first-order noise terms (S, V) that swamp the small embedding gap
+        # between siblings -> an order-N SNR gain (Frady et al. "explain-away-
+        # by-subtraction", with ground-truth factors). It is ONE-SHOT exact-term
+        # subtraction, NOT the diverged M3 resonator. Exact for hop 1 (known
+        # head); approximate for hop>1 (estimated subject) -- calibration-honest.
+        self.clean_decode = False
+        self._clean_scale = 1.0 / np.sqrt(3.0)  # 1/sqrt(#terms): S,V,O
 
     # ── populate ──
     def encode(self, subject: str, verb: str, obj: str) -> None:
@@ -70,14 +80,36 @@ class HRRReasoner:
                 return list(pool)
         return list(self._atoms)
 
+    # ── M2 subtractive probe-cleaning (cue reinstatement / predictive-coding
+    # error subtraction) ──
+    def _clean(self, struct: np.ndarray, subject: str, verb: str) -> np.ndarray:
+        """Subtract the KNOWN subject/verb bindings from the fact structure so the
+        residual is dominated by the object term. Under unitary_roles (exact
+        inverse) each binding equals clean_scale * role-vector; we recover the
+        coefficient robustly via dot(struct, role) (== clean_scale even when
+        roles are only near-orthogonal). One-shot, no iteration -> stable.
+
+        Stored fact = normalize(S⊗subj ⊕ V⊗verb ⊕ O⊗obj). Unbinding
+        object yields O⊗obj + first-order noise from the S,V terms. Subtracting
+        S⊗subj and V⊗verb drops that noise variance ~2/N -> the small
+        embedding gap between siblings becomes resolvable.
+        """
+        s = self.dual.bind_role("subject", subject)
+        v = self.dual.bind_role("verb", verb)
+        cs = float(np.dot(struct, s))
+        cv = float(np.dot(struct, v))
+        return np.array(struct, dtype=np.float32) - cs * s - cv * v
+
     # ── single-hop HRR recovery (clean-up through the discrete atom set) ──
     def recover_object(self, subject: str, verb: str, top_k: int = 1) -> Optional[str]:
         struct = self._facts.get((subject.lower(), verb.lower()))
         if struct is None:
             return None
+        # M2: subtract known S,V bindings before decoding the object.
+        s = self._clean(struct, subject, verb) if self.clean_decode else struct
         if top_k <= 1:
-            return self.dual.recover_role_filler(struct, "object", self._candidates(verb))
-        topk = self.dual.recover_role_filler_topk(struct, "object", self._candidates(verb), top_k)
+            return self.dual.recover_role_filler(s, "object", self._candidates(verb))
+        topk = self.dual.recover_role_filler_topk(s, "object", self._candidates(verb), top_k)
         return topk[0][0] if topk else None
 
     # ── transitive chain: A->B, B->C => recover C from A ──
@@ -87,7 +119,8 @@ class HRRReasoner:
         topks[i] is the HRR top-k candidate list [(word, sim), ...] for that hop.
         The engine's graph-select disambiguates WITHIN topks using graph truth
         (M5', generate-then-verify) — calibration-safe. Hop 1 = stored, hop>1 =
-        inferred."""
+        inferred. When clean_decode is on, each hop subtracts the known
+        subject/verb bindings (M2) before unbinding the object."""
         chain: List[str] = []
         confs: List[float] = []
         topks: List[List[Tuple[str, float]]] = []
@@ -97,11 +130,15 @@ class HRRReasoner:
             struct = self._facts.get((cur, verb.lower()))
             if struct is None:
                 break
+            # M2: clean using the KNOWN subject (cur) + verb for every hop
+            # (exact for hop 1; approximate for hop>1 where cur is the
+            # estimated prior hop -- calibration-honest, no special-casing).
+            s = self._clean(struct, cur, verb) if self.clean_decode else struct
             if top_k <= 1:
-                nxt, c = self.dual.recover_role_filler_with_conf(struct, "object", self._candidates(verb))
+                nxt, c = self.dual.recover_role_filler_with_conf(s, "object", self._candidates(verb))
                 topk = [(nxt, c)] if nxt is not None else []
             else:
-                topk = self.dual.recover_role_filler_topk(struct, "object", self._candidates(verb), top_k)
+                topk = self.dual.recover_role_filler_topk(s, "object", self._candidates(verb), top_k)
                 nxt = topk[0][0] if topk else None
                 c = topk[0][1] if topk else 0.0
             if nxt is None or nxt.lower() in seen:
