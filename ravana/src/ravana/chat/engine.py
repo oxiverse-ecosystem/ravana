@@ -61,6 +61,8 @@ from .constants import (TEEN_CONCEPTS, WEB_GARBAGE, STOP_WORDS, ConceptPosDict,
 from .web_learning import WebLearningMixin
 import pickle
 from ravana.web.learner import SearchEngine
+from ravana.core.dual_code_space import DualCodeSpace
+from ravana.core.hrr_reasoner import HRRReasoner
 
 # Universal closed-class / pronoun words that can never own a learned definition
 # (you don't "define" the word "you"). This is the only hand-listed part of the
@@ -279,6 +281,24 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         self.coherence_net = CoherenceNetwork()
         self.vsa_manager = VSAManager(dim=self.dim)
         self.schema_library = SchemaLibrary(self.vsa_manager)
+        # Work A0: HRR compositional reasoning in the loop. DualCodeSpace (2048-D,
+        # additive dual-code) is instantiated here and the graph's opt-in
+        # _fact_encode_hook is wired so EVERY add_edge (the single write choke
+        # point in ravana_ml/graph.py) populates the HRR store. Guarded: if the
+        # glove cache is missing the engine still boots (HRR simply stays empty).
+        self.dual_code = None
+        self.hrr_reasoner = None
+        try:
+            if os.path.exists(self._glove_cache_path):
+                self.dual_code = DualCodeSpace(self._glove_cache_path, hrr_dim=2048)
+                self.hrr_reasoner = HRRReasoner(self.dual_code)
+                # Wire the populate hook: add_edge -> HRR encode.
+                self.graph._fact_encode_hook = self._hrr_encode_hook
+        except Exception as e:
+            if getattr(self, '_trace_enabled', False):
+                print(f"  [init] DualCodeSpace/HRR unavailable: {e}")
+            self.dual_code = None
+            self.hrr_reasoner = None
         self.system1_attractor = System1Attractor(self.graph, threshold=0.4)
         self.system2_simulator = System2Simulator(self.graph, self.causal_schema)
 
@@ -4743,6 +4763,37 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             result["important_facts_blackout"] = blackout
             result["retention_rate"] = retained / total_g if total_g else 0.0
         return result
+
+    # ── Work A0: HRR compositional reasoning in the loop ──
+    def _hrr_encode_hook(self, subject: str, verb: str, obj: str) -> None:
+        """Populate the HRR store from every graph edge (called by the
+        ConceptGraph._fact_encode_hook wired in __init__). Integrative encoding
+        (Zeithamova): storing by (subject, verb) makes transitive chains
+        (A->B, B->C => A->C) cheaply reachable."""
+        if self.hrr_reasoner is not None:
+            try:
+                self.hrr_reasoner.encode(subject, verb, obj)
+            except Exception:
+                pass
+
+    def hrr_query_chain(self, head: str, verb: str, max_hops: int = 2,
+                        fallback_to_graph: bool = True) -> List[str]:
+        """Compositional relation query. Recovers the transitive chain of objects
+        reachable from `head` via `verb`, decoded through the discrete graph atom
+        set (clean-up). If the HRR store has nothing and fallback_to_graph, defer
+        to the graph's infer_chain for an authoritative multi-hop path."""
+        if self.hrr_reasoner is not None and self.hrr_reasoner.has_fact(head, verb):
+            return self.hrr_reasoner.query_chain(head, verb, max_hops=max_hops)
+        if fallback_to_graph:
+            nid = getattr(self, "_concept_keywords", {}).get(head.lower(), [None])[0]
+            if nid is not None:
+                try:
+                    chain = self.graph.infer_chain(nid, max_hops=max_hops)
+                    return [self.graph.nodes[t].label for (t, _s, _p) in chain
+                            if t in self.graph.nodes and self.graph.nodes[t].label]
+                except Exception:
+                    return []
+        return []
 
     def _update_state(self, ctx: CognitiveResponseContext):
         """Update cognitive state post-response: free energy, meaning, identity, global workspace."""

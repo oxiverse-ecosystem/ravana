@@ -2365,6 +2365,28 @@ class ResponseGenMixin(ChainWalkerMixin):
         body = "; ".join(lines)
         return (f"{lead} {body}.", "counterfactual_simulation")
 
+    # ── Work A0: structured relation retrieval BEFORE web (cheap, grounded) ──
+    def _structured_fact_answer(self, target: str, relation: str) -> Optional[str]:
+        """Compositional relation query via the HRR store / graph, decoded
+        through the discrete graph atom set. Returns a grounded answer string if
+        a confident chain is recovered, else None so the caller falls through to
+        web search / honest uncertainty. GloVe atoms are correlated, so we never
+        trust a raw HRR vector — recover_role_filler cleans up over the concrete
+        atom set, and infer_chain is the authoritative graph fallback."""
+        if not target or not hasattr(self, "hrr_query_chain"):
+            return None
+        try:
+            chain = self.hrr_query_chain(target, relation, max_hops=2)
+        except Exception:
+            return None
+        if not chain:
+            return None
+        head = target.capitalize()
+        if len(chain) == 1:
+            return f"{head} {relation} {chain[0]}."
+        # multi-hop: report the transitive chain, grounded in recovered atoms
+        return f"{head} {relation} {chain[0]}, which {relation} {' and '.join(chain[1:])}."
+
     def _human_like_uncertainty(self, ctx: CognitiveResponseContext):
         """Graceful, curious turn taken when FOK is low and the topic is ungrounded.
 
@@ -2824,7 +2846,22 @@ class ResponseGenMixin(ChainWalkerMixin):
                     )
             except Exception:
                 pass
-            
+
+            # Step 1b (Work A0): structured relation retrieval BEFORE web. Cheap,
+            # grounded in the HRR store / graph, decoded through the discrete atom
+            # set. If a confident chain is recovered, answer from structure and
+            # skip the web round-trip (and skip emitting ungrounded text).
+            if sq_target and sq_rel:
+                try:
+                    structured = self._structured_fact_answer(sq_target, sq_rel)
+                    if structured:
+                        sq.is_answered = True
+                        sq.answer = structured
+                        answered_sqs.append(sq)
+                        continue
+                except Exception:
+                    pass
+
             # Step 2: Iterative web search (ACC-driven refinement)
             searched = [sq_text]
             for attempt in range(2):

@@ -1364,6 +1364,19 @@ class ConceptGraph:
                               edge_type=edge_type, relation_type=relation_type,
                               relation_dim=self._relation_dim, confidence=confidence)
             edge.parent_graph = self
+            # Opt-in fact-encode hook: lets an external reasoner (e.g. the
+            # HRR compositional store in chat/engine.py) populate itself from the
+            # single graph write choke point. Defaults to None so it never fires
+            # for other callers and keeps ravana_ml free of chat-layer imports.
+            hook = getattr(self, "_fact_encode_hook", None)
+            if hook is not None:
+                try:
+                    src_label = self.nodes[source].label if source in self.nodes else None
+                    tgt_label = self.nodes[target].label if target in self.nodes else None
+                    if src_label and tgt_label:
+                        hook(src_label, relation_type, tgt_label)
+                except Exception:
+                    pass
             # Ablation: randomize relation vector if type-anchoring is disabled
             if not self._anchor_relation_vectors:
                 edge.relation_vector = np.random.randn(self._relation_dim).astype(np.float32)
