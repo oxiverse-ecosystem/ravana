@@ -43,6 +43,10 @@ class DualCodeSpace:
         self.whiten = whiten
         self.sparse_k = int(sparse_k)
         self.unitary_roles = unitary_roles
+        self._resonator_max_iter = 1  # M3 default OFF: naive residual-subtraction
+        # resonator diverges on these bound structures (no Lyapunov guarantee,
+        # Frady 2020). Kept as a toggle (set >1) for multi-role co-resolution,
+        # but default OFF so production isn't regressed.
         # Word2HyperVec-style random linear lift (JL-preserving, scaled).
         rng = np.random.RandomState(lift_seed)
         self._lift = (rng.randn(hrr_dim, self._dim64).astype(np.float32)
@@ -163,18 +167,49 @@ class DualCodeSpace:
         ])
 
     def recover_role_filler_with_conf(self, structure: np.ndarray, role: str,
-                                       candidate_words: list) -> Tuple[Optional[str], float]:
-        """Resonator-style decode: unbind role, return nearest candidate word in
-        HRR space. Returns (best_word, best_cosine) — the cosine is the confidence
-        proxy used by the reasoning benchmark (decode similarity ≈ recollection
-        strength; Yonelinas)."""
+                                       candidate_words: list, max_iter: int = -1) -> Tuple[Optional[str], float]:
+        """Resonator-style decode (Frady et al. 2020 Resonator Networks): unbind
+        role, return nearest candidate word in HRR space (M3 iterative refinement).
+        Iteration: after the first NN decode, REBIND the recovered filler and
+        SUBTRACT its contribution from the structure, then re-unbind to sharpen
+        the residual — this attenuates cross-hop crosstalk. Stop when the label
+        stabilizes or the cosine gain < 1e-3. No Lyapunov guarantee (Hopfield), so
+        iterations are bounded. Requires unitary_roles (exact rebind) — already the
+        default. Returns (best_word, best_cosine); the cosine stays the honest
+        decode-similarity confidence proxy (calibration-safe).
+        max_iter < 0 -> use self._resonator_max_iter (benchmark A/B toggle)."""
+        if max_iter is not None and max_iter < 0:
+            max_iter = self._resonator_max_iter
         rec = self.unbind_role(structure, role)
         best, best_sim = None, -1.0
         for w in candidate_words:
             sim = cosine_sim(rec, self.atom_hrr(w))
             if sim > best_sim:
                 best_sim, best = sim, w
-        return best, float(best_sim)
+        if best is None or max_iter <= 1 or not self.unitary_roles:
+            return best, float(best_sim)
+        # Iterative refinement: subtract the recovered filler's role component and
+        # re-decode the residual.
+        residual = np.array(structure, dtype=np.float32)
+        prev_label, prev_sim = best, best_sim
+        for _ in range(max_iter - 1):
+            filler = self.atom_hrr(prev_label)
+            contrib = self.bind_role(role, prev_label)
+            # subtract the (role, filler) component the initial decode latched onto
+            residual = residual - contrib * float(np.dot(residual, contrib) / (np.dot(contrib, contrib) + 1e-9))
+            rec2 = self.unbind_role(residual, role)
+            cur, cur_sim = None, -1.0
+            for w in candidate_words:
+                sim = cosine_sim(rec2, self.atom_hrr(w))
+                if sim > cur_sim:
+                    cur_sim, cur = sim, w
+            if cur is None:
+                break
+            gain = cur_sim - prev_sim
+            prev_label, prev_sim = cur, cur_sim
+            if gain < 1e-3:
+                break
+        return prev_label, float(prev_sim)
 
     def recover_role_filler(self, structure: np.ndarray, role: str,
                             candidate_words: list) -> Optional[str]:

@@ -39,6 +39,11 @@ class HRRReasoner:
         self._atoms: Set[str] = set()
         # Integrative index: subject -> list of (verb, object) for chaining.
         self._by_subject: Dict[str, List[Tuple[str, str]]] = {}
+        # Relation-conditioned candidate index (M1, Tulving encoding specificity /
+        # Anderson fan-effect attenuation): verb -> set of object labels. Restricts
+        # the clean-up NN search to the real object pool of a typed relation,
+        # shrinking the wrong-sibling set from all-atoms to the relation's objects.
+        self._by_verb: Dict[str, Set[str]] = {}
 
     # ── populate ──
     def encode(self, subject: str, verb: str, obj: str) -> None:
@@ -52,8 +57,17 @@ class HRRReasoner:
         self._atoms.add(subject.lower())
         self._atoms.add(obj.lower())
         self._by_subject.setdefault(subject.lower(), []).append((verb.lower(), obj.lower()))
+        # M1: index objects per verb for relation-conditioned clean-up.
+        self._by_verb.setdefault(verb.lower(), set()).add(obj.lower())
 
-    def _candidates(self) -> List[str]:
+    def _candidates(self, verb: Optional[str] = None) -> List[str]:
+        """Clean-up candidate set. M1: if the relation is known, restrict to its
+        real object pool (encoding specificity); fall back to all atoms only for
+        an unseen relation. Restricting the SET (not the score) is calibration-safe."""
+        if verb is not None:
+            pool = self._by_verb.get(verb.lower())
+            if pool:
+                return list(pool)
         return list(self._atoms)
 
     # ── single-hop HRR recovery (clean-up through the discrete atom set) ──
@@ -61,7 +75,7 @@ class HRRReasoner:
         struct = self._facts.get((subject.lower(), verb.lower()))
         if struct is None:
             return None
-        return self.dual.recover_role_filler(struct, "object", self._candidates())
+        return self.dual.recover_role_filler(struct, "object", self._candidates(verb))
 
     # ── transitive chain: A->B, B->C => recover C from A ──
     def query_chain_with_conf(self, head: str, verb: str, max_hops: int = 2):
@@ -77,7 +91,7 @@ class HRRReasoner:
             struct = self._facts.get((cur, verb.lower()))
             if struct is None:
                 break
-            nxt, c = self.dual.recover_role_filler_with_conf(struct, "object", self._candidates())
+            nxt, c = self.dual.recover_role_filler_with_conf(struct, "object", self._candidates(verb))
             if nxt is None or nxt.lower() in seen:
                 break
             chain.append(nxt)

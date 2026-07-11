@@ -120,7 +120,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
 
 
 
-    def __init__(self, dim: int = 64, seed: int = 42, baby_mode: bool = True, data_dir: Optional[str] = None, user_suffix: str = "", hrr_whiten: bool = True, hrr_sparse_k: int = 0, hrr_unitary_roles: bool = True):
+    def __init__(self, dim: int = 64, seed: int = 42, baby_mode: bool = True, data_dir: Optional[str] = None, user_suffix: str = "", hrr_whiten: bool = True, hrr_sparse_k: int = 256, hrr_unitary_roles: bool = True):
         self.dim = dim
         self.rng = np.random.RandomState(seed)
 
@@ -4780,32 +4780,65 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
 
     def hrr_query_chain(self, head: str, verb: str, max_hops: int = 2,
                         fallback_to_graph: bool = True, return_conf: bool = False):
-        """Compositional relation query. Recovers the transitive chain of objects
-        reachable from `head` via `verb`, decoded through the discrete graph atom
-        set (clean-up). If the HRR store has nothing and fallback_to_graph, defer
-        to the graph's infer_chain for an authoritative multi-hop path."""
+        """Compositional relation query (M5: graph re-ranking/boost, honest).
+
+        Returns the HRR-recovered transitive chain, decoded through the discrete
+        graph atom set (clean-up). Additionally computes graph.infer_chain support
+        per hop (CLS synergy: hippocampal VSA proposes, neocortical graph verifies;
+        O'Reilly 1995) and reports it as a SEPARATE quantity (graph_support) — we
+        never silently fuse conf and graph_support, which would mask HRR failures
+        and break the calibration story.
+
+        Return shape:
+          return_conf=False -> List[str]  (the HRR chain)
+          return_conf=True  -> (chain, confs, graph_support)
+            chain: List[str] HRR-recovered objects
+            confs: List[float] HRR decode cosine per hop (calibration signal)
+            graph_support: List[float] per-hop graph corroboration (0..1),
+              independent evidence. Never fused into confs.
+        """
+        hrr_chain, hrr_confs = [], []
         if self.hrr_reasoner is not None and self.hrr_reasoner.has_fact(head, verb):
-            chain, confs = self.hrr_reasoner.query_chain_with_conf(head, verb, max_hops=max_hops)
-            if return_conf:
-                return chain, confs
-            return chain
-        if fallback_to_graph:
+            hrr_chain, hrr_confs = self.hrr_reasoner.query_chain_with_conf(head, verb, max_hops=max_hops)
+
+        # M5: graph corroboration per hop (relation-conditioned). For each HRR
+        # recovered object, check the graph has an outgoing edge of the SAME
+        # relation from the corresponding subject. Independent of HRR confidence.
+        # Resolve node ids via the graph label index (NOT _concept_keywords,
+        # which only covers seeded concepts and misses injected words).
+        graph_support = []
+        if hrr_chain:
+            label2id = {nd.label.lower(): nid for nid, nd in self.graph.nodes.items()}
+            cur_id = label2id.get(head.lower())
+            for hop_obj in hrr_chain:
+                supported = 0.0
+                if cur_id is not None:
+                    for eid in self.graph._outgoing.get(cur_id, []):
+                        tgt, e = eid if isinstance(eid, tuple) else (None, None)
+                        if tgt is None:
+                            continue
+                        if (getattr(e, "relation_type", "") or "").lower() == verb.lower():
+                            if self.graph.nodes.get(tgt) and self.graph.nodes[tgt].label.lower() == hop_obj.lower():
+                                supported = 1.0
+                                break
+                graph_support.append(supported)
+                cur_id = label2id.get(hop_obj.lower())
+        elif fallback_to_graph:
+            # HRR has nothing for this (head, verb): defer to graph as before.
             nid = getattr(self, "_concept_keywords", {}).get(head.lower(), [None])[0]
             if nid is not None:
                 try:
-                    chain = self.graph.infer_chain(nid, max_hops=max_hops)
-                    labels = [self.graph.nodes[t].label for (t, _s, _p) in chain
-                              if t in self.graph.nodes and self.graph.nodes[t].label]
-                    if return_conf:
-                        return labels, [1.0] * len(labels)  # graph ground truth = full conf
-                    return labels
+                    gchain = self.graph.infer_chain(nid, max_hops=max_hops)
+                    hrr_chain = [self.graph.nodes[t].label for (t, _s, _p) in gchain
+                                 if t in self.graph.nodes and self.graph.nodes[t].label]
+                    hrr_confs = [1.0] * len(hrr_chain)  # graph ground truth = full conf
+                    graph_support = [1.0] * len(hrr_chain)
                 except Exception:
-                    if return_conf:
-                        return [], []
-                    return []
+                    hrr_chain, hrr_confs, graph_support = [], [], []
+
         if return_conf:
-            return [], []
-        return []
+            return hrr_chain, hrr_confs, graph_support
+        return hrr_chain
 
     def _update_state(self, ctx: CognitiveResponseContext):
         """Update cognitive state post-response: free energy, meaning, identity, global workspace."""
