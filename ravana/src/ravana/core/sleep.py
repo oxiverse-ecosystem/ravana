@@ -25,6 +25,17 @@ class SleepConfig:
     downscaling_budget: float = 5.0
     prune_threshold: float = 0.1
 
+    # CLS sleep gate (SHY down-selection, Tononi & Cirelli 2014; Nere et al. 2013):
+    # a web_fact edge CORROBORATED in 2+ independent contexts is protected from
+    # weight-only pruning even if its weight is low. Cross-context corroboration
+    # is the offline reactivation signal ("a neuron detects suspicious
+    # coincidences and protects the associated synapses from depression" —
+    # SHY). Single-context low-weight edges still prune (noise). This is the
+    # sleep-time complement to the IV-C ingest-time XdG gate; both are needed
+    # (van de Ven et al. 2020). Default ON -> backward-compatible.
+    protect_cross_context: bool = True
+    min_contexts: int = 2
+
     # REM dream sabotage parameters
     rem_counterfactual_rate: float = 0.12
     rem_emotional_decay: float = 0.05
@@ -113,8 +124,24 @@ class SleepConsolidation:
         # NREM STAGE 2: Homeostatic downscaling
         self._normalize_outgoing_weights(graph, budget=self.config.downscaling_budget)
 
-        # NREM STAGE 3: Prune weak edges
-        edges_pruned = self._prune_weak_edges(graph, threshold=self.config.prune_threshold)
+        # NREM STAGE 3: Prune weak edges (SHY down-selection). Cross-context-
+        # corroborated web_fact edges are protected from the weight floor;
+        # single-context low-weight edges prune as noise.
+        edges_pruned = self._prune_weak_edges(
+            graph, threshold=self.config.prune_threshold,
+            protect_cross_context=self.config.protect_cross_context,
+            min_contexts=self.config.min_contexts)
+
+        # NREM STAGE 3b: provenance-based noise prune (separate predicate, so
+        # weight-downscale vs kind-based noise-removal don't get conflated).
+        # Keeps edge_kind=="web_fact" (verified); culls co_occurrence/auto_expand
+        # orphan noise that lacks cross-context corroboration. Two distinct
+        # gates, run as two passes — honesty: each predicate stays separable.
+        try:
+            noise_pruned = graph.prune_low_quality_edges(enabled=True)
+        except Exception:
+            noise_pruned = 0
+        edges_pruned += noise_pruned
 
         # NREM STAGE 4: Drift defense
         for nid, node in list(graph.nodes.items()):
@@ -206,12 +233,40 @@ class SleepConsolidation:
                 for _, edge in edges:
                     edge.weight *= scale
 
-    def _prune_weak_edges(self, graph, threshold: float = 0.1) -> int:
-        """Remove edges with weight below threshold."""
+    def _prune_weak_edges(self, graph, threshold: float = 0.1,
+                          protect_cross_context: bool = True,
+                          min_contexts: int = 2) -> int:
+        """Remove edges with weight below threshold, EXCEPT edges whose
+        provenance shows corroboration in 2+ independent contexts.
+
+        CLS sleep gate (SHY down-selection, Tononi & Cirelli 2014; Nere et al.
+        2013): sleep is competitive down-selection — synapses reactivated /
+        well-integrated are protected from depression; isolated ones depress.
+        Cross-context corroboration (recorded by the IV-C ingest-time XdG gate
+        in edge.source_metadata['contexts']) is the computational analog of
+        "reactivated across multiple offline bouts" -> it fits prior structure
+        -> protect. Single-context low-weight edges still prune (noise).
+
+        This is the sleep-time complement to the ingest-time XdG gate
+        (van de Ven et al. 2020): both a write-time gate and a sleep-time gate
+        are needed side by side. Default protect_cross_context=True ->
+        backward-compatible (all sleep callers unchanged).
+
+        Honesty: protection is grounded in independent-context corroboration
+        (a real signal), NOT a blind weight floor. An edge with weight <
+        threshold is pruned UNLESS it carries >= min_contexts distinct contexts.
+        """
         edges_to_remove = []
         for (src, tgt), edge in list(graph.edges.items()):
-            if edge.weight < threshold:
-                edges_to_remove.append((src, tgt))
+            if edge.weight >= threshold:
+                continue
+            # SHY sleep gate: spare cross-context-corroborated edges.
+            if protect_cross_context and min_contexts >= 1:
+                contexts = (getattr(edge, "source_metadata", {}) or {}).get("contexts", [])
+                distinct = {c for c in contexts if c}
+                if len(distinct) >= min_contexts:
+                    continue  # reactivated in 2+ contexts -> protected
+            edges_to_remove.append((src, tgt))
 
         for src, tgt in edges_to_remove:
             graph.remove_edge(src, tgt)

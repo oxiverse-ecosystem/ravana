@@ -236,6 +236,64 @@ def run_stress(dim: int = 64, seed: int = 42, docs: int = 25, epochs: int = 2,
     }
 
 
+def run_web_learned_cross_context():
+    """End-to-end CLS sleep-gate check: learn a LOW-confidence fact via the real
+    WebToGraph.learn_text path (which sets source_metadata['contexts'], the IV-C
+    ingest gate) in TWO contexts, add a single-context low-weight noise edge,
+    then run the sleep weight-prune and assert: the cross-context fact SURVIVES
+    (protected) while the single-context noise is PRUNED. This closes the loop
+    between the ingest-time XdG gate and the sleep-time SHY gate (van de Ven 2020).
+    """
+    from ravana.graph.engine import GraphEngine
+    from ravana.web.web_to_graph import WebToGraph
+
+    ge = GraphEngine(dim=64, glove_vecs=None)
+    for w in ["water", "chemical_compound", "noise", "junk"]:
+        vec = np.random.RandomState(hash(w) % 1000).randn(64).astype("float32")
+        n = np.linalg.norm(vec)
+        if n > 0:
+            vec /= n
+        node = ge.graph.add_node(vector=vec, label=w)
+        ge._all_labels[w] = node.id
+
+    w2g = WebToGraph(ge, source="stress", xdg=True)
+    # Low-confidence fact re-stated in TWO contexts (IV-C tags both into
+    # source_metadata['contexts']). weight stays ~0.08 (low) because XdG
+    # PROTECTS the Hebbian bump on cross-context re-touch.
+    w2g.learn_text("Water is a chemical compound.", source_url="A", context="ctxA")
+    w2g.learn_text("Water is a chemical compound.", source_url="B", context="ctxB")
+    # Single-context low-weight noise edge.
+    e_noise = ge.graph.add_edge(ge._all_labels["noise"], ge._all_labels["junk"],
+                                weight=0.08, relation_type="related", confidence=0.08)
+    e_noise.source_metadata["contexts"] = ["ctxA"]
+
+    from ravana.core.sleep import SleepConsolidation, SleepConfig
+    cfg = SleepConfig()  # protect_cross_context=True by default
+    sc = SleepConsolidation(cfg)
+    n_pruned = sc._prune_weak_edges(ge.graph, threshold=0.1,
+                                    protect_cross_context=True, min_contexts=2)
+
+    # Resolve edges dynamically: WebToGraph mints the object node with the
+    # OpenIE label "chemical compound" (space), so don't assume the seed id.
+    water_nid = ge._all_labels["water"]
+    e1 = None
+    for (s, t), edge in ge.graph.edges.items():
+        if s == water_nid and ge.graph.nodes[t].label.replace("_", " ") == "chemical compound":
+            e1 = edge
+            break
+    e2 = ge.graph.get_edge(ge._all_labels["noise"], ge._all_labels["junk"])
+    return {
+        "cross_context_survived": e1 is not None,
+        "noise_pruned": e2 is None,
+        "n_pruned": n_pruned,
+    }
+    return {
+        "cross_context_survived": e1 is not None,
+        "noise_pruned": e2 is None,
+        "n_pruned": n_pruned,
+    }
+
+
 def run_sweep(dim: int = 64, seed: int = 42, docs: int = 25, epochs: int = 2):
     print("=" * 78)
     print("CONTINUAL-LEARNING STRESS TEST (Work 3) — validate the foundation")
@@ -265,9 +323,21 @@ def run_sweep(dim: int = 64, seed: int = 42, docs: int = 25, epochs: int = 2):
         ok = (r["important_facts_blackout"] == 0
               and r["retention_rate"] is not None and r["retention_rate"] >= 0.8
               and r["edges_pruned"] > 0)
-        tag = "STABLE" if ok else "CHECK"
-        print(f"  [{tag}] pt={r['params']['prune_threshold']} | retain={r['retention_rate']} "
-              f"blackout={r['important_facts_blackout']} pruned={r['edges_pruned']}")
+    # CLS sleep-gate end-to-end check: ingest-time XdG (IV-C) tags contexts;
+    # sleep-time SHY gate must protect cross-context-corroborated low-weight
+    # edges while pruning single-context noise. Closes the consolidation loop.
+    try:
+        cc = run_web_learned_cross_context()
+        print("\n" + "=" * 78)
+        print("CLS SLEEP GATE (SHY) — ingest-gated context survives sleep prune")
+        print("=" * 78)
+        print(f"  cross-context low-weight fact survived : {cc['cross_context_survived']}")
+        print(f"  single-context noise pruned            : {cc['noise_pruned']}")
+        print(f"  edges pruned                            : {cc['n_pruned']}")
+        cc_ok = cc["cross_context_survived"] and cc["noise_pruned"]
+        print(f"  VERDICT: {'CONFIRMED' if cc_ok else 'CHECK'}")
+    except Exception as e:
+        print(f"\n[CLS sleep gate] error: {e}")
     return rows
 
 

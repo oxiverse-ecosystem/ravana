@@ -76,3 +76,57 @@ lesion arm V.5, which asserts this auto-disable on the confusable set.
 - McClelland (1995) / O'Reilly (1995) — CLS hippocampal→neocortical deferral.
 - Frady et al. (2020); Hiratani & Sompolinsky (2022) — resonator bounds (why M3
   is gated OFF).
+
+## CLS sleep gate (SHY down-selection)
+
+RAVANA's CLS consolidation has **two gates**, and until this work only one was
+context-aware:
+
+- **Ingest-time gate (IV-C, done)** — `web_to_graph.learn_text` tags every
+  `web_fact` edge with `source_metadata['contexts']` and XdG-protects it from
+  being overwritten by a *different* context at write time.
+- **Sleep-time gate (this work)** — `sleep.py._prune_weak_edges` was
+  weight-only blind: a `web_fact` edge corroborated in 2+ contexts but with low
+  weight (e.g. 0.08) was pruned exactly like noise. So XdG protected the synapse
+  at write time but sleep deleted it later.
+
+**Fix:** `_prune_weak_edges` now reads `edge.source_metadata['contexts']`; an
+edge with `weight < threshold` is exempt from removal when it carries
+`>= min_contexts` (default 2) distinct contexts. A second, separate pass runs
+`graph.prune_low_quality_edges` to cull `co_occurrence`/`auto_expand` orphan
+noise — keeping the two predicates (weight-downscale vs kind-based
+noise-removal) separable, never conflated.
+
+**Brain basis.** Synaptic homeostasis hypothesis / SHY (Tononi & Cirelli 2014;
+Nere et al. 2013): sleep is competitive down-selection — synapses "reactivated"
+/ well-integrated are protected from depression; isolated ones depress. The SHY
+paper is explicit: *"a neuron detects suspicious coincidences and protects the
+associated synapses from depression … synapses activated in isolation are not
+protected and thus depress."* Cross-context corroboration is the computational
+analog of "reactivated across multiple offline bouts" → it fits prior structure
+→ protect. This is exactly the signal XdG already records in `contexts`.
+
+**Complementarity (van de Ven et al. 2020, Nature Communications):** brains use
+both a write-time gate (metaplasticity / XdG) and a sleep-time gate
+(replay / pruning) side by side. So the ingest gate + sleep gate are the two
+halves of one consolidation mechanism — not redundant.
+
+**Honesty bar (same as IV-C / benchmark):** protection is grounded in
+*independent-context corroboration* (a real signal), **not a blind weight
+floor**. An edge is pruned unless it carries ≥2 distinct contexts. Auto-expand /
+co-occurrence edges carry no `contexts` and stay prunable. No EWC/SI-style weight
+importance is added here — XdG + sleep-gate are the two cheap, brain-faithful
+first layers the plan named.
+
+**Measurement:** `experiments/measure_sleep_crosscontext.py` (mirrors
+`measure_ivc_xdg.py`). Golden: E1 `water—is_a→chemical_compound` weight 0.08,
+`contexts=[ctxA,ctxB]`; E2 `noise—related→junk` weight 0.08, `contexts=[ctxA]`.
+Run `_prune_weak_edges(threshold=0.1)`:
+- gate ON → E1 SURVIVES, E2 PRUNED → **CONFIRMED**
+- gate OFF (control) → both PRUNED → proves the gate (not a weight artifact)
+  saves E1 → **CONFIRMED**
+
+`experiments/stress_continual.py` additionally runs an end-to-end check through
+the real `WebToGraph.learn_text` ingest path (which sets `contexts`) and asserts
+the low-weight cross-context fact survives sleep while single-context noise is
+pruned.
