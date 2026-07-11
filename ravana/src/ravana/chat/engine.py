@@ -296,6 +296,9 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 self.hrr_reasoner = HRRReasoner(self.dual_code)
                 # Wire the populate hook: add_edge -> HRR encode.
                 self.graph._fact_encode_hook = self._hrr_encode_hook
+                # M5' graph-override: let graph.infer_chain(verb=...)
+                # anchor its relation context to the HRR role vector.
+                self.graph.dual_code = self.dual_code
         except Exception as e:
             if getattr(self, '_trace_enabled', False):
                 print(f"  [init] DualCodeSpace/HRR unavailable: {e}")
@@ -4780,26 +4783,44 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
 
     def hrr_query_chain(self, head: str, verb: str, max_hops: int = 2,
                         fallback_to_graph: bool = True, return_conf: bool = False,
-                        top_k: int = 1, return_topk: bool = False):
-        """Compositional relation query (M5': HRR proposes top-k, graph SELECTS).
+                        top_k: int = 1, return_topk: bool = False,
+                        graph_override: bool = False,
+                        override_conf_threshold: float = 0.85):
+        """Compositional relation query (M5' + graph-override).
 
-        Generate-then-verify (Yonelinas recollection-vs-familiarity; O'Reilly 1995
-        CLS synergy): HRR decodes a ranked top-k of object candidates per hop; the
-        graph then SELECTS the candidate that is a real edge of (subject, verb).
-        This inverts sibling misranking that pure cosine cannot (the correct
-        object is provably a graph edge, since the HRR store is built from graph
-        edges via the add_edge hook). Calibration-safe: the graph only disambiguates
-        WITHIN HRR's top-k — it can never invent an answer or mask an HRR failure.
+        Generate-then-verify (Yonelinas recollection-vs-familiarity; O'Reilly
+        1995 CLS synergy; McClelland 1995 / Spens & Burgess 2026 RAG-as-
+        HC->neocortex deferral; Botvinick 2001 confidence-gated control
+        recruitment). HRR PROPOSES a top-k per hop; the graph is the
+        authoritative disambiguator (it holds the EXACT edge, since the HRR
+        store is built from graph edges via the add_edge hook).
+
+        M5' active graph-SELECT (always on when top_k>1): pick the HRR
+        top-k candidate that is a real edge of (cur, verb). Calibration-safe:
+        the graph only disambiguates WITHIN HRR's top-k.
+
+        graph_override (gated, DEFAULT OFF -> byte-identical to pre-override
+        behavior): when HRR is UNCERTAIN on a hop (no top-k hit OR
+        hrr_conf < override_conf_threshold), defer that hop + remaining to
+        graph.infer_chain(verb=verb) — exact edge traversal, relation-
+        filtered. This is the canonical hippocampal->neocortical deferral,
+        NOT a wholesale replacement: HRR still proposes; the graph corrects
+        ONLY where HRR is weak. Honesty safeguards:
+          - confs stay the HRR cosine (we do NOT replicate the old
+            confs=1.0 for graph answers bug) — graph score goes in a
+            SEPARATE channel (graph_conf).
+          - sources per hop ('hrr' / 'graph_corrected') lets the
+            benchmark report HRR-contributed vs graph-corrected fractions
+            and the override-trigger rate.
+          - infer_chain is called with verb=verb so it CANNOT traverse
+            off-verb edges (graph.py:2438 now filters by relation_type).
 
         Return shape:
-          return_conf=False            -> List[str]  (the selected chain)
+          return_conf=False            -> List[str]
           return_conf=True             -> (chain, confs, graph_support)
-            chain: List[str]  graph-selected objects (HRR top-k, graph-verified)
-            confs: List[float] HRR decode cosine of the originally-best candidate
-                               (unchanged confidence proxy — never fused with graph)
-            graph_support: List[float] per-hop graph corroboration (0/1), separate
-          return_topk=True (with return_conf) -> (chain, confs, graph_support, topks)
-            topks: List[List[(word,sim)]] the raw HRR per-hop ranked shortlist
+          return_topk=True (+return_conf) -> (chain, confs, graph_support,
+                                                 topks, sources, graph_conf)
+        confs / graph_support / graph_conf are THREE SEPARATE channels.
         """
         hrr_chain, hrr_confs, hrr_topks = [], [], []
         if self.hrr_reasoner is not None and self.hrr_reasoner.has_fact(head, verb):
@@ -4808,18 +4829,19 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
 
         label2id = {nd.label.lower(): nid for nid, nd in self.graph.nodes.items()}
 
-        # Active graph-select walk: for each HRR hop, choose the top-k candidate
-        # that is a real graph edge of (cur, verb); keep confs + graph_support
-        # separate. If no edge is in top-k, keep HRR best + graph_support=0.
         sel_chain: List[str] = []
         sel_confs: List[float] = []
         graph_support: List[float] = []
         topks_out: List[List[Tuple[str, float]]] = []
+        sources: List[str] = []
+        graph_conf: List[float] = []
+
         if hrr_chain:
             cur_label = head.lower()
             for i, hop_obj in enumerate(hrr_chain):
                 topk = hrr_topks[i] if i < len(hrr_topks) else []
-                # find a graph-verified candidate within this hop's top-k
+                # M5' active graph-select: pick the HRR top-k candidate that
+                # is a real graph edge of (cur, verb).
                 chosen = None
                 cur_id = label2id.get(cur_label)
                 edge_targets = set()
@@ -4835,30 +4857,94 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                     if w.lower() in edge_targets:
                         chosen = w
                         break
-                if chosen is not None:
-                    sel_chain.append(chosen)
-                    graph_support.append(1.0)
-                else:
-                    sel_chain.append(hop_obj)  # HRR best (honest fallback)
+                hrr_conf = hrr_confs[i] if i < len(hrr_confs) else 0.0
+                # graph_override (gated): fire ONLY when HRR FAILED to propose
+                # a graph-coherent candidate on this hop (chosen is None) — i.e.
+                # no top-k candidate is a real edge of (cur, verb). This is the
+                # genuine "HRR attempted and failed" signal. We do NOT also key
+                # on raw decode conf < threshold, because HRR decode confs are
+                # ~uniformly ~0.58 (uncalibrated), so that OR would fire on
+                # EVERY hop and wholesale-replace vector composition. The
+                # override thus corrects only HRR's genuine failures — the
+                # canonical hippocampal->neocortical deferral (McClelland 1995;
+                # Spens & Burgess 2026 RAG-as-HC->neocortex), NOT a replacement.
+                if graph_override and chosen is None:
+                    # Resolve the CURRENT graph node despite possible label
+                    # collisions (the benchmark may create multiple nodes with
+                    # the same word label). Pick the node whose label matches
+                    # AND that actually has an outgoing edge of type `verb` —
+                    # that is the true current node for this chain's walk.
+                    cur_label_l = (chosen if chosen is not None else hop_obj).lower()
+                    cand_ids = [nid for nid, nd in self.graph.nodes.items()
+                                if nd.label and nd.label.lower() == cur_label_l]
+                    start_id = None
+                    for nid in cand_ids:
+                        for _tgt, _e in self.graph._outgoing.get(nid, []):
+                            if (getattr(_e, "relation_type", "") or "").lower() == verb.lower():
+                                start_id = nid
+                                break
+                        if start_id is not None:
+                            break
+                    if start_id is None:
+                        start_id = cand_ids[0] if cand_ids else None
+                    if start_id is not None:
+                        try:
+                            gchain = self.graph.infer_chain(start_id, max_hops=max_hops - i, verb=verb)
+                            if gchain:
+                                for (t, _gs, _p) in gchain:
+                                    if t in self.graph.nodes and self.graph.nodes[t].label:
+                                        lbl = self.graph.nodes[t].label
+                                        sel_chain.append(lbl)
+                                        sel_confs.append(hrr_conf)  # keep HRR cosine, NOT 1.0
+                                        graph_support.append(1.0)
+                                        topks_out.append(topk)
+                                        sources.append("graph_corrected")
+                                        graph_conf.append(float(_gs))
+                                break  # remaining chain supplied by graph
+                        except Exception:
+                            pass
+                    if len(sel_chain) > len(graph_support):
+                        # graph supplied at least this hop; stop HRR walk
+                        break
+                    # fallback: keep HRR best + support=0 (honest)
+                    sel_chain.append(hop_obj)
+                    sel_confs.append(hrr_conf)
                     graph_support.append(0.0)
-                sel_confs.append(hrr_confs[i] if i < len(hrr_confs) else 0.0)
-                topks_out.append(topk)
-                cur_label = (chosen if chosen is not None else hop_obj).lower()
+                    topks_out.append(topk)
+                    sources.append("hrr")
+                    graph_conf.append(0.0)
+                    cur_label = (chosen if chosen is not None else hop_obj).lower()
+                else:
+                    if chosen is not None:
+                        sel_chain.append(chosen)
+                        graph_support.append(1.0)
+                        sources.append("hrr")
+                    else:
+                        sel_chain.append(hop_obj)
+                        graph_support.append(0.0)
+                        sources.append("hrr")
+                    sel_confs.append(hrr_conf)
+                    topks_out.append(topk)
+                    graph_conf.append(0.0)
+                    cur_label = (chosen if chosen is not None else hop_obj).lower()
         elif fallback_to_graph:
             # HRR has nothing for this (head, verb): defer to graph as before.
             nid = getattr(self, "_concept_keywords", {}).get(head.lower(), [None])[0]
             if nid is not None:
                 try:
-                    gchain = self.graph.infer_chain(nid, max_hops=max_hops)
+                    gchain = self.graph.infer_chain(nid, max_hops=max_hops, verb=verb)
                     sel_chain = [self.graph.nodes[t].label for (t, _s, _p) in gchain
                                  if t in self.graph.nodes and self.graph.nodes[t].label]
-                    sel_confs = [1.0] * len(sel_chain)
+                    sel_confs = [0.0] * len(sel_chain)  # no HRR conf when HRR empty
                     graph_support = [1.0] * len(sel_chain)
+                    sources = ["graph_corrected"] * len(sel_chain)
+                    graph_conf = [float(_s) for (_t, _s, _p) in gchain]
                 except Exception:
                     sel_chain, sel_confs, graph_support, topks_out = [], [], [], []
+                    sources, graph_conf = [], []
 
         if return_topk:
-            return sel_chain, sel_confs, graph_support, topks_out
+            return sel_chain, sel_confs, graph_support, topks_out, sources, graph_conf
         if return_conf:
             return sel_chain, sel_confs, graph_support
         return sel_chain

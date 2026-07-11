@@ -2435,11 +2435,41 @@ class ConceptGraph:
                 results.append((src, tgt, score))
         return results
 
+    def _exact_verb_walk(self, start_id: int, verb: str,
+                         max_hops: int, min_weight: float = 0.25
+                         ) -> List[Tuple[int, float, List[int]]]:
+        """Deterministic exact transitive walk on a SINGLE relation.
+
+        M5' graph-override path. Follows the highest-weight outgoing edge
+        whose relation_type == verb at each step (the same edge the HRR
+        store was built from via the add_edge hook), for up to max_hops.
+        Returns [(target_id, edge_weight, path), ...] — exact, no fuzzy
+        BFS, so it cannot mis-rank siblings or skip the head hop.
+        """
+        out: List[Tuple[int, float, List[int]]] = []
+        cur = start_id
+        path = [cur]
+        for _ in range(max_hops):
+            edges = [(tgt, e) for (tgt, e) in self._outgoing.get(cur, [])
+                     if (getattr(e, "relation_type", "") or "").lower() == verb
+                     and e.edge_type != "inhibitory"
+                     and e.weight >= min_weight]
+            if not edges:
+                break
+            # highest-weight on-verb edge (exact, deterministic)
+            tgt, e = max(edges, key=lambda te: te[1].weight)
+            path = path + [tgt]
+            out.append((tgt, float(e.weight), list(path)))
+            cur = tgt
+        return out
+
+
     def infer_chain(self, start_id: int, max_hops: int = 3,
                     confidence_threshold: float = 0.15,
                     min_weight: float = 0.25,
                     k: int = 5,
-                    frontier_budget: int = 5) -> List[Tuple[int, float, List[int]]]:
+                    frontier_budget: int = 5,
+                    verb: Optional[str] = None) -> List[Tuple[int, float, List[int]]]:
         """Sparse multi-hop inference with activation budgets and winner-take-most.
 
         Key constraints to prevent percolation (semantic fog):
@@ -2449,10 +2479,27 @@ class ConceptGraph:
         - entropy penalty: penalize paths that branch too broadly
         - coherence gate: each hop must maintain semantic alignment with start
 
+        verb (Option B, added for M5' graph-override): when set, ONLY
+        traverse outgoing edges whose relation_type == verb (mirrors the
+        per-hop filter in engine.hrr_query_chain :4829). This stops the
+        override from traversing OFF-verb edges and keeps the inferred
+        path relation-consistent. The :2500 relation bonus is also
+        anchored to dual.role(verb) so on-verb edges score higher.
+
         Returns ranked list of (target_id, chain_score, path) tuples.
         """
         if start_id not in self.nodes:
             return []
+
+        # EXACT VERB WALK (Option B, M5' graph-override): when verb is set,
+        # do a deterministic exact traversal — at each node take the
+        # highest-weight outgoing edge whose relation_type == verb and recurse
+        # for max_hops. This is EXACT edge retrieval (the graph holds the
+        # ground-truth edge the HRR store was built from), NOT fuzzy BFS, so
+        # it cannot mis-rank among siblings or skip the head hop. The fuzzy
+        # BFS below is for the verb=None (relation-agnostic) recall path.
+        if verb is not None:
+            return self._exact_verb_walk(start_id, str(verb).lower(), max_hops, min_weight)
 
         # Use core_vector for identity resolution (stable anchor)
         start_vec = self.nodes[start_id].core_vector
@@ -2462,7 +2509,21 @@ class ConceptGraph:
         # Used to score paths with consistent relation types
         relation_context = None
         start_edges = self._outgoing.get(start_id, [])
-        if start_edges:
+        if verb is not None and self.dual_code is not None:
+            # Option B (verb-anchored): restrict the relation context to the
+            # QUERIED relation's edges so the BFS bonus rewards on-verb hops.
+            # Use the mean of the verb-only relation vectors (meaningful,
+            # NOT a random role vector, which would make the bonus noise).
+            vb = [(tgt, e) for (tgt, e) in start_edges
+                  if (getattr(e, "relation_type", "") or "").lower() == verb.lower()
+                  and e.edge_type != "inhibitory"]
+            vvecs = [e.relation_vector for (_, e) in vb if getattr(e, "relation_vector", None) is not None]
+            if vvecs:
+                relation_context = np.mean(vvecs, axis=0)
+                relation_context = relation_context / (np.linalg.norm(relation_context) + 1e-15)
+            else:
+                relation_context = None
+        if relation_context is None and start_edges:
             rvectors = [e.relation_vector for _, e in start_edges if e.edge_type != "inhibitory"]
             if rvectors:
                 relation_context = np.mean(rvectors, axis=0)
@@ -2490,6 +2551,8 @@ class ConceptGraph:
                         continue  # no cycles
                     if edge.edge_type == "inhibitory":
                         continue  # skip inhibitory edges
+                    if verb is not None and (getattr(edge, "relation_type", "") or "").lower() != verb.lower():
+                        continue  # M5' graph-override: stay on the queried relation
                     if edge.weight < min_weight:
                         continue  # skip weak edges
 
