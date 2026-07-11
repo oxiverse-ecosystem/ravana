@@ -107,18 +107,23 @@ def _graph_tail(engine, head_id, relation, max_hops):
     return tail
 
 
-def probe_chain(engine, chain):
+def probe_chain(engine, chain, top_k=1):
     head = chain["head"]
     rel = chain["relation"]
     expected = chain["expected_tail"]
     max_hops = len(expected)
-    out = engine.hrr_query_chain(head, rel, max_hops=max_hops,
-                                 fallback_to_graph=False, return_conf=True)
-    # M5: hrr_query_chain now returns (chain, confs, graph_support).
-    if isinstance(out, tuple) and len(out) == 3:
-        hrr_tail, hrr_confs, graph_support = out
+    # M5': when top_k>1 the engine does ACTIVE graph-select within HRR's
+    # top-k; return_topk gives us the raw ranked shortlist to measure hit-rate.
+    if top_k > 1:
+        out = engine.hrr_query_chain(head, rel, max_hops=max_hops,
+                                     fallback_to_graph=False, return_conf=True,
+                                     top_k=top_k, return_topk=True)
+        hrr_tail, hrr_confs, graph_support, topks = out
     else:
-        hrr_tail, hrr_confs, graph_support = (out if isinstance(out, tuple) else (out, [], [])), [], []
+        out = engine.hrr_query_chain(head, rel, max_hops=max_hops,
+                                     fallback_to_graph=False, return_conf=True)
+        hrr_tail, hrr_confs, graph_support = out
+        topks = []
     graph_tail = _graph_tail(engine, chain["head_id"], rel, max_hops)
     hrr_correct = (hrr_tail[:max_hops] == expected[:max_hops])
     rows = []
@@ -126,12 +131,18 @@ def probe_chain(engine, chain):
         got = hrr_tail[i] if i < len(hrr_tail) else None
         conf = hrr_confs[i] if i < len(hrr_confs) else 0.0
         gs = graph_support[i] if i < len(graph_support) else 0.0
+        # top-k hit: is the CORRECT object even in HRR's top-k for this hop?
+        # M5' can only rescue a misranked sibling if it is present in top-k.
+        hit = None
+        if i < len(topks) and topks[i]:
+            hit = any(w.lower() == exp.lower() for w, _s in topks[i])
         rows.append({
             "hop": i + 1,
             "provenance": "stored" if i == 0 else "inferred",
             "correct": (got == exp),
             "conf": float(conf),
             "graph_support": float(gs),
+            "topk_hit": hit,
         })
     return {
         "length": chain["length"], "relation": rel,
@@ -184,23 +195,30 @@ def _auroc(scores, labels):
     return float((sum_rank_pos - n_pos * (n_pos + 1) / 2) / (n_pos * n_neg))
 
 
-def run_arm(whiten, sparse_k, unitary_roles, seed=7, m1=True, m3=True, m5=True):
+def run_arm(whiten, sparse_k, unitary_roles, seed=7, m1=True, m3=True, m5=True,
+            top_k=1, hrr_dim=4096):
     from scripts.ravana_chat import CognitiveChatEngine
     engine = CognitiveChatEngine(dim=64, seed=seed, baby_mode=True,
                                  hrr_whiten=whiten, hrr_sparse_k=sparse_k,
-                                 hrr_unitary_roles=unitary_roles)
+                                 hrr_unitary_roles=unitary_roles, hrr_dim=hrr_dim)
     # Mechanism toggles (A/B):
     #  M1 (relation-conditioned candidate restriction): OFF -> clear the verb
     #      index so _candidates() falls back to all atoms.
-    #  M3 (resonator iterations): OFF -> 1 iteration (plain NN decode).
+    #  M3 (resonator iterations): OFF -> 1 iteration (plain NN decode). Default
+    #      OFF in production (naive residual-subtraction diverges).
     #  M5 (graph re-ranking): ON by construction now (reports graph_support
     #      separately; does not alter the HRR chain, calibration-safe).
+    #  M5' (HRR top-k + active graph SELECT): on when top_k>1. HRR proposes
+    #      a ranked shortlist, the graph picks the candidate that is a REAL edge
+    #      of (subject, verb) — inverts sibling misranking (generate-then-verify).
+    #  hrr_dim: parallel dim bump (4096 vs 2048) -> ~1.4x SNR so the correct
+    #      object is more often inside top-k.
     if not m1 and engine.hrr_reasoner is not None:
         engine.hrr_reasoner._by_verb = {}
     if engine.dual_code is not None:
         engine.dual_code._resonator_max_iter = 5 if m3 else 1
     chains = inject_controlled_chains(engine, seed=seed)
-    results = [probe_chain(engine, c) for c in chains]
+    results = [probe_chain(engine, c, top_k=top_k) for c in chains]
     n = len(results)
     coverage_full = sum(1 for r in results if r["hrr_full_correct"]) / n
     graph_coverage_full = sum(1 for r in results if r["graph_full_correct"]) / n
@@ -209,13 +227,15 @@ def run_arm(whiten, sparse_k, unitary_roles, seed=7, m1=True, m3=True, m5=True):
         sub = [r for r in results if r["length"] == L]
         if sub:
             acc_by_len[L] = sum(1 for r in sub if r["hrr_full_correct"]) / len(sub)
-    all_conf, all_correct, all_prov, all_gs = [], [], [], []
+    all_conf, all_correct, all_prov, all_gs, all_hit = [], [], [], [], []
     for r in results:
         for row in r["rows"]:
             all_conf.append(row["conf"])
             all_correct.append(1 if row["correct"] else 0)
             all_prov.append(row["provenance"])
             all_gs.append(row["graph_support"])
+            if row["topk_hit"] is not None:
+                all_hit.append(1 if row["topk_hit"] else 0)
     ece = _ece(all_conf, all_correct)
     auroc = _auroc(all_conf, all_correct)
     stored_conf = [c for c, p in zip(all_conf, all_prov) if p == "stored"]
@@ -255,9 +275,10 @@ def run_arm(whiten, sparse_k, unitary_roles, seed=7, m1=True, m3=True, m5=True):
     hop_close = float(np.mean(close_hop_acc)) if close_hop_acc else None
     hop_distant = float(np.mean(distant_hop_acc)) if distant_hop_acc else None
     gs_mean = float(np.mean(all_gs)) if all_gs else 0.0
+    topk_hit_rate = float(np.mean(all_hit)) if all_hit else None
     return {
         "config": {"whiten": whiten, "sparse_k": sparse_k, "unitary_roles": unitary_roles,
-                   "m1": m1, "m3": m3, "m5": m5},
+                   "m1": m1, "m3": m3, "m5": m5, "top_k": top_k, "hrr_dim": hrr_dim},
         "n": n, "coverage_full": coverage_full, "graph_coverage_full": graph_coverage_full,
         "acc_by_len": acc_by_len, "ece": ece, "auroc": auroc,
         "stored_conf_mean": float(np.mean(stored_conf)) if stored_conf else None,
@@ -266,26 +287,31 @@ def run_arm(whiten, sparse_k, unitary_roles, seed=7, m1=True, m3=True, m5=True):
         "acc_close": acc_close, "acc_distant": acc_distant,
         "hop_close": hop_close, "hop_distant": hop_distant,
         "graph_support_mean": gs_mean,
+        "topk_hit_rate": topk_hit_rate,
     }
 
 
 def main():
     print("=" * 80)
-    print("EMERGENT TRANSITIVE-REASONING BENCHMARK (Limitation 2) + clean-up fix A/B")
+    print("EMERGENT TRANSITIVE-REASONING BENCHMARK (Limitation 2) — M5' A/B")
     print("=" * 80)
-    # A/B the clean-up mechanisms (M1/M3) on the FULL decorrelation config
-    # (whiten+sparse256+unitary, which is now the engine default). The earlier
-    # turn proved decorrelation alone does NOT move accuracy; these are the
-    # competition-structure fixes (Frady et al.) that should.
+    # A/B the M5' fix (HRR proposes top-k, graph SELECTS the true sibling)
+    # on the FULL decorrelation config. Three arms:
+    #  (A) baseline            : top_k=1 (greedy NN), dim=2048  — current behavior
+    #  (B) + topk + graph-select: top_k=5, dim=2048  — M5' active disambiguation
+    #  (C) + topk + 4096-dim  : top_k=5, dim=4096  — M5' + SNR bump
+    # The earlier turn proved decorrelation alone does NOT move accuracy; M5' is the
+    # competition-structure fix (Frady et al.): the correct object is provably a
+    # graph edge, so external truth can invert the sibling misranking.
     configs = [
-        ("baseline (no M1/M3)", True, 256, True, False, False),
-        ("+ M1 (verb-conditioned candidates)", True, 256, True, True, False),
-        ("+ M1 + M3 (resonator)", True, 256, True, True, True),
+        ("A baseline (top_k=1, dim=2048)", True, 256, True, False, False, 1, 2048),
+        ("B +topk+graph-select (top_k=5, dim=2048)", True, 256, True, True, True, 5, 2048),
+        ("C +topk + 4096-dim (top_k=5, dim=4096)", True, 256, True, True, True, 5, 4096),
     ]
     rows = []
-    for name, w, k, u, m1, m3 in configs:
-        print(f"\n--- arm: {name} (whiten={w}, sparse_k={k}, unitary={u}, m1={m1}, m3={m3}) ---")
-        r = run_arm(w, k, u, m1=m1, m3=m3, m5=True)
+    for name, w, k, u, m1, m5, tk, dim in configs:
+        print(f"\n--- arm: {name} (whiten={w}, sparse_k={k}, unitary={u}, m1={m1}, m5={m5}, top_k={tk}, dim={dim}) ---")
+        r = run_arm(w, k, u, m1=m1, m3=False, m5=m5, top_k=tk, hrr_dim=dim)
         rows.append((name, r))
         print(f"  coverage(full tail) : {r['coverage_full']:.3f}  (graph GT: {r['graph_coverage_full']:.3f})")
         bylen = " ".join(f"L{L}={r['acc_by_len'].get(L, 0):.2f}" for L in LENGTHS)
@@ -296,27 +322,29 @@ def main():
         print(f"  acc close/distant  : {r['acc_close']} / {r['acc_distant']}  "
               f"(close<DISTANT => clean-up confusion, NOT value-transfer)")
         print(f"  hop-acc close/dist : {r['hop_close']} / {r['hop_distant']}  "
-              f"(expect gap to narrow with M1/M3)")
-        print(f"  graph_support_mean : {r['graph_support_mean']:.3f}  (M5 CLS synergy, separate)")
+              f"(expect gap to narrow with M5')")
+        print(f"  graph_support_mean : {r['graph_support_mean']:.3f}  (M5' active select rate)")
+        print(f"  top-k HIT-rate     : {r['topk_hit_rate']}  "
+              f"(correct obj present in HRR top-k? M5' needs this)")
         decay = " ".join(f"h{h}:a={r['hop_decay'].get(h,{}).get('acc',0):.2f},c={r['hop_decay'].get(h,{}).get('conf',0):.2f}" for h in (1,2,3,4) if h in r['hop_decay'])
         print(f"  hop decay          : {decay}")
 
     print("\n" + "=" * 80)
-    print("VERDICT (clean-up fix)")
+    print("VERDICT (M5' clean-up fix)")
     print("=" * 80)
     for name, r in rows:
-        # Success criteria from the plan: coverage climbs, acc_close rises
-        # preferentially (gap to acc_distant narrows), hop-decay flattens,
-        # ECE < 0.05, inferred<stored preserved.
+        # Success: coverage climbs (esp. acc_close rises -> graph rescues misranked
+        # sibling), top-k hit-rate high, ECE < 0.1, inferred<stored preserved.
         gap = (r['acc_distant'] - r['acc_close']) if (r['acc_close'] is not None and r['acc_distant'] is not None) else None
         ok = (r["coverage_full"] >= 0.5
+              and (r['topk_hit_rate'] is None or r['topk_hit_rate'] >= 0.8)
               and r["ece"] < 0.1
               and (np.isnan(r["auroc"]) or r["auroc"] >= 0.5)
               and (r['inferred_conf_mean'] < r['stored_conf_mean']))
         tag = "PASS" if ok else "CHECK"
         print(f"  [{tag}] {name}: cov={r['coverage_full']:.3f} ece={r['ece']:.4f} "
               f"close/distant={r['acc_close']}/{r['acc_distant']} gap={gap} "
-              f"inferred<stored={r['inferred_conf_mean'] < r['stored_conf_mean']}")
+              f"hitrate={r['topk_hit_rate']} inferred<stored={r['inferred_conf_mean'] < r['stored_conf_mean']}")
 
 
 if __name__ == "__main__":

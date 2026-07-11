@@ -71,40 +71,53 @@ class HRRReasoner:
         return list(self._atoms)
 
     # ── single-hop HRR recovery (clean-up through the discrete atom set) ──
-    def recover_object(self, subject: str, verb: str) -> Optional[str]:
+    def recover_object(self, subject: str, verb: str, top_k: int = 1) -> Optional[str]:
         struct = self._facts.get((subject.lower(), verb.lower()))
         if struct is None:
             return None
-        return self.dual.recover_role_filler(struct, "object", self._candidates(verb))
+        if top_k <= 1:
+            return self.dual.recover_role_filler(struct, "object", self._candidates(verb))
+        topk = self.dual.recover_role_filler_topk(struct, "object", self._candidates(verb), top_k)
+        return topk[0][0] if topk else None
 
     # ── transitive chain: A->B, B->C => recover C from A ──
-    def query_chain_with_conf(self, head: str, verb: str, max_hops: int = 2):
-        """Like query_chain but returns (chain, confs) where confs[i] is the
-        decode cosine for the i-th recovered hop — the confidence proxy
-        (recollection strength; Yonelinas). Hop 1 = stored (direct associate),
-        hop>1 = inferred (composed)."""
+    def query_chain_with_conf(self, head: str, verb: str, max_hops: int = 2, top_k: int = 1):
+        """Like query_chain but returns (chain, confs, topks) where confs[i] is the
+        decode cosine for the i-th recovered hop (confidence proxy; Yonelinas) and
+        topks[i] is the HRR top-k candidate list [(word, sim), ...] for that hop.
+        The engine's graph-select disambiguates WITHIN topks using graph truth
+        (M5', generate-then-verify) — calibration-safe. Hop 1 = stored, hop>1 =
+        inferred."""
         chain: List[str] = []
         confs: List[float] = []
+        topks: List[List[Tuple[str, float]]] = []
         cur = head.lower()
         seen = {cur}
         for _ in range(max_hops):
             struct = self._facts.get((cur, verb.lower()))
             if struct is None:
                 break
-            nxt, c = self.dual.recover_role_filler_with_conf(struct, "object", self._candidates(verb))
+            if top_k <= 1:
+                nxt, c = self.dual.recover_role_filler_with_conf(struct, "object", self._candidates(verb))
+                topk = [(nxt, c)] if nxt is not None else []
+            else:
+                topk = self.dual.recover_role_filler_topk(struct, "object", self._candidates(verb), top_k)
+                nxt = topk[0][0] if topk else None
+                c = topk[0][1] if topk else 0.0
             if nxt is None or nxt.lower() in seen:
                 break
             chain.append(nxt)
             confs.append(c)
+            topks.append(topk)
             seen.add(nxt.lower())
             cur = nxt
-        return chain, confs
+        return chain, confs, topks
 
     def query_chain(self, head: str, verb: str, max_hops: int = 2) -> List[str]:
         """Return the chain of objects reachable from `head` via `verb`, walking
         the integrated fact store. Decodes every step through the atom set
         (clean-up), never emitting a raw vector."""
-        chain, _ = self.query_chain_with_conf(head, verb, max_hops=max_hops)
+        chain, _, _ = self.query_chain_with_conf(head, verb, max_hops=max_hops)
         return chain
 
     # ── relation composition (causes ∘ enables): bundle role vectors ──

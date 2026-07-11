@@ -211,6 +211,19 @@ class DualCodeSpace:
                 break
         return prev_label, float(prev_sim)
 
+    def recover_role_filler_topk(self, structure: np.ndarray, role: str,
+                                  candidate_words: list, top_k: int = 5) -> List[Tuple[str, float]]:
+        """M5' generate-then-verify: return the top-k nearest candidates (word,
+        decode_cosine) sorted descending. The consumer (engine graph-select)
+        disambiguates WITHIN this list using external graph truth — calibration-
+        safe because it can only pick among HRR's own proposals, never invent or
+        mask. Pure cosine ranking is unchanged; this just exposes the ranked
+        shortlist instead of greedily taking #1."""
+        rec = self.unbind_role(structure, role)
+        scored = [(cosine_sim(rec, self.atom_hrr(w)), w) for w in candidate_words]
+        scored.sort(reverse=True)
+        return [(w, float(s)) for s, w in scored[:max(1, top_k)]]
+
     def recover_role_filler(self, structure: np.ndarray, role: str,
                             candidate_words: list) -> Optional[str]:
         """Resonator-style decode: unbind role, return nearest candidate word

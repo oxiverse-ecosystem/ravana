@@ -26,7 +26,7 @@ def test_dual_code_instantiated(engine):
     # Work A0: DualCodeSpace (2048-D) is live, not inert.
     assert engine.dual_code is not None
     assert engine.hrr_reasoner is not None
-    assert engine.dual_code.hrr_dim == 2048
+    assert engine.dual_code.hrr_dim == 4096  # M5' parallel dim bump (2048->4096)
 
 
 def test_add_edge_populates_hrr(engine):
