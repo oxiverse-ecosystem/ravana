@@ -4646,7 +4646,18 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         return max(0.0, min(1.0, quality))
 
 
-    def _sleep_consolidate(self) -> Dict[str, int]:
+    def _sleep_consolidate(self, golden_edge_keys: Optional[set] = None) -> Dict[str, int]:
+        # Snapshot golden facts BEFORE pruning so we can measure retention /
+        # catastrophic forgetting (EWC-style blackout at saturation; Kirkpatrick
+        # 2017). golden_edge_keys is a set of (src, tgt) the experiment harness
+        # declares "important" (e.g. verified facts injected before stress).
+        golden_before = {}
+        if golden_edge_keys:
+            for k in golden_edge_keys:
+                e = self.graph.get_edge(*k)
+                if e is not None:
+                    golden_before[k] = (float(getattr(e, "weight", 0.0)),
+                                        float(getattr(e, "confidence", 0.0)))
         result = self.sleep_engine.run_cycle(
             graph=self.graph,
             episodic_buffer=[],
@@ -4704,6 +4715,33 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         except Exception as e:
             if getattr(self, '_trace_enabled', False):
                 print(f"  [trace] Correction consolidation error: {e}")
+        # Golden-fact retention / catastrophic-forgetting metric (Work 3).
+        # A golden edge is RETAINED if it still exists with similar strength;
+        # DRIFTED (forgotten/weakened) if it was pruned or its weight/confidence
+        # moved beyond the drift tolerance. Blackout = golden edges fully gone.
+        if golden_before:
+            retained = 0
+            drifted = 0
+            blackout = 0
+            DRIFT_TOL = 0.15
+            for k, (w0, c0) in golden_before.items():
+                e = self.graph.get_edge(*k)
+                if e is None:
+                    drifted += 1
+                    blackout += 1
+                    continue
+                w1 = float(getattr(e, "weight", 0.0))
+                c1 = float(getattr(e, "confidence", 0.0))
+                if abs(w1 - w0) > DRIFT_TOL or abs(c1 - c0) > DRIFT_TOL:
+                    drifted += 1
+                else:
+                    retained += 1
+            total_g = len(golden_before)
+            result["important_facts_total"] = total_g
+            result["important_facts_retained"] = retained
+            result["important_facts_drifted"] = drifted
+            result["important_facts_blackout"] = blackout
+            result["retention_rate"] = retained / total_g if total_g else 0.0
         return result
 
     def _update_state(self, ctx: CognitiveResponseContext):
