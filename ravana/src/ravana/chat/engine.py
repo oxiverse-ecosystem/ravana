@@ -120,7 +120,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
 
 
 
-    def __init__(self, dim: int = 64, seed: int = 42, baby_mode: bool = True, data_dir: Optional[str] = None, user_suffix: str = ""):
+    def __init__(self, dim: int = 64, seed: int = 42, baby_mode: bool = True, data_dir: Optional[str] = None, user_suffix: str = "", hrr_whiten: bool = True, hrr_sparse_k: int = 0, hrr_unitary_roles: bool = True):
         self.dim = dim
         self.rng = np.random.RandomState(seed)
 
@@ -290,7 +290,9 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         self.hrr_reasoner = None
         try:
             if os.path.exists(self._glove_cache_path):
-                self.dual_code = DualCodeSpace(self._glove_cache_path, hrr_dim=2048)
+                self.dual_code = DualCodeSpace(self._glove_cache_path, hrr_dim=2048,
+                                               whiten=hrr_whiten, sparse_k=hrr_sparse_k,
+                                               unitary_roles=hrr_unitary_roles)
                 self.hrr_reasoner = HRRReasoner(self.dual_code)
                 # Wire the populate hook: add_edge -> HRR encode.
                 self.graph._fact_encode_hook = self._hrr_encode_hook
@@ -4777,22 +4779,32 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 pass
 
     def hrr_query_chain(self, head: str, verb: str, max_hops: int = 2,
-                        fallback_to_graph: bool = True) -> List[str]:
+                        fallback_to_graph: bool = True, return_conf: bool = False):
         """Compositional relation query. Recovers the transitive chain of objects
         reachable from `head` via `verb`, decoded through the discrete graph atom
         set (clean-up). If the HRR store has nothing and fallback_to_graph, defer
         to the graph's infer_chain for an authoritative multi-hop path."""
         if self.hrr_reasoner is not None and self.hrr_reasoner.has_fact(head, verb):
-            return self.hrr_reasoner.query_chain(head, verb, max_hops=max_hops)
+            chain, confs = self.hrr_reasoner.query_chain_with_conf(head, verb, max_hops=max_hops)
+            if return_conf:
+                return chain, confs
+            return chain
         if fallback_to_graph:
             nid = getattr(self, "_concept_keywords", {}).get(head.lower(), [None])[0]
             if nid is not None:
                 try:
                     chain = self.graph.infer_chain(nid, max_hops=max_hops)
-                    return [self.graph.nodes[t].label for (t, _s, _p) in chain
-                            if t in self.graph.nodes and self.graph.nodes[t].label]
+                    labels = [self.graph.nodes[t].label for (t, _s, _p) in chain
+                              if t in self.graph.nodes and self.graph.nodes[t].label]
+                    if return_conf:
+                        return labels, [1.0] * len(labels)  # graph ground truth = full conf
+                    return labels
                 except Exception:
+                    if return_conf:
+                        return [], []
                     return []
+        if return_conf:
+            return [], []
         return []
 
     def _update_state(self, ctx: CognitiveResponseContext):

@@ -64,20 +64,33 @@ class HRRReasoner:
         return self.dual.recover_role_filler(struct, "object", self._candidates())
 
     # ── transitive chain: A->B, B->C => recover C from A ──
+    def query_chain_with_conf(self, head: str, verb: str, max_hops: int = 2):
+        """Like query_chain but returns (chain, confs) where confs[i] is the
+        decode cosine for the i-th recovered hop — the confidence proxy
+        (recollection strength; Yonelinas). Hop 1 = stored (direct associate),
+        hop>1 = inferred (composed)."""
+        chain: List[str] = []
+        confs: List[float] = []
+        cur = head.lower()
+        seen = {cur}
+        for _ in range(max_hops):
+            struct = self._facts.get((cur, verb.lower()))
+            if struct is None:
+                break
+            nxt, c = self.dual.recover_role_filler_with_conf(struct, "object", self._candidates())
+            if nxt is None or nxt.lower() in seen:
+                break
+            chain.append(nxt)
+            confs.append(c)
+            seen.add(nxt.lower())
+            cur = nxt
+        return chain, confs
+
     def query_chain(self, head: str, verb: str, max_hops: int = 2) -> List[str]:
         """Return the chain of objects reachable from `head` via `verb`, walking
         the integrated fact store. Decodes every step through the atom set
         (clean-up), never emitting a raw vector."""
-        chain: List[str] = []
-        cur = head.lower()
-        seen = {cur}
-        for _ in range(max_hops):
-            nxt = self.recover_object(cur, verb)
-            if nxt is None or nxt.lower() in seen:
-                break
-            chain.append(nxt)
-            seen.add(nxt.lower())
-            cur = nxt
+        chain, _ = self.query_chain_with_conf(head, verb, max_hops=max_hops)
         return chain
 
     # ── relation composition (causes ∘ enables): bundle role vectors ──
