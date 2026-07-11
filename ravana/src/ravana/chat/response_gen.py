@@ -1,6 +1,7 @@
 """Auto-generated mixin module for CognitiveChatEngine."""
 from __future__ import annotations
 import sys, os, time, random, json, re, threading, hashlib
+import logging
 import urllib.request
 import socket
 socket.setdefaulttimeout(4.0)
@@ -1954,8 +1955,8 @@ class ResponseGenMixin(ChainWalkerMixin):
                 _unique_ratio = len(set(_words)) / max(1, len(_words))
                 if _unique_ratio >= 0.35:
                     return (syntax_response, "fast_ventral")
-        except Exception:
-            pass
+        except Exception as _e:  # P4: observable (was silent `pass`)
+            logging.getLogger(__name__).debug("fast_ventral surface-realize failed: %r", _e)
 
         # Check definition store for known concepts (ATL convergence zone)
         text_lower = ctx.raw_input.lower().strip()
@@ -3265,8 +3266,18 @@ class ResponseGenMixin(ChainWalkerMixin):
             return text, False
         clauses = re.split(r"(?<=[.!?])\s+", text.strip())
         if len(clauses) <= 1:
-            # Single clause: nothing to strip — caller decides whole-reply fate.
-            return text, False
+            # Single clause: still evaluate it. If degenerate, report dropped
+            # so the caller falls to honest uncertainty (don't emit unguarded
+            # text just because there's nothing else to keep).
+            c = text.strip()
+            _bad = False
+            if c:
+                if _is_word_salad_any_sentence(c, subject=ctx.subject):
+                    _bad = True
+                elif (not getattr(self, "_disable_grounding_gate", False)
+                        and not self._sm_response_grounded(ctx, c, skip_step1=True)):
+                    _bad = True
+            return text, _bad
         kept = []
         dropped = False
         for cl in clauses:

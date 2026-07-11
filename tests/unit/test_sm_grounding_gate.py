@@ -425,6 +425,32 @@ def test_all_paths_guarded():
     assert _is_word_salad_any_sentence(guarded, subject="black holes") is False
 
 
+# ── P4: a monitor fault must fail CLOSED, not emit unguarded text ─────────
+# The forward-model guard lives inside a try/except in process_turn. If the
+# monitor itself raises (a swallowed failure in the old code), the reply used to
+# proceed UNGUARDED. Now it routes to honest uncertainty. Prove it.
+def test_forward_model_failure_falls_closed():
+    from ravana.chat.engine import CognitiveChatEngine
+    eng = CognitiveChatEngine(dim=64, seed=42, baby_mode=True,
+                             data_dir="/tmp/ravana_guard_fail")
+    # Force the guard to raise, simulating a monitor fault.
+    orig = eng._forward_model_check
+
+    def _boom(text, ctx):
+        raise RuntimeError("simulated monitor fault")
+
+    eng._forward_model_check = _boom
+    # A normal, grounded-style query — even if it produced text, the fault must
+    # not leak unguarded output.
+    reply = eng.process_turn("hi there, how are you?")
+    eng._forward_model_check = orig
+    assert reply is not None
+    assert isinstance(reply, str)
+    assert len(reply) > 5
+    # The reply must be a clean, non-salad turn (honest fallback), never raw salad.
+    assert _is_word_salad_any_sentence(reply, subject=None) is False
+
+
 if __name__ == "__main__":
     import pytest
     raise SystemExit(pytest.main([__file__, "-v"]))
