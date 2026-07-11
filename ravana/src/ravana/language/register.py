@@ -6,6 +6,7 @@ Learned from user feedback via REINFORCE-style policy gradient.
 """
 
 from typing import Dict, Optional, Tuple
+import re
 import numpy as np
 
 
@@ -174,10 +175,16 @@ class RegisterController:
                 text = text[:first_stop + 1].strip()
 
         # 2) Certainty -> hedge only if low AND not already hedged by the
-        #    SurfaceRealizer's epistemic frame (avoids double-hedge).
+        #    SurfaceRealizer's epistemic frame (avoids double-hedge). Never
+        #    hedge a QUESTION ("do birds fly?" -> "i'm not certain, but do
+        #    birds fly?" is nonsensical) — L3 fix.
         lowered = text.lower()
         already_hedged = any(lowered.startswith(m) for m in self._EPISTEMIC_MARKERS)
-        if certainty < 0.40 and not already_hedged:
+        _is_question = (text.rstrip().endswith("?")
+                        or re.match(r"^(what|who|where|when|why|how|do|does|did|"
+                                    r"is|are|can|could|would|will|should|have|has)\b",
+                                    lowered) is not None)
+        if certainty < 0.40 and not already_hedged and not _is_question:
             text = f"i'm not certain, but {text[0].lower()}{text[1:]}"
 
         # 3) Formality -> casual flattening when high; no-op when low.

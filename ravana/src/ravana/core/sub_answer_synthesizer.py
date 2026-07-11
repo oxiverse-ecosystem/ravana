@@ -389,14 +389,16 @@ class SubAnswerSynthesizer:
         elif subj_lower in ("you", "i", "he", "she"):
             pronoun = subj_lower
         
-        # Only replace when it's clearly the subject of a sentence
-        parts = text.split(". ")
+        # Only replace when it's clearly the subject of a sentence.
+        # Split on any sentence terminator (.!?) followed by whitespace, so
+        # "!" / "?" joins and newline joins are handled too (not just ". ").
+        parts = re.split(r'(?<=[.!?])\s+', text)
         if len(parts) <= 1:
             return text
         
         new_parts = [parts[0]]  # Keep first sentence as-is
         for part in parts[1:]:
-            # Check if part starts with the subject
+            # Check if part starts with the subject (capitalized or lowercase).
             pattern = r'^' + re.escape(subj_lower[0].upper() + subj_lower[1:]) + r'\b'
             if re.match(pattern, part):
                 part = re.sub(pattern, pronoun[0].upper() + pronoun[1:], part, count=1)
@@ -406,7 +408,7 @@ class SubAnswerSynthesizer:
                     part = re.sub(pattern, pronoun, part, count=1)
             new_parts.append(part)
         
-        return ". ".join(new_parts)
+        return " ".join(new_parts)
 
     def get_synthesis_status(self) -> Dict[str, Any]:
         """Return status of the last synthesis operation."""
