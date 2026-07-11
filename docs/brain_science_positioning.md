@@ -130,3 +130,99 @@ Run `_prune_weak_edges(threshold=0.1)`:
 the real `WebToGraph.learn_text` ingest path (which sets `contexts`) and asserts
 the low-weight cross-context fact survives sleep while single-context noise is
 pruned.
+
+## Situation-Model monitor as a Levelt / Wernicke comprehension loop
+
+The Situation-Model production path (neural decoder + narrative + syntactic
+assembly) does **free** generation, then only a permissive degeneracy check
+(`_is_word_salad`, whose `>=3`-novel-word safety valve lets fluent-but-false
+text through). Free decoding with no reality constraint is exactly the
+architecture that produces **word salad** — and its signature in humans is
+**Wernicke's (receptive) aphasia**: *"fluent speech that doesn't make sense …
+patients are unaware of their errors (anosognosia)"* (Cleveland Clinic; NCBI
+StatPearls). The grounding gate is, in effect, a Wernicke-area comprehension
+check bolted onto a fluent syntactic production system.
+
+**The residual failure class.** A reply can be grammatically fluent,
+subject-anchored, and semantically *empty* — e.g. the live output
+`"Gravity semantic pet … gravity semantic going"`,
+`"black holes bend spacetime is black holes bend"`,
+`"Life semantic people … life causal great"`. The original monitor judged the
+*whole paragraph*, so a good sentence donated its novelty/anchoring to a
+degenerate tail and the tail rode along (it literally admitted this in its own
+docstring). This is the computational analog of a **partial comprehension
+lesion**: gist passes but clause-level meaning fails.
+
+**The fix — clause-grained monitoring (Levelt's perceptual-loop monitor).**
+Levelt, Roelofs & Meyer (1999); Levelt (1989): the comprehension-based monitor
+re-parses the formulated utterance and compares it to the intended message
+*before* articulation, via an internal loop (inner speech) and an external loop
+(overt). Critically, comprehension is **incremental** — listeners (and the
+monitor) assign provisional interpretations clause-by-clause and revise as input
+arrives (Novick et al. 2005; Altmann & Kamide 2007). So the monitor must operate
+**per sentence, not on the final paragraph**. `_sm_response_grounded` now fails
+closed: if ANY clause fails, the whole reply is withheld (the monitor
+intercepts one bad clause), and it also runs on every sub-answer of the
+decomposition path (clause-level filtering — drop the degenerate clause, keep
+the good one, like a human self-repair).
+
+Per clause it checks four things, reusing the SAME notion of "grounded" the
+decomposition path already trusts:
+
+1. **Reference** — the clause must touch a verified neighbour or the stored
+   definition's content (NOT merely "≥3 novel words"; that safety valve belongs
+   to `_is_word_salad` and must not substitute for a verified anchor, or
+   fluent-but-false text passes).
+2. **Topical coherence** — the fraction of the clause's content words anchored
+   to the subject (GloVe cosine ≥ 0.30) and the clause centroid aligned.
+   Per-clause, so a degenerate tail cannot hide behind a good clause's
+   anchoring (the M4-grade factual gate, now at clause grain).
+3. **Conflict / self-reference (Nozari, Dell & Schwartz 2011; Botvinick
+   2001)** — a truncated repetition (`"black holes bend … black holes bend"`)
+   is a low-conflict / low-novelty production: the same head noun + verb recurs
+   with no new argument. Detected via the subject's head chunk recurring
+   (GloVe-independent), so it fires even without embeddings.
+4. **Per-clause substance / originality (Murphy & Castel 2022)** — a clause
+   whose content is only subject words + glue verbs, or only vague
+   concept-metawords (`semantic`, `contrastive`, `causal`, `even` … the exact
+   filler vocabulary the free decoder emits), asserts nothing specific. Humans
+   are *"skilled and unaware"* of the originality of their own fluent output;
+   RAVANA supplies the missing per-clause substance check.
+
+**Honesty bar.** The monitor now operates at the **same grain as production
+(clause-by-clause)**, closing the partial-comprehension lesion. It errs toward
+*withholding*: a degenerate clause → honest uncertainty / reflective response
+("I don't know that yet") — which is strictly better than confident garbage,
+and correctly routes the query into the learning loop instead of scoring it
+0.55 and never learning. The decomposition path skips the monitor's step (1)
+graph-presence requirement (its subject was already vetted by
+`_decomp_grounded`'s web/association check), so novel-concept answers (black
+holes, quantum effects) are not over-suppressed — only their degenerate clauses
+are dropped.
+
+**Universal articulation-boundary guard.** The clause monitor was first wired
+into the Situation-Model decoder/narrative/syntax gates (H1/H2) and the
+decomposition per-sub-answer filter. Tracing the live `ravana_chat.py` run
+revealed a residual: when the gated SM and decomposition paths returned None,
+the query fell through to the **ventral/dorsal association binders**, which emit
+fluent-but-empty text ("Life semantic people, which semantic cannot") with *no*
+clause gate of their own (only the old whole-text `_is_word_salad` salve, which
+the `>=3`-novel-word valve let through). The fix is applied at the single
+terminal point all paths share: `_forward_model_check` — the pre-articulation
+inner-speech loop in `engine.py` — now runs the *per-sentence* salad detector and
+the clause SM monitor on the **final composed reply**, so a degenerate clause
+from ANY production system is intercepted before overt articulation. This is
+exactly Levelt's external loop: the formulated utterance is silently re-parsed
+clause-by-clause and compared to the gist before it is spoken.
+
+**Measurement.** `experiments/measure_sm_grounding.py` forces the exact
+degenerate strings observed in the live `ravana_chat.py` run (Q3 gravity, Q5
+black holes, Q8 life) through both `_sm_response_grounded` and the universal
+`_forward_model_check`, and asserts they are withheld, while genuinely grounded
+answers (Q9 oxiverse; a real web sentence) still pass. Control arm: the old
+whole-text `_is_word_salad` *passed* these strings (the `>=3`-novel-word valve),
+proving the per-clause monitor — not a GloVe/luck artifact — is what now
+withholds them. `tests/unit/test_sm_grounding_gate.py` (19 tests) covers the SM
+dispatch, the per-clause regression (good sentence + degenerate tail), the
+control arm, the decomposition per-sub-answer drop/keep behavior, and the
+universal forward-model guard.

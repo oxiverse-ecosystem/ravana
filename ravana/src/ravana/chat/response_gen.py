@@ -21,7 +21,7 @@ from ravana_ml.nn.neural_decoder import NeuralDecoder
 from ravana_ml.nn.neuromodulator import NeuromodulatorEngine
 
 from .models import CognitiveResponseContext
-from .constants import _is_word_salad
+from .constants import _is_word_salad, _is_word_salad_any_sentence
 from ravana.core.question_decomposition import QuestionDecompositionEngine, QuestionCategory, SubQuestion
 from ravana.core.sub_answer_synthesizer import SubAnswerSynthesizer
 
@@ -1265,6 +1265,7 @@ class ResponseGenMixin(ChainWalkerMixin):
                                     text += "."
                                 text = re.sub(r'\s+', ' ', text)
                                 if (not _is_word_salad(text, subject=ctx.subject)
+                                        and not _is_word_salad_any_sentence(text, subject=ctx.subject)
                                         and (getattr(self, "_disable_grounding_gate", False)
                                              or self._sm_response_grounded(ctx, text))):
                                     if getattr(self, '_trace_enabled', False):
@@ -1285,6 +1286,7 @@ class ResponseGenMixin(ChainWalkerMixin):
                 paragraph = self._generate_narrative_paragraph(ctx)
                 if (paragraph and len(paragraph) > 15
                         and not _is_word_salad(paragraph, subject=ctx.subject)
+                        and not _is_word_salad_any_sentence(paragraph, subject=ctx.subject)
                         and (getattr(self, "_disable_grounding_gate", False)
                              or self._sm_response_grounded(ctx, paragraph))):
                     if getattr(self, '_trace_enabled', False):
@@ -2065,7 +2067,8 @@ class ResponseGenMixin(ChainWalkerMixin):
         return best >= 0.45
 
     def _sm_response_grounded(self, ctx: CognitiveResponseContext,
-                              response_text: str) -> bool:
+                              response_text: str,
+                              skip_step1: bool = False) -> bool:
         """Levelt-style pre-articulation monitor for Situation-Model free output.
 
         The Situation-Model path (neural decoder + syntax) does *free*
@@ -2103,157 +2106,258 @@ class ResponseGenMixin(ChainWalkerMixin):
         # (1) Verified factual anchor for the subject — reuse the SAME evidence
         # the decomposition path trusts, so the two monitors share one notion of
         # "knowing" (no second, divergent definition of grounding).
-        has_verified_fact = False
-        if subject in getattr(self, "_definitions", {}):
-            has_verified_fact = True
-        elif subject in getattr(self, "_concept_sources", {}):
+        # When skip_step1 is set (decomposition path), the subject has ALREADY
+        # been vetted by _decomp_grounded (web source / strong association), so
+        # we skip this graph-presence requirement — otherwise novel-concept
+        # answers (black holes, quantum effects) that aren't yet in the baby
+        # graph would be withheld even when their clause is well-formed.
+        if skip_step1:
             has_verified_fact = True
         else:
-            subj_vec = self._glove_vector(subject) if hasattr(self, "_glove_vector") else None
-            if subj_vec is None:
-                # No embedding to judge by: weak grounding from graph presence.
-                has_verified_fact = (
-                    subject in getattr(self, "_concept_keywords", {})
-                    or subject in getattr(self, "_concept_labels", {})
-                )
+            has_verified_fact = False
+            if subject in getattr(self, "_definitions", {}):
+                has_verified_fact = True
+            elif subject in getattr(self, "_concept_sources", {}):
+                has_verified_fact = True
             else:
-                best = -1.0
-                for label, _score in (ctx.associated_concepts or [])[:12]:
-                    v = self._glove_vector(label)
-                    if v is None:
-                        continue
-                    sim = float(np.dot(subj_vec, v))
-                    if sim > best:
-                        best = sim
-                has_verified_fact = best >= 0.30
+                subj_vec = self._glove_vector(subject) if hasattr(self, "_glove_vector") else None
+                if subj_vec is None:
+                    # No embedding to judge by: weak grounding from graph presence.
+                    has_verified_fact = (
+                        subject in getattr(self, "_concept_keywords", {})
+                        or subject in getattr(self, "_concept_labels", {})
+                    )
+                else:
+                    best = -1.0
+                    for label, _score in (ctx.associated_concepts or [])[:12]:
+                        v = self._glove_vector(label)
+                        if v is None:
+                            continue
+                        sim = float(np.dot(subj_vec, v))
+                        if sim > best:
+                            best = sim
+                    has_verified_fact = best >= 0.30
 
         if not has_verified_fact:
             # Nothing verified to anchor the utterance to → ungrounded.
             return False
 
-        # (2) Does the reply actually reference the VERIFIED knowledge, not
-        # merely the subject? Free-decoded text trivially contains the subject
-        # ("trust is ...", "life is ..."), so subject presence alone proves
-        # nothing — it is exactly the hub-noun confabulation class
-        # ("trust is the light and the space where the matter and the time
-        # bend"). Require the reply to touch a verified neighbour (one of the
-        # subject's associated concepts) or the stored definition's own content
-        # words; otherwise the fluent string is drift that anchors to nothing
-        # we actually know and must be withheld.
+        # ── LEVELT / WERNICKE MONITOR, CLAUSE-GRAINED (Steps 2-4) ─────────────
+        # The monitor must operate PER SENTENCE, not on the final paragraph
+        # (Levelt's perceptual-loop monitor re-parses the utterance
+        # clause-by-clause via inner speech and compares to the intended
+        # message before articulation; comprehension is incremental —
+        # Novick et al. 2005; Altmann & Kamide 2007). Judging the whole text
+        # under-monitors local incoherence — the computational analog of a
+        # partial Wernicke (receptive) comprehension lesion where gist passes
+        # but clause-level meaning fails (Cleveland Clinic; NCBI StatPearls):
+        # fluent, subject-anchored, semantically empty text. So ANY sentence
+        # that fails reference / coherence / self-reference / substance causes
+        # the WHOLE reply to be withheld (the monitor intercepts one bad
+        # clause), failing closed. Step (1) above stays a whole-reply
+        # precondition (the subject needs a verified anchor).
+        #
+        # Conflict-based signal (Nozari, Dell & Schwartz 2011; Botvinick 2001):
+        # a truncated repetition ("black holes bend … black holes bend") is a
+        # low-conflict / low-novelty production — the same head noun + verb
+        # recurring with no new argument. We detect it via the subject's HEAD
+        # CHUNK (first noun(s)) recurring, GloVe-independent.
+        #
+        # Metacognitive originality (Murphy & Castel 2022): a sentence whose
+        # content is ONLY subject words + glue verbs (0 genuinely novel content
+        # words) is tautological — RAVANA must supply the missing per-clause
+        # substance check humans are "skilled and unaware" of.
         resp_lower = response_text.lower()
         resp_words = set(re.findall(r"[a-z']+", resp_lower))
         assoc_set = {label.lower() for label, _ in (ctx.associated_concepts or [])[:8]}
-        reference_ok = False
-        for a in assoc_set:
-            a_words = a.split()
-            if a in resp_lower:                      # whole multi-word label present
-                reference_ok = True
-                break
-            if len(a_words) > 1 and all(w in resp_words for w in a_words):
-                reference_ok = True
-                break
-        if not reference_ok:
-            # Definition-content overlap (when a stored definition exists).
-            defn = getattr(self, "_definitions", {}).get(subject)
-            if defn:
-                defn_words = {w for w in re.findall(r"[a-z']+", defn.lower())
-                              if w not in STOP_WORDS and len(w) >= 3}
-                if defn_words and (defn_words & resp_words):
-                    reference_ok = True
-        if not reference_ok:
-            # Fluent text that names neither an association nor the stored
-            # definition is drift that anchors to nothing we know → withhold.
-            return False
+        defn = getattr(self, "_definitions", {}).get(subject)
+        defn_words = ({w for w in re.findall(r"[a-z']+", defn.lower())
+                       if w not in STOP_WORDS and len(w) >= 3}
+                      if defn else set())
 
-        # (3) TOPICAL COHERENCE — M4-grade factual gate.
-        # Anchoring (1)+(2) is necessary but NOT sufficient: a name-dropped
-        # subject can still be wrapped in off-topic web junk. "is pluto a
-        # planet?" → "pluto planet is about currently seeking energetic and
-        # motivated interns to join our dynamic team" passes (1)+(2) because
-        # "pluto" appears and has associations, yet it is about the COMPANY
-        # Pluto, not the planet — ungrounded emission dressed as knowledge.
-        #
-        # Biology doesn't emit text whose *meaning* has drifted from the
-        # intended concept (Levelt's monitor intercepts it). So the reply must
-        # stay on-topic with the subject. We measure this as the FRACTION of
-        # the reply's content words that are semantically anchored to the
-        # subject (per-word GloVe cosine >= 0.30) — a distribution check, not a
-        # single centroid threshold. Measured on real cases: a good answer
-        # anchors ~0.4-1.0 of its words (pluto "dwarf planet ... neptune"
-        # =1.0; ravana "cognitive architecture ... web" =0.4), while off-topic
-        # junk anchors only ~0.2 (pluto "interns to join our dynamic team"
-        # =0.2). Requiring>=0.30 reliably separates them without a hard cutoff
-        # on the whole text. This is the same 0.30 floor `_decomp_grounded`
-        # already uses for the decomposition path, so the two monitors share
-        # one notion of "anchored."
-        try:
-            subj_vec = self._glove_vector(subject) if hasattr(self, "_glove_vector") else None
-            if subj_vec is not None:
-                # Content words of the reply, excluding stop words / web-garbage
-                # / first-second-person chatter — reuse the SAME junk notion as
-                # _definition_looks_clean so the gate shares one definition of
-                # "clean fact-shaped text".
-                _CHATTER = (
-                    "i", "you", "we", "they", "he", "she", "it", "my", "our",
-                    "your", "their", "me", "us", "him", "her",
-                )
-                cw = [w for w in resp_words
+        # Head chunk of the subject (Nozari/Botvinick conflict signal): the
+        # leading noun(s) — e.g. "black holes bend spacetime" -> "black holes".
+        _stoks = subject.split()
+        _head = " ".join(_stoks[:2]) if len(_stoks) >= 2 else subject
+        _subj_vec = self._glove_vector(subject) if hasattr(self, "_glove_vector") else None
+        _subj_set = set(_stoks)
+
+        _CHATTER = ("i", "you", "we", "they", "he", "she", "it", "my", "our",
+                    "your", "their", "me", "us", "him", "her")
+        # Glue/relation verbs that don't add informational substance (used for
+        # the per-clause substance check — a sentence of only subject + glue is
+        # tautological).
+        _GLUE = {
+            "causes", "cause", "caused", "leads", "lead", "triggers", "trigger",
+            "connected", "connects", "connect", "relates", "relate", "related",
+            "links", "link", "ties", "tie", "means", "is", "are", "was", "were",
+            "does", "do", "makes", "make", "paves", "challenges", "challenge",
+            "opens", "springs", "weaves", "influences", "influence", "matters",
+            "differs", "differ", "compared", "compare", "vs", "and", "with",
+            "to", "from", "of", "the", "a", "an", "in", "on", "for", "at",
+            "runs", "counter", "opposes", "opposed", "oppose", "contrasts",
+            "contrast", "contradicts", "contradict", "differs", "reverses",
+            "reverse", "mirrors", "mirror", "reflects", "reflect", "aligns",
+            "align", "parallels", "parallel", "echoes", "echo", "symbolizes",
+            "symbolize", "represents", "represent",
+        }
+        # Vague concept-metawords: the exact filler vocabulary the free decoder
+        # emits in the fluent-tautological failure class (observed in live
+        # ravana_chat.py runs: "life contrastive even", "gravity semantic
+        # pet", "life causal great"). These are relation/quality words with no
+        # concrete referent — they are lexically near the subject yet denote
+        # nothing specific, so pure GloVe similarity cannot separate them from
+        # a real answer (architecture 0.10 and contrastive -0.19 are both
+        # low-sim). They are the computational analog of the empty,
+        # self-referential productions in Wernicke's aphasia. A clause made
+        # only of these (plus glue) is tautological and must be withheld.
+        _VAGUE = {
+            "semantic", "contrastive", "causal", "even", "great", "cannot",
+            "which", "related", "connected", "linked", "tied", "means",
+            "does", "makes", "opens", "springs", "weaves", "influences",
+            "matters", "differs", "compared", "vs", "runs", "counter",
+            "opposes", "contrasts", "contradicts", "reverses", "mirrors",
+            "reflects", "aligns", "parallels", "echoes", "symbolizes",
+            "represents", "going", "pet", "possibly", "maybe", "perhaps",
+            "basically", "significantly", "interestingly", "deeply",
+            "meaningful", "colorful", "charismatically", "cannot", "greatly",
+            "utterly", "profoundly", "notably", "essentially", "fundamentally",
+        }
+
+        def _sentence_grounded(sent):
+            """Return True iff this one sentence is grounded (reference +
+            coherence + no truncated-subject conflict + substance)."""
+            sl = sent.lower().strip()
+            if not sl:
+                return True
+            _sw = sl.split()
+            # (6) MICRO-CLAUSE (Murphy & Castel originality, tightened to the
+            # residual Q3/Q8 class): a clause of <=3 words cannot state a fact
+            # without a real predicate — it is a subject+copula+filler
+            # tautology ("gravity semantic pet", "life contrastive even",
+            # "life causal great"). These slip past lexical grounding because
+            # the filler words are novel AND near the subject (the M4 GloVe
+            # limitation), so a pure similarity gate cannot separate them from
+            # a real answer. Biology does not articulate a 3-word clause that
+            # says nothing but X-verb-vague; we withhold it, erring toward the
+            # safe (honest-uncertainty) response. Genuine micro-facts
+            # ("pluto is a planet") are produced by the definition/web paths,
+            # not the free-decode SM path, so this does not suppress them.
+            if len(_sw) <= 3:
+                return False
+            sw = set(re.findall(r"[a-z']+", sl))
+
+            # (5b) VAGUE-CLAUSE (Murphy & Castel originality + observed decoder
+            # filler). A clause made only of subject + glue + vague
+            # concept-metawords ("semantic", "contrastive", "causal", "even",
+            # "great"...) asserts nothing specific — it is the empty,
+            # self-referential production of the Wernicke failure class. Withhold
+            # if the clause has NO real (non-glue, non-vague) content word, or
+            # exactly one such word surrounded by >=2 vague metawords (e.g.
+            # "life semantic people which semantic cannot" -> {people} + 4 vague).
+            # Real answers contain >=2 specific words (architecture, web,
+            # dwarf, neptune...) so they are not over-suppressed.
+            _vague_count = sum(1 for w in _sw if w in _VAGUE)
+            _real_content = [w for w in _sw
+                             if w not in _GLUE and w not in _VAGUE
+                             and w not in _subj_set and w not in STOP_WORDS
+                             and w not in _CHATTER]
+            if len(_real_content) == 0:
+                return False
+            if len(_real_content) == 1 and _vague_count >= 2:
+                return False
+
+            # (2) REFERENCE — this sentence must touch a verified neighbour or
+            # the stored definition's content, OR introduce >=3 novel content
+            # words (the safety valve, now PER SENTENCE so a good sentence
+            # cannot donate novelty to a degenerate tail).
+            reference_ok = False
+            for a in assoc_set:
+                a_words = a.split()
+                if a in sl:
+                    reference_ok = True
+                    break
+                if len(a_words) > 1 and all(w in sw for w in a_words):
+                    reference_ok = True
+                    break
+            if not reference_ok and defn_words and (defn_words & sw):
+                reference_ok = True
+            if not reference_ok:
+                # Fluent text that names neither a verified neighbour nor the
+                # stored definition is drift that anchors to nothing we know
+                # (the hub-noun confabulation class). Withhold it. NOTE: we do
+                # NOT accept ">=3 novel words" as reference here — that safety
+                # valve belongs to _is_word_salad (a separate function); letting
+                # novel words substitute for a verified anchor would negate the
+                # whole point of the reference check and let fluent-but-false
+                # text through (exactly the pre-fix failure). Per-sentence
+                # granularity means a degenerate clause fails its own reference
+                # check even when a good clause is present.
+                return False
+
+            # (3) TOPICAL COHERENCE — fraction of THIS sentence's content words
+            # anchored to the subject (GloVe cosine >= 0.30) and the sentence
+            # centroid aligned. Per-sentence, so a degenerate tail cannot hide
+            # behind a good sentence's anchoring.
+            if _subj_vec is not None:
+                cw = [w for w in sw
                       if len(w) >= 3 and w not in STOP_WORDS
                       and w not in WEB_GARBAGE and w not in _CHATTER]
                 sims = []
+                vecs = []
                 for w in cw:
                     v = self._glove_vector(w)
                     if v is None:
                         continue
-                    n = float(np.linalg.norm(v)) * float(np.linalg.norm(subj_vec))
-                    sims.append(float(np.dot(v, subj_vec)) / n if n > 0 else -1.0)
+                    n = float(np.linalg.norm(v)) * float(np.linalg.norm(_subj_vec))
+                    sims.append(float(np.dot(v, _subj_vec)) / n if n > 0 else -1.0)
+                    vecs.append(v)
                 if sims:
-                    # Fraction of content words genuinely about the subject.
-                    frac_anchored = sum(1 for s in sims if s >= 0.30) / len(sims)
-                    if frac_anchored < 0.30:
-                        # Reply is mostly off-topic drift (e.g. "interns to join
-                        # our dynamic team") wrapped around the subject token.
+                    frac = sum(1 for s in sims if s >= 0.30) / len(sims)
+                    if frac < 0.30:
                         return False
-                    # Secondary guard: the whole-reply centroid must not be
-                    # anti-aligned with the subject (handles hub-noun salads
-                    # whose words are mutually near the subject but say nothing
-                    # specific). A clearly negative centroid is incoherent.
-                    mean = np.mean([self._glove_vector(w) for w in cw
-                                    if self._glove_vector(w) is not None], axis=0)
-                    nc = float(np.linalg.norm(mean)) * float(np.linalg.norm(subj_vec))
-                    align = float(np.dot(mean, subj_vec)) / nc if nc > 0 else -1.0
-                    if align < 0.10:
-                        return False
-        except Exception:
-            # A monitor failure must err toward withholding (safe), not emit.
-            if getattr(self, "_trace_enabled", False):
-                print("  [trace]   SM gate: coherence check errored — withholding")
-            return False
+                    if vecs:
+                        mean = np.mean(vecs, axis=0)
+                        nc = float(np.linalg.norm(mean)) * float(np.linalg.norm(_subj_vec))
+                        align = float(np.dot(mean, _subj_vec)) / nc if nc > 0 else -1.0
+                        if align < 0.10:
+                            return False
 
-        # (4) SENTENCE-LEVEL SELF-REFERENCE (tautological drift).
-        # Steps (1)-(3) only judge the reply *as a whole*, so a paragraph with
-        # one good sentence + one associative-drift sentence still passes. The
-        # drift sentence is exactly the hub-noun confabulation class: it merely
-        # restates the subject ("whales mammals possibly bring about whales
-        # mammals"). Biology does not articulate a sentence that says nothing
-        # but X-verbs-X. Reject any single sentence that repeats the FULL
-        # multi-word subject >= 2x (single-word subject >= 3x) — a strong,
-        # GloVe-independent tautology signal that needs no embeddings, so it
-        # works even when the lexical check above is unavailable.
-        _stoks = subject.split()
-        _multi = len(_stoks) >= 2
-        _repeat_thresh = 2 if _multi else 3
-        for _s in re.split(r"(?<=[.!?])\s+", response_text):
-            _sl = _s.lower().strip()
-            if not _sl:
-                continue
+            # (4) SELF-REFERENCE / CONFLICT (Nozari/Botvinick) — full-subject
+            # repetition AND truncated-head-chunk repetition. "black holes bend
+            # spacetime is black holes bend" repeats "black holes bend" (head
+            # "black holes" + verb "bend") -> flagged even though the FULL
+            # subject "black holes bend spacetime" appears only once.
+            _multi = len(_stoks) >= 2
             if _multi:
-                _reps = _sl.count(subject)
+                if sl.count(subject) >= 2:
+                    return False
+                # head-chunk conflict: the leading noun(s) recur with the same
+                # glue verb, signalling a low-novelty loop.
+                _head_re = re.search(r"\b" + re.escape(_head) + r"\b", sl)
+                if _head_re:
+                    _after = sl[_head_re.end():]
+                    # same head appearing again later in the sentence
+                    if re.search(r"\b" + re.escape(_head) + r"\b", _after):
+                        return False
             else:
-                _reps = len(re.findall(r"\b" + re.escape(subject) + r"\b", _sl))
-            if _reps >= _repeat_thresh:
+                if len(re.findall(r"\b" + re.escape(subject) + r"\b", sl)) >= 3:
+                    return False
+
+            # (5) PER-CLAUSE SUBSTANCE (Murphy & Castel originality) — a sentence
+            # whose content = only subject words + glue verbs (0 genuinely
+            # novel content words) is tautological, even if it names the subject.
+            novel_content = [w for w in sw
+                             if w not in _GLUE and w not in _subj_set
+                             and w not in STOP_WORDS and w not in _CHATTER]
+            if len(novel_content) == 0:
+                return False
+            return True
+
+        for _sent in re.split(r"(?<=[.!?])\s+", response_text):
+            if not _sentence_grounded(_sent):
                 if getattr(self, "_trace_enabled", False):
-                    print("  [trace]   SM gate: self-referential tautology withheld")
+                    print(f"  [trace]   SM gate: clause withheld — {_sent[:60]!r}")
                 return False
 
         return True
@@ -2973,7 +3077,52 @@ class ResponseGenMixin(ChainWalkerMixin):
         
         if not answered_sqs:
             return None
-        
+
+        # ── Per-clause Levelt/Wernicke monitor (mirrors the Situation-Model
+        # path). The synthesis is freely composed from the sub-answers; a
+        # degenerate sub-answer — truncated-subject repetition ("black holes
+        # bend spacetime is black holes bend"), subject+glue filler, or a
+        # vague-concept-metaword clause — must be dropped, not emitted. The old
+        # whole-reply _decomp_grounded passed the entire synthesis the moment
+        # ANY sub-question answered, letting degenerate clauses from FAILED
+        # sub-retrievals ride along — the same whole-text blind spot the SM
+        # monitor had. We reuse the SAME monitor so both production systems
+        # share one notion of "articulation-worthy". We DROP bad sub-answers
+        # (clause-level filtering, like a human self-repair) rather than
+        # withholding the whole reply, so a good clause is preserved instead
+        # of lost to one bad one. If every sub-answer is degenerate, we
+        # withhold entirely and fall to honest uncertainty.
+        # (Disabled by _disable_grounding_gate for A/B / benchmarking.)
+        if not getattr(self, "_disable_grounding_gate", False):
+            _filtered = []
+            for _sq in answered_sqs:
+                _sq_text = getattr(_sq, "answer", "") or ""
+                if len(_sq_text) < 5:
+                    continue
+                _sq_subj = (getattr(_sq, "target_concept", "")
+                           or ctx.subject or "").lower().strip()
+                _sq_ctx = CognitiveResponseContext(
+                    subject=_sq_subj,
+                    raw_input=getattr(_sq, "text", "") or ctx.raw_input,
+                    associated_concepts=ctx.associated_concepts,
+                    valence=ctx.valence, arousal=ctx.arousal,
+                    dominance=ctx.dominance,
+                    emotional_label=ctx.emotional_label,
+                    identity_strength=ctx.identity_strength,
+                    processing_route=ctx.processing_route,
+                    turn_count=ctx.turn_count,
+                )
+                if self._sm_response_grounded(_sq_ctx, _sq_text, skip_step1=True):
+                    _filtered.append(_sq)
+                elif getattr(self, '_trace_enabled', False):
+                    print(f"  [decomp-gen] Per-clause monitor: dropped degenerate "
+                          f"sub-answer (subj='{_sq_subj}')")
+            answered_sqs = _filtered
+        if not answered_sqs:
+            if getattr(self, '_trace_enabled', False):
+                print(f"  [decomp-gen] All sub-answers degenerate — withholding")
+            return None
+
         # Step 4: Synthesize (DMN integration)
         synthesis_text = ""
         if synthesizer and hasattr(synthesizer, 'synthesize'):
@@ -3107,12 +3256,40 @@ class ResponseGenMixin(ChainWalkerMixin):
         """
         if not text or not text.strip():
             return self._human_like_uncertainty(ctx)[0]
-        # Degenerate / word-salad candidate -> refuse.
-        if _is_word_salad(text, subject=ctx.subject):
-            if getattr(self, "_trace_enabled", False):
-                print("  [trace]   forward-model monitor: candidate failed "
-                      "degeneracy check — repairing")
-            return self._human_like_uncertainty(ctx)[0]
+        # Degenerate / word-salad candidate -> refuse. Clause-grained: any
+        # sentence that is salad (subject+glue filler, truncated repetition,
+        # vague-concept-metawords) fails the whole reply. This is the
+        # Levelt/Wernicke pre-articulation inner-speech loop applied at the
+        # SAME grain as production, so a degenerate clause emitted by ANY path
+        # (SM decoder, decomposition sub-answer, or the ventral/dorsal
+        # association binder) is intercepted before overt articulation — the
+        # partial-comprehension lesion is closed at the articulation boundary,
+        # uniformly, regardless of which production system produced the text.
+        # Falls back to the whole-text check when the per-sentence detector is
+        # unavailable. (Disabled by _disable_grounding_gate for A/B.)
+        if not getattr(self, "_disable_grounding_gate", False):
+            _salad = _is_word_salad_any_sentence(text, subject=ctx.subject)
+            if _salad:
+                if getattr(self, "_trace_enabled", False):
+                    print("  [forward-model] candidate failed per-sentence "
+                          "salad check — repairing")
+                return self._human_like_uncertainty(ctx)[0]
+            # Stronger clause-grained SM monitor (reference + coherence +
+            # truncated-subject conflict + substance) when the subject is
+            # anchored in the graph. Guards the ventral/dorsal paths, which
+            # otherwise emit fluent-but-empty association salad unchecked.
+            if (ctx.subject and ctx.subject.lower() in getattr(self, "_concept_keywords", {})
+                    and not self._sm_response_grounded(ctx, text)):
+                if getattr(self, "_trace_enabled", False):
+                    print("  [forward-model] candidate failed per-clause SM "
+                          "monitor — repairing")
+                return self._human_like_uncertainty(ctx)[0]
+        else:
+            if _is_word_salad(text, subject=ctx.subject):
+                if getattr(self, "_trace_enabled", False):
+                    print("  [trace]   forward-model monitor: candidate failed "
+                          "degeneracy check — repairing")
+                return self._human_like_uncertainty(ctx)[0]
         # Echo: reply is (near) verbatim the user's own words. A human doesn't
         # repeat the interlocutor as an answer; covert repair turns it back.
         user_norm = re.sub(r"\W+", " ", ctx.raw_input.lower()).strip()

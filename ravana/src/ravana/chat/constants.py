@@ -296,3 +296,28 @@ def _is_word_salad(text: str, allow_content_only: bool = False, subject: Optiona
 
     # Final decision: salad_score >= 0.7 means word salad
     return salad_score >= 0.7
+
+
+def _is_word_salad_any_sentence(text: str, subject: Optional[str] = None) -> bool:
+    """Clause-grained variant of _is_word_salad (consistency with the
+    Situation-Model Levelt/Wernicke monitor, which now judges per sentence).
+
+    Splits the reply on sentence boundaries and returns True if ANY sentence
+    is word salad. This lets the decoder gate and narrative gate withhold a
+    reply the moment one clause is degenerate, matching the per-sentence
+    grounding gate (_sm_response_grounded) at the same grain. The whole-text
+    _is_word_salad is retained for other callers (web learning, decomposer)
+    so this is purely additive / backward-compatible.
+
+    A sentence under the safety-valve word count (< 4 words) is skipped (too
+    short to judge), mirroring the whole-text function's len() guards.
+    """
+    if not text:
+        return True
+    for sent in re.split(r"(?<=[.!?])\s+", text):
+        s = sent.strip()
+        if len(s.split()) < 4:
+            continue
+        if _is_word_salad(s, subject=subject):
+            return True
+    return False
