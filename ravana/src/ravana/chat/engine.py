@@ -4661,6 +4661,16 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             concept_vad=self._concept_vad if hasattr(self, '_concept_vad') else None,
         )
         self.sleep_cycles_completed += 1
+        # Offline synaptic-homeostasis prune of orphan/noisy semantic edges
+        # (whale->deer off-frame co-occurrence). Runs AFTER the standard
+        # weight-based prune in run_cycle so the two are additive and the count
+        # is folded into the existing edges_pruned metric.
+        try:
+            extra_pruned = self.graph.prune_low_quality_edges()
+            result['edges_pruned'] = result.get('edges_pruned', 0) + extra_pruned
+        except Exception as e:
+            if getattr(self, '_trace_enabled', False):
+                print(f"  [sleep] prune_low_quality_edges error: {e}")
         # P7: reconcile & prune beliefs — close the web-grounding loop.
         # The grace sleep engine ignores the chat BeliefStore, so drive
         # belief maintenance here: reconcile contradictions (recency-decayed

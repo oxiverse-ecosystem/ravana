@@ -1033,6 +1033,16 @@ class ChatInterface:
         self._sleep_metrics['total_sleep_cycles'] += 1
         self._sleep_metrics['last_sleep_turn'] = self.turn_count
         self._sleep_metrics['last_sleep_metrics'] = result
+        # Offline synaptic-homeostasis prune of orphan/noisy semantic edges
+        # (whale->deer off-frame co-occurrence). Runs AFTER the standard
+        # weight-based prune in run_cycle so the two are additive and the count
+        # is folded into the existing edges_pruned metric.
+        try:
+            extra_pruned = self.graph_engine.prune_low_quality_edges()
+            result['edges_pruned'] = result.get('edges_pruned', 0) + extra_pruned
+        except Exception as e:
+            if getattr(self, '_trace_enabled', False):
+                print(f"  [sleep] prune_low_quality_edges error: {e}")
         return result
 
     def _metacognitive_review(self):

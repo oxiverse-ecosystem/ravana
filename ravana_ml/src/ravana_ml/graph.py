@@ -1390,7 +1390,43 @@ class ConceptGraph:
                 self._adj_dirty = True
                 self.version = getattr(self, "version", 0) + 1
 
-    # ── activation ──
+    def prune_low_quality_edges(self, C1: float = 0.35, K: int = 1, U: float = 0.3,
+                                enabled: bool = True) -> int:
+        """Synaptic-homeostasis prune of orphan / noisy semantic edges.
+
+        See ravana.graph.engine.GraphEngine.prune_low_quality_edges for the full
+        brain-basis and predicate (pattern separation + source monitoring +
+        offline pruning). Implemented here on ConceptGraph so it is reachable
+        from both the GraphEngine wrapper and CognitiveChatEngine._sleep_consolidate
+        (which operates on self.graph directly).
+
+        Removes an edge iff ALL of:
+          - relation_type == "semantic"
+          - NOT a verified fact (source_metadata.edge_kind != "web_fact")
+          - prediction_count < K
+          - AND (edge_kind in {"co_occurrence","auto_expand"} OR confidence < C1)
+        """
+        if not enabled:
+            return 0
+        NOISE_KINDS = ("co_occurrence", "auto_expand")
+        removed = []
+        for (src, tgt), edge in list(self.edges.items()):
+            if getattr(edge, "relation_type", "semantic") != "semantic":
+                continue
+            meta = getattr(edge, "source_metadata", None) or {}
+            kind = meta.get("edge_kind")
+            if kind == "web_fact":
+                continue
+            pc = getattr(edge, "prediction_count", 0) or 0
+            if pc >= K:
+                continue
+            conf = getattr(edge, "confidence", 0.0) or 0.0
+            if kind in NOISE_KINDS or conf < C1:
+                removed.append((src, tgt))
+        for src, tgt in removed:
+            self.remove_edge(src, tgt)
+        return len(removed)
+
 
     def activate(self, nid: int, amount: float = 1.0, context_vector: Optional[np.ndarray] = None):
         with self._lock:

@@ -340,6 +340,15 @@ class GraphEngine:
         self._CONNECTOR_SET: set = set()
         self._connector_learner = None
 
+        # Pattern separation (Marr 1971; Yassa & Stark 2011): when auto-wiring a
+        # new concept to the graph, wire only to its top-K nearest neighbours
+        # rather than every node above a cosine floor. This stops off-frame
+        # co-occurrence edges (e.g. "whale" -> "deer") that pure GloVe cosine
+        # wiring would otherwise create. Set _pattern_separation=False to revert
+        # to the legacy sim>0.4 / sim>0.5 behaviour.
+        self._pattern_separation: bool = True
+        self._ps_top_k: int = 8
+
         # Dual stores (Phase 15)
         self._episodic_edges: Dict[Tuple[int, int], Any] = {}
         self._semantic_edges: Dict[Tuple[int, int], Any] = {}
@@ -687,6 +696,14 @@ class GraphEngine:
             if self.graph._vector_matrix_normed is not None and len(self.graph._node_id_order) > 0:
                 vec_norm = node.vector / (np.linalg.norm(node.vector) + 1e-15)
                 all_sims = self.graph._vector_matrix_normed @ vec_norm.astype(np.float32)
+                # Pattern separation (Marr 1971; Yassa & Stark 2011): wire a new
+                # concept only to its NEAREST neighbours, not every node above a
+                # cosine floor. This is what stops off-frame "whale -> deer"
+                # co-occurrence edges — deer is similar to whale (animals cluster
+                # in embedding space) but is NOT one of whale's top-K closest
+                # concepts, so it is excluded. Without this, GloVe wiring merges
+                # unrelated frames (the dentate gyrus prevents exactly this).
+                candidates = []  # (sim, other_nid, inf_type)
                 for idx in np.where(all_sims > 0.3)[0]:
                     other_nid = self.graph._node_id_order[idx]
                     if other_nid == nid:
@@ -697,16 +714,19 @@ class GraphEngine:
                     if other_node.label.lower() in new_nodes:
                         continue
                     sim = float(all_sims[idx])
-                    # Top-5 wiring
                     if sim > 0.4 and self.graph.get_edge(nid, other_nid) is None:
-                        weight = min(0.6, sim * 0.6)
                         inf_type, _ = self._infer_relation_type(word, other_node.label, "semantic")
-                        self.graph.add_edge(nid, other_nid, weight=weight, relation_type=inf_type)
-                    # Phase 1.2: Auto-wire ALL existing where sim > 0.5
-                    if sim > 0.5 and self.graph.get_edge(nid, other_nid) is None:
-                        weight = min(0.6, sim * 0.6)
-                        inf_type, _ = self._infer_relation_type(word, other_node.label, "semantic")
-                        self.graph.add_edge(nid, other_nid, weight=weight, relation_type=inf_type)
+                        candidates.append((sim, other_nid, inf_type))
+                # Keep only the top-K most similar (nearest-neighbour wiring).
+                if self._pattern_separation and len(candidates) > self._ps_top_k:
+                    candidates = sorted(candidates, reverse=True)[:self._ps_top_k]
+                for sim, other_nid, inf_type in candidates:
+                    weight = min(0.6, sim * 0.6)
+                    e = self.graph.add_edge(nid, other_nid, weight=weight, relation_type=inf_type)
+                    # Tag as auto-expand so offline pruning can distinguish
+                    # GloVe-wired noise (prunable) from verified web facts.
+                    if e is not None and hasattr(e, "source_metadata"):
+                        e.source_metadata.update({"edge_kind": "auto_expand"})
 
         return new_count
 
@@ -946,6 +966,46 @@ class GraphEngine:
         edge.prediction_free_energy = (1 - alpha) * edge.prediction_free_energy + alpha * error
         edge.prediction_count += 1
         return error
+
+    # ─── Offline (sleep-time) edge pruning ───
+
+    def prune_low_quality_edges(self, C1: float = 0.35, K: int = 1, U: float = 0.3,
+                                enabled: bool = True) -> int:
+        """Synaptic-homeostasis prune of orphan / noisy semantic edges.
+
+        Brain basis (see plan):
+          - Pattern separation (Marr 1971; Yassa & Stark 2011; Neunuebel &
+            Knierim 2014): whale and deer must stay orthogonal — don't merge
+            frames just because they co-occur. Off-frame edges created by pure
+            GloVe wiring are prunable.
+          - Source monitoring (Johnson et al. 1993): verified facts are tagged
+            (edge_kind="web_fact") and KEPT; untagged co-occurrence / auto-expand
+            edges are prunable. This is exactly why the provenance tags from
+            Phase 1 must exist first.
+          - Synaptic pruning offline (Tononi & Cirelli 2014; De Vulder et al.
+            2015): prune in a periodic sleep pass, not per-utterance.
+
+        An edge is removed iff ALL of:
+          - relation_type == "semantic"  (loose association, not curated causal/etc.)
+          - NOT a verified fact (source_metadata.edge_kind != "web_fact")
+          - prediction_count < K         (orphan: never successfully predicted)
+          - AND one of:
+              * explicitly noisy: edge_kind in {"co_occurrence","auto_expand"}
+              * weak/dormant: confidence < C1   (catches the boot-seeded GloVe
+                edges, which are intentionally confidence=0.02 / _dormant_edges)
+
+        Note: confidence/uncertainty alone CANNOT separate auto-expand noise
+        (confidence=0.5) from boot-seeded GloVe edges (confidence=0.02) — they
+        sit on opposite sides of any single threshold. That is why the
+        discriminator is PROVENANCE (the edge_kind tag) plus the pre-add
+        pattern-separation filter in auto_expand_concepts, not a blind threshold.
+        """
+        if not enabled:
+            return 0
+        # Core logic lives on ConceptGraph so it is reachable from both this
+        # wrapper and CognitiveChatEngine._sleep_consolidate (which holds the
+        # ConceptGraph directly). Delegate to keep a single source of truth.
+        return self.graph.prune_low_quality_edges(C1=C1, K=K, U=U, enabled=True)
 
     # ─── Vector Neighbor ───
 
