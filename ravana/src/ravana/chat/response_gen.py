@@ -2532,8 +2532,15 @@ class ResponseGenMixin(ChainWalkerMixin):
                 "i'd love to hear your take first.",
                 "what made you wonder about that?",
             ]
-        return (random.choice(openers) + random.choice(closers),
-                "metacognitive_uncertainty")
+        text = random.choice(openers) + random.choice(closers)
+        # P2 safety net: the fallback must NEVER degenerate into fluent-empty
+        # text (that would mean the guard failed closed into the very garbage it
+        # was meant to prevent). If the composed fallback is somehow salad, drop
+        # to a canned, zero-risk minimal template.
+        if _is_word_salad_any_sentence(text, subject=subject):
+            text = (f"i'm still learning about {subj_cap.lower()} — "
+                    f"want to explore it together?")
+        return (text, "metacognitive_uncertainty")
 
     def _definition_response(self, ctx: CognitiveResponseContext):
         """Answer from genuine learned knowledge (definition / web fact).

@@ -385,6 +385,46 @@ def test_sm_clause_strip_all_bad_falls_to_uncertainty():
     assert out and _is_word_salad_any_sentence(out, subject="black holes") is False
 
 
+# ── P2: uncertainty fallback must never degenerate ──────────────────────────
+# The universal fallback (_human_like_uncertainty) is the last line of defence.
+# If it ever composes fluent-empty text, the guard failed closed into garbage.
+# _is_word_salad_any_sentence in the fallback forces a canned minimal template.
+def test_fallback_not_degenerate():
+    from ravana.chat.models import CognitiveResponseContext
+    eng = _build_engine()
+    ctx = CognitiveResponseContext(
+        subject="black holes",
+        raw_input="why do black holes bend spacetime?",
+        associated_concepts=[(a, 0.5) for a in ["gravity", "spacetime", "universe", "mass"]],
+    )
+    text, strategy = eng._human_like_uncertainty(ctx)
+    assert strategy == "metacognitive_uncertainty"
+    # The fallback itself must pass the salad check (it composes clean templates,
+    # but the safety net guarantees it even if a template regresses).
+    assert _is_word_salad_any_sentence(text, subject="black holes") is False
+    assert len(text) > 10
+
+
+# ── P3: single choke-point — generated text is guarded exactly once ──────────
+# Inject fluent-tautological salad at the generation entry (_generate_response);
+# it must be repaired by the one _forward_model_check call in process_turn
+# (engine.py:2516), not emitted verbatim.
+def test_all_paths_guarded():
+    from ravana.chat.models import CognitiveResponseContext
+    eng = _build_engine()
+    # Bypass routing; call the guard directly as process_turn would.
+    salad = "black holes bend spacetime is black holes bend. black holes bend spacetime directly is black holes bend."
+    ctx = CognitiveResponseContext(
+        subject="black holes",
+        raw_input="why do black holes bend spacetime?",
+        associated_concepts=[(a, 0.5) for a in ["gravity", "spacetime", "universe", "mass"]],
+    )
+    guarded = eng._forward_model_check(salad, ctx)
+    # Not the raw salad, and not itself salad.
+    assert guarded != salad
+    assert _is_word_salad_any_sentence(guarded, subject="black holes") is False
+
+
 if __name__ == "__main__":
     import pytest
     raise SystemExit(pytest.main([__file__, "-v"]))

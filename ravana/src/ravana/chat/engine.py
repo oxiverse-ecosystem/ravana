@@ -2514,8 +2514,16 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 # Pre-emission forward-model self-monitor (brief behavior 6):
                 # refuse degenerate/echo replies before they are articulated.
                 response = self._forward_model_check(response, ctx)
-        except Exception:
-            pass
+        except Exception as _fwd_err:  # P4: observable + fail-closed (was silent `pass`)
+            import logging
+            logging.getLogger(__name__).debug(
+                "forward_model_check raised %r — failing closed to uncertainty",
+                _fwd_err)
+            # A monitor exception must NEVER let unguarded text through.
+            try:
+                response = self._human_like_uncertainty(ctx)[0]
+            except Exception:
+                response = "i'm still learning — want to explore that together?"
 
 
         try:
