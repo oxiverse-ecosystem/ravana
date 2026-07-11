@@ -3237,6 +3237,60 @@ class ResponseGenMixin(ChainWalkerMixin):
             return subject.capitalize()
         return subject.lower()
 
+    def _strip_degenerate_clauses(self, text: str, ctx: "CognitiveResponseContext") -> Tuple[str, bool]:
+        """Clause-level (covert) repair — drop degenerate clauses, keep survivors.
+
+        Biology: Levelt prepairs / Schlenck et al. (1987) self-repairs edit the
+        bad clause, not the whole utterance. The comprehension monitor is
+        graded, not binary. So instead of withholding the entire reply when one
+        clause fails, we drop ONLY the failing clause and re-emit the survivors
+        joined — falling back to honest uncertainty only if nothing survives or
+        the subject anchor is missing.
+
+        A clause is degenerate if it fails the per-sentence salad check OR, when
+        the subject is anchored in the graph, the per-clause SM monitor. This is
+        the SAME grain as production, applied at the articulation boundary.
+
+        Returns (repaired_text, dropped_any). Caps to a single strip pass (no
+        re-entrant repair loops).
+        """
+        if not text or not text.strip():
+            return text, False
+        clauses = re.split(r"(?<=[.!?])\s+", text.strip())
+        if len(clauses) <= 1:
+            # Single clause: nothing to strip — caller decides whole-reply fate.
+            return text, False
+        kept = []
+        dropped = False
+        for cl in clauses:
+            c = cl.strip()
+            if not c:
+                continue
+            # Per-sentence salad (subject+glue filler, truncated repetition,
+            # vague-concept-metawords).
+            if _is_word_salad_any_sentence(c, subject=ctx.subject):
+                dropped = True
+                continue
+            # Stronger per-clause SM monitor (reference + coherence +
+            # truncated-subject conflict + substance). skip_step1 mirrors the
+            # decomposition path: the clause is judged on its own merits,
+            # without requiring the subject to be graph-anchored — so a
+            # truncated repetition ("black holes bend ... black holes bend") is
+            # caught even for novel/multi-word subjects. (GloVe-independent
+            # step 4 fires regardless.)
+            if (not getattr(self, "_disable_grounding_gate", False)
+                    and not self._sm_response_grounded(ctx, c, skip_step1=True)):
+                dropped = True
+                continue
+            kept.append(c)
+        if not kept:
+            return text, dropped  # nothing survived -> caller falls to uncertainty
+        repaired = " ".join(kept)
+        repaired = repaired[0].upper() + repaired[1:] if repaired else repaired
+        if not repaired.endswith((".", "?", "!")):
+            repaired += "."
+        return repaired, dropped
+
     def _forward_model_check(self, text: str, ctx: "CognitiveResponseContext") -> str:
         """Pre-emission forward-model self-monitor (brief behavior 6).
 
@@ -3268,21 +3322,27 @@ class ResponseGenMixin(ChainWalkerMixin):
         # Falls back to the whole-text check when the per-sentence detector is
         # unavailable. (Disabled by _disable_grounding_gate for A/B.)
         if not getattr(self, "_disable_grounding_gate", False):
-            _salad = _is_word_salad_any_sentence(text, subject=ctx.subject)
-            if _salad:
+            # Clause-grained repair (graded, not binary — Levelt prepairs):
+            # drop ONLY the degenerate clause(s) and re-emit survivors. This is
+            # the biology-faithful analog of covert self-repair; whole-utterance
+            # withholding is reserved for the case where nothing survives.
+            _stripped, _dropped = self._strip_degenerate_clauses(text, ctx)
+            if _dropped:
+                if _stripped and _stripped != text.strip():
+                    if getattr(self, "_trace_enabled", False):
+                        print("  [forward-model] dropped degenerate clause(s); "
+                              "re-emitting survivors")
+                    return _stripped
+                # Nothing survivable -> honest uncertainty (fail-closed default).
                 if getattr(self, "_trace_enabled", False):
-                    print("  [forward-model] candidate failed per-sentence "
-                          "salad check — repairing")
+                    print("  [forward-model] all clauses degenerate — "
+                          "withholding")
                 return self._human_like_uncertainty(ctx)[0]
-            # Stronger clause-grained SM monitor (reference + coherence +
-            # truncated-subject conflict + substance) when the subject is
-            # anchored in the graph. Guards the ventral/dorsal paths, which
-            # otherwise emit fluent-but-empty association salad unchecked.
-            if (ctx.subject and ctx.subject.lower() in getattr(self, "_concept_keywords", {})
-                    and not self._sm_response_grounded(ctx, text)):
+            # Whole-text salad check (legacy fallback, when per-sentence misses).
+            if _is_word_salad(text, subject=ctx.subject):
                 if getattr(self, "_trace_enabled", False):
-                    print("  [forward-model] candidate failed per-clause SM "
-                          "monitor — repairing")
+                    print("  [trace]   forward-model monitor: candidate failed "
+                          "degeneracy check — repairing")
                 return self._human_like_uncertainty(ctx)[0]
         else:
             if _is_word_salad(text, subject=ctx.subject):

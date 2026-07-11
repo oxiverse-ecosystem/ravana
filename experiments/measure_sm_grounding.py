@@ -130,6 +130,26 @@ def main():
         verdicts.append(ok)
         print(f"   [fwd/{name}] unchanged={ok}  -> {'CONFIRMED' if ok else 'FAIL'}")
 
+    print("\n=== P1 clause stripping: mixed good + bad clause ===")
+    print("    A reply with one degenerate clause + one good clause must DROP the")
+    print("    bad clause and re-emit the survivor (Levelt prepair), not withhold")
+    print("    the whole reply. Your real Q5: good web clause + 'black holes bend")
+    print("    spacetime is black holes bend'.")
+    mixed = ("Black holes take this concept to its extreme, they create such "
+             "severe spacetime bending that the geometry becomes warped. "
+             "black holes bend spacetime is black holes bend.")
+    ctx_mixed = _ctx("black holes",
+                     ["gravity", "spacetime", "universe", "mass"],
+                     "why do black holes bend spacetime?")
+    stripped, dropped = eng._strip_degenerate_clauses(mixed, ctx_mixed)
+    ok_strip = (dropped is True
+                and "spacetime bending" in stripped
+                and "is black holes bend" not in stripped
+                and len(stripped) > 20)
+    verdicts.append(ok_strip)
+    print(f"   [strip/Q5_mixed] dropped={dropped} kept_good={'spacetime bending' in stripped} "
+          f"-> {'CONFIRMED' if ok_strip else 'FAIL'}")
+
     all_ok = all(verdicts)
     print("\n" + ("VERDICT: CONFIRMED — per-sentence monitor withholds fluent-tautological "
                    "tails while preserving grounded answers, and the effect is the gate "

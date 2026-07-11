@@ -19,8 +19,7 @@ sys.path.insert(0, os.path.join(_PROJ, "ravana_ml", "src"))
 import numpy as np
 from ravana.chat.models import CognitiveResponseContext
 from ravana.chat.engine import CognitiveChatEngine
-from ravana.chat.constants import _is_word_salad
-
+from ravana.chat.constants import _is_word_salad, _is_word_salad_any_sentence
 
 def _build_engine():
     eng = CognitiveChatEngine(dim=64, seed=42, baby_mode=True,
@@ -243,7 +242,6 @@ def test_subject_glue_clause_hub_noun_withheld_q8():
 #    they would have been emitted pre-fix. The per-sentence monitor is what
 #    now withholds them — proving the fix, not a GloVe/luck artifact. ────────
 def test_per_sentence_residual_control_old_guard_passed():
-    from ravana.chat.constants import _is_word_salad
     q5 = ("Black holes with masses of millions to billions of solar masses are "
           "found in the universe. black holes bend spacetime is black holes bend.")
     q3 = ("Gravity is one of the most fundamental forces of the universe. "
@@ -345,6 +343,46 @@ def test_decomposition_all_degenerate_withheld():
 
     res = eng._decomposition_generation_path(ctx)
     assert res is None, f"all-degenerate synthesis must be withheld, got {res}"
+
+
+# ── Clause-level stripping (P1 / M2): graded Wernicke gate ──────────────────
+# A reply containing one degenerate clause + one good clause must DROP the bad
+# clause and re-emit the survivor (Levelt prepair), NOT withhold the whole
+# reply. Only when every clause is degenerate do we fall to honest uncertainty.
+def test_sm_clause_strip_keeps_good_drops_bad():
+    from ravana.chat.models import CognitiveResponseContext
+    eng = _build_engine()
+    mixed = ("Black holes take this concept to its extreme, they create such "
+             "severe spacetime bending that the geometry becomes warped. "
+             "black holes bend spacetime is black holes bend.")
+    ctx = CognitiveResponseContext(
+        subject="black holes",
+        raw_input="why do black holes bend spacetime?",
+        associated_concepts=[(a, 0.5) for a in ["gravity", "spacetime", "universe", "mass"]],
+    )
+    stripped, dropped = eng._strip_degenerate_clauses(mixed, ctx)
+    assert dropped is True, "expected a degenerate clause to be dropped"
+    assert "spacetime bending" in stripped, stripped
+    assert "is black holes bend" not in stripped, stripped
+    # The good clause survives as a full reply (not withheld).
+    assert len(stripped) > 20
+
+
+def test_sm_clause_strip_all_bad_falls_to_uncertainty():
+    from ravana.chat.models import CognitiveResponseContext
+    eng = _build_engine()
+    all_bad = ("black holes bend spacetime is black holes bend. "
+               "black holes bend spacetime directly is black holes bend.")
+    ctx = CognitiveResponseContext(
+        subject="black holes",
+        raw_input="why do black holes bend spacetime?",
+        associated_concepts=[(a, 0.5) for a in ["gravity", "spacetime", "universe", "mass"]],
+    )
+    stripped, dropped = eng._strip_degenerate_clauses(all_bad, ctx)
+    assert dropped is True
+    # Nothing survivable -> caller (_forward_model_check) returns uncertainty.
+    out = eng._forward_model_check(all_bad, ctx)
+    assert out and _is_word_salad_any_sentence(out, subject="black holes") is False
 
 
 if __name__ == "__main__":
