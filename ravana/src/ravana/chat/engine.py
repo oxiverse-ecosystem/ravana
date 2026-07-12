@@ -3119,10 +3119,35 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # A trailing copula needs its predicate complement.
         _COP = {"is", "are", "was", "were", "am", "be", "been", "being", "'s"}
         if first in _COORD:
-            return False
+            # A leading coordinator is a continuation, BUT it can open a fully
+            # formed coordinated clause ("so, gravity pulls things") — that is a
+            # complete utterance, not a dangling lead-in. It is incomplete only
+            # if the remainder after the coordinator is itself an open fragment
+            # (a bare NP with no predicate), e.g. "and another thing".
+            _rest = t[len(first):].lstrip(" ,;:-").strip()
+            if not _rest:
+                return False
+            # Remainder is complete iff it closes its own dependencies: it
+            # must not itself end in a coordinator/complementizer/copula and
+            # must carry a predicate (a verb / copula word).
+            _rest_toks = [w.strip(".,!?") for w in _rest.split() if w.strip(".,!?")]
+            if not _rest_toks:
+                return False
+            _rest_last = _rest_toks[-1].lower()
+            if _rest_last in _COORD or _rest_last in _COMP or _rest_last in _COP:
+                return False
+            # Bare-NP remainder ("another thing") has no predicate -> open.
+            _HAS_PRED = _COP | {"pulls", "bends", "is", "are", "was", "were",
+                                   "means", "refers", "describes", "occurs", "happens",
+                                   "reduces", "builds", "forms", "curves", "falls",
+                                   "opens", "show", "shows", "makes", "does", "thinks",
+                                   "sits", "sat", "stands", "grows", "lives", "works"}
+            if not any(w.lower() in _HAS_PRED for w in _rest_toks):
+                return False
+            return True
         if last in _COORD or last in _COMP or last in _COP:
             return False
-        # A trailing comma / hyphen / dash / colon / semicolon leaves the
+
         # clause open (the turn has not reached its go-signal).
         if t.endswith((",", "-", "—", "–", ":", ";")):
             return False

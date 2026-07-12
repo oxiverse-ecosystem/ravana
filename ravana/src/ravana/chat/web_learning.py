@@ -750,6 +750,25 @@ class WebLearningMixin(ResponseGenMixin):
             return not def_has_inappropriate
         return (coherence > 0.15 or (coherence > 0.05 and not def_has_inappropriate))
 
+    # M7: a stored fact must ASSERT something — it needs a copula or defining
+    # verb (is/are/was/were/means/refers/describes/occurs). A bare noun phrase
+    # ("gravitational attraction between masses") is structurally not a
+    # definition even though it is clean and coherent; the vmPFC/mPFC reality
+    # monitor rejects it as not-asserted. The regex/heuristic extraction paths
+    # already produce only copula-bearing text, so this is a backstop at the
+    # store gate (NOT inside _definition_looks_clean, which is also called on
+    # post-verb predicates that legitimately lack a copula).
+    _DEFINITION_PREDICATE = re.compile(
+        r"\b(is|are|was|were|be|been|being|means?|refers?\s+to|describes?|"
+        r"occurs?|happens?|defined\s+as|represents?|signifies?|constitutes?|"
+        r"denotes?)\b", re.IGNORECASE)
+
+    def _definition_has_predicate(self, definition: str) -> bool:
+        """True if `definition` asserts something (carries a copula/defining verb)."""
+        if not definition:
+            return False
+        return bool(self._DEFINITION_PREDICATE.search(definition))
+
     def _definition_quality(self, definition: str) -> float:
         """Heuristic quality score (higher = better stand-alone definition).
 
@@ -874,6 +893,8 @@ class WebLearningMixin(ResponseGenMixin):
             or self._NONLING_TABLE_DIV.search(text)
             or self._NONLING_LATEX.search(text)
             or self._NONLING_CITE.search(text)
+            or self._NONLING_BULLET.search(text)
+            or self._NONLING_NUMPREFIX.search(text)
         )
 
     def _definition_looks_clean(self, text: str) -> bool:
@@ -1251,7 +1272,7 @@ class WebLearningMixin(ResponseGenMixin):
                         # Check INAPPROPRIATE_WORDS as last-resort override
                         def_has_inappropriate = any(w in INAPPROPRIATE_WORDS for w in re.findall(r'[a-z]{3,}', definition_clean.lower()))
                         
-                        if self._definition_acceptable(concept, definition_clean, def_has_inappropriate) and self._definition_looks_clean(definition_clean):
+                        if self._definition_acceptable(concept, definition_clean, def_has_inappropriate) and self._definition_looks_clean(definition_clean) and self._definition_has_predicate(definition_clean):
                             existing = self._definitions.get(concept, '')
                             if self._is_clean_concept_key(concept) and (concept not in self._definitions or self._definition_quality(definition_clean) > self._definition_quality(existing)):
                                 self._definitions[concept] = definition_clean[:200]
@@ -1315,7 +1336,7 @@ class WebLearningMixin(ResponseGenMixin):
                     coherence = self._definition_coherence_score(concept, definition_clean)
                     def_has_inappropriate = any(w in INAPPROPRIATE_WORDS for w in re.findall(r'[a-z]{3,}', definition_clean.lower()))
                     
-                    if self._definition_acceptable(concept, definition_clean, def_has_inappropriate) and self._definition_looks_clean(definition_clean):
+                    if self._definition_acceptable(concept, definition_clean, def_has_inappropriate) and self._definition_looks_clean(definition_clean) and self._definition_has_predicate(definition_clean):
                         existing = self._definitions.get(concept, '')
                         if self._is_clean_concept_key(concept) and (concept not in self._definitions or self._definition_quality(definition_clean) > self._definition_quality(existing)):
                             self._definitions[concept] = definition_clean[:200]

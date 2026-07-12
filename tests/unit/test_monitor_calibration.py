@@ -43,3 +43,25 @@ def test_grain_param_propagates():
     assert isinstance(out_clause, bool)
     # grain is a real, forwarded parameter (not silently ignored).
     assert out_clause == _is_word_salad(clause, subject="life", grain="clause")
+
+
+def test_monitor_threshold_knee():
+    # Regression-guarded: the pinned per-grain thresholds must sit at the SDT
+    # knee (Steinhauser & Yeung 2010) — high HIT on structural salad, low FAR
+    # on real definitions. Re-runs the calibration harness sweep at the pinned
+    # values and asserts the knee holds (catches salad, few false alarms).
+    import os as _os
+    import sys as _sys
+    _proj = _os.path.dirname(_os.path.dirname(_os.path.dirname(
+        _os.path.abspath(__file__))))
+    _sys.path.insert(0, _os.path.join(_proj, "experiments"))
+    import measure_monitor_calibration as _cal
+
+    from ravana.chat.constants import SALAD_DOC_THRESHOLD, SALAD_CLAUSE_THRESHOLD
+    hit_c = _cal._flagged_at(_cal.POSITIVE, "clause", SALAD_CLAUSE_THRESHOLD)
+    far_c = _cal._flagged_at(_cal.NEGATIVE, "clause", SALAD_CLAUSE_THRESHOLD)
+    hit_d = _cal._flagged_at(_cal.POSITIVE, "doc", SALAD_DOC_THRESHOLD)
+    far_d = _cal._flagged_at(_cal.NEGATIVE, "doc", SALAD_DOC_THRESHOLD)
+    # Knee: catch the structural salad, keep false alarms on clean defs low.
+    assert hit_c >= 0.8 and far_c <= 0.15
+    assert hit_d >= 0.8 and far_d <= 0.15

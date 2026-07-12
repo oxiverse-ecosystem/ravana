@@ -23,6 +23,7 @@ def _bare_engine():
 def _bare_web():
     """Bare WebLearningMixin with only the methods under test bound."""
     m = WebLearningMixin.__new__(WebLearningMixin)
+    m._trace_enabled = False
     return m
 
 
@@ -84,6 +85,18 @@ def test_preamble_holds_cueless_fragment():
     assert eng._is_preamble_fragment("what gravity") is False
     # Greetings remain complete social acts.
     assert eng._is_preamble_fragment("hi") is False
+
+
+def test_preamble_allows_complete():
+    # A complete clause (predicate + arguments filled) must never be withheld
+    # as a preamble — even when it opens with a coordinator (the M9
+    # dependency-closure fix keeps the go-signal on satisfied dependencies).
+    eng = _bare_engine()
+    assert eng._is_preamble_fragment("explain oxiverse") is False
+    assert eng._is_preamble_fragment("i think gravity pulls") is False
+    assert eng._is_preamble_fragment("so, gravity pulls things") is False
+    assert eng._is_preamble_fragment("black holes bend spacetime") is False
+    assert eng._is_preamble_fragment("the cat sat on the mat") is False
 
 
 # ── B2: code/script fragments must be stripped / rejected ──────────────────
@@ -187,4 +200,45 @@ def test_quality_penalizes_low_alpha():
     clean = "Trust is a belief in others' reliability."
     junk = "| 0.83 | 12 |"
     assert wl._definition_quality(clean) > wl._definition_quality(junk)
+
+
+# ── Contract-named M7 tests (regression-proofing) ──────────────────────────
+def test_definition_rejects_tables_lists_math():
+    # A candidate that is actually a Markdown table / LaTeX / citation list
+    # must be rejected (structural source-monitoring, not semantic fit).
+    wl = _bare_web()
+    table = "| a | b |\n|---|---|\ngravity is a force"
+    clean = wl._strip_code_fragments(table)
+    assert "|" not in clean
+    assert wl._definition_looks_clean(table) is False
+    assert wl._definition_looks_clean(clean) is True
+    # math / LaTeX residue
+    assert wl._definition_looks_clean("Entropy is $S = k_B \\ln \\Omega$.") is False
+    # citation-bracket residue
+    assert wl._definition_looks_clean("Trust reduces uncertainty [12].") is False
+    # bullet / numbered-list artefact
+    assert wl._definition_looks_clean("• gravity pulls masses\n1) time dilates") is False
+
+
+def test_definition_requires_copula():
+    # A bare noun phrase with NO copula / defining verb must NOT be stored as a
+    # definition (vmPFC/mPFC reality monitor: a retrieved 'memory' must assert
+    # something). The store gate requires _definition_has_predicate.
+    wl = _bare_web()
+    wl._definitions = {}
+    # Feed a no-copula fragment inside otherwise-normal text; the regex/heuristic
+    # paths require a defining verb, so nothing is stored under the concept.
+    wl._extract_definitions(
+        "Gravitational attraction between masses. Gravity is the force that pulls things together.",
+        "gravity")
+    # The copula-bearing sentence WAS stored...
+    assert "gravity" in wl._definitions
+    # ...but a PURE no-copula NP on its own is never stored.
+    wl2 = _bare_web()
+    wl2._definitions = {}
+    wl2._extract_definitions("gravitational attraction between masses", "gravity")
+    assert "gravity" not in wl2._definitions
+    # And the predicate helper itself gates correctly.
+    assert wl._definition_has_predicate("gravitational attraction between masses") is False
+    assert wl._definition_has_predicate("gravity is the force that pulls things") is True
 
