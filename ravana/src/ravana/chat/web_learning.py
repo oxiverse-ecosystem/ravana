@@ -789,11 +789,66 @@ class WebLearningMixin(ResponseGenMixin):
             score -= 0.3
         return score
 
+    # ── Structural reality-monitoring (OFC/mPFC source-monitoring) ──────────
+    # The semantic coherence gate (Issue 1) only checks GloVe similarity, so a
+    # fragment of *non-linguistic* text that happens to sit next to a coherent
+    # definition ("Freestar.config.enabled_slots.push( ); Trust psychology is…")
+    # sails through. Biology rejects this at the source-monitoring stage: the
+    # vmPFC/mPFC reality monitor distinguishes a genuinely perceived utterance
+    # from externally-derived junk before it is accepted as a "memory"
+    # (Johnson, Hashtroudi & Lindsay 1993; Schnider spontaneous confabulation;
+    # Hebscher et al. 2015 — monitoring vs control dissociation). We mirror that
+    # with a STRUCTURAL check: code/script/CSS fragments are not language and
+    # must be stripped or rejected outright.
+    _CODE_CALL = re.compile(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*){1,}\s*\([^)]*\)")
+    _CODE_CHAIN = re.compile(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*){2,}")
+    _CODE_PUNCT = re.compile(r"[;{}\[\]<>]")
+    _CODE_KEYWORD = re.compile(
+        r"\b(function|var|let|const|import|export|return|console|window|"
+        r"document|enabled_slots|undefined|null)\b", re.IGNORECASE)
+    _HTML_TAG = re.compile(r"<[^>]+>")
+
+    def _strip_code_fragments(self, text: str) -> str:
+        """Remove non-linguistic code/script/CSS residue from a candidate
+        definition, returning the cleaned remainder (empty string if nothing
+        linguistic remains). Idempotent. This is the structural half of the
+        OFC reality monitor: keep the perceived utterance, drop the junk that
+        rode in with it (e.g. a leading ``Freestar.config…push( );``)."""
+        if not text:
+            return text
+        s = text
+        s = self._HTML_TAG.sub(" ", s)
+        s = self._CODE_CALL.sub(" ", s)
+        s = self._CODE_CHAIN.sub(" ", s)
+        s = s.replace("=>", " ")
+        s = self._CODE_PUNCT.sub(" ", s)
+        s = self._CODE_KEYWORD.sub(" ", s)
+        s = re.sub(r"\s{2,}", " ", s).strip().strip(".,;:- ")
+        return s
+
+    def _contains_code_fragment(self, text: str) -> bool:
+        """True if `text` still carries non-linguistic code/script residue."""
+        if not text:
+            return False
+        return bool(
+            self._HTML_TAG.search(text)
+            or self._CODE_CALL.search(text)
+            or self._CODE_CHAIN.search(text)
+            or self._CODE_PUNCT.search(text)
+            or self._CODE_KEYWORD.search(text)
+            or "=>" in text
+        )
+
     def _definition_looks_clean(self, text: str) -> bool:
         """Reject obviously non-definitional junk sentences."""
         if not text:
             return False
         low = text.lower()
+        # Structural reality-monitoring: a definition that is actually a code
+        # fragment, script residue, or HTML is not language — reject it so it
+        # can never be surfaced as RAVANA's "knowledge" of a concept.
+        if self._contains_code_fragment(text):
+            return False
         if any(tok in low for tok in self._DEFINITION_JUNK):
             return False
         # A real definition predicate rarely opens with a conjunction or
@@ -864,6 +919,10 @@ class WebLearningMixin(ResponseGenMixin):
         s = re.sub(r"\b[A-Za-z][A-Za-z\- ]{0,20}?\b\s*(noun|verb|adjective|adverb|transitive|intransitive|uncountable|countable|singular|plural)\b", " ", s, flags=re.IGNORECASE)
         s = re.sub(r"\(\s*(of a|used to|especially|figurative|informal|formal|old-fashioned|humorous)\b", " (", s, flags=re.IGNORECASE)
         s = re.sub(r"\s{2,}", " ", s).strip().strip(".,;:- ")
+        # Structural reality-monitoring: drop any non-linguistic code/script
+        # residue that survived the chrome strips (e.g. a leading
+        # "Freestar.config.enabled_slots.push( );"). Keep the perceived utterance.
+        s = self._strip_code_fragments(s)
         # Reject if what's left is too short or still a pure UI fragment.
         low = s.lower()
         if not s or len(s) < 12:

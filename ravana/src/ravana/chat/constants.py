@@ -294,6 +294,25 @@ def _is_word_salad(text: str, allow_content_only: bool = False, subject: Optiona
             if len(novel) < 2 and all(len(w) <= 7 for w in novel):
                 salad_score += 0.4
 
+    # ── Subject-absent (ungrounded-reply) safeguard (Phase 19h) ───────────────
+    # The tautology/substance block above is ONLY meaningful when we have a
+    # `subject` to compare the response against. When caller passes subject=None
+    # (an ungrounded reply, a web snippet, a stored definition being re-checked),
+    # that comparison is impossible, so the block is skipped (guarded by
+    # `subject` above). But the *structural* penalties can still over-flag a
+    # genuine, definitional sentence ("The meaning of GRAVITY is the
+    # gravitational attraction…") because such sentences are fluent, use anchors,
+    # and have high TTR. A hyper-active gate that rejects real definitions is the
+    # mirror-image lesion of Wernicke's anosognosia (over-monitoring / false
+    # alarms instead of under-monitoring) and must be avoided. So when subject is
+    # None we refuse to flag a clearly definitional sentence: one containing a
+    # copula and a determiner/article is, by form, a real assertion — not salad.
+    if not subject:
+        _has_copula = bool(re.search(r"\b(is|are|was|were|means|refers|describes|occurs)\b", text.lower()))
+        _has_article = any(w in words for w in ("a", "an", "the"))
+        if _has_copula and _has_article:
+            return False
+
     # Final decision: salad_score >= 0.7 means word salad
     return salad_score >= 0.7
 

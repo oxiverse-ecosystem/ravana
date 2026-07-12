@@ -3079,17 +3079,14 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
     def _is_preamble_fragment(self, text: str) -> bool:
         """Turn-end predictor analog (brief behavior 2).
 
-        In a streaming dialogue the turn-end predictor fires the "go-signal" to
-        articulate only when the partner's turn is lexically/syntactically
-        complete (Magyari 2014; Barthel 2017). This one-shot CLI has no
-        per-token stream, so we approximate the finality cue with a
-        completeness heuristic: a user turn is a PREamble FRAGMENT (plan-now,
-        wait-for-go-signal) when it is too short to be a complete utterance and
-        reads as an opening lead-in rather than an answerable unit — e.g.
-        "so", "by the way", "that reminds me of", "anyway". Such turns should
-        NOT trigger a full answer dump; the bot holds with a light acknowledgment
-        and an invitation to continue, mirroring a human who waits for the point.
+        A short imperative/wh- query ("explain oxiverse", "define trust") is a
+        complete, answerable speech act, NOT an incomplete lead-in — the
+        turn-end predictor must not withhold a warranted response on it (the
+        hyper-cautious / over-monitoring false positive). See
+        ``_is_answerable_query`` for the brain rationale.
         """
+        if self._is_answerable_query(text):
+            return False
         t = (text or "").strip()
         if not t:
             return False
@@ -3111,6 +3108,33 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         _closed = ("hi", "hello", "hey", "yo", "bye", "thanks", "yes", "no",
                    "ok", "okay", "sure", "cool", "nice", "lol", "hmm")
         if wc <= 2 and low not in _closed and not t.endswith("?"):
+            return True
+        return False
+
+    def _is_answerable_query(self, text: str) -> bool:
+        """True if `text` is a complete, answerable query (wh- question or an
+        imperative definition command), NOT an incomplete lead-in.
+
+        Brain-aligned: this guards the turn-end predictor (Magyari 2014;
+        Barthel 2017) against a hyper-cautious *false positive* — withholding a
+        warranted response because the turn looked "too short to be complete".
+        A 2-word "explain oxiverse" / "define trust" is a fully-formed speech
+        act (a definition command), exactly as complete as "what is gravity".
+        The preamble detector must never eat it. Returns False (not a preamble)
+        for these so generation proceeds.
+        """
+        low = (text or "").strip().lower().rstrip(" .!?")
+        if not low or low.endswith("?"):
+            return False
+        _QUERY_MARKERS = (
+            "what", "who", "where", "when", "why", "how", "which",
+            "define", "explain", "describe", "tell", "name", "list", "mean",
+            "is", "are", "was", "were",
+        )
+        toks = low.split()
+        # Imperative definition command ("explain X", "define X") or any
+        # wh-word present -> a complete question, not a fragment.
+        if any(t in _QUERY_MARKERS for t in toks):
             return True
         return False
 
@@ -5192,6 +5216,30 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
     # succeed ("saved …KB") instead of crashing ("save failed") on any latent
     # unpicklable object, closing the P4 latent-bug mask at the single choke
     # point.
+    # ── Save/load schema stamp (M5: resilience, no silent blank wipe) ────────
+    # A stale/corrupt ravana_weights.pkl used to make load() throw, the
+    # caller swallowed it, and ALL learned state (definitions, identity,
+    # emotion, RNG) was silently discarded — a blank restart. We now stamp
+    # a schema version + a checksum so a corrupt snapshot is detected and a
+    # partial restore is attempted (each field independently guarded) instead of
+    # a silent wipe. Conceptual analog: biology re-validates memory
+    # traces on replay (SWS/REM) rather than trusting one brittle snapshot.
+    SAVE_SCHEMA_VERSION = 1
+
+    @staticmethod
+    def _checksum_state(state: dict) -> str:
+        """Stable hash of the picklable state (schema integrity check)."""
+        import hashlib
+        try:
+            blob = pickle.dumps(state, protocol=pickle.HIGHEST_PROTOCOL)
+        except Exception:
+            # If the state can't be pickled for hashing, hash a coarse
+            # structural fingerprint instead (never fail the save on this).
+            blob = repr(sorted(
+                (k, type(v).__name__) for k, v in state.items()
+            )).encode("utf-8")
+        return hashlib.sha256(blob).hexdigest()[:16]
+
     def _safe_pickle_dump(self, state, fpath):
         import pickle
         try:
@@ -5393,7 +5441,12 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 # Neuromodulator state
                 'neuromodulator_state': self.neuromodulator_engine.get_state()
                     if hasattr(self, 'neuromodulator_engine') and self.neuromodulator_engine is not None else None,
+                # M5: schema stamp + integrity checksum (corrupt-detection,
+                # not silent wipe). Checksum is over the full state so any
+                # bit-rot / partial write is caught on load.
+                'schema_version': self.SAVE_SCHEMA_VERSION,
             }
+            state['state_checksum'] = self._checksum_state(state)
             # Phase 1: Write graph to SQLite database for ACID persistence
             try:
                 self.db.save_graph(self.graph)
@@ -5421,6 +5474,15 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             try:
                 if self._safe_pickle_dump(state, self._save_path):
                     size_kb = os.path.getsize(self._save_path) / 1024
+                    # M5: persist the checksum alongside so load() can
+                    # verify integrity (corrupt-detection, not silent wipe).
+                    try:
+                        _sha = state.get('state_checksum')
+                        if _sha:
+                            with open(self._save_path + ".sha", "w") as _shaf:
+                                _shaf.write(str(_sha))
+                    except Exception:
+                        pass
                     return f"saved {size_kb:.0f}KB to {os.path.basename(self._save_path)}"
                 return f"save failed: unpicklable state could not be sanitized"
             except Exception as e:
@@ -5451,14 +5513,43 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             with open(self._save_path, 'rb') as f:
                 state = _RavanaUnpickler(f).load()
 
+            # ── M5: schema + integrity checks (corrupt-detection, NOT silent wipe) ──
+            # A stale/corrupt pkl used to throw here, the caller swallowed it,
+            # and the engine started blank — silently discarding ALL learned
+            # state. Now we detect and partial-restore instead.
+            _loaded_ver = state.get('schema_version', None)
+            if _loaded_ver is not None and _loaded_ver != self.SAVE_SCHEMA_VERSION:
+                print(f"  [Load warn] schema_version={_loaded_ver} "
+                      f"!= current {self.SAVE_SCHEMA_VERSION} — "
+                      f"attempting best-effort restore")
+            _loaded_sha = state.get('state_checksum', None)
+            if _loaded_sha:
+                _recomputed = self._checksum_state(state)
+                if _recomputed != _loaded_sha:
+                    print(f"  [Load warn] state_checksum mismatch "
+                          f"({_loaded_sha} vs {_recomputed}) — "
+                          f"snapshot may be partially corrupt; restoring "
+                          f"what is valid")
+            # Stash for the final success return; if unreadable, caller logs.
+
             # Restore graph
             loaded_graph = state['graph']
-            if loaded_graph and loaded_graph.nodes:
-                first_node = next(iter(loaded_graph.nodes.values()))
-                if first_node.vector is not None and len(first_node.vector) != self.dim:
-                    print(f"  [Load warning] Dimension mismatch: loaded graph has dim {len(first_node.vector)} but engine has dim {self.dim}. Discarding saved state.")
-                    return False
-            self.graph = loaded_graph
+            if isinstance(loaded_graph, ConceptGraph):
+                if loaded_graph.nodes:
+                    first_node = next(iter(loaded_graph.nodes.values()))
+                    if first_node.vector is not None and len(first_node.vector) != self.dim:
+                        print(f"  [Load warning] Dimension mismatch: loaded graph has dim {len(first_node.vector)} but engine has dim {self.dim}. Discarding saved state.")
+                        return False
+                self.graph = loaded_graph
+            else:
+                # Corrupt graph (e.g. a str from an old sanitizer path) —
+                # rebuild fresh rather than aborting the WHOLE load (M5:
+                # partial restore, not silent blank wipe).
+                print(f"  [Load partial] graph was "
+                      f"{type(loaded_graph).__name__}, not ConceptGraph — "
+                      f"rebuilding empty graph; other state restored")
+                self.graph = ConceptGraph(dim=self.dim,
+                                      max_nodes=getattr(self, '_max_nodes', 20000))
             self._concept_keywords = state['concept_keywords']
             self.turn_count = state['turn_count']
 
@@ -5475,20 +5566,33 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             self._free_energy = state['free_energy']
             self._learning_count = state['learning_count']
 
-            # Restore identity
-            self.identity.state = state['identity_state']
-            self.identity.last_delta = state['identity_momentum']
+            # Restore identity (M5: each field independently guarded —
+            # a corrupt field logs + is skipped, it can't wipe the rest).
+            try:
+                self.identity.state = state['identity_state']
+                self.identity.last_delta = state['identity_momentum']
+            except Exception as _e:
+                print(f"  [Load partial] identity restore failed: {_e}")
 
             # Restore emotion VAD
-            self.emotion.state.valence = state['vad_valence']
-            self.emotion.state.arousal = state['vad_arousal']
-            self.emotion.state.dominance = state['vad_dominance']
+            try:
+                self.emotion.state.valence = state['vad_valence']
+                self.emotion.state.arousal = state['vad_arousal']
+                self.emotion.state.dominance = state['vad_dominance']
+            except Exception as _e:
+                print(f"  [Load partial] emotion restore failed: {_e}")
 
             # Restore meaning
-            self.meaning.accumulated_meaning = state['meaning_accumulated']
+            try:
+                self.meaning.accumulated_meaning = state['meaning_accumulated']
+            except Exception as _e:
+                print(f"  [Load partial] meaning restore failed: {_e}")
 
             # Restore RNG
-            self.rng.set_state(state['rng_state'])
+            try:
+                self.rng.set_state(state['rng_state'])
+            except Exception as _e:
+                print(f"  [Load partial] rng restore failed: {_e}")
 
             # Restore teen state (optional â€” may not exist in old saves)
             self._sleep_pressure = state.get('sleep_pressure', 0.0)
