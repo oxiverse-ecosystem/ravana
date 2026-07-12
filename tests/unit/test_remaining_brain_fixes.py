@@ -70,12 +70,15 @@ def test_clause_complete_detects_open_dependency():
     assert eng._is_clause_complete("gravity pulls masses together") is True
 
 
-def test_preamble_holds_cueless_fragment():
+def test_preamble_catches_cueless_fragment():
     eng = _bare_engine()
     # No cue word, but an open proposition -> still a preamble (the M9 fix).
+    # Contract examples:
     assert eng._is_preamble_fragment("and another thing —") is True
     assert eng._is_preamble_fragment("the problem is that") is True
     assert eng._is_preamble_fragment("what I mean is") is True
+    assert eng._is_preamble_fragment("the issue is that") is True
+    assert eng._is_preamble_fragment("because of the way") is True
     # A complete clause must never be withheld.
     assert eng._is_preamble_fragment("black holes bend spacetime") is False
     assert eng._is_preamble_fragment("the cat sat on the mat") is False

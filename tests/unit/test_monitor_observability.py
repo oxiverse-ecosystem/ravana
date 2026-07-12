@@ -98,6 +98,35 @@ _NEGATIVE = [
 ]
 
 
+def test_monitor_log_records_fired_monitor():
+    """Contract name: a guarded salad emits a log entry naming the
+    monitor + dropped clause."""
+    eng = _bare_engine()
+    eng._disable_grounding_gate = False
+    eng._sm_response_grounded = lambda ctx, c, skip_step1=False: False
+
+    class _Ctx:
+        subject = "life"
+        raw_input = "what is life"
+
+    repaired, dropped = eng._strip_degenerate_clauses(
+        "Life semantic people, which semantic cannot.", _Ctx())
+    assert dropped is True
+    rep = eng.monitor_report()
+    assert rep["total_fires"] >= 1
+    assert any(e["monitor"] == "clause-strip" for e in rep["recent"])
+    assert any("semantic cannot" in e["dropped_clause"] for e in rep["recent"])
+
+
+def test_fluent_tautology_ci_gate():
+    """Contract name: fixed corpus asserts zero fluent-tautological
+    emissions (the M4 lesion stays closed)."""
+    for subject, text in _POSITIVE:
+        assert detects_fluent_tautology(text, subject=subject) is True, text
+    for subject, text in _NEGATIVE:
+        assert detects_fluent_tautology(text, subject=subject) is False, text
+
+
 @pytest.mark.parametrize("subject,text", _POSITIVE)
 def test_fluent_tautology_ci_gate_positive(subject, text):
     # The fluent-tautological signature must be detected (it is the lesion we
