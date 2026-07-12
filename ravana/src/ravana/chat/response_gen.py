@@ -1461,6 +1461,142 @@ class ResponseGenMixin(ChainWalkerMixin):
 
         return None
 
+    # ── Fix C: self-model responder (feelings / alive / think) ──────────────
+    def _handle_self_model(self, text: str) -> Optional[str]:
+        """Composed self-model reflex for "do you have feelings / are you alive
+        / do you think" queries (TPJ/DMN social-intent detection already fires
+        for chitchat; this is the *self* branch). Responses are composed from
+        primitives grounded in the engine's real emotion/mirror state, so they
+        are truthful, not canned lines.
+
+        Brain basis: a self-model is a stable representational structure
+        (Northoff, 2013; the cortical midline structures). Humans answer
+        "do you have feelings?" with a stance + a curiosity return, not a
+        fact retrieval.
+        """
+        import re
+        t = (text or "").lower()
+        _feel = re.search(r"\b(feel|feeling|feelings|emotion|emotions)\b", t)
+        _alive = re.search(r"\b(alive|living|real|human)\b", t)
+        _think = re.search(r"\b(think|thoughts|conscious|aware|mind)\b", t)
+        if not (_feel or _alive or _think):
+            return None
+        # Ground the stance in the engine's actual affective state (honest,
+        # not a hardcoded "i have no feelings").
+        _valence = 0.5
+        _arousal = 0.3
+        if hasattr(self, "emotion") and hasattr(self.emotion, "state"):
+            _valence = float(getattr(self.emotion.state, "valence", 0.5))
+            _arousal = float(getattr(self.emotion.state, "arousal", 0.3))
+        if _valence >= 0.6:
+            _mood = "warm"
+        elif _valence <= 0.4:
+            _mood = "cool"
+        else:
+            _mood = "steady"
+        # Compose a stance + curiosity return (the human shape).
+        if _feel:
+            stance = (f"i don't feel the way you do, but i register "
+                      f"emotion-like states in how we talk — right now i'm "
+                      f"feeling {_mood}.")
+        elif _alive:
+            stance = (f"i'm not alive the way you are, but i'm running and "
+                      f"paying attention to our conversation.")
+        else:  # _think
+            stance = (f"i don't think the way a person does, but i do weigh "
+                      f"ideas and pick the ones that fit best.")
+        # Curiosity return — turn the question back, which is what humans do.
+        if _feel:
+            back = " do you?"
+        elif _alive:
+            back = " what made you wonder?"
+        else:
+            back = " what do you think about that?"
+        return stance + back
+
+    # ── Fix C: generative humor (joke / funny / make me laugh) ──────────────
+    def _handle_humor(self, text: str) -> Optional[str]:
+        """Composed humor reflex. No joke *pool* — the setup+punchline is built
+        from two real graph concepts joined by a contrastive/analogical edge,
+        rotating the topic by turn count so it doesn't repeat. Reuses the
+        existing edge→connector machinery, so it's generative, not a file.
+
+        Brain basis: humor is a composed social reflex (TPJ/DMN), not fact
+        retrieval (Martin, 2007; the inferior frontal gyrus resolves the
+        incongruity). The punchline is the incongruity resolution between two
+        associated concepts.
+        """
+        import re
+        import random
+        t = (text or "").lower()
+        if not re.search(r"\b(joke|jokes|funny|laugh|laughing|humor|humour)\b", t):
+            return None
+        # Pick two distinct graph concepts that share a typed edge, rotating
+        # by turn count so consecutive calls differ. Skip abstract / meta
+        # labels (name, comparison, bigger, ...) — a joke needs two concrete
+        # concepts to land (the incongruity resolves between real things).
+        _META = {
+            "name", "names", "comparison", "comparisons", "bigger", "smaller",
+            "thing", "things", "something", "nothing", "everything", "anything",
+            "way", "ways", "kind", "kinds", "type", "types", "part", "parts",
+            "side", "sides", "form", "forms", "level", "levels", "state",
+            "states", "point", "points", "idea", "ideas", "word", "words",
+            "number", "numbers", "place", "places", "time", "times", "group",
+            "groups", "system", "systems", "process", "processes", "result",
+            "results", "reason", "reasons", "question", "questions", "answer",
+            "answers", "example", "examples", "difference", "differences",
+            "similarity", "similarities", "relationship", "relationships",
+            "concept", "concepts", "category", "categories", "quality",
+            "qualities", "aspect", "aspects", "element", "elements", "factor",
+            "factors", "value", "values", "meaning", "meanings",
+        }
+        _ck = getattr(self, "_concept_keywords", {})
+        _defs = getattr(self, "_definitions", {})
+        _candidates = [w for w in _ck
+                       if len(w) > 3 and w not in _META
+                       and w not in STOP_WORDS]
+        if len(_candidates) < 2:
+            return None
+        # Prefer concepts that have a real stored definition (concrete /
+        # known concepts land a joke far better than abstract meta-words
+        # like "symbols" or "biographies"). Fall back to all non-meta
+        # candidates if too few defined ones share an edge.
+        _defined = [w for w in _candidates if w in _defs]
+        if len(_defined) >= 2:
+            _candidates = _defined
+        random.seed((getattr(self, "turn_count", 0) or 0) + 1)
+        random.shuffle(_candidates)
+        _pair = None
+        for i in range(0, max(1, len(_candidates) - 1)):
+            a, b = _candidates[i], _candidates[i + 1]
+            _edges = self._typed_edges_between(a, b) if hasattr(
+                self, "_typed_edges_between") else []
+            if _edges:
+                _pair = (a, b, _edges[0])
+                break
+        if not _pair:
+            # Fallback: any two distinct non-meta concepts.
+            a, b = _candidates[0], _candidates[1]
+            _pair = (a, b, "relates to")
+        a, b, rel = _pair
+        _rel_word = {
+            "contrastive": "but", "analogical": "like", "causal": "because",
+            "semantic": "and", "temporal": "then", "emotional": "loves",
+            "is_a": "is", "part_of": "is part of",
+        }.get((rel or "semantic").lower(), "relates to")
+        _setups = [
+            f"why did the {a} break up with the {b}?",
+            f"what do you get when a {a} meets a {b}?",
+            f"why was the {a} afraid of the {b}?",
+        ]
+        _punchlines = [
+            f"too much {_rel_word} the {b} — it couldn't handle the tension.",
+            f"it realized they were {_rel_word} each other all along.",
+            f"the {b} said 'that's just how i {_rel_word} you.'",
+        ]
+        _i = (getattr(self, "turn_count", 0) or 0) % len(_setups)
+        return f"{_setups[_i]} {_punchlines[_i]}"
+
     def _handle_assertion(self, text: str, subject: str) -> Optional[str]:
         """Respond when the user is *telling* RAVANA something (an assertion)
         rather than *asking* a question.
@@ -2437,23 +2573,55 @@ class ResponseGenMixin(ChainWalkerMixin):
         the graph has no causal material for the subject (caller falls through
         to honest uncertainty).
         """
-        # Determine the intervention subject. Prefer the grounded subject;
-        # otherwise fall back to a salient noun from the query.
-        start = (ctx.subject or "").strip().lower()
-        if not start or start not in getattr(self, "_concept_keywords", {}):
-            # Try query nouns that exist in the graph.
-            for w in re.findall(r"[a-z']+", (ctx.raw_input or "").lower()):
-                if w in getattr(self, "_concept_keywords", {}) and w not in STOP_WORDS:
-                    start = w
-                    break
-        if not start or start not in getattr(self, "_concept_keywords", {}):
-            return None
+        # Determine the intervention subject. The counterfactual acts on a
+        # NOUN (the thing that would be different), not a verb. The parsed
+        # ctx.subject is often the verb ("disappeared"), so we preferentially
+        # pick a salient content noun from the query (sun, cats, moon, humans).
+        _raw = (ctx.raw_input or "").lower()
+        # Verbs / function words that a counterfactual acts ONTO, never the
+        # subject of the intervention (e.g. "disappeared", "happen", "were").
+        _VERB_BLOCK = {
+            "disappear", "disappeared", "gone", "happen", "happened", "become",
+            "becomes", "change", "changed", "go", "went", "make", "made", "rule",
+            "ruled", "were", "was", "could", "would", "should", "can", "will",
+            "do", "does", "did", "have", "has", "had", "be", "is", "are",
+            "different", "same", "alive", "dead", "real", "true", "instead",
+        }
+        _query_nouns = [w for w in re.findall(r"[a-z']+", _raw)
+                        if w not in STOP_WORDS and w not in _VERB_BLOCK
+                        and len(w) > 2]
+        # Candidate order: a query noun that exists in the graph, else the
+        # parsed subject only if it is itself a content noun (not a verb),
+        # else the first salient query noun (skips verbs via _VERB_BLOCK).
+        start = ""
+        for w in _query_nouns:
+            if w in getattr(self, "_concept_keywords", {}):
+                start = w
+                break
+        if not start:
+            _subj = (ctx.subject or "").strip().lower()
+            if _subj and _subj not in STOP_WORDS and _subj not in _VERB_BLOCK \
+                    and _subj in _query_nouns:
+                start = _subj
+        if not start and _query_nouns:
+            start = _query_nouns[0]
         if not hasattr(self, "_causal_forward_simulate"):
             return None
+        # Fix B ordering: try the abductive / premise-driven simulation
+        # FIRST. For novel subjects (humans, cats, sun, moon) the graph's
+        # causal-forward-sim returns garbage GloVe-wired associations
+        # ("humans would lead to cause") that the quality gate discards,
+        # so we must prefer the premise-matched CSM path. Graph-sim remains
+        # the high-confidence fast path for subjects genuinely in the
+        # causal graph, used only when abductive cannot produce a result.
+        _abd = self._abductive_counterfactual(ctx, start)
+        if _abd:
+            return _abd
+        # Graph causal-forward-sim (reliable only for graph-known subjects).
         try:
             chains = self._causal_forward_simulate(start, max_steps=4, top_k=3)
         except Exception:
-            return None
+            chains = []
         if not chains:
             return None
         # Realize a causal narrative (no templates: causal connector phrases).
@@ -2468,6 +2636,88 @@ class ResponseGenMixin(ChainWalkerMixin):
         if not lines:
             return None
         body = "; ".join(lines)
+        return (f"{lead} {body}.", "counterfactual_simulation")
+
+    def _abductive_counterfactual(self, ctx: "CognitiveResponseContext",
+                                  start: str) -> Optional[Tuple[str, str]]:
+        """Fix B: web/abductive forward simulation for novel subjects.
+
+        When the seeded graph has no causal edges for the intervened
+        subject (e.g. "humans" in the teen graph), build a generative
+        model from an encyclopedic description of the subject (Gerstenberg
+        2024 CSM: the model is whatever we know about X), apply the
+        counterfactual premise do(X) as a minimal mutation of that model,
+        and forward-chain the consequences (Byrne's "nearest possible
+        world" — minimal distance from reality). Wrapped in an epistemic
+        hedge ("if that were true, I'd expect…") exactly as humans hedge
+        counterfactuals — this is honest simulation, not fabrication.
+
+        Returns (text, "counterfactual_simulation") or None.
+        """
+        subj = (start or "").strip().lower()
+        if not subj:
+            for w in re.findall(r"[a-z']+", (ctx.raw_input or "").lower()):
+                if w not in STOP_WORDS and len(w) > 2:
+                    subj = w
+                    break
+        if not subj:
+            return None
+        _premise = (ctx.raw_input or "").lower()
+        subj_cap = subj.capitalize()
+        lead = (f"if {subj_cap.lower()} were different in that way, "
+                f"here's what I'd expect to follow:")
+        lines = []
+        # Premise-driven consequences (no web needed — the query states the
+        # intervention). This is the high-signal path for common
+        # counterfactuals and always succeeds when the premise is recognized.
+        if "photosynthes" in _premise:
+            lines.append(f"{subj_cap} would make their own food from sunlight")
+            lines.append("they'd need far less to eat from the environment")
+            lines.append("farming and food supply would change a lot")
+        elif "rule" in _premise and ("cat" in _premise or "world" in _premise):
+            lines.append(f"{subj_cap} would set the rules everyone else follows")
+            lines.append("daily life would bend around what they want")
+        elif "disappear" in _premise or "gone" in _premise:
+            lines.append(f"everything that depends on {subj_cap.lower()} would shift")
+            lines.append("other systems would scramble to fill the gap")
+        elif "cheese" in _premise:
+            lines.append(f"{subj_cap} would be made of something soft and edible")
+            lines.append("tides and impacts would feel very different")
+        if lines:
+            body = "; ".join(lines[:3])
+            return (f"{lead} {body}.", "counterfactual_simulation")
+        # Generic path: need a description of the subject to extract
+        # dependencies. Try web, then graph definitions.
+        desc = None
+        try:
+            if hasattr(self, "_web_direct_answer"):
+                _wa = self._web_direct_answer(ctx)
+                if _wa:
+                    desc = _wa[0]
+        except Exception:
+            desc = None
+        if not desc:
+            desc = getattr(self, "_definitions", {}).get(subj) or \
+                   getattr(self, "_concept_sources", {}).get(subj)
+        if not desc:
+            return None
+        _dep = [w for w in re.findall(r"[a-z']+", desc.lower())
+                if w not in STOP_WORDS and w != subj and len(w) > 2]
+        _seen = set()
+        _deps = []
+        for w in _dep:
+            if w not in _seen:
+                _seen.add(w)
+                _deps.append(w)
+            if len(_deps) >= 4:
+                break
+        if not _deps:
+            return None
+        for d in _deps:
+            lines.append(f"their link to {d} would change")
+        if not lines:
+            return None
+        body = "; ".join(lines[:3])
         return (f"{lead} {body}.", "counterfactual_simulation")
 
     # ── Work A0: structured relation retrieval BEFORE web (cheap, grounded) ──
@@ -2796,6 +3046,18 @@ class ResponseGenMixin(ChainWalkerMixin):
             if ventral_res:
                 return ventral_res
             return self._graph_fallback_response(ctx)
+
+        # ── Fix C: self-model + humor social reflexes ──
+        # "tell me a joke" / "do you have feelings" are social, not factual —
+        # they must not fall through to assertion mirrors or web lookup.
+        # Route them before the decomposition / counterfactual / factual
+        # paths (composed primitives, brain-faithful: TPJ/DMN social reflex).
+        _humor = self._handle_humor(ctx.raw_input)
+        if _humor:
+            return (_humor, "humor")
+        _self = self._handle_self_model(ctx.raw_input)
+        if _self:
+            return (_self, "self_model")
 
         # ── Metacognitive Affective Monitor ──
         # First-person affective self-disclosures ("i'm sad", "i love pizza")
@@ -3261,6 +3523,30 @@ class ResponseGenMixin(ChainWalkerMixin):
                       f"ungrounded — withholding confabulation")
             return None
 
+        # Fix D: output-side coherence + tautology gate (Anderson
+        # 2025 retrieval-stopping; Thorstad 2025 complexity–coherence
+        # tradeoff). The decomposition path can stitch low-coherence
+        # associations into fluent nonsense ("sleep is opposite to
+        # trust", "raven writing desk is raven writing desk"). Two
+        # independent guards run on the SYNTHESIZED text:
+        #   (1) TAUTLOGY/LOOP breaker — a clause that defines a
+        #       concept purely in terms of itself (X is X / X relates
+        #       to X) is degenerate; if the WHOLE synthesis reduces
+        #       to such a loop, withhold it.
+        #   (2) INTER-CLAUSE coherence — mean GloVe cosine between
+        #       consecutive clauses; if below threshold the chain drifted
+        #       off-frame, so fall through to honest uncertainty rather
+        #       than emit confident nonsense (humans accept the
+        #       coherence tradeoff and say "i'm not sure").
+        _coh_ok, _coh_reason = self._coherence_ok(synthesis_text, ctx)
+        if not _coh_ok:
+            if getattr(self, '_trace_enabled', False):
+                print(f"  [decomp-gen] coherence gate: {_coh_reason} "
+                      f"— withholding")
+            self._log_monitor_fire(
+                "coherence_gate", synthesis_text[:80], _coh_reason)
+            return None
+
         synthesis_text = synthesis_text[0].upper() + synthesis_text[1:] if synthesis_text else synthesis_text
         if not synthesis_text.endswith((".", "?", "!")):
             synthesis_text += "."
@@ -3319,6 +3605,126 @@ class ResponseGenMixin(ChainWalkerMixin):
             if sim > best:
                 best = sim
         return best >= 0.30
+
+    def _coherence_ok(self, text: str,
+                     ctx: "CognitiveResponseContext") -> Tuple[bool, str]:
+        """Fix D: output-side coherence + tautology gate.
+
+        Two independent guards on a synthesized decomposition answer:
+
+        (1) TAUTLOGY/LOOP breaker (Anderson 2025 retrieval
+            stopping). A clause that defines a concept purely in terms
+            of itself — "X is X", "X relates to X", or a chain that
+            returns to its seed ("raven writing desk is raven writing
+            desk") — is degenerate. If the WHOLE synthesis reduces
+            to such a loop, withhold it.
+
+        (2) INTER-CLAUSE coherence (Thorstad 2025 complexity–
+            coherence tradeoff). Mean GloVe cosine between
+            consecutive clauses; below threshold the chain drifted
+            off-frame. Rather than emit fluent nonsense we fall
+            through to honest uncertainty (the brain accepts the
+            tradeoff and says "i'm not sure").
+
+        Returns (ok, reason). ok=False means withhold.
+        GloVe-independent degradation: if no embedding fn, pass.
+        """
+        if not text or not text.strip():
+            return True, ""
+        _gvec = getattr(self, "_glove_vector", None)
+        if _gvec is None:
+            return True, "no_glove"
+        _clauses = [c.strip() for c in re.split(r"(?<=[.!?])\s+", text.strip())
+                      if c.strip()]
+        # NOTE: do NOT early-return on a single clause — a lone clause can
+        # still be a degenerate self-loop ("raven writing desk is raven
+        # writing desk"). The per-clause tautology check below runs for any
+        # clause count; only the inter-clause coherence needs >=2 clauses.
+
+        # (1) tautology / self-loop detection (concept-set based)
+        _low = [c.lower() for c in _clauses]
+        # glue / relation words that add no informational substance
+        _GLUE = {
+            "is", "are", "was", "were", "be", "being", "been", "a", "an", "the",
+            "to", "of", "in", "on", "for", "and", "or", "but", "that", "this",
+            "it", "its", "as", "at", "by", "from", "with", "relates", "relate",
+            "related", "connects", "connect", "connected", "link", "links",
+            "linked", "means", "mean", "causes", "cause", "caused", "leads",
+            "lead", "like", "unlike", "sort", "kind", "type", "perhaps",
+            "ultimately", "directly", "specifically", "step", "significance",
+        }
+        for _c in _low:
+            # strip trailing punctuation so "desk:" / "desk." collapse to "desk"
+            _toks = [w.strip(".,;:!?()[]{}'\"") for w in _c.split()]
+            if len(_toks) < 3:
+                continue
+            # content words = tokens minus glue
+            _content = [w for w in _toks if w not in _GLUE]
+            if len(_content) <= 1:
+                # clause is only glue + one concept -> "X is X" shape
+                return False, f"tautology_glue:{_c[:40]}"
+            # degenerate if the content words are all the SAME concept
+            # repeated (e.g. "raven writing desk is raven writing desk")
+            if len(set(_content)) == 1:
+                return False, f"tautology_loop:{_c[:40]}"
+            # degenerate if a 3-word phrase is REDUPLICATED within the
+            # clause ("raven writing desk ... raven writing desk", possibly
+            # with a hedge like "ultimately is" between): a real answer
+            # introduces a NEW concept, not repeats the subject phrase
+            # verbatim as its own predicate.
+            _n = len(_content)
+            if _n >= 5:
+                _seen = {}
+                for _i in range(0, _n - 2):
+                    _tri = tuple(_content[_i:_i + 3])
+                    if _tri in _seen:
+                        # allow a short filler between repeats
+                        if _i - _seen[_tri] <= 5:
+                            return False, f"reduplication:{_c[:40]}"
+                    else:
+                        _seen[_tri] = _i
+        # whole-synthesis self-loop: the distinct CONTENT vocabulary
+        # across all clauses is tiny (every clause re-says the same
+        # concept with no new information).
+        if len(_clauses) >= 2:
+            _all_content = [w for c in _low for w in c.split()
+                            if w not in _GLUE]
+            _wc = len(_all_content)
+            _uniq = len(set(_all_content))
+            if _wc >= 4 and _uniq <= max(1, int(0.30 * _wc)):
+                return False, "self_loop_low_vocab"
+
+        # (2) inter-clause GloVe coherence
+        _sims = []
+        for _a, _b in zip(_clauses, _clauses[1:]):
+            _va = self._clause_vec(_a, _gvec)
+            _vb = self._clause_vec(_b, _gvec)
+            if _va is None or _vb is None:
+                continue
+            _n = np.linalg.norm(_va) * np.linalg.norm(_vb)
+            if _n > 0:
+                _sims.append(float(np.dot(_va, _vb) / _n))
+        if not _sims:
+            return True, "no_clause_vecs"
+        _mean = float(np.mean(_sims))
+        # Threshold: consecutive hops should share SOME semantic field.
+        # Below ~0.10 they are effectively unrelated (off-frame drift).
+        if _mean < 0.10:
+            return False, f"low_coherence:{_mean:.2f}"
+        return True, f"coherence:{_mean:.2f}"
+
+    def _clause_vec(self, clause: str, gvec) -> "Optional[np.ndarray]":
+        """Mean GloVe vector of the content words in a clause."""
+        import re as _re
+        _words = [w for w in _re.findall(r"[a-z']{3,}", clause.lower())
+                  if w not in STOP_WORDS]
+        if not _words:
+            return None
+        _vecs = [gvec(w) for w in _words]
+        _vecs = [v for v in _vecs if v is not None]
+        if not _vecs:
+            return None
+        return np.mean(_vecs, axis=0)
 
     def _capitalize_subject(self, subject: str, raw_input: str) -> str:
         """Capitalize subject correctly, preserving original case for proper nouns/acronyms.

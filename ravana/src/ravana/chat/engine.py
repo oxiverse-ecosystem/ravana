@@ -907,6 +907,41 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             return result
         return None
 
+    def _typed_edges_between(self, a: str, b: str) -> List[str]:
+        """Return the relation types of edges linking concept labels `a` and
+        `b` (either direction) in the live graph. Used by the generative humor
+        reflex (Fix C) to pick the connector word for a joke setup+punchline.
+
+        Returns a list of relation_type strings (may be empty).
+        """
+        ck = getattr(self, "_concept_keywords", {})
+        a_ids = ck.get((a or "").lower(), [])
+        b_ids = set(ck.get((b or "").lower(), []))
+        if not a_ids or not b_ids:
+            return []
+        out = []
+        for aid in a_ids:
+            try:
+                for tid, edge in self.graph.get_outgoing(aid):
+                    if tid in b_ids:
+                        rt = getattr(edge, "relation_type", None)
+                        if rt and rt not in out:
+                            out.append(rt)
+            except Exception:
+                continue
+        if not out:
+            # reverse direction
+            for bid in b_ids:
+                try:
+                    for tid, edge in self.graph.get_outgoing(bid):
+                        if tid in set(a_ids):
+                            rt = getattr(edge, "relation_type", None)
+                            if rt and rt not in out:
+                                out.append(rt)
+                except Exception:
+                    continue
+        return out
+
     def _get_modulated_vector(self, word: str) -> Optional[np.ndarray]:
         """Retrieve a context-modulated vector for a word (LIFG-ATL modulation).
         
@@ -2098,6 +2133,27 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # Step 5c: P1 Theory of Mind — post-spread deep ToM update (roadmap §7)
         self._update_user_model(user_input, subject, associations)
 
+        # ─── Fix C: self-model + humor social reflexes ───
+        # "tell me a joke" / "do you have feelings" are social, not factual —
+        # they must be caught BEFORE the assertion mirror / chitchat
+        # handlers below (composed primitives; TPJ/DMN social reflex).
+        _humor_resp = self._handle_humor(user_input)
+        if _humor_resp:
+            self._last_strategy = "humor"
+            self._last_responses.append(_humor_resp)
+            if len(self._last_responses) > 10:
+                self._last_responses = self._last_responses[-10:]
+            self.notify_user_idle()
+            return _humor_resp
+        _self_resp = self._handle_self_model(user_input)
+        if _self_resp:
+            self._last_strategy = "self_model"
+            self._last_responses.append(_self_resp)
+            if len(self._last_responses) > 10:
+                self._last_responses = self._last_responses[-10:]
+            self.notify_user_idle()
+            return _self_resp
+
         # ─── Assertion / "telling vs asking" Check ───
         # If the user is TELLING RAVANA something (an assertion) rather than
         # asking, acknowledge the speech act instead of explaining a concept.
@@ -3082,6 +3138,15 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         "sun-sentinel", "thesun.co.uk", "the-sun.com", "news", "reddit.com",
         "quora", "pinterest", "youtube.com", "youtu.be", "bible", "ecclesiastes",
         "linuxfoundation", "digital-trust", "azure.microsoft.com",
+        # Fix E: art / creative-title sites never answer factual
+        # "what is X" queries. Their page TITLE is an artwork
+        # name (e.g. "Square Root of Banana by thebrainattic"),
+        # not a definition — surfacing it as the answer is a
+        # source-monitoring failure (M7). Block at the domain
+        # level so these titles can't masquerade as answers.
+        "deviantart", "artstation", "fineartamerica", "fineart",
+        "pixiv", "artfol.io", "behance", "flickr", "tumblr",
+        "saatchiart", "artsy", "minted", "society6", "redbubble",
     )
 
     # Regex of sentence *shapes* that are navigation / meta / boilerplate, NOT
@@ -3090,12 +3155,20 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
     # deliberately narrow so a real dictionary definition ("The meaning of TRUST
     # is assured reliance…") is NOT rejected.
     _SNIPPET_REJECT_SHAPES = (
-        r"^(what does .* mean in text|"
-        r"definition of .* is where open source|"
-        r"get the latest|sign in to your|applies to|"
-        r"sun synonyms, sun pronunciation|"
-        r"how to use .* in a sentence|"
-        r"crossword solver)",
+        r"^(what does .* mean in text)",
+        r"definition of .* is where open source",
+        r"get the latest",
+        r"sign in to your",
+        r"applies to",
+        r"sun synonyms, sun pronunciation",
+        r"how to use .* in a sentence",
+        r"crossword solver",
+        r"(artwork|painting|drawing|sculpture) (of|by) ",
+        r".* by @?[\w]+$",
+        r".* \| deviantart",
+        r"fan ?art",
+        r"print \| .* art",
+        r"\b(oc|digital|concept) art\b",
     )
 
     @staticmethod
@@ -3694,6 +3767,12 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             except Exception:
                 _ctx_vec = None
         candidates = []
+        # Fix A: compute the "what is X" factual-shape flag once,
+        # used by both the per-result looser-relevance fallback and
+        # the post-loop fallback scan.
+        _is_factual_what = bool(re.match(
+            r"^(what|which) (is|are|was|were|means?|does) ",
+            query.lower().strip()))
         for r in results[:6]:
             content = r.get("content", "") or ""
             title = r.get("title", "") or ""
@@ -3736,13 +3815,90 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             # "…under the sun" Bible verses). tolerant of verb inflection.
             subj_tokens = subj.split()
             wordset = set(low.split())
+            # ── Fix A: semantic-relevance fallback (fail-closed honesty
+            # preserved) ──────────────────────────────────────────────
+            # The strict gate below requires a literal subject-token match in
+            # the snippet BODY. That is a brittle syntactic proxy for semantic
+            # relevance (Frontiers 2024: humans judge coherence semantically,
+            # via priming, not string-match). For "what is trust" the gateway
+            # can return an encyclopedic result whose TITLE holds the word but
+            # whose body opens with a definition of *that* sense (e.g. a
+            # "Trust (noun)" page) — or a navigational sense ("Trust Bank")
+            # that is correctly rejected. We therefore admit a result via a
+            # LOOSER signal ONLY when (a) the query is a single-subject
+            # factual "what is X", (b) the result is from a preferred
+            # encyclopedic source OR its title/url literally contains the
+            # subject, and (c) it is NOT a navigational/brand sense
+            # (title start differs from the bare subject). This is a ranker
+            # boost, not a pass: the strict gate stays primary, so a clean
+            # body-match answer still wins; the fallback only rescues a
+            # reachable definition that the strict gate was throwing away.
+            _title = (r.get("title", "") or "").lower()
+            _title_raw = (r.get("title", "") or "")
+            _url = (r.get("url", "") or "").lower()
+            _is_factual_what = bool(re.match(
+                r"^(what|which) (is|are|was|were|means?|does) ",
+                query.lower().strip()))
+            _looser_ok = False
+            if subj and len(subj_tokens) == 1 and _is_factual_what:
+                _title_has = (subj in _title)
+                _url_has = (subj in _url)
+                _pref_src = any(
+                    s in _url for s in self._PREFERRED_SNIPPET_SOURCES)
+                if _pref_src or _title_has or _url_has:
+                    # Decide whether this is the encyclopedic SENSE of the
+                    # subject (admit via fallback) or a navigational/brand
+                    # sense (reject). Encyclopaedia titles put the subject
+                    # FIRST, then a SEPARATOR or a lower-case gloss:
+                    #   "trust - wikipedia", "trust | definition…",
+                    #   "trust (noun) - oxford", "gravity - wikipedia".
+                    # A navigational/brand sense does NOT look like that:
+                    #   - subject leads but next token is a capitalized BRAND
+                    #     noun ("trust Bank…", "digital Trust Foundation"
+                    #     where the capitalized continuation is the brand), or
+                    #   - subject appears mid-title after a different leading
+                    #     capitalized/section word ("about | trust Bank").
+                    # Rule: NAVIGATIONAL iff
+                    #   (subject is the leading token AND the next token is
+                    #    capitalized AND not a known separator) OR
+                    #   (subject is NOT the leading token AND the leading
+                    #    token is capitalized / not a plain section word).
+                    _title_toks = _title.split()
+                    _title_raw_toks = _title_raw.split()
+                    _lead = _title_toks[0] if _title_toks else ""
+                    _sep = {"-", "|", "–", "—", ":",
+                             "definition", "meaning", "(noun)",
+                             "(verb)", "wikipedia", "britannica",
+                             "dictionary", "oxford", "cambridge",
+                             "about", "the"}
+                    _nav_sense = False
+                    if _lead == subj:
+                        # subject leads; the token AFTER it (in raw case)
+                        # must be a separator/lower-case gloss, not a
+                        # capitalized brand noun ("Bank", "Foundation").
+                        if len(_title_raw_toks) >= 2:
+                            _nxt = _title_raw_toks[1]
+                            if _nxt[:1].isupper() and _nxt.lower() not in _sep:
+                                _nav_sense = True
+                    else:
+                        # subject not leading; navigational unless the url
+                        # is a preferred encyclopedic source (which can
+                        # carry a section-style title like "About | X").
+                        if not _pref_src:
+                            _nav_sense = True
+                    if _nav_sense:
+                        # Brand/navigational sense of the subject: never
+                        # admit via the fallback, even if the body repeats
+                        # the word.
+                        continue
+                    _looser_ok = True
             if len(subj_tokens) >= 2:
                 _phrase_ok = subj in low
                 _all_tokens = all(self._tok_match(t, wordset) for t in subj_tokens)
-                if not (_phrase_ok or _all_tokens):
+                if not (_phrase_ok or _all_tokens or _looser_ok):
                     continue
             elif subj:
-                if not self._tok_match(subj, wordset):
+                if not (self._tok_match(subj, wordset) or _looser_ok):
                     continue
             # Reject obvious navigation/boilerplate
             if any(n in low for n in self._SNIPPET_NOISE):
@@ -3879,6 +4035,23 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             # snippet and return its first real sentence. Skip HTML/CSS/photo
             # junk and headline-only results.
             for r0 in results[:6]:
+                # Fix A: skip navigational/brand titles in the fallback too
+                # (same sense check as the primary gate above), so a
+                # "Trust Bank" page can't leak through as the answer
+                # just because its body repeats the subject word.
+                _fb_title = (r0.get("title", "") or "")
+                _fb_toks = _fb_title.split()
+                _fb_lead = _fb_toks[0] if _fb_toks else ""
+                _fb_nav = False
+                if subj and len(subj.split()) == 1 and _is_factual_what:
+                    if _fb_lead == subj and len(_fb_toks) >= 2:
+                        _fb_nxt = _fb_toks[1]
+                        if _fb_nxt[:1].isupper() and _fb_nxt.lower() not in _sep:
+                            _fb_nav = True
+                    elif _fb_lead and _fb_lead[:1].isupper() and subj not in _fb_toks[:1]:
+                        _fb_nav = True
+                if _fb_nav:
+                    continue
                 content = r0.get("content", "") or ""
                 raw_low = content.lower()
                 if ("<img" in raw_low or "getty" in raw_low or raw_low.count("<") > 3
@@ -6482,18 +6655,58 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
 
         Returns empty string if relationship is too new or no prior topic exists.
         """
+        # Fix F: reality / source monitoring (Johnson Source Monitoring
+        # Framework). The greeting claims a past conversation ("Last time
+        # we discussed X"). That is a MEMORY CLAIM and must be
+        # grounded: only emit it confidently when a genuinely stored
+        # user turn actually contains the topic (verified against the
+        # turn ring buffer at engine.py:241). A loose topic-token
+        # match in _topic_list can produce a FALSE recall ("Last
+        # time we discussed Stars fit" when no such turn happened) —
+        # which destroys trust faster than saying nothing. When the
+        # match is weak/associative-only, downgrade to a HEDGED
+        # form (humans do exactly this when source-memory is
+        # uncertain) instead of a confident false claim.
         um = self.user_model
         if um.relationship_depth < 0.5:
             return ""
         if not um.last_topic:
             return ""
+        past = um.last_topic.capitalize()
+        # Verify against actual stored user turns (the source of truth).
+        # EXCLUDE the most recent turn: last_topic is set from the CURRENT
+        # turn's subject, so the current turn is always in the buffer and
+        # would self-verify a false recall ("Last time we discussed Stars
+        # fit" on the turn that just mentioned stars). A confident recall
+        # requires the topic to appear in a PRIOR, distinct turn.
+        _topic_lc = um.last_topic.lower()
+        _verified = False
+        _weak = False
+        _prior_turns = self._recent_user_turns[:-1] if self._recent_user_turns else []
+        for _t in _prior_turns:
+            _tl = _t.lower()
+            # confident only if the topic appears as a real token, not a
+            # bare substring (so "sun" doesn't match "under the sun").
+            if _topic_lc.split() and any(
+                    self._tok_match(w, set(_tl.split()))
+                    for w in _topic_lc.split()):
+                _verified = True
+                break
+            if _topic_lc in _tl:
+                _weak = True
         # Only greet every ~10 interactions to avoid repetition
         if um.interaction_count % 10 != 0 and um.interaction_count > 1:
             return ""
-        past = um.last_topic.capitalize()
-        if um.relationship_depth > 0.8:
+        if um.relationship_depth > 0.8 and _verified:
             return f"Great to see you! I remember we were talking about {past}. "
-        return f"Welcome back! Last time we discussed {past}. "
+        if _verified:
+            return f"Welcome back! Last time we discussed {past}. "
+        if _weak:
+            # Hedged: source memory uncertain, so flag the uncertainty
+            # rather than assert a false history.
+            return f"I think you might have mentioned {past} earlier — was that right? "
+        # No genuine stored episode: never synthesize a past topic.
+        return ""
 
 
 
