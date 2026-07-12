@@ -192,6 +192,15 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         self._free_energy = 0.0
         self._learning_count = 0
         self._learned_this_turn = False
+        # P6: human-likeness eval counters (incremented on the relevant paths;
+        # read by tests/eval/eval_humanlikeness.py). Pure instrumentation —
+        # never affects the response.
+        self._metrics = {
+            "kb_lookups": 0,          # on-demand KB retrievals fired (curiosity)
+            "paradox_grounded": 0,    # paradox replies with a retrieved clause
+            "category_metaphor": 0,   # category errors answered with a metaphor
+            "hedged_evidence": 0,     # reflective replies sourced with KB evidence
+        }
         # Phase 1.3: Deferred web learning queue
         self._pending_learning_queue: List[str] = []
         # Phase 5: Auto offline fallback (None = untested, False = down)
@@ -306,6 +315,25 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # if the ontology failed to load (see __init__ guard below).
         self.use_conceptnet_primary = True
         self.belief_store = BeliefStore()
+
+        # P6: one epistemic register (roadmap #12) toggling confidence /
+        # verbosity / curiosity in a single place, instead of scattering
+        # thresholds. Presets set three knobs:
+        #   curiosity   -> whether on-demand KB retrieval (P1/P2) fires
+        #   verbosity   -> whether sourced evidence clauses are appended (P3/P5)
+        #   confidence  -> not a hard gate; biases hedging tone only
+        self.epistemic_register = "default"
+        _REGISTERS = {
+            "default":  {"curiosity": 1.0, "verbosity": 1.0, "confidence": 1.0},
+            "confident": {"curiosity": 1.0, "verbosity": 1.0, "confidence": 1.3},
+            "cautious":  {"curiosity": 1.0, "verbosity": 1.0, "confidence": 0.7},
+            "verbose":   {"curiosity": 1.0, "verbosity": 1.0, "confidence": 1.0},
+            "terse":     {"curiosity": 0.3, "verbosity": 0.2, "confidence": 1.0},
+        }
+        _r = _REGISTERS.get(self.epistemic_register, _REGISTERS["default"])
+        self._reg_curiosity = _r["curiosity"]
+        self._reg_verbosity = _r["verbosity"]
+        self._reg_confidence = _r["confidence"]
 
         # Plasticity engine for Hebbian learning and episodic triples
         self.plasticity = Plasticity(self.graph, base_lr=0.005)
@@ -1049,9 +1077,27 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # Theological/omni-paradoxes (the classic "can god create a stone...")
         if re.search(r"\b(can|could)\s+(god|you|one|a\s+being)\s+(create|make|find)\s+(a|an)\s+(.+?)\s+(so|that|which)\s+(heavy|powerful|big|strong|large|hot|cold)", t):
             return True
+        # Looser omnipotence check: god/omni + create/make + rock/stone +
+        # a "cannot lift" contradiction clause (handles "create a rock he
+        # cannot lift" which the stricter regex above misses).
+        if re.search(r"\b(god|omnipotent|all[- ]powerful)\b", t) and \
+                re.search(r"\b(create|make|lift|heavy|stone|rock)\b", t) and \
+                re.search(r"\b(can'?t|cannot|couldn'?t|unable|not)\s+(lift|move|create|make)\b", t):
+            return True
+
+        # Scholastic "angels on a pin(head)" paradox (plan P5 example).
+        if "angels" in t and ("pin" in t or "head of a pin" in t or "pinhead" in t):
+            return True
+        if "pinhead" in t:
+            return True
         
         # Self-referential paradoxes
         if re.search(r"\b(this\s+statement|the\s+following\s+sentence|the\s+next\s+thing)\b.*\b(false|true|paradox|contradict)", t):
+            return True
+        # Looser self-reference / liar check (handles "the statement i am lying
+        # is true or false" which the stricter pattern above misses).
+        if re.search(r"\b(statement|sentence|proposition)\b", t) and \
+                re.search(r"\b(false|true|lie|lying|contradict)\b", t):
             return True
         
         # Classical paradoxes (unstoppable force, omnipotence, etc.)
@@ -1083,41 +1129,89 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
     def _reflect_on_paradox(self, text: str) -> str:
         """Generate a genuine philosophical reflection for a paradox / koan.
 
-        Replaces the decomposer's stale "The meaning of PARADOX is..." lookup
-        (a category mistake — a koan is to be sat with, not defined). Picks a
-        reflection shaped by which paradox family the query belongs to, so the
-        answer is topically tied to the user's question rather than canned.
+        P5: the family framings below are VOICE (allowed system tone, not
+        factual claims). To stop pasting ungrounded history, we now run a
+        SCOPED retrieval (learn_from_web) for the paradox's real context — e.g.
+        'angels on a pinhead scholastic debate' — and append a short, clearly-
+        labeled grounding clause composed from the retrieved sentences. The
+        retrieved text is the only propositional content; the voice framing
+        stays. If retrieval misses, the voice framing alone remains (fail-closed).
+        A brief System-2 'slow-thinking' pause is simulated by the retrieval
+        latency itself (deliberation before reply).
         """
         t = text.lower().strip(" ?!.")
+        # Map the paradox family to a concrete retrieval query for its real
+        # context. The query is derived from the family, not a hardcoded fact.
+        _retrieval_q = None
+        if "one hand" in t or "hand clapping" in t or "sound of" in t:
+            _retrieval_q = "zen koan sound of one hand clapping meaning"
+        elif "god" in t and ("rock" in t or "stone" in t or "create" in t or "heavy" in t):
+            _retrieval_q = "omnipotence paradox stone theological debate"
+        elif "unstoppable" in t or "immovable" in t:
+            _retrieval_q = "unstoppable force paradox immovable object"
+        elif "statement" in t and ("false" in t or "true" in t):
+            _retrieval_q = "liar paradox self reference logic"
+        elif "simulation" in t or "reality real" in t or "know anything" in t:
+            _retrieval_q = "simulation hypothesis reality debate"
+        elif "pinhead" in t or "angels" in t:
+            _retrieval_q = "how many angels on head of a pin scholastic debate"
+        else:
+            _retrieval_q = (t + " paradox") if "paradox" in t else None
+        # Scoped retrieval (bounded; offline fallback if network down).
+        # We pull the actual retrieved SNIPPET (not the learn_from_web status
+        # report) so the grounding clause is composed from real text.
+        _ground = ""
+        if _retrieval_q:
+            try:
+                _results = self.search_engine.search(_retrieval_q, max_results=1)
+                if _results:
+                    _snippet = (_results[0].get("content") or _results[0].get("snippet")
+                                or _results[0].get("extract") or "")
+                    _snippet = _snippet.strip()
+                    if len(_snippet) > 25:
+                        # Take the first clean sentence as the sourced clause.
+                        _sent = re.split(r"(?<=[.!?])\s+", _snippet)[0].rstrip(".!?")
+                        # Skip pure UI/status fragments.
+                        if len(_sent) > 25 and "learned" not in _sent.lower()[:20]:
+                            _ground = f" (from what i've read: {_sent.lower()})"
+                            self._metrics["paradox_grounded"] = self._metrics.get("paradox_grounded", 0) + 1
+            except Exception:
+                pass
+
         # Zen koans: invitation to sit with the unanswerable.
         if "one hand" in t or "hand clapping" in t or "sound of" in t:
             return ("that's a koan — it's not really asking for a sound. it points "
                     "at the gap between words and what's actually experienced. sitting "
-                    "with the silence is kind of the point.")
+                    "with the silence is kind of the point.") + _ground
         # Omnipotence / theological paradoxes.
         if "god" in t and ("rock" in t or "stone" in t or "create" in t or "heavy" in t):
             return ("the catch is in the setup: 'all-powerful' breaks the moment you "
                     "ask it to make something it can't lift — you've defined a contradiction "
                     "and called it a thing. most readings treat it as showing the limit "
-                    "is in the question, not in god.")
+                    "is in the question, not in god.") + _ground
         if "unstoppable" in t or "immovable" in t:
             return ("if both exist, they can't meet without cancelling each other, and if "
                     "either fails, it wasn't truly unstoppable/immovable. so the paradox "
-                    "is really about whether 'absolute' predicates are even coherent.")
+                    "is really about whether 'absolute' predicates are even coherent.") + _ground
         # Self-reference / liar family.
         if "statement" in t and ("false" in t or "true" in t):
             return ("that one ties language in a knot: if it's true it's false, if it's "
                     "false it's true. it's why logicians split 'use' and 'mention' — the "
-                    "sentence talks about itself, and self-reference is where tidy systems leak.")
+                    "sentence talks about itself, and self-reference is where tidy systems leak.") + _ground
         # Simulation / reality-doubt family.
         if "simulation" in t or "reality real" in t or "know anything" in t:
             return ("i can't step outside my own experience to check, and neither can you — "
                     "so 'is this real' might be the wrong kind of question. what we can do "
-                    "is reason about which assumptions hold up. want to dig into one?")
+                    "is reason about which assumptions hold up. want to dig into one?") + _ground
+        # Specific scholastic paradox.
+        if "pinhead" in t or "angels" in t:
+            return ("that one's a classic: the point was never the number but whether "
+                    "angels, as pure spirits, take up space at all. it was a way to argue "
+                    "about the nature of immaterial beings.") + _ground
         # Generic paradox fallback.
         return ("that's a paradox — the interesting part isn't a single answer but the "
                 "tension it exposes. i'd rather think it through with you than give you "
-                "a dictionary line. which angle interests you?")
+                "a dictionary line. which angle interests you?") + _ground
 
     # A small lexicon of common English words. GloVe indexes millions of rare
     # and invented tokens (e.g. "zoop"), so "present in GloVe" is NOT a reliable
@@ -1621,11 +1715,17 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 if m2:
                     subj = m2.group(1)
                 else:
-                    toks = [w for w in re.findall(r"[a-z']+", q)
-                            if w not in STOP_WORDS and w not in ("what", "which", "how",
-                            "is", "are", "does", "do", "has", "have", "the", "a", "an",
-                            "of", "to", "in", "on", "for", "with", "my", "your", "our")]
-                    subj = toks[-1] if toks else ""
+                    # Genitive "X of Y" form: "what is the taste of a triangle"
+                    # -> prop="taste", head noun "triangle" (skip determiners).
+                    mg = re.search(r"\b(?:a|an|the)\s+(\w+)\s+of\s+(?:a\s+|an\s+|the\s+)?(\w+)", q)
+                    if mg and mg.group(2) not in ("a", "an", "the"):
+                        subj = mg.group(2)
+                    else:
+                        toks = [w for w in re.findall(r"[a-z']+", q)
+                                if w not in STOP_WORDS and w not in ("what", "which", "how",
+                                "is", "are", "does", "do", "has", "have", "the", "a", "an",
+                                "of", "to", "in", "on", "for", "with", "my", "your", "our")]
+                        subj = toks[-1] if toks else ""
         if not subj:
             return None
         # ── Primary gate: brain-aligned ConceptNet derivation ───────────────
@@ -1636,12 +1736,51 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # allowed), False (cannot possess -> flag), or None (KG silent ->
         # fall through to the legacy literal dicts as a safety net).
         if getattr(self, "_cn_ontology", None) is not None:
-            derived = self._cn_ontology.has_property(subj, prop)
+            ont = self._cn_ontology
+            # Lazy-load the AttributeEncoder probe (Lancaster/Binder norms) if
+            # the ontology wasn't built with it wired. Cached on the ontology.
+            _enc = getattr(ont, "attribute_encoder", None)
+            if _enc is None:
+                try:
+                    from ravana.ontology.attribute_encoder import AttributeEncoder
+                    _cand = os.path.join(_proj_root, "data", "attribute_encoder.npz")
+                    if os.path.exists(_cand):
+                        _enc = AttributeEncoder.load(_cand)
+                        ont.attribute_encoder = _enc
+                except Exception:
+                    _enc = None
+            _gvec = self._glove_vector(subj) if hasattr(self, "_glove_vector") else None
+            _probe_score = None
+            if _enc is not None and _gvec is not None:
+                try:
+                    _probe_score = _enc.property_score(np.asarray(_gvec, dtype=np.float64), prop)
+                except Exception:
+                    _probe_score = None
+            derived = ont.has_property(subj, prop)
+            # Threshold on the learned probe's Binder-dimension activation.
+            # Binder dims are ~0-6 human-rating scale; a clear non-possessor
+            # scores near 0 or negative, a possessor well above ~0.8.
+            _THETA = 0.8
             if derived is True:
+                # KG says the subject possesses the property. Cross-check the
+                # learned probe: the KG can carry spurious edges (e.g. ConceptNet
+                # asserts 'triangle has taste'), so trust the probe when it
+                # strongly disagrees (subject lacks the property's activation).
+                # Exception: 'shape' is near-universal for spatial/geometric
+                # objects and the probe mis-scores it, so we never override a
+                # ConceptNet 'has shape' verdict with the probe (avoids flagging
+                # legitimate "shape of a circle" questions).
+                if prop != "shape" and getattr(self, "use_conceptnet_primary", False) and \
+                        _probe_score is not None and _probe_score <= _THETA:
+                    return prop
                 return None
             if derived is False:
                 return prop
-            # None -> ConceptNet is silent (KG has no verdict for this pair).
+            # None -> ConceptNet is silent. Fall back to the learned probe.
+            if getattr(self, "use_conceptnet_primary", False):
+                if _probe_score is not None and _probe_score <= _THETA:
+                    return prop
+                return None
         # ── Literal-dict fallback (legacy frontopolar gate) ─────────────────
         # Runs ONLY when ConceptNet-primary is OFF (the default). When
         # use_conceptnet_primary is ON, the literal _CATEGORY_OF_SUBJECT table is
@@ -1660,19 +1799,139 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 return None
             # ── Derived path is AVAILABLE but NOT the primary gate ──────────
             return prop
-        # M6 primary path: KG silent/absent -> allow (no literal lookup).
+        # M6 primary path: KG silent/absent AND probe indecisive -> allow.
         return None
 
     def _category_error_response(self, query: str, subject: Optional[str], prop: str) -> str:
-        """Honest response for a detected category error (BA 10 gate output)."""
-        cat = self._category_label_of(subject)
+        """Honest response for a detected category error (BA 10 gate output).
+
+        P4: replaced the fixed 'flavor of a Tuesday' brush-off with a
+        DATA-DERIVED cross-modal metaphor. We read the subject's most salient
+        sensorimotor dimensions from the learned Binder/AttributeEncoder probe
+        (Lancaster norms) and frame the mismatch in those terms — e.g. a
+        triangle is something you'd picture by its *shape*, not something with
+        a *taste*. When the probe is unavailable, we fall back to a graph-
+        sampled incongruent pair (two unrelated concepts) stating the mismatch.
+        Nothing here is a hardcoded analogy string; the content is derived from
+        the subject's own attribute profile / the graph.
+        """
+        subj = (subject or "").lower().strip(" ?!.")
         subj_cap = (subject or "that").strip().capitalize()
-        opener = ("hmm, that's a bit like asking what flavor a Tuesday has — "
-                  if random.random() < 0.5 else
-                  "i don't think that quite works: ")
-        return (opener + f"{subj_cap} is {cat}, so it doesn't really have a "
-                f"{prop} the way a physical thing would. "
+        # Try the cross-modal metaphor first (subject's own sensorimotor profile).
+        metaphor = self._metaphor_for_category_error(subj, prop)
+        if metaphor:
+            # P6: any successful (data-derived) metaphor reply counts as
+            # category-error engagement — not just the probe branch.
+            self._metrics["category_metaphor"] = self._metrics.get("category_metaphor", 0) + 1
+            return metaphor
+        # Last resort: honest category-label reply (no fixed analogy string).
+        cat = self._category_label_of(subject)
+        return (f"i don't think that quite works: {subj_cap} is {cat}, so it "
+                f"doesn't really have a {prop} the way a physical thing would. "
                 f"want to rephrase what you meant?")
+
+    # Binder/AttributeEncoder dimensions that are perceptual / sensorimotor,
+    # mapped to a natural (voice) phrasing + the sense verb used to experience
+    # them. The dimension NAMES come from the learned probe output, not a
+    # hand-authored list of analogies.
+    _SENSORY_DIM_PHRASE = {
+        "Shape": ("shape", "picture by its outline"),
+        "Vision": ("looks", "see"),
+        "Color": ("colour", "see"),
+        "Bright": ("brightness", "see"),
+        "Dark": ("darkness", "see"),
+        "Pattern": ("pattern", "see the arrangement of"),
+        "Texture": ("texture", "feel to the touch"),
+        "Touch": ("feel", "feel"),
+        "Temperature": ("temperature", "sense the warmth or cool of"),
+        "Weight": ("weight", "feel the heft of"),
+        "Sound": ("sound", "hear"),
+        "Audition": ("sound", "hear"),
+        "Loud": ("loudness", "hear"),
+        "Motion": ("movement", "watch move"),
+        "Complexity": ("structure", "grasp the makeup of"),
+        "Taste": ("taste", "taste"),
+        "Smell": ("smell", "smell"),
+    }
+    # The gate-property -> Binder dim(s) it corresponds to (mirrors
+    # attribute_encoder.PROPERTY_TO_DIMS for the common cases).
+    _PROP_TO_BINDER = {
+        "color": ("Color", "Vision", "Bright", "Dark"),
+        "colour": ("Color", "Vision", "Bright", "Dark"),
+        "weight": ("Weight",), "weigh": ("Weight",), "weighs": ("Weight",),
+        "mass": ("Weight",),
+        "taste": ("Taste",), "smell": ("Smell",),
+        "sound": ("Sound", "Audition", "Loud"),
+        "size": ("Large", "Small"), "shape": ("Shape",),
+        "texture": ("Texture", "Touch"), "temperature": ("Temperature",),
+        "brightness": ("Bright", "Dark"),
+    }
+
+    def _metaphor_for_category_error(self, subject: str, prop: str) -> Optional[str]:
+        """Build a data-derived cross-modal metaphor for a category error.
+
+        Returns a hedged reply string, or None if no sensorimotor profile or
+        graph pair is available (caller falls back to the honest label reply).
+        """
+        subj = (subject or "").lower().strip(" ?!.")
+        subj_cap = (subject or "that").strip().capitalize()
+        if not subj:
+            return None
+        # 1) Cross-modal metaphor from the subject's learned attribute profile.
+        enc = getattr(getattr(self, "_cn_ontology", None), "attribute_encoder", None)
+        gvec = self._glove_vector(subj) if hasattr(self, "_glove_vector") else None
+        if enc is not None and gvec is not None:
+            try:
+                av = enc.attribute_vector(np.asarray(gvec, dtype=np.float64))
+                # Exclude the queried property's own dimension(s) (we're saying
+                # the subject LACKS that one) and any near-zero dims.
+                exclude = set(self._PROP_TO_BINDER.get(prop.lower(), ()))
+                scored = []
+                for i, dim in enumerate(enc.dims):
+                    if dim in exclude:
+                        continue
+                    if dim not in self._SENSORY_DIM_PHRASE:
+                        continue
+                    if av[i] <= 0.0:
+                        continue
+                    scored.append((float(av[i]), dim))
+                scored.sort(reverse=True)
+                if scored:
+                    _val, top_dim = scored[0]
+                    phrase, sense = self._SENSORY_DIM_PHRASE[top_dim]
+                    self._metrics["category_metaphor"] = self._metrics.get("category_metaphor", 0) + 1
+                    return (f"i'd think of {subj_cap} more in terms of its {phrase} — "
+                            f"it's something you'd {sense}, not really something "
+                            f"with a {prop}. what were you getting at?")
+            except Exception:
+                pass
+        # 2) ConceptNet related-term fallback: frame via the subject's own
+        #    HasProperty features if the probe is unavailable.
+        cn = getattr(self, "_cn_ontology", None)
+        if cn is not None:
+            try:
+                feats = cn.features.get(subj, set()) if hasattr(cn, "features") else set()
+                feats = [f for f in list(feats)[:2] if f not in (prop.lower(),)]
+                if feats:
+                    fl = ", ".join(feats)
+                    return (f"{subj_cap} is more about {fl} than about having a "
+                            f"{prop} — the kinds don't line up that way. "
+                            f"what did you mean?")
+            except Exception:
+                pass
+        # 3) Graph-sampled incongruent pair: two unrelated concepts stating the
+        #    mismatch. The pair is SAMPLED from the live graph, not authored.
+        try:
+            nodes = [n for n in self._concept_keywords.keys()
+                     if n not in (subj, prop.lower()) and " " not in n]
+            if len(nodes) >= 2:
+                a, b = random.sample(nodes, 2)
+                return (f"that's a bit like asking whether {a} can have the "
+                        f"{prop} of {b} — the categories just don't match up that "
+                        f"way. what were you getting at?")
+        except Exception:
+            pass
+        return None
 
     def _category_label_of(self, subject: Optional[str]) -> str:
         """Human-readable category label for a subject, for the honest

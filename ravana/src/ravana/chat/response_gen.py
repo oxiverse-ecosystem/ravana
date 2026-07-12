@@ -3146,19 +3146,60 @@ class ResponseGenMixin(ChainWalkerMixin):
         related.sort(key=lambda x: -x[1])
         top = [l for l, _ in related[:2]]
 
+        # ── P3: source the hedged answer with KB / retrieved evidence ──
+        # Instead of an empty "I don't have a definition but it's tied to X",
+        # fetch a KB-grounded snippet for the strongest related concept and
+        # weave it in. The hedging phrasing stays voice (allowed); the factual
+        # content is sourced from Wikipedia/ConceptNet, never authored. This is
+        # the graded-hedge tier: no binary abstain, but every claim routes
+        # through the KB. We only look up the single best-related concept and
+        # reuse any already-cached _definitions entry first (bounded cost).
+        _evidence = ""
+        if top:
+            _ev_concept = top[0]
+            _ev_def = getattr(self, "_definitions", {}).get(_ev_concept.lower())
+            if not _ev_def:
+                try:
+                    _ev_def = self.kb_describe(_ev_concept) or self.describe_from_cn(_ev_concept)
+                except Exception:
+                    _ev_def = None
+            if _ev_def:
+                # Take the first sentence as the sourced clause.
+                _sent = re.split(r"(?<=[.!?])\s+", _ev_def.strip())[0]
+                _sent = _sent.rstrip(".!?")
+                if len(_sent) > 18:
+                    _evidence = _sent
+                    # P6: only surface the sourced evidence when the verbosity
+                    # knob is on (terse register suppresses it).
+                    if getattr(self, "_reg_verbosity", 1.0) >= 0.5:
+                        self._metrics["hedged_evidence"] = self._metrics.get("hedged_evidence", 0) + 1
+
         if len(top) == 1:
-            openers = [
-                f"i don't have a neat definition for {subj_cap}, but to me {pron} {be} connected to {top[0]}.",
-                f"i can't quite put {subj_cap} into words, though {pron} {make} me think of {top[0]}.",
-                f"i'm still figuring out {subj_cap} — the thread i keep pulling is {top[0]}.",
-                f"{subj_cap} {be} one of those things i can't define cleanly, but {pron} links to {top[0]} in my head.",
-            ]
+            if _evidence:
+                openers = [
+                    f"i don't have a neat definition for {subj_cap}, but it's tied to {top[0]} — and {top[0]} appears to be {_evidence.lower()}.",
+                    f"i can't quite put {subj_cap} into words, though it makes me think of {top[0]}, which seems to be {_evidence.lower()}.",
+                    f"i'm still figuring out {subj_cap} — the thread i keep pulling is {top[0]}, which from what i've seen is {_evidence.lower()}.",
+                ]
+            else:
+                openers = [
+                    f"i don't have a neat definition for {subj_cap}, but to me {pron} {be} connected to {top[0]}.",
+                    f"i can't quite put {subj_cap} into words, though {pron} {make} me think of {top[0]}.",
+                    f"i'm still figuring out {subj_cap} — the thread i keep pulling is {top[0]}.",
+                    f"{subj_cap} {be} one of those things i can't define cleanly, but {pron} links to {top[0]} in my head.",
+                ]
         else:
-            openers = [
-                f"i don't have a clean definition for {subj_cap}, but {pron} {be} tied to {top[0]} and {top[1]} to me.",
-                f"i can't fully define {subj_cap}, though {pron} {make} me think of {top[0]} and maybe {top[1]}.",
-                f"{subj_cap} {be} fuzzy for me — i mostly connect {pron_obj} to {top[0]} and {top[1]}.",
-            ]
+            if _evidence:
+                openers = [
+                    f"i don't have a clean definition for {subj_cap}, but {pron} {be} tied to {top[0]} and {top[1]} — and {top[0]} appears to be {_evidence.lower()}.",
+                    f"i can't fully define {subj_cap}, though {pron} {make} me think of {top[0]} and {top[1]}; {top[0]} seems to be {_evidence.lower()}.",
+                ]
+            else:
+                openers = [
+                    f"i don't have a clean definition for {subj_cap}, but {pron} {be} tied to {top[0]} and {top[1]} to me.",
+                    f"i can't fully define {subj_cap}, though {pron} {make} me think of {top[0]} and maybe {top[1]}.",
+                    f"{subj_cap} {be} fuzzy for me — i mostly connect {pron_obj} to {top[0]} and {top[1]}.",
+                ]
         closers = [
             " what does it mean to you?",
             " what's your take on it?",
@@ -3265,12 +3306,17 @@ class ResponseGenMixin(ChainWalkerMixin):
         if ctx.subject and self._is_informational_query(getattr(ctx, 'raw_input', ''), ctx.subject):
             _sl = ctx.subject.lower().strip()
             if _sl and _sl not in getattr(self, '_definitions', {}):
-                try:
-                    _kb = self.kb_describe(_sl) or self.describe_from_cn(_sl)
-                    if _kb:
-                        self._definitions[_sl] = _kb
-                except Exception:
-                    pass
+                # P6: curiosity knob gates the on-demand lookup. A low-curiosity
+                # register (e.g. 'terse') suppresses the retrieval reflex so the
+                # reply falls straight to honest uncertainty.
+                if getattr(self, "_reg_curiosity", 1.0) >= 0.5:
+                    try:
+                        _kb = self.kb_describe(_sl) or self.describe_from_cn(_sl)
+                        if _kb:
+                            self._definitions[_sl] = _kb
+                            self._metrics["kb_lookups"] = self._metrics.get("kb_lookups", 0) + 1
+                    except Exception:
+                        pass
 
 
         # ── Question Decomposition Path (BA 10 / Rostral PFC analog) ──

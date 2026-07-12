@@ -134,6 +134,11 @@ def main():
                              "frontopolar feasibility gate (replaces the literal "
                              "category tables). Off by default; the literal dicts "
                              "remain the fallback when ConceptNet is silent.")
+    parser.add_argument("--register", type=str, default="default",
+                        choices=["default", "confident", "cautious", "verbose", "terse"],
+                        help="P6: epistemic register (roadmap #12) — one knob for "
+                             "confidence/verbosity/curiosity. 'terse' suppresses "
+                             "on-demand retrieval + sourced-evidence clauses.")
     parser.add_argument("--mode", type=str, default="stochastic", choices=["stochastic", "deterministic", "exploratory"],
                         help="Reasoning mode: stochastic (default), deterministic (reproducible), exploratory (high-temp)")
     parser.add_argument("--debug", action="store_true", help="Print debug tracebacks for exceptions")
@@ -196,6 +201,24 @@ def main():
     if args.conceptnet_primary:
         engine.use_conceptnet_primary = True
         print('  [Ontology] Track B Phase 6 ConceptNet-primary gate ENABLED')
+
+    # P6: epistemic register (roadmap #12) — single knob for confidence/
+    # verbosity/curiosity. Recompute the register multipliers after init.
+    if args.register != "default":
+        _REG = {
+            "default":  {"curiosity": 1.0, "verbosity": 1.0, "confidence": 1.0},
+            "confident": {"curiosity": 1.0, "verbosity": 1.0, "confidence": 1.3},
+            "cautious":  {"curiosity": 1.0, "verbosity": 1.0, "confidence": 0.7},
+            "verbose":   {"curiosity": 1.0, "verbosity": 1.0, "confidence": 1.0},
+            "terse":     {"curiosity": 0.3, "verbosity": 0.2, "confidence": 1.0},
+        }
+        if args.register in _REG:
+            engine.epistemic_register = args.register
+            _r = _REG[args.register]
+            engine._reg_curiosity = _r["curiosity"]
+            engine._reg_verbosity = _r["verbosity"]
+            engine._reg_confidence = _r["confidence"]
+            print(f"  [Register] Epistemic register set to '{args.register}'")
 
     # Solution #2: Apply reasoning mode
     if args.mode != "stochastic":
