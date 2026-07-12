@@ -33,23 +33,25 @@ class WebLearningMixin(ResponseGenMixin):
     """Mixin providing web search, background learning, and curiosity drive methods."""
 
     # Concepts that must NEVER be used as a definition store key. These are
-    # pronouns, generic nouns, and vague relationship words whose web matches
-    # are almost always unrelated fragments (e.g. "you" -> "the stronger
-    # player...", "life" -> "to achieve the goals you set in life"). Storing a
-    # definition under these keys makes every later mention of the word produce
-    # an abstract, off-topic answer.
+    # closed-class pronouns / interrogatives whose web matches are almost
+    # always unrelated fragments (e.g. "you" -> "the stronger player...").
+    # Storing a definition under these keys makes every later mention of the
+    # word produce an off-topic answer. Abstract attractor words
+    # ("life/love/time/...") were removed from this hand-list: they are now
+    # purged by the LEARNED definition-attraction score in
+    # _derive_definition_purge (Phase 1, Track B) rather than a frozen list.
+    # Definition-key blocklist, kept MINIMAL (closed-class pronouns only).
+    # These mirror _UNIVERSAL_PURGE in engine.py — you cannot learn a
+    # definition of "you"/"i". The previously-hardcoded abstract attractor
+    # words ("life/love/time/death/...") were a frozen proxy for "concepts
+    # that collect incoherent web fragments"; that signal is now LEARNED from
+    # the actual _definitions store via _derive_definition_purge's
+    # definition-attraction score (Phase 1, Track B). Dropping the hand-list
+    # means abstract concepts are purged by data, not by a maintained list.
     _DEFINITION_CONCEPT_BLOCKLIST = {
         "you", "i", "we", "they", "he", "she", "it", "me", "my", "your",
         "our", "their", "us", "them", "him", "her", "this", "that", "these",
         "those", "what", "who", "when", "where", "why", "how", "which",
-        "life", "lives", "death", "love", "hate", "god", "time", "thing",
-        "things", "world", "people", "person", "man", "woman", "day", "night",
-        "year", "water", "fire", "earth", "mind", "soul", "self", "meaning",
-        "purpose", "truth", "beauty", "knowledge", "wisdom", "freedom",
-        "happiness", "success", "power", "nature", "art", "music", "science",
-        "dream", "dreams", "hope", "fear", "war", "peace", "friend", "family",
-        "home", "money", "work", "play", "game", "book", "story", "idea",
-        "thought", "word", "language", "number", "system", "process",
     }
 
 

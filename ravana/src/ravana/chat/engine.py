@@ -75,6 +75,17 @@ _UNIVERSAL_PURGE = {
     "our", "their", "us", "them", "him", "her", "this", "that",
 }
 
+# Assertion/copula detector (vmPFC/mPFC reality-monitor analog): a definition
+# that does not assert anything (no copula / defining verb) is structurally
+# not a definition — it is a junk fragment. Used by the learned
+# definition-attraction score in _derive_definition_purge to decide whether a
+# concept is chronically collecting non-asserted web fragments (Phase 1,
+# Track B). Mirrors web_learning._DEFINITION_PREDICATE.
+_DEFINITION_ASSERTION = re.compile(
+    r"\b(is|are|was|were|be|been|being|means?|refers?\s+to|describes?|"
+    r"occurs?|happens?|defined\s+as|represents?|signifies?|constitutes?|"
+    r"denotes?)\b", re.IGNORECASE)
+
 
 from ravana.language.verb_lexicon import VerbLexicon
 from .models import FailedQuery, ChainHop, ChainTrace, CognitiveResponseContext, Correction, CorrectionType
@@ -1479,6 +1490,52 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 label = (getattr(node, "label", "") or "").lower().strip()
                 if label and " " not in label:
                     purge.add(label)
+        # ── Phase 1 (Track B): learned definition-attraction score ──
+        # A concept is a junk "definition attractor" when it has collected
+        # MANY landed definitions that are structurally NON-ASSERTED (no
+        # copula / defining verb) — i.e. the web keeps dumping incoherent
+        # fragments onto it. This is learned from the actual _definitions
+        # store, not a frozen hand-list of abstract words
+        # ("life/love/time/..."). We replace _DEFINITION_CONCEPT_BLOCKLIST's
+        # hardcoded abstract attractors with this data-driven signal (vmPFC/
+        # mPFC reality monitor: De Brigard 2025; a memory is tagged
+        # unreliable when it chronically fails to assert anything coherent).
+        # GloVe cosine coherence is a SECONDARY, optional signal (used only
+        # when an embedding is present and the assertion fraction is
+        # borderline) — it is intentionally NOT the primary gate because
+        # cosine similarity is too lenient to separate junk from sense.
+        _defs = getattr(self, "_definitions", None)
+        if isinstance(_defs, dict):
+            _coh_fn = getattr(self, "_definition_coherence_score", None)
+            for _c, _dl in _defs.items():
+                _c = (_c or "").lower().strip()
+                if not _c or " " in _c:
+                    continue
+                _items = _dl if isinstance(_dl, (list, tuple)) else [_dl]
+                _items = [str(_d) for _d in _items if _d]
+                if len(_items) < 3:
+                    continue  # need volume to call it an attractor
+                # Fraction of landed definitions that DO assert something.
+                _asserted = sum(
+                    1 for _d in _items if _DEFINITION_ASSERTION.search(_d))
+                _frac_asserted = _asserted / len(_items)
+                # Learned attractor: most landed definitions are non-asserted
+                # junk (the concept pulls in fragments, not definitions).
+                _junk_by_assertion = _frac_asserted < 0.34
+                # Optional secondary gate (only when GloVe present): all
+                # definitions nearly orthogonal to the subject.
+                _junk_by_coh = False
+                if callable(_coh_fn):
+                    _cohs = []
+                    for _d in _items:
+                        try:
+                            _cohs.append(_coh_fn(_c, _d))
+                        except Exception:
+                            pass
+                    if _cohs and sum(_cohs) / len(_cohs) < 0.05:
+                        _junk_by_coh = True
+                if _junk_by_assertion or _junk_by_coh:
+                    purge.add(_c)
         return purge
 
     def process_turn(self, user_input: str) -> str:

@@ -70,6 +70,57 @@ def test_walk_hierarchy_prefers_graph_over_seed():
     assert "cat" in path and "animal" in path
 
 
+def test_definition_attraction_purges_chronic_low_coherence():
+    """Phase 1 (Track B): a concept that has collected 3+ landed definitions
+    that are mostly NON-ASSERTED (no copula / defining verb) is purged by the
+    LEARNED attraction score, not by a hardcoded word list. The signal is
+    GloVe-independent (vmPFC/mPFC reality monitor: a memory that chronically
+    fails to assert anything is tagged unreliable)."""
+    eng = _bare_engine()
+    eng._definitions = {
+        # 3 non-asserted fragments => frac_asserted = 0 < 0.34 => purged.
+        "life": ["to achieve the goals you set in life",
+                 "the player who scores most wins",
+                 "a vague abstraction nobody pins down"],
+        # well-defined concept: only 2 defs => below the volume threshold,
+        # must NOT be purged (also they assert, so they'd pass anyway).
+        "quokka": ["a small macropod marsupial found in Western Australia",
+                   "the quokka is a herbivorous mammal"],
+    }
+    purge = eng._derive_definition_purge()
+    assert "life" in purge          # learned attractor (non-asserted junk)
+    assert "quokka" not in purge    # too few defs to call it an attractor
+
+
+def test_definition_attraction_keeps_asserted_concept():
+    """A concept whose landed definitions DO assert something is NOT purged
+    even at volume — only chronically non-asserted junk triggers the gate.
+    This is the key difference from the old hardcoded blocklist, which would
+    have blocked 'life' unconditionally regardless of definition quality."""
+    eng = _bare_engine()
+    # 3 asserted definitions => frac_asserted = 1.0 => NOT an attractor.
+    eng._definitions = {
+        "life": ["life is the condition that distinguishes organisms",
+                 "life is a characteristic of living systems",
+                 "life is studied by biology"],
+    }
+    purge = eng._derive_definition_purge()
+    assert "life" not in purge      # asserted definitions => kept
+
+
+def test_hardcoded_abstract_blocklist_removed():
+    """Phase 1 (Track B): the frozen abstract-word list ('life/love/time/...')
+    is gone from _DEFINITION_CONCEPT_BLOCKLIST; those concepts are now handled
+    by the learned attraction score. Only closed-class pronouns remain."""
+    from ravana.chat.web_learning import WebLearningMixin
+    blocked = WebLearningMixin._DEFINITION_CONCEPT_BLOCKLIST
+    for _w in ("life", "love", "time", "death", "god", "world", "meaning",
+               "happiness", "science", "freedom"):
+        assert _w not in blocked, f"hardcoded abstract word {_w!r} still blocked"
+    # Closed-class pronouns (mirror of _UNIVERSAL_PURGE) must remain.
+    assert "you" in blocked and "i" in blocked and "they" in blocked
+
+
 def test_walk_hierarchy_seed_fallback_when_no_graph_edges():
     g = ConceptGraph(dim=16)
     g.add_node(label="justice", vector=np.zeros(16, dtype=np.float32))
