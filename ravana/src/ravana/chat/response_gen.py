@@ -734,7 +734,7 @@ class ResponseGenMixin(ChainWalkerMixin):
         noun_assocs = []
         for label, weight in assocs:
             ll = label.lower()
-            if ll in self._GRAMMATICAL_CONCEPTS:
+            if self._is_function_word(ll):
                 continue
             if len(noun_assocs) < 8:
                 noun_assocs.append((label, weight))
@@ -1082,7 +1082,7 @@ class ResponseGenMixin(ChainWalkerMixin):
                         neighbor_node = self.graph.get_node(neighbor_id)
                         if neighbor_node and neighbor_node.label:
                             nl = neighbor_node.label.lower()
-                            if nl not in self._GRAMMATICAL_CONCEPTS and nl != subject_lower:
+                            if not self._is_function_word(nl) and nl != subject_lower:
                                 nearest = neighbor_node.label
                                 break
                 finally:
@@ -1305,7 +1305,7 @@ class ResponseGenMixin(ChainWalkerMixin):
                 noun_assocs = []
                 for label, weight in ctx.associated_concepts:
                     ll = label.lower()
-                    if ll in self._GRAMMATICAL_CONCEPTS:
+                    if self._is_function_word(ll):
                         continue
                     pos = getattr(self, '_concept_pos', {}).get(ll, 'noun')
                     if pos == 'noun':
@@ -3082,7 +3082,7 @@ class ResponseGenMixin(ChainWalkerMixin):
             # "sun rise is tied to rise" (Q4/Q11 residual phrasing bug).
             if ll in _subj_tokens and ll != sl:
                 return False
-            if ll in getattr(self, '_GRAMMATICAL_CONCEPTS', set()):
+            if self._is_function_word(ll):
                 return False
             return getattr(self, '_concept_pos', {}).get(ll, 'noun') == 'noun'
 

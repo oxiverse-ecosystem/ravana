@@ -289,6 +289,11 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # outcomes and uses it as the source-quality signal.
         self.use_source_trust = False
         self._source_trust: Dict[str, float] = {}
+        # Track B Phase 5 (M5): learned distributional POS (replaces the
+        # hardcoded _GRAMMATICAL_CONCEPTS function-word set). OFF by default —
+        # the hardcoded set stays the fallback via _is_function_word until the
+        # learned classifier is verified to cover it.
+        self.use_learned_pos = False
         self.belief_store = BeliefStore()
 
         # Plasticity engine for Hebbian learning and episodic triples
@@ -2090,7 +2095,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             ll = l.lower()
             if ll in _subj_tokens and ll != sl:
                 continue
-            if ll in self._GRAMMATICAL_CONCEPTS:
+            if self._is_function_word(ll):
                 continue
             pos = getattr(self, '_concept_pos', {}).get(ll, 'noun')
             if pos != 'noun':
@@ -2377,7 +2382,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             strong_assocs = 0
             for label, score in associations[:12]:
                 ll = label.lower()
-                if (ll not in self._GRAMMATICAL_CONCEPTS and 
+                if (not self._is_function_word(ll) and 
                     len(ll) >= 3 and 
                     ll != subject.lower() and
                     score > 0.2):
@@ -2467,7 +2472,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                             ll = l.lower()
                             if ll in _subj_tokens and ll != sl:
                                 continue
-                            if ll in self._GRAMMATICAL_CONCEPTS:
+                            if self._is_function_word(ll):
                                 continue
                             pos = getattr(self, '_concept_pos', {}).get(ll, 'noun')
                             if pos != 'noun':
@@ -2953,7 +2958,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 ll = label.lower()
                 if ll == (subject or "").lower():
                     continue
-                if ll in getattr(self, "_GRAMMATICAL_CONCEPTS", set()):
+                if self._is_function_word(ll):
                     continue
                 s = float(score) if score else 0.0
                 if s > best_score:
@@ -4280,6 +4285,42 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                        for s in self._PREFERRED_SNIPPET_SOURCES)
         return self._domain_trust(url) > self._source_trust_threshold
 
+    # ── Track B Phase 5 (M5): learned POS (replaces _GRAMMATICAL_CONCEPTS) ──
+    # The brain distinguishes CONTENT words (Go) from FUNCTION words (NoGo) via
+    # distributional POS, not a frozen 120-word list (Basal-ganglia Go/NoGo,
+    # learned from POS; the BG gate would consume ConceptPosDict). The engine
+    # already computes POS distributionally via self._concept_pos (classify_
+    # word_pos). We expose a single predicate so every call site routes through
+    # it; the hardcoded set stays the fallback until the learned classifier is
+    # verified to cover it.
+    _FUNCTION_POS_TAGS = frozenset({"prep", "pron", "det", "conj", "aux"})
+
+    def _is_function_word(self, word: str) -> bool:
+        """True if `word` is a function word (not a discourse/content target).
+
+        Flag OFF (default): uses the hardcoded _GRAMMATICAL_CONCEPTS set
+        (current behavior, no regression). Flag ON (use_learned_pos): uses the
+        learned distributional POS from self._concept_pos — a word is a function
+        word when its POS tag is a function category (prep/pron/det/conj/aux),
+        with the hardcoded set retained as a safety net for residual cases the
+        distributional tagger does not cover (e.g. some adverbs, numerals).
+        """
+        if not word:
+            return False
+        _w = word.lower()
+        if not self.use_learned_pos:
+            return _w in self._GRAMMATICAL_CONCEPTS
+        # Learned path: distributional POS primary, hardcoded set as net.
+        try:
+            _pos = (self._concept_pos.get(_w) or "").lower()
+        except Exception:
+            _pos = ""
+        if _pos in self._FUNCTION_POS_TAGS:
+            return True
+        # Safety net: words the distributional tagger leaves as 'noun'/'verb'/
+        # 'adj' but the curated set knows are function (adverbs, numerals).
+        return _w in getattr(self, "_GRAMMATICAL_CONCEPTS", set())
+
     def _snippet_quality(self, snippet: str, subject: str, term: str,
                          is_conditional: bool = False) -> float:
         """Heuristic quality signal for a candidate answer snippet.
@@ -5158,7 +5199,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         if ctx and hasattr(ctx, 'associated_concepts') and ctx.associated_concepts:
             for label, _ in ctx.associated_concepts:
                 ll = label.lower()
-                if ll not in self._GRAMMATICAL_CONCEPTS:
+                if not self._is_function_word(ll):
                     noun_assocs += 1
         assoc_factor = min(1.0, noun_assocs / 4.0)  # 4+ assocs = max
 

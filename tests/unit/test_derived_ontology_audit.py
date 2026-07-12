@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "ravana",
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "ravana_ml", "src"))
 
 from ravana.chat.engine import CognitiveChatEngine
+from ravana.chat.constants import ConceptPosDict
 from ravana_ml.graph import ConceptGraph, ConceptNode
 from ravana.core.abstraction_engine import AbstractionEngine, AbstractionConfig
 
@@ -231,6 +232,66 @@ def test_source_trust_clamps_and_survives_sleep():
     eng2._record_source_outcome("https://learned.edu/p", True,
                                  survived_sleep=True)
     assert eng2._domain_trust("https://learned.edu/p") == pytest.approx(0.7)
+
+
+# ── Track B Phase 5 (M5): learned POS (replaces _GRAMMATICAL_CONCEPTS) ───────
+
+def test_learned_pos_fallback_with_flag_off():
+    """With learned-POS OFF (default), _is_function_word uses the hardcoded
+    _GRAMMATICAL_CONCEPTS set: function words (prep/pron/det/conj/aux) are
+    True, content nouns are False. No regression vs the old constant."""
+    eng = CognitiveChatEngine.__new__(CognitiveChatEngine)
+    eng.use_learned_pos = False
+    eng._GRAMMATICAL_CONCEPTS = {"the", "of", "and", "he", "is", "in"}
+    assert eng._is_function_word("the")
+    assert eng._is_function_word("he")
+    assert eng._is_function_word("is")
+    assert not eng._is_function_word("gravity")
+    assert not eng._is_function_word("trust")
+
+
+def test_learned_pos_distributional_classifies_function_words():
+    """With learned-POS ON, function words are detected via the learned
+    distributional POS (self._concept_pos / classify_word_pos) without relying
+    on the hardcoded set for the covered categories."""
+    eng = CognitiveChatEngine.__new__(CognitiveChatEngine)
+    eng.use_learned_pos = True
+    eng._concept_pos = ConceptPosDict()
+    # These have explicit function POS tags in FUNCTION_POS (prep/pron/det/conj).
+    assert eng._is_function_word("of")      # prep
+    assert eng._is_function_word("because") # conj
+    assert eng._is_function_word("their")   # pron
+    assert eng._is_function_word("the")     # det
+    # Content words are NOT function words under the learned tagger.
+    assert not eng._is_function_word("gravity")
+    assert not eng._is_function_word("trust")
+    assert not eng._is_function_word("running")  # verb participle
+
+
+def test_learned_pos_parity_with_hardcoded_for_covered_set():
+    """For every word in the hardcoded set whose learned POS tag is a function
+    category, the learned path agrees with the hardcoded classification. The
+    learned path may additionally keep residual entries (adverbs, numerals) via
+    the hardcoded safety net, so it is a superset-agnostic predicate."""
+    eng = CognitiveChatEngine.__new__(CognitiveChatEngine)
+    eng.use_learned_pos = False
+    eng._GRAMMATICAL_CONCEPTS = getattr(CognitiveChatEngine, "_GRAMMATICAL_CONCEPTS", set())
+    eng2 = CognitiveChatEngine.__new__(CognitiveChatEngine)
+    eng2.use_learned_pos = True
+    eng2._concept_pos = ConceptPosDict()
+    # Build a tiny engine with the real set on both instances.
+    base = CognitiveChatEngine.__new__(CognitiveChatEngine)
+    gc = getattr(base, "_GRAMMATICAL_CONCEPTS", set())
+    eng._GRAMMATICAL_CONCEPTS = gc
+    eng2._GRAMMATICAL_CONCEPTS = gc
+    # For every word in the hardcoded set, the two paths must agree on the
+    # function-word verdict (the learned path keeps the hardcoded set as a
+    # safety net, so it never disagrees on covered words).
+    _disagree = []
+    for w in gc:
+        if eng._is_function_word(w) != eng2._is_function_word(w):
+            _disagree.append(w)
+    assert not _disagree, f"learned/hardcoded POS disagree on: {_disagree}"
 
 
 def test_walk_hierarchy_seed_fallback_when_no_graph_edges():

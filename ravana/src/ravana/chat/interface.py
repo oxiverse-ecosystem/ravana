@@ -444,7 +444,7 @@ class ChatInterface:
         filtered_associations = []
         for l, s in associations:
             ll = l.lower()
-            if hasattr(self.graph_engine, '_GRAMMATICAL_CONCEPTS') and ll in self.graph_engine._GRAMMATICAL_CONCEPTS:
+            if self.graph_engine._is_function_word(ll):
                 continue
             pos = getattr(self, '_concept_pos', {}).get(ll, 'noun')
             if pos != 'noun':

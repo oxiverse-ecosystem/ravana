@@ -125,6 +125,10 @@ def main():
                         help="Enable Track B Phase 3 learned per-domain source-trust "
                              "(replaces the hardcoded preferred-source allowlist). "
                              "Off by default; the allowlist remains the backstop.")
+    parser.add_argument("--learned-pos", action="store_true",
+                        help="Enable Track B Phase 5 learned distributional POS "
+                             "(replaces the hardcoded function-word set). "
+                             "Off by default; the hardcoded set remains the backstop.")
     parser.add_argument("--mode", type=str, default="stochastic", choices=["stochastic", "deterministic", "exploratory"],
                         help="Reasoning mode: stochastic (default), deterministic (reproducible), exploratory (high-temp)")
     parser.add_argument("--debug", action="store_true", help="Print debug tracebacks for exceptions")
@@ -181,6 +185,9 @@ def main():
     if args.source_trust:
         engine.use_source_trust = True
         print('  [Sources] Track B Phase 3 learned per-domain source-trust ENABLED')
+    if args.learned_pos:
+        engine.use_learned_pos = True
+        print('  [POS] Track B Phase 5 learned distributional POS ENABLED')
 
     # Solution #2: Apply reasoning mode
     if args.mode != "stochastic":

@@ -1461,7 +1461,7 @@ class ChainWalkerMixin:
                 if tn.label.lower() in chain_labels:
                     continue  # cycle detected within this chain
                 # Filter: skip function words (closed-class items that add noise to chains)
-                if tn.label.lower() in self._GRAMMATICAL_CONCEPTS:
+                if self._is_function_word(tn.label):
                     continue
                 # Filter: continuous suppression for weak edges (below auto-wire minimum)
                 if edge_strength_suppression(edge.weight) < 0.35:
@@ -1486,7 +1486,7 @@ class ChainWalkerMixin:
                 if sn.label.lower() in chain_labels:
                     continue  # cycle detected within this chain
                 # Filter: skip function words
-                if sn.label.lower() in self._GRAMMATICAL_CONCEPTS:
+                if self._is_function_word(sn.label):
                     continue
                 # Filter: skip weak edges
                 if edge.weight < 0.35:
@@ -1501,7 +1501,7 @@ class ChainWalkerMixin:
                 if (dnode and dnode.label and dnode.label.lower() not in seen
                     and dnode.label.lower() not in chain_labels
                     and dnode.label.lower() not in _main_concepts
-                    and dnode.label.lower() not in self._GRAMMATICAL_CONCEPTS):
+                    and not self._is_function_word(dnode.label)):
                     candidates.append((dedge.weight * dedge.confidence, dnode.label, dedge, "out"))
             # Episodic edges (conversation memory) - O(1) src-indexed, decay-modulated
             for dtgt, dedge in self._episodic_by_src.get(cur_nid, []):
@@ -1510,7 +1510,7 @@ class ChainWalkerMixin:
                 if (dnode and dnode.label and dnode.label.lower() not in seen
                     and dnode.label.lower() not in chain_labels
                     and dnode.label.lower() not in _main_concepts
-                    and dnode.label.lower() not in self._GRAMMATICAL_CONCEPTS):
+                    and not self._is_function_word(dnode.label)):
                     candidates.append((dedge.weight * dedge.confidence * 0.7 * decay_mod, dnode.label, dedge, "out"))
             if not candidates:
                 break
