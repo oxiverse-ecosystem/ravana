@@ -102,7 +102,71 @@ class SleepConsolidation:
         self._current_stage: SleepStage = SleepStage.AWAKE
         self._stage_cycle: int = 0
         self._snapshot: Optional[Dict[str, Any]] = None
-        
+
+    @staticmethod
+    def _safe_deepcopy(obj, _seen=None):
+        """Resilient deep-copy that survives unpicklable objects.
+
+        `copy.deepcopy` is used to build the pre-sleep rollback snapshot. If any
+        object in that snapshot is unpicklable — most notably a
+        ``sqlite3.Connection`` reachable through a bound method (the CognitiveDB
+        connection can be attached to a graph node / belief_store / user_model
+        attribute by background web-learning) — the plain deepcopy raises
+        ``TypeError: cannot pickle 'sqlite3.Connection' object`` and the entire
+        sleep cycle (and therefore the whole chat turn) crashes. We instead
+        deep-copy what we can and replace unpicklable leaves with typed
+        placeholders. Those leaves are never needed for rollback (a sqlite
+        connection is reopened from ``_db_path`` on load), so this is lossless
+        for the rollback net while making the snapshot construction crash-proof.
+        """
+        import sqlite3
+        import types as _types
+
+        if _seen is None:
+            _seen = set()
+        if id(obj) in _seen:
+            return obj
+        _seen.add(id(obj))
+
+        # Bound method whose __self__ is a sqlite connection. Pure-Python
+        # bound methods are types.MethodType; built-in methods (e.g.
+        # `sqlite3.Connection.cursor`) are builtin_function_or_method with the
+        # SAME shape (__self__ is the connection). Both are unpicklable via
+        # deepcopy's _deepcopy_method path, so catch either.
+        _method_types = (_types.MethodType, type(sqlite3.connect))
+        if isinstance(obj, _method_types):
+            self_obj = getattr(obj, "__self__", None)
+            if isinstance(self_obj, sqlite3.Connection):
+                return "<unpicklable:sqlite3.Connection.method>"
+        if isinstance(obj, sqlite3.Connection):
+            return "<unpicklable:sqlite3.Connection>"
+
+        try:
+            if isinstance(obj, dict):
+                return {_k: SleepConsolidation._safe_deepcopy(_v, _seen)
+                        for _k, _v in obj.items()}
+            if isinstance(obj, (list, tuple, set, frozenset)):
+                _cls = type(obj)
+                return _cls(SleepConsolidation._safe_deepcopy(_v, _seen) for _v in obj)
+            # Delegated types: deep-copy recursively so nested sqlite conns in
+            # dataclasses / custom objects are also caught.
+            if hasattr(obj, "__dict__"):
+                _clone = obj.__class__.__new__(obj.__class__)
+                _seen.add(id(_clone))
+                try:
+                    _clone.__dict__.update({
+                        _k: SleepConsolidation._safe_deepcopy(_v, _seen)
+                        for _k, _v in obj.__dict__.items()
+                    })
+                    return _clone
+                except Exception:
+                    return "<unpicklable:%s>" % type(obj).__name__
+            # Scalars / numpy arrays / picklable primitives: let stdlib copy.
+            import copy as _copy
+            return _copy.deepcopy(obj)
+        except Exception:
+            return "<unpicklable:%s>" % type(obj).__name__
+
     def accumulate_pressure(self, delta: float):
         """Add pressure from cognitive events."""
         self._accumulated_pressure = np.clip(
@@ -237,11 +301,27 @@ class SleepConsolidation:
         # The graph dicts can be mutated concurrently by the background web
         # learner while deepcopy iterates them — hold the graph's internal lock
         # so the snapshot is a consistent (non-racing) view.
+        # ── Resilient snapshot (P-crash fix) ──────────────────────────────
+        # The snapshot feeds ONLY the rollback net (line ~300:
+        # `state_snapshot.update(self._snapshot)`). It is built by deep-copying
+        # live engine objects. If any of those carries an unpicklable resource
+        # — e.g. a bound method of the CognitiveDB's sqlite3.Connection, which
+        # background web-learning can attach to a graph node / belief_store /
+        # user_model attribute — `copy.deepcopy` raises `TypeError: cannot
+        # pickle 'sqlite3.Connection'`, and the WHOLE turn (not just the
+        # rollback) crashes. That is a latent kill-switch for unrelated queries
+        # ("that makes sense", "asdfghjkl") the moment a sleep cycle fires.
+        # Fix: sanitise the snapshot so unpicklable objects become typed
+        # placeholders. The live objects are mutated in place during the cycle
+        # (that IS the consolidation), so dropping an un-restorable sqlite conn
+        # from the COPY cannot lose durable state — connections are reopened
+        # from `_db_path` on load anyway. This mirrors the existing
+        # `_safe_pickle_dump` sanitizer philosophy.
         if graph is not None and hasattr(graph, "_lock"):
             with graph._lock:
-                self._snapshot = copy.deepcopy(state_snapshot)
+                self._snapshot = self._safe_deepcopy(state_snapshot)
         else:
-            self._snapshot = copy.deepcopy(state_snapshot)
+            self._snapshot = self._safe_deepcopy(state_snapshot)
         total_perturbations = 0
         total_sabotages = 0
         
