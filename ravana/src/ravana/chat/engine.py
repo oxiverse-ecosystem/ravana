@@ -2157,10 +2157,16 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # ─── Assertion / "telling vs asking" Check ───
         # If the user is TELLING RAVANA something (an assertion) rather than
         # asking, acknowledge the speech act instead of explaining a concept.
-        assertion_response = self._handle_assertion(user_input, subject)
-        if assertion_response:
-            self._last_strategy = "assertion"
-            self._last_responses.append(assertion_response)
+        # BUT a conditional/hypothetical query ("if mountains were made of
+        # gold", "cats ruled the world") is a reasoning request even when it
+        # reads as a statement — route it to the counterfactual simulator, not
+        # the assertion mirror (CSM: the intervention do(X) is a question to
+        # the forward-model, not a claim about reality).
+        if not self._is_conditional_query(user_input):
+            assertion_response = self._handle_assertion(user_input, subject)
+            if assertion_response:
+                self._last_strategy = "assertion"
+                self._last_responses.append(assertion_response)
             if len(self._last_responses) > 10:
                 self._last_responses = self._last_responses[-10:]
             self.notify_user_idle()
@@ -3200,10 +3206,17 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # world", "AI took over") rather than as a subjunctive clause.
         # 'what would X be like' / 'if X were in charge' are especially common
         # phrasings that previously fell through to reflective/uncertainty.
+        # The cue set is kept in sync with PREMISE_PATTERNS in response_gen.py
+        # (intervention semantics: rule/take-over, disappear/gone, made-of,
+        # photosynthesize) so detection and simulation agree.
         _COND_RE = re.compile(
             r"(ruled the world|took over|take over|in charge|in control|"
+            r"seized power|ran the world|were made of|was made of|"
+            r"photosynthes|disappear|vanished|destroyed|"
             r"what would .* be like|if .* were in charge|if .* took over|"
-            r"if .* ran the world|if .* governed|would happen if)")
+            r"if .* ran the world|if .* governed|would happen if|"
+            r"if .* (disappear|vanished|destroyed)|if .* could (photosynthes|fly|think))"
+        )
         if _COND_RE.search(t):
             return True
         return False

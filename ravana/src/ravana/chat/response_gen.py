@@ -2611,23 +2611,48 @@ class ResponseGenMixin(ChainWalkerMixin):
         # Verbs / function words that a counterfactual acts ONTO, never the
         # subject of the intervention (e.g. "disappeared", "happen", "were").
         _VERB_BLOCK = {
-            "disappear", "disappeared", "gone", "happen", "happened", "become",
-            "becomes", "change", "changed", "go", "went", "make", "made", "rule",
-            "ruled", "were", "was", "could", "would", "should", "can", "will",
+            "disappear", "disappeared", "gone", "vanish", "vanished", "cease",
+            "ceased", "destroy", "destroyed", "remove", "removed", "happen",
+            "happened", "become", "becomes", "change", "changed", "go", "went",
+            "make", "made", "rule", "ruled", "take", "took", "seize", "seized",
+            "were", "was", "could", "would", "should", "can", "will",
             "do", "does", "did", "have", "has", "had", "be", "is", "are",
             "different", "same", "alive", "dead", "real", "true", "instead",
         }
         _query_nouns = [w for w in re.findall(r"[a-z']+", _raw)
                         if w not in STOP_WORDS and w not in _VERB_BLOCK
                         and len(w) > 2]
-        # Candidate order: a query noun that exists in the graph, else the
-        # parsed subject only if it is itself a content noun (not a verb),
-        # else the first salient query noun (skips verbs via _VERB_BLOCK).
+        # Agency-aware subject resolution (control interventions): the agent
+        # of "X took over / ruled / seized power / is in charge" is X — the
+        # noun immediately preceding the intervention cue phrase. Prefer it
+        # over a later object noun ("ai took over the government" -> "ai",
+        # not "government"). CSM: do(X) targets the intervened agent.
+        _AGENT_CUES = ("took over", "take over", "ruled", "ruled the world",
+                       "seized power", "in charge", "in control", "ran the world")
         start = ""
-        for w in _query_nouns:
-            if w in _ck:
-                start = w
-                break
+        for _cue in _AGENT_CUES:
+            _ci = _raw.find(_cue)
+            if _ci > 0:
+                _before = _raw[:_ci].split()
+                # walk back to the nearest content noun before the cue
+                # (allow 2-letter agents like "ai"; the global query-noun
+                # filter uses >2 but agency needs to catch short agents)
+                for _w in reversed(_before):
+                    _wc = _w.strip(".,!?")
+                    if _wc not in STOP_WORDS and _wc not in _VERB_BLOCK \
+                            and len(_wc) >= 2:
+                        start = _wc
+                        break
+                if start:
+                    break
+        # Fallback candidate order: a query noun that exists in the graph,
+        # else the parsed subject only if it is itself a content noun
+        # (not a verb), else the first salient query noun.
+        if not start:
+            for w in _query_nouns:
+                if w in _ck:
+                    start = w
+                    break
         if not start:
             _subj = (ctx.subject or "").strip().lower()
             if _subj and _subj not in STOP_WORDS and _subj not in _VERB_BLOCK \
@@ -2696,33 +2721,80 @@ class ResponseGenMixin(ChainWalkerMixin):
         subj_cap = subj.capitalize()
         lead = (f"if {subj_cap.lower()} were different in that way, "
                 f"here's what I'd expect to follow:")
+        # ── PREMISE_PATTERNS (A1 #4): generalize the brittle substring
+        # if/elif chain into a table keyed by INTERVENTION SEMANTICS. Each
+        # entry declares the cue stems that signal the intervention (CSM
+        # ingredient 1: the do(X) operator), an optional subject scope (None
+        # = any subject), and consequence templates parameterized by the
+        # intervened subject. Matching is stem-based (not exact substrings),
+        # so "ruled"/"rule"/"rules" and "took over"/"take over" all hit the
+        # same control intervention. Adding a new counterfactual type is now
+        # a table row, not a fork in control flow (Gerstenberg 2024 CSM:
+        # intervention type drives the forward simulation uniformly).
         lines = []
-        # Premise-driven consequences (no web needed — the query states the
-        # intervention). This is the high-signal path for common
-        # counterfactuals and always succeeds when the premise is recognized.
-        if "photosynthes" in _premise:
-            lines.append(f"{subj_cap} would make their own food from sunlight")
-            lines.append("they'd need far less to eat from the environment")
-            lines.append("farming and food supply would change a lot")
-        elif ("rul" in _premise or "took over" in _premise
-              or "take over" in _premise or "in charge" in _premise
-              or "in control" in _premise) and (
-                "cat" in _premise or "world" in _premise
-                or "dog" in _premise or "human" in _premise
-                or "ai" in _premise or "people" in _premise
-                or "country" in _premise or "planet" in _premise
-                or "government" in _premise):
-            # Control/intervention premise: X seizes authority. Covers
-            # "cats ruled the world", "cats took over the world",
-            # "dogs in charge of the country", "ai took over".
-            lines.append(f"{subj_cap} would set the rules everyone else follows")
-            lines.append("daily life would bend around what they want")
-        elif "disappear" in _premise or "gone" in _premise:
-            lines.append(f"everything that depends on {subj_cap.lower()} would shift")
-            lines.append("other systems would scramble to fill the gap")
-        elif "cheese" in _premise:
-            lines.append(f"{subj_cap} would be made of something soft and edible")
-            lines.append("tides and impacts would feel very different")
+        _PREMISE_PATTERNS = [
+            {
+                # Photosynthesis: subject makes its own food from light.
+                "cues": ("photosynthes", "chlorophyll", "sunlight energy"),
+                "scope": None,
+                "consequences": lambda s: [
+                    f"{s} would make their own food from sunlight",
+                    "they'd need far less to eat from the environment",
+                    "farming and food supply would change a lot",
+                ],
+            },
+            {
+                # Control / authority seizure: X rules / takes over / is in
+                # charge. Scope-biased toward agentive subjects so a stray
+                # "rule" in a non-counterfactual query doesn't misfire.
+                "cues": ("rul", "took over", "take over",
+                         "in charge", "in control", "seized power",
+                         "ran the world", "governed"),
+                "scope": ("cat", "dog", "human", "ai", "people", "world",
+                          "country", "planet", "government", "robot",
+                          "alien", "corporation", "party"),
+                "consequences": lambda s: [
+                    f"{s} would set the rules everyone else follows",
+                    "daily life would bend around what they want",
+                ],
+            },
+            {
+                # Removal / absence: subject disappears or is gone.
+                "cues": ("disappear", "gone", "vanished", "ceased to exist",
+                         "removed", "destroyed"),
+                "scope": None,
+                "consequences": lambda s: [
+                    f"everything that depends on {s.lower()} would shift",
+                    "other systems would scramble to fill the gap",
+                ],
+            },
+            {
+                # Compositional change: subject made of an improbable stuff.
+                "cues": ("cheese", "chocolate", "gold", "jelly", "rubber",
+                         "made of"),
+                "scope": None,
+                "consequences": lambda s: [
+                    f"{s} would be made of something soft and edible"
+                    if any(c in _premise for c in ("cheese", "chocolate", "jelly"))
+                    else f"{s} would be made of something unexpected",
+                    "tides and impacts would feel very different",
+                ],
+            },
+        ]
+        for _pat in _PREMISE_PATTERNS:
+            _cue_hit = any(c in _premise for c in _pat["cues"])
+            if not _cue_hit:
+                continue
+            _scope = _pat["scope"]
+            if _scope is not None:
+                # Scope-gated: require a known agentive subject cue present,
+                # or the intervened subject itself to be agentive.
+                _scope_hit = (subj in _scope) or any(
+                    w in _premise for w in _scope)
+                if not _scope_hit:
+                    continue
+            lines = _pat["consequences"](subj_cap)
+            break
         if lines:
             body = "; ".join(lines[:3])
             return (f"{lead} {body}.", "counterfactual_simulation")

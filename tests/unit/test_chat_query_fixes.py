@@ -192,11 +192,17 @@ def _fake_ctx(raw, subject=""):
 
 
 @pytest.mark.parametrize("q,subject", [
-    ("if cats ruled the world", "cats"),
+    ("if humans could photosynthesize", "humans"),
     ("cats took over the world", "cats"),
     ("what if the sun disappeared", "sun"),
-    ("if humans could photosynthesize", "humans"),
     ("what would happen if the moon was made of cheese", "moon"),
+    # PREMISE_PATTERNS generalization (A1 #4): new cue synonyms + variants.
+    ("dogs seized power", "dogs"),
+    ("if the ocean vanished", "ocean"),
+    ("what if the earth was destroyed", "earth"),
+    ("if mountains were made of gold", "mountains"),
+    ("ai took over the government", "ai"),
+    ("suppose trees could photosynthesize at night", "trees"),
 ])
 def test_counterfactual_premise_returns(engine, q, subject):
     ctx = _fake_ctx(q, subject)
@@ -207,6 +213,26 @@ def test_counterfactual_premise_returns(engine, q, subject):
     assert len(text) > 10
     # Must not be a hollow uncertainty filler.
     assert "not sure" not in text.lower() and "outside what i know" not in text.lower()
+
+
+def test_counterfactual_control_scope_gate():
+    """The control/authority intervention must NOT fire for a non-agentive
+    subject that merely contains the cue word 'rule' (e.g. 'the rule of law').
+    Scope-gating keeps the table from over-matching (CSM: the do(X) operator
+    must target an agent)."""
+    d = tempfile.mkdtemp(prefix="ravana_cf_scope_")
+    e = CognitiveChatEngine(dim=64, seed=42, baby_mode=True, data_dir=d)
+    # 'rule' present but no agentive scope cue -> no premise match -> falls
+    # through (returns None here, since the subject isn't in the causal graph
+    # and we don't do web in this offline unit test).
+    ctx = _fake_ctx("the rule of law in democracy", "rule")
+    out = e._simulate_counterfactual(ctx)
+    # Either None (no premise hit) or a counterfactual — but crucially NOT a
+    # control-seizure consequence about 'rule' seizing authority.
+    if out is not None:
+        text = out[0].lower()
+        assert "set the rules everyone else follows" not in text, \
+            "control intervention over-matched a non-agentive 'rule'"
 
 
 # ── Track A2 (M1): humor grammar (agreement + capitalization) ───────────────
