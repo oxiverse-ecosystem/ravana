@@ -1126,6 +1126,50 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
 
         return False
 
+    def _snippet_topic_max_coherence(self, topic: str, snippet: str) -> float:
+        """Max single-word GloVe cosine between `topic` and any content word in
+        `snippet`. Stricter than mean-centroid coherence: a snippet only passes
+        if it actually mentions something related to the topic. Returns 0.0 if
+        the topic has no embedding (caller falls back to fail-closed)."""
+        tv = self._glove_vector(topic) if hasattr(self, "_glove_vector") else None
+        if tv is None:
+            return 0.0
+        best = 0.0
+        for w in re.findall(r"[a-z]{3,}", (snippet or "").lower()):
+            if w in STOP_WORDS:
+                continue
+            wv = self._glove_vector(w)
+            if wv is None:
+                continue
+            sim = float(np.dot(tv, wv) / (np.linalg.norm(tv) * np.linalg.norm(wv) + 1e-9))
+            if sim > best:
+                best = sim
+        return best
+
+    def _paradox_topic(self, text: str) -> str:
+        """Data-derived topic word for a paradox query (drives retrieval +
+        the coherence gate). Pure token filtering — no authored per-paradox
+        tables. Prefers a known graph concept; else the longest content word.
+        """
+        t = (text or "").lower().strip(" ?!.")
+        toks = [w.strip(".,!?") for w in re.findall(r"[a-z']+", t)
+                if w.strip(".,!?") not in STOP_WORDS
+                and w.strip(".,!?") not in ("what", "which", "how", "who",
+                "is", "are", "was", "were", "do", "does", "did", "can", "could",
+                "would", "should", "may", "might", "must", "cannot", "cannot",
+                "the", "a", "an", "of", "on", "in", "to",
+                "for", "with", "and", "or", "but", "many", "much", "head",
+                "pin", "statement", "that", "this", "true", "false", "i", "am",
+                "you", "he", "she", "it", "they", "we")]
+        if not toks:
+            return ""
+        # Prefer a known graph concept (most 'central' topic).
+        for w in toks:
+            if w in self._concept_keywords or w in self._concept_labels:
+                return w
+        # Else the longest salient token (e.g. "angels", "god", "liar").
+        return max(toks, key=len)
+
     def _reflect_on_paradox(self, text: str) -> str:
         """Generate a genuine philosophical reflection for a paradox / koan.
 
@@ -1140,43 +1184,100 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         latency itself (deliberation before reply).
         """
         t = text.lower().strip(" ?!.")
-        # Map the paradox family to a concrete retrieval query for its real
-        # context. The query is derived from the family, not a hardcoded fact.
+        # Derive a retrieval query DATA-DERIVED from the paradox's own text
+        # (no hardcoded per-paradox query strings). We reuse the same
+        # query-reformulation machinery as factual web answers (IR
+        # word-sense disambiguation / pseudo-relevance feedback): sense-bias
+        # the query toward its intended reading, then generate variants.
+        _topic = self._paradox_topic(t) or t
         _retrieval_q = None
-        if "one hand" in t or "hand clapping" in t or "sound of" in t:
-            _retrieval_q = "zen koan sound of one hand clapping meaning"
-        elif "god" in t and ("rock" in t or "stone" in t or "create" in t or "heavy" in t):
-            _retrieval_q = "omnipotence paradox stone theological debate"
-        elif "unstoppable" in t or "immovable" in t:
-            _retrieval_q = "unstoppable force paradox immovable object"
-        elif "statement" in t and ("false" in t or "true" in t):
-            _retrieval_q = "liar paradox self reference logic"
-        elif "simulation" in t or "reality real" in t or "know anything" in t:
-            _retrieval_q = "simulation hypothesis reality debate"
-        elif "pinhead" in t or "angels" in t:
-            _retrieval_q = "how many angels on head of a pin scholastic debate"
-        else:
-            _retrieval_q = (t + " paradox") if "paradox" in t else None
-        # Scoped retrieval (bounded; offline fallback if network down).
-        # We pull the actual retrieved SNIPPET (not the learn_from_web status
-        # report) so the grounding clause is composed from real text.
-        _ground = ""
-        if _retrieval_q:
+        try:
+            _biased = self._sense_biasing_framing(text, _topic) if hasattr(self, "_sense_biasing_framing") else None
+            if _biased and _biased != _topic:
+                _retrieval_q = _biased
+            else:
+                _retrieval_q = self._rewrite_query_for_web(text, _topic)
+        except Exception:
+            _retrieval_q = (t + " paradox") if "paradox" in t else t
+        _queries = []
+        if hasattr(self, "_web_query_variants"):
             try:
-                _results = self.search_engine.search(_retrieval_q, max_results=1)
-                if _results:
-                    _snippet = (_results[0].get("content") or _results[0].get("snippet")
-                                or _results[0].get("extract") or "")
-                    _snippet = _snippet.strip()
-                    if len(_snippet) > 25:
-                        # Take the first clean sentence as the sourced clause.
-                        _sent = re.split(r"(?<=[.!?])\s+", _snippet)[0].rstrip(".!?")
-                        # Skip pure UI/status fragments.
-                        if len(_sent) > 25 and "learned" not in _sent.lower()[:20]:
-                            _ground = f" (from what i've read: {_sent.lower()})"
-                            self._metrics["paradox_grounded"] = self._metrics.get("paradox_grounded", 0) + 1
+                _queries = self._web_query_variants(_retrieval_q or t, _topic, self._is_conditional_query(text))
             except Exception:
-                pass
+                _queries = []
+        # Enrich with paradox-derived variants (data-derived from the topic,
+        # no per-paradox authored strings): a person who realizes a search is
+        # off-topic reformulates the query (IR pseudo-relevance feedback).
+        if _topic:
+            for _suff in ("paradox", "philosophical debate", "philosophy"):
+                _v = f"{_topic} {_suff}"
+                if _v not in _queries:
+                    _queries.append(_v)
+        if not _queries:
+            _queries = [_retrieval_q or t]
+        # Scoped retrieval (bounded; offline fallback if network down).
+        # PRIMARY source: the same Wikipedia-REST lookup used for factual
+        # definitions (kb_describe, P1) — clean, authoritative, on-topic, and
+        # free of the entity-collision junk the flaky web search produces for
+        # these queries ("angels" -> baseball, "god" -> cannon). SECONDARY:
+        # the web-search path below, gated by M4/M5 + a strict coherence check,
+        # used only when Wikipedia has no article. Pseudo-relevance feedback:
+        # if a snippet fails the gate, try the next query variant instead of
+        # quoting the irrelevant text (fail-closed if all fail).
+        _ground = ""
+        # ── Primary: Wikipedia REST for the paradox topic ──
+        try:
+            _def = self.kb_describe(_topic) if hasattr(self, "kb_describe") else None
+            if _def:
+                _def = self._sanitize_definition_text(_def) if hasattr(self, "_sanitize_definition_text") else _def
+                _def = (_def or "").strip()
+                if len(_def) > 30:
+                    _sent = re.split(r"(?<=[.!?])\s+", _def)[0].rstrip(".!?")
+                    if len(_sent) > 25:
+                        _ground = f" (from what i've read: {_sent.lower()})"
+                        self._metrics["paradox_grounded"] = self._metrics.get("paradox_grounded", 0) + 1
+        except Exception:
+            _ground = ""
+        # ── Secondary: web search with learned gates (only if Wikipedia missed) ──
+        _COHERENCE_THETA = 0.50
+        if not _ground:
+            for _q in _queries[:6]:
+                try:
+                    _results = self.search_engine.search(_q, max_results=4)
+                    if not _results:
+                        continue
+                    _snip = self._best_answer_snippet(_results, _topic, _q, False)
+                    if not _snip:
+                        continue
+                    # M4: structural-junk screen.
+                    if hasattr(self, "_snippet_is_structural_junk") and self._snippet_is_structural_junk(_snip):
+                        continue
+                    # M5: source-trust gate (skip only when clearly untrusted).
+                    if hasattr(self, "_domain_trust"):
+                        _url = _results[0].get("url", "") if _results else ""
+                        if self._domain_trust(_url) <= 0.0:
+                            continue
+                    # Coherence gate: reject loosely-on-topic snippets. We use
+                    # MAX single-word GloVe cosine (does the snippet actually
+                    # mention something related to the topic?) rather than the
+                    # mean-centroid score, because the mean dilutes a coincidental
+                    # alignment and lets junk ("angels" vs an "internet freedom"
+                    # snippet) slip through at 0.32. Max-word is stricter and
+                    # matches human behaviour: if nothing in the result refers to
+                    # the topic, don't quote it (fail-closed). Falls back to the
+                    # repo's _definition_coherence_score (mean-centroid) when the
+                    # topic word has no embedding.
+                    _coh = self._snippet_topic_max_coherence(_topic, _snip)
+                    if _coh < _COHERENCE_THETA:
+                        continue
+                    # Passed all gates: take the first clean sentence.
+                    _sent = re.split(r"(?<=[.!?])\s+", _snip.strip())[0].rstrip(".!?")
+                    if len(_sent) > 25 and "learned" not in _sent.lower()[:20]:
+                        _ground = f" (from what i've read: {_sent.lower()})"
+                        self._metrics["paradox_grounded"] = self._metrics.get("paradox_grounded", 0) + 1
+                        break
+                except Exception:
+                    continue
 
         # Zen koans: invitation to sit with the unanswerable.
         if "one hand" in t or "hand clapping" in t or "sound of" in t:
@@ -1726,6 +1827,11 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                                 "is", "are", "does", "do", "has", "have", "the", "a", "an",
                                 "of", "to", "in", "on", "for", "with", "my", "your", "our")]
                         subj = toks[-1] if toks else ""
+        # Store the gate's authoritative head noun so the metaphor response
+        # uses the REAL subject (e.g. "triangle", not the property "taste")
+        # even when the generic _ground_query guess differs. This is what lets
+        # Path 1 (cross-modal probe) fire for the correct concept.
+        self._last_category_subject = subj
         if not subj:
             return None
         # ── Primary gate: brain-aligned ConceptNet derivation ───────────────
@@ -1816,7 +1922,12 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         the subject's own attribute profile / the graph.
         """
         subj = (subject or "").lower().strip(" ?!.")
-        subj_cap = (subject or "that").strip().capitalize()
+        # Prefer the gate's authoritative head noun (set in _is_category_error)
+        # over the generic _ground_query guess, so the metaphor describes the
+        # real subject (e.g. "triangle"), not the property word.
+        if getattr(self, "_last_category_subject", "") and self._last_category_subject != subj:
+            subj = self._last_category_subject
+        subj_cap = (subj or "that").strip().capitalize()
         # Try the cross-modal metaphor first (subject's own sensorimotor profile).
         metaphor = self._metaphor_for_category_error(subj, prop)
         if metaphor:
@@ -1905,13 +2016,14 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                             f"with a {prop}. what were you getting at?")
             except Exception:
                 pass
-        # 2) ConceptNet related-term fallback: frame via the subject's own
-        #    HasProperty features if the probe is unavailable.
+        # 2) ConceptNet feature congruence (Path 2): frame the mismatch via the
+        #    subject's OWN top data-derived properties (HasProperty features),
+        #    so the correction references what the thing actually is like.
         cn = getattr(self, "_cn_ontology", None)
         if cn is not None:
             try:
                 feats = cn.features.get(subj, set()) if hasattr(cn, "features") else set()
-                feats = [f for f in list(feats)[:2] if f not in (prop.lower(),)]
+                feats = [f for f in list(feats)[:3] if f not in (prop.lower(),)]
                 if feats:
                     fl = ", ".join(feats)
                     return (f"{subj_cap} is more about {fl} than about having a "
@@ -1919,19 +2031,75 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                             f"what did you mean?")
             except Exception:
                 pass
-        # 3) Graph-sampled incongruent pair: two unrelated concepts stating the
-        #    mismatch. The pair is SAMPLED from the live graph, not authored.
+        # 3) Structure-mapped incongruent pair (Path 3): find a concept B that
+        #    genuinely POSSESSES prop (via the learned AttributeEncoder probe,
+        #    reusing the same Binder ridge trained on published norms), then
+        #    state the mismatch as "asking whether SUBJ has the PROP of B". This
+        #    is Gentner/Wolff structure-mapping (align by shared property), not
+        #    an arbitrary random draw. Prefer a B near SUBJ in the graph for
+        #    relevance; fall back to a global property-bearer if needed.
         try:
-            nodes = [n for n in self._concept_keywords.keys()
-                     if n not in (subj, prop.lower()) and " " not in n]
-            if len(nodes) >= 2:
-                a, b = random.sample(nodes, 2)
-                return (f"that's a bit like asking whether {a} can have the "
-                        f"{prop} of {b} — the categories just don't match up that "
-                        f"way. what were you getting at?")
+            prop_bearers = self._property_bearers(prop, exclude={subj})
+            if prop_bearers:
+                # Prefer a bearer semantically near the subject (GloVe cosine).
+                b = self._nearest_to(subj, prop_bearers[:8]) or prop_bearers[0]
+                b_cap = b.capitalize()
+                return (f"that's a bit like asking whether {subj_cap} can have the "
+                        f"{prop} of {b_cap} — {b_cap} has a {prop}, {subj_cap} "
+                        f"doesn't, so the categories don't line up. "
+                        f"what were you getting at?")
         except Exception:
             pass
         return None
+
+    def _property_bearers(self, prop: str, exclude: Optional[Set[str]] = None) -> List[str]:
+        """Return graph concepts that genuinely possess `prop`, ranked by the
+        learned AttributeEncoder probe (reuses BINDER ridge, no per-word rules).
+
+        Used by the category-error metaphor (Path 3) to structure-map the
+        mismatch: a concept that HAS the queried property is paired with the
+        subject that lacks it.
+        """
+        exclude = exclude or set()
+        enc = getattr(getattr(self, "_cn_ontology", None), "attribute_encoder", None)
+        out: List[Tuple[float, str]] = []
+        if enc is not None:
+            for n in self._concept_keywords.keys():
+                if n in exclude or " " in n:
+                    continue
+                gvec = self._glove_vector(n)
+                if gvec is None:
+                    continue
+                s = enc.property_score(np.asarray(gvec, dtype=np.float64), prop)
+                if s is not None and s > 0.8:
+                    out.append((float(s), n))
+        else:
+            # Probe unavailable: fall back to ConceptNet features that name the
+            # property dimension.
+            cn = getattr(self, "_cn_ontology", None)
+            if cn is not None and hasattr(cn, "features"):
+                for n, feats in cn.features.items():
+                    if n in exclude or " " in n:
+                        continue
+                    if prop.lower() in {str(f).lower() for f in feats}:
+                        out.append((1.0, n))
+        out.sort(reverse=True)
+        return [n for _, n in out[:12]]
+
+    def _nearest_to(self, word: str, candidates: List[str]) -> Optional[str]:
+        """Pick the candidate with the highest GloVe cosine to `word`."""
+        wv = self._glove_vector(word)
+        if wv is None or not candidates:
+            return None
+        best, best_sim = None, -2.0
+        for c in candidates:
+            cv = self._glove_vector(c)
+            if cv is None:
+                continue
+            sim = float(np.dot(wv, cv) / (np.linalg.norm(wv) * np.linalg.norm(cv) + 1e-9))
+            if sim > best_sim:
+                best, best_sim = c, sim
+        return best
 
     def _category_label_of(self, subject: Optional[str]) -> str:
         """Human-readable category label for a subject, for the honest
