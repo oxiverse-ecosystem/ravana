@@ -5583,6 +5583,10 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             except Exception as e:
                 return f"save failed: {e}"
 
+    def load(self) -> bool:
+        """Public load entry-point (M5 contract). Delegates to _load()."""
+        return self._load()
+
     def _load(self) -> bool:
         """Load cognitive state from disk. Returns True if successful."""
         try:
@@ -5661,25 +5665,44 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             self._free_energy = state['free_energy']
             self._learning_count = state['learning_count']
 
-            # Restore identity (M5: each field independently guarded —
-            # a corrupt field logs + is skipped, it can't wipe the rest).
+            # Restore identity (M5: each field independently guarded — a
+            # corrupt field logs + is skipped, it can't wipe the rest).
+            # NOTE: the guard is a TYPE check, not merely try/except — assigning
+            # a wrong-shaped object (e.g. a dict) to self.identity.state
+            # succeeds silently and only breaks later when a method reads
+            # .strength on the dict. So we validate shape BEFORE assigning.
             try:
-                self.identity.state = state['identity_state']
-                self.identity.last_delta = state['identity_momentum']
+                _id_state = state['identity_state']
+                if hasattr(_id_state, 'strength') and hasattr(_id_state, 'last_delta'):
+                    self.identity.state = _id_state
+                    self.identity.last_delta = state.get('identity_momentum', 0.0)
+                else:
+                    print(f"  [Load partial] identity_state had wrong shape "
+                          f"({type(_id_state).__name__}); keeping fresh identity")
             except Exception as _e:
                 print(f"  [Load partial] identity restore failed: {_e}")
 
             # Restore emotion VAD
             try:
-                self.emotion.state.valence = state['vad_valence']
-                self.emotion.state.arousal = state['vad_arousal']
-                self.emotion.state.dominance = state['vad_dominance']
+                _v = state['vad_valence']; _a = state['vad_arousal']; _d = state['vad_dominance']
+                if isinstance(_v, (int, float)) and isinstance(_a, (int, float)) and isinstance(_d, (int, float)):
+                    self.emotion.state.valence = _v
+                    self.emotion.state.arousal = _a
+                    self.emotion.state.dominance = _d
+                else:
+                    print(f"  [Load partial] emotion_state had wrong shape; "
+                          f"keeping fresh emotion")
             except Exception as _e:
                 print(f"  [Load partial] emotion restore failed: {_e}")
 
             # Restore meaning
             try:
-                self.meaning.accumulated_meaning = state['meaning_accumulated']
+                _m = state['meaning_accumulated']
+                if isinstance(_m, (int, float)):
+                    self.meaning.accumulated_meaning = _m
+                else:
+                    print(f"  [Load partial] meaning_state had wrong shape; "
+                          f"keeping fresh meaning")
             except Exception as _e:
                 print(f"  [Load partial] meaning restore failed: {_e}")
 
