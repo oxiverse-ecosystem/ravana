@@ -3983,7 +3983,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         _COND_RE = re.compile(
             r"(ruled the world|took over|take over|in charge|in control|"
             r"seized power|ran the world|were made of|was made of|"
-            r"photosynthes|disappear|vanished|destroyed|"
+            r"disappear|vanished|destroyed|"
             r"what would .* be like|if .* were in charge|if .* took over|"
             r"if .* ran the world|if .* governed|would happen if|"
             r"if .* (disappear|vanished|destroyed)|if .* could (photosynthes|fly|think))"
@@ -4076,7 +4076,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         first = toks[0].lower()
         # A leading coordinator signals a continuation -> open dependency.
         _COORD = {"and", "but", "or", "so", "because", "although", "though",
-                  "if", "when", "while", "yet", "unless"}
+                  "if", "while", "yet", "unless"}
         # A trailing complementizer opens a clause that never arrives.
         _COMP = {"that", "what", "how", "whether", "why", "who", "which"}
         # A trailing copula needs its predicate complement.
@@ -4104,7 +4104,9 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                                    "means", "refers", "describes", "occurs", "happens",
                                    "reduces", "builds", "forms", "curves", "falls",
                                    "opens", "show", "shows", "makes", "does", "thinks",
-                                   "sits", "sat", "stands", "grows", "lives", "works"}
+                                   "sits", "sat", "stands", "grows", "lives", "works",
+                                   "did", "do", "will", "would", "can",
+                                   "could", "should", "has", "have", "had"}
             if not any(w.lower() in _HAS_PRED for w in _rest_toks):
                 return False
             return True

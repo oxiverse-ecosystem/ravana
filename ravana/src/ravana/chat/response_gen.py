@@ -1697,6 +1697,18 @@ class ResponseGenMixin(ChainWalkerMixin):
         topic = (subject or "").strip().lower()
         is_about_user = bool(re.match(r"^(i|i'm|im|i am|we|we're|my|me)\b", t))
 
+        # Affective self-disclosure ("i am sad", "i'm tired") must reach the
+        # empathic path, NOT be swallowed by the short-statement backchannel
+        # below. The empathic responder (in the decomposition-dispatch path)
+        # only fires for longer turns, so a ≤3-word disclosure would otherwise
+        # get a tone-deaf "nice." / "alright." Empitted detection here mirrors
+        # _detect_emotional_disclosure's first-person + affect signal, with the
+        # complementizer 'who' excluded so "i am a dog" doesn't trip it — the
+        # valence check needs an actual affective word.
+        if is_about_user:
+            if self._detect_emotional_disclosure(text=text) is not None:
+                return None  # fall through to the empathic responder
+
         # Remember what the user told us (belief store) — brain-inspired memory.
         try:
             if is_about_user and hasattr(self, "belief_store") and topic and \
@@ -2556,18 +2568,29 @@ class ResponseGenMixin(ChainWalkerMixin):
 
         return True
 
-    def _detect_emotional_disclosure(self, ctx: CognitiveResponseContext):
+    def _detect_emotional_disclosure(self, ctx=None, text=None):
         """Detect first-person affective self-disclosures (I feel / I am / I love ...).
 
         Returns (kind, word) where kind in {'negative','positive','neutral'} or
         None. Emotional statements must be answered with empathy, not facts.
+
+        Accepts either a CognitiveResponseContext (ctx) or a raw string (text),
+        so callers that only have the bare user input (e.g. the assertion
+        mirror, which runs before the decomposition-dispatch path) can still
+        detect an affective disclosure and defer to the empathic responder.
 
         Lexical valence is taken from the learned VAD detector (ravana.core
         UserEmotionDetector) rather than a duplicated hardcoded positive/negative
         set — affect is a dimensional signal acquired from experience, not a
         frozen table. The first-person scope and the neutral fallback are kept.
         """
-        text = ctx.raw_input.lower()
+        if ctx is not None:
+            raw = ctx.raw_input
+        elif text is not None:
+            raw = text
+        else:
+            return None
+        text = raw.lower()
         # First-person marker: i / i'm / i am / my / me.
         if not re.search(r"\b(i|i'm|i am|my|me)\b", text):
             return None
@@ -2586,7 +2609,10 @@ class ResponseGenMixin(ChainWalkerMixin):
         if hit_neg:
             return ("negative", sorted(hit_neg, key=lambda x: x[0])[0][1])
         if hit_pos:
-            return ("positive", sorted(hit_pos, key=lambda x: x[0])[1][1])
+            # Use the STRONGEST positive word. Index [0] (not [1]) is correct:
+            # with a single positive hit sorted() has length 1 and [1] raises
+            # IndexError ("i am happy" → only 'happy' scores positive).
+            return ("positive", sorted(hit_pos, key=lambda x: x[0])[0][1])
         if re.search(r"\b(i\s*(feel|feeling|am|think|believe|guess|wonder))\b", text):
             return ("neutral", None)
         return None
@@ -2900,6 +2926,32 @@ class ResponseGenMixin(ChainWalkerMixin):
         _weak = (relation or "").strip().lower() in ("semantic", "related", "")
         if _weak and not self._relation_has_contentful_edge(target, chain[0]):
             return None
+        # Fix 4 (Q7 "how does a virus spread"): a lone temporal edge ("X comes
+        # before Y") is an ordering observation, not a substantive fact — it
+        # must NOT short-circuit web grounding for how/why questions, which
+        # would otherwise surface bare "Virus spread comes before prevent."
+        # Only accept a temporal-only answer when the caller explicitly asked
+        # for a temporal relation; for every other relation type, require at
+        # least one CONTENTFUL edge (causal/contrastive/analogical/is_a/
+        # part_of/has_a/property) in the recovered chain, else fall through to
+        # the web so the question gets a real answer.
+        _rel = (relation or "").strip().lower()
+        if _rel != "temporal":
+            # A non-temporal question must be backed by a CONTENTFUL typed edge
+            # somewhere in the recovered chain, not merely a temporal ordering
+            # observation ("X comes before Y"). Walk the chain endpoints and
+            # reject if no contentful edge is found, so the caller falls through
+            # to the web and the question gets a real answer.
+            _content_found = self._relation_has_contentful_edge(target, chain[0])
+            if not _content_found:
+                _prev = target
+                for _nxt in chain:
+                    if self._relation_has_contentful_edge(_prev, _nxt):
+                        _content_found = True
+                        break
+                    _prev = _nxt
+            if not _content_found:
+                return None
         # ── Fix 1 (Q7): NEVER interpolate the raw relation_type token
         # ("semantic"/"causal"/"contrastive"/…) into the phonology stream — that
         # is the semantic-dementia analog where an amodal ATL relation tag leaks
@@ -4079,6 +4131,16 @@ class ResponseGenMixin(ChainWalkerMixin):
         # the pre-articulation loop never discards a coherent "what would
         # happen" answer (its own coherence/tautology gates already ran).
         if strategy == "counterfactual_simulation":
+            return text
+        # Empathic replies ("aw, i'm sorry you're feeling sad...") are short,
+        # affect-bearing, first-person responses composed from primitives — not
+        # free association. They score as "degenerate" under the salad check
+        # (low content-word ratio, no subject concept) and would be wrongly
+        # withheld, but they are exactly the correct, coherent reply to an
+        # affective disclosure. Exempt them so the monitor never replaces a
+        # genuine empathic answer with generic uncertainty text (which would
+        # also keep the mismatched 'emotional_empathy' strategy tag).
+        if strategy == "emotional_empathy":
             return text
         if not text or not text.strip():
             return self._human_like_uncertainty(ctx)[0]
