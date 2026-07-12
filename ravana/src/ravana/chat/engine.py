@@ -59,6 +59,7 @@ except ImportError:
 from .constants import (TEEN_CONCEPTS, WEB_GARBAGE, STOP_WORDS, ConceptPosDict,
                         _is_word_salad, _is_keyboard_mash)
 from .web_learning import WebLearningMixin
+
 import pickle
 from ravana.web.learner import SearchEngine
 from ravana.core.dual_code_space import DualCodeSpace
@@ -3076,6 +3077,52 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 return False
         return True
 
+    def _is_clause_complete(self, text: str) -> bool:
+        """Dependency-closure completeness check (brain-faithful open-proposition
+        signal), replacing the brittle cue-list test.
+
+        Gregoromichelaki et al. (2020) and the fragment literature
+        (Schlangen & Lascarides 2003, Dynamic Syntax) show conversation has no
+        notion of a 'complete sentence' — what matters is whether open
+        syntactic/semantic dependencies are satisfied. The brain detects
+        completeness via verb subcategorization / valence (does the matrix verb
+        have its required arguments filled?) and the absence of a dangling
+        coordinator/comma (turn-end prediction, Magyari 2014; Barthel 2017,
+        already cited in this file). A fragment like 'and another thing' leaves
+        an open proposition (unfilled dependency) -> incomplete.
+
+        We use ROBUST structural signals only (a lightweight verb lexicon is
+        too noisy here — classify_word_pos mis-tags 'thing' as a verb and
+        'bend' as a noun). The dangling-dependency cues below are sufficient to
+        catch the cue-less incomplete lead-ins that motivated M9.
+
+        Returns True iff the clause is COMPLETE (all open dependencies closed).
+        """
+        t = (text or "").strip().rstrip(" .!?")
+        if not t:
+            return False
+        toks = [w.strip(".,!?") for w in t.split() if w.strip(".,!?")]
+        if not toks:
+            return False
+        last = toks[-1].lower()
+        first = toks[0].lower()
+        # A leading coordinator signals a continuation -> open dependency.
+        _COORD = {"and", "but", "or", "so", "because", "although", "though",
+                  "if", "when", "while", "yet", "unless"}
+        # A trailing complementizer opens a clause that never arrives.
+        _COMP = {"that", "what", "how", "whether", "why", "who", "which"}
+        # A trailing copula needs its predicate complement.
+        _COP = {"is", "are", "was", "were", "am", "be", "been", "being", "'s"}
+        if first in _COORD:
+            return False
+        if last in _COORD or last in _COMP or last in _COP:
+            return False
+        # A trailing comma / hyphen / dash / colon / semicolon leaves the
+        # clause open (the turn has not reached its go-signal).
+        if t.endswith((",", "-", "—", "–", ":", ";")):
+            return False
+        return True
+
     def _is_preamble_fragment(self, text: str) -> bool:
         """Turn-end predictor analog (brief behavior 2).
 
@@ -3084,30 +3131,44 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         turn-end predictor must not withhold a warranted response on it (the
         hyper-cautious / over-monitoring false positive). See
         ``_is_answerable_query`` for the brain rationale.
+
+        Completeness is judged by DEPENDENCY CLOSURE (_is_clause_complete),
+        not a keyword list: 'and another thing —', 'the problem is that',
+        'what I mean is' all leave an open proposition and are correctly held,
+        while a real clause ('black holes bend spacetime', 'the cat sat')
+        is complete and not withheld. The closure check runs FIRST: an
+        incomplete fragment is always held, even if it happens to contain a
+        wh-word (e.g. 'what I mean is' ends in a dangling copula).
         """
-        if self._is_answerable_query(text):
-            return False
-        t = (text or "").strip()
+        t = (text or "").strip().lower().rstrip(" .!?")
         if not t:
             return False
-        low = t.lower().rstrip(" .!?")
-        wc = len([w for w in low.split() if w])
-        if wc > 4:
-            return False  # long enough to be a full utterance
-        # Lead-in / filler cues that signal "more is coming"
+        wc = len([w for w in t.split() if w])
+        # 1) Dependency-closure: an incomplete clause (open proposition) is a
+        #    preamble — hold the turn. This catches cue-less lead-ins.
+        if not self._is_clause_complete(text):
+            return True
+        # 2) A complete, answerable query is NOT a preamble (B1 guard).
+        if self._is_answerable_query(text):
+            return False
+        # 3) Greetings / closed-class social acts are complete speech acts.
+        _closed = ("hi", "hello", "hey", "yo", "bye", "thanks", "thank you",
+                   "yes", "no", "ok", "okay", "sure", "cool", "nice", "lol", "hmm")
+        if wc <= 2 and t in _closed:
+            return False
+        # 4) Known lead-in cue words (legacy, cheap) still signal a preamble.
         _preamble_cues = (
             "so", "well", "anyway", "by the way", "btw", "that reminds me",
             "oh", "right", "um", "uh", "like", "i mean", "speaking of",
             "before i forget", "got a sec", "quick thing",
         )
-        if low in _preamble_cues:
+        if t in _preamble_cues:
             return True
-        if any(low.startswith(c) and len(low) <= len(c) + 6 for c in _preamble_cues):
+        if any(t.startswith(c) and len(t) <= len(c) + 6 for c in _preamble_cues):
             return True
-        # Single bare word / non-question fragment that isn't a known greeting
-        _closed = ("hi", "hello", "hey", "yo", "bye", "thanks", "yes", "no",
-                   "ok", "okay", "sure", "cool", "nice", "lol", "hmm")
-        if wc <= 2 and low not in _closed and not t.endswith("?"):
+        # 5) A short bare fragment that is neither a greeting nor a complete
+        #    clause is an incomplete lead-in.
+        if wc <= 2 and not t.endswith("?"):
             return True
         return False
 
@@ -3126,15 +3187,19 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         low = (text or "").strip().lower().rstrip(" .!?")
         if not low or low.endswith("?"):
             return False
+        # wh- words + imperative definition commands are complete queries.
         _QUERY_MARKERS = (
             "what", "who", "where", "when", "why", "how", "which",
             "define", "explain", "describe", "tell", "name", "list", "mean",
-            "is", "are", "was", "were",
         )
         toks = low.split()
-        # Imperative definition command ("explain X", "define X") or any
-        # wh-word present -> a complete question, not a fragment.
         if any(t in _QUERY_MARKERS for t in toks):
+            return True
+        # A copula (is/are/was/were) only makes a complete query when it is a
+        # yes/no QUESTION (the text ends with "?") — a statement like "the
+        # problem is that" contains "is" but is NOT an answerable query.
+        _COPULA = ("is", "are", "was", "were")
+        if any(t in _COPULA for t in toks) and text.strip().rstrip().endswith("?"):
             return True
         return False
 

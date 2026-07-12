@@ -51,6 +51,41 @@ def test_answerable_query_marker():
     assert eng._is_answerable_query("by the way") is False
 
 
+# ── M9: preamble false-negative via dependency-closure ─────────────────────
+# A real incomplete lead-in with NO cue word must still be held. Brain analog:
+# completeness = satisfied open syntactic/semantic dependencies (verb
+# subcategorization / valence; absence of a dangling coordinator), not a
+# keyword list (Gregoromichelaki et al. 2020; Schlangen & Lascarides 2003).
+def test_clause_complete_detects_open_dependency():
+    eng = _bare_engine()
+    # Incomplete: dangling coordinator / complementizer / copula.
+    assert eng._is_clause_complete("and another thing") is False
+    assert eng._is_clause_complete("the problem is that") is False
+    assert eng._is_clause_complete("what I mean is") is False
+    assert eng._is_clause_complete("because it rained") is False
+    # Complete clauses (matrix verb / copula with closed dependency).
+    assert eng._is_clause_complete("black holes bend spacetime") is True
+    assert eng._is_clause_complete("the cat sat on the mat") is True
+    assert eng._is_clause_complete("gravity pulls masses together") is True
+
+
+def test_preamble_holds_cueless_fragment():
+    eng = _bare_engine()
+    # No cue word, but an open proposition -> still a preamble (the M9 fix).
+    assert eng._is_preamble_fragment("and another thing —") is True
+    assert eng._is_preamble_fragment("the problem is that") is True
+    assert eng._is_preamble_fragment("what I mean is") is True
+    # A complete clause must never be withheld.
+    assert eng._is_preamble_fragment("black holes bend spacetime") is False
+    assert eng._is_preamble_fragment("the cat sat on the mat") is False
+    # Answerable queries still pass through (B1 regression).
+    assert eng._is_preamble_fragment("explain oxiverse") is False
+    assert eng._is_preamble_fragment("define trust") is False
+    assert eng._is_preamble_fragment("what gravity") is False
+    # Greetings remain complete social acts.
+    assert eng._is_preamble_fragment("hi") is False
+
+
 # ── B2: code/script fragments must be stripped / rejected ──────────────────
 def test_looks_clean_rejects_code_fragment():
     wl = _bare_web()
