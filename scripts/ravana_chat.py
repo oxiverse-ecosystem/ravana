@@ -117,6 +117,10 @@ def main():
     parser.add_argument("--no-rlm", action="store_true", help="Disable RLMv2 triple verification")
     parser.add_argument("--no-beliefs", action="store_true", help="Disable belief store")
     parser.add_argument("--no-curiosity", action="store_true", help="Disable autonomous curiosity-driven learning")
+    parser.add_argument("--snippet-pe", action="store_true",
+                        help="Enable Track B Phase 2 learned snippet-quality model "
+                             "(structural prediction-error gate) for web snippets. "
+                             "Off by default; hardcoded filters remain the backstop.")
     parser.add_argument("--mode", type=str, default="stochastic", choices=["stochastic", "deterministic", "exploratory"],
                         help="Reasoning mode: stochastic (default), deterministic (reproducible), exploratory (high-temp)")
     parser.add_argument("--debug", action="store_true", help="Print debug tracebacks for exceptions")
@@ -167,6 +171,9 @@ def main():
     if args.no_curiosity:
         engine._curiosity_drive_enabled = False
         print('  [Curiosity] Autonomous learning disabled')
+    if args.snippet_pe:
+        engine.use_cerebellar_snippet = True
+        print('  [Snippets] Track B Phase 2 learned structural-PE gate ENABLED')
 
     # Solution #2: Apply reasoning mode
     if args.mode != "stochastic":

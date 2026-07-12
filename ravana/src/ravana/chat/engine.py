@@ -59,6 +59,7 @@ except ImportError:
 from .constants import (TEEN_CONCEPTS, WEB_GARBAGE, STOP_WORDS, ConceptPosDict,
                         _is_word_salad, _is_keyboard_mash)
 from .web_learning import WebLearningMixin
+from .snippet_quality import SnippetStructureModel, default_model
 
 import pickle
 from ravana.web.learner import SearchEngine
@@ -273,6 +274,13 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         self.use_vad = True
         self.use_rlm = True
         self.use_beliefs = True
+        # Track B Phase 2 (M4): learned snippet-quality model (structural PE).
+        # OFF by default — the hardcoded _SNIPPET_REJECT_SHAPES /
+        # _SNIPPET_NOISE tables remain the backstop until the learned model is
+        # verified to beat them on the regression set (milestone plan). When ON,
+        # the learned model additionally flags structural-junk snippets.
+        self.use_cerebellar_snippet = False
+        self._snippet_model = None
         self.belief_store = BeliefStore()
 
         # Plasticity engine for Hebbian learning and episodic triples
@@ -4011,6 +4019,10 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 # "Definition of sun", "Get the latest news…").
                 if any(re.match(p, sl) for p in self._SNIPPET_REJECT_SHAPES):
                     continue
+                # Track B Phase 2 (M4): learned structural-junk gate (flag-gated;
+                # old regex table above remains the backstop).
+                if self._snippet_is_structural_junk(s):
+                    continue
                 # Score: mentions subject or query keywords, prefer answer shape
                 score = 0.0
                 sl_words = set(sl.split())
@@ -4146,6 +4158,10 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                     continue
                 if any(n in blob.lower() for n in self._SNIPPET_NOISE):
                     continue
+                # Track B Phase 2 (M4): learned structural-junk gate (flag-gated;
+                # old noise table above remains the backstop).
+                if self._snippet_is_structural_junk(blob):
+                    continue
                 # Fallback must still be about the subject
                 blow = blob.lower()
                 _fb_tokens = subj.split()
@@ -4160,6 +4176,42 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             return None
         candidates.sort(key=lambda x: x[0], reverse=True)
         return candidates[0][1]
+
+    def _snippet_is_structural_junk(self, snippet: str,
+                                    coherence: Optional[float] = None) -> bool:
+        """Track B Phase 2 (M4): learned structural-junk gate for snippets.
+
+        When ``use_cerebellar_snippet`` is ON, consults the trained
+        ``SnippetStructureModel`` (predictive-coding PE): rejects snippets that
+        are structurally OOD from learned good definitions AND semantically
+        incoherent. The hardcoded ``_SNIPPET_REJECT_SHAPES`` / ``_SNIPPET_NOISE``
+        tables are ALWAYS consulted as a fallback (old constant kept until the
+        learned model is verified to beat them on the regression set).
+
+        Returns True only when the snippet should be rejected.
+        """
+        # Old constant as backstop — never weakens the existing hard reject.
+        sl = (snippet or "").lower()
+        _old_reject = (
+            any(n in sl for n in self._SNIPPET_NOISE) or
+            any(re.match(p, sl) for p in self._SNIPPET_REJECT_SHAPES)
+        )
+        if _old_reject:
+            return True
+        if not self.use_cerebellar_snippet:
+            return False
+        # Lazy-init the learned model (trained on the seed corpus once).
+        if self._snippet_model is None:
+            try:
+                self._snippet_model = default_model()
+            except Exception:
+                self._snippet_model = False  # avoid re-init on failure
+        if self._snippet_model and hasattr(self._snippet_model, "is_junk"):
+            try:
+                return bool(self._snippet_model.is_junk(snippet, coherence))
+            except Exception:
+                return False
+        return False
 
     def _snippet_quality(self, snippet: str, subject: str, term: str,
                          is_conditional: bool = False) -> float:

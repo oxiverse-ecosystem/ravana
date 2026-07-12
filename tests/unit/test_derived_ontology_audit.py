@@ -121,6 +121,59 @@ def test_hardcoded_abstract_blocklist_removed():
     assert "you" in blocked and "i" in blocked and "they" in blocked
 
 
+# ── Track B Phase 2 (M4): learned snippet-quality model ─────────────────────
+
+def test_snippet_model_rejects_garbage_admits_good():
+    """The learned structural-PE model (predictive coding) rejects boilerplate
+    / navigation / code snippets and admits well-formed definitions."""
+    from ravana.chat.snippet_quality import default_model
+    m = default_model()
+    good = [
+        "trust is a belief in the reliability of another person",
+        "gravity is the force that attracts objects with mass",
+    ]
+    bad = [
+        "get the latest news from our newsletter sign up now",
+        "fan art by @user123 | deviantart",
+        "click here to download the app and subscribe",
+        "def my_func(x): return x * 2  # boilerplate code",
+    ]
+    for g in good:
+        assert not m.is_junk(g), f"good snippet wrongly rejected: {g!r}"
+    for b in bad:
+        assert m.is_junk(b), f"garbage snippet not caught: {b!r}"
+
+
+def test_snippet_gate_backstop_with_flag_off():
+    """With the learned model OFF (default), the engine's snippet gate still
+    rejects known junk via the old hardcoded tables (no regression)."""
+    eng = CognitiveChatEngine.__new__(CognitiveChatEngine)
+    eng.use_cerebellar_snippet = False
+    # Old-pattern junk (matches _SNIPPET_REJECT_SHAPES / _SNIPPET_NOISE).
+    assert eng._snippet_is_structural_junk("get the latest news about this")
+    assert eng._snippet_is_structural_junk("sign in to your account now")
+    # A clean definition is NOT rejected.
+    assert not eng._snippet_is_structural_junk(
+        "trust is a belief in the reliability of another person")
+
+
+def test_snippet_gate_learned_with_flag_on():
+    """With the learned model ON, the engine's snippet gate additionally
+    rejects structural garbage (boilerplate/code) that the old tables might
+    miss, while still admitting good definitions."""
+    eng = CognitiveChatEngine.__new__(CognitiveChatEngine)
+    eng.use_cerebellar_snippet = True
+    eng._snippet_model = None
+    # Old table still works as backstop.
+    assert eng._snippet_is_structural_junk("get the latest news about this")
+    # Learned model catches boilerplate/code the old tables may not enumerate.
+    assert eng._snippet_is_structural_junk(
+        "click here to download the app and subscribe now")
+    # Good definition admitted.
+    assert not eng._snippet_is_structural_junk(
+        "gravity is the force that attracts objects with mass")
+
+
 def test_walk_hierarchy_seed_fallback_when_no_graph_edges():
     g = ConceptGraph(dim=16)
     g.add_node(label="justice", vector=np.zeros(16, dtype=np.float32))
