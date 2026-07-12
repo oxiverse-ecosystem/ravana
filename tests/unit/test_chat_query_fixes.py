@@ -164,3 +164,74 @@ def test_checksum_excludes_own_key():
     s2 = {"turn_count": 7, "state_checksum": "deadbeef"}
     assert (CognitiveChatEngine._checksum_state(s1)
             == CognitiveChatEngine._checksum_state(s2))
+
+
+# ── Track A1 (M1): counterfactual reliability ───────────────────────────────
+# Broadened conditional detection (A1 #3): bare counterfactuals without an
+# explicit 'if…' lead-in must still route to the simulation path.
+@pytest.mark.parametrize("q", [
+    "cats took over the world",
+    "dogs in charge of the country",
+    "ai took over",
+    "what would gravity be like",
+    "what would mars be like",
+    "if cats ruled the world",          # original lead-in still works
+    "what if the sun disappeared",       # original lead-in still works
+])
+def test_conditional_detection_broadened(engine, q):
+    assert engine._is_conditional_query(q) is True
+
+
+# The premise-driven abductive simulation must return a counterfactual
+# (not None / not uncertainty) for the common scenarios — WITHOUT any web
+# lookup. We exercise the pure premise path so the test is fast + offline.
+def _fake_ctx(raw, subject=""):
+    import types
+    return types.SimpleNamespace(raw_input=raw, subject=subject,
+                                 associated_concepts=[])
+
+
+@pytest.mark.parametrize("q,subject", [
+    ("if cats ruled the world", "cats"),
+    ("cats took over the world", "cats"),
+    ("what if the sun disappeared", "sun"),
+    ("if humans could photosynthesize", "humans"),
+    ("what would happen if the moon was made of cheese", "moon"),
+])
+def test_counterfactual_premise_returns(engine, q, subject):
+    ctx = _fake_ctx(q, subject)
+    out = engine._simulate_counterfactual(ctx)
+    assert out is not None, f"counterfactual bailed for {q!r}"
+    text, strat = out
+    assert strat == "counterfactual_simulation"
+    assert len(text) > 10
+    # Must not be a hollow uncertainty filler.
+    assert "not sure" not in text.lower() and "outside what i know" not in text.lower()
+
+
+# ── Track A2 (M1): humor grammar (agreement + capitalization) ───────────────
+def test_humor_grammar_agreement():
+    """Punchlines must be grammatically well-formed (Barlow & Ferguson
+    agreement): past-participle after 'were', 1sg 'I relate to' (capital I),
+    and the connector must agree with its template — never 'were relates to'
+    or 'how i relates to you'."""
+    d = tempfile.mkdtemp(prefix="ravana_humor_")
+    e = CognitiveChatEngine(dim=64, seed=42, baby_mode=True, data_dir=d)
+    # Rotate turn_count to hit all three templates (_setups/_punchlines index).
+    seen = set()
+    for tc in range(3):
+        e.turn_count = tc
+        joke = e._handle_humor("tell me a joke")
+        assert joke is not None, f"humor returned None at turn {tc}"
+        seen.add(joke)
+        # Grammar invariants that must NEVER appear (the pre-fix bugs):
+        assert "were relates to" not in joke, f"bad agreement: {joke!r}"
+        assert "i relates to" not in joke, f"bad agreement/caps: {joke!r}"
+        assert " how i " not in joke, f"uncapitalized I: {joke!r}"
+        # Positive: at least one well-formed conjugation must be present.
+        assert ("related to" in joke or "relate to" in joke
+                or " but " in joke or " like " in joke
+                or " because " in joke or " and " in joke), \
+            f"no valid connector in: {joke!r}"
+    # All three templates should differ (rotation works).
+    assert len(seen) >= 2, f"humor did not rotate: {seen!r}"

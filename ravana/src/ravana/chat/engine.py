@@ -3193,6 +3193,19 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                      r"what would happen|what happens if|imagine if|"
                      r"pretend that|in a world without)\b", t):
             return True
+        # Track A1 #3: broaden conditional detection so bare counterfactuals
+        # route to the simulation path. These are scenario/premise cues that
+        # mark a hypothetical even without an explicit 'if…' lead-in. Grounded
+        # in CSM: the intervention do(X) is stated directly ("cats ruled the
+        # world", "AI took over") rather than as a subjunctive clause.
+        # 'what would X be like' / 'if X were in charge' are especially common
+        # phrasings that previously fell through to reflective/uncertainty.
+        _COND_RE = re.compile(
+            r"(ruled the world|took over|take over|in charge|in control|"
+            r"what would .* be like|if .* were in charge|if .* took over|"
+            r"if .* ran the world|if .* governed|would happen if)")
+        if _COND_RE.search(t):
+            return True
         return False
 
     def _is_yesno_factual_query(self, text: str) -> bool:

@@ -1579,20 +1579,44 @@ class ResponseGenMixin(ChainWalkerMixin):
             a, b = _candidates[0], _candidates[1]
             _pair = (a, b, "relates to")
         a, b, rel = _pair
-        _rel_word = {
+        # Track A2 #5: relation-type → connector, but the default "relate to"
+        # is a VERB and must be conjugated to the grammatical context of each
+        # punchline (Agreement as controller→target feature-copy; Barlow &
+        # Ferguson). Fixed-word connectors (but/like/because/and/then/loves/
+        # is/is part of) are used as-is. We produce the BASE form and let each
+        # template conjugate it (A2 #6).
+        _FIXED = {
             "contrastive": "but", "analogical": "like", "causal": "because",
             "semantic": "and", "temporal": "then", "emotional": "loves",
             "is_a": "is", "part_of": "is part of",
-        }.get((rel or "semantic").lower(), "relates to")
+        }
+        _rel_fixed = _FIXED.get((rel or "").lower())
+        if _rel_fixed is not None:
+            _rel_base = _rel_fixed          # no conjugation needed
+            _conjugate = lambda form: _rel_fixed
+        else:
+            _rel_base = "relate to"          # default verb — conjugate below
+            def _conjugate(form):
+                _forms = {
+                    "base": "relate to",
+                    "pres_3sg": "relates to",
+                    "pres_1sg": "relate to",
+                    "past_part": "related to",
+                }
+                return _forms.get(form, _rel_base)
+
         _setups = [
             f"why did the {a} break up with the {b}?",
             f"what do you get when a {a} meets a {b}?",
             f"why was the {a} afraid of the {b}?",
         ]
         _punchlines = [
-            f"too much {_rel_word} the {b} — it couldn't handle the tension.",
-            f"it realized they were {_rel_word} each other all along.",
-            f"the {b} said 'that's just how i {_rel_word} you.'",
+            # A2 #6/#7: "too much {rel} the {b}" reads as 3sg → pres_3sg.
+            f"too much {_conjugate('pres_3sg')} the {b} — it couldn't handle the tension.",
+            # A2 #6: "they were {rel}" → past participle "related to".
+            f"it realized they were {_conjugate('past_part')} each other all along.",
+            # A2 #6/#7: "how i {rel} you" → 1sg "relate to" + capitalize "I".
+            f"the {b} said 'that's just how I {_conjugate('pres_1sg')} you.'",
         ]
         _i = (getattr(self, "turn_count", 0) or 0) % len(_setups)
         return f"{_setups[_i]} {_punchlines[_i]}"
@@ -2578,6 +2602,12 @@ class ResponseGenMixin(ChainWalkerMixin):
         # ctx.subject is often the verb ("disappeared"), so we preferentially
         # pick a salient content noun from the query (sun, cats, moon, humans).
         _raw = (ctx.raw_input or "").lower()
+        # Track A1 #2: snapshot the concept-keyword map ONCE. The background
+        # learner (learner.py / web_learning.py) mutates _concept_keywords
+        # concurrently; reading it repeatedly during start resolution can flip
+        # `start` mid-run (a race that makes counterfactuals nondeterministic).
+        # Snapshot defensively so the subject is resolved against a stable view.
+        _ck = dict(getattr(self, "_concept_keywords", {}) or {})
         # Verbs / function words that a counterfactual acts ONTO, never the
         # subject of the intervention (e.g. "disappeared", "happen", "were").
         _VERB_BLOCK = {
@@ -2595,7 +2625,7 @@ class ResponseGenMixin(ChainWalkerMixin):
         # else the first salient query noun (skips verbs via _VERB_BLOCK).
         start = ""
         for w in _query_nouns:
-            if w in getattr(self, "_concept_keywords", {}):
+            if w in _ck:
                 start = w
                 break
         if not start:
@@ -2674,7 +2704,17 @@ class ResponseGenMixin(ChainWalkerMixin):
             lines.append(f"{subj_cap} would make their own food from sunlight")
             lines.append("they'd need far less to eat from the environment")
             lines.append("farming and food supply would change a lot")
-        elif "rul" in _premise and ("cat" in _premise or "world" in _premise):
+        elif ("rul" in _premise or "took over" in _premise
+              or "take over" in _premise or "in charge" in _premise
+              or "in control" in _premise) and (
+                "cat" in _premise or "world" in _premise
+                or "dog" in _premise or "human" in _premise
+                or "ai" in _premise or "people" in _premise
+                or "country" in _premise or "planet" in _premise
+                or "government" in _premise):
+            # Control/intervention premise: X seizes authority. Covers
+            # "cats ruled the world", "cats took over the world",
+            # "dogs in charge of the country", "ai took over".
             lines.append(f"{subj_cap} would set the rules everyone else follows")
             lines.append("daily life would bend around what they want")
         elif "disappear" in _premise or "gone" in _premise:
