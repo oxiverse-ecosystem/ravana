@@ -2538,7 +2538,7 @@ class ResponseGenMixin(ChainWalkerMixin):
         # text (that would mean the guard failed closed into the very garbage it
         # was meant to prevent). If the composed fallback is somehow salad, drop
         # to a canned, zero-risk minimal template.
-        if _is_word_salad_any_sentence(text, subject=subject):
+        if _is_word_salad_any_sentence(text, subject=subject, grain="clause"):
             text = (f"i'm still learning about {subj_cap.lower()} — "
                     f"want to explore it together?")
         return (text, "metacognitive_uncertainty")
@@ -3272,7 +3272,7 @@ class ResponseGenMixin(ChainWalkerMixin):
             c = text.strip()
             _bad = False
             if c:
-                if _is_word_salad_any_sentence(c, subject=ctx.subject):
+                if _is_word_salad_any_sentence(c, subject=ctx.subject, grain="clause"):
                     _bad = True
                 elif (not getattr(self, "_disable_grounding_gate", False)
                         and not self._sm_response_grounded(ctx, c, skip_step1=True)):
@@ -3286,7 +3286,7 @@ class ResponseGenMixin(ChainWalkerMixin):
                 continue
             # Per-sentence salad (subject+glue filler, truncated repetition,
             # vague-concept-metawords).
-            if _is_word_salad_any_sentence(c, subject=ctx.subject):
+            if _is_word_salad_any_sentence(c, subject=ctx.subject, grain="clause"):
                 dropped = True
                 continue
             # Stronger per-clause SM monitor (reference + coherence +

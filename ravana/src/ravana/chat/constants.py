@@ -9,6 +9,17 @@ from typing import Optional
 # exactly once (a future caller that omits subject is caught, not silent).
 _SALAD_WARNED_NO_SUBJECT = False
 
+# M8: per-grain salad thresholds (over-monitoring calibration).
+# A DOCUMENT is one sample — a loose criterion avoids false alarms.
+# A REPLY of N clauses is N independent samples, so each clause can fire
+# on weaker evidence without inflating the whole-reply false-alarm rate
+# (Steinhauser & Yeung 2010: error detection = evidence vs an internal
+# criterion; a lower criterion is safe when the base-rate of degenerate
+# clauses per sample is higher). Clause grain is stricter (lower threshold
+# + stricter novel-word safety valve).
+SALAD_DOC_THRESHOLD = 0.7
+SALAD_CLAUSE_THRESHOLD = 0.55
+
 _DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))), "data")
 
 with open(os.path.join(_DATA_DIR, "constants.json"), encoding="utf-8") as _f:
@@ -140,13 +151,17 @@ def _is_question_phrase(phrase: str) -> bool:
     return False
 
 
-def _is_word_salad(text: str, allow_content_only: bool = False, subject: Optional[str] = None) -> bool:
+def _is_word_salad(text: str, allow_content_only: bool = False, subject: Optional[str] = None, grain: str = "doc") -> bool:
     """Detect if generated text is word salad using learned distributional features.
     Replaces hardcoded thresholds with continuous scoring based on:
     - Structural word rarity score (frequency-based detection, replacing hardcoded lists)
     - Neural decoder perplexity when available
     - Type-token ratio with continuous scoring instead of binary threshold
-    - Grammatical anchor density with learned weights instead of hardcoded checks"""
+    - Grammatical anchor density with learned weights instead of hardcoded checks
+
+    grain: "doc" (whole-text, loose criterion) or "clause" (per-clause,
+    stricter criterion + stricter novel-word safety valve) — M8 calibration.
+    """
     if not text:
         return True
     words = re.findall(r"\b\w+\b", text.lower())
@@ -294,14 +309,13 @@ def _is_word_salad(text: str, allow_content_only: bool = False, subject: Optiona
         resp_content = [w for w in words if w not in glue and w not in high_freq_structural]
         # Novel content = response words not present in the subject.
         novel = [w for w in resp_content if w not in subj_words]
-        # SAFETY VALVE (Phase 19g): if the response introduces several genuinely
-        # novel content words relative to the subject, it is clearly
-        # informative and must NOT be flagged as salad — even if it happens to
-        # trip the structural "consecutive content-word run" heuristic (e.g. a
-        # dense factual sentence like "gravity pulls things toward massive
-        # objects"). Pure tautologies have 0 novel words, so this never shields
-        # them. This prevents the salad guard from destroying good answers.
-        if len(novel) >= 3:
+        # SAFETY VALVE (Phase 19g / M8): if the response introduces several
+        # genuinely novel content words relative to the subject, it is clearly
+        # informative and must NOT be flagged as salad. The required count is
+        # per-grain: a clause (one of N samples) can clear with fewer novel
+        # words (stricter monitor); a whole document needs more (loose monitor).
+        _novel_clear = 2 if grain == "clause" else 3
+        if len(novel) >= _novel_clear:
             return False
         if resp_content and len(novel) == 0:
             # Response contains only subject words + glue → pure tautology.
@@ -331,11 +345,12 @@ def _is_word_salad(text: str, allow_content_only: bool = False, subject: Optiona
         if _has_copula and _has_article:
             return False
 
-    # Final decision: salad_score >= 0.7 means word salad
-    return salad_score >= 0.7
+    # Final decision: threshold is per-grain (M8 calibration).
+    _thresh = SALAD_CLAUSE_THRESHOLD if grain == "clause" else SALAD_DOC_THRESHOLD
+    return salad_score >= _thresh
 
 
-def _is_word_salad_any_sentence(text: str, subject: Optional[str] = None) -> bool:
+def _is_word_salad_any_sentence(text: str, subject: Optional[str] = None, grain: str = "doc") -> bool:
     """Clause-grained variant of _is_word_salad (consistency with the
     Situation-Model Levelt/Wernicke monitor, which now judges per sentence).
 
@@ -348,6 +363,10 @@ def _is_word_salad_any_sentence(text: str, subject: Optional[str] = None) -> boo
 
     A sentence under the safety-valve word count (< 4 words) is skipped (too
     short to judge), mirroring the whole-text function's len() guards.
+
+    grain is forwarded to _is_word_salad so callers can select the stricter
+    clause criterion (the Situation-Model monitor / SM gate pass grain="clause";
+    the legacy whole-text decoder/narrative gates pass grain="doc", the default).
     """
     if not text:
         return True
@@ -355,6 +374,6 @@ def _is_word_salad_any_sentence(text: str, subject: Optional[str] = None) -> boo
         s = sent.strip()
         if len(s.split()) < 4:
             continue
-        if _is_word_salad(s, subject=subject):
+        if _is_word_salad(s, subject=subject, grain=grain):
             return True
     return False
