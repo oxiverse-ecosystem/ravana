@@ -964,31 +964,43 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
 
         Phase 2.1: Results are cached so repeated lookups (e.g. auto-expansion
         for every input word) avoid recomputing the projection.
+
+        Defensive: a bare engine constructed via ``__new__`` (e.g. in unit
+        tests that skip ``__init__``) has no GloVe state. Treat a missing glove
+        table/projection exactly as "GloVe absent" and return None rather than
+        raising AttributeError — callers already branch on a None result.
         """
-        if self._glove_vecs is None:
+        vecs = getattr(self, "_glove_vecs", None)
+        if vecs is None:
             return None
         w = label.lower().strip()
         # Check cache first (Phase 2.1)
-        cached = self._glove_vector_cache.get(w)
-        if cached is not None:
-            return cached
-        vec = self._glove_vecs.get(w)
+        cache = getattr(self, "_glove_vector_cache", None)
+        if cache:
+            cached = cache.get(w)
+            if cached is not None:
+                return cached
+        vec = vecs.get(w)
         if vec is None and len(w) > 1:
-            vec = self._glove_vecs.get(w.rstrip('s'))
+            vec = vecs.get(w.rstrip('s'))
         if vec is None and len(w) > 2:
-            vec = self._glove_vecs.get(w[:-1])
+            vec = vecs.get(w[:-1])
         if vec is not None:
-            pv = self._glove_proj @ vec
+            proj = getattr(self, "_glove_proj", None)
+            if proj is None:
+                return None
+            pv = proj @ vec
             norm = np.linalg.norm(pv)
             if norm > 0:
                 pv /= norm
             result = pv.astype(np.float32)
-            self._glove_vector_cache[w] = result
-            # Also cache variants for fast lookup
-            if w.rstrip('s') != w:
-                self._glove_vector_cache[w.rstrip('s')] = result
-            if len(w) > 2 and w[:-1] != w:
-                self._glove_vector_cache[w[:-1]] = result
+            if cache is not None:
+                cache[w] = result
+                # Also cache variants for fast lookup
+                if w.rstrip('s') != w:
+                    cache[w.rstrip('s')] = result
+                if len(w) > 2 and w[:-1] != w:
+                    cache[w[:-1]] = result
             return result
         return None
 

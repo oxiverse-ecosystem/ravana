@@ -181,7 +181,13 @@ def test_inheritance_walk_reaches_color_ancestor_over_typed_edges():
 def test_real_graph_inheritance_walk_reaches_color_ancestor():
     """End-to-end on a TEMP copy of the real DB: after the typed-edge bootstrap,
     an inheritance walk from a color-possessing subject reaches a color-bearing
-    ancestor via real typed edges (Path 2, no longer impossible)."""
+    ancestor via real typed edges (Path 2, no longer impossible).
+
+    The real graph's only color-term node reachable by a typed edge is
+    ``black`` (reached from ``humans`` via a ConceptNet ``has_property`` edge).
+    We assert that walk, the verified real case — mirroring the production gate
+    by treating color-term labels as color possessors.
+    """
     import os
     import sqlite3
     import tempfile
@@ -199,11 +205,8 @@ def test_real_graph_inheritance_walk_reaches_color_ancestor():
         CognitiveDB(tdb).load_graph(g)
         ont = ConceptNetOntology.load(pkl)
         inject_conceptnet_typed_edges(g, ont)
-        # Subjects empirically wired (via ConceptNet has_property) to a color
-        # term that exists in the real graph (e.g. cats->black, car->red).
-        # The walk reaches that color-term node and must recognize it as a
-        # color holder — mirror the production gate by treating color-term
-        # labels as color possessors.
+        # Color-term node that the real graph actually carries AND that is
+        # reachable by a typed edge (verified: humans -[has_property]-> black).
         COLOR_TERMS = {"red", "blue", "green", "yellow", "black", "white",
                        "purple", "orange", "pink", "brown", "grey", "gray",
                        "colour", "colorful", "coloured", "color"}
@@ -216,7 +219,10 @@ def test_real_graph_inheritance_walk_reaches_color_ancestor():
                 return True
             return _orig(subject, prop)
         onto.has_property = hp
-        assert onto._graph_path_to_property("cats", "color") is True
+        # The subject must be a node present in the deployed graph ("humans",
+        # not the OOV "cats"). The walk reaches "black" and recognizes it as a
+        # color holder.
+        assert onto._graph_path_to_property("humans", "color") is True
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
