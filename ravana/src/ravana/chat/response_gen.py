@@ -1567,13 +1567,29 @@ class ResponseGenMixin(ChainWalkerMixin):
         random.seed((getattr(self, "turn_count", 0) or 0) + 1)
         random.shuffle(_candidates)
         _pair = None
+        # Prefer a VERBAL typed edge (causal/contrastive/analogical/is_a/part_of)
+        # for the joke — those map to real connectors (because/but/like/is/is
+        # part of) that conjugate into the punchline slots. The bare "semantic"
+        # edge maps to "and", which is not a verb and produces broken slots
+        # ("they were and each other"). Only fall back to a semantic edge when
+        # no verbal edge exists between any pair.
+        _VERBAL = {"causal", "contrastive", "analogical", "is_a", "part_of"}
         for i in range(0, max(1, len(_candidates) - 1)):
             a, b = _candidates[i], _candidates[i + 1]
             _edges = self._typed_edges_between(a, b) if hasattr(
                 self, "_typed_edges_between") else []
-            if _edges:
-                _pair = (a, b, _edges[0])
+            _verbal = [e for e in _edges if (e or "").lower() in _VERBAL]
+            if _verbal:
+                _pair = (a, b, _verbal[0])
                 break
+        if not _pair:
+            for i in range(0, max(1, len(_candidates) - 1)):
+                a, b = _candidates[i], _candidates[i + 1]
+                _edges = self._typed_edges_between(a, b) if hasattr(
+                    self, "_typed_edges_between") else []
+                if _edges:
+                    _pair = (a, b, _edges[0])
+                    break
         if not _pair:
             # Fallback: any two distinct non-meta concepts.
             a, b = _candidates[0], _candidates[1]
@@ -1610,14 +1626,24 @@ class ResponseGenMixin(ChainWalkerMixin):
             f"what do you get when a {a} meets a {b}?",
             f"why was the {a} afraid of the {b}?",
         ]
-        _punchlines = [
-            # A2 #6/#7: "too much {rel} the {b}" reads as 3sg → pres_3sg.
-            f"too much {_conjugate('pres_3sg')} the {b} — it couldn't handle the tension.",
-            # A2 #6: "they were {rel}" → past participle "related to".
-            f"it realized they were {_conjugate('past_part')} each other all along.",
-            # A2 #6/#7: "how i {rel} you" → 1sg "relate to" + capitalize "I".
-            f"the {b} said 'that's just how I {_conjugate('pres_1sg')} you.'",
-        ]
+        if (rel or "").lower() == "semantic":
+            # "semantic" → connector "and" is not a verb; the verb-slot
+            # punchlines below would be ungrammatical ("they were and each
+            # other"). Use a coherent template that works with any connector.
+            _punchlines = [
+                f"because they just go together — {a} {_rel_fixed} {b}.",
+                f"turns out {a} and {b} are basically the same vibe.",
+                f"neither one makes sense without the other: {a} {_rel_fixed} {b}.",
+            ]
+        else:
+            _punchlines = [
+                # A2 #6/#7: "too much {rel} the {b}" reads as 3sg → pres_3sg.
+                f"too much {_conjugate('pres_3sg')} the {b} — it couldn't handle the tension.",
+                # A2 #6: "they were {rel}" → past participle "related to".
+                f"it realized they were {_conjugate('past_part')} each other all along.",
+                # A2 #6/#7: "how i {rel} you" → 1sg "relate to" + capitalize "I".
+                f"the {b} said 'that's just how I {_conjugate('pres_1sg')} you.'",
+            ]
         _i = (getattr(self, "turn_count", 0) or 0) % len(_setups)
         return f"{_setups[_i]} {_punchlines[_i]}"
 
@@ -1657,6 +1683,13 @@ class ResponseGenMixin(ChainWalkerMixin):
         # (mirrors the exemption above for wh-words), reusing the same detector
         # that opens the web-answer gate — one definition of "yes/no question".
         if hasattr(self, "_is_yesno_factual_query") and self._is_yesno_factual_query(t):
+            return None
+        # Exempt informational / request phrasings ("tell me about X",
+        # "describe X", "explain X", "what is X") from the assertion mirror —
+        # these are requests for facts/explanations, not statements to
+        # acknowledge. Routing them through the assertion ack ("right, sun.")
+        # buries the real answer. Let them fall through to the factual path.
+        if hasattr(self, "_is_informational_query") and self._is_informational_query(t, subject or ""):
             return None
 
         # Reflect the user's stated content. Prefer a concrete concept if one
@@ -2798,30 +2831,37 @@ class ResponseGenMixin(ChainWalkerMixin):
         if lines:
             body = "; ".join(lines[:3])
             return (f"{lead} {body}.", "counterfactual_simulation")
-        # Generic path: need a description of the subject to extract
-        # dependencies. Try web, then graph definitions.
-        desc = None
-        try:
-            if hasattr(self, "_web_direct_answer"):
-                _wa = self._web_direct_answer(ctx)
-                if _wa:
-                    desc = _wa[0]
-        except Exception:
-            desc = None
-        if not desc:
-            desc = getattr(self, "_definitions", {}).get(subj) or \
-                   getattr(self, "_concept_sources", {}).get(subj)
+        # Generic path: only use a CLEAN LOCAL definition (not a noisy web
+        # snippet — those pull in unrelated words like "google" /
+        # "photorealistic" and produce garbage counterfactuals such as
+        # "their link to google would change"). Require the extracted
+        # dependencies to be concepts actually wired to the subject in the
+        # graph, otherwise we have nothing grounded to simulate and must
+        # return None so the caller falls through to honest uncertainty.
+        desc = getattr(self, "_definitions", {}).get(subj) or \
+               getattr(self, "_concept_sources", {}).get(subj)
         if not desc:
             return None
         _dep = [w for w in re.findall(r"[a-z']+", desc.lower())
                 if w not in STOP_WORDS and w != subj and len(w) > 2]
         _seen = set()
         _deps = []
+        # Only keep dependencies that are real concepts and share a typed edge
+        # with the subject — anything else is ungrounded noise.
         for w in _dep:
-            if w not in _seen:
-                _seen.add(w)
-                _deps.append(w)
-            if len(_deps) >= 4:
+            if w in _seen:
+                continue
+            _seen.add(w)
+            _nids = self._concept_keywords.get(w)
+            _subj_nids = self._concept_keywords.get(subj)
+            if not _nids or not _subj_nids:
+                continue
+            _edges = self._typed_edges_between(subj, w) if hasattr(
+                self, "_typed_edges_between") else []
+            if not _edges:
+                continue
+            _deps.append(w)
+            if len(_deps) >= 3:
                 break
         if not _deps:
             return None
@@ -3129,8 +3169,6 @@ class ResponseGenMixin(ChainWalkerMixin):
 
     def _generate_response(self, ctx: CognitiveResponseContext) -> Tuple[str, str]:
         """Dual-path response generation.
-
-        Neuroscience basis:
         - Ventral Stream (fast): ATL → IFG — concept retrieval + surface realization.
           Handles known concepts, direct associations, cached patterns.
           NO web search, NO multi-hop reasoning, NO neural decoder.
@@ -3214,6 +3252,25 @@ class ResponseGenMixin(ChainWalkerMixin):
         web_ans = self._web_direct_answer(ctx)
         if web_ans:
             return web_ans
+
+        # ── P1/P2: on-demand KB grounding (curiosity-gated retrieval, KB-first) ──
+        # If this is an informational query about a concrete, real concept we
+        # don't yet have a definition for, look it up in the knowledge bases
+        # (Wikipedia primary, ConceptNet composition fallback) BEFORE falling
+        # back to honest uncertainty. This is the "human looks it up" reflex:
+        # epistemic deficit -> targeted lookup -> assimilate -> answer. The
+        # fetched fact is stored in _definitions exactly like a web-learned
+        # fact, so the downstream definition path surfaces it. Fail-closed
+        # stays as the final fallback when both KB and web miss.
+        if ctx.subject and self._is_informational_query(getattr(ctx, 'raw_input', ''), ctx.subject):
+            _sl = ctx.subject.lower().strip()
+            if _sl and _sl not in getattr(self, '_definitions', {}):
+                try:
+                    _kb = self.kb_describe(_sl) or self.describe_from_cn(_sl)
+                    if _kb:
+                        self._definitions[_sl] = _kb
+                except Exception:
+                    pass
 
 
         # ── Question Decomposition Path (BA 10 / Rostral PFC analog) ──

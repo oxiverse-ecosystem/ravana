@@ -244,18 +244,15 @@ class ChainWalkerMixin:
         if created:
             print(f"  [Domain] Bootstrapped {len(created)} domain concepts: {', '.join(created)}")
 
-        # Seed default natural definitions for core domain concepts
-        default_definitions = {
-            "ravana": "a cognitive architecture designed like a teenage mind that learns concepts and connections from the web using Hebbian learning and sleep consolidation without any backpropagation.",
-            "oxiverse": "a privacy-first, source-available ecosystem built as a decentralized alternative to big tech.",
-            "intentforge": "an intent-driven semantic search engine that helps discover and learn about new concepts.",
-            "hebbian learning": "a biological learning rule where connections between neurons strengthen when they are activated together, often summarized as 'cells that fire together, wire together'.",
-            "cognitive architecture": "a theoretical model and software framework that replicates the structure and cognitive processes of the human brain.",
-            "privacy": "the fundamental right to control how your personal data and digital identity are accessed and used.",
-        }
-        for concept, defn in default_definitions.items():
-            if concept not in self._definitions:
-                self._definitions[concept] = defn
+        # NOTE: the previous hardcoded 6-entry default_definitions seed
+        # (ravana / oxiverse / intentforge / hebbian learning / cognitive
+        # architecture / privacy) has been REMOVED to stay consistent with the
+        # M3–M6 "learned-replaces-hardcoded" direction. Self/ecosystem facts are
+        # now acquired the same way as any other fact — via the Wikipedia /
+        # Wikidata summary path (kb_describe) and the live web learner — so no
+        # propositional claim about the world is hand-authored. The domain
+        # CONCEPT NODES + typed edges above are still bootstrapped (they are
+        # graph structure, not authored natural-language definitions).
 
         # Dynamically seed proper nouns from DOMAIN_CONCEPTS
         for concept_name in DOMAIN_CONCEPTS.keys():

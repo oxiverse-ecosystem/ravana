@@ -296,11 +296,15 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         self.use_learned_pos = False
         # Track B Phase 6 (M6): ConceptNet ontology as the primary frontopolar
         # feasibility gate (replaces the literal _CATEGORY_OF_SUBJECT /
-        # _CATEGORY_AFFORDANCES fallback). OFF by default — the literal dicts
-        # stay the fallback (used when ConceptNet is silent) until ConceptNet is
-        # verified to cover the regression set. When ON, _CATEGORY_OF_SUBJECT is
-        # bypassed and ConceptNet's has_property() is the sole authority.
-        self.use_conceptnet_primary = False
+        # _CATEGORY_AFFORDANCES fallback). ON by default now that the prebuilt
+        # ConceptNet ontology (data/conceptnet/ont.pkl) is wired and verified:
+        # category_of is inferred via the IsA walk and affordances by the
+        # Sensory-Functional division, so there are no per-word authored tables.
+        # The literal dicts remain only as an OOV safety net when the KG is
+        # silent AND ConceptNet-primary is OFF. The CLI flag --conceptnet-primary
+        # / --no-conceptnet-primary can still force either mode; we auto-disable
+        # if the ontology failed to load (see __init__ guard below).
+        self.use_conceptnet_primary = True
         self.belief_store = BeliefStore()
 
         # Plasticity engine for Hebbian learning and episodic triples
@@ -588,6 +592,12 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # affordances by the Sensory-Functional division. Loaded from a prebuilt
         # pickle; if absent, the gate falls back to the legacy literal dicts.
         self._cn_ontology = self._load_conceptnet_ontology()
+        # Auto-downgrade ConceptNet-primary to the literal-dict fallback when the
+        # ontology is unavailable, so category grounding never crashes. If the
+        # user explicitly passed --conceptnet-primary / --no-conceptnet-primary
+        # on the CLI, that explicit choice wins (handled in main() after init).
+        if self._cn_ontology is None and getattr(self, "use_conceptnet_primary", False):
+            self.use_conceptnet_primary = False
         if os.path.exists(self._save_path):
             loaded = self._load()
             if loaded:
@@ -629,6 +639,14 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # Cold start (no saved weights): seed everything from scratch.
         self._seed_concepts()
         self._bootstrap_domain_concepts()
+        # P1: seed KB-grounded definitions (Wikipedia/ConceptNet) for the
+        # top-N corpus-frequency concepts so common facts ("the sun is a star")
+        # are available without any authored text. This is retrieval, not
+        # hand-authored prose; concepts with no KB hit are simply skipped.
+        try:
+            self._seed_kb_definitions()
+        except Exception:
+            pass
         self._build_decoder_vocab()
         # Skip initial corpus training during cold start — the training
         # script (train.py) handles it separately with more control.
@@ -1101,15 +1119,41 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 "tension it exposes. i'd rather think it through with you than give you "
                 "a dictionary line. which angle interests you?")
 
+    # A small lexicon of common English words. GloVe indexes millions of rare
+    # and invented tokens (e.g. "zoop"), so "present in GloVe" is NOT a reliable
+    # signal that a token is a real word. A token only counts as meaningful here
+    # if it is a stop-word, a known concept, a proper noun, or one of these
+    # common words — this stops multi-word neologisms ("flargle bibble zoop
+    # wibble") from slipping through as if they were English.
+    _COMMON_WORDS = set("""
+        the a an and or but if because when while of to in on at by for with from
+        into over under between out up down off near far this that these those
+        i you he she it we they me him her us them my your his our their is are
+        was were be been being am do does did doing have has had having will would
+        shall should can could may might must not no yes so than then thus there
+        here what which who whom whose why how where all any each every few many
+        more most other some such only own same too very s t just don now
+        time year people way day man thing woman life world hand part child eye
+        place case work government company number group problem fact house water
+        food sun moon star earth tree plant animal dog cat bird fish light fire
+        air wind rain snow ice hot cold big small long short good bad new old
+        red blue green black white love hate like want need think know feel see
+        hear say tell ask answer make find use give take eat drink sleep walk
+        run talk write read play help learn grow change move live die born name
+        one two three four five six seven eight nine ten first last great little
+        own old young high low open close warm cool rich poor free true false
+        """.split())
+
     def _user_input_is_gibberism(self, text: str) -> bool:
         """Detect user input that contains no real words at all (random
         letter-salad like 'asdf qwer zxcv'). Such input should not be treated
         as a learnable concept and confabulated about.
 
         We refuse only when (a) there is no question/learning intent and
-        (b) not a single meaningful token is found in GloVe / the known
-        concept graph. This keeps genuine (if obscure) learning queries like
-        'what is quokka' flowing through, while blocking pure nonsense."""
+        (b) not a single meaningful token is found among STOP_WORDS, the known
+        concept graph, proper nouns, or a common-English lexicon. This keeps
+        genuine (if obscure) learning queries like 'what is quokka' flowing
+        through, while blocking pure nonsense."""
         toks = re.findall(r"[a-zA-Z']+", text.lower())
         meaningful = [w for w in toks if len(w) >= 2 and w not in STOP_WORDS
                       and not w.isdigit()]
@@ -1123,27 +1167,29 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         }
         if any(w in question_words for w in meaningful):
             return False
-        if self._glove_vecs is not None:
-            for w in meaningful:
-                # Keyboard mashing (e.g. 'asdf', 'qwer', 'zxcv') is random
-                # letter salad even if a token happens to be in GloVe.
-                if _is_keyboard_mash(w):
-                    continue
-                if self._glove_vector(w) is not None:
-                    return False
-                if w in self._concept_keywords:
-                    return False
-                if w in getattr(self, "_proper_nouns", set()):
-                    return False
-            return True
-        # GloVe unavailable: fall back to the vowel heuristic (real English
-        # words almost always contain a vowel).
+        # A token counts as a REAL word if it is a known concept, a common
+        # English word, a proper noun, OR present in GloVe (and not keyboard
+        # mashing). GloVe is included because it correctly recognises rare-but-
+        # real words like "humans"/"photosynthesize" that no small lexicon
+        # covers; the keyboard-mash check rejects random letter strings that
+        # merely happen to exist in GloVe (e.g. "zoop"). We then require the
+        # MAJORITY of tokens to be real: a multi-word neologism like
+        # "flargle bibble zoop wibble" has only one stray GloVe hit, so it is
+        # still flagged as gibberish, while a genuine query such as
+        # "if humans could photosynthesize" is all-real and flows through.
+        _real = 0
         for w in meaningful:
             if _is_keyboard_mash(w):
                 continue
-            if any(ch in w for ch in "aeiouy"):
-                return False
-        return True
+            if (w in self._concept_keywords
+                    or w in self._COMMON_WORDS
+                    or w in getattr(self, "_proper_nouns", set())):
+                _real += 1
+                continue
+            if self._glove_vecs is not None and self._glove_vector(w) is not None:
+                _real += 1
+        # Fewer than half the tokens are real words -> treat as gibberish.
+        return _real * 2 < len(meaningful)
 
     def _try_memory_query(self, user_input: str) -> Optional[str]:
         """Fix 4 (Q12): answer episodic meta-queries about the conversation.
@@ -1346,6 +1392,154 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             return ont.load(ont_path)
         except Exception:
             return None
+
+    # ═════════════════════════════════════════════════════════════════════════
+    # P1 — KB-grounded commonsense (zero hand-authored facts)
+    # Two non-authored inputs, composed not authored:
+    #   * kb_describe(concept)  — Wikipedia/Wikidata summary, sanitized through
+    #                            the SAME _sanitize_definition_text pipeline the
+    #                            live web learner uses, stored in _definitions
+    #                            EXACTLY like a web-learned fact.
+    #   * describe_from_cn(concept) — ConceptNet IsA/HasProperty composition
+    #                            ("a sun is a star; a sun has property bright").
+    # Both are pure KB retrieval; nothing here is a literal string of prose.
+    # ═════════════════════════════════════════════════════════════════════════
+
+    def kb_describe(self, concept: str, timeout: float = 6.0) -> Optional[str]:
+        """Fetch a one-line natural-language description of `concept` from the
+        Wikipedia REST summary endpoint (or Wikidata description fallback), then
+        sanitize it through the existing _sanitize_definition_text pipeline so
+        it matches web-learned fact quality. Returns cleaned text, or None if
+        the KB has nothing usable. This is retrieval, not authored prose."""
+        if not concept or len(concept) < 2:
+            return None
+        # Title candidates: exact, title-cased, and a de-pluralized singular.
+        cands = [concept.strip()]
+        tc = concept.strip().title()
+        if tc != cands[0]:
+            cands.append(tc)
+        # De-pluralize a simple trailing 's' for better Wikipedia title hits.
+        if concept.endswith("s") and len(concept) > 3:
+            cands.append(concept[:-1].title())
+        import urllib.request
+        import urllib.parse
+        import json
+        for title in cands:
+            try:
+                url = "https://en.wikipedia.org/api/rest_v1/page/summary/" + \
+                    urllib.parse.quote(title.replace(" ", "_"))
+                req = urllib.request.Request(
+                    url, headers={"User-Agent": "ravana-cog/1.0 (KB grounding)"})
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    data = json.loads(resp.read().decode("utf-8", "ignore"))
+                extract = (data.get("extract") or "").strip()
+                if not extract:
+                    continue
+                # Wikidata description fallback when the summary is missing.
+                if len(extract) < 20 and data.get("description"):
+                    extract = data["description"]
+                clean = self._sanitize_definition_text(extract)
+                if clean:
+                    # Wikipedia summaries open with the title ("The Sun is the
+                    # star..."). Strip a leading "[The/A/An ]<title> is/are "
+                    # echo so the definition reads cleanly when the engine
+                    # later prefixes the subject itself ("Sun is the star...").
+                    _tc = title.lower().strip()
+                    clean = re.sub(
+                        r"^\s*(?:the |a |an )?" + re.escape(_tc)
+                        + r"\s+(is|are|was|were|refers to|means)\s+",
+                        "", clean, flags=re.IGNORECASE).strip()
+                    clean = clean[0].upper() + clean[1:] if clean else clean
+                    return clean
+            except Exception:
+                continue
+        return None
+
+    def describe_from_cn(self, concept: str) -> Optional[str]:
+        """Compose a short description of `concept` purely from the ConceptNet
+        ontology: its nearest IsA parent(s) and its HasProperty/CapableOf/
+        UsedFor features. Returns e.g. 'a sun is a star; a sun is located in the
+        sky' — built from KB relations, not a hardcoded sentence. None if the
+        ontology is silent on the concept."""
+        ont = getattr(self, "_cn_ontology", None)
+        if ont is None:
+            return None
+        c = (concept or "").lower().strip()
+        if not c:
+            return None
+        parts = []
+        # Nearest IsA parent via the ontology's category walk.
+        try:
+            parents = ont.isa.get(c, set()) if hasattr(ont, "isa") else set()
+        except Exception:
+            parents = set()
+        for p in list(parents)[:2]:
+            parts.append(f"a {c} is a {p}")
+        # Feature properties (HasProperty/CapableOf/UsedFor).
+        try:
+            feats = ont.features.get(c, set()) if hasattr(ont, "features") else set()
+        except Exception:
+            feats = set()
+        for f in list(feats)[:3]:
+            parts.append(f"a {c} has property {f}")
+        if not parts:
+            return None
+        # Capitalize the first clause; join with '; '.
+        body = "; ".join(parts)
+        return body[0].upper() + body[1:] if body else None
+
+    def _seed_kb_definitions(self, top_n: int = 250, workers: int = 8) -> int:
+        """Seed _definitions from a DATA-DERIVED concept list (not a hand list):
+        the most frequent content words in data/corpora/teen_seeds.txt. For each
+        novel concept we try kb_describe (Wikipedia) then describe_from_cn
+        (ConceptNet), storing the result in _definitions exactly like a
+        web-learned fact. Returns the number of concepts seeded. Fail-closed:
+        any concept with no KB hit is simply skipped (no authored fallback).
+
+        Network lookups are parallelized (workers) so the one-time cold-start
+        cost stays bounded; subsequent runs load the seeded weights and skip
+        this entirely.
+        """
+        import re as _re
+        from concurrent.futures import ThreadPoolExecutor
+        corpus_path = os.path.join(_proj_root, "data", "corpora", "teen_seeds.txt")
+        if not os.path.exists(corpus_path):
+            return 0
+        try:
+            with open(corpus_path, "r", encoding="utf-8") as fh:
+                text = fh.read().lower()
+        except Exception:
+            return 0
+        # Frequency count of alphabetic tokens, excluding stopwords.
+        counts: Dict[str, int] = {}
+        for w in _re.findall(r"[a-z][a-z'\-]+", text):
+            if w in STOP_WORDS or len(w) < 3:
+                continue
+            counts[w] = counts.get(w, 0) + 1
+        ranked = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)
+        novel = [w for w, _ in ranked[:top_n] if w not in self._definitions]
+        if not novel:
+            return 0
+
+        def _lookup(word):
+            try:
+                return word, (self.kb_describe(word) or self.describe_from_cn(word))
+            except Exception:
+                return word, None
+
+        results: Dict[str, str] = {}
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            for word, desc in ex.map(_lookup, novel):
+                if desc:
+                    results[word] = desc
+        seeded = 0
+        for word, desc in results.items():
+            self._definitions[word] = desc
+            seeded += 1
+        if seeded:
+            print(f"  [KB] Seeded {seeded} definitions from Wikipedia/ConceptNet "
+                  f"(top-{top_n} corpus concepts, {workers} workers)")
+        return seeded
 
     def _typed_edges_bootstrap(self) -> int:
         """Inject ConceptNet typed edges (isa / has_property / capable_of /
@@ -2271,8 +2465,9 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 self._last_responses.append(assertion_response)
             if len(self._last_responses) > 10:
                 self._last_responses = self._last_responses[-10:]
-            self.notify_user_idle()
-            return assertion_response
+            if assertion_response:
+                self.notify_user_idle()
+                return assertion_response
 
         # ─── Conversational / Chit-Chat Check ───
         chitchat_response = self._handle_chitchat(user_input, subject)
@@ -3297,6 +3492,13 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         reflective 'what does it mean to you?' turn.
         """
         t = text.lower().strip(" ?!.")
+        # Fix: a clear definitional / factual lookup ("what is X", "what are X",
+        # "define X", "tell me about X", "who was X") is NOT a hypothetical even
+        # if its subject happens to trip a broadened conditional cue (e.g.
+        # "photosynthesis"). Routing a definition request into the counterfactual
+        # simulator is a category error — it should hit the web/definition path.
+        if re.match(r"^(what (is|are|was|were|refers to|means)|define|tell me about|who (is|was|were)|where (is|was|were))\b", t):
+            return False
         if re.search(r"\b(if|suppose|supposing|assume|assuming|what if|"
                      r"what would happen|what happens if|imagine if|"
                      r"pretend that|in a world without)\b", t):
