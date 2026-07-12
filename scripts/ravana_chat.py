@@ -110,6 +110,9 @@ def main():
              'Outputs Q: and A: lines for easy parsing. E.g.: --chat "hi|what is trust|bye"')
     parser.add_argument("--strategy", action="store_true", help="Include strategy name in --chat output")
     parser.add_argument("--trace", action="store_true", help="Print edge-level chain traces")
+    parser.add_argument("--trace-monitors", action="store_true",
+                        help="Print the structured self-monitor log (engine.monitor_report) at exit — "
+                             "shows every guard fire / swallow and why (M10 observability)")
     parser.add_argument("--no-vad", action="store_true", help="Disable VAD emotion modulation")
     parser.add_argument("--no-rlm", action="store_true", help="Disable RLMv2 triple verification")
     parser.add_argument("--no-beliefs", action="store_true", help="Disable belief store")
@@ -147,6 +150,10 @@ def main():
     engine = CognitiveChatEngine(dim=args.dim, seed=args.seed, baby_mode=True, data_dir=data_dir, user_suffix=user_suffix)
     engine.start_background_learning()
     if args.trace:
+        engine._trace_enabled = True
+    if args.trace_monitors:
+        # M10: observability. Reuse _trace_enabled so guard fires also print,
+        # and dump the structured monitor log at exit.
         engine._trace_enabled = True
     if args.no_vad:
         engine.use_vad = False
@@ -263,6 +270,14 @@ def main():
         result = engine.save()
         print(f"  [{result}]")
         print(f"  [Stats] Turns: {engine.turn_count}, Words: {len(engine.graph.nodes)}, Sleeps: {engine.sleep_cycles_completed}")
+        if args.trace_monitors:
+            _rep = engine.monitor_report()
+            print("  [Monitors] self-monitor log summary:")
+            print(f"    total_fires: {_rep['total_fires']}")
+            print(f"    by_monitor: {_rep['by_monitor']}")
+            print(f"    by_reason: {_rep['by_reason']}")
+            for _e in _rep['recent']:
+                print(f"    - {_e['monitor']} | {_e['reason']} | {_e['dropped_clause'][:80]}")
         return
 
     # ── INTERACTIVE MODE ──

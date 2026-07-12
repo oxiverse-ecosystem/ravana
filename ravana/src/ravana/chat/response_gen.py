@@ -3245,6 +3245,32 @@ class ResponseGenMixin(ChainWalkerMixin):
             return subject.capitalize()
         return subject.lower()
 
+    # ── M10: structured self-monitor logging ─────────────────────────────────
+    def _log_monitor_fire(self, monitor: str, dropped_clause: str, reason: str) -> None:
+        """Append a structured record to self._monitor_log (engine owns it).
+
+        Shape: {ts, path, monitor, dropped_clause, reason}. The 'path' is the
+        calling method for traceability. Mirrors the Pe explicit-error-signaling
+        component (Steinhauser & Yeung 2010) so the monitor's decision is
+        observable, not just the Ne/ERN evidence.
+        """
+        log = getattr(self, "_monitor_log", None)
+        if log is None:
+            return
+        import inspect
+        caller = "unknown"
+        try:
+            caller = inspect.stack()[1].function
+        except Exception:
+            pass
+        log.append({
+            "ts": time.time(),
+            "path": caller,
+            "monitor": monitor,
+            "dropped_clause": dropped_clause,
+            "reason": reason,
+        })
+
     def _strip_degenerate_clauses(self, text: str, ctx: "CognitiveResponseContext") -> Tuple[str, bool]:
         """Clause-level (covert) repair — drop degenerate clauses, keep survivors.
 
@@ -3273,9 +3299,11 @@ class ResponseGenMixin(ChainWalkerMixin):
             _bad = False
             if c:
                 if _is_word_salad_any_sentence(c, subject=ctx.subject, grain="clause"):
+                    self._log_monitor_fire("clause-strip", c, "salad")
                     _bad = True
                 elif (not getattr(self, "_disable_grounding_gate", False)
                         and not self._sm_response_grounded(ctx, c, skip_step1=True)):
+                    self._log_monitor_fire("clause-strip", c, "sm-monitor")
                     _bad = True
             return text, _bad
         kept = []
@@ -3287,6 +3315,7 @@ class ResponseGenMixin(ChainWalkerMixin):
             # Per-sentence salad (subject+glue filler, truncated repetition,
             # vague-concept-metawords).
             if _is_word_salad_any_sentence(c, subject=ctx.subject, grain="clause"):
+                self._log_monitor_fire("clause-strip", c, "salad")
                 dropped = True
                 continue
             # Stronger per-clause SM monitor (reference + coherence +
@@ -3298,6 +3327,7 @@ class ResponseGenMixin(ChainWalkerMixin):
             # step 4 fires regardless.)
             if (not getattr(self, "_disable_grounding_gate", False)
                     and not self._sm_response_grounded(ctx, c, skip_step1=True)):
+                self._log_monitor_fire("clause-strip", c, "sm-monitor")
                 dropped = True
                 continue
             kept.append(c)
@@ -3352,18 +3382,21 @@ class ResponseGenMixin(ChainWalkerMixin):
                               "re-emitting survivors")
                     return _stripped
                 # Nothing survivable -> honest uncertainty (fail-closed default).
+                self._log_monitor_fire("forward-model", text.strip(), "all-clauses-degenerate")
                 if getattr(self, "_trace_enabled", False):
                     print("  [forward-model] all clauses degenerate — "
                           "withholding")
                 return self._human_like_uncertainty(ctx)[0]
             # Whole-text salad check (legacy fallback, when per-sentence misses).
             if _is_word_salad(text, subject=ctx.subject):
+                self._log_monitor_fire("forward-model", text.strip(), "salad")
                 if getattr(self, "_trace_enabled", False):
                     print("  [trace]   forward-model monitor: candidate failed "
                           "degeneracy check — repairing")
                 return self._human_like_uncertainty(ctx)[0]
         else:
             if _is_word_salad(text, subject=ctx.subject):
+                self._log_monitor_fire("forward-model", text.strip(), "salad")
                 if getattr(self, "_trace_enabled", False):
                     print("  [trace]   forward-model monitor: candidate failed "
                           "degeneracy check — repairing")
@@ -3376,6 +3409,7 @@ class ResponseGenMixin(ChainWalkerMixin):
                 cand_norm == user_norm
                 or cand_norm in user_norm
                 or user_norm in cand_norm):
+            self._log_monitor_fire("forward-model", text.strip(), "echo")
             if getattr(self, "_trace_enabled", False):
                 print("  [trace]   forward-model monitor: candidate echoes "
                       "user input — repairing")

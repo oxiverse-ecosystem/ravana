@@ -224,6 +224,11 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         self._recent_learn_turn: int = 0
         self._last_strategy_used: str = ""
         self._trace_enabled = False
+        # M10: structured self-monitor log. Every guard fire / swallow is
+        # appended here so the monitor's decisions are observable (not just
+        # the Ne/ERN evidence) — the Pe component (Steinhauser & Yeung 2010)
+        # makes the monitor's decision explicit. Read via monitor_report().
+        self._monitor_log: List[Dict[str, Any]] = []
         self._contradiction_map: Dict[str, Set[str]] = {}
         self._belief_assertions: List[Tuple[str, str, str]] = []
         self._recall_mode: bool = False
@@ -6913,3 +6918,32 @@ If a concept has been corrected 3+ times, mark for priority web learning.
             'correction_edges_strengthened': correction_strengthened,
             'correction_edges_pruned': correction_pruned,
         }
+
+    # ── M10: structured self-monitor observability ──────────────────────────
+    def _build_monitor_report(self) -> dict:
+        """Aggregate self._monitor_log into a summary (Steinhauser & Yeung 2010:
+        the Pe component makes the monitor's decision explicit, not just the
+        Ne/ERN evidence)."""
+        log = getattr(self, "_monitor_log", [])
+        by_monitor = {}
+        by_reason = {}
+        for entry in log:
+            m = entry.get("monitor", "unknown")
+            r = entry.get("reason", "unknown")
+            by_monitor[m] = by_monitor.get(m, 0) + 1
+            by_reason[r] = by_reason.get(r, 0) + 1
+        return {
+            "total_fires": len(log),
+            "by_monitor": by_monitor,
+            "by_reason": by_reason,
+            "recent": log[-20:],
+        }
+
+    def monitor_report(self) -> dict:
+        """Public accessor for the structured self-monitor log (M10).
+
+        Returns a summary of every guard fire / swallow recorded since the last
+        reset. Used by the CLI --trace-monitors flag and the CI gate to audit
+        what the comprehension monitor withheld and why.
+        """
+        return self._build_monitor_report()
