@@ -294,6 +294,13 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # the hardcoded set stays the fallback via _is_function_word until the
         # learned classifier is verified to cover it.
         self.use_learned_pos = False
+        # Track B Phase 6 (M6): ConceptNet ontology as the primary frontopolar
+        # feasibility gate (replaces the literal _CATEGORY_OF_SUBJECT /
+        # _CATEGORY_AFFORDANCES fallback). OFF by default — the literal dicts
+        # stay the fallback (used when ConceptNet is silent) until ConceptNet is
+        # verified to cover the regression set. When ON, _CATEGORY_OF_SUBJECT is
+        # bypassed and ConceptNet's has_property() is the sole authority.
+        self.use_conceptnet_primary = False
         self.belief_store = BeliefStore()
 
         # Plasticity engine for Hebbian learning and episodic triples
@@ -1440,42 +1447,59 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 return None
             if derived is False:
                 return prop
-            # None -> ConceptNet is silent; defer to literal dicts below.
-        cat = self._CATEGORY_OF_SUBJECT.get(subj)
-        if cat is None:
-            return None
-        allowed = self._CATEGORY_AFFORDANCES.get(cat, set())
-        if prop in allowed:
-            return None
-        if cat in self._PROPERTY_CATEGORIES.get(prop, set()):
-            return None
-        # ── Derived path is AVAILABLE but NOT the primary gate ──────────────
-        # Verified (see test_ontology_derived.py) that GloVe cosine does NOT
-        # discriminate affordance possession on this manifold: "tuesday"→color
-        # cosine (0.39) overlaps "cat"→color (0.43) and "day"→color (0.58) >
-        # "tree"→color (0.56). No theta separates should-flag from should-allow,
-        # because distributional GloVe ≠ Binder's componential feature space.
-        # The literal dicts remain the working gate; DerivedOntology is kept as
-        # infrastructure for when a real feature/component space exists. The
-        # derived path is consulted only as a diagnostic, never overriding.
-        return prop
+            # None -> ConceptNet is silent (KG has no verdict for this pair).
+        # ── Literal-dict fallback (legacy frontopolar gate) ─────────────────
+        # Runs ONLY when ConceptNet-primary is OFF (the default). When
+        # use_conceptnet_primary is ON, the literal _CATEGORY_OF_SUBJECT table is
+        # bypassed entirely (that is the whole point of M6): a silent/absent KG
+        # means "insufficient evidence to flag" -> allow, never a literal-lookup
+        # false positive. When OFF, the literal dicts remain the working gate
+        # for OOV/silent subjects (current behavior, no regression).
+        if not getattr(self, "use_conceptnet_primary", False):
+            cat = self._CATEGORY_OF_SUBJECT.get(subj)
+            if cat is None:
+                return None
+            allowed = self._CATEGORY_AFFORDANCES.get(cat, set())
+            if prop in allowed:
+                return None
+            if cat in self._PROPERTY_CATEGORIES.get(prop, set()):
+                return None
+            # ── Derived path is AVAILABLE but NOT the primary gate ──────────
+            return prop
+        # M6 primary path: KG silent/absent -> allow (no literal lookup).
+        return None
 
     def _category_error_response(self, query: str, subject: Optional[str], prop: str) -> str:
         """Honest response for a detected category error (BA 10 gate output)."""
-        cat = self._CATEGORY_OF_SUBJECT.get((subject or "").lower(), "that kind of thing")
-        cat_label = {
+        cat = self._category_label_of(subject)
+        subj_cap = (subject or "that").strip().capitalize()
+        opener = ("hmm, that's a bit like asking what flavor a Tuesday has — "
+                  if random.random() < 0.5 else
+                  "i don't think that quite works: ")
+        return (opener + f"{subj_cap} is {cat}, so it doesn't really have a "
+                f"{prop} the way a physical thing would. "
+                f"want to rephrase what you meant?")
+
+    def _category_label_of(self, subject: Optional[str]) -> str:
+        """Human-readable category label for a subject, for the honest
+        category-error response. Uses the literal _CATEGORY_OF_SUBJECT map when
+        the ConceptNet-primary path is off, and falls back to a generic label
+        when ConceptNet is the authority and silent on the category.
+        """
+        subj = (subject or "").lower().strip(" ?!.")
+        if not getattr(self, "use_conceptnet_primary", False) and subj in self._CATEGORY_OF_SUBJECT:
+            cat = self._CATEGORY_OF_SUBJECT[subj]
+        else:
+            # ConceptNet is the authority; we only need a generic label for the
+            # honest reply. The literal table is intentionally not consulted on
+            # the primary path (that is the whole point of M6).
+            cat = "that kind of thing"
+        return {
             "time": "a measure of time", "mental_state": "a mental state or thought",
             "abstract": "an abstract concept", "physical_object": "a physical object",
             "perceptual": "something you perceive", "social": "a social relation",
             "living": "a living thing", "event": "an event",
         }.get(cat, "that kind of thing")
-        subj_cap = (subject or "that").strip().capitalize()
-        opener = ("hmm, that's a bit like asking what flavor a Tuesday has — "
-                  if random.random() < 0.5 else
-                  "i don't think that quite works: ")
-        return (opener + f"{subj_cap} is {cat_label}, so it doesn't really have a "
-                f"{prop} the way a physical thing would. "
-                f"want to rephrase what you meant?")
 
     def _derive_definition_purge(self) -> Set[str]:
         """Definition-key blacklist, computed — not hand-listed.

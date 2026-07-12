@@ -54,6 +54,88 @@ def test_category_error_response_is_honest():
     assert "?" in resp  # invites rephrase
 
 
+# ── Track B Phase 6 (M6): ConceptNet as primary feasibility gate ─────────────
+
+def _engine_with_conceptnet(primary: bool):
+    """Bare engine with ConceptNet ontology loaded (if available)."""
+    import os as _os
+    eng = _bare_engine()
+    eng.use_conceptnet_primary = primary
+    # The literal category tables must exist for the non-primary fallback.
+    eng._CATEGORY_OF_SUBJECT = getattr(CognitiveChatEngine, "_CATEGORY_OF_SUBJECT", {})
+    eng._CATEGORY_AFFORDANCES = getattr(CognitiveChatEngine, "_CATEGORY_AFFORDANCES", {})
+    eng._PROPERTY_CATEGORIES = getattr(CognitiveChatEngine, "_PROPERTY_CATEGORIES", {})
+    # Locate the prebuilt ontology pickle.
+    _cur = _os.path.abspath(__file__)
+    ont_path = None
+    for _ in range(10):
+        _cand = _os.path.join(_cur, "data", "conceptnet", "ont.pkl")
+        if _os.path.exists(_cand):
+            ont_path = _cand
+            break
+        _cur = _os.path.dirname(_cur)
+    if ont_path is None:
+        eng._cn_ontology = None
+        return eng, False
+    from ravana.ontology.conceptnet import ConceptNetOntology
+    eng._cn_ontology = ConceptNetOntology.load(ont_path)
+    return eng, True
+
+
+def test_conceptnet_primary_flag_off_uses_literal_dicts():
+    """With ConceptNet-primary OFF (default), when ConceptNet is silent/absent
+    the gate falls back to the literal _CATEGORY_OF_SUBJECT tables (no
+    regression). With ConceptNet present it is already primary, so this test
+    forces the silent path by clearing the ontology."""
+    eng, _ = _engine_with_conceptnet(primary=False)
+    eng._cn_ontology = None  # force the literal-dict fallback path
+    assert eng._is_category_error("what color is tuesday") == "color"
+    assert eng._is_category_error("what color is the sun") is None
+    # The literal dict flags an abstract concept as unable to have a color.
+    assert eng._is_category_error("what color is freedom") == "color"
+
+
+def test_conceptnet_primary_flag_on_bypasses_literal_dicts():
+    """With ConceptNet-primary ON, the literal _CATEGORY_OF_SUBJECT table is
+    bypassed and ConceptNet's has_property() is the sole authority. The
+    flag is only meaningful when ConceptNet is loaded; if it is absent the
+    gate must not produce false positives (silent -> allow)."""
+    eng, loaded = _engine_with_conceptnet(primary=True)
+    if not loaded:
+        pytest.skip("ConceptNet ontology pickle not available")
+    # ConceptNet still flags the genuine category error (time can't have color).
+    assert eng._is_category_error("what color is tuesday") == "color"
+    # ConceptNet affords physical properties on concrete subjects -> no flag,
+    # even though the literal dict would have flagged book/tree as untasteable.
+    assert eng._is_category_error("what color is the sun") is None
+    assert eng._is_category_error("what does a book taste like") is None
+    assert eng._is_category_error("what color is a tree") is None
+
+
+def test_conceptnet_primary_absent_is_safe():
+    """If ConceptNet is unavailable AND primary is ON, the gate must not fall
+    back to the literal dict (that is the point of M6) — it returns None
+    (allow) rather than risk a false category error."""
+    eng = _bare_engine()
+    eng.use_conceptnet_primary = True
+    eng._cn_ontology = None  # simulate missing ontology
+    eng._CATEGORY_OF_SUBJECT = {"tuesday": "time"}
+    assert eng._is_category_error("what color is tuesday") is None
+
+
+def test_category_label_of_spells_out_category():
+    """_category_label_of maps a known subject to a human-readable category
+    label for the honest reply, and falls back gracefully on the primary path.
+    """
+    eng = _bare_engine()
+    eng.use_conceptnet_primary = False
+    eng._CATEGORY_OF_SUBJECT = getattr(CognitiveChatEngine, "_CATEGORY_OF_SUBJECT", {})
+    assert "time" in eng._category_label_of("tuesday")
+    # On the primary path for an unseen subject, a generic label is returned.
+    eng.use_conceptnet_primary = True
+    assert eng._category_label_of("flibbertigibbet") == "that kind of thing"
+
+
 def test_sense_biasing_framing_adds_domain_hint():
     eng = _bare_engine()
     # Interpersonal framing -> psychology hint.
