@@ -5,6 +5,10 @@ Auto-extracted from scripts/ravana_chat.py via split_engine.py.
 import json, os
 from typing import Optional
 
+# M6: one-time flag so the subject=None production-path warning fires
+# exactly once (a future caller that omits subject is caught, not silent).
+_SALAD_WARNED_NO_SUBJECT = False
+
 _DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))), "data")
 
 with open(os.path.join(_DATA_DIR, "constants.json"), encoding="utf-8") as _f:
@@ -148,7 +152,21 @@ def _is_word_salad(text: str, allow_content_only: bool = False, subject: Optiona
     words = re.findall(r"\b\w+\b", text.lower())
     if not words:
         return True
-    
+    # M6 runtime guard: when subject is None on a PRODUCTION path
+    # (allow_content_only=False), the semantic-substance / tautology
+    # block (below) is skipped — a future caller that omits subject
+    # silently loses that check. Warn once so the omission is caught,
+    # not silent (the B3 caveat). Web-learning re-checks pass
+    # allow_content_only=True with subject=None, which is legitimate.
+    if subject is None and not allow_content_only:
+        global _SALAD_WARNED_NO_SUBJECT
+        if not _SALAD_WARNED_NO_SUBJECT:
+            _SALAD_WARNED_NO_SUBJECT = True
+            import logging
+            logging.getLogger(__name__).warning(
+                "salad-check called without subject on a production path "
+                "— semantic-substance/tautology block skipped")
+
     # Continuous word salad score (0 = clean, 1+ = salad)
     salad_score = 0.0
     
