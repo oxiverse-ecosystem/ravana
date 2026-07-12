@@ -167,5 +167,69 @@ def test_metaphor_path1_fires_for_broad_subjects():
     assert rate >= 0.9, f"Path-1 coverage only {rate:.2f} ({fired}/{len(subjects)})"
 
 
+def test_wide_probe_coverage_via_lancaster():
+    """Fix A.1 guard: the production cross-modal probe must be the
+    WIDE-COVERAGE Lancaster probe (39,707 human-rated words), with the 535-word
+    Binder probe retained only as a fine-grained fallback. The combined encoder
+    must load Lancaster as primary, and it must generalize a sensory profile to
+    words far outside the Binder training set -- proving the cross-modal read-out
+    is no longer limited to 535 lemmas (the original A.1 coverage gap)."""
+    import os
+    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    binder = os.path.join(repo_root, "data", "attribute_encoder.npz")
+    lanc = os.path.join(repo_root, "data", "lancaster_encoder.npz")
+    if not (os.path.exists(binder) and os.path.exists(lanc)):
+        pytest.skip("encoder artifacts not present")
+    from ravana.ontology.attribute_encoder import (
+        load_combined_encoder, build_glove64_lookup)
+    lut, _ = build_glove64_lookup(
+        os.path.join(repo_root, "data", "ravana_glove_cache.npz"))
+    enc = load_combined_encoder(binder, lanc)
+    # Wider probe is actually wired (primary), Binder kept as fallback.
+    assert enc.lancaster is not None, "Lancaster wide-coverage probe must be wired"
+    assert enc.binder is not None, "Binder fine-grained probe must remain as fallback"
+    # Rare/abstract words well outside the 535-word Binder base must still
+    # receive a sensible sensory profile from the wider probe.
+    rare = ["quotient", "umbra", "cathedral", "serendipity", "algorithm",
+            "neuron", "equinox", "lattice", "cipher", "monastery", "kiln",
+            "cobalt", "tundra", "quartz"]
+    present = [w for w in rare if w in lut]
+    covered = 0
+    for w in present:
+        av = enc.attribute_vector(lut[w])
+        sensory = max(av[enc.dim_index[d]] for d in
+                      ("Vision", "Color", "Shape", "Sound", "Taste", "Smell",
+                       "Touch", "Texture", "Weight", "Pattern"))
+        if sensory > 0.5:
+            covered += 1
+    # The wider probe must activate sensory dims for the majority of these
+    # out-of-Binder-base words (coverage, not just 535 lemmas).
+    assert covered >= int(0.6 * len(present)), (
+        f"wide probe only covered {covered}/{len(present)} rare words")
+
+
+def test_engine_wires_combined_encoder_with_lancaster():
+    """Regression guard for the actual Fix A.1 wiring bug: ConceptNetOntology
+    .load() is a @classmethod that builds a FRESH object, discarding the
+    attribute_encoder passed to the constructor. If the engine does not
+    re-attach it after load(), ont.attribute_encoder ends up None and the
+    wide-coverage Lancaster probe never drives Path 1 (the gate silently
+    falls back to the Binder-only lazy-load). Assert the live engine exposes
+    the COMBINED encoder (Lancaster primary + Binder fallback)."""
+    e = _eng()
+    enc = e._cn_ontology.attribute_encoder
+    from ravana.ontology.attribute_encoder import CombinedAttributeEncoder
+    assert isinstance(enc, CombinedAttributeEncoder), (
+        f"engine must load the combined encoder, got {type(enc).__name__}")
+    assert enc.lancaster is not None, "Lancaster wide probe must be wired into the engine"
+    assert enc.binder is not None, "Binder fallback must remain wired"
+    # And it must drive Path 1 for an out-of-Binder-base word.
+    e._is_category_error("what is the taste of a triangle")
+    subj = getattr(e, "_last_category_subject", "triangle")
+    reply = e._metaphor_for_category_error(subj, "taste")
+    assert reply and "more in terms of its" in reply.lower(), (
+        f"Lancaster-driven Path 1 should fire: {reply!r}")
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))

@@ -1566,8 +1566,14 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 ecand = os.path.join(d, fn)
                 if os.path.exists(ecand):
                     try:
-                        from ravana.ontology.attribute_encoder import AttributeEncoder
-                        enc = AttributeEncoder.load(ecand)
+                        from ravana.ontology.attribute_encoder import load_combined_encoder
+                        _lanc_cands = [
+                            os.path.join(os.path.dirname(ecand), "lancaster_encoder.npz"),
+                            os.path.join(os.path.dirname(os.path.dirname(ecand)),
+                                         "lancaster_encoder.npz"),
+                        ]
+                        _lanc = next((p for p in _lanc_cands if os.path.exists(p)), None)
+                        enc = load_combined_encoder(ecand, _lanc)
                     except Exception:
                         enc = None
                     break
@@ -1584,7 +1590,15 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             # Note: load() is a @classmethod that returns a NEW hydrated object,
             # so its return value must be captured (calling ont.load(...) alone
             # discards the result and leaves ont empty).
-            return ont.load(ont_path)
+            loaded = ont.load(ont_path)
+            # load() is a @classmethod that builds a FRESH object, discarding
+            # the attribute_encoder/glove_fn we passed to the constructor.
+            # Re-attach them so the (combined Lancaster+Binder) probe survives
+            # hydration — this is what makes the wide-coverage Lancaster probe
+            # actually drive the cross-modal metaphor (Fix A.1).
+            loaded.attribute_encoder = enc
+            loaded.glove_fn = glove_fn
+            return loaded
         except Exception:
             return None
 
@@ -1848,10 +1862,11 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             _enc = getattr(ont, "attribute_encoder", None)
             if _enc is None:
                 try:
-                    from ravana.ontology.attribute_encoder import AttributeEncoder
+                    from ravana.ontology.attribute_encoder import load_combined_encoder
                     _cand = os.path.join(_proj_root, "data", "attribute_encoder.npz")
+                    _lanc = os.path.join(_proj_root, "data", "lancaster_encoder.npz")
                     if os.path.exists(_cand):
-                        _enc = AttributeEncoder.load(_cand)
+                        _enc = load_combined_encoder(_cand, _lanc)
                         ont.attribute_encoder = _enc
                 except Exception:
                     _enc = None
@@ -1995,10 +2010,11 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             # (mirrors the gate's lazy-load, so Path 1 also works when this
             # method is called standalone, e.g. in tests).
             try:
-                from ravana.ontology.attribute_encoder import AttributeEncoder
+                from ravana.ontology.attribute_encoder import load_combined_encoder
                 _cand = os.path.join(_proj_root, "data", "attribute_encoder.npz")
+                _lanc = os.path.join(_proj_root, "data", "lancaster_encoder.npz")
                 if os.path.exists(_cand):
-                    enc = AttributeEncoder.load(_cand)
+                    enc = load_combined_encoder(_cand, _lanc)
                     getattr(self, "_cn_ontology", None).attribute_encoder = enc
             except Exception:
                 enc = None
