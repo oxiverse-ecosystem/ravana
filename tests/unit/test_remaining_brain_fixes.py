@@ -94,3 +94,62 @@ def test_salad_subject_none_allows_definition():
 def test_salad_subject_none_still_flags_garbage():
     # Genuinely degenerate text (no copula, no anchors) is still caught.
     assert _is_word_salad("pet pet pet semantic causal even great", subject=None) is True
+
+
+# ── M7: FOK / web-garbage recall hardening (structural source-monitoring) ──
+# A Markdown table, LaTeX expression, citation bracket, or bullet/number-list
+# artefact is structurally NOT a proposition about the concept, yet the
+# semantic coherence gate would happily store it. The vmPFC/mPFC reality
+# monitor (Johnson, Hashtroudi & Lindsay 1993; Schnider; Hebscher et al. 2015)
+# must judge structural plausibility, not just semantic fit.
+def test_strip_drops_markdown_table():
+    wl = _bare_web()
+    dirty = ("Gravity is a fundamental force of attraction.\n"
+             "| Property | Value |\n|----------|-------|\n| mass | 9.8 |\n")
+    clean = wl._strip_code_fragments(dirty)
+    assert "|" not in clean
+    assert "Gravity is a fundamental force" in clean
+
+
+def test_strip_drops_latex():
+    wl = _bare_web()
+    dirty = "Entropy is defined by $S = k_B \\ln \\Omega$ where k_B is Boltzmann's constant."
+    clean = wl._strip_code_fragments(dirty)
+    assert "$" not in clean
+    assert "Entropy is defined by" in clean
+
+
+def test_strip_drops_citation_brackets():
+    wl = _bare_web()
+    dirty = "Trust reduces uncertainty in cooperation [12] and builds reciprocity [34]."
+    clean = wl._strip_code_fragments(dirty)
+    assert "[" not in clean
+    assert "Trust reduces uncertainty" in clean
+
+
+def test_strip_drops_bullet_and_number_prefix():
+    wl = _bare_web()
+    dirty = "• gravity pulls masses together\n1) time dilates near mass\n- spacetime curves"
+    clean = wl._strip_code_fragments(dirty)
+    assert "•" not in clean and "*" not in clean
+    assert "gravity pulls masses together" in clean
+    assert "time dilates near mass" in clean
+    assert "spacetime curves" in clean
+
+
+def test_looks_clean_rejects_low_alpha_fragment():
+    wl = _bare_web()
+    # A table cell / symbol fragment with almost no alphabetic content.
+    assert wl._definition_looks_clean("[[1,2],[3,4]] => 0.83*") is False
+    assert wl._definition_looks_clean("| | x | y |\n|---|---|---|") is False
+    # A clean definition still passes.
+    assert wl._definition_looks_clean(
+        "Trust is the belief that others will not exploit your vulnerability.") is True
+
+
+def test_quality_penalizes_low_alpha():
+    wl = _bare_web()
+    clean = "Trust is a belief in others' reliability."
+    junk = "| 0.83 | 12 |"
+    assert wl._definition_quality(clean) > wl._definition_quality(junk)
+

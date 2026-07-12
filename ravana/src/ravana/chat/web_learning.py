@@ -787,6 +787,15 @@ class WebLearningMixin(ResponseGenMixin):
         # Overly long definitions tend to be run-on sentences.
         if len(definition) > 120:
             score -= 0.3
+        # M7: low alphabetic ratio → the fragment is mostly symbols /
+        # punctuation / numbers (a table cell, a LaTeX expression, a citation
+        # list). A clean existing definition should beat a marginal fragment.
+        _alpha = sum(1 for ch in definition if ch.isalpha())
+        _ratio = _alpha / max(len(definition), 1)
+        if _ratio < 0.5:
+            score -= 1.0
+        elif _ratio < 0.6:
+            score -= 0.4
         return score
 
     # ── Structural reality-monitoring (OFC/mPFC source-monitoring) ──────────
@@ -808,6 +817,20 @@ class WebLearningMixin(ResponseGenMixin):
         r"document|enabled_slots|undefined|null)\b", re.IGNORECASE)
     _HTML_TAG = re.compile(r"<[^>]+>")
 
+    # ── M7: non-linguistic residue (brain-analog: vmPFC/mPFC source
+    # monitoring must judge STRUCTURAL plausibility of a retrieved "memory",
+    # not just semantic fit — Johnson, Hashtroudi & Lindsay 1993; Schnider
+    # spontaneous confabulation; Hebscher et al. 2015). A Markdown table, a
+    # LaTeX expression, a citation bracket [12], or a bullet/numbered list
+    # artefact is NOT a linguistic proposition about the concept, yet the
+    # semantic coherence gate would happily store it. ──
+    _NONLING_TABLE_ROW = re.compile(r"^\s*\|[^\n]*\|[^\n]*\|\s*$", re.MULTILINE)
+    _NONLING_TABLE_DIV = re.compile(r"^\s*\|?[\s:|-]+\|[\s:|-]+\|?\s*$", re.MULTILINE)
+    _NONLING_LATEX = re.compile(r"\$[^$\n]{0,80}\$|\\\(.*?\\\)|\\\[.*?\\\]")
+    _NONLING_CITE = re.compile(r"\[\d+\]")          # [12] citation brackets
+    _NONLING_BULLET = re.compile(r"^\s*[-*•·▪]\s+", re.MULTILINE)
+    _NONLING_NUMPREFIX = re.compile(r"^\s*\d+[\.\)]\s+", re.MULTILINE)
+
     def _strip_code_fragments(self, text: str) -> str:
         """Remove non-linguistic code/script/CSS residue from a candidate
         definition, returning the cleaned remainder (empty string if nothing
@@ -823,11 +846,21 @@ class WebLearningMixin(ResponseGenMixin):
         s = s.replace("=>", " ")
         s = self._CODE_PUNCT.sub(" ", s)
         s = self._CODE_KEYWORD.sub(" ", s)
+        # M7: drop other non-linguistic residue (Markdown tables, LaTeX,
+        # citation brackets, bullet / numbered-list artefacts) so a retrieved
+        # fragment that is structurally not a proposition can't masquerade as
+        # a definition. Keep the linguistic remainder.
+        s = self._NONLING_TABLE_ROW.sub(" ", s)
+        s = self._NONLING_TABLE_DIV.sub(" ", s)
+        s = self._NONLING_LATEX.sub(" ", s)
+        s = self._NONLING_CITE.sub(" ", s)
+        s = self._NONLING_BULLET.sub(" ", s)
+        s = self._NONLING_NUMPREFIX.sub(" ", s)
         s = re.sub(r"\s{2,}", " ", s).strip().strip(".,;:- ")
         return s
 
     def _contains_code_fragment(self, text: str) -> bool:
-        """True if `text` still carries non-linguistic code/script residue."""
+        """True if `text` still carries non-linguistic code/script/structural residue."""
         if not text:
             return False
         return bool(
@@ -837,6 +870,10 @@ class WebLearningMixin(ResponseGenMixin):
             or self._CODE_PUNCT.search(text)
             or self._CODE_KEYWORD.search(text)
             or "=>" in text
+            or self._NONLING_TABLE_ROW.search(text)
+            or self._NONLING_TABLE_DIV.search(text)
+            or self._NONLING_LATEX.search(text)
+            or self._NONLING_CITE.search(text)
         )
 
     def _definition_looks_clean(self, text: str) -> bool:
@@ -860,6 +897,24 @@ class WebLearningMixin(ResponseGenMixin):
         # Jan Ingenhousz...", "first coined in 1899...").
         if re.match(r"^\s*(discovered|invented|founded|coined|introduced|"
                     r"developed|first\b|originally\b|initially\b)\b", low):
+            return False
+        # M7: structural source-monitoring (vmPFC/mPFC reality monitor — a
+        # retrieved "memory" must be structurally a proposition, not just
+        # semantically coherent). Reject fragments that are mostly
+        # punctuation / non-alphabetic, or that are a newline-heavy list of
+        # artefacts (Markdown rows, bullet lines) with no real sentence.
+        _alpha = sum(1 for ch in text if ch.isalpha())
+        if len(text) > 0 and _alpha / len(text) < 0.6:
+            return False
+        if "\n" in text and len([ln for ln in text.splitlines()
+                                 if ln.strip() and not ln.strip().startswith(("|", "-", "*", "•", "·", "▪", "#"))]) == 0:
+            return False
+        # A stored fact should assert something — require at least one
+        # alphabetic token longer than 2 chars forming a real word. The
+        # extraction regex patterns (is/are/refers to/means/...) already
+        # enforce a copula/defining verb for the main store path; this is a
+        # backstop so a bare symbol/list fragment can never be stored.
+        if not re.search(r"[A-Za-z]{3,}", text):
             return False
         return True
 
