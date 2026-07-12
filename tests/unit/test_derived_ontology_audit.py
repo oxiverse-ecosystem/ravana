@@ -174,6 +174,65 @@ def test_snippet_gate_learned_with_flag_on():
         "gravity is the force that attracts objects with mass")
 
 
+# ── Track B Phase 3 (M5): learned per-domain source-trust ───────────────────
+
+def test_source_trust_fallback_with_flag_off():
+    """With source-trust OFF (default), the hardcoded allowlist is the
+    backstop: a known encyclopedic domain is preferred, an unknown blog is
+    neutral (not preferred). No regression vs the old constant."""
+    eng = CognitiveChatEngine.__new__(CognitiveChatEngine)
+    eng.use_source_trust = False
+    eng._source_trust = {}
+    assert eng._is_preferred_source("https://en.wikipedia.org/wiki/Trust")
+    assert not eng._is_preferred_source("https://some-random-blog.net/post/9")
+
+
+def test_source_trust_learned_promotes_and_demotes():
+    """With source-trust ON, accepting snippets from a domain raises its trust
+    above the 0.5 threshold (preferred), while rejecting snippets from a junk
+    domain drives it to 0.0 (not preferred). Learned, not hardcoded."""
+    eng = CognitiveChatEngine.__new__(CognitiveChatEngine)
+    eng.use_source_trust = True
+    eng._source_trust = {}
+    # Wikipedia: accept 3 snippets -> +0.1 each -> 0.5 + 0.3 = 0.8 > 0.5.
+    for _ in range(3):
+        eng._record_source_outcome("https://en.wikipedia.org/wiki/Trust", True)
+    assert eng._domain_trust("https://en.wikipedia.org/wiki/Trust") == pytest.approx(0.8)
+    assert eng._is_preferred_source("https://en.wikipedia.org/wiki/Trust")
+    # Junk domain: reject 3 snippets -> -0.2 each -> 0.5 - 0.6 = 0.0 (clamped).
+    for _ in range(3):
+        eng._record_source_outcome("https://spam-seo.net/x", False)
+    assert eng._domain_trust("https://spam-seo.net/x") == 0.0
+    assert not eng._is_preferred_source("https://spam-seo.net/x")
+    # Untried domain stays neutral (0.5), not preferred.
+    assert eng._domain_trust("https://brand-new-site.org/y") == 0.5
+    assert not eng._is_preferred_source("https://brand-new-site.org/y")
+
+
+def test_source_trust_clamps_and_survives_sleep():
+    """Trust is clamped to [0, 1]; a sleep-surviving accept earns +0.2 (extra
+    reward) vs +0.1 for a plain accept."""
+    eng = CognitiveChatEngine.__new__(CognitiveChatEngine)
+    eng.use_source_trust = True
+    eng._source_trust = {}
+    # Max out at 1.0 even with many accepts.
+    for _ in range(10):
+        eng._record_source_outcome("https://great.gov/fact", True,
+                                    survived_sleep=True)
+    assert eng._domain_trust("https://great.gov/fact") == 1.0
+    # Floor at 0.0 even with many rejects.
+    for _ in range(10):
+        eng._record_source_outcome("https://bad.net/x", False)
+    assert eng._domain_trust("https://bad.net/x") == 0.0
+    # A single sleep-surviving accept from an untried domain = 0.5 + 0.2 = 0.7.
+    eng2 = CognitiveChatEngine.__new__(CognitiveChatEngine)
+    eng2.use_source_trust = True
+    eng2._source_trust = {}
+    eng2._record_source_outcome("https://learned.edu/p", True,
+                                 survived_sleep=True)
+    assert eng2._domain_trust("https://learned.edu/p") == pytest.approx(0.7)
+
+
 def test_walk_hierarchy_seed_fallback_when_no_graph_edges():
     g = ConceptGraph(dim=16)
     g.add_node(label="justice", vector=np.zeros(16, dtype=np.float32))

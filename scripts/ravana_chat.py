@@ -121,6 +121,10 @@ def main():
                         help="Enable Track B Phase 2 learned snippet-quality model "
                              "(structural prediction-error gate) for web snippets. "
                              "Off by default; hardcoded filters remain the backstop.")
+    parser.add_argument("--source-trust", action="store_true",
+                        help="Enable Track B Phase 3 learned per-domain source-trust "
+                             "(replaces the hardcoded preferred-source allowlist). "
+                             "Off by default; the allowlist remains the backstop.")
     parser.add_argument("--mode", type=str, default="stochastic", choices=["stochastic", "deterministic", "exploratory"],
                         help="Reasoning mode: stochastic (default), deterministic (reproducible), exploratory (high-temp)")
     parser.add_argument("--debug", action="store_true", help="Print debug tracebacks for exceptions")
@@ -174,6 +178,9 @@ def main():
     if args.snippet_pe:
         engine.use_cerebellar_snippet = True
         print('  [Snippets] Track B Phase 2 learned structural-PE gate ENABLED')
+    if args.source_trust:
+        engine.use_source_trust = True
+        print('  [Sources] Track B Phase 3 learned per-domain source-trust ENABLED')
 
     # Solution #2: Apply reasoning mode
     if args.mode != "stochastic":

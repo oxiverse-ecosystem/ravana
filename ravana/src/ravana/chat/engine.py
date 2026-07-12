@@ -281,6 +281,14 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # the learned model additionally flags structural-junk snippets.
         self.use_cerebellar_snippet = False
         self._snippet_model = None
+        # Track B Phase 3 (M5): learned per-domain source-trust (replaces the
+        # hardcoded _PREFERRED_SNIPPET_SOURCES allowlist). OFF by default — the
+        # hardcoded allowlist stays the fallback until the learned trust
+        # accumulator is verified to beat it on the regression set. When ON,
+        # the engine maintains a per-domain trust score updated from snippet
+        # outcomes and uses it as the source-quality signal.
+        self.use_source_trust = False
+        self._source_trust: Dict[str, float] = {}
         self.belief_store = BeliefStore()
 
         # Plasticity engine for Hebbian learning and episodic triples
@@ -3934,8 +3942,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             if subj and len(subj_tokens) == 1 and _is_factual_what:
                 _title_has = (subj in _title)
                 _url_has = (subj in _url)
-                _pref_src = any(
-                    s in _url for s in self._PREFERRED_SNIPPET_SOURCES)
+                _pref_src = self._is_preferred_source(_url)
                 if _pref_src or _title_has or _url_has:
                     # Decide whether this is the encyclopedic SENSE of the
                     # subject (admit via fallback) or a navigational/brand
@@ -4093,7 +4100,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 # random blog, so nudge their snippets up without overriding a
                 # genuinely better-scoring answer from elsewhere.
                 rurl = (r.get("url", "") or "").lower()
-                if any(src in rurl for src in self._PREFERRED_SNIPPET_SOURCES):
+                if self._is_preferred_source(rurl):
                     score += 0.3
                 # Context-augmented sense ranker (N400 analog): when the
                 # context vector is available, reward candidates whose content
@@ -4212,6 +4219,66 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             except Exception:
                 return False
         return False
+
+    # ── Track B Phase 3 (M5): learned per-domain source-trust ────────────────
+    # Replaces the hardcoded _PREFERRED_SNIPPET_SOURCES allowlist with a learned
+    # per-domain trust accumulator (De Brigard 2025 source-monitoring; the brain
+    # tags a source as reliable from a history of coherent, sleep-surviving
+    # outputs). The hardcoded allowlist remains the backstop until this learned
+    # mechanism is verified to beat it on the regression set.
+    def _domain_trust(self, url: str) -> float:
+        """Learned trust score for a snippet's source domain.
+
+        When source-trust learning is OFF, falls back to the hardcoded
+        allowlist (1.0 for a preferred source, else 0.5 neutral). When ON,
+        returns the accumulated trust score for the domain (0.0 floor)."""
+        _dom = self._domain_of(url) if url else ""
+        if not self.use_source_trust:
+            if _dom and any(s in url.lower() for s in self._PREFERRED_SNIPPET_SOURCES):
+                return 1.0
+            return 0.5
+        if _dom in self._source_trust:
+            return float(self._source_trust[_dom])
+        return 0.5  # untried domain: neutral, not trusted, not banned
+
+    def _record_source_outcome(self, url: str, accepted: bool,
+                               survived_sleep: bool = False) -> None:
+        """Update the per-domain trust accumulator from a snippet outcome.
+
+        +0.1 when a snippet from the domain was accepted (coherence/structure
+        passed); an extra +0.1 (total +0.2) when it also survived a sleep
+        consolidation cycle; -0.2 when a snippet was rejected. Clamped to
+        [0.0, 1.0]. Only runs when source-trust learning is enabled.
+        """
+        if not self.use_source_trust:
+            return
+        _dom = self._domain_of(url) if url else ""
+        if not _dom:
+            return
+        _delta = 0.0
+        if accepted:
+            _delta = 0.2 if survived_sleep else 0.1
+        else:
+            _delta = -0.2
+        _cur = self._source_trust.get(_dom, 0.5)
+        self._source_trust[_dom] = max(0.0, min(1.0, _cur + _delta))
+
+    @property
+    def _source_trust_threshold(self) -> float:
+        """Domains with trust above this are preferred (replaces the allowlist
+        decision). 0.5 = neutral; a domain must earn trust to be preferred."""
+        return 0.5
+
+    def _is_preferred_source(self, url: str) -> bool:
+        """Whether a source should get the quality tie-breaker boost.
+
+        OFF (default): uses the hardcoded allowlist (backstop). ON: uses the
+        learned trust score > threshold.
+        """
+        if not self.use_source_trust:
+            return any(s in (url or "").lower()
+                       for s in self._PREFERRED_SNIPPET_SOURCES)
+        return self._domain_trust(url) > self._source_trust_threshold
 
     def _snippet_quality(self, snippet: str, subject: str, term: str,
                          is_conditional: bool = False) -> float:
@@ -5916,6 +5983,8 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 'use_vad': getattr(self, 'use_vad', True),
                 'use_rlm': getattr(self, 'use_rlm', True),
                 'use_beliefs': getattr(self, 'use_beliefs', True),
+                'use_cerebellar_snippet': getattr(self, 'use_cerebellar_snippet', False),
+                'source_trust': dict(getattr(self, '_source_trust', {})),
                 'belief_store_state': getattr(self, 'belief_store', BeliefStore()).get_state(),
                 # Background learning state
                 'bg_learning_queue': list(self._bg_learning_queue),
