@@ -2487,10 +2487,105 @@ class ResponseGenMixin(ChainWalkerMixin):
         if not chain:
             return None
         head = target.capitalize()
+        # ── Fix 6 (Q4/Q9): reject vacuous distributional grounding.
+        # A "semantic"/"related" relation is mere GloVe proximity, not a
+        # structured predicate — emitting "trust relates to life" / "life
+        # relates to science" is the ATL-hub-without-a-predicate (semantic-
+        # dementia) failure: fluent but empty. Only assert such a relation when
+        # a genuine CONTENTFUL typed edge (causal/contrastive/analogical/is_a/
+        # part_of) backs the (subject → chain[0]) pair. Contentful relation
+        # types (the caller already asked for causal/etc.) pass through.
+        _weak = (relation or "").strip().lower() in ("semantic", "related", "")
+        if _weak and not self._relation_has_contentful_edge(target, chain[0]):
+            return None
+        # ── Fix 1 (Q7): NEVER interpolate the raw relation_type token
+        # ("semantic"/"causal"/"contrastive"/…) into the phonology stream — that
+        # is the semantic-dementia analog where an amodal ATL relation tag leaks
+        # in place of a selected IFG/Broca lemma ("Courage semantic afraid").
+        # Map the relation type to a real surface predicate phrase, and hard-
+        # reject any output that still carries a metaword.
+        pred = self._relation_predicate(relation)
         if len(chain) == 1:
-            return f"{head} {relation} {chain[0]}."
-        # multi-hop: report the transitive chain, grounded in recovered atoms
-        return f"{head} {relation} {chain[0]}, which {relation} {' and '.join(chain[1:])}."
+            out = f"{head} {pred} {chain[0]}."
+        else:
+            # multi-hop: report the transitive chain, grounded in recovered atoms
+            out = f"{head} {pred} {chain[0]}, and that in turn {pred} {' and '.join(chain[1:])}."
+        # Hard guard: if a metaword still reached the surface (e.g. a stray atom
+        # label equal to a relation tag), refuse rather than emit empty speech.
+        try:
+            from .monitor_gate import _METAWORDS as _MW
+            _toks = set(re.findall(r"\b\w+\b", out.lower()))
+            if _toks & _MW:
+                return None
+        except Exception:
+            pass
+        return out
+
+    # Relation-type → surface predicate phrase. Separates the ATL amodal
+    # relation role from IFG/Broca lemma selection: the graph stores a typed
+    # edge, but production must select a real verb, never the tag itself.
+    _RELATION_PREDICATE = {
+        "causal": "leads to",
+        "contrastive": "is unlike",
+        "semantic": "relates to",
+        "analogical": "is like",
+        "temporal": "comes before",
+        "is_a": "is a kind of",
+        "isa": "is a kind of",
+        "part_of": "is part of",
+        "has_a": "has",
+        "property": "is",
+        "related": "relates to",
+    }
+
+    def _relation_predicate(self, relation: str) -> str:
+        """Map a graph relation_type to a real surface predicate phrase.
+
+        Falls back to a neutral 'relates to' rather than ever surfacing the raw
+        tag, so no amodal relation label can reach the phonology stream.
+        """
+        return self._RELATION_PREDICATE.get(
+            (relation or "").strip().lower(), "relates to")
+
+    # Relation types that assert a real, structured predicate (not mere
+    # distributional proximity). Used to gate vacuous grounding (Fix 6).
+    _CONTENTFUL_RELATIONS = {
+        "causal", "contrastive", "analogical", "temporal",
+        "is_a", "isa", "part_of", "has_a", "property",
+    }
+
+    def _relation_has_contentful_edge(self, subject: str, obj: str) -> bool:
+        """Fix 6: True iff a genuine contentful typed edge links subject→obj
+        (either direction), rather than only a distributional 'semantic' edge.
+
+        The ATL hub binds concepts by proximity; a real assertion needs a
+        structured predicate. We consult the graph for an actual edge whose
+        relation_type is contentful. No fixed weight threshold — presence of a
+        typed contentful edge IS the evidence (adaptive to whatever the graph
+        learned). Returns False when we can't resolve the nodes, so the caller
+        falls back to honest uncertainty instead of empty fluent speech.
+        """
+        try:
+            g = self.graph
+            ck = getattr(self, "_concept_keywords", {})
+            s_ids = ck.get((subject or "").lower(), [])
+            o_ids = set(ck.get((obj or "").lower(), []))
+            if not s_ids or not o_ids:
+                return False
+            for sid in s_ids:
+                for tid, edge in g.get_outgoing(sid):
+                    if tid in o_ids and \
+                            (edge.relation_type or "").lower() in self._CONTENTFUL_RELATIONS:
+                        return True
+            # reverse direction
+            for oid in o_ids:
+                for tid, edge in g.get_outgoing(oid):
+                    if tid in set(s_ids) and \
+                            (edge.relation_type or "").lower() in self._CONTENTFUL_RELATIONS:
+                        return True
+        except Exception:
+            return False
+        return False
 
     def _human_like_uncertainty(self, ctx: CognitiveResponseContext):
         """Graceful, curious turn taken when FOK is low and the topic is ungrounded.

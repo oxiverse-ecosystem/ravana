@@ -1424,9 +1424,9 @@ class ChatInterface:
         facts = self.hippocampal_buffer.retrieve(ctx.subject)
         if not facts:
             return None
-        # Return the highest-confidence fact
+        # Return the highest-confidence fact (Fix 4: was `return None`).
         best_fact = max(facts, key=lambda f: f.confidence)
-        return None
+        return best_fact.object
 
     def _generate_acknowledgment(self, ctx, implicature) -> str:
         """Generate an acknowledgment response for pragmatic implicature."""

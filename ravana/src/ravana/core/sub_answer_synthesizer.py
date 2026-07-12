@@ -194,6 +194,16 @@ class SubAnswerSynthesizer:
         self._last_subject: str = ""
         self._last_synthesis: str = ""
 
+    # Function words ignored when computing token-set overlap for near-duplicate
+    # collapse (Fix 2) — they inflate Jaccard similarity between unrelated
+    # sentences and shouldn't count toward perseveration detection.
+    _STOP_FOR_DEDUP = {
+        "the", "a", "an", "is", "are", "was", "were", "be", "of", "to", "in",
+        "on", "for", "and", "or", "but", "this", "that", "it", "as", "with",
+        "from", "by", "at", "so", "which", "certain", "put", "simply", "like",
+        "works", "process", "way", "significance",
+    }
+
     def synthesize(self, 
                    result: DecompositionResult,
                    answered: List[SubQuestion],
@@ -271,10 +281,27 @@ class SubAnswerSynthesizer:
                 continue
 
             # Deduplicate: drop a sub-answer that is a near-copy of one already
-            # woven (长短/whitespace-insensitive; keep the first occurrence).
+            # woven. Fix 2 (Q5): exact 120-char-prefix matching missed
+            # perseverative near-duplicates ("rain influences rainfall" vs
+            # "rain builds from rainfall") — the frontostriatal-inhibition
+            # failure that let a 2-cycle re-enter. Add token-set (Jaccard)
+            # near-duplicate detection so reciprocal/rephrased repeats collapse.
             _norm = re.sub(r"\s+", " ", answer_text.strip().lower())
             _norm_core = _norm[:120]  # leading 120 chars catch sentence-level repeats
             if any(_norm_core == s[:120] for s in seen_norm):
+                continue
+            _toks = set(re.findall(r"[a-z0-9]+", _norm)) - self._STOP_FOR_DEDUP
+            _is_near_dup = False
+            for s in seen_norm:
+                s_toks = set(re.findall(r"[a-z0-9]+", s)) - self._STOP_FOR_DEDUP
+                if not _toks or not s_toks:
+                    continue
+                inter = len(_toks & s_toks)
+                union = len(_toks | s_toks)
+                if union and (inter / union) >= 0.6:
+                    _is_near_dup = True
+                    break
+            if _is_near_dup:
                 continue
             seen_norm.append(_norm)
 

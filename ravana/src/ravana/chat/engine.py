@@ -232,6 +232,13 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         self._contradiction_map: Dict[str, Set[str]] = {}
         self._belief_assertions: List[Tuple[str, str, str]] = []
         self._recall_mode: bool = False
+        # Fix 4 (Q12): raw user-turn ring buffer for episodic-memory queries
+        # ("what did I just ask you", "what were we talking about"). The
+        # Baddeley episodic buffer binds recent turns for retrieval; the
+        # hippocampal buffer stores facts keyed by SUBJECT, which cannot answer
+        # a meta-query whose subject is the conversation itself. This keeps the
+        # last few verbatim user turns so the WM↔LTM retrieval path is live.
+        self._recent_user_turns: List[str] = []
         self.user_model = UserModel()
         self._last_hops: List[List[Tuple[str, str]]] = []  # concept -> strength (decays)
         self._last_chain_hops: List[List[Tuple[str, str]]] = []  # Phase 3.4: snapshot before clear
@@ -1064,6 +1071,52 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 return False
         return True
 
+    def _try_memory_query(self, user_input: str) -> Optional[str]:
+        """Fix 4 (Q12): answer episodic meta-queries about the conversation.
+
+        Handles "what did I just ask you", "what did I say", "what were we
+        talking about", "what was my last question", "do you remember what I
+        asked". These are queries whose subject is the DIALOGUE itself, so the
+        subject-keyed hippocampal buffer cannot serve them — we answer from the
+        verbatim user-turn ring buffer (Baddeley episodic buffer + hippocampal
+        pattern completion). Returns None when the input is not a memory
+        meta-query, so the normal pipeline runs.
+
+        NOTE: called BEFORE the current turn is appended to
+        ``_recent_user_turns``, so ``[-1]`` is the immediately preceding turn.
+        """
+        t = (user_input or "").lower().strip(" ?!.")
+        if not t:
+            return None
+        # First/second-person + a recall/speech verb, referring to a prior turn.
+        # Require an explicit conversational-memory phrasing to stay narrow.
+        _patterns = [
+            r"\bwhat did i (?:just )?(?:ask|say|tell|mention)\b",
+            r"\bwhat (?:was|were) (?:my|the) (?:last |previous |first )?"
+            r"(?:question|questions|message|thing i said)\b",
+            r"\bwhat (?:were|are) we (?:talking|chatting) about\b",
+            r"\bwhat (?:did|were) we (?:talk|talking) about\b",
+            r"\b(?:do|can) you remember what i (?:asked|said|told)\b",
+            r"\bwhat was i (?:just )?(?:asking|saying|talking) about\b",
+            r"\brepeat (?:my|the) (?:last |previous )?question\b",
+        ]
+        if not any(re.search(p, t) for p in _patterns):
+            return None
+        prior = self._recent_user_turns
+        if not prior:
+            return "you haven't asked me anything yet this session — i don't have an earlier turn to recall."
+        last = prior[-1].strip()
+        # "what were we talking about" → topic-oriented; else verbatim recall.
+        if re.search(r"\bwe (?:talking|talk|were|are) (?:about|chatting)\b", t) \
+                or re.search(r"\btalking about\b", t):
+            topic = ""
+            if getattr(self, "_topic_list", None):
+                topic = self._topic_list[-1]
+            if topic:
+                return f'we were talking about {topic}. your last message was: "{last}"'
+            return f'your last message was: "{last}"'
+        return f'you just asked me: "{last}"'
+
     def _try_arithmetic(self, user_input: str) -> Optional[str]:
         """Phase 19f: Answer simple arithmetic directly instead of routing it
         through the web/decomposition pipeline (which would fail to find a
@@ -1078,6 +1131,16 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # Normalize unicode operators and strip a leading question frame.
         s = user_input.lower()
         s = s.replace("×", "*").replace("÷", "/").replace("x", "*")
+        # Fix 5: normalize spelled-out operators ("2 plus 2", "10 times 5",
+        # "9 minus 4", "8 divided by 2") to their symbols so the numeric path
+        # (IPS quantity + left-AG verbal arithmetic, Triple Code Model) fires
+        # instead of falling through to the association/uncertainty pipeline.
+        # Word-boundary anchored so "explain" etc. are untouched.
+        s = re.sub(r"\bplus\b", "+", s)
+        s = re.sub(r"\bminus\b", "-", s)
+        s = re.sub(r"\b(?:times|multiplied by)\b", "*", s)
+        s = re.sub(r"\bdivided by\b", "/", s)
+        s = re.sub(r"\b(?:to the power of|raised to)\b", "^", s)
         # Remove common framing words; keep only the math expression.
         s = re.sub(r"^(what(?:'s| is)|calculate|compute|solve|find|tell me|how much is|how many is)\s+",
                    "", s).strip()
@@ -1394,6 +1457,27 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             if len(self._last_responses) > 10:
                 self._last_responses = self._last_responses[-10:]
             return resp
+
+        # ── Fix 4 (Q12): episodic memory meta-query pre-pass ──────────────────
+        # "what did I just ask you", "what were we talking about" are queries
+        # ABOUT the conversation, whose subject is the dialogue itself — the
+        # SUBJECT-keyed hippocampal buffer can't answer them. Answer from the
+        # verbatim user-turn ring buffer (Baddeley episodic buffer + hippocampal
+        # pattern completion) BEFORE any subject-based routing. Check against the
+        # buffer that still holds only PRIOR turns (current turn appended after).
+        _mem = self._try_memory_query(user_input)
+        # Record the current turn now (after the meta-check, before other early
+        # returns) so every turn is captured exactly once.
+        self._recent_user_turns.append(user_input)
+        if len(self._recent_user_turns) > 12:
+            self._recent_user_turns = self._recent_user_turns[-12:]
+        if _mem is not None:
+            self._last_strategy = "memory_recall"
+            self._last_responses.append(_mem)
+            if len(self._last_responses) > 10:
+                self._last_responses = self._last_responses[-10:]
+            return _mem
+
 
         # ── Phase 19f: Arithmetic pre-pass ───────────────────────────────────
         # Plain arithmetic is deterministic and should never be routed to the
@@ -2333,7 +2417,16 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # preamble/fragment rather than a complete, answerable unit, hold with a
         # light acknowledgment + invitation to continue — don't dump a guessed
         # full answer to an incomplete turn. Mirrors waiting for the "go-signal".
-        if self._is_preamble_fragment(user_input):
+        #
+        # Fix 3 (Q8): a counterfactual/conditional ("if gravity stopped, what
+        # would happen") is a COMPLETE, answerable speech act (PFC+hippocampus
+        # counterfactual simulation), NOT an open proposition. The turn-end
+        # predictor (Magyari 2014) misfires on a conditional opener and withholds
+        # it as a fragment. Guard the conditional route ABOVE the preamble hold
+        # so it flows to counterfactual simulation / web grounding instead of
+        # "mm-hmm, what were you going to say?".
+        if not self._is_conditional_query(user_input) \
+                and self._is_preamble_fragment(user_input):
             hold = self._preamble_hold_response(user_input)
             self._last_responses.append(hold)
             self._last_strategy = "preamble_hold"
@@ -4113,9 +4206,10 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         facts = self.hippocampal_buffer.retrieve(ctx.subject)
         if not facts:
             return None
-        # Return the highest-confidence fact
+        # Return the highest-confidence fact (Fix 4: was `return None`, which
+        # threw away the retrieved memory — the retrieval path was dead).
         best_fact = max(facts, key=lambda f: f.confidence)
-        return None
+        return best_fact.object
 
 
     def _generate_acknowledgment(self, ctx, implicature) -> str:
@@ -5323,16 +5417,47 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
 
     @staticmethod
     def _checksum_state(state: dict) -> str:
-        """Stable hash of the picklable state (schema integrity check)."""
+        """Deterministic, cross-process-stable integrity fingerprint.
+
+        Fix 7: the previous implementation hashed ``pickle.dumps(state)``. That
+        is NOT stable across processes — state contains sets/dicts of strings
+        whose iteration order depends on PYTHONHASHSEED, so the pickled bytes
+        (and thus the digest) differ between the process that SAVED and the one
+        that LOADS. Result: the checksum mismatched on essentially every load
+        and printed a spurious 'partially corrupt' warning, and no self-heal
+        could ever converge (the re-saved digest mismatched on the next run
+        too).
+
+        We instead hash an ORDER-INDEPENDENT structural fingerprint: for each
+        top-level key, its type name and a coarse size signal (len when
+        available). This is deterministic across processes and still catches the
+        real corruption modes — missing/renamed keys, wrong types (the sanitizer
+        replacing an object with a placeholder string), truncated collections —
+        while value-level bit-rot is caught by pickle load failing outright
+        (reconsolidation robustness: tolerate benign variation, flag structural
+        damage). The ``state_checksum`` key itself is always excluded.
+        """
         import hashlib
-        try:
-            blob = pickle.dumps(state, protocol=pickle.HIGHEST_PROTOCOL)
-        except Exception:
-            # If the state can't be pickled for hashing, hash a coarse
-            # structural fingerprint instead (never fail the save on this).
-            blob = repr(sorted(
-                (k, type(v).__name__) for k, v in state.items()
-            )).encode("utf-8")
+
+        def _fingerprint(v):
+            # Scalars: hash the VALUE (deterministic across processes) so a
+            # value tamper (e.g. turn_count 7 -> 999) is detected.
+            if isinstance(v, (int, float, bool, str, bytes, type(None))):
+                return ("scalar", repr(v))
+            # Containers: order-independent structural signal only (type + len).
+            # Their element order is NOT stable across processes (PYTHONHASHSEED),
+            # so hashing contents would reintroduce the false-mismatch bug.
+            try:
+                return ("container", type(v).__name__, len(v))
+            except Exception:
+                return ("object", type(v).__name__)
+
+        fingerprint = sorted(
+            (k,) + _fingerprint(v)
+            for k, v in state.items()
+            if k != 'state_checksum'
+        )
+        blob = repr(fingerprint).encode("utf-8")
         return hashlib.sha256(blob).hexdigest()[:16]
 
     def _safe_pickle_dump(self, state, fpath):
@@ -5622,13 +5747,20 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                       f"!= current {self.SAVE_SCHEMA_VERSION} — "
                       f"attempting best-effort restore")
             _loaded_sha = state.get('state_checksum', None)
+            _checksum_ok = True
             if _loaded_sha:
                 _recomputed = self._checksum_state(state)
                 if _recomputed != _loaded_sha:
+                    _checksum_ok = False
                     print(f"  [Load warn] state_checksum mismatch "
                           f"({_loaded_sha} vs {_recomputed}) — "
                           f"snapshot may be partially corrupt; restoring "
                           f"what is valid")
+            # Fix 7: remember to re-save a fresh, self-consistent snapshot at the
+            # end of a successful load when the checksum didn't verify, so the
+            # corruption self-heals instead of warning on every startup
+            # (systems-consolidation / reconsolidation robustness).
+            self._resave_after_load = not _checksum_ok
             # Stash for the final success return; if unreadable, caller logs.
 
             # Restore graph
@@ -5673,7 +5805,14 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             # .strength on the dict. So we validate shape BEFORE assigning.
             try:
                 _id_state = state['identity_state']
-                if hasattr(_id_state, 'strength') and hasattr(_id_state, 'last_delta'):
+                # Fix 7: IdentityState carries `.strength` (+ `.momentum`); the
+                # engine's `.last_delta` is a SEPARATE field stored under
+                # 'identity_momentum'. The old guard checked hasattr(_id_state,
+                # 'last_delta') — which IdentityState never has — so it ALWAYS
+                # fell to the else branch and silently discarded a valid saved
+                # identity on every load. Validate the field that actually
+                # exists on the state object.
+                if hasattr(_id_state, 'strength'):
                     self.identity.state = _id_state
                     self.identity.last_delta = state.get('identity_momentum', 0.0)
                 else:
@@ -5912,7 +6051,18 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 self.cerebellar_ngram.seed_from_pos(self._concept_pos)
             if hasattr(self, 'syntactic_assembly'):
                 self.syntactic_assembly.seed_from_pos(self._concept_pos)
-            
+
+            # Fix 7: self-heal a checksum-mismatched snapshot by re-saving a
+            # fresh, self-consistent one now that all valid fields are restored.
+            # Avoids warning on every subsequent startup (reconsolidation).
+            if getattr(self, '_resave_after_load', False):
+                try:
+                    self.save()
+                    print("  [Load heal] re-saved a self-consistent snapshot")
+                except Exception:
+                    pass
+                self._resave_after_load = False
+
             return True
         except Exception as e:
             print(f"  [Load error] {e}")
