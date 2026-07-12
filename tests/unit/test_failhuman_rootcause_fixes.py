@@ -132,5 +132,40 @@ def test_paradox_topic_extraction():
     assert e._paradox_topic("is the statement i am lying true or false") in ("liar", "lying")
 
 
+def test_metaphor_path1_fires_for_broad_subjects():
+    """L1 / Fix A.1 outcome guard: the learned cross-modal probe (Path 1) must
+    fire for a BROAD set of category-error subjects -- geometric, abstract,
+    sensory, physical -- NOT fall through to Path 3 random/structure-mapped
+    sampling. Guards against a future probe change silently regressing L1 back
+    to arbitrary pairs. The reply must carry the Path-1 signature
+    ('more in terms of its <sensory phrase>'), proving the probe -- not a
+    random draw -- generated it."""
+    e = _eng()
+    subjects = ["triangle", "square", "circle", "cube", "line", "number",
+                "justice", "love", "time", "equation", "silence", "memory",
+                "dream", "thought", "idea", "freedom", "peace", "anger",
+                "color", "red", "music", "gravity", "atom", "cell", "tree",
+                "stone", "wind", "shadow", "language", "soul", "infinity"]
+    fired = 0
+    for subj in subjects:
+        reply = e._metaphor_for_category_error(subj, "taste")
+        if reply is None:
+            continue
+        # Path-1 signature: cross-modal phrasing referencing the subject's own
+        # sensorimotor profile. (Path 3 would say 'can have the taste of <Y>'.)
+        if "more in terms of its" in reply.lower() and subj in reply.lower():
+            fired += 1
+        else:
+            # Allow Path 2 (ConceptNet feature frame) as an acceptable derived
+            # path, but NOT a bare structure-mapped/random pair without the
+            # subject's profile. The key guard: the subject word appears and a
+            # derived (non-random) framing is used.
+            assert subj in reply.lower(), f"reply omits subject {subj!r}: {reply!r}"
+    # The learned probe must cover the large majority of subjects (the literal
+    # A.1 goal: widen empirical base so Path 1 fires). Require >= 90% Path-1.
+    rate = fired / len(subjects)
+    assert rate >= 0.9, f"Path-1 coverage only {rate:.2f} ({fired}/{len(subjects)})"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))

@@ -1990,6 +1990,18 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             return None
         # 1) Cross-modal metaphor from the subject's learned attribute profile.
         enc = getattr(getattr(self, "_cn_ontology", None), "attribute_encoder", None)
+        if enc is None:
+            # Lazy-load the probe if the ontology wasn't built with it wired
+            # (mirrors the gate's lazy-load, so Path 1 also works when this
+            # method is called standalone, e.g. in tests).
+            try:
+                from ravana.ontology.attribute_encoder import AttributeEncoder
+                _cand = os.path.join(_proj_root, "data", "attribute_encoder.npz")
+                if os.path.exists(_cand):
+                    enc = AttributeEncoder.load(_cand)
+                    getattr(self, "_cn_ontology", None).attribute_encoder = enc
+            except Exception:
+                enc = None
         gvec = self._glove_vector(subj) if hasattr(self, "_glove_vector") else None
         if enc is not None and gvec is not None:
             try:
