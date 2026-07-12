@@ -2674,7 +2674,7 @@ class ResponseGenMixin(ChainWalkerMixin):
             lines.append(f"{subj_cap} would make their own food from sunlight")
             lines.append("they'd need far less to eat from the environment")
             lines.append("farming and food supply would change a lot")
-        elif "rule" in _premise and ("cat" in _premise or "world" in _premise):
+        elif "rul" in _premise and ("cat" in _premise or "world" in _premise):
             lines.append(f"{subj_cap} would set the rules everyone else follows")
             lines.append("daily life would bend around what they want")
         elif "disappear" in _premise or "gone" in _premise:
@@ -3840,7 +3840,8 @@ class ResponseGenMixin(ChainWalkerMixin):
             repaired += "."
         return repaired, dropped
 
-    def _forward_model_check(self, text: str, ctx: "CognitiveResponseContext") -> str:
+    def _forward_model_check(self, text: str, ctx: "CognitiveResponseContext",
+                              strategy: str = "") -> str:
         """Pre-emission forward-model self-monitor (brief behavior 6).
 
         Inner speech / efference-copy analog (Pickering & Garrod; Yao 2025):
@@ -3857,6 +3858,13 @@ class ResponseGenMixin(ChainWalkerMixin):
         pipeline (no second, divergent definition). Returns the (possibly
         repaired) text unchanged when it passes.
         """
+        # Counterfactual simulation (CSM) is a deliberately-constructed,
+        # epistemic-hedged forward simulation, not free association — it cannot
+        # be "degenerate/echo" in the sense this monitor targets. Exempt it so
+        # the pre-articulation loop never discards a coherent "what would
+        # happen" answer (its own coherence/tautology gates already ran).
+        if strategy == "counterfactual_simulation":
+            return text
         if not text or not text.strip():
             return self._human_like_uncertainty(ctx)[0]
         # Degenerate / word-salad candidate -> refuse. Clause-grained: any

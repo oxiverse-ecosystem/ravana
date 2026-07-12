@@ -2668,7 +2668,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                     multi_sentence=(_is_decomposed or _is_sm_multi))
                 # Pre-emission forward-model self-monitor (brief behavior 6):
                 # refuse degenerate/echo replies before they are articulated.
-                response = self._forward_model_check(response, ctx)
+                response = self._forward_model_check(response, ctx, strategy)
         except Exception as _fwd_err:  # P4: observable + fail-closed (was silent `pass`)
             import logging
             logging.getLogger(__name__).debug(
@@ -4902,6 +4902,16 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             "chitchat": 0.40,
         }
         base_score = strategy_scores.get(strategy, 0.3)
+
+        # Counterfactual simulation is a deliberately-constructed, epistemic-
+        # hedged forward simulation (CSM), NOT free association — it cannot be
+        # "word salad" in the tautological/empty sense the salad gate targets.
+        # Exempt it from the salad gate so stochastic graph state during
+        # background learning never discards a coherent "what would happen"
+        # answer. (The counterfactual path already self-gates via its own
+        # coherence/tautology checks in _coherence_ok / _abductive_counterfactual.)
+        if strategy == "counterfactual_simulation":
+            return max(base_score, 0.5)
 
         # Word salad check: immediate 0
         if _is_word_salad(response, subject=ctx.subject):
