@@ -123,3 +123,72 @@ def get_store(rebuild: bool = False) -> CaseDistributionStore:
         store.save()
         return store
     return CaseDistributionStore.load()
+
+
+# Threshold on the lexical capitalization prior for NON-sentence-initial words.
+# Words with cap_prob >= this are capitalized mid-sentence (proper nouns like
+# France/Monday); below it they stay lowercase (common nouns like apple/bank).
+_CAP_THRESHOLD = 0.5
+
+
+def case_infer(text: str, store: Optional[CaseDistributionStore] = None,
+               entity_words: Optional[set] = None) -> str:
+    """Context-sensitive casing (research casing, Phase 4) — replaces the
+    hardcoded ``text[0].upper() + text[1:]``.
+
+    Brain-aligned dual-route (plan Phase 4):
+      * Positional route: the first alphabetic word of each sentence is
+        capitalized (sentence-boundary bias, ~98% in written text).
+      * Lexical route: a NON-sentence-initial word is capitalized when its
+        FIT capitalization prior ``cap_prob`` (from SUBTLEX, Phase 1) is high,
+        OR it is in ``entity_words`` (Phase 5 hook: ConceptGraph entity
+        signal). Otherwise it stays lowercase — no regression for the
+        all-lowercase decoder output.
+      * Special: lone "i" -> "I" (pronoun, always capitalized).
+
+    The prior is data-derived, not a hand list. OOV words have cap_prob=0.0
+    (conservative lowercase), so unknown words never get wrongly capitalized.
+
+    Punctuation and the rest of the text are preserved exactly.
+    """
+    if not text:
+        return text
+    if store is None:
+        store = get_store()
+    entity_words = {w.lower() for w in (entity_words or set())}
+
+    # Split into sentences on . ! ? keeping the terminator attached.
+    # Use a regex that splits AFTER a terminator + optional space.
+    import re
+    pieces = re.split(r'(?<=[.!?])\s+', text)
+    out_pieces = []
+    for piece in pieces:
+        if not piece:
+            continue
+        # Tokenize into (leading_punct, word, trailing_punct) keeping structure.
+        toks = re.findall(r"(\s*)(\S+)", piece)
+        first_word_done = False
+        out_toks = []
+        for lead, tok in toks:
+            # Separate trailing punctuation from the word.
+            m = re.match(r"^([^\W\d_]+)(.*)$", tok)
+            if m and m.group(1):
+                word = m.group(1)
+                trail = m.group(2)
+                wl = word.lower()
+                if not first_word_done:
+                    # Positional route: capitalize sentence start.
+                    out_toks.append((lead, word[0].upper() + word[1:], trail))
+                    first_word_done = True
+                else:
+                    if wl == "i":
+                        out_toks.append((lead, "I", trail))
+                    elif wl in entity_words or store.cap_prob(wl) >= _CAP_THRESHOLD:
+                        out_toks.append((lead, word[0].upper() + word[1:], trail))
+                    else:
+                        out_toks.append((lead, word, trail))
+            else:
+                # Tokens that aren't plain words (numbers, punctuation) unchanged.
+                out_toks.append((lead, tok, ""))
+        out_pieces.append("".join(lead + w + trail for lead, w, trail in out_toks))
+    return " ".join(out_pieces)

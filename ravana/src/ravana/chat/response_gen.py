@@ -678,8 +678,10 @@ class ResponseGenMixin(ChainWalkerMixin):
                 if any(c >= 4 for c in bg_counts.values()):
                     return None
 
-            # Clean up basic punctuation issues
-            text = text[0].upper() + text[1:]
+            # Clean up basic punctuation issues (context-sensitive casing:
+            # positional + data-derived lexical prior, not a blind .upper())
+            from ravana.chat.case_distribution import case_infer
+            text = case_infer(text)
             if not text.endswith((".", "?", "!")):
                 text += "."
             # Remove double spaces
@@ -825,9 +827,10 @@ class ResponseGenMixin(ChainWalkerMixin):
             if narrative_sents:
                 for ns in narrative_sents[:2]:
                     if len(utterances) == 0:
-                        utterances.append(ns[0].upper() + ns[1:])
+                        from ravana.chat.case_distribution import case_infer
+                        utterances.append(case_infer(ns))
                     else:
-                        utterances.append(ns[0].lower() + ns[1:])
+                        utterances.append(case_infer(ns.lower()))
                 schema_used = True
 
         # -- CONCEPTUAL BLENDING: Check for similar schemas if no direct match --
@@ -841,12 +844,13 @@ class ResponseGenMixin(ChainWalkerMixin):
                 if blended:
                     narrative_sents, source_concept, similarity = blended
                     if narrative_sents:
+                        from ravana.chat.case_distribution import case_infer
                         if len(utterances) == 0:
-                            utterances.append(narrative_sents[0][0].upper() + narrative_sents[0][1:])
+                            utterances.append(case_infer(narrative_sents[0]))
                         else:
-                            utterances.append(narrative_sents[0][0].lower() + narrative_sents[0][1:])
+                            utterances.append(case_infer(narrative_sents[0].lower()))
                         if len(narrative_sents) > 1:
-                            utterances.append(narrative_sents[1][0].lower() + narrative_sents[1][1:])
+                            utterances.append(case_infer(narrative_sents[1].lower()))
                         schema_used = True
                         if getattr(self, '_trace_enabled', False):
                             print(f"  [trace]   Blended schema from '{source_concept}' (sim={similarity:.2f})")
@@ -1124,7 +1128,9 @@ class ResponseGenMixin(ChainWalkerMixin):
         if len(utterances) >= 2:
             paragraph = " ".join(utterances)
             # Clean up: ensure proper capitalization and punctuation
-            paragraph = paragraph[0].upper() + paragraph[1:]
+            # (context-sensitive casing, not a blind .upper())
+            from ravana.chat.case_distribution import case_infer
+            paragraph = case_infer(paragraph)
             if not paragraph.endswith((".", "?", "!")):
                 paragraph += "."
             paragraph = re.sub(r'\s+', ' ', paragraph)
@@ -1261,7 +1267,8 @@ class ResponseGenMixin(ChainWalkerMixin):
                             if any(c >= 4 for c in bg_counts.values()):
                                 pass  # Fall through to narrative generation
                             else:
-                                text = text[0].upper() + text[1:]
+                                from ravana.chat.case_distribution import case_infer
+                                text = case_infer(text)
                                 if not text.endswith((".", "?", "!")):
                                     text += "."
                                 text = re.sub(r'\s+', ' ', text)
@@ -4247,20 +4254,40 @@ class ResponseGenMixin(ChainWalkerMixin):
     def _capitalize_subject(self, subject: str, raw_input: str) -> str:
         """Capitalize subject correctly, preserving original case for proper nouns/acronyms.
 
-        Only capitalizes when the subject is a recognised proper noun (in the
-        proper-noun set) — generic nouns like "life", "dream", "joke" stay
-        lowercase so we don't emit "Life is..." / "Dream is...". If the exact
-        word appears in the user's raw input with its original casing, reuse it.
+        Brain-aligned (research casing, Phase 4/5): the decision is DATA-DERIVED,
+        not a hand list. A subject is capitalized when:
+          * it appears in the user's raw input with original casing -> reuse it;
+          * its FIT capitalization prior (SUBTLEX, case_distribution.py) is high
+            (proper noun like France/Monday), OR it is in the manual
+            _proper_nouns set (a secondary signal, kept for backward compat);
+        otherwise it stays lowercase (generic nouns like "life"/"dream"/"joke").
+        This replaces the brittle manual-set-only rule, so e.g. "france" (learned
+        from web, not in the set) is correctly capitalized via the prior.
         """
         if not subject:
             return ""
+        proper = getattr(self, '_proper_nouns', set())
         words = raw_input.split()
+        try:
+            from ravana.chat.case_distribution import get_store
+            _cap = get_store().cap_prob(subject)
+        except Exception:
+            _cap = 0.0
         for w in words:
             clean_w = w.strip(".,!?\"'()[]{}*:;")
             if clean_w.lower() == subject.lower():
+                # Reuse the user's casing for AMBIGUOUS words (canonical form
+                # is uncertain, e.g. "apple" fruit vs "Apple" company). But for
+                # STRONG proper nouns (high cap_prob) the canonical form includes
+                # capitalization, so emit the capitalized form even if the user
+                # typed it lowercase ("france" -> "France") — abstract letter
+                # identity with the most-probable casing, per the VWFA analog.
+                # If it's a known manual proper noun (domain concept / seen in
+                # input) but OOV from SUBTLEX, still capitalize via that set.
+                if _cap >= 0.5 or subject.lower() in proper:
+                    return subject.capitalize()
                 return clean_w
-        proper = getattr(self, '_proper_nouns', set())
-        if subject.lower() in proper:
+        if subject.lower() in proper or _cap >= 0.5:
             return subject.capitalize()
         return subject.lower()
 

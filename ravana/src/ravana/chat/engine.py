@@ -1694,7 +1694,8 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                         r"^\s*(?:the |a |an )?" + re.escape(_tc)
                         + r"\s+(is|are|was|were|refers to|means)\s+",
                         "", clean, flags=re.IGNORECASE).strip()
-                    clean = clean[0].upper() + clean[1:] if clean else clean
+                    from ravana.chat.case_distribution import case_infer
+                    clean = case_infer(clean) if clean else clean
                     return clean
             except Exception:
                 continue
@@ -1731,7 +1732,8 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             return None
         # Capitalize the first clause; join with '; '.
         body = "; ".join(parts)
-        return body[0].upper() + body[1:] if body else None
+        from ravana.chat.case_distribution import case_infer
+        return case_infer(body) if body else None
 
     def _seed_kb_definitions(self, top_n: int = 250, workers: int = 8) -> int:
         """Seed _definitions from a DATA-DERIVED concept list (not a hand list):
