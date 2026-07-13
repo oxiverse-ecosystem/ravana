@@ -60,6 +60,18 @@ from .constants import (TEEN_CONCEPTS, WEB_GARBAGE, STOP_WORDS, ConceptPosDict,
                         _is_word_salad, _is_keyboard_mash)
 from .web_learning import WebLearningMixin
 from .snippet_quality import SnippetStructureModel, default_model
+# Research item B (fail-closed salad monitor): learned distributional classifier
+# + fluent-tautology signature gate. Imported lazily-safe so a missing fit file
+# degrades gracefully (the guard falls back to the legacy rule-based detector).
+try:
+    from .salad_classifier import is_salad_learned, get_classifier
+    from .monitor_gate import detects_fluent_tautology
+    _HAS_SALAD_LEARNED = True
+except Exception:  # pragma: no cover - defensive
+    _HAS_SALAD_LEARNED = False
+    is_salad_learned = None
+    get_classifier = None
+    detects_fluent_tautology = None
 
 import pickle
 from ravana.web.learner import SearchEngine
@@ -2256,6 +2268,60 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                     purge.add(_c)
         return purge
 
+    # ── Research item B: fail-CLOSED final-emit salad guard ───────────────────
+    # This guard runs AFTER every production path (including the Situation-Model
+    # decoder that previously emitted the Q21 word-salad escape) and is NOT
+    # gated by ``_disable_grounding_gate`` — that kill-switch only affects the
+    # legacy monitors for A/B benchmarking; it must never re-open the leak. The
+    # guard uses OR-semantics across three independent monitors so a single
+    # weak detector cannot let garbage through:
+    #   1. learned distributional classifier (fitted via EER, data/salad_classifier.json)
+    #   2. legacy rule-based _is_word_salad (structural bonuses)
+    #   3. detects_fluent_tautology (grammatical-but-empty signature)
+    # If ANY fires, the reply is withheld and replaced with honest uncertainty.
+    # Exemptions: counterfactual_simulation and emotional_empathy are composed,
+    # non-free-association replies that would be wrongly flagged (see
+    # _forward_model_check for the rationale) — they keep their own coherence gates.
+    def _final_emit_guard(self, text: str, ctx, strategy: str = "") -> str:
+        if strategy in ("counterfactual_simulation", "emotional_empathy"):
+            return text
+        if not text or not text.strip():
+            return text
+        subj = (getattr(ctx, "subject", None) or "")
+        _salad = False
+        _fire = None
+        # 1. learned classifier (graceful: None if no fit file)
+        if _HAS_SALAD_LEARNED and is_salad_learned is not None:
+            try:
+                if is_salad_learned(text, subj):
+                    _salad = True
+                    _fire = "learned_salad"
+            except Exception:
+                pass
+        # 2. legacy rule-based
+        if not _salad:
+            try:
+                if _is_word_salad(text, subject=subj):
+                    _salad = True
+                    _fire = "rule_salad"
+            except Exception:
+                pass
+        # 3. fluent-tautology signature
+        if not _salad and _HAS_SALAD_LEARNED and detects_fluent_tautology is not None:
+            try:
+                if detects_fluent_tautology(text, subj):
+                    _salad = True
+                    _fire = "fluent_tautology"
+            except Exception:
+                pass
+        if _salad:
+            self._log_monitor_fire("final_emit_guard", text.strip(), _fire or "salad")
+            if getattr(self, "_trace_enabled", False):
+                print(f"  [final-emit] withheld degenerate reply ({_fire}); "
+                      f"failing closed to uncertainty")
+            return self._human_like_uncertainty(ctx)[0]
+        return text
+
     def process_turn(self, user_input: str) -> str:
         """Process input and generate a response, auto-learning when needed."""
         # Guard: reject pure letter-salad so it is not treated as a concept and
@@ -3456,6 +3522,11 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 # Pre-emission forward-model self-monitor (brief behavior 6):
                 # refuse degenerate/echo replies before they are articulated.
                 response = self._forward_model_check(response, ctx, strategy)
+                # Research item B: FAIL-CLOSED final salad guard. Runs regardless
+                # of _disable_grounding_gate (the A/B kill-switch) so the Q21
+                # word-salad escape class can never reach the user. OR-semantics
+                # over the learned classifier + legacy rule + fluent-tautology.
+                response = self._final_emit_guard(response, ctx, strategy)
         except Exception as _fwd_err:  # P4: observable + fail-closed (was silent `pass`)
             import logging
             logging.getLogger(__name__).debug(
