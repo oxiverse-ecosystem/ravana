@@ -1479,13 +1479,26 @@ class ResponseGenMixin(ChainWalkerMixin):
         (Northoff, 2013; the cortical midline structures). Humans answer
         "do you have feelings?" with a stance + a curiosity return, not a
         fact retrieval.
+
+        Item C (routing arbiter): this branch must NOT swallow answerable
+        questions that merely contain a self-model predicate word — e.g.
+        "why do people feel lonely in a crowd" contains "feel" but is about
+        PEOPLE, not the agent. We route here only when the query is genuinely
+        self-addressed (2nd person "you" + predicate, no 3rd-party experiencer),
+        decided by the calibrated SelfAddressRouter. Otherwise return None so
+        the question reaches the factual/answerable path.
         """
         import re
+        from .self_model_router import is_self_addressed
         t = (text or "").lower()
         _feel = re.search(r"\b(feel|feeling|feelings|emotion|emotions)\b", t)
         _alive = re.search(r"\b(alive|living|real|human)\b", t)
         _think = re.search(r"\b(think|thoughts|conscious|aware|mind)\b", t)
         if not (_feel or _alive or _think):
+            return None
+        # Item C: only treat as self-model when genuinely self-addressed.
+        _about_agent, _conf = is_self_addressed(t)
+        if not _about_agent:
             return None
         # Ground the stance in the engine's actual affective state (honest,
         # not a hardcoded "i have no feelings").
