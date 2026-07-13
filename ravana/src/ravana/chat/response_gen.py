@@ -50,6 +50,43 @@ class ResponseGenMixin(ChainWalkerMixin):
         self._graph_entity_words = ent
         return ent
 
+    def _vsa_event_narrative(self, subject_lower: str) -> Optional[List[str]]:
+        """Realize a process narrative via the VSA event schema (Schema Completion).
+
+        Builds candidate embeddings from graph node vectors (subject concepts)
+        PLUS GloVe vectors for the event's verb/description words (so the VSA
+        bind/unbind round-trip can recover them via nearest-match). Returns None
+        if no VSA event schema is registered (fail-open to the template path).
+        """
+        schema_lib = getattr(self, "schema_library", None)
+        if schema_lib is None:
+            return None
+        ves = schema_lib.get_event_schema(subject_lower)
+        if ves is None or not ves.step_words:
+            return None
+        # Candidate embeddings: graph node vectors + GloVe for every step word.
+        embeddings: Dict[str, np.ndarray] = {}
+        g = getattr(self, "graph", None)
+        if g is not None:
+            for nid in getattr(g, "nodes", {}):
+                vec = g.get_node_vector(nid) if hasattr(g, "get_node_vector") else None
+                if vec is not None:
+                    embeddings[g.nodes[nid].label.lower()] = np.asarray(vec, dtype=np.float64)
+        glove = getattr(self, "_glove_vector", None)
+        for sw in ves.step_words:
+            for w in (sw.get("subject"), sw.get("verb"), sw.get("object")):
+                wl = (w or "").lower().strip(" .,!?")
+                if wl and wl not in embeddings and glove is not None:
+                    v = glove(wl)
+                    if v is not None:
+                        embeddings[wl] = np.asarray(v, dtype=np.float64)
+        if not embeddings:
+            return None
+        sents = ves.realize_event(embeddings)
+        if not sents:
+            return None
+        return sents
+
     def _build_decoder_vocab(self):
         """Build vocabulary for the NeuralDecoder from graph concepts + GloVe + function words.
 
@@ -843,17 +880,30 @@ class ResponseGenMixin(ChainWalkerMixin):
         schema_used = False
 
         if schema and len(schema.steps) >= 2:
-            # Use event schema for rich process narrative
-            narrative_sents = schema_lib.get_narrative_from_schema(subject_lower)
-            if narrative_sents:
+            # Schema Completion: prefer VSA event realization over the hardcoded
+            # string template. Falls back to the template if VSA yields nothing.
+            vsa_sents = self._vsa_event_narrative(subject_lower)
+            if vsa_sents:
                 from ravana.chat.case_distribution import case_infer
                 _ent = self._entity_words_for_case()
-                for ns in narrative_sents[:2]:
+                for ns in vsa_sents[:2]:
                     if len(utterances) == 0:
                         utterances.append(case_infer(ns, entity_words=_ent))
                     else:
                         utterances.append(case_infer(ns.lower(), entity_words=_ent))
                 schema_used = True
+            else:
+                # Fallback to the EventSchema string template (deprecated path).
+                narrative_sents = schema_lib.get_narrative_from_schema(subject_lower)
+                if narrative_sents:
+                    from ravana.chat.case_distribution import case_infer
+                    _ent = self._entity_words_for_case()
+                    for ns in narrative_sents[:2]:
+                        if len(utterances) == 0:
+                            utterances.append(case_infer(ns, entity_words=_ent))
+                        else:
+                            utterances.append(case_infer(ns.lower(), entity_words=_ent))
+                    schema_used = True
 
         # -- CONCEPTUAL BLENDING: Check for similar schemas if no direct match --
         if not schema_used and schema_lib and vector_fn is not None:
@@ -865,6 +915,12 @@ class ResponseGenMixin(ChainWalkerMixin):
                 )
                 if blended:
                     narrative_sents, source_concept, similarity = blended
+                    # Schema Completion: if the SOURCE concept has a VSA event
+                    # schema, realize it via VSA (preferred) instead of the
+                    # hardcoded blended template.
+                    vsa_src = self._vsa_event_narrative(source_concept)
+                    if vsa_src:
+                        narrative_sents = vsa_src
                     if narrative_sents:
                         from ravana.chat.case_distribution import case_infer
                         _ent = self._entity_words_for_case()

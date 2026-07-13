@@ -377,6 +377,15 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         self.coherence_net = CoherenceNetwork()
         self.vsa_manager = VSAManager(dim=self.dim)
         self.schema_library = SchemaLibrary(self.vsa_manager)
+        # Schema Completion (research item): migrate the hardcoded EventSchema
+        # process templates into VSA event schemas so the narrative generator can
+        # realize processes via role-filler binding instead of string templates.
+        try:
+            self.event_schema_lib.seed_default_schemas()
+            for _concept, _es in self.event_schema_lib._schemas.items():
+                self.schema_library.build_event_schema(_es, concept=_concept)
+        except Exception:
+            pass
         # Work A0: HRR compositional reasoning in the loop. DualCodeSpace (2048-D,
         # additive dual-code) is instantiated here and the graph's opt-in
         # _fact_encode_hook is wired so EVERY add_edge (the single write choke
