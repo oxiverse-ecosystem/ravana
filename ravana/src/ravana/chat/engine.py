@@ -4155,7 +4155,8 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         t = (text or "").strip().lower().rstrip(" .!?")
         if not t:
             return False
-        wc = len([w for w in t.split() if w])
+        _toks = [w for w in t.split() if w]
+        wc = len(_toks)
         # 1) Dependency-closure: an incomplete clause (open proposition) is a
         #    preamble — hold the turn. This catches cue-less lead-ins.
         if not self._is_clause_complete(text):
@@ -4179,9 +4180,27 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         if any(t.startswith(c) and len(t) <= len(c) + 6 for c in _preamble_cues):
             return True
         # 5) A short bare fragment that is neither a greeting nor a complete
-        #    clause is an incomplete lead-in.
+        #    clause is an incomplete lead-in. BUT a short *predicated* statement
+        #    (subject + predicate: "i'm bored", "that's cool", "he left") is a
+        #    complete speech act, not an open lead-in — holding it makes the
+        #    agent look like it stopped listening (Q3/Q6 battery failures). Only
+        #    hold bare NPs / unpredicated fragments ("the cat", "another thing").
         if wc <= 2 and not t.endswith("?"):
-            return True
+            # A token carries a predicate if it IS a predicate word or ENDS in a
+            # clitic ("i'm", "that's", "we're", "you've") — contractions are one
+            # token, so a substring/suffix test is required (not exact match).
+            _PRED = ("is", "are", "am", "was", "were", "do", "does", "did",
+                     "have", "has", "had", "go", "goes", "went", "left", "came",
+                     "won", "lost", "like", "love", "hate", "feel", "felt",
+                     "think", "want", "need", "know", "see", "said", "make",
+                     "made", "eat", "ate", "run", "ran", "sleep", "cry", "laugh",
+                     "bored", "tired", "sad", "happy", "fine", "okay", "cool")
+            _CLITIC = ("'s", "'m", "'re", "'ll", "'ve", "'d")
+            _has_pred = any(
+                w in _PRED or w.endswith(_CLITIC) for w in _toks
+            )
+            if not _has_pred:
+                return True
         return False
 
     def _is_answerable_query(self, text: str) -> bool:
