@@ -1428,19 +1428,23 @@ class ResponseGenMixin(ChainWalkerMixin):
         farewells = (
             r"\b(bye|goodbye|see\s*you|good\s*night|farewell)\b"
         )
+        gratitude = (
+            r"\b(thanks|thank\s*you|thx|cheers|appreciate|grateful)\b"
+        )
 
         is_greeting = re.search(greetings, t) is not None
         is_wellbeing = re.search(wellbeing, t) is not None
         is_capability = re.search(capabilities, t) is not None
         is_farewell = re.search(farewells, t) is not None
+        is_gratitude = re.search(gratitude, t) is not None
 
         # Skip if not conversational and matches a query pattern
-        if not (is_greeting or is_wellbeing or is_capability or is_farewell) and subject:
+        if not (is_greeting or is_wellbeing or is_capability or is_farewell or is_gratitude) and subject:
             for pattern, _ in self.QUERY_PATTERNS:
                 if re.search(pattern, t):
                     return None
 
-        if not (is_greeting or is_wellbeing or is_capability or is_farewell):
+        if not (is_greeting or is_wellbeing or is_capability or is_farewell or is_gratitude):
             return None
 
         # Retrieve emotional valence and arousal for mood modulation
@@ -1458,6 +1462,8 @@ class ResponseGenMixin(ChainWalkerMixin):
             return self._compose_capability()
         elif is_farewell:
             return self._compose_farewell(valence, arousal)
+        elif is_gratitude:
+            return self._compose_gratitude(valence, arousal)
 
         return None
 
@@ -1988,6 +1994,32 @@ class ResponseGenMixin(ChainWalkerMixin):
                 "it was good talking with you!",
             ])
         return f"{farewell_word}! {warmth_suffix}"
+
+    def _compose_gratitude(self, valence: float, arousal: float) -> str:
+        """Compose a gratitude acknowledgment from primitives.
+
+        'thanks' / 'thank you' is a social closure act, not a knowledge gap —
+        answering it with "i'm not totally sure about thanks yet" is a category
+        error. Respond with a composed acknowledgment grounded in the current
+        conversational mood (valence-gated), mirroring how a human closes the
+        loop on an expression of thanks.
+        """
+        import random
+        ack = random.choice([
+            "you're welcome!",
+            "of course — glad i could help.",
+            "anytime, really.",
+            "happy to help!",
+            "no problem at all.",
+        ])
+        # Warm valence invites a curiosity return to keep the conversation going.
+        if valence >= 0.6:
+            ack += random.choice([
+                " what's on your mind next?",
+                " want to dig into anything else?",
+                " what else are you curious about?",
+            ])
+        return ack
 
     def _detect_comparison_concepts(self, query: str) -> Optional[Tuple[str, str]]:
         """Detects if a query is comparing two concepts and returns them if found."""
@@ -2678,8 +2710,19 @@ class ResponseGenMixin(ChainWalkerMixin):
             "do", "does", "did", "have", "has", "had", "be", "is", "are",
             "different", "same", "alive", "dead", "real", "true", "instead",
         }
+        # Discourse / spinner adverbs that often introduce a hypothetical
+        # ("suddenly", "out of nowhere", "one day") but are NOT the thing that
+        # would be different. Treating e.g. "suddenly" as the intervened node
+        # ("if the sun suddenly went out" -> "suddenly would lead to trouble")
+        # is a subject-resolution failure. Exclude them from candidate nouns.
+        _DISCOURSE_ADV = {
+            "suddenly", "sudden", "out", "nowhere", "one", "day", "somehow",
+            "magically", "mysteriously", "instantly", "immediately", "abruptly",
+            "accidentally", "unexpectedly", "apparently", "supposedly",
+        }
         _query_nouns = [w for w in re.findall(r"[a-z']+", _raw)
                         if w not in STOP_WORDS and w not in _VERB_BLOCK
+                        and w not in _DISCOURSE_ADV
                         and len(w) > 2]
         # Agency-aware subject resolution (control interventions): the agent
         # of "X took over / ruled / seized power / is in charge" is X — the
@@ -3040,6 +3083,80 @@ class ResponseGenMixin(ChainWalkerMixin):
         except Exception:
             return False
         return False
+
+    def _get_grounding_score(self, source: str, relation: str, target: str) -> float:
+        """Compute a continuous semantic grounding score (0.0 to 10.0+) for a
+        candidate relation (source -> relation -> target) based on KB and web-learned facts,
+        mirroring the brain's executive control filtering out ungrounded associations.
+        """
+        if not source or not target:
+            return 0.0
+        
+        src_lower = source.lower().strip()
+        tgt_lower = target.lower().strip()
+        rel_lower = (relation or "").strip().lower()
+        
+        score = 0.0
+        
+        # 1. Mention in local definitions
+        src_def = getattr(self, "_definitions", {}).get(src_lower, "").lower()
+        if src_def:
+            if re.search(r'\b' + re.escape(tgt_lower) + r'\b', src_def):
+                score += 3.5
+        
+        tgt_def = getattr(self, "_definitions", {}).get(tgt_lower, "").lower()
+        if tgt_def:
+            if re.search(r'\b' + re.escape(src_lower) + r'\b', tgt_def):
+                score += 2.0
+                
+        # 2. ConceptNet Ontology grounding
+        ont = getattr(self, "_cn_ontology", None)
+        if ont is not None:
+            # Direct IsA match
+            if tgt_lower in ont.isa.get(src_lower, set()) or src_lower in ont.isa.get(tgt_lower, set()):
+                score += 3.0
+                if rel_lower in ("is_a", "isa"):
+                    score += 4.0
+            
+            # Direct Feature match
+            if tgt_lower in ont.features.get(src_lower, set()) or src_lower in ont.features.get(tgt_lower, set()):
+                score += 2.5
+                if rel_lower in ("property", "has_a"):
+                    score += 4.0
+                    
+        # 3. Contentful Graph Edges
+        src_nids = getattr(self, "_concept_keywords", {}).get(src_lower, [])
+        tgt_nids = getattr(self, "_concept_keywords", {}).get(tgt_lower, [])
+        
+        for s_id in src_nids:
+            for t_id in tgt_nids:
+                edge = self.graph.get_edge(s_id, t_id)
+                if edge:
+                    if edge.relation_type in ("causal", "temporal", "analogical", "is_a", "part_of", "has_a", "property", "antonym"):
+                        score += 3.0 * edge._weight
+                        if edge.relation_type == rel_lower:
+                            score += 3.0
+                    elif edge.relation_type in ("semantic", "related"):
+                        score += 0.5 * edge._weight
+                
+                bedge = self.graph.get_edge(t_id, s_id)
+                if bedge:
+                    if bedge.relation_type in ("causal", "temporal", "analogical", "is_a", "part_of", "has_a", "property", "antonym"):
+                        score += 2.0 * bedge._weight
+                        if bedge.relation_type == rel_lower:
+                            score += 1.5
+                    elif bedge.relation_type in ("semantic", "related"):
+                        score += 0.25 * bedge._weight
+                        
+        # 4. Web sources overlap
+        src_srcs = getattr(self, "_concept_sources", {}).get(src_lower, set())
+        tgt_srcs = getattr(self, "_concept_sources", {}).get(tgt_lower, set())
+        if src_srcs and tgt_srcs:
+            overlap = src_srcs & tgt_srcs
+            if overlap:
+                score += 1.5 * min(3, len(overlap))
+                
+        return score
 
     def _human_like_uncertainty(self, ctx: CognitiveResponseContext):
         """Graceful, curious turn taken when FOK is low and the topic is ungrounded.
@@ -3654,18 +3771,10 @@ class ResponseGenMixin(ChainWalkerMixin):
             if not answer_text and hasattr(self, 'syntactic_assembly') and hasattr(self, 'surface_realizer'):
                 try:
                     pool = sub_assocs or ctx.associated_concepts
-                    target_label = ""
                     subj_lower = (sq_target or ctx.subject or "").lower()
-                    # Reality-monitoring guard (anterior PFC / Johnson source-
-                    # monitoring): the first association above a tiny threshold
-                    # is frequently a high-degree HUB ("trust", "life",
-                    # "amount") with no semantic link to the subject. Binding
-                    # it produces a confabulation, exactly the failure the
-                    # evaluator flagged for complex/multi-concept questions.
-                    # Require the bound target to be semantically related to
-                    # the (cleaned) subject (GloVe sim >= 0.30) so an
-                    # ungrounded spread cannot silently fall back to a hub.
                     subj_vec = self._glove_vector(subj_lower) if hasattr(self, '_glove_vector') else None
+                    
+                    scored_candidates = []
                     for label, sc in pool[:12]:
                         ll = label.lower()
                         if ll == subj_lower or sc <= 0.12:
@@ -3674,8 +3783,21 @@ class ResponseGenMixin(ChainWalkerMixin):
                             tv = self._glove_vector(ll)
                             if tv is None or float(np.dot(subj_vec, tv)) < 0.30:
                                 continue
-                        target_label = label
-                        break
+                        # Compute semantic grounding score for the candidate target concept
+                        g_score = self._get_grounding_score(subj_lower, sq_rel, ll)
+                        scored_candidates.append((label, g_score, sc))
+                    
+                    # Sort candidates by grounding score (descending), then by activation score (descending)
+                    scored_candidates.sort(key=lambda x: (x[1], x[2]), reverse=True)
+                    
+                    target_label = ""
+                    # Require minimum grounding score to filter out bare graph associations (threshold = 0.5)
+                    for label, g_score, sc in scored_candidates:
+                        if g_score >= 0.5:
+                            target_label = label
+                            if getattr(self, '_trace_enabled', False):
+                                print(f"  [decomp-gen] Selected grounded target '{target_label}' for '{subj_lower}' (relation='{sq_rel}', grounding_score={g_score:.2f})")
+                            break
                     if target_label:
                         frame = self.syntactic_assembly.bind_to_sentence(
                             subject=sq_target or ctx.subject or "it",

@@ -1458,6 +1458,16 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # Normalize unicode operators and strip a leading question frame.
         s = user_input.lower()
         s = s.replace("×", "*").replace("÷", "/").replace("x", "*")
+        # Division by zero (spelled out, e.g. "divide by zero", "10 divided by
+        # zero") is mathematically undefined, not a solvable expression. Catch
+        # it explicitly and answer honestly instead of letting it fall through
+        # to the assertion mirror ("yeah, divide zero result."). Matches both
+        # "divide X by zero" and bare "divide by zero" / "divided by zero".
+        if re.search(r"divide[ds]?\s+(?:\w+\s+)?by\s+zero\b", s) or \
+           re.search(r"\bzero\b.*\bdivid", s):
+            return ("division by zero isn't defined — there's no number you can "
+                    "multiply by zero to get back to the original value, so the "
+                    "operation has no answer.")
         # Fix 5: normalize spelled-out operators ("2 plus 2", "10 times 5",
         # "9 minus 4", "8 divided by 2") to their symbols so the numeric path
         # (IPS quantity + left-AG verbal arithmetic, Triple Code Model) fires
