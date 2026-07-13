@@ -3693,7 +3693,7 @@ class ResponseGenMixin(ChainWalkerMixin):
         # Step 3: PFC Gate — route to Ventral or Dorsal path
         # Ventral path: known concepts (confidence > 0.4) or non-reasoning queries
         # Dorsal path: low confidence OR needs web search for reasoning
-        needs_search = self._needs_web_search(subject) if subject else False
+        needs_search = self._needs_web_search(subject, query=ctx.raw_input) if subject else False
 
         if is_reasoning_query and (knowledge_confidence < 0.4 or needs_search):
             # DORSAL PATH: needs reasoning, unknown or partially known concept

@@ -5302,13 +5302,20 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
 
     def _web_snippet_search(self, variants, ctx, is_conditional, deadline):
         """Search each query variant and return the highest-shape snippet that
-        passes the chrome/quality floor, or (None, None). Extracted from
+        passes the chrome/quality floor, or (None, None, attempted). Extracted from
         _web_direct_answer so the plausibility monitor can re-run a refined set
-        of variants without duplicating the search loop."""
+        of variants without duplicating the search loop.
+
+        ``attempted`` is True when at least one variant was actually issued and
+        returned a response (even an empty one); it lets the caller distinguish
+        "we searched the web and found nothing" (fail-closed → abstain) from
+        "we never searched" (e.g. no variants).
+        """
         import time as _time
         best = None
         best_score = -1.0
         best_term = None
+        attempted = False
         query = ctx.raw_input.strip()
         for term in variants:
             if _time and _time.time() > deadline:
@@ -5318,6 +5325,10 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 # and reliably returns hypothetical content; skip the slower
                 # remote APIs so a hung call can never stall the turn.
                 local_only = is_conditional
+                # Mark as attempted BEFORE the call: a raised SearchError (all
+                # backends failed) is still "we searched and found nothing",
+                # which is exactly when the caller should abstain honestly.
+                attempted = True
                 res = self.search_engine.search(term, max_results=6,
                                                 local_only=local_only)
             except Exception as ex:
@@ -5348,7 +5359,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 best_score = quality
                 best = cand
                 best_term = term
-        return best, best_term
+        return best, best_term, attempted
 
     def _web_direct_answer(self, ctx: CognitiveResponseContext) -> Optional[Tuple[str, str]]:
         """Answer an unknown factual query directly from live web snippets.
@@ -5380,13 +5391,21 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         _budget = 12.0  # hard wall-clock cap on the whole variant search
         _deadline = _time.time() + _budget
         try:
-            best, best_term = self._web_snippet_search(variants, ctx,
+            best, best_term, attempted = self._web_snippet_search(variants, ctx,
                                                       is_conditional, _deadline)
         except Exception as ex:
             if getattr(self, '_trace_enabled', False):
                 print(f"  [webans] search failed: {ex!r}")
             return None
         if not best:
+            # D (research item D): fail-closed degradation. If this was an
+            # informational/definitional query and we actually searched the web
+            # (all backends, including remote fallbacks) but found nothing
+            # usable, abstain honestly instead of letting the caller silently
+            # fall back to a hollow graph-edge answer.
+            if attempted and self._is_informational_query(query, ctx.subject):
+                return ("I couldn't verify that from the web right now, "
+                        "so I'll be honest rather than guess.", "web_unverified")
             return None
 
         # ── Answer-usefulness monitor (N400 plausibility / reality monitoring) ──
@@ -8159,7 +8178,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
 
 
 
-    def _needs_web_search(self, subject: str) -> bool:
+    def _needs_web_search(self, subject: str, query: Optional[str] = None) -> bool:
         """Check if a subject needs web search to enrich its associations.
 
         Returns True if:
@@ -8168,14 +8187,27 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
           associations (edges with weight > 0.3). This catches abstract
           concepts like "consciousness" that are seeded with weak teenage
           associations and need web enrichment to produce useful responses.
+        - D (research item D): the query is informational / definitional /
+          "why" / "how" — these request mechanisms/facts that a handful of
+          graph edges can't satisfy, so we ALWAYS attempt the web regardless
+          of edge count. This closes the silent-failure case where a known
+          subject (e.g. "sky", "dream") with hollow auto-expand edges was
+          answered from the graph and never web-searched.
 
         Returns False only if the concept has >= 3 strong graph edges
         (enough knowledge to generate a meaningful response via the
-        ventral path alone).
+        ventral path alone) AND the query is not informational.
         """
         if not subject:
             return False
         subj_lower = subject.lower().strip()
+
+        # D (research item D): informational/why/definition queries always
+        # attempt the web — the requested fact is a mechanism/definition, not
+        # any graph edge. This is the direct fix for Q10/Q14-style hollow
+        # answers. (Dependent on item E: provenance scoring weights the result.)
+        if query and self._is_informational_query(query, subject):
+            return True
 
         # Not in graph at all → definitely needs web search
         if subj_lower not in self._concept_keywords and subj_lower not in self._concept_labels:

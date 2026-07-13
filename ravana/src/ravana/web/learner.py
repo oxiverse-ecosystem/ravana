@@ -82,6 +82,12 @@ class SearchConfig:
     # never as a supplement when local already answered (even with empty results).
     local_prefer: bool = True
     local_timeout: int = 10
+    # D (research item D): fail-closed retrieval. When local returns an EMPTY
+    # result (e.g. SearXNG up but returning junk/zero hits), fall through to the
+    # remote fallbacks (DDG/oxiverse) instead of treating empty as authoritative.
+    # This closes the silent-failure root cause where a known subject with hollow
+    # graph edges is answered from the graph instead of being web-searched.
+    fallback_on_empty: bool = True
 
 
 class SearchError(Exception):
@@ -245,11 +251,20 @@ class SearchEngine:
                         results = _fetch_res.get('v')
                         self._record_success("local_api")
                         out = (results or [])[:max_results]
-                        if len(self._search_cache) < self._search_cache_max:
-                            self._search_cache[_cache_key] = out
-                        return out
-                        # NOTE: we return local's answer (incl. empty) as final.
-                        # Remote is NOT consulted — local is authoritative.
+                        # D (research item D): fail-closed retrieval.
+                        # If local returned EMPTY and fallback_on_empty is set,
+                        # do NOT treat empty as authoritative — fall through to
+                        # the remote fallbacks below (respecting the circuit
+                        # breaker and the turn-level deadline). local_only
+                        # callers still commit to local even when empty.
+                        if out or not self.config.fallback_on_empty or local_only:
+                            if len(self._search_cache) < self._search_cache_max:
+                                self._search_cache[_cache_key] = out
+                            return out
+                            # NOTE: we return local's answer (incl. empty) as
+                            # final. Remote is NOT consulted — local is
+                            # authoritative — UNLESS fallback_on_empty is set and
+                            # the result was empty.
                 except Exception as e:  # pragma: no cover - defensive
                     self._record_failure("local_api")
                     errors.append(f"local_api: {e}")
