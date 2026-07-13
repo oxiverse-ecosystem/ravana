@@ -1122,6 +1122,8 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             "can you prove you exist", "can we know anything for certain",
             "is reality real", "are we living in a simulation",
             "what is the answer to life the universe and everything",
+            "exist instead of nothing", "why is there something instead of nothing",
+            "why does everything exist", "why does anything exist",
         ]
         for phrase in classical:
             if phrase in t:
@@ -2359,7 +2361,12 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # semantic space is wired. Learning must never break the conversation.
         try:
             _act, _regime, _cid = self.pfc_workspace.learn_from_turn(user_input)
-            if self.turn_count % 25 == 0:
+            # Mirror ChatInterface: sleep cadence is keyed off turn_count, which
+            # is incremented later in this method. On turn 0 (turn_count == 0)
+            # `0 % 25 == 0` would be TRUE and prune the just-spawned singleton
+            # candidate before the test/loop can observe it. Only sleep when a
+            # real multiple-of-25 of turns has elapsed (turn_count > 0).
+            if self.turn_count > 0 and self.turn_count % 25 == 0:
                 self._last_sleep = self.pfc_workspace.sleep()
         except Exception:
             pass
@@ -4442,6 +4449,19 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         "instructor:", "instructor ", "start your free", "free trial",
         "sign up for", "watch now", "subscribe for", "get full access",
         "unlock", "premium", "membership", "limited offer", "last chance",
+        # Health/supplement ad spam keywords
+        "dietary supplement", "food supplement", "brain supplement", "memory supplement",
+        "herbal supplement", "health supplement", "nutritional supplement", "vitamin supplement",
+        "energy supplement", "supplement brand", "supplements brand", "supplement review",
+        "supplements review", "supplement store", "supplements store", "supplement shop",
+        "supplements shop", "dietary supplements", "herbal supplements", "health supplements",
+        "nutritional supplements", "vitamin supplements", "energy supplements", "supplements capsules",
+        "dosage", "pills", "pill", "gummies", "gummy", "add to cart", "money-back",
+        "satisfaction guarantee", "buy online", "order online", "shop online", "customer reviews",
+        "clinically proven", "brain booster", "memory booster", "memory lift", "memory-lift",
+        "natural supplement", "natural supplements", "cognitive supplement", "cognitive supplements",
+        "nootropic supplement", "nootropic supplements", "supplement industry", "supplement market",
+        "supplement sales",
     )
 
     # Irregular verb forms mapped to their base (for snippet-subject matching,
@@ -5122,6 +5142,124 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         return score
 
 
+    # Plausibility floor for a live web answer (N400 / reality-monitoring analog).
+    # A snippet's *added* content (everything except the repeated subject word)
+    # must cohere with the subject's semantic field for it to count as a real
+    # answer rather than an in-world / fictional restatement. Below this, the
+    # brain would flag a "fiction-as-fact" reality-monitoring failure and the
+    # agent refines the search instead of emitting the snippet. Tuned from probe
+    # data: encyclopedic/procedural answers land ~0.46-0.51, game/UGC restatements
+    # ~0.28-0.35. See test_web_snippet_source_quality.py.
+    _SNIPPET_PLAUSIBILITY_FLOOR = 0.38
+
+    def _snippet_plausibility(self, subject: str, snippet: str) -> Optional[float]:
+        """Reality-monitoring plausibility of a snippet's *added* content.
+
+        Cognitive basis: the brain's N400 / plausibility check (Kuperberg;
+        Bornkessel-Schlesewsky) evaluates whether incoming information fits the
+        situation model evoked by the question. A snippet that merely repeats the
+        subject word ("Invisible is a gear that makes you invisible in Roblox")
+        looks coherent only because of that repetition — its *new* content
+        (gear, roblox) is incoherent with what "invisible" means. So we drop the
+        subject word and its morphological variants and measure how well the
+        remaining content coheres with the subject's GloVe vector. This is a
+        domain-agnostic criterion on a semantic dimension (Johnson & Raye set
+        criteria on reality-monitoring dimensions; they do not keep source
+        blocklists), so it rejects game wikis, spam, and any other incoherent
+        source without naming any of them.
+
+        Returns None when GloVe is unavailable (unknown -> not incoherent) or the
+        snippet carries no content beyond the subject (can't judge -> pass).
+        """
+        glove_fn = getattr(self, "_glove_vector", None)
+        if not callable(glove_fn) or getattr(self, "_glove_vecs", None) is None:
+            return None
+        subj_vec = glove_fn(subject)
+        if subj_vec is None:
+            return None
+        _stem = subject[:5].lower() if len(subject) >= 5 else subject.lower()
+        words = [w for w in re.findall(r"[a-z']{3,}", (snippet or "").lower())
+                 if w not in STOP_WORDS and _stem not in w]
+        vecs = [glove_fn(w) for w in words if glove_fn(w) is not None]
+        if not vecs:
+            return None
+        centroid = np.mean(vecs, axis=0)
+        norm = np.linalg.norm(centroid)
+        if norm == 0:
+            return None
+        centroid /= norm
+        snorm = np.linalg.norm(subj_vec)
+        if snorm == 0:
+            return None
+        return float(np.dot(centroid, subj_vec / snorm))
+
+    def _refine_query_variants(self, query: str, subject: str) -> List[str]:
+        """Metacognitive control: re-frame the query when the first answer fails
+        the plausibility monitor (the brain's second-pass reanalysis / repair,
+        indexed by the late posterior positivity / P600 — Kuperberg & Jaeger).
+
+        We don't block sources; we change *what we ask*. For a how-to / goal
+        query the first hit is often in-world lore, so we push the query toward
+        the real-world sense ("in real life" / "method"). For a factual query we
+        add a real-world disambiguator. This gives the search engine a chance to
+        surface a genuinely useful, plausible answer before we give up.
+        """
+        q = (query or "").lower().strip()
+        if re.match(r"^(how|what) (can|do|to|would|should|does)\b", q):
+            return [f"how to {subject} in real life",
+                    f"{subject} method real world"]
+        return [f"{subject} real", f"{subject} science"]
+
+    def _web_snippet_search(self, variants, ctx, is_conditional, deadline):
+        """Search each query variant and return the highest-shape snippet that
+        passes the chrome/quality floor, or (None, None). Extracted from
+        _web_direct_answer so the plausibility monitor can re-run a refined set
+        of variants without duplicating the search loop."""
+        import time as _time
+        best = None
+        best_score = -1.0
+        best_term = None
+        query = ctx.raw_input.strip()
+        for term in variants:
+            if _time and _time.time() > deadline:
+                break
+            try:
+                # For conditionals the local engine (localhost:4000) is instant
+                # and reliably returns hypothetical content; skip the slower
+                # remote APIs so a hung call can never stall the turn.
+                local_only = is_conditional
+                res = self.search_engine.search(term, max_results=6,
+                                                local_only=local_only)
+            except Exception as ex:
+                if getattr(self, '_trace_enabled', False):
+                    print(f"  [webans] search failed for {term!r}: {ex!r}")
+                continue
+            if not res:
+                continue
+            cand = self._best_answer_snippet(res, ctx.subject, query,
+                                            is_conditional=is_conditional)
+            if not cand:
+                continue
+            _cand_san = self._sanitize_definition_text(cand)
+            if not _cand_san:
+                if getattr(self, '_trace_enabled', False):
+                    print(f"  [webans] chrome-only / promo snippet rejected: {cand[:50]!r}")
+                continue
+            cand = _cand_san
+            quality = self._snippet_quality(cand, ctx.subject, term,
+                                            is_conditional=is_conditional)
+            if term == ctx.subject:
+                quality -= 1.0
+            if getattr(self, '_trace_enabled', False):
+                print(f"  [webans] '{term}' -> {cand[:70]!r} (q={quality:.2f})")
+            if quality < 1.5:
+                continue
+            if quality > best_score:
+                best_score = quality
+                best = cand
+                best_term = term
+        return best, best_term
+
     def _web_direct_answer(self, ctx: CognitiveResponseContext) -> Optional[Tuple[str, str]]:
         """Answer an unknown factual query directly from live web snippets.
 
@@ -5148,87 +5286,58 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         if getattr(self, '_trace_enabled', False):
             print(f"  [webans] informational query '{query}' subj='{ctx.subject}' "
                   f"variants={variants}")
+        import time as _time
+        _budget = 12.0  # hard wall-clock cap on the whole variant search
+        _deadline = _time.time() + _budget
         try:
-            import time as _time
-            _budget = 12.0  # hard wall-clock cap on the whole variant search
-            _deadline = _time.time() + _budget
-            best_overall = None
-            best_overall_score = -1.0
-            best_overall_term = None
-            # Try every candidate query. Across all of them we keep the single
-            # highest-VALUE snippet (junk-free + answer-shaped ranks above a
-            # mere mention), so a good hypothetical answer on variant #3 beats
-            # a junk first hit on variant #1.
-            for term in variants:
-                if _time.time() > _deadline:
-                    break
-                try:
-                    # For conditionals the local engine (localhost:4000) is
-                    # instant and reliably returns hypothetical content; skip the
-                    # slower remote APIs so a hung DuckDuckGo/oxiverse call can
-                    # never stall the turn for ~90s (observed empirically).
-                    local_only = is_conditional
-                    res = self.search_engine.search(term, max_results=6,
-                                                    local_only=local_only)
-                except Exception as ex:
-                    if getattr(self, '_trace_enabled', False):
-                        print(f"  [webans] search failed for {term!r}: {ex!r}")
-                    continue
-                if not res:
-                    continue
-                cand = self._best_answer_snippet(res, ctx.subject, query,
-                                                is_conditional=is_conditional)
-                if not cand:
-                    continue
-                # Reject dictionary/UI/promo CHROME before scoring: a snippet
-                # that is entirely boilerplate (e.g. "TRUST definition: 1." or
-                # "This point in the year is perfect for 40% off…") is not an
-                # answer and must never win the candidate race. Previously the
-                # sanitizer only ran *after* selection, so chrome with a high
-                # shape score could still become the emitted answer (and even
-                # get stored as a "belief"). Sanitizing up-front closes that.
-                _cand_san = self._sanitize_definition_text(cand)
-                if not _cand_san:
-                    if getattr(self, '_trace_enabled', False):
-                        print(f"  [webans] chrome-only / promo snippet rejected: {cand[:50]!r}")
-                    continue
-                cand = _cand_san
-                # Value the candidate: penalize junk-ish residues, reward a real
-                # answer shape and encyclopedic source. We don't need an exact
-                # score from _best_answer_snippet; re-derive a quick quality signal.
-                quality = self._snippet_quality(cand, ctx.subject, term,
-                                                is_conditional=is_conditional)
-                # Demote the bare-subject fallback variant: it often surfaces a
-                # random page literally titled with the word (e.g. "Revocable
-                # living trust") rather than a real definition, so prefer a
-                # definition-framed variant of equal quality.
-                if term == ctx.subject:
-                    quality -= 1.0
-                if getattr(self, '_trace_enabled', False):
-                    print(f"  [webans] '{term}' -> {cand[:70]!r} (q={quality:.2f})")
-                # Quality floor: only accept a snippet that is at least an actual
-                # answer shape (substantive definition / hypothetical reasoning).
-                # Junk like "Hotel Indigo hours" scores at/above the base 1.0 but
-                # below this floor, so it is discarded instead of emitted.
-                if quality < 1.5:
-                    continue
-                if quality > best_overall_score:
-                    best_overall_score = quality
-                    best_overall = cand
-                    best_overall_term = term
-            results = best_overall
+            best, best_term = self._web_snippet_search(variants, ctx,
+                                                      is_conditional, _deadline)
         except Exception as ex:
             if getattr(self, '_trace_enabled', False):
                 print(f"  [webans] search failed: {ex!r}")
             return None
-        if not results:
-            return None
-        # We already picked the best snippet across all variants above.
-        best = results
-        if getattr(self, '_trace_enabled', False):
-            print(f"  [webans] best snippet (via '{best_overall_term}'): {(best or 'NONE')[:80]}")
         if not best:
             return None
+
+        # ── Answer-usefulness monitor (N400 plausibility / reality monitoring) ──
+        # We "see" the candidate answer and check whether it actually serves the
+        # question before speaking it (metacognitive monitoring; Nelson & Narens;
+        # Koriat). The check is the snippet's *added* content coherence with the
+        # subject's semantic field (see _snippet_plausibility). A game/UGC
+        # restatement ("Invisible is a gear … in Roblox") repeats the word but
+        # adds incoherent content, so it fails — without ever naming a domain.
+        plaus = self._snippet_plausibility(ctx.subject, best)
+        if plaus is not None and plaus < self._SNIPPET_PLAUSIBILITY_FLOOR:
+            if getattr(self, '_trace_enabled', False):
+                print(f"  [webans] monitor: snippet implausible (plaus={plaus:.2f}"
+                      f" < {self._SNIPPET_PLAUSIBILITY_FLOOR}) for '{ctx.subject}'"
+                      f" -> refine search")
+            # Metacognitive control: instead of emitting junk, refine the query
+            # and re-search (second-pass reanalysis; Kuperberg & Jaeger). Only
+            # adopt the refined result if it clears the plausibility floor; if
+            # even the refined search can't produce a plausible answer, WITHHOLD
+            # (return None) so we fall through to other strategies rather than
+            # leaking an incoherent snippet.
+            refined = self._refine_query_variants(query, ctx.subject)
+            if refined:
+                try:
+                    best2, best2_term = self._web_snippet_search(
+                        refined, ctx, is_conditional, _time.time() + 8.0)
+                except Exception:
+                    best2, best2_term = None, None
+                p2 = self._snippet_plausibility(ctx.subject, best2) if best2 else None
+                if best2 is not None and (p2 is None or p2 >= self._SNIPPET_PLAUSIBILITY_FLOOR):
+                    if getattr(self, '_trace_enabled', False):
+                        print(f"  [webans] refined query yielded plausible snippet"
+                              f" (plaus={p2})")
+                    best, best_term = best2, best2_term
+                else:
+                    if getattr(self, '_trace_enabled', False):
+                        print(f"  [webans] monitor: refined search also implausible"
+                              f" -> withhold (no answer emitted)")
+                    return None
+        if getattr(self, '_trace_enabled', False):
+            print(f"  [webans] best snippet (via '{best_term}'): {(best or 'NONE')[:80]}")
         best = self._strip_title_echo(best.strip(), ctx.subject)
         # Sanitise dictionary/UI chrome and dateline prefixes from the live
         # snippet before it is emitted as the answer (the store-side sanitiser
@@ -6457,7 +6566,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         "explain", "explains", "describe", "describes", "tell", "tells",
         "show", "shows", "give", "gives", "find", "finds", "help", "helps",
         "know", "knows", "think", "thinks", "feel", "feels", "want", "wants",
-        "need", "needs", "like", "likes", "love", "loves", "hate", "hates",
+        "need", "needs", "like", "likes",
         "become", "becomes", "became", "call", "calls", "called", "name",
         "named", "term", "termed", "say", "says", "said",
         # query-intent verbs whose object is the real topic
@@ -6474,7 +6583,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         "turn", "turns", "turned", "switch", "switches", "switched",
         "open", "opens", "close", "closes", "start", "starts", "stop", "stops",
         # question-frame residuals: "what YEAR did X fall/occur", "when did X happen"
-        "year", "years", "fall", "falls", "fell", "occur", "occurs", "occurred",
+        "year", "years", "occur", "occurs", "occurred",
         "did", "does", "do", "take", "takes", "took", "place", "happen",
         "happened", "happening", "become", "became", "mean", "means",
         # conditional / hypothetical markers whose payload is the real topic
@@ -8020,11 +8129,10 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # ("when was X built"), so it must not be treated as a scenario here.
         reasoning_patterns = [
             r"\b(if|suppose|assume|predict)\b",  # conditional/scenario
-            r"\b(compare|contrast|difference|similar|opposite|antonym|synonym|analogy|analogies)\b", # relation/comparison
             r"\b(taller|shorter|heavier|lighter|older|younger|better|worse|biggest|tallest|heaviest|smartest)\b", # comparison/ordering
             r"\b(riddle|puzzle|logic|math|solve|calculation)\b", # logic/riddle
             r"\bis to\b", # analogy
-            r"\b(you|your|yourself|think|opinion|feel|friendship|love|meaning of life)\b", # personal, opinion, or open philosophical
+            r"\b(you|your|yourself|think|opinion|feel|friendship|meaning of life)\b", # personal, opinion, or open philosophical
         ]
         for pattern in reasoning_patterns:
             if re.search(pattern, q):
@@ -8033,7 +8141,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # 3. Check if the query matches a pattern asking for a definition/fact
         info_patterns = [
             r"^(what|who) (is|are|was|were|refers to|means)\b",
-            r"^(what|who|where|when|which|how) \w+\b",  # "who won...", "where is...", "when was X built", "which city...", "how do X..."
+            r"^(what|who|where|when|which|how|why) \w+\b",  # "who won...", "where is...", "when was X built", "which city...", "how do X..."
             r"^define\b",
             r"^explain\b",
             r"^tell me about\b",

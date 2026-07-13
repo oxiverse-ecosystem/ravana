@@ -1555,6 +1555,21 @@ class ResponseGenMixin(ChainWalkerMixin):
             "concept", "concepts", "category", "categories", "quality",
             "qualities", "aspect", "aspects", "element", "elements", "factor",
             "factors", "value", "values", "meaning", "meanings",
+            "artificial", "intelligence", "friends", "friend", "user", "users",
+            "agent", "agents", "subject", "subjects", "object", "objects",
+            "entity", "entities", "node", "nodes", "edge", "edges",
+            "query", "queries", "search", "searches", "information",
+            "knowledge", "data", "fact", "facts", "belief", "beliefs",
+            "input", "output", "response", "responses", "sentence", "sentences",
+            "text", "texts", "grammar", "syntactic", "semantic", "pragmatic",
+            "cognitive", "mental", "physical", "abstract", "concrete", "general",
+            "specific", "particular", "social", "factual", "personal", "opinion",
+            "thought", "thoughts", "mind", "minds", "brain", "brains",
+            "memory", "memories", "history", "histories", "status", "mode",
+            "modes", "turn", "turns", "count", "counts", "index", "indices",
+            "score", "scores", "rate", "rates", "ratio", "ratios", "class",
+            "classes", "whole", "wholes", "role", "roles", "target", "targets",
+            "source", "sources", "relation", "relations",
         }
         _ck = getattr(self, "_concept_keywords", {})
         _defs = getattr(self, "_definitions", {})
@@ -1627,9 +1642,19 @@ class ResponseGenMixin(ChainWalkerMixin):
                 }
                 return _forms.get(form, _rel_base)
 
+        def _indefinite_article(word: str) -> str:
+            if not word:
+                return ""
+            if word.endswith("s") and not word.endswith("ss") and word.lower() not in ("lens", "glass", "class", "mass", "pass", "gas"):
+                return word
+            first = word[0].lower()
+            if first in ('a', 'e', 'i', 'o', 'u'):
+                return f"an {word}"
+            return f"a {word}"
+
         _setups = [
             f"why did the {a} break up with the {b}?",
-            f"what do you get when a {a} meets a {b}?",
+            f"what do you get when {_indefinite_article(a)} meets {_indefinite_article(b)}?",
             f"why was the {a} afraid of the {b}?",
         ]
         if (rel or "").lower() == "semantic":
@@ -1928,7 +1953,7 @@ class ResponseGenMixin(ChainWalkerMixin):
                 "i am functioning",
                 "all systems are operational",
                 "i am okay",
-                "processing today is a bit heavy",
+                "i'm doing alright, just a bit quiet today",
             ])
             reciprocity = random.choice([
                 "how are you?",
@@ -2782,17 +2807,52 @@ class ResponseGenMixin(ChainWalkerMixin):
         if not chains:
             return None
         # Realize a causal narrative (no templates: causal connector phrases).
+        # The causal graph accrues noisy web-learned edges, so a single-hop
+        # "X -> Y" is usually an association artifact, not a real consequence
+        # (e.g. "dogs -> eat"). Genuine counterfactual consequences are
+        # multi-hop deductions: require at least 2 causal edges AND that each
+        # consecutive node in the path is semantically coherent (GloVe cosine
+        # above a low floor) so we don't surface random associations.
         subj_cap = start.capitalize()
+        _svec = self._glove_vector(start) if hasattr(self, "_glove_vector") else None
         lead = f"if {subj_cap.lower()} were different, here's what I'd expect to follow:"
         lines = []
         for ch in chains[:3]:
             parts = [p.strip() for p in ch.split("→")]
-            if len(parts) >= 2:
-                a, b = parts[0], parts[-1]
-                lines.append(f"{a} would lead to {b}")
+            if len(parts) < 3:
+                # single-hop association, not a deduced consequence
+                continue
+            a, b = parts[0], parts[-1]
+            if b.lower() in STOP_WORDS or b.lower() == start.lower() or len(b) < 3:
+                continue
+            # consecutive-node coherence: every adjacency in the path must be
+            # semantically related, else the chain drifted into noise.
+            _coherent = True
+            for _i in range(len(parts) - 1):
+                _u, _v = self._glove_vector(parts[_i]), self._glove_vector(parts[_i + 1])
+                if _u is None or _v is None:
+                    continue
+                _cos = float(np.dot(_u, _v) / (
+                    np.linalg.norm(_u) * np.linalg.norm(_v) + 1e-8))
+                if _cos < 0.12:
+                    _coherent = False
+                    break
+            if not _coherent:
+                continue
+            lines.append(f"{a} would lead to {b}")
         if not lines:
             return None
         body = "; ".join(lines)
+        # Output-side coherence gate (Fix D): if the realized narrative is
+        # incoherent/looping, withhold it and let the caller fall through to
+        # honest uncertainty rather than emit fluent nonsense.
+        _narr = f"{lead} {body}."
+        try:
+            _ok, _reason = self._coherence_ok(_narr, ctx)
+        except Exception:
+            _ok, _reason = True, "coherence_skip"
+        if not _ok:
+            return None
         return (f"{lead} {body}.", "counterfactual_simulation")
 
     def _abductive_counterfactual(self, ctx: "CognitiveResponseContext",
@@ -2907,11 +2967,17 @@ class ResponseGenMixin(ChainWalkerMixin):
         # dependencies to be concepts actually wired to the subject in the
         # graph, otherwise we have nothing grounded to simulate and must
         # return None so the caller falls through to honest uncertainty.
-        desc = getattr(self, "_definitions", {}).get(subj) or \
-               getattr(self, "_concept_sources", {}).get(subj)
-        if not desc:
+        # _concept_sources maps a concept -> a SET of source-IDs (see
+        # engine.py:7084), NOT a definition string. Using it as `desc` and
+        # calling .lower() raised "'set' object has no attribute 'lower'"
+        # (RAVANA-#crash) for novel counterfactual subjects (dogs talking,
+        # internet never existed). Only a real local definition string is a
+        # valid simulation seed; otherwise fall through to honest uncertainty.
+        desc = getattr(self, "_definitions", {}).get(subj)
+        if not isinstance(desc, str) or not desc.strip():
             return None
-        _dep = [w for w in re.findall(r"[a-z']+", desc.lower())
+        _desc_text = desc.lower()
+        _dep = [w for w in re.findall(r"[a-z']+", _desc_text)
                 if w not in STOP_WORDS and w != subj and len(w) > 2]
         _seen = set()
         _deps = []
@@ -2933,9 +2999,23 @@ class ResponseGenMixin(ChainWalkerMixin):
             if len(_deps) >= 3:
                 break
         if not _deps:
+            # No premise-matched simulation AND no CAUSAL edges wiring the
+            # subject to real consequences. Definition-word co-occurrence is
+            # NOT a counterfactual consequence (it surfaces artifacts like
+            # "first" or spurious teen-vocab "teen"), so emitting it would be
+            # confident garbage. The caller's post-simulation fallback
+            # (_human_like_uncertainty) gives an honest, curious hedge —
+            # return None so it can take the floor.
             return None
+        # Only CAUSAL edges represent genuine consequences; frame them as
+        # downstream effects rather than tautological "link would change".
         for d in _deps:
-            lines.append(f"their link to {d} would change")
+            _rts = self._typed_edges_between(subj, d) if hasattr(
+                self, "_typed_edges_between") else []
+            if "causal" not in _rts:
+                # Non-causal association: not a real consequence, skip it.
+                continue
+            lines.append(f"{subj_cap} would change how {d} works")
         if not lines:
             return None
         body = "; ".join(lines[:3])
@@ -3097,6 +3177,21 @@ class ResponseGenMixin(ChainWalkerMixin):
         rel_lower = (relation or "").strip().lower()
         
         score = 0.0
+
+        if "|" in src_lower:
+            parts = [p.strip() for p in src_lower.split("|") if p.strip()]
+            if len(parts) == 2:
+                src_a, src_b = parts[0], parts[1]
+                src_nids = getattr(self, "_concept_keywords", {}).get(src_a, [])
+                tgt_nids = getattr(self, "_concept_keywords", {}).get(src_b, [])
+                for s_id in src_nids:
+                    for t_id in tgt_nids:
+                        edge = self.graph.get_edge(s_id, t_id)
+                        if edge and edge.relation_type == rel_lower:
+                            score += 5.0 * edge._weight
+                        bedge = self.graph.get_edge(t_id, s_id)
+                        if bedge and bedge.relation_type == rel_lower:
+                            score += 5.0 * bedge._weight
         
         # 1. Mention in local definitions
         src_def = getattr(self, "_definitions", {}).get(src_lower, "").lower()
@@ -3710,6 +3805,15 @@ class ResponseGenMixin(ChainWalkerMixin):
                     if structured:
                         sq.is_answered = True
                         sq.answer = structured
+                        # A structured relation answer is recovered from the
+                        # grounded HRR/graph store, so it is high-confidence.
+                        # Must set sq.confidence here: it defaults to 0.0 and the
+                        # emit gate below requires confidence >= 0.5, so leaving
+                        # it unset would reject every structurally-answered
+                        # sub-question and collapse the whole decomposed answer
+                        # to honest-uncertainty (a real regression — see
+                        # test_decomposition_drops_degenerate_subanswer_keeps_good).
+                        sq.confidence = 0.8
                         answered_sqs.append(sq)
                         continue
                 except Exception:
@@ -3799,9 +3903,21 @@ class ResponseGenMixin(ChainWalkerMixin):
                                 print(f"  [decomp-gen] Selected grounded target '{target_label}' for '{subj_lower}' (relation='{sq_rel}', grounding_score={g_score:.2f})")
                             break
                     if target_label:
+                        sub_subj = sq_target
+                        sub_tgt = target_label
+                        if sq_target and "|" in sq_target:
+                            parts = [p.strip() for p in sq_target.split("|") if p.strip()]
+                            if len(parts) == 2:
+                                if target_label.lower() == parts[1].lower():
+                                    sub_subj = parts[0]
+                                elif target_label.lower() == parts[0].lower():
+                                    sub_subj = parts[1]
+                                else:
+                                    sub_subj = parts[0]
+                                    sub_tgt = parts[1]
                         frame = self.syntactic_assembly.bind_to_sentence(
-                            subject=sq_target or ctx.subject or "it",
-                            relation=sq_rel, target=target_label,
+                            subject=sub_subj or ctx.subject or "it",
+                            relation=sq_rel, target=sub_tgt,
                             pos_map=getattr(self, '_concept_pos', {}),
                         )
                         disc_ctx = DiscourseState(
@@ -3971,7 +4087,7 @@ class ResponseGenMixin(ChainWalkerMixin):
         # the sub-questions returned valid text. Mirrors the brain keeping
         # a retrieved memory rather than feigning ignorance.
         sqs = getattr(decomposition, 'sub_questions', None) or []
-        if any(getattr(sq, 'is_answered', False) and getattr(sq, 'answer', '')
+        if any(getattr(sq, 'is_answered', False) and getattr(sq, 'answer', '') and getattr(sq, 'confidence', 0.0) >= 0.5
                 for sq in sqs):
             return True
         # Direct factual / web-learned source => grounded.

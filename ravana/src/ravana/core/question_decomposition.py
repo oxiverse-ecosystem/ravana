@@ -271,6 +271,8 @@ class QuestionAnalyzer:
         "can god create", "unstoppable force", "irresistible force",
         "immovable object", "what is the sound", "one hand clapping",
         "can you prove", "can we know", "is reality real",
+        "exist instead of nothing", "why is there something instead of nothing",
+        "why does everything exist", "why does anything exist",
     }
 
     @classmethod
@@ -467,6 +469,9 @@ class QuestionAnalyzer:
         for pat in cls._SUBJECT_LEAD_MODS:
             s = re.sub(pat, "", s, flags=re.IGNORECASE).strip()
 
+        # 1b. Strip a leading dummy pronoun "it " ("it rain" -> "rain")
+        s = re.sub(r"^it\s+", "", s, flags=re.IGNORECASE).strip()
+
         # 2. Strip a leading determiner + relational "of"-head
         #    ("the causes of WW1" -> "WW1"). Deliberately excludes valid
         #    compounds like "speed of light", "law of X", "capital of X".
@@ -572,7 +577,7 @@ class DecompositionStrategies:
             text=f"what category does {subject} belong to" if subject else "what is this about",
             category=QuestionCategory.WHAT_IS,
             target_concept=subj_lower,
-            relation_type="semantic",
+            relation_type="is_a",
             depth=1,
         )
         sub_questions.append(sq1)
@@ -583,7 +588,7 @@ class DecompositionStrategies:
             text=f"what are the key properties of {subject}" if subject else "what are its properties",
             category=QuestionCategory.WHAT_IS,
             target_concept=subj_lower,
-            relation_type="semantic",
+            relation_type="property",
             depth=1,
         )
         sub_questions.append(sq2)
@@ -812,7 +817,7 @@ class DecompositionStrategies:
             text=f"what is {concept_a}",
             category=QuestionCategory.WHAT_IS,
             target_concept=concept_a.lower(),
-            relation_type="semantic",
+            relation_type="is_a",
             depth=1,
         )
         sub_questions.append(sq1)
@@ -823,7 +828,7 @@ class DecompositionStrategies:
             text=f"what is {concept_b}",
             category=QuestionCategory.WHAT_IS,
             target_concept=concept_b.lower(),
-            relation_type="semantic",
+            relation_type="is_a",
             depth=1,
         )
         sub_questions.append(sq2)

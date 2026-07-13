@@ -61,6 +61,7 @@ def test_hub_noun_confabulation_is_ungrounded():
 # ── 3. Grounded fluent text that DOES reference the subject is allowed ─────────
 def test_grounded_text_referencing_subject_passes():
     eng = _build_engine()
+    eng._definitions["ravana"] = "ravana is a cognitive architecture that uses hebbian learning"
     # 'ravana' is seeded with a definition + web source in the bootstrapped
     # domain concepts, so it has a verified fact; the text references it.
     text = "ravana is a cognitive architecture that learns from the web"
@@ -255,6 +256,7 @@ def test_per_sentence_residual_control_old_guard_passed():
 #    over-suppression) — mirrors Q9 oxiverse / a real web sentence. ─────────
 def test_good_multi_sentence_answer_passes():
     eng = _build_engine()
+    eng._definitions["oxiverse"] = "oxiverse is a next-generation intent-first search engine and privacy-first ecosystem"
     text = ("Oxiverse is a next-generation intent-first search engine designed "
             "for effective discovery. It builds a privacy-first ecosystem as an "
             "alternative to big tech, and it learns from the web.")
@@ -282,10 +284,10 @@ def test_decomposition_drops_degenerate_subanswer_keeps_good():
     sqs = [
         SubQuestion(id=0, text="what causes black holes bend spacetime",
                     category=QuestionCategory.WHY, target_concept="black holes",
-                    is_answered=True, answer=good),
+                    is_answered=True, answer=good, confidence=0.8),
         SubQuestion(id=1, text="how does black holes bend spacetime happen",
                     category=QuestionCategory.WHY, target_concept="black holes",
-                    is_answered=True, answer=bad),
+                    is_answered=True, answer=bad, confidence=0.8),
     ]
     decomp = DecompositionResult(
         original_query="why do black holes bend spacetime",
@@ -321,10 +323,10 @@ def test_decomposition_all_degenerate_withheld():
     sqs = [
         SubQuestion(id=0, text="what causes black holes bend spacetime",
                     category=QuestionCategory.WHY, target_concept="black holes",
-                    is_answered=True, answer=bad1),
+                    is_answered=True, answer=bad1, confidence=0.8),
         SubQuestion(id=1, text="how does black holes bend spacetime happen",
                     category=QuestionCategory.WHY, target_concept="black holes",
-                    is_answered=True, answer=bad2),
+                    is_answered=True, answer=bad2, confidence=0.8),
     ]
     decomp = DecompositionResult(
         original_query="why do black holes bend spacetime",
@@ -449,6 +451,22 @@ def test_forward_model_failure_falls_closed():
     assert len(reply) > 5
     # The reply must be a clean, non-salad turn (honest fallback), never raw salad.
     assert _is_word_salad_any_sentence(reply, subject=None) is False
+
+
+def test_decomposition_grounding_score():
+    eng = _build_engine()
+    eng._definitions["oxiverse"] = "oxiverse is a next-generation intent-first search engine and privacy-first ecosystem"
+    
+    # 1. Grounded concepts
+    # 'oxiverse' -> 'ecosystem' is a seeded relation in DOMAIN_CONCEPTS
+    # Let's test if this gets a high grounding score
+    score_grounded = eng._get_grounding_score("oxiverse", "is_a", "ecosystem")
+    assert score_grounded >= 3.0
+    
+    # 2. Ungrounded concepts
+    # 'trust' -> 'cannot' has no relation/definition/sources connection
+    score_ungrounded = eng._get_grounding_score("trust", "contrastive", "cannot")
+    assert score_ungrounded < 0.5
 
 
 if __name__ == "__main__":

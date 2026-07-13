@@ -10,6 +10,14 @@ import re
 import os
 import hashlib
 
+# Function-word set shared with the chat engine (constants.json). Used by
+# `_is_function_word` so callers (interface.py) can filter grammatical words
+# out of association lists without depending on CognitiveChatEngine.
+try:
+    from ..chat.constants import FUNCTION_WORDS as _FUNCTION_WORDS
+except Exception:  # pragma: no cover - defensive import
+    _FUNCTION_WORDS = set()
+
 # Import from ravana_ml.graph
 from ravana_ml.graph import ConceptGraph, ConceptEdge, ConceptBindingMap
 from ravana_ml.embedder import LearnedEmbedder
@@ -354,6 +362,27 @@ class GraphEngine:
         self._semantic_edges: Dict[Tuple[int, int], Any] = {}
         self._episodic_by_src: Dict[int, List] = {}
         self._semantic_by_src: Dict[int, List] = {}
+
+    def _is_function_word(self, word: str) -> bool:
+        """True if `word` is a grammatical/function word (not a content target).
+
+        Mirrors CognitiveChatEngine._is_function_word's hardcoded path so that
+        callers such as interface.py can filter associations without depending
+        on the chat engine. Uses the shared FUNCTION_WORDS constant; the
+        per-concept learned POS (self._concept_pos) is used as a tie-breaker
+        for words the constant leaves as nouns but the distributional tagger
+        marked as a function category.
+        """
+        if not word:
+            return False
+        _w = word.lower().strip()
+        if _w in _FUNCTION_WORDS:
+            return True
+        # Learned-POS tie-breaker (function categories only).
+        _pos = (self._concept_pos.get(_w) or "").lower()
+        if _pos in ("prep", "pron", "det", "conj", "aux"):
+            return True
+        return False
 
     def _glove_vector(self, label: str) -> Optional[np.ndarray]:
         """Look up a label in GloVe, project to self.dim, return unit vector."""

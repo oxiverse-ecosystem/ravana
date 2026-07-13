@@ -958,6 +958,9 @@ class WebLearningMixin(ResponseGenMixin):
         "your score", "multiple choice", "got it right", "example sentences",
         "examples of", "i.e.", "e.g.", "see more", "more example",
         "essential british", "essential american", "powered by",
+        "learn more", "read more", "find out more", "see full entry",
+        "full article", "continue reading", "show more", "view source",
+        "this page is a", "was this page helpful", "did this help",
     )
 
     def _sanitize_definition_text(self, text: str) -> Optional[str]:
