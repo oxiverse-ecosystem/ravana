@@ -534,6 +534,10 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # Phase F: Surface realizer — rule-governed English morphology with dopamine modulation
         self.surface_realizer = SurfaceRealizer()
         self.surface_realizer.proper_nouns = self._proper_nouns
+        # Phase 5 (casing): cached set of graph concepts that are STRONG named
+        # entities (country/city/company/person/... via ConceptNet IsA). Fed to
+        # case_infer so mid-sentence entities not in SUBTLEX still capitalize.
+        self._graph_entity_words: Optional[set] = None
         # Phase 6: Wire vector function for semantic verb selection (VerbLexicon)
         self.surface_realizer.set_vector_fn(self._get_modulated_vector)
         VerbLexicon.set_glove_fn(self._get_modulated_vector)

@@ -125,6 +125,62 @@ def get_store(rebuild: bool = False) -> CaseDistributionStore:
     return CaseDistributionStore.load()
 
 
+# Entity-type keywords (from ConceptNet IsA targets) that license mid-sentence
+# capitalization. SPLIT into STRONG (unambiguous named entities — capitalizing
+# them is almost always correct) and WEAK (ambiguous with common nouns, e.g.
+# "brand"/"product" overlaps "apple" fruit vs "Apple" company — these must NOT
+# override the lexical prior, which stays lowercase for the common reading).
+_ENTITY_STRONG = {
+    "country", "nation", "sovereign_state", "state", "city", "capital",
+    "town", "village", "municipality", "place", "location", "geographic_entity",
+    "geographical_entity", "geopolitical_entity", "person", "people",
+    "government_agency", "agency", "organization", "organisation",
+    "company", "corporation", "firm", "enterprise", "university", "school",
+    "college", "language", "religion", "ethnicity", "nationality",
+}
+_ENTITY_WEAK = {
+    "brand", "product", "line_of_products", "make_of_car", "model_of_car",
+}
+
+
+def concept_entity_score(word: str, isa_getter) -> float:
+    """Entity-likeness from the ConceptGraph IsA structure (research casing, Phase 5).
+
+    Data-derived: walks the raw ``isa`` edges (via ``isa_getter(word) -> set``)
+    up to depth 2 and returns 1.0 if any IsA target (or its parent) is a STRONG
+    entity type. WEAK types (brand/product) do NOT count, so ambiguous words
+    like "apple" (company_brand + edible_fruit) don't get force-capitalized
+    against the lexical prior.
+
+    ``isa_getter`` is injected (not imported) to avoid a circular dependency on
+    the ontology module. The caller passes e.g.
+    ``lambda w: ont.isa.get(w, set())``.
+
+    Returns 0.0 when no ontology / no edges / OOV — so the SUBTLEX lexical prior
+    (Phase 1/4) remains the authority for ordinary words.
+    """
+    if not word or isa_getter is None:
+        return 0.0
+    w = word.lower().replace(" ", "_")
+    seen = set()
+    frontier = [w]
+    depth = 0
+    while frontier and depth < 2:
+        nxt = []
+        for node in frontier:
+            edges = isa_getter(node) or set()
+            for tgt in edges:
+                tl = (tgt or "").lower().replace(" ", "_")
+                if tl in _ENTITY_STRONG:
+                    return 1.0
+                if tl not in seen:
+                    seen.add(tl)
+                    nxt.append(tl)
+        frontier = nxt
+        depth += 1
+    return 0.0
+
+
 # Threshold on the lexical capitalization prior for NON-sentence-initial words.
 # Words with cap_prob >= this are capitalized mid-sentence (proper nouns like
 # France/Monday); below it they stay lowercase (common nouns like apple/bank).
@@ -183,7 +239,13 @@ def case_infer(text: str, store: Optional[CaseDistributionStore] = None,
                 else:
                     if wl == "i":
                         out_toks.append((lead, "I", trail))
-                    elif wl in entity_words or store.cap_prob(wl) >= _CAP_THRESHOLD:
+                    elif wl in entity_words and store.cap_prob(wl) == 0.0:
+                        # Graph entity signal wins ONLY for words with no
+                        # SUBTLEX evidence (OOV) — when distributional data
+                        # exists, trust it (e.g. "bank" is 88% lowercase despite
+                        # being a 'company' in ConceptNet).
+                        out_toks.append((lead, word[0].upper() + word[1:], trail))
+                    elif store.cap_prob(wl) >= _CAP_THRESHOLD:
                         out_toks.append((lead, word[0].upper() + word[1:], trail))
                     else:
                         out_toks.append((lead, word, trail))

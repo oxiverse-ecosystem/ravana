@@ -30,6 +30,26 @@ from ravana.core.sub_answer_synthesizer import SubAnswerSynthesizer
 class ResponseGenMixin(ChainWalkerMixin):
     """Mixin providing neural decoder generation, chitchat, and templated responses."""
 
+    # Phase 5 (casing): cached set of graph concepts that are STRONG named
+    # entities (country/city/company/person/... via ConceptNet IsA). Fed to
+    # case_infer so mid-sentence entities not in SUBTLEX still capitalize.
+    def _entity_words_for_case(self):
+        if getattr(self, "_graph_entity_words", None) is not None:
+            return self._graph_entity_words
+        ent = set()
+        try:
+            from ravana.chat.case_distribution import concept_entity_score
+            ont = getattr(self, "_cn_ontology", None)
+            if ont is not None and hasattr(ont, "isa"):
+                getter = lambda w: ont.isa.get(w, set())
+                for w in list(ont.isa.keys()):
+                    if concept_entity_score(w, getter) >= 0.5:
+                        ent.add(w.lower())
+        except Exception:
+            ent = set()
+        self._graph_entity_words = ent
+        return ent
+
     def _build_decoder_vocab(self):
         """Build vocabulary for the NeuralDecoder from graph concepts + GloVe + function words.
 
@@ -679,9 +699,10 @@ class ResponseGenMixin(ChainWalkerMixin):
                     return None
 
             # Clean up basic punctuation issues (context-sensitive casing:
-            # positional + data-derived lexical prior, not a blind .upper())
+            # positional + data-derived lexical prior + graph entity signal,
+            # not a blind .upper())
             from ravana.chat.case_distribution import case_infer
-            text = case_infer(text)
+            text = case_infer(text, entity_words=self._entity_words_for_case())
             if not text.endswith((".", "?", "!")):
                 text += "."
             # Remove double spaces
@@ -825,12 +846,13 @@ class ResponseGenMixin(ChainWalkerMixin):
             # Use event schema for rich process narrative
             narrative_sents = schema_lib.get_narrative_from_schema(subject_lower)
             if narrative_sents:
+                from ravana.chat.case_distribution import case_infer
+                _ent = self._entity_words_for_case()
                 for ns in narrative_sents[:2]:
                     if len(utterances) == 0:
-                        from ravana.chat.case_distribution import case_infer
-                        utterances.append(case_infer(ns))
+                        utterances.append(case_infer(ns, entity_words=_ent))
                     else:
-                        utterances.append(case_infer(ns.lower()))
+                        utterances.append(case_infer(ns.lower(), entity_words=_ent))
                 schema_used = True
 
         # -- CONCEPTUAL BLENDING: Check for similar schemas if no direct match --
@@ -845,12 +867,13 @@ class ResponseGenMixin(ChainWalkerMixin):
                     narrative_sents, source_concept, similarity = blended
                     if narrative_sents:
                         from ravana.chat.case_distribution import case_infer
+                        _ent = self._entity_words_for_case()
                         if len(utterances) == 0:
-                            utterances.append(case_infer(narrative_sents[0]))
+                            utterances.append(case_infer(narrative_sents[0], entity_words=_ent))
                         else:
-                            utterances.append(case_infer(narrative_sents[0].lower()))
+                            utterances.append(case_infer(narrative_sents[0].lower(), entity_words=_ent))
                         if len(narrative_sents) > 1:
-                            utterances.append(case_infer(narrative_sents[1].lower()))
+                            utterances.append(case_infer(narrative_sents[1].lower(), entity_words=_ent))
                         schema_used = True
                         if getattr(self, '_trace_enabled', False):
                             print(f"  [trace]   Blended schema from '{source_concept}' (sim={similarity:.2f})")
@@ -1130,7 +1153,7 @@ class ResponseGenMixin(ChainWalkerMixin):
             # Clean up: ensure proper capitalization and punctuation
             # (context-sensitive casing, not a blind .upper())
             from ravana.chat.case_distribution import case_infer
-            paragraph = case_infer(paragraph)
+            paragraph = case_infer(paragraph, entity_words=self._entity_words_for_case())
             if not paragraph.endswith((".", "?", "!")):
                 paragraph += "."
             paragraph = re.sub(r'\s+', ' ', paragraph)
@@ -1268,7 +1291,7 @@ class ResponseGenMixin(ChainWalkerMixin):
                                 pass  # Fall through to narrative generation
                             else:
                                 from ravana.chat.case_distribution import case_infer
-                                text = case_infer(text)
+                                text = case_infer(text, entity_words=self._entity_words_for_case())
                                 if not text.endswith((".", "?", "!")):
                                     text += "."
                                 text = re.sub(r'\s+', ' ', text)
@@ -4267,12 +4290,26 @@ class ResponseGenMixin(ChainWalkerMixin):
         if not subject:
             return ""
         proper = getattr(self, '_proper_nouns', set())
+        # Phase 5: entity-likeness from the ConceptGraph IsA structure. Strong
+        # entity types (country/city/company/person/...) license capitalization.
+        # The graph signal wins ONLY for words with NO SUBTLEX evidence (OOV) —
+        # when distributional data exists we trust it (e.g. "bank" is 88%
+        # lowercase despite being a 'company' in ConceptNet, so it stays lower).
+        _entity = 0.0
+        try:
+            from ravana.chat.case_distribution import concept_entity_score
+            ont = getattr(self, "_cn_ontology", None)
+            if ont is not None and hasattr(ont, "isa"):
+                _entity = concept_entity_score(subject, lambda w: ont.isa.get(w, set()))
+        except Exception:
+            _entity = 0.0
         words = raw_input.split()
         try:
             from ravana.chat.case_distribution import get_store
             _cap = get_store().cap_prob(subject)
         except Exception:
             _cap = 0.0
+        _entity_wins = (_entity >= 0.5) and (_cap == 0.0)
         for w in words:
             clean_w = w.strip(".,!?\"'()[]{}*:;")
             if clean_w.lower() == subject.lower():
@@ -4283,11 +4320,11 @@ class ResponseGenMixin(ChainWalkerMixin):
                 # typed it lowercase ("france" -> "France") — abstract letter
                 # identity with the most-probable casing, per the VWFA analog.
                 # If it's a known manual proper noun (domain concept / seen in
-                # input) but OOV from SUBTLEX, still capitalize via that set.
-                if _cap >= 0.5 or subject.lower() in proper:
+                # input) or a graph entity (OOV from SUBTLEX), capitalize.
+                if _cap >= 0.5 or _entity_wins or subject.lower() in proper:
                     return subject.capitalize()
                 return clean_w
-        if subject.lower() in proper or _cap >= 0.5:
+        if subject.lower() in proper or _cap >= 0.5 or _entity_wins:
             return subject.capitalize()
         return subject.lower()
 
