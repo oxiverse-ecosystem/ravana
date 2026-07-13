@@ -262,9 +262,21 @@ class VerbLexicon:
     _refractory: Set[str] = set()
     _refractory_relation: str = ""
     _glove_vector_fn: Optional[Callable] = None
+    _sensorimotor_fn: Optional[Callable] = None
     _total_reinforcements: int = 0
     _seeded: bool = False
     _irregular_verbs: Dict[str, str] = {}
+
+    # G3: Lancaster dual-coding — roots that are physically/embodied. When a
+    # subject is highly embodied (high sensorimotor activation), verb selection
+    # is biased toward these; for abstract subjects the bias is removed.
+    EMBODIED_ROOTS = {
+        "tie", "lead", "give", "bring", "spark", "trigger", "fuel",
+        "drive", "feed", "shape", "guide", "ground", "build", "form",
+        "carry", "reach", "open", "turn", "weave", "color", "frame", "cross",
+    }
+    SENSORY_DIMS = ["Visual", "Haptic", "Auditory", "Gustatory", "Olfactory",
+                    "Interoceptive", "Foot_leg", "Hand_arm", "Head", "Mouth", "Torso"]
 
     @classmethod
     def reset_refractory(cls):
@@ -296,6 +308,31 @@ class VerbLexicon:
         cls._glove_vector_fn = fn
 
     @classmethod
+    def set_sensorimotor_fn(cls, fn: Callable):
+        cls._sensorimotor_fn = fn
+
+    @classmethod
+    def _embodiment_score(cls, subject: str) -> float:
+        """Mean sensorimotor activation of a subject over the 11 Lancaster
+        sensory dims (raw norms, 0-5). Returns 0.0 when no sensorimotor fn / OOV.
+        High = concrete/embodied; low = abstract. The raw Lancaster norms vary
+        strongly across words (unlike the variance-compressed merged 65-D)."""
+        fn = cls._sensorimotor_fn
+        if fn is None or not subject:
+            return 0.0
+        try:
+            vec = fn(subject)
+        except Exception:
+            return 0.0
+        if vec is None:
+            return 0.0
+        vec = np.asarray(vec, dtype=np.float64)
+        if vec.size == 0:
+            return 0.0
+        # 0-5 rated norms -> 0-1; mean over the sensory dims.
+        return float(np.clip(vec.mean() / 5.0, 0.0, 1.0))
+
+    @classmethod
     def _softmax(cls, scores: List[float], temperature: float) -> List[float]:
         if temperature < 0.01:
             temperature = 0.01
@@ -311,13 +348,19 @@ class VerbLexicon:
     @classmethod
     def _sample_morpheme(cls, category: str, relation: str,
                          dopamine_tone: float = 0.5) -> str:
-        """Sample a morpheme from the given category, weighted by Hebbian strength."""
+        """Sample a morpheme from the given category, weighted by Hebbian strength.
+        G3: for the 'roots' category, bias embodied roots up/down by the current
+        subject's embodiment score (cls._embodiment_bias, set in select_verb)."""
         pool = cls._get_morpheme_pool(category)
         if not pool:
             return ""
         scores = []
+        emb_bias = getattr(cls, "_embodiment_bias", 0.0)
         for m in pool:
             hw = cls._hebbian_weight[relation].get(m, 0.5)
+            if category == "roots" and emb_bias != 0.0 and m in cls.EMBODIED_ROOTS:
+                # embodied subjects -> +bias; abstract subjects -> -bias
+                hw = max(0.01, min(0.99, hw + emb_bias))
             refractory_penalty = -0.5 if m in cls._refractory else 0.0
             scores.append(max(0.01, hw + refractory_penalty))
         if dopamine_tone <= 0.25:
@@ -501,6 +544,18 @@ class VerbLexicon:
                     similarity = max(0.0, min(1.0, (sim + 1.0) * 0.5))
             except Exception:
                 pass
+
+        # G3: Lancaster dual-coding — set the transient embodiment bias for this
+        # selection. Concrete/embodied subjects (high sensorimotor activation)
+        # push verb roots toward physically-embodied verbs; abstract subjects
+        # push away from them. Human Lancaster norms have strong variance
+        # (hand Hand_arm=4.4 vs trust=0.45), so center near the corpus-neutral
+        # ~0.25 and scale. Range ~[-0.3, +0.3]; 0 when no sensorimotor fn.
+        try:
+            emb = cls._embodiment_score(subject) if subject else 0.0
+            cls._embodiment_bias = max(-0.3, min(0.3, (emb - 0.25) * 0.8))
+        except Exception:
+            cls._embodiment_bias = 0.0
 
         rule_scores = []
         for rule in rules:

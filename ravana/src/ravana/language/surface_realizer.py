@@ -181,6 +181,7 @@ class SurfaceRealizer:
         self._variant_weights: Dict[str, float] = {v: 1.0 for v in self.MERGE_VARIANTS}
         self._last_variant_name: Optional[str] = None
         self._recent_variants: List[str] = []  # STN fatigue: suppress recently used variants
+        self._sensorimotor_fn: Optional[Callable] = None
         try:
             from ravana.language.verb_lexicon import _default_vector_fn
             self._vector_fn = _default_vector_fn
@@ -189,6 +190,26 @@ class SurfaceRealizer:
 
     def set_vector_fn(self, fn):
         self._vector_fn = fn
+
+    def set_sensorimotor_fn(self, fn):
+        """G3: fn(word) -> sensorimotor confidence (0-1). Low confidence (OOD /
+        abstract words with weak sensorimotor grounding) raises effective free
+        energy so the realizer hedges more — honest uncertainty for ungrounded
+        concepts (Binder & Desai 2011; Clark 2013 predictive coding)."""
+        self._sensorimotor_fn = fn
+
+    def _sensorimotor_adjusted_fe(self, word: str, base_fe: float) -> float:
+        """Raise free energy for concepts with weak sensorimotor grounding.
+        conf=1.0 (well-grounded) -> unchanged; conf=0.0 (OOD) -> +0.3 FE."""
+        if self._sensorimotor_fn is None or not word:
+            return base_fe
+        try:
+            conf = self._sensorimotor_fn(word)
+        except Exception:
+            return base_fe
+        if conf is None:
+            return base_fe
+        return min(1.0, base_fe + (1.0 - conf) * 0.3)
 
     def learn_from_feedback(self, variant_name: str, success: bool):
         """Update variant preference based on dialogue success (STN-reinforcement learning)."""
@@ -367,6 +388,10 @@ class SurfaceRealizer:
             return ""
 
         free_energy = discourse_context.free_energy
+        # G3: raise free energy for concepts with weak sensorimotor grounding
+        # (OOD/abstract words) so hedging/uncertainty increases honestly.
+        free_energy = self._sensorimotor_adjusted_fe(subj, free_energy)
+        free_energy = self._sensorimotor_adjusted_fe(obj, free_energy)
         concept_fe = discourse_context.concept_free_energy
         confidence_level = self._get_confidence_level(free_energy)
 

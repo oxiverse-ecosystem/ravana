@@ -550,6 +550,12 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # Phase 6: Wire vector function for semantic verb selection (VerbLexicon)
         self.surface_realizer.set_vector_fn(self._get_modulated_vector)
         VerbLexicon.set_glove_fn(self._get_modulated_vector)
+        # G3: wire the sensorimotor read-out into verb selection + hedging so
+        # generation is modulated by embodied grounding (not just distributional).
+        # VerbLexicon gets the RAW Lancaster 11-D (strong sensory discrimination);
+        # SurfaceRealizer gets the OOD/confidence signal (hedging for weak grounding).
+        VerbLexicon.set_sensorimotor_fn(self._lancaster_vector)
+        self.surface_realizer.set_sensorimotor_fn(self._sensorimotor_confidence)
         self._cerebellar_ngram: Dict[str, Dict[str, float]] = {}
         self._cerebellar_depth: Dict[str, float] = {}
         self._concept_confidence: Dict[str, float] = {}
@@ -645,6 +651,12 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # affordances by the Sensory-Functional division. Loaded from a prebuilt
         # pickle; if absent, the gate falls back to the legacy literal dicts.
         self._cn_ontology = self._load_conceptnet_ontology()
+        # Lancaster G2/G3: build ONE CombinedAttributeEncoder (Lancaster primary,
+        # Binder fallback) at init and expose it as the sensorimotor read-out.
+        # This is the dual-coding co-primary: GloVe stays the distributional
+        # backbone; the encoder maps GloVe-64 -> sensorimotor (11-D Lancaster
+        # wide coverage + 65-D Binder fine). Used by G3 verb selection + hedging.
+        self._combined_attr_encoder = self._build_combined_encoder()
         # Auto-downgrade ConceptNet-primary to the literal-dict fallback when the
         # ontology is unavailable, so category grounding never crashes. If the
         # user explicitly passed --conceptnet-primary / --no-conceptnet-primary
@@ -1028,6 +1040,107 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                     cache[w[:-1]] = result
             return result
         return None
+
+    # ── Lancaster dual-coding: sensorimotor read-out (G2/G3) ──────────────────
+    def _build_combined_encoder(self):
+        """Build a single CombinedAttributeEncoder (Lancaster primary, Binder
+        fallback) reused for every sensorimotor lookup. Returns None if the
+        probe artifacts are absent (engine still boots; G3 hooks no-op)."""
+        try:
+            from ravana.ontology.attribute_encoder import load_combined_encoder
+        except Exception:
+            return None
+        base = os.path.join(_ROOT, "data") if '_ROOT' in globals() else None
+        candidates = []
+        if base:
+            candidates.append(os.path.join(base, "attribute_encoder.npz"))
+        cur = os.path.dirname(os.path.abspath(__file__))
+        for _ in range(6):
+            candidates.append(os.path.join(cur, "data", "attribute_encoder.npz"))
+            cur = os.path.dirname(cur)
+        enc = None
+        for ecand in candidates:
+            if os.path.exists(ecand):
+                d = os.path.dirname(ecand)
+                lanc_cands = [os.path.join(d, "lancaster_encoder.npz"),
+                              os.path.join(os.path.dirname(d), "lancaster_encoder.npz")]
+                _lanc = next((p for p in lanc_cands if os.path.exists(p)), None)
+                try:
+                    enc = load_combined_encoder(ecand, _lanc)
+                except Exception:
+                    enc = None
+                if enc is not None:
+                    break
+        return enc
+
+    def _build_lancaster_norms(self) -> Dict[str, np.ndarray]:
+        """Load the HUMAN Lancaster 11-D sensorimotor norms (39,707 words) for
+        high-variance embodiment lookup. Probe predictions are variance-
+        compressed; the human norms discriminate strongly (hand Hand_arm=4.4 vs
+        trust=0.45). Used by G3 verb selection. Returns {} if CSV absent."""
+        cache = getattr(self, "_lancaster_norms", None)
+        if cache is not None:
+            return cache
+        norms: Dict[str, np.ndarray] = {}
+        try:
+            import csv
+            from ravana.ontology.attribute_encoder import LANCASTER_DIMS
+            cand = os.path.join(_ROOT, "data", "cache", "word_ratings",
+                                "Lancaster_sensorimotor_norms_for_39707_words.csv")
+            if not os.path.exists(cand):
+                self._lancaster_norms = norms
+                return norms
+            with open(cand, newline="", encoding="utf-8") as f:
+                for row in csv.DictReader(f):
+                    w = str(row.get("Word", "")).strip().lower()
+                    if not w:
+                        continue
+                    try:
+                        norms[w] = np.array(
+                            [float(row[d + ".mean"]) for d in LANCASTER_DIMS],
+                            dtype=np.float64)
+                    except (ValueError, KeyError, TypeError):
+                        continue
+        except Exception:
+            norms = {}
+        self._lancaster_norms = norms
+        return norms
+
+    def _lancaster_vector(self, word: str) -> Optional[np.ndarray]:
+        """Sensorimotor vector for a word.
+        G3 verb selection uses the HUMAN Lancaster 11-D norms when the word is
+        in the 39,707-word set (strong cross-word variance); falls back to the
+        probe prediction (LancasterEncoder) only for true OOV. None if no encoder
+        and not in norms, or the word is OOV with no probe."""
+        w = (word or "").lower().strip()
+        if not w:
+            return None
+        norms = self._build_lancaster_norms()
+        if w in norms:
+            return norms[w]
+        enc = getattr(self, "_combined_attr_encoder", None)
+        if enc is None or getattr(enc, "lancaster", None) is None:
+            return None
+        gv = self._glove_vector(word)
+        if gv is None:
+            return None
+        try:
+            return enc.lancaster.attribute_vector(gv)
+        except Exception:
+            return None
+
+    def _sensorimotor_confidence(self, word: str) -> float:
+        """Sensorimotor grounding confidence of a word.
+        G3 hedging signal: TRUE OOV (no GloVe vector -> no probe prediction) has
+        WEAK grounding -> 0.0, so the realizer hedges. Words with a GloVe vector
+        get a probe prediction (even if sparse) -> 1.0. Degrades to 1.0 only when
+        no encoder is available at all (so the hook is a no-op, not fail-closed)."""
+        if self._glove_vector(word) is None:
+            return 0.0
+        enc = getattr(self, "_combined_attr_encoder", None)
+        if enc is None:
+            return 1.0
+        return 1.0
 
     def _typed_edges_between(self, a: str, b: str) -> List[str]:
         """Return the relation types of edges linking concept labels `a` and
