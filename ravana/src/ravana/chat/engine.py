@@ -1050,7 +1050,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             from ravana.ontology.attribute_encoder import load_combined_encoder
         except Exception:
             return None
-        base = os.path.join(_ROOT, "data") if '_ROOT' in globals() else None
+        base = os.path.join(_proj_root, "data") if '_proj_root' in globals() else None
         candidates = []
         if base:
             candidates.append(os.path.join(base, "attribute_encoder.npz"))
@@ -1085,7 +1085,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         try:
             import csv
             from ravana.ontology.attribute_encoder import LANCASTER_DIMS
-            cand = os.path.join(_ROOT, "data", "cache", "word_ratings",
+            cand = os.path.join(_proj_root, "data", "cache", "word_ratings",
                                 "Lancaster_sensorimotor_norms_for_39707_words.csv")
             if not os.path.exists(cand):
                 self._lancaster_norms = norms
@@ -2135,6 +2135,10 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
     # mapped to a natural (voice) phrasing + the sense verb used to experience
     # them. The dimension NAMES come from the learned probe output, not a
     # hand-authored list of analogies.
+    _LANCASTER_ORDER = [
+        "Auditory", "Gustatory", "Haptic", "Interoceptive", "Olfactory", "Visual",
+        "Foot_leg", "Hand_arm", "Head", "Mouth", "Torso",
+    ]
     _SENSORY_DIM_PHRASE = {
         "Shape": ("shape", "picture by its outline"),
         "Vision": ("looks", "see"),
@@ -2153,6 +2157,14 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         "Complexity": ("structure", "grasp the makeup of"),
         "Taste": ("taste", "taste"),
         "Smell": ("smell", "smell"),
+        # G3 (Lancaster): effector / body-part dims — these carry the
+        # embodied specificity that distinguishes hand (Hand_arm=4.4) from trust
+        # (Hand_arm=0.45). Without them every metaphor collapsed to Vision.
+        "UpperLimb": ("movement", "move and handle"),
+        "LowerLimb": ("steps", "step and walk with"),
+        "Head": ("presence", "hold up"),
+        "Mouth": ("voice", "speak or eat with"),
+        "Torso": ("body", "feel the weight of"),
     }
     # The gate-property -> Binder dim(s) it corresponds to (mirrors
     # attribute_encoder.PROPERTY_TO_DIMS for the common cases).
@@ -2167,6 +2179,75 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         "texture": ("Texture", "Touch"), "temperature": ("Temperature",),
         "brightness": ("Bright", "Dark"),
     }
+
+    def _top_sensorimotor_dim(self, word: str):
+        """G3 (Lancaster): pick the most salient SENSORY (cross-modal) dimension
+        for a word from the HUMAN Lancaster 11-D norms (variance-rich), mapped
+        onto the Binder sensory dims used by _SENSORY_DIM_PHRASE.
+
+        Returns (binder_dim, value_0_5, phrase, sense) for the top sensory dim,
+        or None if the word is OOV / has no salient sensory activation. The
+        human norms discriminate strongly (hand Hand_arm=4.4 vs trust=0.45) where
+        the merged 65-D probe (used by the legacy Path 1 block) is compressed, so
+        metaphors built from this are more vivid and correctly embodied.
+
+        Selection: a SALIENT EFFECTOR / body-part dim (Hand_arm, Foot_leg, Head,
+        Mouth, Torso) is preferred when its activation >= 2.0, because that is the
+        genuinely distinguishing embodied signal; otherwise the top sensory dim
+        (Vision/Touch/...) is used. This stops every metaphor collapsing to Vision
+        (which is high for almost all concrete nouns) and surfaces embodiment.
+        """
+        try:
+            from ravana.ontology.attribute_encoder import LANCASTER_TO_BINDER
+        except Exception:
+            return None
+        lv = self._lancaster_vector(word)
+        if lv is None:
+            return None
+        lv = np.asarray(lv, dtype=np.float64)
+        if lv.size != len(self._LANCASTER_ORDER):
+            return None
+        _EFFECTOR = {"Foot_leg", "Hand_arm", "Head", "Mouth", "Torso"}
+        effector_scored = []
+        sensory_scored = []
+        for i, ldim in enumerate(self._LANCASTER_ORDER):
+            val = float(lv[i])
+            if val <= 0.0:
+                continue
+            for bdim in LANCASTER_TO_BINDER.get(ldim, []):
+                if bdim in self._SENSORY_DIM_PHRASE:
+                    if ldim in _EFFECTOR:
+                        effector_scored.append((val, bdim))
+                    else:
+                        sensory_scored.append((val, bdim))
+                    break  # one Binder sensory dim per Lancaster dim
+        # Prefer a salient effector (embodied) signal.
+        if effector_scored:
+            effector_scored.sort(reverse=True)
+            _ev, _edim = effector_scored[0]
+            if _ev >= 2.0:
+                phrase, sense = self._SENSORY_DIM_PHRASE[_edim]
+                return (_edim, _ev, phrase, sense)
+        if sensory_scored:
+            sensory_scored.sort(reverse=True)
+            _val, top_dim = sensory_scored[0]
+            phrase, sense = self._SENSORY_DIM_PHRASE[top_dim]
+            return (top_dim, _val, phrase, sense)
+        return None
+
+    def _metaphor_lead(self, subj_cap: str, phrase: str, sense: str,
+                       val: float, prop: str) -> str:
+        """Build the magnitude-conditioned cross-modal metaphor reply. Shared by
+        the human-Lancaster Path 1 and the legacy probe fallback so phrasing is
+        identical; vivid when activation is high, tentative when low."""
+        if val >= 2.0:
+            lead = f"i'd really picture {subj_cap} in terms of its {phrase}"
+        elif val >= 1.0:
+            lead = f"i'd think of {subj_cap} more in terms of its {phrase}"
+        else:
+            lead = f"i'd maybe relate {subj_cap} to its {phrase}"
+        return (f"{lead} — it's something you'd {sense}, not really "
+                f"something with a {prop}. what were you getting at?")
 
     def _metaphor_for_category_error(self, subject: str, prop: str) -> Optional[str]:
         """Build a data-derived cross-modal metaphor for a category error.
@@ -2194,6 +2275,17 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             except Exception:
                 enc = None
         gvec = self._glove_vector(subj) if hasattr(self, "_glove_vector") else None
+        # G3 (Lancaster): prefer the HUMAN Lancaster 11-D norms for the
+        # cross-modal dimension — they discriminate strongly (hand Hand_arm=4.4
+        # vs trust=0.45) where the merged 65-D probe is variance-compressed.
+        exclude = set(self._PROP_TO_BINDER.get(prop.lower(), ()))
+        tdim = self._top_sensorimotor_dim(subj)
+        if tdim is not None and tdim[0] not in exclude:
+            top_dim, _val, phrase, sense = tdim
+            self._metrics["category_metaphor"] = self._metrics.get("category_metaphor", 0) + 1
+            return self._metaphor_lead(subj_cap, phrase, sense, _val, prop)
+        # Fallback: legacy merged-probe scoring (variance-compressed, OOV words
+        # not in the 39,707-word human-norms set).
         if enc is not None and gvec is not None:
             try:
                 av = enc.attribute_vector(np.asarray(gvec, dtype=np.float64))
@@ -2210,7 +2302,6 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                     # metaphor (the probe's purpose); abstract dims (Social,
                     # Cognition, ...) are not sensorimotor and would produce odd
                     # "justice in terms of its character" lines (item A.3).
-                    exclude = set(self._PROP_TO_BINDER.get(prop.lower(), ()))
                     scored = []
                     for i, dim in enumerate(enc.dims):
                         if dim in exclude:
@@ -2232,16 +2323,8 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                             phrase, sense = self._SENSORY_DIM_PHRASE[top_dim]
                         else:
                             phrase, sense = realize_dim(top_dim, _val)
-                        # Modulate hedging by activation magnitude (vivid when high).
-                        if _val >= 2.0:
-                            lead = f"i'd really picture {subj_cap} in terms of its {phrase}"
-                        elif _val >= 1.0:
-                            lead = f"i'd think of {subj_cap} more in terms of its {phrase}"
-                        else:
-                            lead = f"i'd maybe relate {subj_cap} to its {phrase}"
                         self._metrics["category_metaphor"] = self._metrics.get("category_metaphor", 0) + 1
-                        return (f"{lead} — it's something you'd {sense}, not really "
-                                f"something with a {prop}. what were you getting at?")
+                        return self._metaphor_lead(subj_cap, phrase, sense, _val, prop)
             except Exception:
                 pass
         # 2) ConceptNet feature congruence (Path 2): frame the mismatch via the
