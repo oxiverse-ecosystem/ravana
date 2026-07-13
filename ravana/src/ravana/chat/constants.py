@@ -152,15 +152,24 @@ def _is_question_phrase(phrase: str) -> bool:
 
 
 def _is_word_salad(text: str, allow_content_only: bool = False, subject: Optional[str] = None, grain: str = "doc") -> bool:
-    """Detect if generated text is word salad using learned distributional features.
-    Replaces hardcoded thresholds with continuous scoring based on:
-    - Structural word rarity score (frequency-based detection, replacing hardcoded lists)
-    - Neural decoder perplexity when available
-    - Type-token ratio with continuous scoring instead of binary threshold
-    - Grammatical anchor density with learned weights instead of hardcoded checks
+    """Detect if generated text is word salad using RULE-BASED structural signals.
+
+    HONEST NOTE (research B / cross-cutting finding): this function is NOT a
+    learned classifier. It applies fixed structural checks — consecutive-identical
+    words, content-word repetition bonuses, type-token ratio, hard-coded
+    high-frequency structural word sets, and a grammatical-anchor / tautology
+    check. There is NO neural decoder perplexity and NO learned weights here;
+    the "neural perplexity" branch referenced in earlier docs was never
+    implemented. The fixed bonuses (0.25/0.3/0.5) and SALAD_DOC_THRESHOLD
+    (0.7) are hand-set, not fit.
+
+    The genuinely-learned salad monitor is ravana.chat.salad_classifier
+    .SaladClassifier (a logistic boundary FIT to labeled valid/invalid data via
+    equal-error-rate in experiments/measure_salad_classifier.py). It is wired
+    into generation through the fail-closed _final_emit_guard, not here.
 
     grain: "doc" (whole-text, loose criterion) or "clause" (per-clause,
-    stricter criterion + stricter novel-word safety valve) — M8 calibration.
+    stricter criterion + stricter novel-word safety valve).
     """
     if not text:
         return True

@@ -174,9 +174,16 @@ class ConceptNetOntology:
         # the Binder ridge probe (attribute_encoder.property_score) trained on
         # the GloVe-64 manifold. ConceptNet stays authoritative: this prior is
         # consulted ONLY at the silent return points, never overrides a
-        # True/False verdict. Calibrated on the Binder norms + 7 gate cases;
-        # locked at prior_theta=4.5 (precision 1.00, recall 0.30, 0 FP on the
-        # labeled color set; see GATE_DERIVATION_FINDINGS.md).
+        # True/False verdict.
+        #
+        # HONEST NOTE (cross-cutting finding): `prior_theta` is a HAND-SET
+        # constant (default 4.5). The earlier claim that it was "Calibrated on
+        # the Binder norms + 7 gate cases (precision 1.00, recall 0.30)" is
+        # unverifiable here — the Binder 65-D human norms (.xlsx) are absent,
+        # and 4.5 on a 0-6 scale almost never fires (so precision 1.00 is
+        # trivial). The real FIT boundary is in attribute_calibration
+        # .calibrated_property_threshold (Lancaster norms, 39,707 words) and is
+        # preferred at decision time when the calibration json is present.
         self.attribute_encoder = attribute_encoder
         self.glove_fn = glove_fn
         self.prior_theta = float(prior_theta)
@@ -337,15 +344,32 @@ class ConceptNetOntology:
         """Distributional tie-break prior (Deferred item 2).
 
         Used ONLY when ConceptNet is silent. Returns the Binder ridge-probe
-        verdict (attribute_encoder.property_score(vec64, prop) >= prior_theta)
-        when both the encoder and a GloVe vector for `word` are available,
-        else None (cannot determine). Never consulted when ConceptNet already
-        returned True/False, so it can never contradict or override the KG.
-        Calibrated at self.prior_theta=4.5 (precision 1.00 on the labeled
-        color set; see GATE_DERIVATION_FINDINGS.md)."""
+        verdict (attribute_encoder.property_score(vec64, prop) >= theta) when
+        both the encoder and a GloVe vector for `word` are available, else None
+        (cannot determine). Never consulted when ConceptNet already returned
+        True/False, so it can never contradict or override the KG.
+
+        HONEST NOTE (research A / cross-cutting finding): `prior_theta` is a
+        HAND-SET constant (default 4.5), NOT fit to data. The Binder 65-D human
+        norms (.xlsx, 535 words) needed for a real calibration are ABSENT from
+        this checkout, so the earlier "precision 1.00, recall 0.30, calibrated
+        on 7 gate cases" claim is unverifiable — and trivially true, since 4.5
+        on a 0-6 scale almost never fires (hence recall 0.30 / precision 1.00
+        by never saying True). The genuinely FIT boundary lives in
+        ravana.ontology.attribute_calibration.calibrated_property_threshold,
+        trained on the Lancaster Sensorimotor Norms (39,707 words) via
+        experiments/measure_attribute_theta.py. We prefer that FIT value here
+        when available, falling back to the documented prior_theta default."""
         if self.attribute_encoder is None or self.glove_fn is None:
             return None
         from .attribute_encoder import PROPERTY_TO_DIMS
+        try:
+            from ravana.ontology.attribute_calibration import (
+                load_fitted_theta, calibrated_property_threshold)
+            _fitted = load_fitted_theta()
+            _theta = calibrated_property_threshold(prop, _fitted)
+        except Exception:
+            _theta = self.prior_theta
         pl = prop.lower()
         if pl not in PROPERTY_TO_DIMS:
             return None
@@ -356,7 +380,7 @@ class ConceptNetOntology:
             np.asarray(vec, dtype=np.float32), prop)
         if score is None:
             return None
-        return bool(score >= self.prior_theta)
+        return bool(score >= _theta)
 
     def has_property(self, word: str, prop: str) -> Optional[bool]:
         """Does `word` possess `prop`?
