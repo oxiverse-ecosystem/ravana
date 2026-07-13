@@ -55,6 +55,7 @@ for p in (os.path.join(_ROOT, "ravana", "src"),
         sys.path.insert(0, p)
 
 _DEFAULT_CAP_PROB = 0.0  # conservative: unknown word = common noun (lowercase)
+_FB_MIN_OBS = 3           # min feedback observations before it overrides SUBTLEX
 _SUBTLEX_CSV = os.path.join(_ROOT, "data", "cache", "SUBTLEXus.csv")
 _CASE_JSON = os.path.join(_ROOT, "data", "case_dist.json")
 
@@ -63,10 +64,20 @@ class CaseDistributionStore:
     """Per-word capitalization prior, FIT from SUBTLEX-US norms.
 
     ``_cap`` maps lowercased word -> P(capitalized) in [0, 1].
+
+    Phase 3 (research casing): online user-feedback prediction error (N400
+    analog). When the user types a word RAVANA stored lowercase but capitalized,
+    that is a prediction error that updates the internal model. We track it as a
+    *weighted* per-word count (not a binary flag) so a single observation can't
+    flip a well-established SUBTLEX prior, and the update PERSISTS across
+    restarts (unlike the old in-memory ``_proper_nouns`` set, which was
+    forgotten on reload).
     """
 
     def __init__(self, cap: Optional[Dict[str, float]] = None):
         self._cap: Dict[str, float] = dict(cap) if cap else {}
+        self._fb: Dict[str, list] = {}        # word -> [cap_count, total_count]
+        self._override: Dict[str, float] = {}  # word -> P(cap) high-confidence
 
     @classmethod
     def build_from_subtlex(cls, csv_path: str = _SUBTLEX_CSV) -> "CaseDistributionStore":
@@ -88,26 +99,73 @@ class CaseDistributionStore:
                 cap[w] = round(1.0 - fl / fc, 4)
         return cls(cap)
 
-    def save(self, path: str = _CASE_JSON) -> None:
+    def save(self, path: Optional[str] = None) -> None:
+        path = path or _CASE_JSON
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
-            json.dump({"cap": self._cap, "default": _DEFAULT_CAP_PROB}, f)
+            json.dump({
+                "cap": self._cap,
+                "default": _DEFAULT_CAP_PROB,
+                "fb": self._fb,
+                "override": self._override,
+            }, f)
 
     @classmethod
-    def load(cls, path: str = _CASE_JSON) -> "CaseDistributionStore":
+    def load(cls, path: Optional[str] = None) -> "CaseDistributionStore":
+        path = path or _CASE_JSON
         if not os.path.exists(path):
             return cls()
         with open(path, encoding="utf-8") as f:
             d = json.load(f)
         store = cls(d.get("cap", {}))
         store._default = float(d.get("default", _DEFAULT_CAP_PROB))
+        store._fb = {k: list(v) for k, v in (d.get("fb") or {}).items()}
+        store._override = dict(d.get("override") or {})
         return store
 
     _default = _DEFAULT_CAP_PROB
 
     def cap_prob(self, word: str) -> float:
-        """P(this word is capitalized in non-sentence-initial position)."""
-        return self._cap.get((word or "").lower().strip(" .,!?"), self._default)
+        """P(this word is capitalized in non-sentence-initial position).
+
+        Resolution order: explicit high-confidence override -> learned feedback
+        (if enough observations) -> SUBTLEX base prior -> conservative default.
+        """
+        wl = (word or "").lower().strip(" .,!?")
+        if wl in self._override:
+            return self._override[wl]
+        fb = self._fb.get(wl)
+        if fb and fb[1] >= _FB_MIN_OBS:
+            return round(fb[0] / fb[1], 4)
+        return self._cap.get(wl, self._default)
+
+    # --- Phase 3: online user-feedback (N400 prediction-error) channel ---
+
+    def record_feedback(self, word: str, capitalized: bool) -> None:
+        """Record one observation that ``word`` was (not) capitalized by the user.
+
+        Brain analog: the observed casing is the "correct" signal; mismatch with
+        the current prediction generates a prediction error that nudges the
+        stored distribution. Implemented as a count so it is robust to noise and
+        combines with the SUBTLEX prior only after enough observations.
+        """
+        wl = (word or "").lower().strip(" .,!?")
+        if not wl:
+            return
+        cnt = self._fb.get(wl, [0.0, 0.0])
+        cnt[0] += 1.0 if capitalized else 0.0
+        cnt[1] += 1.0
+        self._fb[wl] = cnt
+
+    def override(self, word: str, prob: float) -> None:
+        """Force a high-confidence capitalization probability (0..1).
+
+        Used for unambiguous typos / stable proper nouns the user repeats.
+        Persisted via save().
+        """
+        wl = (word or "").lower().strip(" .,!?")
+        if wl:
+            self._override[wl] = float(min(1.0, max(0.0, prob)))
 
     def __len__(self) -> int:
         return len(self._cap)
@@ -116,13 +174,47 @@ class CaseDistributionStore:
         return (word or "").lower().strip(" .,!?") in self._cap
 
 
+_STORE_CACHE: Optional[CaseDistributionStore] = None
+
+
 def get_store(rebuild: bool = False) -> CaseDistributionStore:
-    """Return a loaded store, building from SUBTLEX if the json is absent."""
+    """Return a loaded store, building from SUBTLEX if the json is absent.
+
+    Cached at module level so online feedback (Phase 3) accumulates across calls
+    within a process and persists on save(). Pass ``rebuild=True`` to refit.
+    """
+    global _STORE_CACHE
+    if _STORE_CACHE is not None and not rebuild:
+        return _STORE_CACHE
     if rebuild or not os.path.exists(_CASE_JSON):
         store = CaseDistributionStore.build_from_subtlex()
-        store.save()
-        return store
-    return CaseDistributionStore.load()
+    else:
+        store = CaseDistributionStore.load()
+    store.save()  # materialize json so feedback writes have a target
+    _STORE_CACHE = store
+    return store
+
+
+def record_user_casing(word: str, capitalized: bool) -> None:
+    """Phase 3 entry point: log a user casing observation (N400 analog).
+
+    Thin wrapper over the cached store's ``record_feedback``; safe if the store
+    can't be loaded. Does NOT auto-save (call ``get_store().save()`` periodically
+    or at session end to persist across restarts).
+    """
+    try:
+        get_store().record_feedback(word, capitalized)
+    except Exception:
+        pass
+
+
+def persist_store() -> None:
+    """Persist the cached store (feedback + overrides) to disk."""
+    try:
+        if _STORE_CACHE is not None:
+            _STORE_CACHE.save()
+    except Exception:
+        pass
 
 
 # Entity-type keywords (from ConceptNet IsA targets) that license mid-sentence

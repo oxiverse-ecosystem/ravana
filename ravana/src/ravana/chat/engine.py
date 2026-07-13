@@ -2516,7 +2516,10 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         except Exception:
             pass
 
-        # Scan user query for proper nouns dynamically
+        # Scan user query for proper nouns dynamically (Phase 3: online casing
+        # feedback / N400 analog). The in-memory set gives an instant signal for
+        # this session; the persisted store lets the correction survive restarts
+        # and combine with the SUBTLEX prior after enough observations.
         try:
             words = user_input.strip().split()
             if len(words) > 1:
@@ -2524,6 +2527,11 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                     clean_w = w.strip(".,!?\"'()[]{}*:;")
                     if clean_w and clean_w[0].isupper() and clean_w.lower() not in STOP_WORDS:
                         self._proper_nouns.add(clean_w.lower())
+                        try:
+                            from ravana.chat.case_distribution import record_user_casing
+                            record_user_casing(clean_w.lower(), True)
+                        except Exception:
+                            pass
         except Exception:
             pass
 
@@ -8200,6 +8208,18 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
 
 
 
+    def persist_casing(self) -> None:
+        """Persist online casing feedback (Phase 3) to disk.
+
+        Called at session end so user corrections survive restarts. Safe if the
+        casing store is unavailable.
+        """
+        try:
+            from ravana.chat.case_distribution import persist_store
+            persist_store()
+        except Exception:
+            pass
+
     def stop_background_learning(self):
         """Stop the background learning thread gracefully.""" 
         # Final curiosity sync - ensure latest diversity state is captured
@@ -8214,6 +8234,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         self._bg_idle_event.set()  # wake up the thread so it can exit
         if self._bg_learning_thread and self._bg_learning_thread.is_alive():
             self._bg_learning_thread.join(timeout=30)
+        self.persist_casing()  # Phase 3: flush casing feedback before exit
         if self._trace_enabled:
             print(f'  [bg] background learning stopped (performed {self._bg_search_count} searches)')
 
