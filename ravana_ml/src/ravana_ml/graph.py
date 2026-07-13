@@ -198,6 +198,18 @@ class ConceptEdge:
             'is_user_experience': False,
             'is_inferred': False,
             'correction_history': [],
+            # Provenance record (research item E): populated via
+            # ravana.chat.provenance.populate_provenance so every edge carries
+            # traceable origin (TrustGraph / W3C PROV-O style). edge_kind
+            # discriminates verified facts from GloVe-wired noise for both the
+            # offline pruner and the bare-edge admission policy.
+            'edge_kind': 'unknown',
+            'source': None,
+            'source_url': None,
+            'method': None,
+            'retrieval_conf': None,
+            'timestamp': None,
+            'converging_sources': 0,
         }
 
     def __getstate__(self):

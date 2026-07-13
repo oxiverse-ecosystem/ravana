@@ -12,6 +12,11 @@ from collections import deque, Counter
 
 
 from .constants import TEEN_CONCEPTS, WEB_GARBAGE, STOP_WORDS, INAPPROPRIATE_WORDS, _is_keyboard_mash, _is_question_phrase
+# Research item E: provenance-favoring admission (TGComplete-style)
+from .provenance import (
+    provenance_class, admit_as_fact, provenance_adjusted_confidence, surface_cue,
+    is_verifiable,
+)
 from .models import ChainHop, ChainTrace, CognitiveResponseContext
 from ravana.graph.engine import DOMAIN_CONCEPTS
 from ravana.language.surface_realizer import DiscourseState
@@ -2139,6 +2144,9 @@ class ChainWalkerMixin:
                     total_sentences=num_sentences,
                     free_energy=self._free_energy if hasattr(self, '_free_energy') else 0.3,
                 )
+                # Provenance (item E): converging independent sources = the other
+                # filtered associations that also link this subject to something.
+                _converging = max(0, len(filtered_assocs) - 1)
                 
                 utterances = []
                 for i, (label, score) in enumerate(filtered_assocs[:3]):
@@ -2150,6 +2158,7 @@ class ChainWalkerMixin:
                     nid_subj = self._concept_keywords.get(subj_lower, [None])[0]
                     nid_label = self._concept_keywords.get(label.lower(), [None])[0]
                     relation = "semantic"
+                    edge = None
                     if nid_subj is not None and nid_label is not None:
                         edge = self.graph.get_edge(nid_subj, nid_label)
                         if edge is None:
@@ -2185,6 +2194,18 @@ class ChainWalkerMixin:
                     )
                     
                     if sentence and len(sentence) > 5:
+                        # Provenance-favoring (item E, TGComplete): a single bare
+                        # edge is stated as fact only with verifiable provenance or
+                        # >=2 converging sources. Verifiable web facts get a
+                        # citation cue ("(per source)"); unprovenanced edges get a
+                        # hedge cue so they never read as established fact.
+                        if is_verifiable(edge) and not sentence.rstrip().endswith(")"):
+                            sentence = sentence.rstrip(". ") + " (per source)."
+                        elif not admit_as_fact(edge, converging=_converging) \
+                                and not sentence.rstrip().endswith(")"):
+                            cue = surface_cue(edge, converging=_converging)
+                            if cue:
+                                sentence = sentence.rstrip(". ") + f" — {cue}."
                         utterances.append(sentence)
                         from ravana.language.verb_lexicon import VerbLexicon
                         VerbLexicon.reinforce(relation, frame.verb_phrase, success=1.0)
@@ -2208,10 +2229,18 @@ class ChainWalkerMixin:
             # Find the first non-function-word association for a SurfaceRealizer call
             try:
                 if hasattr(self, 'syntactic_assembly') and hasattr(self, 'surface_realizer'):
+                    _lr_label = filtered_assocs_lr[0][0]
+                    _lr_nid_s = self._concept_keywords.get(subj_lower, [None])[0]
+                    _lr_nid_l = self._concept_keywords.get(_lr_label.lower(), [None])[0]
+                    _lr_edge = None
+                    if _lr_nid_s is not None and _lr_nid_l is not None:
+                        _lr_edge = self.graph.get_edge(_lr_nid_s, _lr_nid_l)
+                        if _lr_edge is None:
+                            _lr_edge = self.graph.get_edge(_lr_nid_l, _lr_nid_s)
                     frame = self.syntactic_assembly.bind_to_sentence(
                         subject=subject,
                         relation="semantic",
-                        target=filtered_assocs_lr[0][0],
+                        target=_lr_label,
                         pos_map=getattr(self, '_concept_pos', {}),
                     )
                     disc_ctx = DiscourseState(
@@ -2227,6 +2256,14 @@ class ChainWalkerMixin:
                         cerebellar_ngram=getattr(self, 'cerebellar_ngram', None),
                     )
                     if s and len(s) > 5:
+                        # Provenance-favoring (item E) on the last-resort path too.
+                        if is_verifiable(_lr_edge) and not s.rstrip().endswith(")"):
+                            s = s.rstrip(". ") + " (per source)."
+                        elif not admit_as_fact(_lr_edge, converging=0) \
+                                and not s.rstrip().endswith(")"):
+                            _cue = surface_cue(_lr_edge, converging=0)
+                            if _cue:
+                                s = s.rstrip(". ") + f" — {_cue}."
                         return (s, "associative")
             except Exception:
                 pass
@@ -2237,6 +2274,13 @@ class ChainWalkerMixin:
                 subject=subject, target=first_content,
                 discourse_type="connect", free_energy=0.35, min_len=8)
             if s:
+                # Provenance-favoring (item E) on the minimal fallback too.
+                if is_verifiable(edge) and not s.rstrip().endswith(")"):
+                    s = s.rstrip(". ") + " (per source)."
+                elif not admit_as_fact(edge, converging=0) and not s.rstrip().endswith(")"):
+                    _cue = surface_cue(edge, converging=0)
+                    if _cue:
+                        s = s.rstrip(". ") + f" — {_cue}."
                 return (s, "associative")
             return (f"i see. {subject.lower()} and {first_content} are linked.", "associative")
         s = self._try_surface_realize(

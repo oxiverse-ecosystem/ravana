@@ -755,7 +755,12 @@ class GraphEngine:
                     # Tag as auto-expand so offline pruning can distinguish
                     # GloVe-wired noise (prunable) from verified web facts.
                     if e is not None and hasattr(e, "source_metadata"):
-                        e.source_metadata.update({"edge_kind": "auto_expand"})
+                        try:
+                            from ravana.chat.provenance import populate_provenance
+                            populate_provenance(e, edge_kind="auto_expand",
+                                                method="auto_expand_glove")
+                        except Exception:
+                            e.source_metadata.update({"edge_kind": "auto_expand"})
 
         return new_count
 

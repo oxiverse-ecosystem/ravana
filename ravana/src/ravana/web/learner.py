@@ -18,6 +18,12 @@ from collections import defaultdict
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+# Research item E: provenance population helper (TrustGraph / PROV-O style).
+try:
+    from ..chat.provenance import populate_provenance
+except Exception:  # pragma: no cover - defensive
+    populate_provenance = None
+
 
 # Standard English stop words used throughout the WebLearner
 STOP_WORDS: Set[str] = {
@@ -584,13 +590,15 @@ class WebLearner:
                     if existing is None:
                         weight = max(0.3, min(0.7, 0.2 + word_counts.get(w1, 1) * word_counts.get(w2, 1) * 0.001))
                         e = self.graph_engine.graph.add_edge(nid1, nid2, weight=weight, relation_type="semantic")
-                        # Provenance: tag co-occurrence edges so pruning can tell
-                        # noisy web co-occurrence from verified web facts.
-                        if e is not None and hasattr(e, "source_metadata"):
-                            e.source_metadata.update({
-                                "source": source_id, "edge_kind": "co_occurrence",
-                                "relation": "semantic",
-                            })
+                        # Provenance (item E): tag co-occurrence edges so pruning
+                        # can tell noisy web co-occurrence from verified web facts.
+                        if e is not None and populate_provenance is not None:
+                            populate_provenance(e, edge_kind="co_occurrence",
+                                                source=source_id, method="web_cooccurrence")
+                        elif e is not None and hasattr(e, "source_metadata"):
+                            e.source_metadata.update({"source": source_id,
+                                                      "edge_kind": "co_occurrence",
+                                                      "relation": "semantic"})
                     else:
                         existing.weight = min(0.9, existing.weight + 0.05)
 
@@ -621,11 +629,13 @@ class WebLearner:
                         weight = max(0.25, min(0.5, sim * 0.5))
                         inf_type, _ = self.graph_engine._infer_relation_type(word, existing_node.label, "semantic")
                         e2 = self.graph_engine.graph.add_edge(nid, existing_nid, weight=weight, relation_type=inf_type)
-                        if e2 is not None and hasattr(e2, "source_metadata"):
-                            e2.source_metadata.update({
-                                "source": source_id, "edge_kind": "co_occurrence",
-                                "relation": inf_type,
-                            })
+                        if e2 is not None and populate_provenance is not None:
+                            populate_provenance(e2, edge_kind="co_occurrence",
+                                                source=source_id, method="web_cooccurrence")
+                        elif e2 is not None and hasattr(e2, "source_metadata"):
+                            e2.source_metadata.update({"source": source_id,
+                                                       "edge_kind": "co_occurrence",
+                                                       "relation": inf_type})
 
         # Train neural decoder
         if self.decoder_engine.neural_decoder and self.decoder_engine._decoder_vocab_built:

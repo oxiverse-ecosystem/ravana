@@ -93,6 +93,11 @@ TOPIC_SKIP_WORDS = {"i", "you", "we", "they", "he", "she", "it", "me", "my",
 
 
 from .constants import _is_word_salad
+# Research item E: provenance-favoring admission (TGComplete-style)
+from .provenance import (
+    provenance_class, admit_as_fact, provenance_adjusted_confidence,
+    surface_cue, populate_provenance,
+)
 
 
 @dataclass
@@ -1160,6 +1165,78 @@ class ChatInterface:
                 unique.append(q)
         return unique
 
+    def _surface_bare_edge(self, subject: str, assoc_details: list,
+                           rnd) -> str:
+        """Surface a reply from bare graph associations, provenance-favoring.
+
+        Research item E (TGComplete): a single bare edge is surfaced as a
+        confident FACT only when it carries verifiable provenance or >=2
+        converging independent sources; otherwise it is HEDGED so it never
+        reads as established fact. Confidence is conditioned on the edge's
+        provenance class, not one scalar. Extracted from _graph_fallback_response
+        so the policy is unit-testable in isolation.
+        """
+        if not assoc_details:
+            return f"I don't know much about {subject} yet."
+        # Single-association (or weak second) path.
+        if len(assoc_details) == 1 or assoc_details[1]["score"] < 0.25:
+            details = assoc_details[0]
+            l1, v1 = details["label"], details["verb"]
+            edge = details.get("edge")
+            # Converging independent sources = distinct association edges that
+            # agree on linking this subject to SOMETHING (proxy for convergence).
+            converging = max(0, len(assoc_details) - 1)
+            # Condition confidence on provenance class, not one scalar.
+            wc1 = provenance_adjusted_confidence(
+                edge, converging=converging,
+                base_conf=details["edge_weight"] * details["edge_conf"])
+            admitted = admit_as_fact(edge, converging=converging)
+            cue = surface_cue(edge, converging=converging)
+
+            s = self._try_surface_realize(
+                    subject=subject, target=l1,
+                    discourse_type="explain", free_energy=0.3 if wc1 >= 0.4 else 0.5, min_len=8)
+            if s:
+                # Append a provenance cue (e.g. "(per source)" / hedge) when the
+                # surface realizer produced a confident statement but the edge is
+                # not admitted as fact.
+                if not admitted and cue and not s.rstrip().endswith(")"):
+                    s = s.rstrip(". ") + (f" — {cue}." if cue else ".")
+                return s
+            if admitted:
+                frames = [
+                    f"{subject.capitalize()} {v1} {l1.lower()}.",
+                    f"I think {subject.lower()} {v1} {l1.lower()}.",
+                ]
+                return rnd.choice(frames)
+            # Not admitted as fact: hedge so it never reads as established.
+            frames = [
+                f"{cue} {subject.lower()} {v1} {l1.lower()}.",
+                f"maybe {subject.lower()} {v1} {l1.lower()} — {cue}.",
+            ]
+            return rnd.choice(frames)
+        # Coordinated sentence for the first two associations.
+        details1 = assoc_details[0]
+        details2 = assoc_details[1]
+        l1, v1 = details1["label"], details1["verb"]
+        l2, v2 = details2["label"], details2["verb"]
+        s1 = self._try_surface_realize(
+            subject=subject, target=l1,
+            discourse_type="explain", free_energy=0.3, min_len=8)
+        if s1:
+            s2 = self._try_surface_realize(
+                subject=subject, target=l2,
+                discourse_type="elaborate", free_energy=0.35, min_len=8)
+            if s2:
+                return s1 + " " + s2
+            return s1
+        coord_patterns = [
+            lambda s, l1, v1, l2, v2: f"{s.capitalize()} {v1} {l1.lower()}, and it also {v2} {l2.lower()}.",
+            lambda s, l1, v1, l2, v2: f"While {s.lower()} {v1} {l1.lower()}, it also {v2} {l2.lower()}.",
+        ]
+        return rnd.choice(coord_patterns)(subject, l1, v1, l2, v2)
+
+
     def _graph_fallback_response(self, ctx: CognitiveResponseContext) -> Tuple[str, str]:
         subject = ctx.subject
         assocs = ctx.associated_concepts
@@ -1319,65 +1396,20 @@ class ChatInterface:
                 "relation_type": relation_type,
                 "edge_weight": edge_weight,
                 "edge_conf": edge_conf,
-                "verb": verb
+                "verb": verb,
+                "edge": edge,  # retained for provenance admission (item E)
             })
 
         if not assoc_details:
             return (f"I don't know much about {subject} yet.", "associative")
 
-        # Synthesize coordinated and grammatically varied sentences
-        if len(assoc_details) == 1 or assoc_details[1]["score"] < 0.25:
-            # Single association sentence
-            details = assoc_details[0]
-            l1, v1 = details["label"], details["verb"]
-            wc1 = details["edge_weight"] * details["edge_conf"]
+        # Surface the bare-edge reply via the provenance-favoring policy
+        # (research item E). The single + coordinated two-association paths live
+        # in _surface_bare_edge so the admission logic is unit-testable.
+        response = self._surface_bare_edge(subject, assoc_details, rnd)
 
-            s = self._try_surface_realize(
-                    subject=subject, target=l1,
-                    discourse_type="explain", free_energy=0.3 if wc1 >= 0.4 else 0.5, min_len=8)
-            if s:
-                response = s
-            elif wc1 >= 0.4:
-                frames = [
-                    f"{subject.capitalize()} {v1} {l1.lower()}.",
-                    f"I think {subject.lower()} {v1} {l1.lower()}.",
-                ]
-                response = rnd.choice(frames)
-            else:
-                frames = [
-                    f"I think {subject.lower()} {v1} {l1.lower()}.",
-                    f"Maybe {subject.lower()} {v1} {l1.lower()}.",
-                ]
-                response = rnd.choice(frames)
-        else:
-            # Coordinated sentence for the first two associations
-            details1 = assoc_details[0]
-            details2 = assoc_details[1]
-            l1, v1 = details1["label"], details1["verb"]
-            l2, v2 = details2["label"], details2["verb"]
-
-            # Generate via SurfaceRealizer for first association
-            s1 = self._try_surface_realize(
-                subject=subject, target=l1,
-                discourse_type="explain", free_energy=0.3, min_len=8)
-            if s1:
-                # Generate via SurfaceRealizer for second association
-                s2 = self._try_surface_realize(
-                    subject=subject, target=l2,
-                    discourse_type="elaborate", free_energy=0.35, min_len=8)
-                if s2:
-                    response = s1 + " " + s2
-                else:
-                    response = s1
-            else:
-                coord_patterns = [
-                    lambda s, l1, v1, l2, v2: f"{s.capitalize()} {v1} {l1.lower()}, and it also {v2} {l2.lower()}.",
-                    lambda s, l1, v1, l2, v2: f"While {s.lower()} {v1} {l1.lower()}, it also {v2} {l2.lower()}.",
-                ]
-                response = rnd.choice(coord_patterns)(subject, l1, v1, l2, v2)
-
-            # Optional elaborative sentence for the third association
-            if len(assoc_details) >= 3 and assoc_details[2]["score"] >= 0.3:
+        # Optional elaborative sentence for the third association
+        if len(assoc_details) >= 3 and assoc_details[2]["score"] >= 0.3:
                 details3 = assoc_details[2]
                 l3, v3 = details3["label"], details3["verb"]
 
