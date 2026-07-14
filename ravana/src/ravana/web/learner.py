@@ -1,8 +1,11 @@
-"""
-Web Learner - RAVANA's web search and autonomous learning.
-Contains: SearchEngine (multi-API with circuit breaker), background learning,
-curiosity-driven topic selection, article fetching.
-"""
+# Web Learner - RAVANA's web search and autonomous learning.
+# Contains: SearchEngine (multi-API with circuit breaker), background learning,
+# curiosity-driven topic selection, article fetching.
+# M0 crash-hardening: pin BLAS/OpenMP threads to 1 BEFORE numpy import (numpy
+# #27989) so this module's fetch workers can't race the main-thread decoder
+# inside BLAS and trigger a Windows access violation. Must precede `import
+# numpy as np` below.
+import ravana._numpy_threading  # noqa: F401  (side-effect: thread + faulthandler setup)
 import sys
 import os
 import time
@@ -12,11 +15,12 @@ import hashlib
 import urllib.request
 from urllib.parse import quote
 import threading
-from typing import Dict, List, Optional, Any, Set, Tuple
 from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Any, Set, Tuple
 from collections import defaultdict
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
 
 # Research item E: provenance population helper (TrustGraph / PROV-O style).
 try:

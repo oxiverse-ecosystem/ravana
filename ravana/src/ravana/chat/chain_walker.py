@@ -248,6 +248,11 @@ class ChainWalkerMixin:
             created.append(concept_name)
         if created:
             print(f"  [Domain] Bootstrapped {len(created)} domain concepts: {', '.join(created)}")
+            # Record these as AUTHORED-seed concepts so the seeded-relation
+            # answer path may surface their hand-authored edges (and ONLY
+            # theirs — not the noisy web associations of ordinary concepts).
+            for _c in created:
+                self._seeded_domain_concepts.add(_c.lower())
 
         # NOTE: the previous hardcoded 6-entry default_definitions seed
         # (ravana / oxiverse / intentforge / hebbian learning / cognitive

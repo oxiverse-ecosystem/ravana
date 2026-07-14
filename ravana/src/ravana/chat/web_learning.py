@@ -1280,7 +1280,9 @@ class WebLearningMixin(ResponseGenMixin):
                         if self._definition_acceptable(concept, definition_clean, def_has_inappropriate) and self._definition_looks_clean(definition_clean) and self._definition_has_predicate(definition_clean):
                             existing = self._definitions.get(concept, '')
                             if self._is_clean_concept_key(concept) and (concept not in self._definitions or self._definition_quality(definition_clean) > self._definition_quality(existing)):
-                                self._definitions[concept] = definition_clean[:200]
+                                # M2-D: never overwrite a protected (authored/project) concept.
+                                if concept not in getattr(self, "_PROTECTED_CONCEPTS", set()):
+                                    self._definitions[concept] = definition_clean[:200]
                                 if self._trace_enabled:
                                     print(f"  [definition] Regex match (coherence={coherence:.2f}): {concept} -> {definition_clean[:80]}...")
                             # Mirror to the user's actual term when the matched
@@ -1291,10 +1293,12 @@ class WebLearningMixin(ResponseGenMixin):
                             if concept != query_topic and is_relevant and self._is_clean_concept_key(query_topic) and query_topic not in self._DEFINITION_CONCEPT_BLOCKLIST:
                                 eq = self._definitions.get(query_topic, '')
                                 if query_topic not in self._definitions or self._definition_quality(definition_clean) > self._definition_quality(eq):
-                                    self._definitions[query_topic] = definition_clean[:200]
+                                    # M2-D: protect project concepts from web collisions.
+                                    if query_topic not in getattr(self, "_PROTECTED_CONCEPTS", set()):
+                                        self._definitions[query_topic] = definition_clean[:200]
                         elif self._trace_enabled:
                             print(f"  [definition] OFC rejected (coherence={coherence:.2f}): {concept} -> {definition_clean[:60]}...")
-                                
+
             # Extract from called_pattern
             for m in called_pattern.finditer(text):
                 definition = m.group(1).strip()
@@ -1344,16 +1348,20 @@ class WebLearningMixin(ResponseGenMixin):
                     if self._definition_acceptable(concept, definition_clean, def_has_inappropriate) and self._definition_looks_clean(definition_clean) and self._definition_has_predicate(definition_clean):
                         existing = self._definitions.get(concept, '')
                         if self._is_clean_concept_key(concept) and (concept not in self._definitions or self._definition_quality(definition_clean) > self._definition_quality(existing)):
-                            self._definitions[concept] = definition_clean[:200]
+                            # M2-D: never overwrite a protected (authored/project) concept.
+                            if concept not in getattr(self, "_PROTECTED_CONCEPTS", set()):
+                                self._definitions[concept] = definition_clean[:200]
                             if self._trace_enabled:
                                 print(f"  [definition] Called pattern match (coherence={coherence:.2f}): {concept} -> {definition_clean[:80]}...")
                         if concept != query_topic and is_relevant and self._is_clean_concept_key(query_topic):
                             eq = self._definitions.get(query_topic, '')
                             if query_topic not in self._definitions or self._definition_quality(definition_clean) > self._definition_quality(eq):
-                                self._definitions[query_topic] = definition_clean[:200]
-                    elif self._trace_enabled:
-                        print(f"  [definition] OFC rejected (coherence={coherence:.2f}): {concept} -> {definition_clean[:60]}...")
-                            
+                                # M2-D: protect project concepts from web collisions.
+                                if query_topic not in getattr(self, "_PROTECTED_CONCEPTS", set()):
+                                    self._definitions[query_topic] = definition_clean[:200]
+                        elif self._trace_enabled:
+                            print(f"  [definition] OFC rejected (coherence={coherence:.2f}): {concept} -> {definition_clean[:60]}...")
+
         except Exception as e:
             if self._trace_enabled:
                 print(f"  [definition] Regex extraction error: {e}")

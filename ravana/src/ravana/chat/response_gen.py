@@ -2124,7 +2124,20 @@ class ResponseGenMixin(ChainWalkerMixin):
                 # action_request instead of the factual web-answer path.
                 if text.rstrip().endswith("?"):
                     return None
-            return first
+                # Auxiliary + NON-pronoun subject ("do rocks dream", "does the
+                # cat sleep") is an interrogative about the subject's property
+                # or capability, NOT an imperative telling RAVANA to "do"
+                # something. Without this, "do rocks dream" was misrouted to
+                # the action-request handler and produced the broken
+                # "i don't have a way to act on your system" reply. Only treat
+                # it as an action request when the second word is a determiner
+                # ("do the dishes", "do your homework") — a genuine imperative.
+                _DETS = ("the", "a", "an", "my", "your", "our", "their", "his",
+                         "her", "its", "this", "that", "these", "those", "some",
+                         "any", "every", "each", "no")
+                if len(words) >= 2 and words[1] not in _DETS:
+                    return None
+                return first
         return None
 
     def _handle_action_request(self, text: str, action_verb: str,
@@ -2569,6 +2582,103 @@ class ResponseGenMixin(ChainWalkerMixin):
     # monitor fires we suppress the word-salad and produce a graceful, human-like
     # "I'm not sure / I'm curious" turn instead of a false claim.
     # ═════════════════════════════════════════════════════════════════════════
+
+    def _seeded_relation_response(self, ctx: CognitiveResponseContext) -> Optional[str]:
+        """Answer a 'what is X' query from the subject's *seeded/typed graph edges*.
+
+        Some concepts (e.g. the project's own proper nouns oxiverse / intentforge
+        / ravana) are bootstrapped with explicit typed relations (is_a, causal,
+        contrastive, part_of) but have NO GloVe vector and NO web/KB definition.
+        The generic FOK/coherence pipeline therefore treats them as "unknown"
+        and emits honest uncertainty — discarding perfectly good, authored
+        grounding. This method recovers that grounding: when the subject is a
+        known graph node carrying typed outgoing edges, it composes a natural
+        answer from those edges.
+
+        Fail-closed safe: the relations are AUTHORED seed, not web guesses, so
+        surfacing them is never a confabulation risk. Returns None when there is
+        nothing seed-grounded to say (caller falls through to the normal path).
+        """
+        subject = ctx.subject
+        if not subject:
+            return None
+        subj_lower = subject.lower()
+        # ONLY answer from graph edges for AUTHORED-seed concepts (the project's
+        # own proper nouns). Ordinary concepts have thousands of noisy,
+        # web-learned associations in the graph that would read as relation-salad;
+        # those must go through the normal web/KB/uncertainty path instead.
+        if subj_lower not in getattr(self, "_seeded_domain_concepts", set()):
+            return None
+        nids = getattr(self, "_concept_keywords", {}).get(subj_lower, [])
+        if not nids:
+            return None
+        graph = getattr(self, "graph", None)
+        if graph is None:
+            return None
+        # NOTE: we deliberately do NOT bail when a stored _definition exists.
+        # Seed relations are AUTHORED ground truth for these specific concepts
+        # (project proper nouns with no real web presence); a _definitions entry
+        # for them is almost always junk web/KB noise (e.g. "Ravana" collides
+        # with the mythological Ramayana figure) that would otherwise shadow the
+        # correct seeded answer. For ordinary concepts there are no seed edges,
+        # so this path returns None and the normal definition/web path handles
+        # them. Fail-closed safe.
+
+        subj_cap = self._capitalize_subject(subject, getattr(ctx, "raw_input", subject) or subject)
+
+        # Collect typed outgoing edges, grouped by relation type.
+        rel_clauses: List[Tuple[str, str, float]] = []
+        for nid in nids:
+            try:
+                outgoing = graph.get_outgoing(nid)
+            except Exception:
+                outgoing = []
+            for tgt_id, edge in outgoing:
+                tgt_node = graph.get_node(tgt_id)
+                if tgt_node is None:
+                    continue
+                rel = getattr(edge, "relation_type", "related")
+                w = float(getattr(edge, "weight", 0.0) or 0.0)
+                rel_clauses.append((rel, tgt_node.label, w))
+        if not rel_clauses:
+            return None
+
+        # Sort by weight so the strongest relations lead the answer.
+        rel_clauses.sort(key=lambda x: -x[2])
+
+        # Natural phrasing per relation type (data-derived mapping, not a fact
+        # table — these are generic connectives).
+        _connector = {
+            "is_a": "is a kind of",
+            "semantic": "is related to",
+            "causal": "is tied to",
+            "contrastive": "is the opposite of",
+            "part_of": "is part of",
+            "contextual": "fits into",
+            "has_a": "has",
+            "property": "is characterized by",
+            "related": "is connected to",
+        }
+        seen_labels = set()
+        parts: List[str] = []
+        for rel, label, w in rel_clauses:
+            if label.lower() in seen_labels:
+                continue
+            seen_labels.add(label.lower())
+            if len(parts) >= 3:
+                break
+            conn = _connector.get(rel, "is connected to")
+            parts.append(f"{conn} {label}")
+        if not parts:
+            return None
+        body = "; ".join(parts)
+        opener = random.choice([
+            f"from what i know, {subj_cap} {body}.",
+            f"i'd describe {subj_cap} as something that {body}.",
+            f"{subj_cap} — {body}.",
+        ])
+        closer = " what's your take on it?" if random.random() < 0.5 else ""
+        return opener + closer
 
     def _topic_grounded(self, ctx: CognitiveResponseContext) -> bool:
         """Estimate whether the candidate reply is topically grounded in the input.
@@ -3132,13 +3242,91 @@ class ResponseGenMixin(ChainWalkerMixin):
             return None
         return (f"{lead} {body}.", "counterfactual_simulation")
 
+    def _removal_causal_lines(self, subject: str) -> List[str]:
+        """M3-E: realize concrete consequences of removing `subject` by walking
+        the offline/physics causal graph forward from it.
+
+        For world-scale removals (sun, gravity, water) the seeded causal skeleton
+        (sun -> light -> photosynthesis -> plants -> animals) yields grounded
+        knock-on effects instead of the vacuous "everything would shift".
+        Returns concrete lines; if no causal chain exists, returns the generic
+        fallback lines so the caller still produces a (weaker) answer.
+        """
+        _s = (subject or "").strip().lower()
+        if not _s:
+            return [f"everything that depends on {subject} would shift",
+                    "other systems would scramble to fill the gap"]
+        # M3-E: walk the CAUSAL graph forward from the subject and realize the
+        # multi-hop consequences. Causal edges are trusted (authored physics
+        # skeleton + verified causal relations) — we do NOT apply a GloVe
+        # coherence gate here, because causally-linked terms (light /
+        # photosynthesis) are often distributionally dissimilar yet genuinely
+        # causal. Web-noise associations are already excluded because they are
+        # typed "semantic", not "causal".
+        graph = getattr(self, "graph", None)
+        if graph is None:
+            return [f"everything that depends on {_s} would shift",
+                    "other systems would scramble to fill the gap"]
+        start_ids = self._concept_keywords.get(_s, [])
+        if not start_ids:
+            return [f"everything that depends on {_s} would shift",
+                    "other systems would scramble to fill the gap"]
+        start_id = start_ids[0]
+        # BFS over causal edges, collect paths of length >= 2.
+        from collections import deque
+        paths = []
+        seen_paths = set()
+        q = deque([(start_id, [self.graph.get_node(start_id).label if self.graph.get_node(start_id) else _s])])
+        for _ in range(6):  # bounded BFS depth
+            if not q:
+                break
+            nid, path = q.popleft()
+            if len(path) >= 4:
+                continue
+            for nbr, edge in self.graph.get_outgoing(nid):
+                if edge.relation_type != "causal":
+                    continue
+                # Trust only confident causal edges (the authored physics
+                # skeleton has confidence 0.9). Weak web-derived causal edges
+                # (e.g. "water -> great") are dropped so we never surface junk
+                # knock-on "consequences".
+                if getattr(edge, "confidence", 1.0) < 0.5:
+                    continue
+                nbr_node = self.graph.get_node(nbr)
+                if nbr_node is None or not nbr_node.label:
+                    continue
+                new_path = path + [nbr_node.label]
+                key = tuple(new_path)
+                if key in seen_paths:
+                    continue
+                seen_paths.add(key)
+                if len(new_path) >= 2:
+                    paths.append(new_path)
+                q.append((nbr, new_path))
+        if not paths:
+            return [f"everything that depends on {_s} would shift",
+                    "other systems would scramble to fill the gap"]
+
+        lines = []
+        for p in paths[:3]:
+            if len(p) < 2:
+                continue
+            head, tail = p[0], p[-1]
+            if tail.lower() == _s or tail.lower() in STOP_WORDS or len(tail) < 3:
+                continue
+            lines.append(f"{head} would lead to {tail}")
+        if not lines:
+            return [f"everything that depends on {_s} would shift",
+                    "other systems would scramble to fill the gap"]
+        return lines
+
     def _abductive_counterfactual(self, ctx: "CognitiveResponseContext",
                                   start: str) -> Optional[Tuple[str, str]]:
         """Fix B: web/abductive forward simulation for novel subjects.
 
         When the seeded graph has no causal edges for the intervened
         subject (e.g. "humans" in the teen graph), build a generative
-        model from an encyclopedic description of the subject (Gerstenberg
+
         2024 CSM: the model is whatever we know about X), apply the
         counterfactual premise do(X) as a minimal mutation of that model,
         and forward-chain the consequences (Byrne's "nearest possible
@@ -3199,14 +3387,18 @@ class ResponseGenMixin(ChainWalkerMixin):
             },
             {
                 # Removal / absence: subject disappears or is gone.
+                # M3-E: PREFER the physics causal graph — a world-scale removal
+                # (sun gone, gravity off) has concrete knock-on consequences
+                # (no light -> no photosynthesis -> plants/animals die) that the
+                # generic "everything that depends on X would shift" hides. Only
+                # fall back to the abstract line when no causal chain exists.
                 "cues": ("disappear", "gone", "vanished", "ceased to exist",
-                         "removed", "destroyed"),
+                         "removed", "destroyed", "stopped", "no longer",
+                         "switched off", "turned off", "went dark"),
                 "scope": None,
-                "consequences": lambda s: [
-                    f"everything that depends on {s.lower()} would shift",
-                    "other systems would scramble to fill the gap",
-                ],
+                "consequences": lambda s: self._removal_causal_lines(s),
             },
+
             {
                 # Compositional change: subject made of an improbable stuff.
                 "cues": ("cheese", "chocolate", "gold", "jelly", "rubber",
@@ -3238,7 +3430,7 @@ class ResponseGenMixin(ChainWalkerMixin):
             body = "; ".join(lines[:3])
             return (f"{lead} {body}.", "counterfactual_simulation")
         # Generic path: only use a CLEAN LOCAL definition (not a noisy web
-        # snippet — those pull in unrelated words like "google" /
+
         # "photorealistic" and produce garbage counterfactuals such as
         # "their link to google would change"). Require the extracted
         # dependencies to be concepts actually wired to the subject in the
@@ -3599,20 +3791,41 @@ class ResponseGenMixin(ChainWalkerMixin):
         # e.g. "joke is fit for kids and adults" — no article, no definition
         # shape — would read as abstract filler. Fall back to honest
         # uncertainty instead of confabulating.
-        if not (getattr(self, '_definition_looks_clean', lambda t: True)(defn)
+        # M1-B: curated (offline-authored) definitions skip this web-junk gate —
+        # they are trusted ground truth, not retrieved snippets.
+        _is_curated = sl in getattr(self, "_curated_definitions", set())
+        if not _is_curated and not (
+                getattr(self, '_definition_looks_clean', lambda t: True)(defn)
                 and getattr(self, '_definition_quality', lambda t: 1.0)(defn) > 0.0):
             return None
-        subj_disp = self._capitalize_subject(subject, getattr(ctx, 'raw_input', subject) or subject)
-        try:
-            s = self._try_surface_realize(
-                subject=subject, target=defn,
-                discourse_type="explain", free_energy=0.2, min_len=10)
-            if s:
-                text = s
-            else:
+
+        # If the stored definition ALREADY opens with the subject (e.g. "A cat
+        # is...", "Music is..."), prepending "{subj_disp} is" would duplicate
+        # it ("Cat is A cat is...") and trip the echo/tautology monitor into
+        # honest-uncertainty. Detect that and surface the definition verbatim,
+        # skipping the surface-realizer (which otherwise injects the same
+        # stutter). This is the clean offline-answer path for curated facts.
+        _defn_l = defn.strip().lower()
+        _subj_l = subject.strip().lower().split()[0] if subject.strip() else ""
+        _already_leads = (
+            _defn_l.startswith(subject.strip().lower())
+            or (_subj_l and (_defn_l.startswith(_subj_l + " ")
+                            or _defn_l.startswith("a " + _subj_l + " ")
+                            or _defn_l.startswith("the " + _subj_l + " ")))
+        )
+        if _already_leads:
+            text = defn.rstrip(".!?") + "."
+        else:
+            try:
+                s = self._try_surface_realize(
+                    subject=subject, target=defn,
+                    discourse_type="explain", free_energy=0.2, min_len=10)
+                if s:
+                    text = s
+                else:
+                    text = f"{subj_disp} is {defn}."
+            except Exception:
                 text = f"{subj_disp} is {defn}."
-        except Exception:
-            text = f"{subj_disp} is {defn}."
 
         if random.random() < 0.5:
             q = random.choice([
@@ -3826,6 +4039,30 @@ class ResponseGenMixin(ChainWalkerMixin):
                         print(f"  [trace]   Decomposition path (priority): {decomp_res[1]}")
                     return decomp_res
 
+        # ── Seeded/typed-edge grounding (BEFORE web) ──
+        # Answer from the subject's AUTHORED graph relations when no stored
+        # definition exists (e.g. project proper nouns with NO GloVe vector that
+        # the generic FOK/coherence path would otherwise dismiss as "unknown").
+        # Placed before _web_direct_answer so a seeded concept is answered from
+        # its own grounded relations rather than the web's honest abstention
+        # when the live search only finds junk snippets for a neologism. For
+        # concepts without seed relations this returns None and the normal
+        # web/KB path proceeds. Fail-closed safe (authored seed, not web guess).
+        _seeded = self._seeded_relation_response(ctx)
+        if _seeded:
+            return (_seeded, "seeded_relation")
+
+        # ── Curated/offline definition (BEFORE web) ──
+        # M1-B: if the subject already has a trusted (curated) definition from
+        # the offline common_facts seed, answer from it directly and skip the
+        # live web path entirely — the knowledge is deterministic and offline,
+        # so a web-abstention must never preempt a known answer. Placed before
+        # _web_direct_answer so it wins over the live-search short-circuit.
+        if ctx.subject and ctx.subject.lower() in getattr(self, "_curated_definitions", set()):
+            _def_resp = self._definition_response(ctx)
+            if _def_resp:
+                return _def_resp
+
         # Web-grounded direct answer for unknown factual queries.
         # If the live search engine can back the claim with a real snippet,
         # state it directly — this is fresher and more accurate than any stale
@@ -3851,13 +4088,16 @@ class ResponseGenMixin(ChainWalkerMixin):
                 # register (e.g. 'terse') suppresses the retrieval reflex so the
                 # reply falls straight to honest uncertainty.
                 if getattr(self, "_reg_curiosity", 1.0) >= 0.5:
-                    try:
-                        _kb = self.kb_describe(_sl) or self.describe_from_cn(_sl)
-                        if _kb:
-                            self._definitions[_sl] = _kb
-                            self._metrics["kb_lookups"] = self._metrics.get("kb_lookups", 0) + 1
-                    except Exception:
-                        pass
+                    # M2-D: skip protected concepts — never overwrite an authored
+                    # project definition with a web/KB collision.
+                    if _sl not in getattr(self, "_PROTECTED_CONCEPTS", set()):
+                        try:
+                            _kb = self.kb_describe(_sl) or self.describe_from_cn(_sl)
+                            if _kb:
+                                self._definitions[_sl] = _kb
+                                self._metrics["kb_lookups"] = self._metrics.get("kb_lookups", 0) + 1
+                        except Exception:
+                            pass
 
 
         # ── Question Decomposition Path (BA 10 / Rostral PFC analog) ──
@@ -4681,8 +4921,14 @@ class ResponseGenMixin(ChainWalkerMixin):
         # happen" answer (its own coherence/tautology gates already ran).
         if strategy == "counterfactual_simulation":
             return text
+        # Seeded-relation answers (authored graph relations for project proper
+        # nouns with no GloVe vector) are grounded, constructed text — not free
+        # association — and would be wrongly flagged by the degeneracy check
+        # (low subject-concept ratio). Exempt so the pre-articulation monitor
+        # never discards a coherent, grounded answer.
+        if strategy == "seeded_relation":
+            return text
         # Empathic replies ("aw, i'm sorry you're feeling sad...") are short,
-        # affect-bearing, first-person responses composed from primitives — not
         # free association. They score as "degenerate" under the salad check
         # (low content-word ratio, no subject concept) and would be wrongly
         # withheld, but they are exactly the correct, coherent reply to an

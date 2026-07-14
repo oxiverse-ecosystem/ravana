@@ -1,8 +1,11 @@
-"""
-RAVANA Cognitive Chat Engine — main orchestrator.
-Contains CognitiveChatEngine with __init__, process_turn, save/_load.
-Helper classes in models.py, user_model.py, belief_store.py.
-"""
+# RAVANA Cognitive Chat Engine -- main orchestrator.
+# Contains CognitiveChatEngine with __init__, process_turn, save/_load.
+# Helper classes in models.py, user_model.py, belief_store.py.
+# M0 crash-hardening: pin BLAS/OpenMP threads to 1 BEFORE numpy is imported, so
+# worker-thread BLAS calls (web learner) can't race the main-thread decoder and
+# trigger the Windows access-violation (numpy #27989). Must be the very first
+# import -- ahead of `import numpy as np` below.
+import ravana._numpy_threading  # noqa: F401  (side-effect: thread + faulthandler setup)
 import sys, os, time, random, json, re, threading, hashlib, operator
 import urllib.request
 import socket
@@ -13,6 +16,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import numpy as np
 from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional, Tuple, Set
+
 from collections import deque, Counter
 
 # Import constants from shared module
@@ -161,6 +165,16 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # stores category membership ("X is a Y") as stable neocortical
         # representations, separate from associative episodic edges.
         self._definitions: Dict[str, str] = {}
+        # M1-B: concepts whose definition was authored offline (common_facts.json),
+        # NOT retrieved from web/KB. These bypass the web-junk quality gate in
+        # _definition_response because curated text is trusted ground truth.
+        self._curated_definitions: Set[str] = set()
+        # M2-D: protected namespace. These project concepts have AUTHORED
+        # definitions (seeded domain relations / curated facts) and must never be
+        # overwritten by web/KB collisions (e.g. "ravana" == the mythological
+        # Ramayana figure on Wikipedia). Any web/KB write to a protected concept
+        # is dropped (provenance precedence: curated > web). Fail-closed.
+        self._PROTECTED_CONCEPTS: Set[str] = {"ravana", "oxiverse", "intentforge"}
 
         # GloVe embeddings (loaded lazily during seeding)
         self._glove_vecs: Optional[Dict[str, np.ndarray]] = None
@@ -541,6 +555,11 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # Phase D: Prefrontal workspace — discourse planning before generation
         self.pfc_workspace = PrefrontalWorkspace(capacity=5, vector_fn=self._glove_vector)
         self._proper_nouns = set()
+        # Concepts bootstrapped with AUTHORED typed relations (the project's own
+        # proper nouns: oxiverse / intentforge / ravana). These are the ONLY
+        # concepts the seeded-relation answer path may surface from graph edges —
+        # their relations are hand-authored seed, not noisy web associations.
+        self._seeded_domain_concepts: set = set()
         # Phase E: Syntactic cell assemblies — Hebbian role learning with seeded priors
         self.syntactic_assembly = SyntacticCellAssembly(learning_rate=0.05)
         self.syntactic_assembly.proper_nouns = self._proper_nouns
@@ -725,7 +744,30 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # Cold start (no saved weights): seed everything from scratch.
         self._seed_concepts()
         self._bootstrap_domain_concepts()
-        # P1: seed KB-grounded definitions (Wikipedia/ConceptNet) for the
+        # B: authored, OFFLINE core-knowledge seed (deterministic, no network).
+        # Covers universal common facts (sky/cat/music/sun/gravity/...) that the
+        # live-KB path (below) misses or answers nondeterministically. Runs
+        # first and fail-closed so common questions are grounded offline.
+        try:
+            self._seed_common_facts()
+        except Exception:
+            pass
+        # M1-C: reload previously-VERIFIED definitions mirrored to CognitiveDB
+        # (from prior save()s). This makes knowledge durable across a fresh
+        # cold-start / --reset, not just across pickle reloads, so learned
+        # facts are deterministic rather than re-derived from flaky live web.
+        try:
+            self._load_persisted_definitions()
+        except Exception:
+            pass
+        # M3-E: seed the offline physics causal skeleton so counterfactual
+        # simulation can forward-chain world-scale interventions (sun gone ->
+        # no light -> no photosynthesis -> plants/animals die).
+        try:
+            self._seed_physics_causal()
+        except Exception:
+            pass
+
         # top-N corpus-frequency concepts so common facts ("the sun is a star")
         # are available without any authored text. This is retrieval, not
         # hand-authored prose; concepts with no KB hit are simply skipped.
@@ -1882,6 +1924,173 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         from ravana.chat.case_distribution import case_infer
         return case_infer(body) if body else None
 
+    def _seed_common_facts(self) -> int:
+        """Seed authored, OFFLINE core knowledge (M1-B).
+
+        Loads ``data/common_facts.json`` — a curated set of universal facts
+        (sky/cat/music/sun/gravity/...) — and writes them into ``_definitions``
+        with CURATED provenance, plus their typed graph relations. This makes
+        common-fact questions deterministic and offline-grounded, independent of
+        live web/KB retrieval timing (the prior source of nondeterminism and
+        common-fact misses in the battery).
+
+        Fail-closed: missing file / bad JSON / any node error is skipped; the
+        live-KB path still runs afterwards as a fallback. Returns the number of
+        concepts seeded.
+        """
+        import json as _json
+        facts_path = os.path.join(_proj_root, "data", "common_facts.json")
+        if not os.path.exists(facts_path):
+            return 0
+        try:
+            with open(facts_path, "r", encoding="utf-8") as fh:
+                facts = _json.load(fh)
+        except Exception:
+            return 0
+        if not isinstance(facts, dict):
+            return 0
+        seeded = 0
+        for concept, entry in facts.items():
+            if not isinstance(entry, dict):
+                continue
+            definition = entry.get("definition")
+            if isinstance(definition, str) and definition.strip():
+                # CURATED provenance so the grounding monitors treat it as
+                # established fact (not a hedged web association).
+                self._definitions[concept] = definition.strip()
+                self._curated_definitions.add(concept)
+                _md = getattr(self, "_definition_metadata", None)
+                if _md is not None and concept not in _md:
+                    try:
+                        _md[concept] = {"source": "curated", "edge_kind": "curated"}
+                    except Exception:
+                        pass
+
+            # usable by chain-walk / counterfactual simulation.
+            rels = entry.get("relations") or []
+            for rel in rels:
+                if not isinstance(rel, (list, tuple)) or len(rel) < 4:
+                    continue
+                src, tgt, rel_type, weight = rel[0], rel[1], rel[2], rel[3]
+                try:
+                    self._ensure_relation(src, tgt, rel_type, float(weight))
+                except Exception:
+                    continue
+            seeded += 1
+        if seeded:
+            print(f"  [CommonFacts] Seeded {seeded} authored core facts (offline)")
+        return seeded
+
+    def _ensure_relation(self, src: str, tgt: str, rel_type: str,
+                         weight: float) -> None:
+        """Idempotently ensure a typed edge src->tgt exists in the graph.
+
+        Helper for the offline common-facts seed (and physics causal seed, M3):
+        creates both endpoint nodes (with GloVe or hash vectors) if missing and
+        adds the edge with the requested relation type + provenance.
+        """
+        graph = getattr(self, "graph", None)
+        if graph is None:
+            return
+        def _node(label):
+            nids = self._concept_keywords.get(label)
+            if nids:
+                return nids[0]
+            vec = self._glove_vector(label)
+            if vec is None:
+                h = hash(label) % 50000
+                vr = np.random.RandomState(h + 100)
+                vec = vr.randn(self.dim).astype(np.float32) * 0.1
+                n = np.linalg.norm(vec)
+                if n > 0:
+                    vec /= n
+            node = graph.add_node(vector=vec, label=label)
+            node.stability = 0.9
+            self._concept_labels.add(label.lower())
+            self._concept_keywords[label] = self._concept_keywords.get(label, []) + [node.id]
+            if hasattr(node, "source_metadata"):
+                node.source_metadata.update({"edge_kind": "curated", "source": "common_facts"})
+            return node.id
+        s_id = _node(src)
+        t_id = _node(tgt)
+        if graph.get_edge(s_id, t_id) is None:
+            e = graph.add_edge(s_id, t_id, weight=weight,
+                               relation_type=rel_type, confidence=0.9)
+            if e is not None and hasattr(e, "source_metadata"):
+                e.source_metadata.update({"edge_kind": "curated", "source": "common_facts"})
+
+    def _load_persisted_definitions(self) -> int:
+        """M1-C: reload verified definitions mirrored to CognitiveDB (M1-C save).
+
+        Merges previously-learned facts back into ``_definitions`` on a fresh
+        cold-start, so knowledge is durable across --reset, not just pickle
+        reloads. Only fills keys absent from the current store (curated/offline
+        seeds and any KB hits this run are never overwritten by stale state),
+        keeping the load fail-closed.
+        """
+        db = getattr(self, "db", None)
+        if db is None:
+            return 0
+        try:
+            saved = db.load_metadata("definitions")
+            saved_curated = set(db.load_metadata("curated_definitions") or [])
+        except Exception:
+            return 0
+        if not isinstance(saved, dict):
+            return 0
+        added = 0
+        for k, v in saved.items():
+            if not isinstance(v, str) or not v.strip():
+                continue
+            if k in self._definitions:
+                continue
+            self._definitions[k] = v
+            if k in saved_curated:
+                self._curated_definitions.add(k)
+            added += 1
+        if added:
+            print(f"  [Persisted] Rehydrated {added} verified definitions from CognitiveDB")
+        return added
+
+    def _seed_physics_causal(self) -> int:
+        """M3-E: seed a compact PHYSICS causal skeleton so counterfactual
+        simulation can forward-chain from first principles when the lived graph
+        has no edge for an intervened concept.
+
+        E.g. ``sun disappeared`` -> sun → light → photosynthesis → plants →
+        animals; sun → heat → climate. These are universal causal priors
+        (innate-like), authored offline, so the DMN simulator (which only walks
+        causal edges) always has something to chain along for world-scale
+        interventions. Fail-closed: any edge error is skipped.
+        """
+        # (src, tgt, relation_type, weight)
+        edges = [
+            ("sun", "light", "causal", 0.95),
+            ("sun", "heat", "causal", 0.9),
+            ("sun", "earth", "causal", 0.85),
+            ("light", "photosynthesis", "causal", 0.9),
+            ("photosynthesis", "plants", "causal", 0.9),
+            ("plants", "animals", "causal", 0.85),
+            ("plants", "oxygen", "causal", 0.8),
+            ("animals", "oxygen", "causal", 0.7),
+            ("heat", "climate", "causal", 0.8),
+            ("earth", "life", "causal", 0.8),
+            ("gravity", "orbit", "causal", 0.9),
+            ("gravity", "earth", "causal", 0.8),
+            ("water", "life", "causal", 0.85),
+            ("water", "plants", "causal", 0.8),
+        ]
+        n = 0
+        for src, tgt, rel, w in edges:
+            try:
+                self._ensure_relation(src, tgt, rel, w)
+                n += 1
+            except Exception:
+                continue
+        if n:
+            print(f"  [Physics] Seeded {n} causal edges (offline world-skeleton)")
+        return n
+
     def _seed_kb_definitions(self, top_n: int = 250, workers: int = 8) -> int:
         """Seed _definitions from a DATA-DERIVED concept list (not a hand list):
         the most frequent content words in data/corpora/teen_seeds.txt. For each
@@ -1928,9 +2137,14 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                     results[word] = desc
         seeded = 0
         for word, desc in results.items():
+            # M2-D: never overwrite a protected (authored/project) concept with a
+            # web/KB collision (e.g. "ravana" -> Ramayana myth). Provenance
+            # precedence: curated/project definition beats retrieved text.
+            if word in self._PROTECTED_CONCEPTS:
+                continue
             self._definitions[word] = desc
             seeded += 1
-        if seeded:
+
             print(f"  [KB] Seeded {seeded} definitions from Wikipedia/ConceptNet "
                   f"(top-{top_n} corpus concepts, {workers} workers)")
         return seeded
@@ -2552,7 +2766,8 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
     # _forward_model_check for the rationale) — they keep their own coherence gates.
 
     def _final_emit_guard(self, text: str, ctx, strategy: str = "") -> str:
-        if strategy in ("counterfactual_simulation", "emotional_empathy"):
+        if strategy in ("counterfactual_simulation", "emotional_empathy",
+                        "seeded_relation"):
             return text
         if not text or not text.strip():
             return text
@@ -7278,6 +7493,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 'decoder_idx_to_word': _decoder_i2w,
                 'decoder_word_to_embed': _decoder_w2e,
                 'definitions': self._definitions,
+                'curated_definitions': list(self._curated_definitions),
                 # Curiosity diversity state
                 'bg_learning_cycles': getattr(self, '_bg_learning_cycles', 0),
                 'recent_curiosity_selections': list(getattr(self, '_recent_curiosity_selections', [])),
@@ -7301,6 +7517,17 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             except Exception as e:
                 if getattr(self, '_trace_enabled', False):
                     print(f"  [db] SQLite save failed: {e}")
+
+            # M1-C: durable deterministic-knowledge mirror. Persist the verified
+            # definition store (and the curated subset) into CognitiveDB metadata
+            # so previously-verified facts survive even a fresh cold-start /
+            # --reset (a second durable source beside the pickle). Loaded as a
+            # fallback in _seed_common_facts' companion loader on cold start.
+            try:
+                self.db.save_metadata('definitions', self._definitions)
+                self.db.save_metadata('curated_definitions', list(self._curated_definitions))
+            except Exception:
+                pass
 
             try:
                 # Phase 6.1: Checkpoint rotation — save every 25 turns
@@ -7416,6 +7643,27 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             self._decoder_word_to_idx = state.get('decoder_word_to_idx', {})
             self._decoder_idx_to_word = state.get('decoder_idx_to_word', {})
             self._decoder_word_to_embed = state.get('decoder_word_to_embed', {})
+            # M5 (decoder-dim guard, mirrors the graph-dim guard at ~line 7399):
+            # the decoder read-out table is hardcoded to a 75-D dual-code
+            # embedding (GloVe-64 | Lancaster-11) in response_gen.py. A snapshot
+            # saved under the OLD 64-D decoder restores 64-D vectors here, which
+            # then crash _build_decoder_vocab() (broadcast 64-D into 75-D slot).
+            # Rather than abort the whole load (silent blank wipe) OR let it crash
+            # mid-boot, discard ONLY the stale decoder vocab+embed table and let
+            # _build_decoder_vocab() rebuild a fresh 75-D read-out from the graph
+            # and GloVe. The graph + all learned concepts survive intact.
+            _dec_dim = getattr(self, '_DECODER_DIM', 75)
+            if self._decoder_word_to_embed:
+                _sample = next(iter(self._decoder_word_to_embed.values()))
+                if not isinstance(_sample, np.ndarray) or _sample.shape[0] != _dec_dim:
+                    print(f"  [Load warn] decoder embed dim mismatch "
+                          f"(loaded {getattr(_sample, 'shape', (None,))[0]} != "
+                          f"current {_dec_dim}) — discarding stale decoder vocab, "
+                          f"rebuilding fresh read-out from graph")
+                    self._decoder_word_to_idx = {}
+                    self._decoder_idx_to_word = {}
+                    self._decoder_word_to_embed = {}
+                    self._decoder_vocab_built = False
             self._topic_list = state.get('topic_list', [])
             self._topic_store = state.get('topic_store', {})
             self._response_context = state.get('response_context', [])
@@ -7626,6 +7874,9 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             self._decoder_web_training_count = state.get('decoder_web_training_count', 0)
             self._decoder_seed_training_count = state.get('decoder_seed_training_count', 0)
             self._definitions = state.get('definitions', {})
+            # M1-B: restore the curated (offline-authored) definition set so it
+            # survives reloads and keeps bypassing the web-junk gate.
+            self._curated_definitions = set(state.get('curated_definitions', []))
             # Purge polluted definition keys on load. Earlier versions stored
             # incoherent web fragments under generic/pronoun words (e.g.
             # "you" -> "the stronger player...", "life" -> "war zone"). Drop

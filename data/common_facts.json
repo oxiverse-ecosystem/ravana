@@ -1,0 +1,122 @@
+{
+  "sky": {
+    "definition": "The sky appears blue because molecules in the air scatter shorter (blue) wavelengths of sunlight more than longer ones — Rayleigh scattering.",
+    "relations": [
+      ["sky", "blue", "property", 0.9],
+      ["sky", "sunlight", "causal", 0.8],
+      ["blue", "scattering", "causal", 0.85]
+    ]
+  },
+  "blue": {
+    "definition": "Blue is the colour of the short-wavelength end of the visible spectrum, between violet and green.",
+    "relations": [
+      ["blue", "colour", "is_a", 0.9],
+      ["blue", "short wavelength", "property", 0.85]
+    ]
+  },
+  "cat": {
+    "definition": "A cat is a small domesticated carnivorous mammal (Felis catus), kept by humans as a pet and for catching pests.",
+    "relations": [
+      ["cat", "mammal", "is_a", 0.9],
+      ["cat", "pet", "is_a", 0.8],
+      ["cat", "carnivore", "is_a", 0.8]
+    ]
+  },
+  "dog": {
+    "definition": "A dog is a domesticated descendant of the wolf, a carnivorous mammal kept by humans as a pet, guard, or worker.",
+    "relations": [
+      ["dog", "mammal", "is_a", 0.9],
+      ["dog", "pet", "is_a", 0.8],
+      ["dog", "carnivore", "is_a", 0.8]
+    ]
+  },
+  "music": {
+    "definition": "Music is sound organized in time — rhythm, melody, and harmony — valued as an art form and cultural activity.",
+    "relations": [
+      ["music", "sound", "is_a", 0.85],
+      ["music", "rhythm", "property", 0.8],
+      ["music", "art", "is_a", 0.75]
+    ]
+  },
+  "water": {
+    "definition": "Water is a transparent, tasteless, odourless liquid (H2O) essential for all known life.",
+    "relations": [
+      ["water", "liquid", "is_a", 0.85],
+      ["water", "life", "causal", 0.85],
+      ["water", "H2O", "property", 0.8]
+    ]
+  },
+  "sun": {
+    "definition": "The Sun is the star at the centre of the Solar System; it provides light and heat to Earth through nuclear fusion.",
+    "relations": [
+      ["sun", "star", "is_a", 0.9],
+      ["sun", "light", "causal", 0.9],
+      ["sun", "heat", "causal", 0.85],
+      ["sun", "earth", "causal", 0.8]
+    ]
+  },
+  "gravity": {
+    "definition": "Gravity is the force by which a planet or other body draws objects toward its centre; on Earth it gives weight and keeps the Moon in orbit.",
+    "relations": [
+      ["gravity", "force", "is_a", 0.9],
+      ["gravity", "earth", "causal", 0.85],
+      ["gravity", "orbit", "causal", 0.8]
+    ]
+  },
+  "tree": {
+    "definition": "A tree is a tall perennial plant with a trunk, branches, and leaves, that photosynthesises sunlight into food.",
+    "relations": [
+      ["tree", "plant", "is_a", 0.9],
+      ["tree", "photosynthesis", "causal", 0.85],
+      ["tree", "wood", "property", 0.75]
+    ]
+  },
+  "earth": {
+    "definition": "Earth is the third planet from the Sun and the only known world to support life, with liquid water and an atmosphere.",
+    "relations": [
+      ["earth", "planet", "is_a", 0.9],
+      ["earth", "life", "causal", 0.85],
+      ["earth", "sun", "causal", 0.8]
+    ]
+  },
+  "star": {
+    "definition": "A star is a luminous sphere of plasma held together by gravity, producing light and heat by nuclear fusion.",
+    "relations": [
+      ["star", "plasma", "is_a", 0.8],
+      ["star", "light", "causal", 0.85],
+      ["star", "gravity", "causal", 0.8]
+    ]
+  },
+  "light": {
+    "definition": "Light is electromagnetic radiation visible to the human eye; the Sun and other stars are its main natural sources.",
+    "relations": [
+      ["light", "electromagnetic radiation", "is_a", 0.8],
+      ["light", "sun", "causal", 0.85],
+      ["light", "photosynthesis", "causal", 0.8]
+    ]
+  },
+  "plant": {
+    "definition": "A plant is a living organism that typically makes its own food by photosynthesis, using sunlight, water, and carbon dioxide.",
+    "relations": [
+      ["plant", "living organism", "is_a", 0.85],
+      ["plant", "photosynthesis", "causal", 0.9],
+      ["plant", "sunlight", "causal", 0.8]
+    ]
+  },
+  "animal": {
+    "definition": "An animal is a multicellular living organism that moves, consumes other organisms for energy, and responds to its environment.",
+    "relations": [
+      ["animal", "living organism", "is_a", 0.85],
+      ["animal", "oxygen", "causal", 0.7],
+      ["animal", "plants", "causal", 0.75]
+    ]
+  },
+  "human": {
+    "definition": "A human is a bipedal primate mammal (Homo sapiens), characterized by large brains, language, and culture.",
+    "relations": [
+      ["human", "mammal", "is_a", 0.9],
+      ["human", "animal", "is_a", 0.85],
+      ["human", "language", "property", 0.8]
+    ]
+  }
+}
