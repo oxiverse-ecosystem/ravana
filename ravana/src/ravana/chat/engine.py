@@ -1685,13 +1685,13 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         s = re.sub(r"^(what(?:'s| is)|calculate|compute|solve|find|tell me|how much is|how many is)\s+",
                    "", s).strip()
         s = s.rstrip("?.").strip()
-        # Match either "a op b" or "a op b op c" with whitespace-flexible ops.
-        m = re.fullmatch(
-            r"\s*([-+]?\d+(?:\.\d+)?)\s*([+\-*/^])\s*([-+]?\d+(?:\.\d+)?)"
-            r"(?:\s*([+\-*/^])\s*([-+]?\d+(?:\.\d+)?))?\s*",
-            s,
-        )
-        if not m:
+        # Match a chain of numbers joined by operators: "a op b", "a op b op c",
+        # "a op b op c op d", ... (N operands, whitespace-flexible). Evaluated
+        # left-to-right. Fix: the previous regex capped at 3 operands, so
+        # "2 + 2 + 2 + 2" fell through to metacognitive uncertainty.
+        if not re.fullmatch(
+            r"\s*[-+]?\d+(?:\.\d+)?(?:\s*[+\-*/^]\s*[-+]?\d+(?:\.\d+)?)+\s*", s
+        ):
             return None
         try:
             ops = {
@@ -1699,11 +1699,18 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 "*": operator.mul, "/": operator.truediv,
                 "^": operator.pow,
             }
-            a = float(m.group(1)); op1 = m.group(2); b = float(m.group(3))
-            c = ops[op1](a, b)
-            if m.group(4) is not None:  # three-operand: (a op1 b) op2 c
-                op2 = m.group(4); d = float(m.group(5))
-                c = ops[op2](c, d)
+            # Extract numbers and operators in reading order.
+            _tokens = re.findall(r"([-+]?\d+(?:\.\d+)?)|([+\-*/^])", s)
+            nums, ops_seq = [], []
+            for _num, _op in _tokens:
+                if _num:
+                    nums.append(float(_num))
+                elif _op:
+                    ops_seq.append(_op)
+            # Left-to-right evaluation of the operand chain.
+            c = nums[0]
+            for _i, _op in enumerate(ops_seq):
+                c = ops[_op](c, nums[_i + 1])
             # Format cleanly: integers stay integers, else trim long floats.
             if c == int(c) and abs(c) < 1e15:
                 result = str(int(c))
@@ -8170,21 +8177,43 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             return " ".join(kept)
         return phrase.strip(".,!?")
 
+    def _strip_eli5_tail(self, text: str) -> str:
+        """Remove simplification tails like "like i am five" / "in simple terms".
+
+        These phrasings are framing, not part of the query's semantic subject.
+        Left in, they pollute query grounding (e.g. "explain quantum
+        entanglement like i am five" → subject "entanglement five").
+        """
+        s = text.lower()
+        # ELI5: "like i am five", "like i'm five", "like a five year old",
+        # "like i am five years old", "as if i were five".
+        s = re.sub(r"\b(?:like|as if|as though)\b\s+(?:i am|i'm|i|i were|he is|she is|he were|she were|a|an|they are)\s+"
+                   r"(?:five|five year old|five years old|(?:a |an )?\d+\s*(?:year|yr)s?\s*old)\b.*$",
+                   "", s)
+        # "in simple terms", "in plain language", "simply", "for kids", "for a child".
+        s = re.sub(r"\b(?:in (?:simple|plain|basic|layman'?s) (?:terms|language|words|english)|"
+                   r"simply|for (?:kids|a child|beginners|dummies))\b", "", s)
+        return s.strip()
+
     def _ground_query(self, text: str) -> Tuple[str, float, str]:
         """Multi-strategy query grounding. Returns (subject, confidence, method).
 
         Strategies (tried in order):
         a) PrefrontalWorkspace question type parsing & exact phrase matching
-        b) Compositional â€” split phrase, count known vs unknown words
-        c) Phrase embedding similarity â€” mean word vec â†’ nearest concept (cosine > 0.75)
-        d) Best single word fallback â€” last meaningful non-stop word
+        b) Compositional — split phrase, count known vs unknown words
+        c) Phrase embedding similarity — mean word vec → nearest concept (cosine > 0.75)
+        d) Best single word fallback — last meaningful non-stop word
         """
+        # Normalize ELI5 / simplification tails BEFORE grounding so they don't
+        # pollute the subject. "explain quantum entanglement like i am five"
+        # must ground to "quantum entanglement", not "... like i am five".
+        _text = self._strip_eli5_tail(text).lower()
         # Strategy A: Use PrefrontalWorkspace question type detection to parse semantic payload
         qtype = "general"
         query_phrase = ""
         try:
             if hasattr(self, 'pfc_workspace'):
-                qtype, groups = self.pfc_workspace.detect_question_type(text, self._concept_pos)
+                qtype, groups = self.pfc_workspace.detect_question_type(_text, self._concept_pos)
                 if groups:
                     # Compare queries carry BOTH concepts in groups[0]/groups[1].
                     # The generic 'what_is' pattern can swallow a "difference between
@@ -8201,7 +8230,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
 
         if not query_phrase:
             # Fallback to custom patterns
-            text_lower = text.lower().strip(" ?!.")
+            text_lower = _text.strip(" ?!.")
             for pattern, group_idx in self.QUERY_PATTERNS:
                 m = re.match(pattern, text_lower)
                 if m:

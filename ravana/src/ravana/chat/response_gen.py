@@ -3038,6 +3038,13 @@ class ResponseGenMixin(ChainWalkerMixin):
         # First-person marker: i / i'm / i am / my / me.
         if not re.search(r"\b(i|i'm|i am|my|me)\b", text):
             return None
+        # Guard: ELI5 framing ("explain X like i am five", "like i'm five")
+        # contains a first-person "i am" but is NOT an affective self-disclosure
+        # — answering it with empathy ("that's awesome!") is a non-sequitur.
+        # Exclude these BEFORE any valence/Affective check.
+        if re.search(r"\blike (?:i am|i'm|i)\s+(?:a |an )?\w+\b", text) or \
+           re.search(r"\b(explain|describe|teach|tell me about).*\b(like|as if)\b.*\b(i am|i'm|i)\b", text):
+            return None
         from ravana.core import UserEmotionDetector
         _det = getattr(self, "_affect_detector", None) or UserEmotionDetector()
         uv, _ua, _ud = _det.detect(text)
