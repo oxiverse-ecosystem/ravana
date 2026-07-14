@@ -2759,9 +2759,15 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 # junk (the concept pulls in fragments, not definitions).
                 _junk_by_assertion = _frac_asserted < 0.34
                 # Optional secondary gate (only when GloVe present): all
-                # definitions nearly orthogonal to the subject.
+                # definitions nearly orthogonal to the subject. When no embedding
+                # is loaded, _definition_coherence_score returns 0.0 for every
+                # definition, which would wrongly flag asserted definitions as
+                # junk — so the coherence gate is SKIPPED without embeddings
+                # (it is "optional / only when an embedding is present", per the
+                # method contract above). The assertion-based primary gate alone
+                # decides in that case.
                 _junk_by_coh = False
-                if callable(_coh_fn):
+                if callable(_coh_fn) and getattr(self, "_glove_vecs", None) is not None:
                     _cohs = []
                     for _d in _items:
                         try:
