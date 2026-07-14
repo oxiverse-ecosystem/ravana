@@ -4,6 +4,8 @@ Covers:
 - N-operand arithmetic (was capped at 3 operands -> "2+2+2+2" failed)
 - ELI5 tail stripping in query grounding ("... like i am five" polluted subject)
 - Empathy non-sequitur on ELI5 ("explain X like i am five" -> "that's awesome!")
+- Query grounding: clause-connector split, discovery-verb stripping, hypothetical
+  over-collapse (these caused web retrieval to silently fail for valid facts).
 """
 import pytest
 
@@ -59,3 +61,24 @@ def test_empathy_fired_on_real_disclosure(engine):
         disclosure = engine._detect_emotional_disclosure(text=q)
         assert disclosure is not None, f"real disclosure {q!r} missed by detector"
         assert disclosure[0] in ("negative", "positive", "neutral")
+
+
+def test_grounding_clause_connector_split(engine):
+    # "but"/"and" must not fuse two topics into one garbled subject.
+    subj, conf, method = engine._ground_query("why is the sky blue but sunsets red")
+    assert "sunsets" not in subj, f"clause connector fused topics: {subj!r}"
+    assert subj.startswith("sky"), f"expected 'sky blue', got {subj!r}"
+
+
+def test_grounding_discovery_verb_stripped(engine):
+    # "who invented the telephone" -> 'telephone' (verb dropped), not 'invented telephone'
+    subj, conf, method = engine._ground_query("who invented the telephone")
+    assert "invented" not in subj, f"discovery verb leaked: {subj!r}"
+    assert "telephone" in subj
+
+
+def test_grounding_hypothetical_no_overcollapse(engine):
+    # A noun phrase the PFC may mislabel 'hypothetical' must NOT collapse to its
+    # last word and drop the head noun ("the speed of light" -> "light").
+    subj, conf, method = engine._ground_query("the speed of light")
+    assert "speed" in subj, f"hypothetical mislabel dropped head noun: {subj!r}"

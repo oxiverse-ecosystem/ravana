@@ -7190,6 +7190,11 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         "stay", "stays", "remain", "remains", "become", "becomes",
         "turn", "turns", "turned", "switch", "switches", "switched",
         "open", "opens", "close", "closes", "start", "starts", "stop", "stops",
+        # discovery / creation query verbs (who INVENTED / DISCOVERED X)
+        "invent", "invents", "invented", "inventing",
+        "discover", "discovers", "discovered", "discovering",
+        "develop", "develops", "developed", "design", "designs", "designed",
+        "compose", "composes", "composed", "produce", "produces", "produced",
         # question-frame residuals: "what YEAR did X fall/occur", "when did X happen"
         "year", "years", "occur", "occurs", "occurred",
         "did", "does", "do", "take", "takes", "took", "place", "happen",
@@ -8166,10 +8171,22 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
 
         'happened 1923' -> '1923', 'build python web' -> 'python web',
         'meaning life' -> 'life', 'president france' -> 'france'.
+
+        Clause connectors ('but'/'and'/'or'/'while'/'whereas') fuse two
+        distinct topics (e.g. "why is the sky blue but sunsets red"). Keep only
+        the FIRST clause's nouns so grounding targets one coherent subject
+        ("sky blue") instead of the garbled "sky blue sunsets".
+
         Falls back to the original phrase if everything gets stripped (so we
         never return an empty subject for a genuinely single-word topic).
         """
-        words = [w.strip(".,!?") for w in phrase.lower().split()
+        _CLAUSE_CONNECTORS = {"but", "and", "or", "while", "whereas",
+                              "although", "though", "yet"}
+        # Take only the leading clause before any connector.
+        _head = phrase.lower()
+        for _conn in _CLAUSE_CONNECTORS:
+            _head = re.split(rf"\b{_conn}\b", _head)[0]
+        words = [w.strip(".,!?") for w in _head.split()
                  if w.strip(".,!?") not in STOP_WORDS
                  and w.strip(".,!?") not in cls.QUESTION_WORDS]
         kept = [w for w in words if w not in cls._SUBJECT_CONTEXT_WORDS]
@@ -8247,8 +8264,16 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         if phrase_clean in self._concept_keywords:
             return (phrase_clean, 0.90, "exact_keyword")
 
-        # Strategy C (moved before B): Compositional â€” score words by known/unknown ratio
-        words = [w.strip(".,!?") for w in query_phrase.split()
+        # Strategy C (moved before B): Compositional — score words by known/unknown ratio
+        # Split on clause connectors ("but"/"and"/"or"/...) FIRST so two fused
+        # topics ("why is the sky blue but sunsets red") ground to one coherent
+        # subject ("sky blue") rather than the garbled "sky blue sunsets".
+        _CLAUSE_CONNECTORS = {"but", "and", "or", "while", "whereas",
+                              "although", "though", "yet"}
+        _phrase_for_words = query_phrase
+        for _conn in _CLAUSE_CONNECTORS:
+            _phrase_for_words = re.split(rf"\b{_conn}\b", _phrase_for_words)[0]
+        words = [w.strip(".,!?") for w in _phrase_for_words.split()
                  if len(w.strip(".,!?")) > 2
                  and w.strip(".,!?") not in self.QUESTION_WORDS
                  and w.strip(".,!?") not in self.TOPIC_SKIP_WORDS
@@ -8266,7 +8291,13 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                     last_word = words[-1]
                     if last_word in self._concept_labels or last_word in self._concept_keywords:
                         if last_word not in self._GENERIC_NOUNS:
-                            return (last_word, 0.7, "scenario_last_entity")
+                            # Only collapse to the last entity when the leading
+                            # words are genuine scenario framing (would/could/
+                            # if/when), not a noun phrase like "the speed of
+                            # light" which the PFC can mislabel hypothetical.
+                            _leading = " ".join(words[:-1])
+                            if re.search(r"\b(would|could|will|might|if|when|suddenly|disappear|gone|removed|vanished)\b", _leading):
+                                return (last_word, 0.7, "scenario_last_entity")
                 # Use the first 2-3 content words as the search subject (e.g. "time machine")
                 clean_subj = " ".join(words[:3]) if len(words) >= 3 else " ".join(words)
                 clean_subj = self._clean_subject_phrase(clean_subj)

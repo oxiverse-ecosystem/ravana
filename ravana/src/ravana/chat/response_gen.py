@@ -4944,6 +4944,15 @@ class ResponseGenMixin(ChainWalkerMixin):
         # also keep the mismatched 'emotional_empathy' strategy tag).
         if strategy == "emotional_empathy":
             return text
+        # Web direct answers are retrieved, cleaned, sourced facts (not free
+        # association / decoder output). The degeneracy monitor targets
+        # associative salad and would wrongly withhold a valid encyclopedic
+        # snippet (e.g. "The speed of light in vacuum... is a universal
+        # constant") — the snippet is real knowledge, not a degenerate clause.
+        # Exempt so a correct web answer is never replaced by hollow uncertainty.
+        # (web_unverified is the honest abstention already, also safe to pass.)
+        if strategy in ("web_direct_answer", "web_unverified"):
+            return text
         if not text or not text.strip():
             return self._human_like_uncertainty(ctx)[0]
         # Degenerate / word-salad candidate -> refuse. Clause-grained: any
