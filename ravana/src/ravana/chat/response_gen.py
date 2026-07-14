@@ -1868,6 +1868,21 @@ class ResponseGenMixin(ChainWalkerMixin):
         """
         import re
         import random
+        # Self-referential concepts the humor generator must never anchor on:
+        # joking about being artificial/bots is a meta failure mode (humor must
+        # land with a human). This is a principled SKIP set (the agent's own
+        # identity tokens), not a curated joke template -- it only prunes the
+        # candidate pool, the rest of the bisociation is graph-driven.
+        _META_SELF = frozenset({
+            "artificial", "robot", "system", "ai", "algorithm", "bot",
+            "computer", "machine", "software", "code", "program", "neural",
+            "database", "server", "internet", "entity", "agent", "chatbot",
+            "model", "language model",
+        })
+
+        def _is_meta(label):
+            return label.lower() in _META_SELF
+
         t = (text or "").lower()
         if not re.search(r"\b(joke|jokes|funny|laugh|laughing|humor|humour)\b", t):
             return None
@@ -1886,6 +1901,8 @@ class ResponseGenMixin(ChainWalkerMixin):
             return None
         cand = []
         for n in nodes:
+            if _is_meta(n.label):
+                continue
             try:
                 deg = len(g.get_outgoing(n.id))
             except Exception:
@@ -1930,6 +1947,8 @@ class ResponseGenMixin(ChainWalkerMixin):
             if Z_node is None:
                 continue
             Z = Z_node.label
+            if _is_meta(Z):
+                continue
             Z_rel = getattr(ze, "relation_type", None) or "related"
             try:
                 Z_neighbors = g.get_outgoing(Z_nid)
@@ -1942,6 +1961,8 @@ class ResponseGenMixin(ChainWalkerMixin):
                 if Y_node is None:
                     continue
                 Y = Y_node.label
+                if _is_meta(Y):
+                    continue
                 if Y == X:
                     continue
                 Y_vec = self._glove_vector(Y)
@@ -1971,6 +1992,8 @@ class ResponseGenMixin(ChainWalkerMixin):
                 if Z_node is None:
                     continue
                 Z = Z_node.label
+                if _is_meta(Z):
+                    continue
                 Z_rel = getattr(ze, "relation_type", None) or "related"
                 try:
                     Z_neighbors = g.get_outgoing(Z_nid)
@@ -1983,6 +2006,8 @@ class ResponseGenMixin(ChainWalkerMixin):
                     if Y_node is None:
                         continue
                     Y = Y_node.label
+                    if _is_meta(Y):
+                        continue
                     if Y == X:
                         continue
                     Y_vec = self._glove_vector(Y)
@@ -3177,6 +3202,19 @@ class ResponseGenMixin(ChainWalkerMixin):
         # represents RAVANA's state, not the user's, and would cancel a clear
         # first-person disclosure (e.g. "i am bored" vs a neutral proxy ~0.5).
         V = V_lex
+
+        # Lexical hard-threshold (brain-faithful): a strong first-person affect
+        # word (|V| >= LEXICAL_HARD) is an unambiguous autonomic disclosure
+        # (e.g. "i hate you", "i love you", "i am furious"). It does NOT need
+        # distributional inference -- the VAD norm IS the population
+        # distribution, and a clear emotion label should never be suppressed by
+        # the adaptive baseline drifting after a prior strong turn. This is why
+        # "love/hate" are caught despite sitting close in embedding space.
+        LEXICAL_HARD = 0.6
+        if strongest is not None and abs(strongest[0]) >= LEXICAL_HARD:
+            kind = "positive" if strongest[2] > 0 else "negative"
+            self._update_vad_baseline(V_lex)
+            return (kind, strongest[1])
 
         base = getattr(self, "_vad_baseline", {"mu": 0.0, "sigma": 0.3, "n": 0})
         mu, sigma = base["mu"], max(base["sigma"], 1e-3)
