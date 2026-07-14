@@ -3209,8 +3209,8 @@ class ResponseGenMixin(ChainWalkerMixin):
         # above a low floor) so we don't surface random associations.
         subj_cap = start.capitalize()
         _svec = self._glove_vector(start) if hasattr(self, "_glove_vector") else None
-        lead = f"if {subj_cap.lower()} were different, here's what I'd expect to follow:"
         lines = []
+        _coh_scores = []
         for ch in chains[:3]:
             parts = [p.strip() for p in ch.split("→")]
             if len(parts) < 3:
@@ -3222,17 +3222,21 @@ class ResponseGenMixin(ChainWalkerMixin):
             # consecutive-node coherence: every adjacency in the path must be
             # semantically related, else the chain drifted into noise.
             _coherent = True
+            _chain_coh = []
             for _i in range(len(parts) - 1):
                 _u, _v = self._glove_vector(parts[_i]), self._glove_vector(parts[_i + 1])
                 if _u is None or _v is None:
                     continue
                 _cos = float(np.dot(_u, _v) / (
                     np.linalg.norm(_u) * np.linalg.norm(_v) + 1e-8))
+                _chain_coh.append(_cos)
                 if _cos < 0.12:
                     _coherent = False
                     break
             if not _coherent:
                 continue
+            if _chain_coh:
+                _coh_scores.append(float(np.mean(_chain_coh)))
             lines.append(f"{a} would lead to {b}")
         if not lines:
             return None
@@ -3240,13 +3244,24 @@ class ResponseGenMixin(ChainWalkerMixin):
         # Output-side coherence gate (Fix D): if the realized narrative is
         # incoherent/looping, withhold it and let the caller fall through to
         # honest uncertainty rather than emit fluent nonsense.
-        _narr = f"{lead} {body}."
+        _narr = f"if {subj_cap.lower()} were different, here's what I'd expect to follow: {body}."
         try:
             _ok, _reason = self._coherence_ok(_narr, ctx)
         except Exception:
             _ok, _reason = True, "coherence_skip"
         if not _ok:
             return None
+        # ── PROMPT 1: graded confidence (Gerstenberg 2021; Lewis 1973). Map the
+        # realized-chain robustness (mean consecutive coherence + count) to a
+        # modality, and vary the LEAD-IN by modality instead of a fixed string —
+        # a human tags the simulation with possibility/likelihood, never a flat
+        # assertion. Carried on self._last_modality for downstream surfacers.
+        from ravana.chat.hedges import hedge_frame, modality_from_support
+        _support = (float(np.mean(_coh_scores)) if _coh_scores else 0.0)
+        _support = min(1.0, _support + 0.1 * (len(lines) - 1))  # more chains => more support
+        _modality = modality_from_support(_support)
+        self._last_modality = _modality
+        lead = hedge_frame("counterfactual", _modality, subj=start)
         return (f"{lead} {body}.", "counterfactual_simulation")
 
     def _removal_causal_lines(self, subject: str) -> List[str]:
@@ -3353,8 +3368,14 @@ class ResponseGenMixin(ChainWalkerMixin):
             return None
         _premise = (ctx.raw_input or "").lower()
         subj_cap = subj.capitalize()
-        lead = (f"if {subj_cap.lower()} were different in that way, "
-                f"here's what I'd expect to follow:")
+        # PROMPT 1: varied LEAD-IN (no fixed string) + graded modality. The
+        # premise-matched path matches a known counterfactual type, so it is a
+        # *possible/likely* simulation, never a flat assertion. We set modality
+        # and let the surfacer/human-reader see the hedged lead-in.
+        from ravana.chat.hedges import hedge_frame, modality_from_support
+        _modality = "possible"
+        self._last_modality = _modality
+        lead = hedge_frame("counterfactual", _modality, subj=subj)
         # ── PREMISE_PATTERNS (A1 #4): generalize the brittle substring
         # if/elif chain into a table keyed by INTERVENTION SEMANTICS. Each
         # entry declares the cue stems that signal the intervention (CSM
@@ -3935,31 +3956,57 @@ class ResponseGenMixin(ChainWalkerMixin):
                     if getattr(self, "_reg_verbosity", 1.0) >= 0.5:
                         self._metrics["hedged_evidence"] = self._metrics.get("hedged_evidence", 0) + 1
 
+        # ── PROMPT 2: metacognitive-ignorance 3-state (Nelson & Narens 1990;
+        # Koriat 1993). A human distinguishes NO representation / PARTIAL
+        # (related) trace / VERIFIED knowledge, and never presents a low-confidence
+        # graph neighbor as a definition. We therefore (a) pick a hedge frame by
+        # the *strength* of the related trace, not a fixed string, and (b) only
+        # splice retrieved evidence when it passes the existing coherence gates
+        # AND is actually coherent with the subject — this kills the garbled
+        # "...appears to be {raw_conceptnet_sentence}" line (e.g. "power seems to
+        # be topics referred to by the same term").
+        from ravana.chat.hedges import hedge_frame
+        _rel0 = top[0]
+        _rel1 = top[1] if len(top) > 1 else None
+        _strong = related[0][1] >= 0.55 if related else False
+        # Coherence-gate any retrieved evidence before surfacing it (no raw splice).
+        _safe_evidence = ""
+        if _evidence:
+            try:
+                if (getattr(self, "_sentence_grounded", None) is None
+                        or self._sentence_grounded(_evidence, subject=subject)) \
+                        and (getattr(self, "_coherence_ok", None) is None
+                             or self._coherence_ok(_evidence, ctx)[0]):
+                    _safe_evidence = _evidence
+            except Exception:
+                _safe_evidence = ""
         if len(top) == 1:
-            if _evidence:
+            if _safe_evidence:
+                _note = f" — from what i've seen, {_rel0} {_safe_evidence.lower()}"
                 openers = [
-                    f"i don't have a neat definition for {subj_cap}, but it's tied to {top[0]} — and {top[0]} appears to be {_evidence.lower()}.",
-                    f"i can't quite put {subj_cap} into words, though it makes me think of {top[0]}, which seems to be {_evidence.lower()}.",
-                    f"i'm still figuring out {subj_cap} — the thread i keep pulling is {top[0]}, which from what i've seen is {_evidence.lower()}.",
+                    hedge_frame("ignorance", "related_strong", subj=subj, rel=_rel0) + _note,
+                    hedge_frame("ignorance", "related_weak", subj=subj, rel=_rel0) + _note,
                 ]
             else:
                 openers = [
-                    f"i don't have a neat definition for {subj_cap}, but to me {pron} {be} connected to {top[0]}.",
-                    f"i can't quite put {subj_cap} into words, though {pron} {make} me think of {top[0]}.",
-                    f"i'm still figuring out {subj_cap} — the thread i keep pulling is {top[0]}.",
-                    f"{subj_cap} {be} one of those things i can't define cleanly, but {pron} links to {top[0]} in my head.",
+                    hedge_frame("ignorance", "related_strong" if _strong else "related_weak",
+                                subj=subj, rel=_rel0),
+                    f"i can't quite put {subj_cap} into words, though {pron} {make} me think of {_rel0}.",
+                    f"i'm still figuring out {subj_cap} — the thread i keep pulling is {_rel0}.",
                 ]
         else:
-            if _evidence:
+            if _safe_evidence:
+                _note = f" — and {_rel0} seems to be {_safe_evidence.lower()}"
                 openers = [
-                    f"i don't have a clean definition for {subj_cap}, but {pron} {be} tied to {top[0]} and {top[1]} — and {top[0]} appears to be {_evidence.lower()}.",
-                    f"i can't fully define {subj_cap}, though {pron} {make} me think of {top[0]} and {top[1]}; {top[0]} seems to be {_evidence.lower()}.",
+                    hedge_frame("ignorance", "related_strong", subj=subj, rel=_rel0) + f" and {_rel1}" + _note,
+                    hedge_frame("ignorance", "related_weak", subj=subj, rel=_rel0) + f" and maybe {_rel1}" + _note,
                 ]
             else:
                 openers = [
-                    f"i don't have a clean definition for {subj_cap}, but {pron} {be} tied to {top[0]} and {top[1]} to me.",
-                    f"i can't fully define {subj_cap}, though {pron} {make} me think of {top[0]} and maybe {top[1]}.",
-                    f"{subj_cap} {be} fuzzy for me — i mostly connect {pron_obj} to {top[0]} and {top[1]}.",
+                    hedge_frame("ignorance", "related_strong" if _strong else "related_weak",
+                                subj=subj, rel=_rel0) + f" and {_rel1}",
+                    f"i don't have a clean definition for {subj_cap}, but {pron} {be} tied to {_rel0} and {_rel1} to me.",
+                    f"{subj_cap} {be} fuzzy for me — i mostly connect {pron_obj} to {_rel0} and {_rel1}.",
                 ]
         closers = [
             " what does it mean to you?",
@@ -4903,6 +4950,52 @@ class ResponseGenMixin(ChainWalkerMixin):
             repaired += "."
         return repaired, dropped
 
+    def _speech_act(self, ctx: "CognitiveResponseContext", strategy: str = "") -> str:
+        """Classify the communicative act of the pending utterance (PROMPT 4,
+        Levelt 1989 / Pickering & Garrod 2013). Short, complete-by-type acts
+        (honest unknowns, empathic one-liners, social closers) should be exempt
+        from the word-count salad gate, which otherwise butchers them. Uses the
+        resolved strategy (passed by the caller) plus ctx fields — no
+        hardcoded-string allowlist.
+        """
+        _strat = strategy or getattr(ctx, "strategy", "") or ""
+        if _strat in ("metacognitive_uncertainty", "reflective_uncertainty"):
+            return "acknowledge_unknow"
+        if _strat == "emotional_empathy":
+            return "empathize"
+        if _strat in ("chitchat", "greeting", "farewell", "gratitude", "assertion"):
+            return "social"
+        if (getattr(ctx, "raw_input", "") or "").strip().endswith("?") \
+                or _strat in ("web_direct_answer", "web_unverified", "definition_with_assoc"):
+            return "answer"
+        return "inform"
+
+    def _intent_satisfied(self, text: str, ctx: "CognitiveResponseContext",
+                          strategy: str = "") -> bool:
+        """Intent-anchored completeness (replaces content-word-ratio proxy).
+
+        A one-word "I'm sorry" fully satisfies an empathic intent; a verbose
+        reply can miss it. We exempt by SPEECH-ACT TYPE, not by word count.
+        For answer/inform acts we still require the utterance to address the
+        question type and reference the topic — that check stays (it is the
+        real "did I say what I meant" test), but short valid acts pass.
+        """
+        _act = self._speech_act(ctx, strategy)
+        if _act in ("acknowledge_unknow", "empathize", "social"):
+            return True
+        if _act == "answer":
+            # Must reference the subject/bridge and not be a pure echo.
+            _subj = (getattr(ctx, "subject", "") or "").lower().strip()
+            _text = (text or "").lower()
+            if _subj and _subj not in _text and \
+               (getattr(ctx, "bridge_concept", "") or "").lower() not in _text:
+                # No topic reference at all -> likely didn't answer.
+                return False
+            return True
+        # inform: require some content beyond stopwords (light check).
+        _words = [w for w in (text or "").split() if w.lower().strip(".,!?") not in STOP_WORDS]
+        return len(_words) > 0
+
     def _forward_model_check(self, text: str, ctx: "CognitiveResponseContext",
                               strategy: str = "") -> str:
         """Pre-emission forward-model self-monitor (brief behavior 6).
@@ -4944,7 +5037,17 @@ class ResponseGenMixin(ChainWalkerMixin):
         # also keep the mismatched 'emotional_empathy' strategy tag).
         if strategy == "emotional_empathy":
             return text
-        # Web direct answers are retrieved, cleaned, sourced facts (not free
+        # PROMPT 4: intent-anchored exemption (Levelt 1989; Pickering & Garrod
+        # 2013). The monitor compares the utterance against the *communicative
+        # intent* (speech-act type), not a content-word target. Short,
+        # complete-by-type acts — honest unknowns, empathic one-liners, social
+        # closers, acknowledgments — satisfy their intent and must survive even
+        # if the salad detector would flag them as "low content". They are only
+        # withheld if they are genuine salad (empty/echo), handled below. An
+        # EMPTY utterance is never a valid act, so it is withheld regardless.
+        if text and self._intent_satisfied(text, ctx, strategy):
+            return text
+
         # association / decoder output). The degeneracy monitor targets
         # associative salad and would wrongly withhold a valid encyclopedic
         # snippet (e.g. "The speed of light in vacuum... is a universal

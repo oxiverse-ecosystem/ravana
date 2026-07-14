@@ -204,6 +204,23 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         self._response_context: List[Dict] = []
         self._last_responses: List[str] = []
         self._last_strategy: str = ""
+        # PROMPT cross-cutting: epistemic modality of the last emitted answer,
+        # set by the generator algorithms (counterfactual robustness, comparative
+        # web plausibility, metacognitive-ignorance 3-state). Carried OUTSIDE the
+        # (text, strategy) return tuple so we don't break the ~50 callers that
+        # unpack it; surfaced via self._last_modality for monitors/surfacers.
+        self._last_modality: str = "unknown"
+        # PROMPT 3: stash the winning web snippet's provenance so the surfacer
+        # can tag the answer with its source type ("according to Wikipedia...").
+        self._last_web_source: str = ""
+        self._last_web_plausibility: float = 0.0
+        self._last_web_trust: float = 0.0
+        # PROMPT 5: clause-segregation scratch state. When _ground_query splits
+        # a multi-clause query ("sky blue but sunsets red"), the second clause's
+        # themed topic is stashed here (with its RST relation) so the decomposer
+        # can answer BOTH sub-questions instead of collapsing to one subject.
+        self._pending_subtopic: Optional[Tuple[str, str]] = None
+        self._pending_subject_hint: Optional[str] = None
         # Phase 19g: set True when the generated response was flagged as word
         # salad/tautology, so process_turn can substitute an honest fallback.
         self._last_response_was_salad: bool = False
@@ -5782,6 +5799,46 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             return None
         return float(np.dot(centroid, subj_vec / snorm))
 
+    def _belief_coherence(self, subject: str, snippet: str) -> float:
+        """Belief coherence: does the snippet's *added* content cohere with what
+        RAVANA already believes about the subject (its GloVe/definition vector)?
+
+        PROMPT 3 comparative reality-monitoring (Johnson & Raye 1981): a retrieved
+        claim is accepted when it coheres with the existing belief model, not when
+        it clears an absolute floor. Reuses _snippet_plausibility's subject-word
+        drop so repetition doesn't fake coherence. Returns 0..1 (0 = no signal).
+        """
+        _p = self._snippet_plausibility(subject, snippet)
+        return float(_p) if _p is not None else 0.0
+
+    @staticmethod
+    def _result_url(res) -> str:
+        """Best-effort extraction of a source URL from a search-result payload."""
+        if isinstance(res, dict):
+            return res.get("url", "") or ""
+        if isinstance(res, (list, tuple)):
+            for _r in res:
+                if isinstance(_r, dict) and _r.get("url"):
+                    return _r.get("url", "")
+        return ""
+
+    @staticmethod
+    def _source_type_label(url: str) -> str:
+        """Human source-type label for epistemic tagging (PROMPT 3 hedges)."""
+        _u = (url or "").lower()
+        if "wikipedia" in _u:
+            return "Wikipedia"
+        if "britannica" in _u:
+            return "Britannica"
+        if any(s in _u for s in ("reddit", "forum", "quora", "stackoverflow")):
+            return "a forum"
+        if any(s in _u for s in ("gov", "edu", "nih", "nasa", "who.int")):
+            return "an official source"
+        if _u:
+            return "a web source"
+        return "the web"
+
+
     def _refine_query_variants(self, query: str, subject: str) -> List[str]:
         """Metacognitive control: re-frame the query when the first answer fails
         the plausibility monitor (the brain's second-pass reanalysis / repair,
@@ -5805,17 +5862,18 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         _web_direct_answer so the plausibility monitor can re-run a refined set
         of variants without duplicating the search loop.
 
-        ``attempted`` is True when at least one variant was actually issued and
-        returned a response (even an empty one); it lets the caller distinguish
-        "we searched the web and found nothing" (fail-closed → abstain) from
-        "we never searched" (e.g. no variants).
+        PROMPT 3 (Johnson & Raye 1981; Mitchell & Johnson 2009): confidence is a
+        *comparative*, criterion-based decision — accept the BEST available
+        snippet when it beats the runner-up by a margin OR coheres with existing
+        belief, rather than discarding it for clearing an absolute floor. A fixed
+        floor (was quality < 1.5) threw away correctly-sourced encyclopedic
+        answers whose shape score landed just below it. We keep only a low
+        *safety* floor (>= 1.0) to reject pure noise, then pick comparatively.
         """
         import time as _time
-        best = None
-        best_score = -1.0
-        best_term = None
         attempted = False
         query = ctx.raw_input.strip()
+        _cands = []  # (snippet, term, quality, plausibility, trust, url)
         for term in variants:
             if _time and _time.time() > deadline:
                 break
@@ -5850,15 +5908,41 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                                             is_conditional=is_conditional)
             if term == ctx.subject:
                 quality -= 1.0
-            if getattr(self, '_trace_enabled', False):
-                print(f"  [webans] '{term}' -> {cand[:70]!r} (q={quality:.2f})")
-            if quality < 1.5:
+            # Low SAFETY floor only: reject pure noise, not borderline-good answers.
+            if quality < 1.0:
+                if getattr(self, '_trace_enabled', False):
+                    print(f"  [webans] '{term}' -> below safety floor (q={quality:.2f}); skip")
                 continue
-            if quality > best_score:
-                best_score = quality
-                best = cand
-                best_term = term
-        return best, best_term, attempted
+            plaus = self._snippet_plausibility(ctx.subject, cand)
+            trust = self._domain_trust(self._result_url(res))
+            # belief coherence: snippet's phrase embedding vs the subject's vector
+            _bel = self._belief_coherence(ctx.subject, cand)
+            if getattr(self, '_trace_enabled', False):
+                print(f"  [webans] '{term}' -> {cand[:70]!r} (q={quality:.2f}, "
+                      f"plaus={plaus}, trust={trust:.2f}, bel={_bel:.2f})")
+            _cands.append((cand, term, quality, plaus or 0.0, trust, self._result_url(res)))
+
+        if not _cands:
+            return None, None, attempted
+        # Comparative selection: higher = better. Plausibility + trust weighted
+        # so a well-sourced, belief-coherent snippet wins even if shape is equal.
+        def _score(c):
+            # c = (snippet, term, quality, plaus, trust, url)
+            return c[2] + 2.0 * c[3] + 2.0 * c[4]
+        _cands.sort(key=lambda c: -_score(c))
+        best, second = _cands[0], (_cands[1] if len(_cands) > 1 else None)
+        # Accept if clearly best OR coherent with belief; else abstain (don't
+        # force a bad answer — fail-closed to honest uncertainty).
+        if second is not None and (_score(best) - _score(second) < 0.1) and best[4] < 0.2:
+            if getattr(self, '_trace_enabled', False):
+                print("  [webans] comparative: best not clearly ahead and incoherent -> abstain")
+            return None, None, attempted
+        # Stash source/plausibility for downstream surfacing (PROMPT 3 hedges).
+        self._last_web_source = self._source_type_label(best[5])
+        self._last_web_plausibility = best[3]
+        self._last_web_trust = best[4]
+        return best[0], best[1], attempted
+
 
     def _web_direct_answer(self, ctx: CognitiveResponseContext) -> Optional[Tuple[str, str]]:
         """Answer an unknown factual query directly from live web snippets.
@@ -5910,16 +5994,16 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # ── Answer-usefulness monitor (N400 plausibility / reality monitoring) ──
         # We "see" the candidate answer and check whether it actually serves the
         # question before speaking it (metacognitive monitoring; Nelson & Narens;
-        # Koriat). The check is the snippet's *added* content coherence with the
-        # subject's semantic field (see _snippet_plausibility). A game/UGC
-        # restatement ("Invisible is a gear … in Roblox") repeats the word but
-        # adds incoherent content, so it fails — without ever naming a domain.
+        # Koriat). PROMPT 3: this is now a *comparative* double-check, not an
+        # absolute floor — a snippet the comparative search already vetted is only
+        # withheld if it is implausible AND incoherent with belief (genuine junk),
+        # never merely because it sits below a fixed number.
         plaus = self._snippet_plausibility(ctx.subject, best)
-        if plaus is not None and plaus < self._SNIPPET_PLAUSIBILITY_FLOOR:
+        _bel = self._belief_coherence(ctx.subject, best)
+        if plaus is not None and plaus < self._SNIPPET_PLAUSIBILITY_FLOOR and _bel < 0.1:
             if getattr(self, '_trace_enabled', False):
-                print(f"  [webans] monitor: snippet implausible (plaus={plaus:.2f}"
-                      f" < {self._SNIPPET_PLAUSIBILITY_FLOOR}) for '{ctx.subject}'"
-                      f" -> refine search")
+                print(f"  [webans] monitor: snippet implausible (plaus={plaus:.2f}, "
+                      f"bel={_bel:.2f}) for '{ctx.subject}' -> refine search")
             # Metacognitive control: instead of emitting junk, refine the query
             # and re-search (second-pass reanalysis; Kuperberg & Jaeger). Only
             # adopt the refined result if it clears the plausibility floor; if
@@ -5934,15 +6018,14 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 except Exception:
                     best2, best2_term = None, None
                 p2 = self._snippet_plausibility(ctx.subject, best2) if best2 else None
-                if best2 is not None and (p2 is None or p2 >= self._SNIPPET_PLAUSIBILITY_FLOOR):
+                b2 = self._belief_coherence(ctx.subject, best2) if best2 else 0.0
+                if best2 is not None and (p2 is None or p2 >= self._SNIPPET_PLAUSIBILITY_FLOOR or b2 >= 0.1):
                     if getattr(self, '_trace_enabled', False):
-                        print(f"  [webans] refined query yielded plausible snippet"
-                              f" (plaus={p2})")
+                        print(f"  [webans] refined query yielded plausible snippet (plaus={p2})")
                     best, best_term = best2, best2_term
                 else:
                     if getattr(self, '_trace_enabled', False):
-                        print(f"  [webans] monitor: refined search also implausible"
-                              f" -> withhold (no answer emitted)")
+                        print(f"  [webans] monitor: refined search also implausible -> withhold")
                     return None
         if getattr(self, '_trace_enabled', False):
             print(f"  [webans] best snippet (via '{best_term}'): {(best or 'NONE')[:80]}")
@@ -5965,7 +6048,20 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         closer = ""
         if random.random() < 0.4:
             closer = random.choice(closers[1:])
-        answer_text = best + closer
+        # PROMPT 3: tag the answer with its source + comparative modesty instead
+        # of presenting it as settled fact. Modality from trust + plausibility.
+        from ravana.chat.hedges import hedge_frame, modality_from_support
+        _web_mod = modality_from_support(
+            min(1.0, 0.5 * self._last_web_trust + 0.5 * (self._last_web_plausibility or 0.0)))
+        _src = getattr(self, "_last_web_source", "") or "the web"
+        if _src and _src != "the web":
+            # High-trust known source: prefix naturally.
+            answer_text = f"according to {_src}, {best}{closer}"
+        elif self._last_web_trust < 0.5:
+            # Lower trust / forum: hedge explicitly.
+            answer_text = hedge_frame("web", _web_mod, snip=best, src=_src) + closer
+        else:
+            answer_text = best + closer
 
         # ---- P6: verify the web claim against established belief before emitting ----
         # The web snippet is a *candidate*, not gospel. Check it against what we
@@ -8194,6 +8290,77 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             return " ".join(kept)
         return phrase.strip(".,!?")
 
+    def _theme_role(self, clause: str) -> str:
+        """Recover the topical THEME/PATIENT of a clause by *role*, not a
+        banned-word list (Fillmore 1968 case grammar; Bornkessel & Schlesewsky
+        2006 eADM). The brain recovers topic from syntactic structure (agent /
+        patient / theme), so we do the same: the theme is the content word that
+        is the semantic *patient* of the main verb — approximated without a full
+        parser by vector geometry.
+
+        Heuristic (GloVe 64-D, no parser): among content words, the THEME is the
+        one whose vector is FARTHEST from the main verb's vector (the patient is
+        less predictable / less co-activated with the verb than the agent) and,
+        when available, NEAREST to an already-known concept or ctx.subject
+        (familiarity biases thematic assignment, as in eADM prominence). Falls
+        back to the first non-verb content word, then "".
+        """
+        _VERB_BLOCK = {
+            "is", "are", "was", "were", "be", "am", "do", "does", "did",
+            "have", "has", "had", "can", "could", "would", "will", "should",
+            "make", "makes", "made", "become", "becomes", "get", "gets",
+            "go", "goes", "happen", "happens", "seem", "seems", "look",
+            "looks", "feel", "feels", "sound", "sounds", "give", "gives",
+            "take", "takes", "keep", "keeps", "show", "shows", "tell",
+            "tells", "cause", "causes", "mean", "means", "explain",
+            "describe", "find", "know", "think", "like", "want", "need",
+        }
+        toks = [w.strip(".,!?") for w in clause.lower().split()
+                if len(w.strip(".,!?")) > 2
+                and w.strip(".,!?") not in STOP_WORDS
+                and w.strip(".,!?") not in self.QUESTION_WORDS
+                and w.strip(".,!?") not in self.TOPIC_SKIP_WORDS]
+        if not toks:
+            return ""
+        # Candidate content words (exclude pure verbs and role nouns handled by
+        # the legacy list as a secondary guard).
+        cands = [w for w in toks if w not in _VERB_BLOCK]
+        if not cands:
+            cands = toks
+        # If exactly one content word, it IS the theme.
+        if len(cands) == 1:
+            return cands[0]
+        # Vector-based theme recovery.
+        vecs = {w: self._glove_vector(w) for w in cands}
+        vecs = {w: v for w, v in vecs.items() if v is not None}
+        if len(vecs) >= 2:
+            # Main verb = the token (verb or not) whose vector is most central
+            # to the others is hard without parse; approximate: the verb is the
+            # token with the SMALLEST mean cosine to the rest (it co-activates
+            # least specifically). The theme = the candidate FARTHEST from that
+            # verb centroid.
+            import numpy as _np
+            _arr = {w: v / (_np.linalg.norm(v) + 1e-8) for w, v in vecs.items()}
+            _keys = list(_arr)
+            _cent = _np.mean([_arr[k] for k in _keys], axis=0)
+            _verb = min(_keys, key=lambda k: float(_np.dot(_arr[k], _cent)))
+            _scores = {}
+            for w in _keys:
+                if w == _verb:
+                    continue
+                _cos = float(_np.dot(_arr[w], _cent))
+                # familiarity bias: known concepts / near ctx.subject score higher
+                _fam = 0.0
+                if w in self._concept_labels or w in self._concept_keywords:
+                    _fam += 0.15
+                if getattr(self, "_pending_subject_hint", None) and w in str(self._pending_subject_hint):
+                    _fam += 0.1
+                _scores[w] = (1.0 - _cos) + _fam  # far from verb + familiar => theme
+            if _scores:
+                return max(_scores, key=_scores.get)
+        # No vectors: return the first candidate content word.
+        return cands[0]
+
     def _strip_eli5_tail(self, text: str) -> str:
         """Remove simplification tails like "like i am five" / "in simple terms".
 
@@ -8266,13 +8433,35 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
 
         # Strategy C (moved before B): Compositional — score words by known/unknown ratio
         # Split on clause connectors ("but"/"and"/"or"/...) FIRST so two fused
-        # topics ("why is the sky blue but sunsets red") ground to one coherent
-        # subject ("sky blue") rather than the garbled "sky blue sunsets".
+        # topics ("why is the sky blue but sunsets red") become SEPARATE
+        # questions rather than one garbled subject (RST: "but"=contrast
+        # segregates; Bornkessel & Schlesewsky 2006 thematic roles). The SECOND
+        # clause's themed topic is stashed for downstream sub-question use; the
+        # PRIMARY subject still uses the proven compositional logic below so we
+        # don't regress known-good single-clause grounding ("the speed of light"
+        # must stay "speed light", not collapse to "light").
         _CLAUSE_CONNECTORS = {"but", "and", "or", "while", "whereas",
                               "although", "though", "yet"}
-        _phrase_for_words = query_phrase
-        for _conn in _CLAUSE_CONNECTORS:
-            _phrase_for_words = re.split(rf"\b{_conn}\b", _phrase_for_words)[0]
+        _clauses = [c.strip(" .,!?") for c in re.split(
+            r"\b(?:but|and|or|while|whereas|although|though|yet)\b", query_phrase)
+            if c.strip(" .,!?")]
+        _connector_rel = "contrast" if re.search(r"\bbut\b", query_phrase) else (
+            "continuation" if re.search(r"\band\b", query_phrase) else "sequence")
+        if len(_clauses) >= 2:
+            # Segregate: stash the second clause's themed topic so the decomposer
+            # can answer BOTH questions (e.g. sky-blue cause AND sunset-red cause)
+            # instead of collapsing to one fused subject.
+            _secondary = self._theme_role(_clauses[1])
+            if _secondary:
+                self._pending_subtopic = (_secondary, _connector_rel)
+            else:
+                self._pending_subtopic = None
+        else:
+            self._pending_subtopic = None
+        # Build words from the FIRST clause only (was: whole phrase before; the
+        # legacy first-clause truncation is intentional and keeps "sky blue" from
+        # "sky blue but sunsets red" while the second topic lives in _pending_subtopic).
+        _phrase_for_words = _clauses[0] if _clauses else query_phrase
         words = [w.strip(".,!?") for w in _phrase_for_words.split()
                  if len(w.strip(".,!?")) > 2
                  and w.strip(".,!?") not in self.QUESTION_WORDS
