@@ -375,7 +375,11 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         self.working_memory = WorkingMemory(capacity=self._pfc_buffer_capacity)
         self.predictive_coding_learner = PredictiveCodingLearner(self.graph)
         self.coherence_net = CoherenceNetwork()
-        self.vsa_manager = VSAManager(dim=self.dim)
+        # G4: VSA schemas bind/unbind in the 75-D dual-code space
+        # (GloVe-64 | Lancaster-11) so role-filler realization operates on
+        # EMbODIED vectors, matching the embeddings _vsa_event_narrative
+        # now passes. Keep self.dim (64) for the distributional backbone.
+        self.vsa_manager = VSAManager(dim=self.dim + 11)
         self.schema_library = SchemaLibrary(self.vsa_manager)
         # Schema Completion (research item): migrate the hardcoded EventSchema
         # process templates into VSA event schemas so the narrative generator can
@@ -635,6 +639,23 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # Always init GloVe first (cheap if cache exists) so graph vectors
         # are real semantic vectors, not hash-random fallbacks.
         self._init_glove()
+        # G2: wire the Lancaster-11 sensorimotor read-out as the graph's
+        # node-fill fn EARLY (before schema seeding / KB bootstrap) so
+        # EVERY node auto-carries its dual-code vector (ConceptNode.
+        # sensorimotor_vector) from creation. Backfill covers nodes
+        # that already exist at this point (legacy graphs -> None).
+        g_ = getattr(self, "graph", None)
+        if g_ is not None:
+            g_._sensorimotor_fn = self._lancaster_vector
+            try:
+                for _n in list(g_.nodes.values()):
+                    if getattr(_n, "sensorimotor_vector", None) is None and _n.label:
+                        try:
+                            _n.sensorimotor_vector = self._lancaster_vector(_n.label)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
 
         # Derived-ontology service: replaces the hand-edited frontopolar gate
         # dicts with on-demand geometric + graph-derived inference. Primary path
@@ -2524,11 +2545,12 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
     # weak detector cannot let garbage through:
     #   1. learned distributional classifier (fitted via EER, data/salad_classifier.json)
     #   2. legacy rule-based _is_word_salad (structural bonuses)
-    #   3. detects_fluent_tautology (grammatical-but-empty signature)
+    #   3. detects_fluent_tautology (gramatical-but-empty signature)
     # If ANY fires, the reply is withheld and replaced with honest uncertainty.
     # Exemptions: counterfactual_simulation and emotional_empathy are composed,
     # non-free-association replies that would be wrongly flagged (see
     # _forward_model_check for the rationale) — they keep their own coherence gates.
+
     def _final_emit_guard(self, text: str, ctx, strategy: str = "") -> str:
         if strategy in ("counterfactual_simulation", "emotional_empathy"):
             return text

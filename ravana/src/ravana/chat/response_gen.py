@@ -65,13 +65,33 @@ class ResponseGenMixin(ChainWalkerMixin):
         if ves is None or not ves.step_words:
             return None
         # Candidate embeddings: graph node vectors + GloVe for every step word.
+        # G4: each is the 75-D dual-code embedding [GloVe-64 | Lancaster-11]
+        # when the node carries sensorimotor_vector (set by engine.G2), so VSA
+        # role-filler binding/unbinding operates in the EMbODIED space — the
+        # subject's schema fillers are recovered with sensorimotor grounding, not
+        # just distributional similarity. Unknown words fall back to GloVe-64-only.
         embeddings: Dict[str, np.ndarray] = {}
         g = getattr(self, "graph", None)
+        sm_fn = getattr(self, "_lancaster_vector", None)
         if g is not None:
             for nid in getattr(g, "nodes", {}):
                 vec = g.get_node_vector(nid) if hasattr(g, "get_node_vector") else None
-                if vec is not None:
-                    embeddings[g.nodes[nid].label.lower()] = np.asarray(vec, dtype=np.float64)
+                if vec is None:
+                    continue
+                node = g.nodes[nid]
+                label = node.label.lower() if node.label else ""
+                vec = np.asarray(vec, dtype=np.float64)
+                sm = getattr(node, "sensorimotor_vector", None)
+                if sm is None and sm_fn is not None and label:
+                    try:
+                        sm = sm_fn(label)
+                    except Exception:
+                        sm = None
+                if sm is not None:
+                    sm = np.asarray(sm, dtype=np.float64)
+                    if sm.size == 11:
+                        vec = np.concatenate([vec[:64], sm])
+                embeddings[label] = vec
         glove = getattr(self, "_glove_vector", None)
         for sw in ves.step_words:
             for w in (sw.get("subject"), sw.get("verb"), sw.get("object")):
@@ -79,13 +99,49 @@ class ResponseGenMixin(ChainWalkerMixin):
                 if wl and wl not in embeddings and glove is not None:
                     v = glove(wl)
                     if v is not None:
-                        embeddings[wl] = np.asarray(v, dtype=np.float64)
+                        v = np.asarray(v, dtype=np.float64)
+                        sm = sm_fn(wl) if sm_fn is not None else None
+                        if sm is not None:
+                            sm = np.asarray(sm, dtype=np.float64)
+                            if sm.size == 11:
+                                v = np.concatenate([v[:64], sm])
+                        embeddings[wl] = v
         if not embeddings:
             return None
         sents = ves.realize_event(embeddings)
         if not sents:
             return None
         return sents
+
+    # G2: dual-code embedding — [GloVe-64 | Lancaster-11] = 75-D.
+    # The Lancaster-11 channel is the HUMAN sensorimotor norm (or ridge
+    # probe for OOV), so the decoder sees BOTH the distributional backbone
+    # and the embodied read-out. The concat is lossless over GloVe-64 (it is
+    # a superset of the first 64 dims), so decode error on the GloVe
+    # subspace cannot regress; only the 11 new sensorimotor channels are added.
+    _DECODER_DIM = 64 + 11  # GloVe-64 | Lancaster-11
+
+    def _embed_75d(self, word: str,
+                       node_vec: Optional[np.ndarray] = None) -> np.ndarray:
+        """Return the 75-D dual-code embedding for a decoder-vocab word."""
+        gv = node_vec if node_vec is not None else self._glove_vector(word)
+        if gv is None:
+            gv = np.random.randn(64).astype(np.float32) * 0.1
+            norm = np.linalg.norm(gv)
+            if norm > 0:
+                gv /= norm
+        gv = np.asarray(gv, dtype=np.float32)[:64]
+        # Lancaster-11 sensorimotor channel (human norms when in-vocab).
+        sm_fn = getattr(self, "_lancaster_vector", None)
+        sm = sm_fn(word) if sm_fn is not None else None
+        if sm is None:
+            sm = np.zeros(11, dtype=np.float32)
+        else:
+            sm = np.asarray(sm, dtype=np.float32)[:11]
+            n = np.linalg.norm(sm)
+            if n > 0:
+                sm = sm / n
+        return np.concatenate([gv, sm]).astype(np.float32)
 
     def _build_decoder_vocab(self):
         """Build vocabulary for the NeuralDecoder from graph concepts + GloVe + function words.
@@ -103,7 +159,7 @@ class ResponseGenMixin(ChainWalkerMixin):
                 self.neuromodulator_engine.load_state(saved_nm)
             self.neural_decoder = NeuralDecoder(
                 vocab_size=vocab_size,
-                embed_dim=self.dim,
+                embed_dim=self._DECODER_DIM,
                 hidden_dim=256,
                 n_attention_heads=4,
                 contrastive_weight=0.5,
@@ -112,6 +168,9 @@ class ResponseGenMixin(ChainWalkerMixin):
             )
             for word, idx in self._decoder_word_to_idx.items():
                 if word in self._decoder_word_to_embed:
+                    v = np.asarray(self._decoder_word_to_embed[word], dtype=np.float32)
+                    if v.shape[0] != self._DECODER_DIM:
+                        print(f"[DECODEBUG] bad embed word={word!r} shape={v.shape} (expect {self._DECODER_DIM})")
                     self.neural_decoder.word_embedding.weight.data[idx] = \
                         self._decoder_word_to_embed[word]
             self.neural_decoder.rebuild_vocab_cache()
@@ -127,7 +186,7 @@ class ResponseGenMixin(ChainWalkerMixin):
         for i, tok in enumerate(special_tokens):
             self._decoder_word_to_idx[tok] = i
             self._decoder_idx_to_word[i] = tok
-            vec = np.random.randn(self.dim).astype(np.float32) * 0.05
+            vec = np.random.randn(self._DECODER_DIM).astype(np.float32) * 0.05
             norm = np.linalg.norm(vec)
             if norm > 0:
                 vec /= norm
@@ -168,9 +227,9 @@ class ResponseGenMixin(ChainWalkerMixin):
             if fw not in self._decoder_word_to_idx:
                 self._decoder_word_to_idx[fw] = next_idx
                 self._decoder_idx_to_word[next_idx] = fw
-                vec = self._glove_vector(fw)
+                vec = self._embed_75d(fw)
                 if vec is None:
-                    vec = np.random.randn(self.dim).astype(np.float32) * 0.1
+                    vec = np.random.randn(self._DECODER_DIM).astype(np.float32) * 0.1
                     norm_v = np.linalg.norm(vec)
                     if norm_v > 0:
                         vec /= norm_v
@@ -188,13 +247,13 @@ class ResponseGenMixin(ChainWalkerMixin):
                 if nids:
                     node = self.graph.get_node(nids[0])
                     if node and node.vector is not None:
-                        vec = node.vector.copy()
+                        vec = self._embed_75d(label, node_vec=node.vector)
                     else:
-                        vec = self._glove_vector(label)
+                        vec = self._embed_75d(label)
                 else:
-                    vec = self._glove_vector(label)
+                    vec = self._embed_75d(label)
                 if vec is None:
-                    vec = np.random.randn(self.dim).astype(np.float32) * 0.1
+                    vec = np.random.randn(self._DECODER_DIM).astype(np.float32) * 0.1
                     norm_v = np.linalg.norm(vec)
                     if norm_v > 0:
                         vec /= norm_v
@@ -216,9 +275,9 @@ class ResponseGenMixin(ChainWalkerMixin):
                     if w not in self._decoder_word_to_idx:
                         self._decoder_word_to_idx[w] = next_idx
                         self._decoder_idx_to_word[next_idx] = w
-                        vec = self._glove_vector(w)
+                        vec = self._embed_75d(w)
                         if vec is None:
-                            vec = np.random.randn(self.dim).astype(np.float32) * 0.1
+                            vec = np.random.randn(self._DECODER_DIM).astype(np.float32) * 0.1
                             norm_v = np.linalg.norm(vec)
                             if norm_v > 0:
                                 vec /= norm_v
@@ -233,7 +292,7 @@ class ResponseGenMixin(ChainWalkerMixin):
                 pad_token = f"<pad_{next_idx}>"
                 self._decoder_word_to_idx[pad_token] = next_idx
                 self._decoder_idx_to_word[next_idx] = pad_token
-                vec = np.random.randn(self.dim).astype(np.float32) * 0.05
+                vec = np.random.randn(self._DECODER_DIM).astype(np.float32) * 0.05
                 norm_v = np.linalg.norm(vec)
                 if norm_v > 0:
                     vec /= norm_v
@@ -249,7 +308,7 @@ class ResponseGenMixin(ChainWalkerMixin):
             self.neuromodulator_engine.load_state(saved_nm)
         self.neural_decoder = NeuralDecoder(
             vocab_size=vocab_size,
-            embed_dim=self.dim,
+            embed_dim=self._DECODER_DIM,
             hidden_dim=256,
             n_attention_heads=4,
             contrastive_weight=0.5,
@@ -410,7 +469,7 @@ class ResponseGenMixin(ChainWalkerMixin):
                 self._decoder_idx_to_word[idx] = wl
                 vec = self._glove_vector(wl)
                 if vec is None:
-                    vec = np.random.randn(self.dim).astype(np.float32) * 0.1
+                    vec = np.random.randn(self._DECODER_DIM).astype(np.float32) * 0.1
                     n = np.linalg.norm(vec)
                     if n > 0:
                         vec /= n

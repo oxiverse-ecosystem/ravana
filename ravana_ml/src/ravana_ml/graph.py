@@ -23,11 +23,13 @@ class ConceptNodeType:
 
 class ConceptNode:
     def __init__(self, node_id: int, vector: np.ndarray, label: str = "",
-                 node_type: str = ConceptNodeType.CONCRETE):
+                 node_type: str = ConceptNodeType.CONCRETE,
+                 sensorimotor: Optional[np.ndarray] = None):
         self.id = node_id
         self.vector = vector.copy()          # active_vector — fast plastic representation
         self.core_vector = vector.copy()     # identity anchor — slowly changing, drift-resistant
         self.genesis_vector = vector.copy()  # original vector for drift tracking
+        self.sensorimotor_vector = sensorimotor  # Lancaster 11-D co-primary (G2)
         self.label = label or f"c{node_id}"
         self.activation = 0.0
         self.salience = 0.3
@@ -1168,14 +1170,26 @@ class ConceptGraph:
 
     # ── node management ──
 
-    def add_node(self, vector: Optional[np.ndarray] = None, label: str = "") -> ConceptNode:
+    def add_node(self, vector: Optional[np.ndarray] = None, label: str = "",
+                sensorimotor: Optional[np.ndarray] = None) -> ConceptNode:
         with self._lock:
             if len(self.nodes) >= self.max_nodes:
                 self._prune_oldest()
             nid = self.next_id
             self.next_id += 1
             v = vector.copy() if vector is not None else np.random.randn(self.dim).astype(np.float32) * 0.1
-            node = ConceptNode(nid, v, label)
+            # G2: Lancaster-11 sensorimotor co-primary. If not passed in,
+            # try the engine-supplied fn (set by CognitiveChatEngine) so every
+            # node auto-carries its dual-code vector without touching each call
+            # site. Returns None for OOV labels (handled at query time).
+            if sensorimotor is None:
+                fn = getattr(self, "_sensorimotor_fn", None)
+                if fn is not None and label:
+                    try:
+                        sensorimotor = fn(label)
+                    except Exception:
+                        sensorimotor = None
+            node = ConceptNode(nid, v, label, sensorimotor=sensorimotor)
             self.nodes[nid] = node
             self._vectors_dirty = True
             self._adj_dirty = True
