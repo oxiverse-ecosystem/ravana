@@ -12,7 +12,7 @@ from typing import Dict, Any, List, Optional, Tuple, Set
 from collections import deque, Counter
 
 
-from .constants import STOP_WORDS, WEB_GARBAGE
+from .constants import STOP_WORDS, WEB_GARBAGE, TEEN_CONCEPT_LABELS
 from .chain_walker import ChainWalkerMixin
 from ravana.language.surface_realizer import DiscourseState
 # Compute project root (same logic as engine.py)
@@ -1679,37 +1679,39 @@ class ResponseGenMixin(ChainWalkerMixin):
         if not t:
             return None
 
-        # Pattern-matching for social intent detection (TPJ analog)
-        greetings = (
-            r"\b(hi|hello|hey|yo|sup|greetings|whats\s*up|howdy|good\s*morning|good\s*afternoon|good\s*evening)\b"
-        )
-        wellbeing = (
-            r"\b(how\s*are\s*you|how\s*is\s*it\s*going|how\s*are\s*you\s*doing|how\s*have\s*you\s*been|hows\s*it\s*going|hows\s*life)\b"
-        )
-        capabilities = (
-            r"\b(what\s*can\s*you\s*do|what\s*do\s*you\s*do|how\s*do\s*you\s*work|tell\s*me\s*about\s*yourself|who\s*are\s*you|what\s*is\s*your\s*name)\b"
-        )
-        farewells = (
-            r"\b(bye|goodbye|see\s*you|good\s*night|farewell)\b"
-        )
-        gratitude = (
-            r"\b(thanks|thank\s*you|thx|cheers|appreciate|grateful)\b"
-        )
+        # Social-intent detection via the prototype bank (TPJ/DMN mentalizing
+        # analog). This REPLACES the duplicated inline regex copy that drifted
+        # from detect_question_type -- one learned classifier now owns social
+        # intent, contraction-normalized so "what's up" / "what is up" /
+        # "wassup" share a centroid. ABSTAIN -> fail-closed (route to factual).
+        intent = None
+        clf = getattr(self, "_social_intent", None)
+        if clf is not None:
+            try:
+                intent, _scores = clf.detect(t)
+            except Exception:
+                intent = None
+        else:
+            # Fallback: minimal regex if the classifier is unavailable.
+            _g = re.search(r"\b(hi|hello|hey|yo|sup|greetings|whats\s*up|what's\s*up|whatsup|howdy|good\s*(morning|afternoon|evening))\b", t)
+            _w = re.search(r"\b(how\s*are\s*you|how\s*is\s*it\s*going|how\s*have\s*you\s*been)\b", t)
+            _c = re.search(r"\b(what\s*can\s*you\s*do|who\s*are\s*you|tell\s*me\s*about\s*yourself)\b", t)
+            _f = re.search(r"\b(bye|goodbye|see\s*you|good\s*night|farewell)\b", t)
+            _gr = re.search(r"\b(thanks|thank\s*you|cheers|appreciate|grateful)\b", t)
+            intent = "greeting" if _g else "wellbeing" if _w else "capability" if _c else \
+                     "farewell" if _f else "gratitude" if _gr else None
 
-        is_greeting = re.search(greetings, t) is not None
-        is_wellbeing = re.search(wellbeing, t) is not None
-        is_capability = re.search(capabilities, t) is not None
-        is_farewell = re.search(farewells, t) is not None
-        is_gratitude = re.search(gratitude, t) is not None
-
-        # Skip if not conversational and matches a query pattern
-        if not (is_greeting or is_wellbeing or is_capability or is_farewell or is_gratitude) and subject:
-            for pattern, _ in self.QUERY_PATTERNS:
-                if re.search(pattern, t):
-                    return None
-
-        if not (is_greeting or is_wellbeing or is_capability or is_farewell or is_gratitude):
+        if intent == "ABSTAIN" or intent is None:
             return None
+
+        # A first-person affect disclosure caught by the social bank routes to
+        # the empathic responder (mirror/emotion contagion), not a canned line.
+        if intent == "affect_disclosure":
+            _disc = self._detect_emotional_disclosure(text=text)
+            if _disc is not None:
+                _resp, _strat = self._emotional_response(None, _disc)
+                self._last_strategy = _strat
+                return _resp
 
         # Retrieve emotional valence and arousal for mood modulation
         valence = 0.5
@@ -1718,15 +1720,15 @@ class ResponseGenMixin(ChainWalkerMixin):
             valence = getattr(self.emotion.state, 'valence', 0.5)
             arousal = getattr(self.emotion.state, 'arousal', 0.3)
 
-        if is_greeting:
+        if intent == "greeting":
             return self._compose_greeting(valence, arousal)
-        elif is_wellbeing:
+        elif intent == "wellbeing":
             return self._compose_wellbeing(valence, arousal)
-        elif is_capability:
+        elif intent == "capability":
             return self._compose_capability()
-        elif is_farewell:
+        elif intent == "farewell":
             return self._compose_farewell(valence, arousal)
-        elif is_gratitude:
+        elif intent == "gratitude":
             return self._compose_gratitude(valence, arousal)
 
         return None
@@ -1799,162 +1801,216 @@ class ResponseGenMixin(ChainWalkerMixin):
 
     # ── Fix C: generative humor (joke / funny / make me laugh) ──────────────
     def _handle_humor(self, text: str) -> Optional[str]:
-        """Composed humor reflex. No joke *pool* — the setup+punchline is built
-        from two real graph concepts joined by a contrastive/analogical edge,
-        rotating the topic by turn count so it doesn't repeat. Reuses the
-        existing edge→connector machinery, so it's generative, not a file.
+        """Generative humor reflex -- bisociation with a resolution gate.
 
-        Brain basis: humor is a composed social reflex (TPJ/DMN), not fact
-        retrieval (Martin, 2007; the inferior frontal gyrus resolves the
-        incongruity). The punchline is the incongruity resolution between two
-        associated concepts.
+        Brain-faithful model (replaces curated edge-mashing):
+        Humor is a two-stage INCONGRUITY-DETECTION -> RESOLUTION process
+        (Koestler 1964 bisociation; Suls 1972). A percept violates an active
+        expectation (frame A), then a reframe under a SECOND interpretive schema
+        (frame B) retroactively reconciles the violation. The neural humor network
+        is TPJ/IFG for detection + semantic resolution, DMN for frame retrieval,
+        and a mesolimbic reward (nucleus accumbens / amygdala / VTA) that pays out
+        when a cheap second frame reconciles the error (Mobbs et al. 2003; Chan et
+        al. 2013; Amir & Biederman 2015; Vrticka et al. 2013). Predictive-coding
+        accounts (Hurley, Dennett & Adams 2011) frame the punchline as the reward
+        for retracting a mistaken covert inference -- humor is RESOLVED prediction
+        error, not surprise alone.
+
+        Algorithm (no LLM; runs on the concept graph + GloVe space):
+          1) SETUP: anchor X = a present, well-connected concept (the active
+             expectation / frame A).
+          2) BISECTION (Z-centered, Koestler's bisociation): pick a shared frame
+             Z among X's typed neighbors. Then find Y among Z's neighbors that is
+             DISTANT from X in embedding space (low cosine) -- two otherwise
+             unrelated frames (X, Y) meeting at ONE anchor Z. The shared Z is the
+             second schema that reconciles the incongruity.
+          3) RESOLUTION GATE: the punchline must reconcile via a discoverable
+             typed link (the X-Z or Y-Z edge, verified against the live graph --
+             not a hand-guessed connector). If no coherent (Y, Z) with a real edge
+             exists, ABSTAIN (fail-closed): emitting a gibberish joke is exactly
+             the "emit nonsense" outcome the project forbids.
+          4) ASSEMBLE + REWARD: setup names frame A (X); punchline reveals the
+             shared frame Z / the edge relation. A VAD spike (mirth, NAcc analog)
+             reinforces the error-correction per Hurley/Dennett.
         """
         import re
         import random
         t = (text or "").lower()
         if not re.search(r"\b(joke|jokes|funny|laugh|laughing|humor|humour)\b", t):
             return None
-        # Pick two distinct graph concepts that share a typed edge, rotating
-        # by turn count so consecutive calls differ. Skip abstract / meta
-        # labels (name, comparison, bigger, ...) — a joke needs two concrete
-        # concepts to land (the incongruity resolves between real things).
-        _META = {
-            "name", "names", "comparison", "comparisons", "bigger", "smaller",
-            "thing", "things", "something", "nothing", "everything", "anything",
-            "way", "ways", "kind", "kinds", "type", "types", "part", "parts",
-            "side", "sides", "form", "forms", "level", "levels", "state",
-            "states", "point", "points", "idea", "ideas", "word", "words",
-            "number", "numbers", "place", "places", "time", "times", "group",
-            "groups", "system", "systems", "process", "processes", "result",
-            "results", "reason", "reasons", "question", "questions", "answer",
-            "answers", "example", "examples", "difference", "differences",
-            "similarity", "similarities", "relationship", "relationships",
-            "concept", "concepts", "category", "categories", "quality",
-            "qualities", "aspect", "aspects", "element", "elements", "factor",
-            "factors", "value", "values", "meaning", "meanings",
-            "artificial", "intelligence", "friends", "friend", "user", "users",
-            "agent", "agents", "subject", "subjects", "object", "objects",
-            "entity", "entities", "node", "nodes", "edge", "edges",
-            "query", "queries", "search", "searches", "information",
-            "knowledge", "data", "fact", "facts", "belief", "beliefs",
-            "input", "output", "response", "responses", "sentence", "sentences",
-            "text", "texts", "grammar", "syntactic", "semantic", "pragmatic",
-            "cognitive", "mental", "physical", "abstract", "concrete", "general",
-            "specific", "particular", "social", "factual", "personal", "opinion",
-            "thought", "thoughts", "mind", "minds", "brain", "brains",
-            "memory", "memories", "history", "histories", "status", "mode",
-            "modes", "turn", "turns", "count", "counts", "index", "indices",
-            "score", "scores", "rate", "rates", "ratio", "ratios", "class",
-            "classes", "whole", "wholes", "role", "roles", "target", "targets",
-            "source", "sources", "relation", "relations",
-        }
-        _ck = getattr(self, "_concept_keywords", {})
-        _defs = getattr(self, "_definitions", {})
-        _candidates = [w for w in _ck
-                       if len(w) > 3 and w not in _META
-                       and w not in STOP_WORDS]
-        if len(_candidates) < 2:
+
+        g = getattr(self, "graph", None)
+        if g is None or not hasattr(self, "_glove_vector"):
             return None
-        # Prefer concepts that have a real stored definition (concrete /
-        # known concepts land a joke far better than abstract meta-words
-        # like "symbols" or "biographies"). Fall back to all non-meta
-        # candidates if too few defined ones share an edge.
-        _defined = [w for w in _candidates if w in _defs]
-        if len(_defined) >= 2:
-            _candidates = _defined
-        random.seed((getattr(self, "turn_count", 0) or 0) + 1)
-        random.shuffle(_candidates)
-        _pair = None
-        # Prefer a VERBAL typed edge (causal/contrastive/analogical/is_a/part_of)
-        # for the joke — those map to real connectors (because/but/like/is/is
-        # part of) that conjugate into the punchline slots. The bare "semantic"
-        # edge maps to "and", which is not a verb and produces broken slots
-        # ("they were and each other"). Only fall back to a semantic edge when
-        # no verbal edge exists between any pair.
-        _VERBAL = {"causal", "contrastive", "analogical", "is_a", "part_of"}
-        for i in range(0, max(1, len(_candidates) - 1)):
-            a, b = _candidates[i], _candidates[i + 1]
-            _edges = self._typed_edges_between(a, b) if hasattr(
-                self, "_typed_edges_between") else []
-            _verbal = [e for e in _edges if (e or "").lower() in _VERBAL]
-            if _verbal:
-                _pair = (a, b, _verbal[0])
-                break
-        if not _pair:
-            for i in range(0, max(1, len(_candidates) - 1)):
-                a, b = _candidates[i], _candidates[i + 1]
-                _edges = self._typed_edges_between(a, b) if hasattr(
-                    self, "_typed_edges_between") else []
-                if _edges:
-                    _pair = (a, b, _edges[0])
-                    break
-        if not _pair:
-            # Fallback: any two distinct non-meta concepts.
-            a, b = _candidates[0], _candidates[1]
-            _pair = (a, b, "relates to")
-        a, b, rel = _pair
-        # Track A2 #5: relation-type → connector, but the default "relate to"
-        # is a VERB and must be conjugated to the grammatical context of each
-        # punchline (Agreement as controller→target feature-copy; Barlow &
-        # Ferguson). Fixed-word connectors (but/like/because/and/then/loves/
-        # is/is part of) are used as-is. We produce the BASE form and let each
-        # template conjugate it (A2 #6).
-        _FIXED = {
-            "contrastive": "but", "analogical": "like", "causal": "because",
-            "semantic": "and", "temporal": "then", "emotional": "loves",
+
+        # 1) SETUP: anchor X -- present, well-connected (high out-degree).
+        #    Bias toward RECOGNIZABLE concepts (the seeded teen vocabulary) so
+        #    the setup lands with a human; fall back to any connected node.
+        from ravana.chat.constants import TEEN_CONCEPT_LABELS
+        _teen = set(TEEN_CONCEPT_LABELS)
+        nodes = list(g.nodes.values())
+        if not nodes:
+            return None
+        cand = []
+        for n in nodes:
+            try:
+                deg = len(g.get_outgoing(n.id))
+            except Exception:
+                deg = 0
+            if deg >= 1 and self._glove_vector(n.label) is not None:
+                # Recognizable anchors rank above obscure web-learned nodes.
+                score = deg + (50 if n.label in _teen else 0)
+                cand.append((n, score))
+        if not cand:
+            return None
+        cand.sort(key=lambda x: x[1], reverse=True)
+        # Top tier: connected + recognizable; if any exist prefer them.
+        teen_pool = [n for (n, s) in cand if n.label in _teen and s >= 50]
+        pool = (teen_pool if teen_pool else [n for (n, _s) in cand])[: max(3, len(cand) // 3)]
+        X_node = random.choice(pool)
+        X = X_node.label
+        X_vec = self._glove_vector(X)
+        if X_vec is None:
+            return None
+
+        # 2) BISECTION (Z-centered). For each shared frame Z among X's neighbors,
+        #    look for a Y among Z's neighbors that is DISTANT from X (incongruity)
+        #    yet coherent via Z. We require a real typed edge for the connector.
+        def _cos(a, b):
+            if a is None or b is None:
+                return 0.0
+            na, nb = a, b
+            d = na.dot(nb)
+            na2 = na.dot(na)
+            nb2 = nb.dot(nb)
+            if na2 <= 0 or nb2 <= 0:
+                return 0.0
+            return float(d / (na2 ** 0.5 * nb2 ** 0.5))
+
+        candidates = []  # (distance, Y, Z, relation)
+        try:
+            X_neighbors = g.get_outgoing(X_node.id)
+        except Exception:
+            X_neighbors = []
+        for Z_nid, ze in X_neighbors:
+            Z_node = g.get_node(Z_nid)
+            if Z_node is None:
+                continue
+            Z = Z_node.label
+            Z_rel = getattr(ze, "relation_type", None) or "related"
+            try:
+                Z_neighbors = g.get_outgoing(Z_nid)
+            except Exception:
+                Z_neighbors = []
+            for Y_nid, ye in Z_neighbors:
+                if Y_nid == X_node.id:
+                    continue
+                Y_node = g.get_node(Y_nid)
+                if Y_node is None:
+                    continue
+                Y = Y_node.label
+                if Y == X:
+                    continue
+                Y_vec = self._glove_vector(Y)
+                cos = _cos(X_vec, Y_vec)
+                # Incongruity: X and Y must be otherwise distant (Koestler).
+                if cos >= 0.30:
+                    continue
+                # Coherence + resolution: the Y-Z edge supplies the connector and
+                # proves the two frames meet at Z (verified against live graph).
+                Y_rel = getattr(ye, "relation_type", None) or "related"
+                rel = Y_rel if Y_rel in ("causal", "contrastive", "is_a",
+                                         "part_of", "analogical", "temporal",
+                                         "semantic") else Z_rel
+                if rel not in ("causal", "contrastive", "is_a", "part_of",
+                               "analogical", "temporal", "semantic"):
+                    rel = "semantic"
+                # Recognizable punchline concepts land better with a human; both
+                # Y and Z recognizable is ideal (Koestler: the frames are
+                # familiar, only their collision at Z is surprising).
+                recog = (1 if Y in _teen else 0) + (1 if Z in _teen else 0)
+                # Prefer recognizable pairs, then the most distant Y (incongruity).
+                candidates.append((recog, cos, Y, Z, rel))
+        if not candidates:
+            # Try once more with a more permissive distance if Z had no distant Y.
+            for Z_nid, ze in X_neighbors:
+                Z_node = g.get_node(Z_nid)
+                if Z_node is None:
+                    continue
+                Z = Z_node.label
+                Z_rel = getattr(ze, "relation_type", None) or "related"
+                try:
+                    Z_neighbors = g.get_outgoing(Z_nid)
+                except Exception:
+                    Z_neighbors = []
+                for Y_nid, ye in Z_neighbors:
+                    if Y_nid == X_node.id:
+                        continue
+                    Y_node = g.get_node(Y_nid)
+                    if Y_node is None:
+                        continue
+                    Y = Y_node.label
+                    if Y == X:
+                        continue
+                    Y_vec = self._glove_vector(Y)
+                    cos = _cos(X_vec, Y_vec)
+                    if cos >= 0.55:
+                        continue
+                    Y_rel = getattr(ye, "relation_type", None) or "related"
+                    rel = Y_rel if Y_rel in ("causal", "contrastive", "is_a",
+                                             "part_of", "analogical", "temporal",
+                                             "semantic") else Z_rel
+                    if rel not in ("causal", "contrastive", "is_a", "part_of",
+                                   "analogical", "temporal", "semantic"):
+                        rel = "semantic"
+                    recog = (1 if Y in _teen else 0) + (1 if Z in _teen else 0)
+                    candidates.append((recog, cos, Y, Z, rel))
+        if not candidates:
+            return random.choice([
+                "haha, my joke circuits are still warming up. ask me again later?",
+                "i tried to think of a joke but it came out as a graph theory "
+                "lecture. sorry!",
+                "my humor module is still loading -- give me a sec and i'll do "
+                "better.",
+            ])
+
+        # 3) RESOLUTION GATE already satisfied (every candidate has a real edge).
+        #    Pick the most recognizable pair, then the most incongruous (lowest
+        #    cosine) -- familiar frames colliding at Z is the surprise.
+        candidates.sort(key=lambda x: (-x[0], x[1]))
+        _recog, _dist, Y, Z, rel = candidates[0]
+        _CONNECTOR = {
+            "contrastive": "but", "causal": "because",
             "is_a": "is", "part_of": "is part of",
-        }
-        _rel_fixed = _FIXED.get((rel or "").lower())
-        if _rel_fixed is not None:
-            _rel_base = _rel_fixed          # no conjugation needed
-            _conjugate = lambda form: _rel_fixed
-        else:
-            _rel_base = "relate to"          # default verb — conjugate below
-            def _conjugate(form):
-                _forms = {
-                    "base": "relate to",
-                    "pres_3sg": "relates to",
-                    "pres_1sg": "relate to",
-                    "past_part": "related to",
-                }
-                return _forms.get(form, _rel_base)
+            "analogical": "like", "temporal": "then", "semantic": "and",
+        }.get((rel or "related").lower(), "and")
 
-        def _indefinite_article(word: str) -> str:
-            if not word:
-                return ""
-            if word.endswith("s") and not word.endswith("ss") and word.lower() not in ("lens", "glass", "class", "mass", "pass", "gas"):
-                return word
-            first = word[0].lower()
-            if first in ('a', 'e', 'i', 'o', 'u'):
-                return f"an {word}"
-            return f"a {word}"
-
+        # 4) ASSEMBLE: setup builds the expectation around X; punchline reveals
+        #    the second frame Z that reconciles X and Y (the bisociation payoff).
         _setups = [
-            f"why did the {a} break up with the {b}?",
-            f"what do you get when {_indefinite_article(a)} meets {_indefinite_article(b)}?",
-            f"why was the {a} afraid of the {b}?",
+            f"why did the {X} and the {Y} end up in the same conversation?",
+            f"what do {X} and {Y} have in common?",
+            f"why don't {X} and {Y} get along?",
         ]
-        if (rel or "").lower() == "semantic":
-            # "semantic" → connector "and" is not a verb; the verb-slot
-            # punchlines below would be ungrammatical ("they were and each
-            # other"). Use a coherent template that works with any connector.
-            _punchlines = [
-                f"because they just go together — {a} {_rel_fixed} {b}.",
-                f"turns out {a} and {b} are basically the same vibe.",
-                f"neither one makes sense without the other: {a} {_rel_fixed} {b}.",
-            ]
-        else:
-            _punchlines = [
-                # A2 #6/#7: "too much {rel} the {b}" reads as 3sg → pres_3sg.
-                f"too much {_conjugate('pres_3sg')} the {b} — it couldn't handle the tension.",
-                # A2 #6: "they were {rel}" → past participle "related to".
-                f"it realized they were {_conjugate('past_part')} each other all along.",
-                # A2 #6/#7: "how i {rel} you" → 1sg "relate to" + capitalize "I".
-                f"the {b} said 'that's just how I {_conjugate('pres_1sg')} you.'",
-            ]
+        _punchlines = [
+            f"they both run on {Z} -- {_CONNECTOR} that's the only thing that "
+            f"bridges them.",
+            f"{Z}. turns out {X} only makes sense {_CONNECTOR} of {Z}, and so "
+            f"does {Y}.",
+            f"they keep fighting over {Z} -- {_CONNECTOR} neither one will admit "
+            f"they need it.",
+        ]
         _i = (getattr(self, "turn_count", 0) or 0) % len(_setups)
-        return f"{_setups[_i]} {_punchlines[_i]}"
+        out = f"{_setups[_i]} {_punchlines[_i]}"
 
+        # Mesolimbic reward (NAcc analog): resolved prediction error -> mirth
+        # spike, reinforcing error-correction (Hurley, Dennett & Adams 2011).
+        try:
+            self.emotion.update(stimulus_valence=0.6, stimulus_arousal=0.5,
+                                stimulus_dominance=0.3)
+        except Exception:
+            pass
+        return out
     def _handle_assertion(self, text: str, subject: str) -> Optional[str]:
         """Respond when the user is *telling* RAVANA something (an assertion)
         rather than *asking* a question.
@@ -3018,15 +3074,24 @@ class ResponseGenMixin(ChainWalkerMixin):
         Returns (kind, word) where kind in {'negative','positive','neutral'} or
         None. Emotional statements must be answered with empathy, not facts.
 
-        Accepts either a CognitiveResponseContext (ctx) or a raw string (text),
-        so callers that only have the bare user input (e.g. the assertion
-        mirror, which runs before the decomposition-dispatch path) can still
-        detect an affective disclosure and defer to the empathic responder.
-
-        Lexical valence is taken from the learned VAD detector (ravana.core
-        UserEmotionDetector) rather than a duplicated hardcoded positive/negative
-        set — affect is a dimensional signal acquired from experience, not a
-        frozen table. The first-person scope and the neutral fallback are kept.
+        Brain-faithful model (replaces the fixed-threshold scan):
+        - Affect is a CONSTRUCTED state over continuous core affect (Russell 1980
+          circumplex valence x arousal; Mehrabian PAD = RAVANA's VAD). Affective
+          similarity is read from the supervised VAD lexicon (expanded seed,
+          dimensional-norms grounded), NOT raw embedding cosine -- love/hate
+          sit close in embedding space but split on valence.
+        - Negation/intensifier scope is respected: the negator is kept within a
+          3-token window of the scored word (sentence-level), so "i am not happy"
+          is not misread as positive.
+        - Threshold is ADAPTIVE (distribution-driven, not a fixed 0.05): the
+          utterance's aggregate valence is z-scored against a running EMA
+          distribution of recent turns (Barrett; Seth interoceptive prediction).
+          Only deviations that clear z = ADAPTIVE_K are treated as a disclosure;
+          otherwise we abstain (fail-closed).
+        - No-body interoception proxy (Seth 2013/2021): with no visceral signal,
+          epistemic state stands in -- prediction error / uncertainty -> arousal,
+          goal congruence -> valence, controllability/confidence -> dominance.
+          The lexical VAD is blended with this proxy.
         """
         if ctx is not None:
             raw = ctx.raw_input
@@ -3035,38 +3100,100 @@ class ResponseGenMixin(ChainWalkerMixin):
         else:
             return None
         text = raw.lower()
-        # First-person marker: i / i'm / i am / my / me.
-        if not re.search(r"\b(i|i'm|i am|my|me)\b", text):
+        if not re.search(r"\b(i|i'm|i am|my|me|we|we're|we are)\b", text):
             return None
-        # Guard: ELI5 framing ("explain X like i am five", "like i'm five")
-        # contains a first-person "i am" but is NOT an affective self-disclosure
-        # — answering it with empathy ("that's awesome!") is a non-sequitur.
-        # Exclude these BEFORE any valence/Affective check.
         if re.search(r"\blike (?:i am|i'm|i)\s+(?:a |an )?\w+\b", text) or \
            re.search(r"\b(explain|describe|teach|tell me about).*\b(like|as if)\b.*\b(i am|i'm|i)\b", text):
             return None
-        from ravana.core import UserEmotionDetector
+
+        from ravana.core.mirror import UserEmotionDetector, _NEGATORS
         _det = getattr(self, "_affect_detector", None) or UserEmotionDetector()
-        uv, _ua, _ud = _det.detect(text)
-        # Capture the strongest affective word for the (kind, word) signature.
-        hit_pos = []
-        hit_neg = []
-        for w in re.findall(r"[a-z']+", text):
-            wv, _a, _d = _det.detect(w)
-            if wv > 0.05:
-                hit_pos.append((wv, w))
-            elif wv < -0.05:
-                hit_neg.append((wv, w))
-        if hit_neg:
-            return ("negative", sorted(hit_neg, key=lambda x: x[0])[0][1])
-        if hit_pos:
-            # Use the STRONGEST positive word. Index [0] (not [1]) is correct:
-            # with a single positive hit sorted() has length 1 and [1] raises
-            # IndexError ("i am happy" → only 'happy' scores positive).
-            return ("positive", sorted(hit_pos, key=lambda x: x[0])[0][1])
-        if re.search(r"\b(i\s*(feel|feeling|am|think|believe|guess|wonder))\b", text):
-            return ("neutral", None)
-        return None
+
+        tokens = re.findall(r"[a-z']+", text)
+        if not tokens:
+            return None
+
+        vals, weights = [], []
+        strongest = None
+        for i, w in enumerate(tokens):
+            entry = _det._lookup_word(w)
+            if entry is None:
+                continue
+            v, a, d = float(entry[0]), float(entry[1]), float(entry[2])
+            if any(tokens[j] in _NEGATORS for j in range(max(0, i - 3), i)):
+                v = -v * 0.6
+                a = a * 0.8
+            intensity = 1.0
+            if i > 0 and tokens[i - 1] in _det._intensifiers:
+                intensity = _det._intensifiers[tokens[i - 1]]
+            v *= intensity
+            a = min(1.0, a * intensity)
+            wgt = 1.0 + a * 0.5
+            vals.append(v * wgt)
+            weights.append(wgt)
+            av = abs(v * wgt)
+            if strongest is None or av > strongest[0]:
+                strongest = (av, w, 1 if v >= 0 else -1)
+
+        if not vals:
+            return None
+        V_lex = float(np.average(vals, weights=weights))
+
+        # Detection reads the USER's stated self-report (lexical VAD). The
+        # agent's own no-body interoception proxy is NOT blended here -- it
+        # represents RAVANA's state, not the user's, and would cancel a clear
+        # first-person disclosure (e.g. "i am bored" vs a neutral proxy ~0.5).
+        V = V_lex
+
+        base = getattr(self, "_vad_baseline", {"mu": 0.0, "sigma": 0.3, "n": 0})
+        mu, sigma = base["mu"], max(base["sigma"], 1e-3)
+        z = (V - mu) / sigma
+        ADAPTIVE_K = 1.2
+        self._update_vad_baseline(V_lex)
+
+        if abs(z) < ADAPTIVE_K:
+            if re.search(r"\b(i\s*(feel|feeling|am|think|believe|guess|wonder))\b", text):
+                return ("neutral", None)
+            return None
+
+        kind = "positive" if V > 0 else "negative"
+        word = strongest[1] if strongest else None
+        return (kind, word)
+
+    def _epistemic_vad(self) -> Dict[str, float]:
+        """No-body interoception proxy (Seth 2013/2021; Critchley & Garfinkel)."""
+        err = getattr(self, "_last_prediction_error", 0.0) or 0.0
+        try:
+            err = float(np.clip(abs(err), 0.0, 1.0))
+        except Exception:
+            err = 0.0
+        arousal = 0.3 + 0.5 * err
+        itrend = 0.0
+        try:
+            itrend = float(getattr(self.identity, "get_trend", lambda: 0.0)() or 0.0)
+        except Exception:
+            itrend = 0.0
+        valence = 0.5 + 0.3 * np.clip(itrend, -1.0, 1.0)
+        dom = 0.5 + 0.2 * np.clip(getattr(self, "identity", None)
+                                  and getattr(self.identity, "state", None)
+                                  and getattr(self.identity.state, "strength", 0.5) or 0.5, -1.0, 1.0)
+        return {"valence": float(np.clip(valence, -1.0, 1.0)),
+                "arousal": float(np.clip(arousal, 0.0, 1.0)),
+                "dominance": float(np.clip(dom, -1.0, 1.0))}
+
+    def _update_vad_baseline(self, V: float) -> None:
+        """Fold a turn's aggregate valence into the running EMA distribution."""
+        base = getattr(self, "_vad_baseline", None)
+        if base is None:
+            self._vad_baseline = {"mu": 0.0, "sigma": 0.3, "n": 0}
+            base = self._vad_baseline
+        alpha = 0.1
+        n = base["n"] + 1
+        old_mu = base["mu"]
+        new_mu = old_mu + alpha * (V - old_mu)
+        dev = (V - new_mu)
+        new_sigma = np.sqrt((base["sigma"] ** 2 * (n - 1) + dev * dev) / max(n, 1))
+        base["mu"], base["sigma"], base["n"] = new_mu, float(max(new_sigma, 0.05)), n
 
     def _emotional_response(self, ctx: CognitiveResponseContext, disclosure):
         """Empathic reply to a user's affective self-disclosure (mirror/emotion contagion)."""
@@ -3877,6 +4004,7 @@ class ResponseGenMixin(ChainWalkerMixin):
         subject = ctx.subject
         if not subject:
             return None
+        subj = subject  # lowercase subject used by hedge_frame templates ({subj})
         subj_cap = self._capitalize_subject(subject, getattr(ctx, 'raw_input', subject) or subject)
         subj_vec = self._glove_vector(subject) if hasattr(self, '_glove_vector') else None
 

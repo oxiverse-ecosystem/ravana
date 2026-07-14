@@ -36,7 +36,7 @@ from ravana_grace.core.meta_cognition import MetaCognition, MetaCognitiveConfig,
 from ravana_grace.core.sleep import SleepConsolidation, SleepConfig
 from ravana.language.basal_ganglia import BasalGangliaGate
 from ravana.language.cerebellar_ngram import CerebellarNgram, CerebellarState
-from ravana.language.prefrontal_workspace import PrefrontalWorkspace, DiscourseIntent, DiscoursePlan, DiscourseType
+from ravana.language.prefrontal_workspace import PrefrontalWorkspace, DiscourseIntent, DiscoursePlan, DiscourseType, SocialIntentClassifier
 from ravana.language.syntactic_cell_assembly import SyntacticCellAssembly, SyntacticFrame
 from ravana.language.surface_realizer import SurfaceRealizer, DiscourseState
 from ravana_ml.nn.neural_decoder import NeuralDecoder
@@ -194,6 +194,15 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         self.gw = GlobalWorkspace(GWConfig(capacity=7, broadcast_threshold=0.3, decay_rate=0.1))
         # Emotional mirror engine -- modulates verbosity and temperature based on user emotion
         self.mirror_engine = EmotionalMirrorEngine(MirrorConfig(mirror_strength=0.55, contagion_rate=0.45))
+
+        # Adaptive affective baseline (Barrett constructed-emotion / Seth
+        # interoceptive-prediction framing): each turn's aggregate user valence
+        # is folded into a running (EMA) distribution (mu, sigma). Affective
+        # disclosures are then judged by z-score against THIS distribution, not a
+        # fixed cutoff -- so "bored" is salient when the user is usually neutral
+        # but invisible when they are usually down. Distribution-driven, fails
+        # closed (returns neutral/None) when nothing clears the adaptive bar.
+        self._vad_baseline = {"mu": 0.0, "sigma": 0.3, "n": 0}
 
         # State
         self.turn_count = 0
@@ -571,6 +580,11 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         self.cerebellar_ngram = CerebellarNgram()
         # Phase D: Prefrontal workspace — discourse planning before generation
         self.pfc_workspace = PrefrontalWorkspace(capacity=5, vector_fn=self._glove_vector)
+        # Prototype-bank social-intent classifier (TPJ/DMN mentalizing analog).
+        # Reuses QuestionSubtypeClassifier machinery so "what's up" / "what is up"
+        # / "wassup" collapse to one greeting centroid via contraction
+        # normalization; ABSTAIN_K floor gives fail-closed degradation.
+        self._social_intent = SocialIntentClassifier(vector_fn=self._glove_vector)
         self._proper_nouns = set()
         # Concepts bootstrapped with AUTHORED typed relations (the project's own
         # proper nouns: oxiverse / intentforge / ravana). These are the ONLY
@@ -3290,17 +3304,20 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         if not subject:
             # Set default subject for chitchat/social queries to route them correctly
             t = user_input.lower().strip(" ?!.,")
-            greetings = r"\b(hi|hello|hey|yo|sup|greetings|whats\s*up|howdy|good\s*morning|good\s*afternoon|good\s*evening)\b"
+            # Apostrophe-tolerant variants so "what's up" / "how're you" match
+            # the same greeting/wellbeing classes as their spelled-out forms.
+            t_apos = t.replace("'", "")
+            greetings = r"\b(hi|hello|hey|yo|sup|greetings|whats\s*up|whatsup|howdy|good\s*morning|good\s*afternoon|good\s*evening)\b"
             wellbeing = r"\b(how\s*are\s*you|how\s*is\s*it\s*going|how\s*are\s*you\s*doing|how\s*have\s*you\s*been|hows\s*it\s*going|hows\s*life)\b"
             capabilities = r"\b(what\s*can\s*you\s*do|what\s*do\s*you\s*do|how\s*do\s*you\s*work|tell\s*me\s*about\s*yourself|who\s*are\s*you|what\s*is\s*your\s*name)\b"
             farewells = r"\b(bye|goodbye|see\s*you|good\s*night|farewell)\b"
-            if re.search(greetings, t):
+            if re.search(greetings, t) or re.search(greetings, t_apos):
                 subject = "hello"
-            elif re.search(wellbeing, t):
+            elif re.search(wellbeing, t) or re.search(wellbeing, t_apos):
                 subject = "how"
-            elif re.search(capabilities, t):
+            elif re.search(capabilities, t) or re.search(capabilities, t_apos):
                 subject = "ravana"
-            elif re.search(farewells, t):
+            elif re.search(farewells, t) or re.search(farewells, t_apos):
                 subject = "bye"
         # Run grounding again to get confidence for auto-web-learning
         _grounded_subj, _gconf, _gmethod = self._ground_query(user_input)

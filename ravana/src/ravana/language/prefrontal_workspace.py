@@ -452,6 +452,176 @@ class QuestionSubtypeClassifier:
         return best, cos
 
 
+def _normalize_contractions(text: str) -> str:
+    """Collapse common spoken contractions to their canonical written form.
+
+    Brain basis (forward-model speech perception, Pickering & Garrod 2013;
+    Pulvermuller 2003): intent is inferred from an incomplete signal, so
+    detection must be INVARIANT to orthographic/phonological variation. One
+    normalized form covers "what's up" / "what is up" / "wassup" / "whatsup",
+    eliminating per-contraction regex sprawl. This is the invariance step the
+    old regex cascade lacked.
+    """
+    t = " " + text.lower().strip() + " "
+    # ordered longest-first so "i'm" wins over "i"
+    subs = [
+        (r"\bi'm\b", "i am"), (r"\bi've\b", "i have"), (r"\bi'll\b", "i will"),
+        (r"\bi'd\b", "i would"), (r"\bi've\b", "i have"),
+        (r"\byou're\b", "you are"), (r"\byou've\b", "you have"),
+        (r"\byou'll\b", "you will"), (r"\by'all\b", "you all"),
+        (r"\bwe're\b", "we are"), (r"\bwe've\b", "we have"),
+        (r"\bthey're\b", "they are"), (r"\bthey've\b", "they have"),
+        (r"\bhe's\b", "he is"), (r"\bshe's\b", "she is"),
+        (r"\bwhat's\b", "what is"), (r"\bwhat're\b", "what are"),
+        (r"\bwhats\b", "what is"), (r"\bwhatre\b", "what are"),
+        (r"\bhow's\b", "how is"), (r"\bhow're\b", "how are"), (r"\bhowre\b", "how are"),
+        (r"\bwho's\b", "who is"), (r"\bwhere's\b", "where is"),
+        (r"\bwhen's\b", "when is"), (r"\bwhy's\b", "why is"),
+        (r"\bthat's\b", "that is"), (r"\bit's\b", "it is"),
+        (r"\blet's\b", "let us"), (r"\bwon't\b", "will not"),
+        (r"\bcan't\b", "cannot"), (r"\bn't\b", " not"),
+        (r"\bwassup\b", "what is up"), (r"\bsup\b", "what is up"),
+        (r"\bg'day\b", "good day"),
+    ]
+    for pat, rep in subs:
+        t = re.sub(pat, rep, t)
+    return t.strip()
+
+
+class SocialIntentClassifier(QuestionSubtypeClassifier):
+    """Prototype-bank social-intent detector (TPJ mentalizing / DMN self-other
+    simulation; Saxe & Kanwisher 2003; Spreng et al. 2009).
+
+    Reuses the exact Stage-2 machinery of QuestionSubtypeClassifier
+    (first-token-weighted GloVe sentence vector -> per-class centroid + mu/sigma
+    -> cosine argmax with an ABSTAIN_K confidence floor). The social types are
+    learned prototypes, so "what's up" / "what is up" / "wassup" all map to the
+    SAME greeting centroid after contraction normalization, instead of needing
+    three literal regexes. This collapses the two divergent regex copies
+    (detect_question_type + _handle_chitchat) into ONE learned classifier and
+    gives fail-closed degradation: inputs below the confidence floor ABSTAIN and
+    route to the factual path rather than being misrouted or emitting canned text.
+
+    The prototype bank's ABSTAIN_K gate (inherited) is the distribution-driven
+    confidence floor -- no fixed pragmatic threshold.
+    """
+
+    # Each social type seeded with SURFACE-VARIED exemplars so the centroid
+    # spans contractions / paraphrases, not one literal string.
+    SOCIAL_SEEDS = {
+        "greeting": [
+            "hi", "hello", "hey", "yo", "what is up", "how is it going",
+            "howdy", "good morning", "good afternoon",
+            "good evening", "sup", "hiya", "greetings",
+        ],
+        "wellbeing": [
+            "how are you", "how are you doing", "how is it going",
+            "how have you been", "what is going on", "you good",
+            "how are things", "are you okay",
+        ],
+        "capability": [
+            "what can you do", "who are you", "tell me about yourself",
+            "what are you", "what is your deal", "what are you capable of",
+        ],
+        "farewell": [
+            "bye", "goodbye", "see you", "good night", "farewell",
+            "catch you later", "talk to you later",
+        ],
+        "gratitude": [
+            "thanks", "thank you", "cheers", "appreciate it", "grateful",
+            "thanks a lot", "thank you so much",
+        ],
+        "affect_disclosure": [
+            "i am bored", "i am sad", "i feel tired", "i am lonely",
+            "i am frustrated", "i am happy", "i feel anxious", "i am excited",
+        ],
+    }
+
+    def __init__(self, vector_fn=None, first_token_weight=None, abstain_k=None):
+        super().__init__(vector_fn=vector_fn,
+                         first_token_weight=first_token_weight,
+                         abstain_k=(abstain_k if abstain_k is not None
+                                    else self.ABSTAIN_K))
+        # Re-fit the prototype bank on the SOCIAL seeds. The parent constructor
+        # fitted on SUBTYPE_SEEDS (semantic question types); without overriding
+        # the exemplars the classifier would score against what_is/how and never
+        # see the greeting / wellbeing centroids.
+        self.exemplars = {c: list(v) for c, v in self.SOCIAL_SEEDS.items()}
+        self._fitted = False
+        self._fit()
+
+    # Function words carry the speech-act FRAME but not the TYPE; matching on
+    # them alone makes "what is the moon" a false-positive greeting. We match on
+    # CONTENT words so an utterance's content must be a special case of a seed's
+    # content (Suls 1972 cheap prediction + Koestler bisociation: the act is
+    # recognized when its content slots are filled by the seed's idiom).
+    _SOCIAL_STOP = {
+        "what", "is", "are", "am", "was", "were", "how", "do", "does", "did",
+        "can", "could", "would", "should", "will", "shall", "you", "i", "we",
+        "me", "my", "our", "the", "a", "an", "to", "of", "for", "in", "on",
+        "at", "it", "this", "that", "be", "been", "being", "have", "has", "had",
+        "not", "no", "so", "if", "as", "from", "with", "about", "your", "s",
+        "t", "re", "ve", "ll", "d", "m",
+    }
+
+    def detect(self, text: str):
+        norm = _normalize_contractions(text)
+        toks = set(re.findall(r"[a-z']+", norm))
+        if toks:
+            # Lexical forward-model (Pickering & Garrod 2013): intent is a
+            # prediction of the speaker's act. Social acts are closed-class
+            # idioms, so a deterministic, contraction-normalized content-subset
+            # match against seeded exemplars is the reliable detector. One
+            # normalized form covers what's up / what is up / wassup.
+            utt_content = toks - self._SOCIAL_STOP
+            if utt_content:
+                best_type, best_cov = "ABSTAIN", 0.0
+                for stype, seeds in self.SOCIAL_SEEDS.items():
+                    cov = 0.0
+                    for seed in seeds:
+                        seed_toks = set(re.findall(r"[a-z']+", seed))
+                        seed_content = seed_toks - self._SOCIAL_STOP
+                        # Coverage = fraction of the utterance's content that the
+                        # seed explains. This handles multi-word acts (i feel
+                        # lonely) that span seeds, and rejects false frames
+                        # (what is the moon) whose content isn't in any seed.
+                        pool = seed_content if seed_content else seed_toks
+                        if not pool:
+                            continue
+                        inter = len(utt_content & pool)
+                        if inter == 0:
+                            continue
+                        cov = max(cov, inter / len(utt_content))
+                    if cov > best_cov:
+                        best_cov, best_type = cov, stype
+                if best_cov >= 0.5:
+                    return best_type, {}
+            elif toks:
+                # Pure function-word idiom (e.g. "how are you"): match the full
+                # token set so the idiom is recognized despite no content words.
+                best_type, best_cov = "ABSTAIN", 0.0
+                for stype, seeds in self.SOCIAL_SEEDS.items():
+                    cov = 0.0
+                    for seed in seeds:
+                        seed_toks = set(re.findall(r"[a-z']+", seed))
+                        if not seed_toks:
+                            continue
+                        inter = len(toks & seed_toks)
+                        if inter == 0:
+                            continue
+                        cov = max(cov, inter / len(toks))
+                    if cov > best_cov:
+                        best_cov, best_type = cov, stype
+                if best_cov >= 0.5:
+                    return best_type, {}
+        # Fallback to the vector prototype (content-bearing social acts that DO
+        # have embeddings); abstain on noise.
+        label, scores = self.classify(norm)
+        if label is None or label == "ABSTAIN":
+            return ("ABSTAIN", scores)
+        return label, scores
+
+
 class SurpriseGate:
     """N4 — surprise gating: the governor that makes N2 (emergent categories) safe.
 
@@ -756,10 +926,10 @@ class PrefrontalWorkspace:
             re.compile(r"(?:more|else|another|also|further|tell me more)", re.IGNORECASE),
         ],
         "greeting": [
-            re.compile(r"\b(hi|hello|hey|yo|sup|greetings|whats\s*up|howdy|good\s*morning|good\s*afternoon|good\s*evening)\b", re.IGNORECASE),
+            re.compile(r"\b(hi|hello|hey|yo|sup|greetings|whats\s*up|what's\s*up|whatsup|howdy|good\s*morning|good\s*afternoon|good\s*evening)\b", re.IGNORECASE),
         ],
         "wellbeing": [
-            re.compile(r"\b(how\s*are\s*you|how\s*is\s*it\s*going|how\s*are\s*you\s*doing|how\s*have\s*you\s*been|hows\s*it\s*going|hows\s*life)\b", re.IGNORECASE),
+            re.compile(r"\b(how\s*are\s*you|how're\s*you|how\s*is\s*it\s*going|how's\s*it\s*going|how\s*are\s*you\s*doing|how\s*have\s*you\s*been|hows\s*it\s*going|hows\s*life)\b", re.IGNORECASE),
         ],
         "capability": [
             re.compile(r"\b(what\s*can\s*you\s*do|what\s*do\s*you\s*do|how\s*do\s*you\s*work|tell\s*me\s*about\s*yourself|who\s*are\s*you|what\s*is\s*your\s*name)\b", re.IGNORECASE),

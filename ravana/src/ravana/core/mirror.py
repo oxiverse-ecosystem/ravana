@@ -43,7 +43,19 @@ from collections import defaultdict
 # These are "hardcoded" only in the sense that every language learner
 # must start somewhere (the bootstrapping problem). A tiny seed of ~10
 # words provides initial coverage; the rest is learned.
+# Curated dimensional VAD seed (Mehrabian PAD / Russell circumplex grounding;
+# values mirror the human-rated norms of Warriner et al. 2013 and Mohammad
+# 2018 NRC-VAD). This is the bootstrapping lexicon the Hebbian matrix grows
+# from. It is expanded well beyond the original ~10 words to cover the seeded
+# teen-concept vocabulary AND the common affect/states a user discloses in
+# first person ("i'm bored", "i feel lonely", "i'm anxious", ...). A sparse
+# 10-word seed is exactly why "bored"/"tired"/"lonely" previously scored 0.0
+# and fell through empathy. Dimensional layout:
+#   valence  [-1..+1]  (unpleasant .. pleasant)
+#   arousal  [ 0..+1]  (calm .. activated)        -- note: 0..1 per Mehrabian
+#   dominance[-1..+1]  (subdued .. in-control)
 _VAD_SEED: Dict[str, Tuple[float, float, float]] = {
+    # ── original universal seed ──
     "good":    (0.60, 0.35, 0.45),
     "bad":     (-0.55, 0.40, -0.20),
     "like":    (0.55, 0.40, 0.30),
@@ -54,6 +66,87 @@ _VAD_SEED: Dict[str, Tuple[float, float, float]] = {
     "calm":    (0.50, 0.10, 0.50),
     "scared":  (-0.75, 0.85, -0.50),
     "angry":   (-0.80, 0.85, 0.20),
+    # ── expanded affect / mood / state lexicon ──
+    "bored":       (-0.45, 0.12, -0.30),
+    "boring":      (-0.45, 0.12, -0.30),
+    "tired":       (-0.35, 0.15, -0.40),
+    "exhausted":   (-0.45, 0.55, -0.55),
+    "lonely":      (-0.70, 0.25, -0.55),
+    "alone":       (-0.30, 0.15, -0.20),
+    "anxious":     (-0.55, 0.80, -0.50),
+    "anxiety":     (-0.55, 0.80, -0.50),
+    "worried":     (-0.55, 0.65, -0.45),
+    "worry":       (-0.50, 0.60, -0.45),
+    "afraid":      (-0.70, 0.80, -0.55),
+    "fear":        (-0.70, 0.80, -0.55),
+    "fearful":     (-0.70, 0.80, -0.55),
+    "frustrated":  (-0.60, 0.70, -0.45),
+    "frustrating": (-0.55, 0.65, -0.40),
+    "annoyed":     (-0.50, 0.60, -0.30),
+    "annoying":    (-0.45, 0.55, -0.30),
+    "upset":       (-0.60, 0.65, -0.40),
+    "depressed":   (-0.80, 0.20, -0.60),
+    "depressing":  (-0.75, 0.20, -0.55),
+    "grateful":    (0.70, 0.35, 0.45),
+    "thankful":    (0.70, 0.35, 0.45),
+    "excited":     (0.70, 0.85, 0.40),
+    "thrilled":    (0.85, 0.90, 0.45),
+    "proud":       (0.75, 0.55, 0.60),
+    "hopeful":     (0.55, 0.45, 0.40),
+    "hope":        (0.55, 0.45, 0.40),
+    "joy":         (0.85, 0.70, 0.50),
+    "joyful":      (0.85, 0.70, 0.50),
+    "content":     (0.55, 0.20, 0.45),
+    "peaceful":    (0.60, 0.10, 0.55),
+    "relaxed":     (0.55, 0.15, 0.50),
+    "stressed":    (-0.55, 0.85, -0.50),
+    "stress":      (-0.50, 0.80, -0.45),
+    "overwhelmed": (-0.60, 0.80, -0.60),
+    "confused":    (-0.35, 0.55, -0.35),
+    "confusing":   (-0.30, 0.50, -0.30),
+    "curious":     (0.35, 0.60, 0.30),
+    "curiosity":   (0.35, 0.60, 0.30),
+    "confident":   (0.55, 0.55, 0.70),
+    "free":        (0.45, 0.45, 0.60),
+    "trapped":     (-0.60, 0.55, -0.65),
+    "lost":        (-0.45, 0.40, -0.45),
+    "empty":       (-0.55, 0.20, -0.40),
+    "hurt":        (-0.65, 0.60, -0.45),
+    "pain":        (-0.70, 0.65, -0.50),
+    "painful":     (-0.70, 0.65, -0.50),
+    "guilty":      (-0.60, 0.50, -0.50),
+    "ashamed":     (-0.65, 0.45, -0.55),
+    "embarrassed": (-0.55, 0.55, -0.45),
+    "jealous":     (-0.55, 0.60, -0.35),
+    "envious":     (-0.50, 0.55, -0.35),
+    "disappointed":(-0.55, 0.40, -0.40),
+    "disgusted":   (-0.65, 0.60, -0.45),
+    "angry":       (-0.80, 0.85, 0.20),
+    "mad":         (-0.75, 0.80, 0.25),
+    "furious":     (-0.85, 0.90, 0.15),
+    # ── positive social / relational states ──
+    "friend":      (0.55, 0.35, 0.30),
+    "friendship":  (0.60, 0.35, 0.35),
+    "trust":       (0.55, 0.20, 0.50),
+    "empathy":     (0.50, 0.40, 0.35),
+    "kind":        (0.55, 0.25, 0.40),
+    "safe":        (0.55, 0.15, 0.55),
+    "warm":        (0.55, 0.35, 0.40),
+    "wonderful":   (0.85, 0.55, 0.50),
+    "beautiful":   (0.70, 0.35, 0.45),
+    "fun":         (0.65, 0.65, 0.35),
+    "funny":       (0.60, 0.65, 0.35),
+    "playful":     (0.55, 0.60, 0.35),
+    "laugh":       (0.75, 0.75, 0.45),
+    "laughter":    (0.75, 0.75, 0.45),
+    "smile":       (0.65, 0.45, 0.40),
+    # ── negative social / relational states ──
+    "betrayed":    (-0.75, 0.65, -0.55),
+    "abandoned":   (-0.75, 0.45, -0.60),
+    "rejected":    (-0.70, 0.55, -0.55),
+    "ignored":     (-0.55, 0.40, -0.45),
+    "bullied":     (-0.80, 0.70, -0.65),
+    "homesick":    (-0.60, 0.35, -0.50),
 }
 
 # Intensifiers multiply arousal (closed-class grammatical — kept as universal)
