@@ -298,18 +298,41 @@ def train_decoder_grounded(engine, nd, n_passes=30, pp=500, si=5,
 
 
 def _gen_one(engine, nd, concept, av, W_sm, glove_fn):
-    """Generate one free-form sentence from the embodied BOS (real path)."""
-    from ravana.ontology.linggen import LingGenConditioner
+    """Generate one free-form sentence from the embodied BOS — mirrors the REAL
+    production path (_generate_with_decoder) so the quality gate measures what
+    the engine actually does, not a degenerate probe.
+
+    The real path builds conditioning_embs from the concept's GRAPH NODE vector
+    (rich scaffold) plus the sentence-level compositional (GloVe) vector. We
+    replicate that exactly here instead of a pure repeated concept embed, which
+    was a false-negative (no scaffolding -> word salad even when the real path
+    is coherent).
+    """
     init = (W_sm @ np.asarray(av, dtype=np.float32)[:65]).astype(np.float32)
     nn = np.linalg.norm(init)
     if nn > 0:
         init = init / nn
-    # Linguistic conditioning context = the concept's own 75-D dual-code emb
-    # (same role as the function/content blend at generation time).
-    blend = np.repeat(engine._embed_75d(concept)[np.newaxis, :], 5, axis=0)
+    # Mirror _generate_with_decoder conditioning construction: use the DECODER's
+    # own 75-D word-embedding table (embed_dim) for the concept, which is what
+    # the real production path feeds to condition_proj (Linear 75->hidden).
+    # (The real path prefers _decoder_word_to_embed over raw 64-D glove/node
+    # vectors, which are the wrong dimensionality for condition_proj.)
+    embs = []
+    dw = getattr(engine, "_decoder_word_to_embed", {}) or {}
+    if concept.lower() in dw:
+        embs.append(np.asarray(dw[concept.lower()], dtype=np.float32))
+    # add a couple of associated decoder-embed concepts for richer scaffold
+    for assoc, _s in []:
+        if assoc in dw:
+            embs.append(np.asarray(dw[assoc], dtype=np.float32))
+            if len(embs) >= 3:
+                break
+    if not embs:
+        embs.append(engine._embed_75d(concept))
+    blend = np.stack(embs, axis=0).astype(np.float32)
     iw = getattr(engine, "_decoder_idx_to_word", None) or {}
-    toks = nd.generate(conditioning_embs=blend, max_steps=18, initial_emb=init,
-                       idx_to_word=iw)
+    toks = nd.generate(conditioning_embs=blend, max_steps=22, initial_emb=init,
+                       persistent_emb=init, idx_to_word=iw)
     words = [iw.get(t, "") for t in toks
              if iw.get(t, "") not in ("<bos>", "<eos>", "<unk>", "")]
     return words

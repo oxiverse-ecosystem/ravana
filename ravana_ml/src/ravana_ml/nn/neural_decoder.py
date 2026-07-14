@@ -116,6 +116,23 @@ class NeuralDecoder(Module):
         # Output projection: hidden state → logits over vocabulary
         self.output_proj = Linear(hidden_dim, vocab_size)
 
+        # P6: persistent concept-bias projection (angular-gyrus / working-memory
+        # hold). The concept semantic pointer (W_sm @ av, a 75-D BOS vector) is
+        # projected into GRU space by condition_proj and added to the hidden
+        # state at EVERY step, so the pointer modulates production continuously
+        # (held in working memory) rather than only seeding step 0. This is the
+        # brain-faithful fix for free-form grounded generation: the pointer
+        # MODULATES (not replaces) the linguistic scaffolding. Initialized
+        # near-zero so it starts as a no-op and preserves the seed-trained
+        # coherence until grounded training teaches a useful bias.
+        self.W_h_bias = Linear(hidden_dim, hidden_dim)
+        # Initialize near-zero so the persistent bias starts as a no-op and
+        # preserves seed-trained coherence until grounded training teaches a
+        # useful modulation.
+        self.W_h_bias.weight.data[:] = 0.0
+        if self.W_h_bias.bias is not None:
+            self.W_h_bias.bias.data[:] = 0.0
+
         # Dropout for regularization
         self.dropout = Dropout(0.2)
 
@@ -233,7 +250,8 @@ class NeuralDecoder(Module):
                  basal_ganglia=None,
                  content_word_ids: Optional[Set[int]] = None,
                  token_boost: Optional[Dict[int, float]] = None,
-                 initial_emb: Optional[np.ndarray] = None) -> List[int]:
+                 initial_emb: Optional[np.ndarray] = None,
+                 persistent_emb: Optional[np.ndarray] = None) -> List[int]:
         """Generate a sequence autoregressively conditioned on concept embeddings.
 
         Optionally uses cerebellar n-gram bias and basal ganglia gating
@@ -282,6 +300,18 @@ class NeuralDecoder(Module):
                 word_emb = np.asarray(initial_emb, dtype=np.float32)[:self.embed_dim]
             projected_word = self.condition_proj.forward_raw(word_emb[np.newaxis, :])[0]
             h = self.gru(projected_word, h)
+            # P6: persistent concept bias (working-memory hold). The concept
+            # semantic pointer (persistent_emb, same 75-D BOS vector as
+            # initial_emb in the LingGen path) is projected into GRU space and
+            # added to h at EVERY step, so the pointer modulates production
+            # continuously instead of only seeding step 0. This is what makes
+            # free-form grounded generation stay on-topic (the pointer is held
+            # in working memory), while the linguistic scaffold (attention over
+            # conditioning_embs) is left intact.
+            if persistent_emb is not None:
+                pproj = self.condition_proj.forward_raw(
+                    np.asarray(persistent_emb, dtype=np.float32)[:self.embed_dim][np.newaxis, :])[0]
+                h = h + self.W_h_bias.forward_raw(pproj[np.newaxis, :])[0]
 
             combined = h * 0.5 + precomputed_attn * 0.5
             logits = self.output_proj.forward_raw(combined[np.newaxis, :])[0]
@@ -457,7 +487,8 @@ class NeuralDecoder(Module):
                           word_indices: Optional[List[int]] = None,
                           freeze_core: bool = False,
                           sensorimotor_conditioning: Optional[np.ndarray] = None,
-                          initial_emb: Optional[np.ndarray] = None) -> float:
+                          initial_emb: Optional[np.ndarray] = None,
+                          persistent_emb: Optional[np.ndarray] = None) -> float:
         """Unsupervised learning from a sentence (fully batched Hebbian updates).
 
         Args:
@@ -499,6 +530,22 @@ class NeuralDecoder(Module):
                     init = init / n
                 initial_emb = init  # (embed_dim,) BOS initiation state
         _has_initial = initial_emb is not None
+        # P6: persistent concept bias (working-memory hold). Derived from the
+        # same embodied signature as initial_emb: the 75-D BOS vector projected
+        # via W_sm. Added to h at EVERY training step so the concept pointer is
+        # held across the sequence (matching generate(persistent_emb=)). Kept
+        # separate from initial_emb so the register path (which only seeds step
+        # 0) is unaffected.
+        if persistent_emb is None and sensorimotor_conditioning is not None:
+            sm = np.asarray(sensorimotor_conditioning, dtype=np.float32)[:65]
+            W_sm = getattr(self, "_linggen_W_sm", None)
+            if W_sm is not None:
+                pinit = (W_sm @ sm).astype(np.float32)
+                n = np.linalg.norm(pinit)
+                if n > 0:
+                    pinit = pinit / n
+                persistent_emb = pinit
+        _has_persistent = persistent_emb is not None
         if conditioning_embs is None:
             # FIX: Blend function words + actual content words from the sentence
             # for conditioning. This mimics how the decoder receives concept
@@ -631,6 +678,9 @@ class NeuralDecoder(Module):
         all_gru_h_prev = [None] * max_T
         all_gru_z = [None] * max_T
         all_gru_r = [None] * max_T
+        # P6: per-position projected concept pointer for the persistent-bias
+        # backward pass (only allocated when a concept pointer is present).
+        all_pproj = [None] * max_T if _has_persistent else None
         total_ce = 0.0
         top1_hits = 0
         top5_hits = 0
@@ -670,6 +720,20 @@ class NeuralDecoder(Module):
             h_candidate_pre = self.gru.W_h.forward_raw(combined_r[np.newaxis, :])[0]
             h_candidate = np.tanh(h_candidate_pre)
             h_new = (1.0 - z) * h_data + z * h_candidate
+
+            # P6: persistent concept bias (working-memory hold) -- mirrors
+            # generate(persistent_emb=). Add the concept pointer (projected via
+            # condition_proj, then W_h_bias) to h at EVERY step so the pointer
+            # modulates production continuously, not just at step 0. This is the
+            # brain-faithful fix: the angular-gyrus semantic pointer is held in
+            # working memory and modulates the linguistic scaffold. W_h_bias is
+            # initialized near-zero, so until grounded training teaches a useful
+            # modulation this is a no-op and seed coherence is preserved.
+            if _has_persistent and persistent_emb is not None:
+                pproj = self.condition_proj.forward_raw(
+                    np.asarray(persistent_emb, dtype=np.float32)[:self.embed_dim][np.newaxis, :])[0]
+                h_new = h_new + self.W_h_bias.forward_raw(pproj[np.newaxis, :])[0]
+                all_pproj[pos] = pproj
 
             all_gru_combined[pos] = combined
             all_gru_combined_r[pos] = combined_r
@@ -810,6 +874,21 @@ class NeuralDecoder(Module):
             self.attention.output_proj.weight.data += (total_attn_err / T) * lr_attn - self.attention.output_proj.weight.data * wd
 
         # Skip attention W_q/W_k/W_v (traces are sentence-specific, unreliable)
+
+        # 7. P6 persistent concept-bias projection (W_h_bias) — the angular-gyrus
+        #    working-memory hold. This is the NEW grounding parameter; it MUST
+        #    learn whenever a concept pointer is present, EVEN under
+        #    freeze_core=True (which protects only the seed-language core:
+        #    condition_proj / GRU / attention). Brain-faithful separation: the
+        #    grounding modulation learns without disturbing core syntax.
+        #    Gradient: h_new += W_h_bias(pproj); combined = h*0.5 + attn*0.5, so
+        #    dL/dW_h_bias = (pproj^T @ (error_h * 0.5)) / T.
+        if _has_persistent and all_pproj is not None:
+            pproj_stack = np.stack([p for p in all_pproj if p is not None])
+            err_hb = np.clip(error_h_all * 0.5, -1.0, 1.0)
+            hebbian_hb = (pproj_stack.T @ err_hb) / T
+            lr_hb = 0.0005
+            self.W_h_bias.weight.data += hebbian_hb.T * lr_hb - self.W_h_bias.weight.data * wd
 
         avg_ce = total_ce / max(1, trained)
         t1 = top1_hits / max(1, trained)

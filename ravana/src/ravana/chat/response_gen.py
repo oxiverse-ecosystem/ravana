@@ -877,6 +877,7 @@ class ResponseGenMixin(ChainWalkerMixin):
                 content_word_ids=content_word_ids,
                 token_boost=subject_boost,
                 initial_emb=initial_emb,
+                persistent_emb=initial_emb,
             )
 
             print(f"  [Decoder Gen] generated={generated}")
