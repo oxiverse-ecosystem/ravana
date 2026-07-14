@@ -183,7 +183,7 @@ def train_decoder_grounded(engine, nd, n_passes=30, pp=500, si=5,
     if not os.path.exists(desc_path):
         print("  [LingGen] no grounded_descriptions.txt — skip (run harvest first)")
         return False, False
-    from ravana.ontology.linggen import LingGenConditioner
+    from ravana.ontology.linggen import LingGenConditioner, _MIN_PAIRS
 
     glove_fn = getattr(engine, "_glove_vector", None)
     attr_enc = getattr(engine, "_combined_attr_encoder", None)
@@ -220,7 +220,7 @@ def train_decoder_grounded(engine, nd, n_passes=30, pp=500, si=5,
             pairs.append((av, np.asarray(emb75, dtype=np.float64)))
             sentences.append((concept, desc))
 
-    if len(pairs) < LingGenConditioner._MIN_PAIRS:
+    if len(pairs) < _MIN_PAIRS:
         print(f"  [LingGen] only {len(pairs)} grounded pairs (< min) — skip")
         return False, False
 

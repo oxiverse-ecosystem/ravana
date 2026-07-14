@@ -59,6 +59,47 @@ class _null_ctx:
     def __exit__(self, *a): return False
 
 
+def _scan_books_for_concepts(corpus_dir: str, max_per_word: int = 1,
+                             min_words: int = 4, max_words: int = 28) -> Dict[str, str]:
+    """Build {lowercase_word: first_clean_sentence} from the seeded Gutenberg novels.
+
+    Used by LingGen P6 local_books harvest: provides clean, deterministic human
+    prose (no network, no LLM) keyed by concept. Only the first usable sentence
+    per word is kept to bound memory; the harvest loop later filters to embodied
+    concepts via the Binder ood gate.
+    """
+    gut = os.path.join(corpus_dir, "gutenberg")
+    if not os.path.isdir(gut):
+        return {}
+    index: Dict[str, str] = {}
+    word_re = re.compile(r"[a-z']{3,}")
+    for fn in sorted(os.listdir(gut)):
+        if not fn.lower().endswith(".txt"):
+            continue
+        path = os.path.join(gut, fn)
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as fh:
+                text = fh.read()
+        except Exception:
+            continue
+        # Split into sentences on terminal punctuation (keep it simple/offline).
+        for raw in re.split(r"(?<=[.!?])\s+", text):
+            s = _clean_snippet(raw)
+            toks = word_re.findall(s.lower())
+            if not (min_words <= len(toks) <= max_words):
+                continue
+            # Skip boilerplate / Project Gutenberg license lines.
+            if any(k in s.lower() for k in ("project gutenberg", "copyright",
+                                             "www.gutenberg", "license", "ebook")):
+                continue
+            for w in set(toks):
+                if w not in index:
+                    index[w] = s
+                    if len(index) > 200000:
+                        return index
+    return index
+
+
 
 class WebLearningMixin(ResponseGenMixin):
     """Mixin providing web search, background learning, and curiosity drive methods."""
@@ -149,32 +190,41 @@ class WebLearningMixin(ResponseGenMixin):
             vec = 0.5 * vec + 0.5 * ctx
         return vec
 
-    # ── LingGen P6: grounded-corpus harvest (web, offline-capable, no LLM) ──
+    # ── LingGen P6: grounded-corpus harvest (web OR local books, no LLM) ──
     def harvest_grounded_corpus(self, max_concepts: int = 200,
                                 out_path: Optional[str] = None,
                                 local_only: bool = False,
+                                local_books: bool = False,
                                 force: bool = False) -> int:
-        """Harvest short encyclopedic/perceptual descriptions for embodied concepts.
+        """Harvest short human descriptions for embodied concepts (LingGen P6).
 
         For each graph concept whose Binder 65-D signature is ON-manifold (not
-        OOD — the dataset-derived ``ood_abstain`` floor), pull ONE short snippet
-        via the already-wired ``SearchEngine`` and store it VERBATIM as plain
-        human text. The alignment is vector->text: the concept's own Binder
-        vector is the conditioning target; the human snippet is the grounding
-        prose. NOTHING is rephrased by a model — no LLM in the path.
+        OOD — the dataset-derived ``ood_abstain`` floor), obtain ONE short,
+        clean human sentence and store it VERBATIM as plain text. The alignment
+        is vector->text: the concept's own Binder vector is the conditioning
+        target; the human sentence is the grounding prose. NOTHING is rephrased
+        by a model — no LLM in the path.
+
+        Two sources (both offline-capable, no LLM):
+          * local_books=True: extract a clean sentence containing the concept
+            from the seeded Gutenberg novels (data/corpora/gutenberg/*.txt).
+            High-quality, deterministic, reuses already-present corpus data.
+          * else: pull a snippet via the already-wired SearchEngine (web, option
+            b). Prefers the local search engine when local_only=True.
 
         The result feeds ``train.py``'s grounded-decoder training pass
         (LingGenConditioner.fit maps Binder vec -> 75-D dual-code embedding,
         supervised by these descriptions).
 
         Args:
-            max_concepts: hard cap on web fetches (bounds cost; the training
-                pass can be re-run later to grow the set online).
+            max_concepts: hard cap on concepts written (bounds cost; the
+                training pass can be re-run later to grow the set online).
             out_path: where to write concept<TAB>description lines.
             local_only: prefer the local search engine only (no remote APIs).
+            local_books: use the seeded Gutenberg corpus instead of web search.
             force: re-harvest even if the out file already exists.
 
-        Returns the number of concepts written.
+        Returns the number of concepts written (-1 if already done & not force).
         """
         from ravana.ontology.attribute_calibration import ood_abstain
         out_path = out_path or os.path.join(_proj_root_corpora(), "grounded_descriptions.txt")
@@ -187,10 +237,14 @@ class WebLearningMixin(ResponseGenMixin):
         if glove_fn is None or attr_enc is None:
             return 0
         search = getattr(self, "search_engine", None)
-        if search is None:
-            return 0
 
-        # Collect candidate concepts: prefer graph labels with embeddings.
+        # Pre-scan the Gutenberg books for concept->clean-sentence when in
+        # local_books mode (one pass over the corpus, then O(1) lookup).
+        book_index = {}
+        if local_books:
+            book_index = _scan_books_for_concepts(_proj_root_corpora())
+
+        # Collect candidate concepts: graph labels with embeddings, de-duped.
         cand = []
         with getattr(self, "_graph_lock", _null_ctx()):
             nodes = list(getattr(self.graph, "nodes", {}).values())
@@ -199,7 +253,6 @@ class WebLearningMixin(ResponseGenMixin):
             if not label or " " in label or len(label) < 3:
                 continue
             cand.append(label)
-        # De-dup, keep order.
         seen = set()
         cand = [c for c in cand if not (c in seen or seen.add(c))]
 
@@ -214,16 +267,21 @@ class WebLearningMixin(ResponseGenMixin):
                 # Distribution-derived gate: only embodied (on-manifold) concepts.
                 if ood_abstain(attr_enc, np.asarray(gv, dtype=np.float64)):
                     continue
-                try:
-                    results = search.search(label, max_results=1, local_only=local_only)
-                except Exception:
-                    results = []
                 snippet = ""
-                if results:
-                    r0 = results[0] if isinstance(results, list) else None
-                    if isinstance(r0, dict):
-                        snippet = (r0.get("snippet") or r0.get("description")
-                                   or r0.get("body") or "")
+                if local_books:
+                    snippet = book_index.get(label, "")
+                elif search is not None:
+                    try:
+                        results = search.search(label, max_results=1,
+                                                 local_only=local_only)
+                    except Exception:
+                        results = []
+                    if results:
+                        r0 = results[0] if isinstance(results, list) else None
+                        if isinstance(r0, dict):
+                            snippet = (r0.get("content") or r0.get("snippet")
+                                       or r0.get("description") or r0.get("body")
+                                       or r0.get("title") or "")
                 snippet = _clean_snippet(snippet)
                 if not snippet:
                     continue

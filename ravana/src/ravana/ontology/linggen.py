@@ -40,7 +40,7 @@ from typing import Optional, Sequence
 import numpy as np
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
-    os.path.abspath(__file__)))))
+    os.path.dirname(os.path.abspath(__file__))))))
 _WSM_PATH = os.path.join(_ROOT, "data", "linggen_wsm.npz")
 # Decoder embed dim (must match response_gen._DECODER_DIM / neural_decoder.embed_dim).
 _EMBED_DIM = 75
