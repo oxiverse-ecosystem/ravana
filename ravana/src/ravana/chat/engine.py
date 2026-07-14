@@ -335,6 +335,13 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         self.use_vad = True
         self.use_rlm = True
         self.use_beliefs = True
+        # LingGen P6: free-form sensorimotor-conditioned decoder generation.
+        # OFF until the grounded training pass proves decoder-CE <= template-CE
+        # on a held-out set (distribution-fit promotion, not a hand switch).
+        # When False, generation falls back to _build_conditioned_bos (Lancaster
+        # tail) + realize_dim phrase lookup — never emits ungrounded gibberish.
+        self.use_linggen = False
+        self._linggen_genconf_seq = []  # history of grounded-run top1 acc
         # Track B Phase 2 (M4): learned snippet-quality model (structural PE).
         # OFF by default — the hardcoded _SNIPPET_REJECT_SHAPES /
         # _SNIPPET_NOISE tables remain the backstop until the learned model is
@@ -7571,6 +7578,8 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 'use_rlm': getattr(self, 'use_rlm', True),
                 'use_beliefs': getattr(self, 'use_beliefs', True),
                 'use_cerebellar_snippet': getattr(self, 'use_cerebellar_snippet', False),
+                'use_linggen': getattr(self, 'use_linggen', False),
+                'linggen_genconf_seq': list(getattr(self, '_linggen_genconf_seq', [])),
                 'source_trust': dict(getattr(self, '_source_trust', {})),
                 'belief_store_state': getattr(self, 'belief_store', BeliefStore()).get_state(),
                 # Background learning state
@@ -7803,6 +7812,13 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             self._last_strategy = state['last_strategy']
             self._free_energy = state['free_energy']
             self._learning_count = state['learning_count']
+            # LingGen P6: restore the learned promotion flag (not a runtime config
+            # switch like use_vad — this reflects whether grounded training proved
+            # decoder-CE <= template-CE). Persists across loads so free-form
+            # generation stays enabled once earned.
+            self.use_linggen = bool(state.get('use_linggen', False))
+            seq = state.get('linggen_genconf_seq', [])
+            self._linggen_genconf_seq = list(seq) if isinstance(seq, (list, tuple)) else []
 
             # Restore identity (M5: each field independently guarded — a
             # corrupt field logs + is skipped, it can't wipe the rest).

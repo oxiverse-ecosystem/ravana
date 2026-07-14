@@ -804,25 +804,58 @@ class ResponseGenMixin(ChainWalkerMixin):
                 if word not in function_words_set and not word.startswith("<")
             }
 
-        # P6: register-conditioned BOS — replace the static <bos> embedding with
-        # one warped by the subject's embodiment, current arousal/valence, and
-        # formality register (PFC register frame). Fail-soft: if no <bos> row or
-        # no lancaster fn, initial_emb stays None and the decoder uses <bos>.
+        # P6 LingGen: angular-gyrus BOS conditioning.
+        # Priority (fail-soft, no hardcoding):
+        #   1. If the subject's 65-D Binder vector is on-manifold AND the decoder
+        #      is confident on grounded runs (adaptive floor) AND the learned W_sm
+        #      is available AND use_linggen is enabled -> inject W_sm @ av (full
+        #      65-D embodied signature, not just the 11-D Lancaster tail).
+        #   2. Else fall back to the measured Lancaster-tail warp
+        #      (_build_conditioned_bos), which itself degrades gracefully.
         initial_emb = None
         sm_fn = getattr(self, "_lancaster_vector", None)
         subj_lanc = sm_fn(subject.lower()) if sm_fn is not None else None
         arousal = getattr(ctx, "arousal", 0.3) if hasattr(ctx, "arousal") else 0.3
         valence = getattr(ctx, "valence", 0.0) if hasattr(ctx, "valence") else 0.0
         formality = getattr(self, "_reg_formality", 0.0)
+        use_linggen = getattr(self, "use_linggen", False)
         try:
-            initial_emb = self._build_conditioned_bos(
-                subject_lancaster=subj_lanc,
-                arousal=arousal,
-                valence=valence,
-                formality=formality,
-            )
+            from ravana.ontology.linggen import LingGenConditioner, should_use_freeform
+            glove_fn = getattr(self, "_glove_vector", None)
+            attr_enc = getattr(self, "_combined_attr_encoder", None)
+            conditioner = LingGenConditioner.load()
+            av = None
+            off_manifold = True
+            if glove_fn is not None and attr_enc is not None:
+                gv = glove_fn(subject.lower())
+                if gv is not None:
+                    av = attr_enc.attribute_vector(np.asarray(gv, dtype=np.float64))
+                    from ravana.ontology.attribute_calibration import ood_abstain
+                    off_manifold = ood_abstain(attr_enc, np.asarray(gv, dtype=np.float64))
+            gen_conf = float(getattr(self.neural_decoder, "_avg_top1_acc", 0.0))
+            seq = getattr(self, "_linggen_genconf_seq", [])
+            if (use_linggen and conditioner.trained and av is not None
+                    and should_use_freeform(off_manifold, gen_conf, seq)):
+                projected = conditioner.condition(av)
+                if projected is not None:
+                    initial_emb = projected
+            if initial_emb is None:
+                initial_emb = self._build_conditioned_bos(
+                    subject_lancaster=subj_lanc,
+                    arousal=arousal,
+                    valence=valence,
+                    formality=formality,
+                )
         except Exception:
-            initial_emb = None
+            try:
+                initial_emb = self._build_conditioned_bos(
+                    subject_lancaster=subj_lanc,
+                    arousal=arousal,
+                    valence=valence,
+                    formality=formality,
+                )
+            except Exception:
+                initial_emb = None
 
         # Stage 2: Boost subject concept in conditioning to seed content words
         subject_idx = self._decoder_word_to_idx.get(subject.lower())

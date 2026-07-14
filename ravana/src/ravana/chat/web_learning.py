@@ -28,6 +28,37 @@ except ImportError:
     HAS_BS4 = False
 
 
+def _proj_root_corpora() -> str:
+    """Path to data/corpora (LingGen grounded-descriptions output dir)."""
+    return os.path.join(_proj_root, "data", "corpora")
+
+
+def _clean_snippet(s: str) -> str:
+    """Collapse whitespace and strip markup from a search snippet (verbatim text).
+
+    No rephrasing — only whitespace normalization + tag removal so the stored
+    grounding prose is clean plain text. Keeps the human wording intact.
+    """
+    if not s:
+        return ""
+    if HAS_BS4:
+        try:
+            s = BeautifulSoup(s, "html.parser").get_text(" ")
+        except Exception:
+            pass
+    s = re.sub(r"<[^>]+>", " ", s)          # any residual tags
+    s = re.sub(r"\s+", " ", s).strip()
+    # Drop trailing ellipses / boilerplate markers.
+    s = s.strip(" .…-").strip()
+    return s
+
+
+class _null_ctx:
+    """No-op context manager for when _graph_lock is absent."""
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+
+
 
 class WebLearningMixin(ResponseGenMixin):
     """Mixin providing web search, background learning, and curiosity drive methods."""
@@ -117,6 +148,88 @@ class WebLearningMixin(ResponseGenMixin):
             ctx = np.mean(vecs, axis=0)
             vec = 0.5 * vec + 0.5 * ctx
         return vec
+
+    # ── LingGen P6: grounded-corpus harvest (web, offline-capable, no LLM) ──
+    def harvest_grounded_corpus(self, max_concepts: int = 200,
+                                out_path: Optional[str] = None,
+                                local_only: bool = False,
+                                force: bool = False) -> int:
+        """Harvest short encyclopedic/perceptual descriptions for embodied concepts.
+
+        For each graph concept whose Binder 65-D signature is ON-manifold (not
+        OOD — the dataset-derived ``ood_abstain`` floor), pull ONE short snippet
+        via the already-wired ``SearchEngine`` and store it VERBATIM as plain
+        human text. The alignment is vector->text: the concept's own Binder
+        vector is the conditioning target; the human snippet is the grounding
+        prose. NOTHING is rephrased by a model — no LLM in the path.
+
+        The result feeds ``train.py``'s grounded-decoder training pass
+        (LingGenConditioner.fit maps Binder vec -> 75-D dual-code embedding,
+        supervised by these descriptions).
+
+        Args:
+            max_concepts: hard cap on web fetches (bounds cost; the training
+                pass can be re-run later to grow the set online).
+            out_path: where to write concept<TAB>description lines.
+            local_only: prefer the local search engine only (no remote APIs).
+            force: re-harvest even if the out file already exists.
+
+        Returns the number of concepts written.
+        """
+        from ravana.ontology.attribute_calibration import ood_abstain
+        out_path = out_path or os.path.join(_proj_root_corpora(), "grounded_descriptions.txt")
+        if os.path.exists(out_path) and not force:
+            return -1  # already harvested; signal "no-op"
+        os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+
+        glove_fn = getattr(self, "_glove_vector", None)
+        attr_enc = getattr(self, "_combined_attr_encoder", None)
+        if glove_fn is None or attr_enc is None:
+            return 0
+        search = getattr(self, "search_engine", None)
+        if search is None:
+            return 0
+
+        # Collect candidate concepts: prefer graph labels with embeddings.
+        cand = []
+        with getattr(self, "_graph_lock", _null_ctx()):
+            nodes = list(getattr(self.graph, "nodes", {}).values())
+        for node in nodes:
+            label = getattr(node, "label", None)
+            if not label or " " in label or len(label) < 3:
+                continue
+            cand.append(label)
+        # De-dup, keep order.
+        seen = set()
+        cand = [c for c in cand if not (c in seen or seen.add(c))]
+
+        written = 0
+        with open(out_path, "w", encoding="utf-8") as fh:
+            for label in cand:
+                if written >= max_concepts:
+                    break
+                gv = glove_fn(label)
+                if gv is None:
+                    continue
+                # Distribution-derived gate: only embodied (on-manifold) concepts.
+                if ood_abstain(attr_enc, np.asarray(gv, dtype=np.float64)):
+                    continue
+                try:
+                    results = search.search(label, max_results=1, local_only=local_only)
+                except Exception:
+                    results = []
+                snippet = ""
+                if results:
+                    r0 = results[0] if isinstance(results, list) else None
+                    if isinstance(r0, dict):
+                        snippet = (r0.get("snippet") or r0.get("description")
+                                   or r0.get("body") or "")
+                snippet = _clean_snippet(snippet)
+                if not snippet:
+                    continue
+                fh.write(f"{label}\t{snippet}\n")
+                written += 1
+        return written
 
     def _sense_biasing_framing(self, query: str, subject: str) -> str:
         """Return a better search term that biases toward the intended sense.

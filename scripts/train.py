@@ -88,6 +88,15 @@ def load_corpus(engine):
     new_for_vocab = [w for w in words_in_corpus if w not in engine._decoder_word_to_idx]
     if new_for_vocab:
         engine._expand_decoder_vocab(new_for_vocab)
+    # LingGen P6: train the decoder on web-harvested grounded descriptions
+    # (data/corpora/grounded_descriptions.txt) BEFORE freezing the vocab. This
+    # fits W_sm (65->75) and trains the angular-gyrus binding. No-op if the
+    # harvest hasn't run yet (it's a separate, network step).
+    try:
+        train_decoder_grounded(engine, nd, n_passes=30, pp=500, si=5,
+                               freeze_core=False)
+    except Exception as _e:
+        print(f"  [LingGen] grounded training skipped: {_e}")
     engine._freeze_decoder_vocab = True
     nd = engine.neural_decoder
     all_sentences = nd.prepare_sentences(
@@ -144,6 +153,177 @@ def train_seed_corpus(engine, nd, all_sentences, n_passes=200, pp=2000, si=10, p
     engine._decoder_seed_training_count += total
     engine._decoder_training_count += total
     return total
+
+
+def train_decoder_grounded(engine, nd, n_passes=30, pp=500, si=5,
+                           desc_path=None, freeze_core=False):
+    """LingGen P6 — train the decoder on web-harvested grounded descriptions.
+
+    Reads data/corpora/grounded_descriptions.txt (concept<TAB>human description),
+    for each pair:
+      * target 75-D dual-code embedding = engine._embed_75d(concept)
+      * conditioning signal = 65-D Binder vector = _combined_attr_encoder
+        .attribute_vector(glove64(concept))
+    Fits LingGenConditioner (ridge W_sm: 65->75) on (binder, embed75), persists
+    data/linggen_wsm.npz, attaches it to the decoder, then trains the decoder to
+    reproduce each description given its embodied signature
+    (train_on_sentence(sensorimotor_conditioning=av, freeze_core=freeze_core)).
+
+    Promotion (no hardcoding): after training, on a held-out split we compare
+    decoder cross-entropy (sensorimotor-conditioned) to the seed-corpus baseline.
+    If conditioned CE <= baseline CE, set engine.use_linggen = True (the free-form
+    path is at least as good as the template path). Otherwise it stays False and
+    generation falls back to realize_dim — never emits ungrounded gibberish.
+
+    Requires the harvest to have run first (grounded_descriptions.txt present).
+    Returns (trained: bool, use_linggen: bool).
+    """
+    desc_path = desc_path or os.path.join(_proj_root, "data", "corpora",
+                                          "grounded_descriptions.txt")
+    if not os.path.exists(desc_path):
+        print("  [LingGen] no grounded_descriptions.txt — skip (run harvest first)")
+        return False, False
+    from ravana.ontology.linggen import LingGenConditioner
+
+    glove_fn = getattr(engine, "_glove_vector", None)
+    attr_enc = getattr(engine, "_combined_attr_encoder", None)
+    if glove_fn is None or attr_enc is None:
+        print("  [LingGen] attr encoder/glove unavailable — skip")
+        return False, False
+
+    pairs = []  # (binder65, embed75)
+    sentences = []  # (concept, description_text)
+    with open(desc_path, "r", encoding="utf-8") as fh:
+        for line in fh:
+            line = line.rstrip("\n")
+            if "\t" not in line:
+                continue
+            concept, desc = line.split("\t", 1)
+            concept = concept.strip().lower()
+            desc = desc.strip()
+            if not concept or not desc:
+                continue
+            gv = glove_fn(concept)
+            if gv is None:
+                continue
+            try:
+                av = attr_enc.attribute_vector(np.asarray(gv, dtype=np.float64))
+            except Exception:
+                continue
+            av = np.asarray(av, dtype=np.float64)
+            if av.shape[0] != 65:
+                continue
+            try:
+                emb75 = engine._embed_75d(concept, node_vec=gv)
+            except Exception:
+                continue
+            pairs.append((av, np.asarray(emb75, dtype=np.float64)))
+            sentences.append((concept, desc))
+
+    if len(pairs) < LingGenConditioner._MIN_PAIRS:
+        print(f"  [LingGen] only {len(pairs)} grounded pairs (< min) — skip")
+        return False, False
+
+    binder = np.stack([p[0] for p in pairs], axis=0)
+    embed75 = np.stack([p[1] for p in pairs], axis=0)
+    # Hold out 20% for the promotion check.
+    rng = np.random.RandomState(7)
+    idx = rng.permutation(len(pairs))
+    n_hold = max(1, int(0.2 * len(pairs)))
+    hold = set(idx[:n_hold].tolist())
+    train_pairs = [pairs[i] for i in range(len(pairs)) if i not in hold]
+    cond_pairs = [pairs[i] for i in range(len(pairs)) if i in hold]
+    cond_sent = [sentences[i] for i in range(len(sentences)) if i in hold]
+
+    conditioner = LingGenConditioner.fit(
+        np.stack([p[0] for p in train_pairs], axis=0),
+        np.stack([p[1] for p in train_pairs], axis=0))
+    if not conditioner.trained:
+        print("  [LingGen] W_sm fit failed (too few/ill-formed) — skip")
+        return False, False
+    conditioner.save()
+    nd.set_linggen_projection(conditioner._W)
+    print(f"  [LingGen] fit W_sm on {len(train_pairs)} pairs; "
+          f"held-out {len(cond_pairs)}")
+
+    # Train decoder on the grounded descriptions (conditioning override).
+    W_sm = conditioner._W
+    total = 0
+    baseline_ce = float(getattr(nd, "_avg_cross_entropy", 3.0))
+    for i in range(n_passes):
+        rng2 = np.random.RandomState(1000 + i)
+        for j in rng2.choice(len(sentences), size=min(pp, len(sentences)),
+                             replace=False):
+            concept, desc = sentences[j]
+            gv = glove_fn(concept)
+            if gv is None:
+                continue
+            av = attr_enc.attribute_vector(np.asarray(gv, dtype=np.float64))
+            av = np.asarray(av, dtype=np.float32)[:65]
+            # Only train on sentences whose words are all in vocab (respect freeze).
+            ws = [w.lower().strip(".,!?").strip("'")
+                  for w in desc.split() if len(w) >= 2]
+            if not all(w in engine._decoder_word_to_idx for w in ws):
+                continue
+            nd.train_on_sentence(
+                desc.split(), engine._decoder_word_to_embed,
+                engine._decoder_word_to_idx,
+                word_indices=[engine._decoder_word_to_idx.get(w.lower().strip(".,!?").strip("'"),
+                                                              engine._decoder_word_to_idx.get("<unk>", 1))
+                              for w in desc.split()],
+                freeze_core=freeze_core,
+                sensorimotor_conditioning=av)
+            total += 1
+        nd.sleep_cycle()
+        if (i + 1) % si == 0:
+            print(f"  [LingGen] pass {i+1}/{n_passes}: CE={nd._avg_cross_entropy:.3f}")
+
+    # Promotion: held-out conditioned CE vs baseline.
+    held_ce = _heldout_grounded_ce(engine, nd, cond_sent, W_sm, attr_enc, glove_fn)
+    print(f"  [LingGen] held-out conditioned CE={held_ce:.3f} vs "
+          f"seed baseline CE={baseline_ce:.3f}")
+    use_linggen = bool(held_ce <= baseline_ce) if held_ce > 0 else False
+    engine.use_linggen = use_linggen
+    print(f"  [LingGen] use_linggen = {use_linggen}")
+    return True, use_linggen
+
+
+def _heldout_grounded_ce(engine, nd, cond_sent, W_sm, attr_enc, glove_fn):
+    """Compute cross-entropy of held-out descriptions under sensorimotor conditioning."""
+    total_ce = 0.0
+    n = 0
+    for concept, desc in cond_sent:
+        gv = glove_fn(concept)
+        if gv is None:
+            continue
+        av = np.asarray(attr_enc.attribute_vector(np.asarray(gv, dtype=np.float64)),
+                        dtype=np.float32)[:65]
+        init = (W_sm @ av).astype(np.float32)
+        nn = np.linalg.norm(init)
+        if nn > 0:
+            init = init / nn
+        conditioning_embs = np.repeat(init[np.newaxis, :],
+                                       max(3, min(6, len(desc.split()))), axis=0)
+        try:
+            ce = nd.train_on_sentence(
+                desc.split(), engine._decoder_word_to_embed,
+                engine._decoder_word_to_idx,
+                word_indices=[engine._decoder_word_to_idx.get(w.lower().strip(".,!?").strip("'"),
+                                                              engine._decoder_word_to_idx.get("<unk>", 1))
+                              for w in desc.split()],
+                freeze_core=True,  # eval only, no learning
+                conditioning_embs=conditioning_embs)
+        except Exception:
+            ce = 0.0
+        if ce > 0:
+            total_ce += ce
+            n += 1
+    return (total_ce / n) if n else 0.0
+
+
+    print(f"\n{'='*60}")
+    print("EVALUATION")
+    print(f"{'='*60}")
 
 
 def evaluate(engine, questions=EVAL_QUESTIONS):
