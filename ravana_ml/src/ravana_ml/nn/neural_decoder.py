@@ -456,7 +456,8 @@ class NeuralDecoder(Module):
                           conditioning_embs: Optional[np.ndarray] = None,
                           word_indices: Optional[List[int]] = None,
                           freeze_core: bool = False,
-                          sensorimotor_conditioning: Optional[np.ndarray] = None) -> float:
+                          sensorimotor_conditioning: Optional[np.ndarray] = None,
+                          initial_emb: Optional[np.ndarray] = None) -> float:
         """Unsupervised learning from a sentence (fully batched Hebbian updates).
 
         Args:
@@ -464,11 +465,17 @@ class NeuralDecoder(Module):
                 Skips GRU, condition_proj, and attention updates.
                 Use this for web learning to protect core language patterns.
             sensorimotor_conditioning: Optional (65-D) Binder vector (LingGen P6).
-                When provided it OVERRIDES the auto-blended function/content
-                conditioning (the self-cheat fix) with the learned angular-gyrus
-                projection ``W_sm @ sensorimotor_conditioning`` expanded to
-                (n_concepts, embed_dim). This is the supervised grounding signal:
-                "given this embodied signature, reproduce this human description".
+                When provided AND the learned angular-gyrus projection W_sm is
+                attached, it is projected to a 75-D ``initial_emb`` and injected
+                as the BOS initiation embedding at step 0 -- matching
+                ``generate(initial_emb=)`` EXACTLY, so train == gen. It does NOT
+                overwrite the per-token linguistic conditioning (the function/
+                content blend), which remains the attention context. This is the
+                supervised grounding signal: "given this embodied signature as
+                the initiation state, reproduce this human description".
+            initial_emb: Optional (embed_dim,) BOS initiation embedding supplied
+                directly (skips the W_sm projection). Used by callers that have
+                already computed it.
 
         Forward pass stores all errors and intermediates; then at the end
         all Hebbian updates are computed in a few large matmuls.
@@ -480,11 +487,9 @@ class NeuralDecoder(Module):
         bos_idx = word_to_idx.get("<bos>", 0)
         eos_idx = word_to_idx.get("<eos>", 2)
 
-        if sensorimotor_conditioning is not None:
-            # P6: explicit embodied conditioning wins over the blend. Project the
-            # 65-D Binder vector onto the 75-D decoder space via the learned W_sm
-            # (LingGenConditioner). Fail-soft: if W_sm is unavailable we silently
-            # fall through to the blended conditioning below (no crash, no gibberish).
+        # P6: derive the BOS initiation embedding from the embodied signature,
+        # but ONLY for step 0 -- never touch the per-token linguistic blend.
+        if initial_emb is None and sensorimotor_conditioning is not None:
             sm = np.asarray(sensorimotor_conditioning, dtype=np.float32)[:65]
             W_sm = getattr(self, "_linggen_W_sm", None)
             if W_sm is not None:
@@ -492,14 +497,8 @@ class NeuralDecoder(Module):
                 n = np.linalg.norm(init)
                 if n > 0:
                     init = init / n
-                # Build a small set of conditioning rows: the projected initiation
-                # embedding repeated (the decoder blends these like content embs).
-                conditioning_embs = np.repeat(
-                    init[np.newaxis, :], max(3, min(6, len(sentence_words))), axis=0)
-            # If W_sm is None we intentionally keep conditioning_embs=None so the
-            # blended fallback below runs (the harvest/train path guarantees W_sm
-            # is fit before grounded training, so this branch is the safety net).
-
+                initial_emb = init  # (embed_dim,) BOS initiation state
+        _has_initial = initial_emb is not None
         if conditioning_embs is None:
             # FIX: Blend function words + actual content words from the sentence
             # for conditioning. This mimics how the decoder receives concept
@@ -649,6 +648,14 @@ class NeuralDecoder(Module):
 
             word_emb = sentence_embs[pos]
             proj_emb = proj_embs[pos]
+            if pos == 0 and _has_initial and initial_emb is not None:
+                # P6: mirror generate(initial_emb=) -- replace the <bos> input's
+                # projected embedding with the conditioned BOS initiation state
+                # (W_sm @ av), so the GRU hidden state is seeded by the embodied
+                # signature exactly as at generation time. The per-token
+                # linguistic conditioning (attention context) is untouched.
+                proj_emb = self.condition_proj.forward_raw(
+                    np.asarray(initial_emb, dtype=np.float32)[:self.embed_dim][np.newaxis, :])[0]
 
             # Manual GRU (stores intermediates for batched update)
             x_data = proj_emb
@@ -920,10 +927,12 @@ class NeuralDecoder(Module):
                         cond_embs.append(pad)
                 conditioning_embs = np.stack(cond_embs, axis=0)
 
-                # P6: explicit embodied conditioning overrides the blend (same as
-                # train_on_sentence). Project the 65-D Binder vector to 75-D via
-                # the learned W_sm held on the decoder. Fail-soft: if W_sm absent,
-                # keep the blended conditioning_embs computed above.
+                # P6: derive the BOS initiation embedding from the embodied
+                # signature (same as train_on_sentence) -- attached as
+                # 'initial_emb' and injected at step 0 by the forward pass, so
+                # train == gen. It does NOT overwrite the per-token linguistic
+                # conditioning (the blended conditioning_embs above).
+                _init = None
                 if sensorimotor_conditioning is not None:
                     _sm = np.asarray(sensorimotor_conditioning, dtype=np.float32)[:65]
                     _W = getattr(self, "_linggen_W_sm", None)
@@ -932,14 +941,12 @@ class NeuralDecoder(Module):
                         _n = np.linalg.norm(_init)
                         if _n > 0:
                             _init = _init / _n
-                        conditioning_embs = np.repeat(
-                            _init[np.newaxis, :],
-                            max(3, min(6, len(words))), axis=0)
 
                 sentences.append({
                     'words': words,
                     'word_indices': word_indices,
                     'conditioning_embs': conditioning_embs,
+                    'initial_emb': _init,
                 })
         cap = max_sentences if max_sentences is not None else len(sentences)
         return sentences[:cap]

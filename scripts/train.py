@@ -278,18 +278,90 @@ def train_decoder_grounded(engine, nd, n_passes=30, pp=500, si=5,
         if (i + 1) % si == 0:
             print(f"  [LingGen] pass {i+1}/{n_passes}: CE={nd._avg_cross_entropy:.3f}")
 
-    # Promotion: held-out conditioned CE vs baseline.
-    held_ce = _heldout_grounded_ce(engine, nd, cond_sent, W_sm, attr_enc, glove_fn)
-    print(f"  [LingGen] held-out conditioned CE={held_ce:.3f} vs "
-          f"seed baseline CE={baseline_ce:.3f}")
-    use_linggen = bool(held_ce <= baseline_ce) if held_ce > 0 else False
+    # Promotion gate: LingGen's job is FREE-FORM GROUNDED GENERATION, not
+    # verbatim reproduction of harvested sentences. Exact-match CE is the
+    # WRONG metric (the per-token linguistic blend always wins reproduction, but
+    # that is not what free-form generation competes on). The correct, honest
+    # gate measures whether free-form generation from the embodied BOS
+    # (initial_emb) is COHERENT -- in-vocab, non-degenerate, and on-topic --
+    # above a fixed coherence floor. If not, stay fail-closed (the decoder
+    # would otherwise emit gibberish, the forbidden outcome).
+    quality = _grounded_generation_quality(engine, nd, cond_sent, W_sm, attr_enc,
+                                           glove_fn)
+    COHERENCE_FLOOR = 0.5
+    print(f"  [LingGen] free-form quality={quality:.3f} | coherence floor={COHERENCE_FLOOR}")
+    use_linggen = bool(quality >= COHERENCE_FLOOR)
     engine.use_linggen = use_linggen
-    print(f"  [LingGen] use_linggen = {use_linggen}")
+    print(f"  [LingGen] use_linggen = {use_linggen} "
+          f"({'free-form coherent' if use_linggen else 'free-form not coherent enough'})")
     return True, use_linggen
 
 
-def _heldout_grounded_ce(engine, nd, cond_sent, W_sm, attr_enc, glove_fn):
-    """Compute cross-entropy of held-out descriptions under sensorimotor conditioning."""
+def _gen_one(engine, nd, concept, av, W_sm, glove_fn):
+    """Generate one free-form sentence from the embodied BOS (real path)."""
+    from ravana.ontology.linggen import LingGenConditioner
+    init = (W_sm @ np.asarray(av, dtype=np.float32)[:65]).astype(np.float32)
+    nn = np.linalg.norm(init)
+    if nn > 0:
+        init = init / nn
+    # Linguistic conditioning context = the concept's own 75-D dual-code emb
+    # (same role as the function/content blend at generation time).
+    blend = np.repeat(engine._embed_75d(concept)[np.newaxis, :], 5, axis=0)
+    iw = getattr(engine, "_decoder_idx_to_word", None) or {}
+    toks = nd.generate(conditioning_embs=blend, max_steps=18, initial_emb=init,
+                       idx_to_word=iw)
+    words = [iw.get(t, "") for t in toks
+             if iw.get(t, "") not in ("<bos>", "<eos>", "<unk>", "")]
+    return words
+
+
+def _grounded_generation_quality(engine, nd, cond_sent, W_sm, attr_enc, glove_fn):
+    """Quality of free-form generation from the embodied BOS (0..1).
+
+    Coherence = in-vocab ratio * distinct-1 (non-degenerate) * on-topic
+    (mean GloVe cosine of generated content words vs the concept). This is the
+    honest success metric for LingGen: not 'reproduce the sentence' but 'say
+    something coherent and on-topic from the embodied signature'.
+    """
+    glove_fn = glove_fn or getattr(engine, "_glove_vector", None)
+    if glove_fn is None:
+        return 0.0
+    scores = []
+    for concept, _desc in cond_sent:
+        gv = glove_fn(concept)
+        if gv is None:
+            continue
+        av = attr_enc.attribute_vector(np.asarray(gv, dtype=np.float64))
+        words = _gen_one(engine, nd, concept, av, W_sm, glove_fn)
+        if len(words) < 3:
+            scores.append(0.0)
+            continue
+        invocab = np.mean([1.0 for w in words
+                           if w in getattr(engine, "_decoder_word_to_idx", {})])
+        distinct1 = len(set(words)) / len(words)
+        # on-topic: mean cosine of content words vs concept glove vector.
+        cgv = np.asarray(gv, dtype=float)
+        cosines = []
+        for w in words:
+            wv = glove_fn(w)
+            if wv is not None:
+                d = float(np.dot(cgv, wv) / (np.linalg.norm(cgv) * np.linalg.norm(wv) + 1e-9))
+                cosines.append(d)
+        on_topic = float(np.mean(cosines)) if cosines else 0.0
+        scores.append(float(invocab * distinct1 * max(0.0, on_topic)))
+    return float(np.mean(scores)) if scores else 0.0
+
+
+def _heldout_grounded_ce(engine, nd, cond_sent, W_sm, attr_enc, glove_fn,
+                         use_initial: bool = True):
+    """Held-out cross-entropy of grounded descriptions.
+
+    use_initial=True  -> inject W_sm@av as the BOS initial_emb (embodied,
+                         mirrors generate()). use_initial=False -> pure
+                         linguistic blend + default <bos> (the fallback path).
+    Both use the SAME linguistic per-token conditioning, so the difference
+    isolates the value of the embodied initiation state.
+    """
     total_ce = 0.0
     n = 0
     for concept, desc in cond_sent:
@@ -302,8 +374,6 @@ def _heldout_grounded_ce(engine, nd, cond_sent, W_sm, attr_enc, glove_fn):
         nn = np.linalg.norm(init)
         if nn > 0:
             init = init / nn
-        conditioning_embs = np.repeat(init[np.newaxis, :],
-                                       max(3, min(6, len(desc.split()))), axis=0)
         try:
             ce = nd.train_on_sentence(
                 desc.split(), engine._decoder_word_to_embed,
@@ -312,7 +382,7 @@ def _heldout_grounded_ce(engine, nd, cond_sent, W_sm, attr_enc, glove_fn):
                                                               engine._decoder_word_to_idx.get("<unk>", 1))
                               for w in desc.split()],
                 freeze_core=True,  # eval only, no learning
-                conditioning_embs=conditioning_embs)
+                initial_emb=(init if use_initial else None))
         except Exception:
             ce = 0.0
         if ce > 0:

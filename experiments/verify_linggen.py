@@ -89,7 +89,12 @@ def test_B4_decoder_override():
     # Tiny standalone decoder with a vocab LARGER than the top-k sampled-softmax
     # bound (>=10) so the existing argpartition(-10) path works. Real decoders
     # have thousands of words; this just needs to be big enough to exercise the
-    # sensorimotor_conditioning override.
+    # sensorimotor conditioning path.
+    #
+    # NEW behavior (train == gen): sensorimotor_conditioning is projected via
+    # W_sm to a 75-D BOS *initial_emb* injected at step 0 only. It does NOT
+    # overwrite the per-token linguistic conditioning blend (the function/content
+    # rows). This mirrors NeuralDecoder.generate(initial_emb=...).
     n_vocab = 64
     vocab = ["<bos>", "<eos>", "<unk>"] + [f"w{i}" for i in range(n_vocab - 3)]
     idx = {w: i for i, w in enumerate(vocab)}
@@ -109,19 +114,29 @@ def test_B4_decoder_override():
     print(f"[B4] decoder train_on_sentence(sensorimotor_conditioning) CE={ce:.3f} OK")
     assert ce >= 0.0
 
+    # prepare_sentences must expose initial_emb = W_sm@sm (step-0 injection) and
+    # must NOT overwrite conditioning_embs with it (the blend stays linguistic).
     sents = nd.prepare_sentences(
         "w1 w2 w3 w4. w5 w6 w7 w8.", embed, idx,
         min_sentence_len=3, sensorimotor_conditioning=sm)
     assert len(sents) >= 1
-    c0 = sents[0]["conditioning_embs"]
+    s0 = sents[0]
     exp = (W @ sm).astype(np.float32)
     nn = np.linalg.norm(exp)
     if nn > 0:
         exp = exp / nn
-    row0 = c0[0] / np.linalg.norm(c0[0])
-    sim = float(np.dot(row0, exp / np.linalg.norm(exp)))
-    print(f"[B4] prepare_sentences override aligned sim={sim:.3f} (expect ~1.0)")
-    assert sim > 0.9, "sensorimotor override must reach the conditioning rows"
+    got = s0.get("initial_emb")
+    assert got is not None, "prepare_sentences must return initial_emb"
+    g = got / np.linalg.norm(got)
+    sim_init = float(np.dot(g, exp / np.linalg.norm(exp)))
+    print(f"[B4] prepare_sentences initial_emb aligned sim={sim_init:.3f} (expect ~1.0)")
+    assert sim_init > 0.9, "initial_emb must equal W_sm@sm"
+
+    # The linguistic conditioning blend must be UNCHANGED by sensorimotor input.
+    c0 = s0["conditioning_embs"]
+    blend_sim = float(np.dot(c0[0] / np.linalg.norm(c0[0]), exp / np.linalg.norm(exp)))
+    print(f"[B4] conditioning_embs vs W_sm sim={blend_sim:.3f} (expect low: blend preserved)")
+    assert blend_sim < 0.9, "sensorimotor must NOT overwrite the linguistic blend"
     return True
 
 
