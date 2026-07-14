@@ -73,6 +73,11 @@ class EventSchemaLibrary:
         # concept.lower() → EventSchema
         self._schemas: Dict[str, EventSchema] = {}
         self._seeded = False
+        # G4 (sensorimotor schema selection): when no direct/GloVe match exists,
+        # the hippocampus-like pattern-completion path retrieves a known schema
+        # whose SUBJECT shares the query's sensorimotor fingerprint. This index
+        # is built lazily from the lancaster_fn passed to the query.
+        self._sensorimotor_schema_index: Dict[str, np.ndarray] = {}
 
     def seed_default_schemas(self):
         """Seed with default universal process schemas.
@@ -308,6 +313,112 @@ class EventSchemaLibrary:
         if best_schema is None or best_sim < min_similarity:
             return None
 
+        return (best_concept, best_schema, best_sim)
+
+    def get_schema_by_sensorimotor_similarity(
+        self,
+        concept: str,
+        lancaster_fn: Optional[Callable] = None,
+        glove_fn: Optional[Callable] = None,
+        min_similarity: float = 0.20,
+        alpha: float = 0.5,
+    ) -> Optional[Tuple[str, EventSchema, float]]:
+        """Hippocampal pattern-completion by sensorimotor fingerprint.
+
+        When a concept has no direct schema AND no strong GloVe match, the
+        hippocampus generalizes a known schema whose SUBJECT shares the
+        query's embodied (Lancaster 11-D) profile — e.g. a query about
+        "hand" (high Hand/Arm) retrieves the "creativity" schema (also high
+        Hand/Arm) even if they are semantically distant. This is cross-domain
+        transfer by relational/embodied structure (Goudar et al., 2023;
+        Masís-Obando et al., 2022).
+
+        Dual similarity blends the sensorimotor and semantic channels:
+            sim = alpha * cos(lanc_q, lanc_schema)
+                 + (1 - alpha) * cos(glove_q, glove_schema)
+        `alpha` is the mPFC integration weight (modulated by arousal /
+        confidence elsewhere); 0 = GloVe-only, 1 = sensorimotor-only.
+
+        FAIL-CLOSED: if the best similarity is below `min_similarity`, return
+        None (do NOT force a schema onto an unrelated concept).
+
+        Requires at least one of lancaster_fn / glove_fn. If only one channel
+        is available, that channel is used with weight 1.0.
+        """
+        if not self._seeded:
+            self.seed_default_schemas()
+        if lancaster_fn is None and glove_fn is None:
+            return None
+
+        concept_lower = concept.lower().strip()
+        # Direct match short-circuits (highest confidence).
+        if concept_lower in self._schemas:
+            return (concept_lower, self._schemas[concept_lower], 1.0)
+
+        # Query vectors.
+        q_lanc = lancaster_fn(concept_lower) if lancaster_fn else None
+        q_glove = glove_fn(concept_lower) if glove_fn else None
+        if q_lanc is not None:
+            q_lanc = np.asarray(q_lanc, dtype=np.float64)
+            n = float(np.linalg.norm(q_lanc))
+            if n > 1e-10:
+                q_lanc = q_lanc / n
+            else:
+                q_lanc = None
+        if q_glove is not None:
+            q_glove = np.asarray(q_glove, dtype=np.float64)
+            n = float(np.linalg.norm(q_glove))
+            if n > 1e-10:
+                q_glove = q_glove / n
+            else:
+                q_glove = None
+        if q_lanc is None and q_glove is None:
+            return None
+
+        # Effective blend weights when only one channel is present.
+        if q_lanc is None:
+            a_eff, have_lanc = 0.0, False
+        elif q_glove is None:
+            a_eff, have_lanc = 1.0, True
+        else:
+            a_eff, have_lanc = float(alpha), True
+
+        best_sim, best_concept, best_schema = 0.0, None, None
+        for sc_name, schema in self._schemas.items():
+            if sc_name == concept_lower:
+                continue
+            sc_lanc = self._sensorimotor_schema_index.get(sc_name)
+            if sc_lanc is None and lancaster_fn is not None:
+                try:
+                    sc_lanc = lancaster_fn(sc_name)
+                except Exception:
+                    sc_lanc = None
+                if sc_lanc is not None:
+                    sc_lanc = np.asarray(sc_lanc, dtype=np.float64)
+                    sn = float(np.linalg.norm(sc_lanc))
+                    sc_lanc = sc_lanc / sn if sn > 1e-10 else None
+                    if sc_lanc is not None:
+                        self._sensorimotor_schema_index[sc_name] = sc_lanc
+            sc_glove = glove_fn(sc_name) if glove_fn else None
+            if sc_glove is not None:
+                sc_glove = np.asarray(sc_glove, dtype=np.float64)
+                sn = float(np.linalg.norm(sc_glove))
+                sc_glove = sc_glove / sn if sn > 1e-10 else None
+
+            sim_parts = []
+            if have_lanc and q_lanc is not None and sc_lanc is not None:
+                sim_parts.append(a_eff * float(np.dot(q_lanc, sc_lanc)))
+            if q_glove is not None and sc_glove is not None:
+                w = (1.0 - a_eff) if have_lanc else 1.0
+                sim_parts.append(w * float(np.dot(q_glove, sc_glove)))
+            if not sim_parts:
+                continue
+            sim = max(0.0, sum(sim_parts))
+            if sim > best_sim:
+                best_sim, best_concept, best_schema = sim, sc_name, schema
+
+        if best_schema is None or best_sim < min_similarity:
+            return None
         return (best_concept, best_schema, best_sim)
 
     def get_narrative_from_similar_schema(self, concept: str,

@@ -232,7 +232,8 @@ class NeuralDecoder(Module):
                  idx_to_word: Optional[Dict[int, str]] = None,
                  basal_ganglia=None,
                  content_word_ids: Optional[Set[int]] = None,
-                 token_boost: Optional[Dict[int, float]] = None) -> List[int]:
+                 token_boost: Optional[Dict[int, float]] = None,
+                 initial_emb: Optional[np.ndarray] = None) -> List[int]:
         """Generate a sequence autoregressively conditioned on concept embeddings.
 
         Optionally uses cerebellar n-gram bias and basal ganglia gating
@@ -247,6 +248,11 @@ class NeuralDecoder(Module):
             cerebellar_ngram: optional CerebellarNgram for transition bias
             idx_to_word: optional {idx: word} mapping for cerebellar lookups
             basal_ganglia: optional BasalGangliaGate for Go/NoGo selection
+            initial_emb: optional (embed_dim,) — a dynamically CONDITIONED BOS
+                embedding (e.g. register + sensorimotor + VAD). When provided,
+                it replaces the static <bos> embedding as the first token's
+                input at step 0 (P6: PFC register frame sets the initiation
+                state before utterance onset).
 
         Returns:
             List of generated token indices
@@ -268,6 +274,12 @@ class NeuralDecoder(Module):
 
         for step in range(max_steps):
             word_emb = self.word_embedding.embed_raw(generated[-1])
+            if step == 0 and initial_emb is not None:
+                # P6: use the conditioned BOS embedding directly as the first
+                # token's input (the PFC register frame), bypassing the static
+                # <bos> row. The conditioning projection still maps it into GRU
+                # space so the rest of the forward pass is unchanged.
+                word_emb = np.asarray(initial_emb, dtype=np.float32)[:self.embed_dim]
             projected_word = self.condition_proj.forward_raw(word_emb[np.newaxis, :])[0]
             h = self.gru(projected_word, h)
 

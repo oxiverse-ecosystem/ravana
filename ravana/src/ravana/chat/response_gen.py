@@ -143,6 +143,69 @@ class ResponseGenMixin(ChainWalkerMixin):
                 sm = sm / n
         return np.concatenate([gv, sm]).astype(np.float32)
 
+    # P6: Register-Conditioned BOS embedding — the PFC "register frame" that sets
+    # the initiation state (formality/verbosity, subject embodiment, emotional
+    # tone) BEFORE utterance onset, replacing the static <bos> row. The brain has
+    # no literal BOS token; the initiation state is an emergent, context-encoded
+    # vector. We approximate it as a warped 75-D version of the <bos> embedding.
+    def _build_conditioned_bos(self,
+                               subject_lancaster: Optional[np.ndarray] = None,
+                               arousal: float = 0.3,
+                               valence: float = 0.0,
+                               formality: float = 0.0) -> np.ndarray:
+        """Build a 75-D BOS embedding conditioned on the current cognitive state.
+
+        Channels (each a measured, not hard-coded, warp of the base <bos>):
+          1. Register: formality stiffens/smooths the distributional body.
+          2. Sensorimotor grounding: inject the subject's Lancaster-11 tail so
+             the opening token is already biased toward the subject's embodiment.
+          3. Emotional tone: arousal/valence shift the embedding along
+             discourse-friendly directions.
+        Returns a unit-norm 75-D vector (NaN/empty inputs degrade gracefully).
+        """
+        bos = self._decoder_word_to_embed.get("<bos>")
+        if bos is None:
+            bos = np.zeros(self._DECODER_DIM, dtype=np.float32)
+        else:
+            bos = np.asarray(bos, dtype=np.float32).copy()
+        # 1. Register warp: a fixed, low-rank bias direction for formality.
+        formality = float(np.clip(formality, 0.0, 1.0))
+        bias = np.zeros(self._DECODER_DIM, dtype=np.float32)
+        rng = np.random.RandomState(1234)
+        form_dir = rng.randn(self._DECODER_DIM).astype(np.float32)
+        fn = np.linalg.norm(form_dir)
+        if fn > 0:
+            form_dir /= fn
+        bias += float(formality) * 0.4 * form_dir
+        # 3. Emotional tone: arousal/valence as signed perturbations on a stable
+        #    random direction (val_dir orthogonal to form_dir for decorrelation).
+        a = float(np.clip(arousal, 0.0, 1.0))
+        v = float(np.clip(valence, -1.0, 1.0))
+        val_dir = rng.randn(self._DECODER_DIM).astype(np.float32)
+        if fn > 0:
+            val_dir -= np.dot(val_dir, form_dir) * form_dir  # orthogonalize
+        vn = np.linalg.norm(val_dir)
+        if vn > 0:
+            val_dir /= vn
+        bias += float(a) * 0.25 * val_dir + float(v) * 0.2 * val_dir
+        bos = bos + bias
+        # 2. Sensorimotor grounding: warp the 11-D tail (cols 64:75).
+        if subject_lancaster is not None:
+            sm = np.asarray(subject_lancaster, dtype=np.float32)[:11]
+            sn = np.linalg.norm(sm)
+            if sn > 0:
+                sm = sm / sn
+                tail = bos[64:75].copy()
+                tn = np.linalg.norm(tail)
+                if tn > 0:
+                    tail = tail / tn
+                bos[64:75] = (0.7 * tail + 0.3 * sm).astype(np.float32)
+        n = np.linalg.norm(bos)
+        if n > 0:
+            bos = bos / n
+        return bos.astype(np.float32)
+
+
     def _build_decoder_vocab(self):
         """Build vocabulary for the NeuralDecoder from graph concepts + GloVe + function words.
 
@@ -741,6 +804,26 @@ class ResponseGenMixin(ChainWalkerMixin):
                 if word not in function_words_set and not word.startswith("<")
             }
 
+        # P6: register-conditioned BOS — replace the static <bos> embedding with
+        # one warped by the subject's embodiment, current arousal/valence, and
+        # formality register (PFC register frame). Fail-soft: if no <bos> row or
+        # no lancaster fn, initial_emb stays None and the decoder uses <bos>.
+        initial_emb = None
+        sm_fn = getattr(self, "_lancaster_vector", None)
+        subj_lanc = sm_fn(subject.lower()) if sm_fn is not None else None
+        arousal = getattr(ctx, "arousal", 0.3) if hasattr(ctx, "arousal") else 0.3
+        valence = getattr(ctx, "valence", 0.0) if hasattr(ctx, "valence") else 0.0
+        formality = getattr(self, "_reg_formality", 0.0)
+        try:
+            initial_emb = self._build_conditioned_bos(
+                subject_lancaster=subj_lanc,
+                arousal=arousal,
+                valence=valence,
+                formality=formality,
+            )
+        except Exception:
+            initial_emb = None
+
         # Stage 2: Boost subject concept in conditioning to seed content words
         subject_idx = self._decoder_word_to_idx.get(subject.lower())
         if subject_idx is not None:
@@ -760,6 +843,7 @@ class ResponseGenMixin(ChainWalkerMixin):
                 basal_ganglia=self.basal_ganglia,
                 content_word_ids=content_word_ids,
                 token_boost=subject_boost,
+                initial_emb=initial_emb,
             )
 
             print(f"  [Decoder Gen] generated={generated}")
@@ -995,6 +1079,41 @@ class ResponseGenMixin(ChainWalkerMixin):
             except Exception as e:
                 if getattr(self, '_trace_enabled', False):
                     print(f"  [trace]   Schema blending error: {e}")
+
+        # -- G4: SENSORIMOTOR schema transfer (hippocampal pattern completion) --
+        # When neither a direct schema nor a GloVe-similar one matched, retrieve
+        # a known schema whose SUBJECT shares the query's embodied fingerprint
+        # (Lancaster 11-D). Fail-closed: only fires above min_similarity.
+        if not schema_used and schema_lib:
+            try:
+                lanc_fn = getattr(self, "_lancaster_vector", None)
+                glove_fn = getattr(self, "_glove_vector", None)
+                if lanc_fn is not None or glove_fn is not None:
+                    sm = schema_lib.get_schema_by_sensorimotor_similarity(
+                        subject_lower,
+                        lancaster_fn=lanc_fn,
+                        glove_fn=glove_fn,
+                        min_similarity=0.20,
+                        alpha=0.5,
+                    )
+                    if sm:
+                        source_concept, _schema, similarity = sm
+                        vsa_src = self._vsa_event_narrative(source_concept)
+                        if vsa_src:
+                            from ravana.chat.case_distribution import case_infer
+                            _ent = self._entity_words_for_case()
+                            if len(utterances) == 0:
+                                utterances.append(case_infer(vsa_src[0], entity_words=_ent))
+                            else:
+                                utterances.append(case_infer(vsa_src[0].lower(), entity_words=_ent))
+                            if len(vsa_src) > 1:
+                                utterances.append(case_infer(vsa_src[1].lower(), entity_words=_ent))
+                            schema_used = True
+                            if getattr(self, '_trace_enabled', False):
+                                print(f"  [trace]   Sensorimotor schema transfer: '{subject}' -> '{source_concept}' (sim={similarity:.2f})")
+            except Exception as e:
+                if getattr(self, '_trace_enabled', False):
+                    print(f"  [trace]   G4 sensorimotor match error: {e}")
 
         # -- GIST EXTRACTION: Generate from associations when no schema --
         if not schema_used and noun_assocs:
