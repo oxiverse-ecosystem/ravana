@@ -133,6 +133,13 @@ class NeuralDecoder(Module):
         if self.W_h_bias.bias is not None:
             self.W_h_bias.bias.data[:] = 0.0
 
+        # P6: auxiliary "load-bearing" head (research item #9, "Cosine Misleads").
+        # Forces the concept pointer to actually flow through the network by
+        # requiring the hidden state to reconstruct av (65-D Binder attributes).
+        # Without this a weak projected vector is silently bypassed by the GRU.
+        self.av_head = Linear(hidden_dim, 65)
+        self._last_aux_loss = 0.0
+
         # Dropout for regularization
         self.dropout = Dropout(0.2)
 
@@ -488,7 +495,9 @@ class NeuralDecoder(Module):
                           freeze_core: bool = False,
                           sensorimotor_conditioning: Optional[np.ndarray] = None,
                           initial_emb: Optional[np.ndarray] = None,
-                          persistent_emb: Optional[np.ndarray] = None) -> float:
+                          persistent_emb: Optional[np.ndarray] = None,
+                          scheduled_eps: float = 0.0,
+                          aux_lambda: float = 0.0) -> float:
         """Unsupervised learning from a sentence (fully batched Hebbian updates).
 
         Args:
@@ -546,6 +555,15 @@ class NeuralDecoder(Module):
                     pinit = pinit / n
                 persistent_emb = pinit
         _has_persistent = persistent_emb is not None
+
+        # P6: auxiliary load-bearing target. When a concept pointer is present and
+        # the caller requests an auxiliary reconstruction loss (aux_lambda > 0),
+        # reconstruct the 65-D av from the hidden states so the pointer cannot be
+        # silently bypassed (research item #9, "Cosine Misleads").
+        av_target = None
+        if _has_persistent and aux_lambda > 0 and sensorimotor_conditioning is not None:
+            av_target = np.asarray(sensorimotor_conditioning, dtype=np.float32)[:65]
+        self._last_aux_loss = 0.0
         if conditioning_embs is None:
             # FIX: Blend function words + actual content words from the sentence
             # for conditioning. This mimics how the decoder receives concept
@@ -647,6 +665,8 @@ class NeuralDecoder(Module):
         # (the model's most-confidently-predicted words make the best negatives).
         if not hasattr(self, '_neg_rng'):
             self._neg_rng = np.random.RandomState(42)
+        if not hasattr(self, '_sched_rng'):
+            self._sched_rng = np.random.RandomState(7)
         n_neg = min(50, len(non_special_idx))
         if n_neg > 0:
             # Compute row L2 norms as sampling weights (softmax over indices)
@@ -678,6 +698,7 @@ class NeuralDecoder(Module):
         all_gru_h_prev = [None] * max_T
         all_gru_z = [None] * max_T
         all_gru_r = [None] * max_T
+        all_h = [None] * max_T
         # P6: per-position projected concept pointer for the persistent-bias
         # backward pass (only allocated when a concept pointer is present).
         all_pproj = [None] * max_T if _has_persistent else None
@@ -697,6 +718,17 @@ class NeuralDecoder(Module):
             target_idx = word_indices[pos + 1]
 
             word_emb = sentence_embs[pos]
+            # P6: scheduled sampling (exposure-bias cure). With probability eps,
+            # feed the model's OWN previous prediction instead of the teacher
+            # token, so training matches free-run generation. Aligns train/test
+            # distributions so a single early error can't cascade into salad.
+            if (scheduled_eps > 0.0 and pos > 0 and all_combined[pos - 1] is not None
+                    and self._sched_rng.rand() < scheduled_eps):
+                logits_prev = self.output_proj.forward_raw(
+                    all_combined[pos - 1][np.newaxis, :])[0]
+                own_pred = int(np.argmax(logits_prev))
+                word_emb = self.word_embedding.embed_batch_raw(
+                    np.array([own_pred], dtype=np.intp))[0]
             proj_emb = proj_embs[pos]
             if pos == 0 and _has_initial and initial_emb is not None:
                 # P6: mirror generate(initial_emb=) -- replace the <bos> input's
@@ -788,6 +820,7 @@ class NeuralDecoder(Module):
             all_idx_stored[pos] = all_idx
             all_word_emb[pos] = word_emb
             all_input_idx[pos] = input_idx
+            all_h[pos] = h_new
 
         if trained == 0:
             return 0.0
@@ -822,8 +855,29 @@ class NeuralDecoder(Module):
             idx = all_idx_stored[pos]
             error_h_all[pos] = err @ out_weight[idx]
 
+        # 2b. P6 auxiliary "load-bearing" loss (research item #9, "Cosine
+        # Misleads"). Reconstruct av (65-D Binder attributes) from the mean
+        # hidden state; its gradient makes the thin concept pointer flow through
+        # the network instead of being bypassed. Added into error_h_all so it
+        # propagates to every parameter update below.
+        if av_target is not None and all_h[0] is not None:
+            h_stack = np.stack([hh for hh in all_h if hh is not None])
+            av_pred = self.av_head.forward_raw(h_stack).mean(axis=0)  # (65,)
+            av_diff = av_pred - av_target
+            aux_loss = 0.5 * float(np.mean(av_diff ** 2))
+            self._last_aux_loss = aux_loss
+            # d(aux)/dh_pos = av_head.weight.T @ av_diff  (mean over positions)
+            daux_dh = (self.av_head.weight.data.T @ av_diff) / T  # (hidden,)
+            grad_term = 0.5 * aux_lambda * daux_dh
+            error_h_all += grad_term[np.newaxis, :]
+            # Update av_head itself (independent of freeze_core — this is the
+            # grounding supervision, like W_h_bias).
+            grad_w = np.outer(av_diff, h_stack.mean(axis=0))  # (65, hidden)
+            self.av_head.weight.data -= lr_other * grad_w - self.av_head.weight.data * wd
+            if self.av_head.bias is not None:
+                self.av_head.bias.data -= lr_other * av_diff - self.av_head.bias.data * wd
+
         # 3. condition_proj (only if not frozen — protects learned language patterns)
-        if not freeze_core:
             emb_stack = np.stack(all_word_emb)
             error_proj_all = np.clip(error_h_all * 0.5, -1.0, 1.0)
             hebbian_proj = (emb_stack.T @ error_proj_all) / T

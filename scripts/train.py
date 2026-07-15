@@ -156,7 +156,8 @@ def train_seed_corpus(engine, nd, all_sentences, n_passes=200, pp=2000, si=10, p
 
 
 def train_decoder_grounded(engine, nd, n_passes=30, pp=500, si=5,
-                           desc_path=None, freeze_core=False):
+                           desc_path=None, freeze_core=False,
+                           scheduled_eps=0.0, aux_lambda=0.0):
     """LingGen P6 — train the decoder on web-harvested grounded descriptions.
 
     Reads data/corpora/grounded_descriptions.txt (concept<TAB>human description),
@@ -272,11 +273,14 @@ def train_decoder_grounded(engine, nd, n_passes=30, pp=500, si=5,
                                                               engine._decoder_word_to_idx.get("<unk>", 1))
                               for w in desc.split()],
                 freeze_core=freeze_core,
-                sensorimotor_conditioning=av)
+                sensorimotor_conditioning=av,
+                scheduled_eps=scheduled_eps,
+                aux_lambda=aux_lambda)
             total += 1
         nd.sleep_cycle()
         if (i + 1) % si == 0:
-            print(f"  [LingGen] pass {i+1}/{n_passes}: CE={nd._avg_cross_entropy:.3f}")
+            print(f"  [LingGen] pass {i+1}/{n_passes}: CE={nd._avg_cross_entropy:.3f} "
+                  f"aux={getattr(nd, '_last_aux_loss', 0.0):.3f}")
 
     # Promotion gate: LingGen's job is FREE-FORM GROUNDED GENERATION, not
     # verbatim reproduction of harvested sentences. Exact-match CE is the

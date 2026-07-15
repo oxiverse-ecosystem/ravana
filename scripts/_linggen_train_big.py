@@ -32,13 +32,19 @@ def main():
     report = []
     report.append(f"[harvest] local_books concepts written: {n_harvest}")
 
-    # 2) Longer grounded training. freeze_core=True so ONLY the new persistent
-    #    concept-bias (W_h_bias) learns -- the seed-language core (GRU /
-    #    condition_proj / attention) is protected from the drift that previously
-    #    degraded coherence. This is the brain-faithful separation: the grounding
-    #    modulation learns without disturbing core syntax.
-    trained, use_ling = train_decoder_grounded(eng, nd, n_passes=40, pp=200, si=4,
-                                                freeze_core=True)
+    # 2) Longer grounded training. freeze_core=True so ONLY the new grounding
+    #    parameters (W_h_bias persistent concept-bias + av_head load-bearing
+    #    head) learn -- the seed-language core (GRU / condition_proj /
+    #    attention) is protected from the drift that previously degraded
+    #    coherence. Scheduled sampling (eps) closes the teacher-forcing ->
+    #    free-run exposure-bias gap; aux_lambda adds the "Cosine Misleads"
+    #    load-bearing reconstruction loss so the thin concept pointer actually
+    #    flows through the network instead of being bypassed.
+    SCHEDULED_EPS = 0.25   # probability of feeding own prediction during training
+    AUX_LAMBDA = 0.5       # weight of av-reconstruction auxiliary loss
+    trained, use_ling = train_decoder_grounded(
+        eng, nd, n_passes=40, pp=200, si=4, freeze_core=True,
+        scheduled_eps=SCHEDULED_EPS, aux_lambda=AUX_LAMBDA)
     report.append(f"[train] trained={trained} use_linggen={use_ling}")
     report.append(f"[train] W_sm saved={os.path.exists(os.path.join(ROOT, 'data', 'linggen_wsm.npz'))}")
     report.append(f"[elapsed] {time.time()-t0:.1f}s")
