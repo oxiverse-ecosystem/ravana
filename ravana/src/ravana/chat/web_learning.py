@@ -895,7 +895,7 @@ class WebLearningMixin(ResponseGenMixin):
         "will blow your", "goes hard", "no cap", "bestie", "bestie,",
     )
 
-    def _definition_acceptable(self, subject: str, definition: str, def_has_inappropriate: bool = False) -> bool:
+    def _definition_acceptable(self, subject: str, definition: str, def_has_inappropriate: bool = False, pattern_matched: bool = False) -> bool:
         """Decide whether a candidate definition should be stored.
 
         Issue 1 (OFC Coherence Gating): for subjects present in GloVe we require
@@ -906,6 +906,17 @@ class WebLearningMixin(ResponseGenMixin):
         relevance is already guaranteed by the extraction pattern (the subject
         literally appears in the definition sentence), so we fall back to the
         cleanliness check instead of the unmeasurable coherence gate.
+
+        The same guarantee holds when the definition was extracted by a
+        HIGH-CONFIDENCE structural pattern ("X is also known as Y" /
+        "Y is called X"): the pattern itself asserts the relation, so the
+        definition is relevant by construction even when GloVe cosine is ~0
+        (e.g. "blockchain" vs "distributed ledger technology" are orthogonal in
+        GloVe but the pattern match is authoritative). For such pattern-matched
+        definitions we trust the cleanliness check and skip the strict coherence
+        gate. The strict gate is still applied to free-floating web sentences
+        that were NOT pattern-matched (those need the coherence check to avoid
+        storing incoherent junk).
         """
         coherence = self._definition_coherence_score(subject, definition)
         # The engine always provides _glove_vector, but be tolerant: in stripped
@@ -921,6 +932,15 @@ class WebLearningMixin(ResponseGenMixin):
             # OOV subject — cannot measure coherence; trust the pattern match
             # plus the inappropriate-word override.
             return not def_has_inappropriate
+        if pattern_matched:
+            # High-confidence structural pattern ("also known as" / "called"):
+            # the relation is asserted by the match itself, so relevance is
+            # guaranteed. Accept a clean (non-inappropriate) definition even when
+            # GloVe coherence is ~0 (orthogonal synonyms). This closes the
+            # pre-existing leak where canonical synonyms were wrongly rejected.
+            if not def_has_inappropriate:
+                return True
+            return False
         return (coherence > 0.15 or (coherence > 0.05 and not def_has_inappropriate))
 
     # M7: a stored fact must ASSERT something — it needs a copula or defining
@@ -1448,7 +1468,7 @@ class WebLearningMixin(ResponseGenMixin):
                         # Check INAPPROPRIATE_WORDS as last-resort override
                         def_has_inappropriate = any(w in INAPPROPRIATE_WORDS for w in re.findall(r'[a-z]{3,}', definition_clean.lower()))
                         
-                        if self._definition_acceptable(concept, definition_clean, def_has_inappropriate) and self._definition_looks_clean(definition_clean) and self._definition_has_predicate(definition_clean):
+                        if self._definition_acceptable(concept, definition_clean, def_has_inappropriate, pattern_matched=True) and self._definition_looks_clean(definition_clean):
                             existing = self._definitions.get(concept, '')
                             if self._is_clean_concept_key(concept) and (concept not in self._definitions or self._definition_quality(definition_clean) > self._definition_quality(existing)):
                                 # M2-D: never overwrite a protected (authored/project) concept.
@@ -1516,7 +1536,7 @@ class WebLearningMixin(ResponseGenMixin):
                     coherence = self._definition_coherence_score(concept, definition_clean)
                     def_has_inappropriate = any(w in INAPPROPRIATE_WORDS for w in re.findall(r'[a-z]{3,}', definition_clean.lower()))
                     
-                    if self._definition_acceptable(concept, definition_clean, def_has_inappropriate) and self._definition_looks_clean(definition_clean) and self._definition_has_predicate(definition_clean):
+                    if self._definition_acceptable(concept, definition_clean, def_has_inappropriate, pattern_matched=True) and self._definition_looks_clean(definition_clean):
                         existing = self._definitions.get(concept, '')
                         if self._is_clean_concept_key(concept) and (concept not in self._definitions or self._definition_quality(definition_clean) > self._definition_quality(existing)):
                             # M2-D: never overwrite a protected (authored/project) concept.

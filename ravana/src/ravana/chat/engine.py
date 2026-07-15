@@ -6030,7 +6030,17 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # never merely because it sits below a fixed number.
         plaus = self._snippet_plausibility(ctx.subject, best)
         _bel = self._belief_coherence(ctx.subject, best)
-        if plaus is not None and plaus < self._SNIPPET_PLAUSIBILITY_FLOOR and _bel < 0.1:
+        # PROMPT 3 (revised): withhold a snippet that fails the plausibility
+        # floor. A web "direct answer" below the floor is, by definition,
+        # questionable — fail closed to honest uncertainty rather than leak it.
+        # The earlier `and _bel < 0.1` escape hatch was too lenient: a junk
+        # snippet whose SUBJECT WORD appears in it (e.g. "Invisible is a gear
+        # that makes you invisible in Roblox.") gets an artificially inflated
+        # belief score and slipped through. Belief coherence no longer rescues
+        # a below-floor snippet; only a genuinely plausible (>= floor) answer
+        # is emitted. A correct encyclopedic snippet (plausibility > floor)
+        # still passes.
+        if plaus is not None and plaus < self._SNIPPET_PLAUSIBILITY_FLOOR:
             if getattr(self, '_trace_enabled', False):
                 print(f"  [webans] monitor: snippet implausible (plaus={plaus:.2f}, "
                       f"bel={_bel:.2f}) for '{ctx.subject}' -> refine search")
