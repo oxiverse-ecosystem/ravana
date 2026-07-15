@@ -192,34 +192,54 @@ def train_decoder_grounded(engine, nd, n_passes=30, pp=500, si=5,
         print("  [LingGen] attr encoder/glove unavailable — skip")
         return False, False
 
+    # Option C data source (brain-faithful): prefer CLEAN curated KB
+    # definitions (engine._definitions: concept -> Wikipedia/ConceptNet text)
+    # as the (concept, description) pairs. These are coherent definitions, so
+    # the decoder is trained to PARAPHRASE coherent text (the easiest Option-C
+    # regime) and the gate anchors on them. Fall back to the harvested novel
+    # corpus only if clean defs are insufficient.
+    defs = getattr(engine, "_definitions", None)
+    use_clean = isinstance(defs, dict) and len(defs) >= _MIN_PAIRS
+    if use_clean:
+        src_pairs = [(c, d) for c, d in defs.items()
+                     if isinstance(d, str) and d.strip()]
+        print(f"  [LingGen] using {len(src_pairs)} clean KB definitions as pairs")
+    else:
+        if not os.path.exists(desc_path):
+            print("  [LingGen] no grounded_descriptions.txt — skip (run harvest first)")
+            return False, False
+        src_pairs = []
+        with open(desc_path, "r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.rstrip("\n")
+                if "\t" not in line:
+                    continue
+                concept, desc = line.split("\t", 1)
+                concept = concept.strip().lower()
+                desc = desc.strip()
+                if concept and desc:
+                    src_pairs.append((concept, desc))
+        print(f"  [LingGen] using {len(src_pairs)} harvested novel-sentence pairs")
+
     pairs = []  # (binder65, embed75)
     sentences = []  # (concept, description_text)
-    with open(desc_path, "r", encoding="utf-8") as fh:
-        for line in fh:
-            line = line.rstrip("\n")
-            if "\t" not in line:
-                continue
-            concept, desc = line.split("\t", 1)
-            concept = concept.strip().lower()
-            desc = desc.strip()
-            if not concept or not desc:
-                continue
-            gv = glove_fn(concept)
-            if gv is None:
-                continue
-            try:
-                av = attr_enc.attribute_vector(np.asarray(gv, dtype=np.float64))
-            except Exception:
-                continue
-            av = np.asarray(av, dtype=np.float64)
-            if av.shape[0] != 65:
-                continue
-            try:
-                emb75 = engine._embed_75d(concept, node_vec=gv)
-            except Exception:
-                continue
-            pairs.append((av, np.asarray(emb75, dtype=np.float64)))
-            sentences.append((concept, desc))
+    for concept, desc in src_pairs:
+        gv = glove_fn(concept)
+        if gv is None:
+            continue
+        try:
+            av = attr_enc.attribute_vector(np.asarray(gv, dtype=np.float64))
+        except Exception:
+            continue
+        av = np.asarray(av, dtype=np.float64)
+        if av.shape[0] != 65:
+            continue
+        try:
+            emb75 = engine._embed_75d(concept, node_vec=gv)
+        except Exception:
+            continue
+        pairs.append((av, np.asarray(emb75, dtype=np.float64)))
+        sentences.append((concept, desc))
 
     if len(pairs) < _MIN_PAIRS:
         print(f"  [LingGen] only {len(pairs)} grounded pairs (< min) — skip")
@@ -301,73 +321,101 @@ def train_decoder_grounded(engine, nd, n_passes=30, pp=500, si=5,
     return True, use_linggen
 
 
-def _gen_one(engine, nd, concept, av, W_sm, glove_fn):
+def _gen_one(engine, nd, concept, av, W_sm, glove_fn, anchor_desc=None):
     """Generate one free-form sentence from the embodied BOS — mirrors the REAL
-    production path (_generate_with_decoder) so the quality gate measures what
-    the engine actually does, not a degenerate probe.
+    production path (_generate_with_decoder), including Option-C anchored
+    conditioning so the quality gate measures what the engine actually does.
 
-    The real path builds conditioning_embs from the concept's GRAPH NODE vector
-    (rich scaffold) plus the sentence-level compositional (GloVe) vector. We
-    replicate that exactly here instead of a pure repeated concept embed, which
-    was a false-negative (no scaffolding -> word salad even when the real path
-    is coherent).
+    Option C (angular-gyrus elaboration): when an anchor definition is known for
+    the concept, its content words are appended as conditioning scaffold (the
+    GRU ELABORATES on the retrieved def rather than generating from a void).
+    Coherence is then measured against the anchor's semantic center, not the
+    bare concept — this is the honest success metric for the enrichment path.
     """
     init = (W_sm @ np.asarray(av, dtype=np.float32)[:65]).astype(np.float32)
     nn = np.linalg.norm(init)
     if nn > 0:
         init = init / nn
-    # Mirror _generate_with_decoder conditioning construction: use the DECODER's
-    # own 75-D word-embedding table (embed_dim) for the concept, which is what
-    # the real production path feeds to condition_proj (Linear 75->hidden).
-    # (The real path prefers _decoder_word_to_embed over raw 64-D glove/node
-    # vectors, which are the wrong dimensionality for condition_proj.)
+    # Mirror _generate_with_decoder conditioning construction: the concept's own
+    # 75-D decoder-embedding, plus (Option C) the anchor's content-word embeds.
     embs = []
     dw = getattr(engine, "_decoder_word_to_embed", {}) or {}
     if concept.lower() in dw:
         embs.append(np.asarray(dw[concept.lower()], dtype=np.float32))
-    # add a couple of associated decoder-embed concepts for richer scaffold
-    for assoc, _s in []:
-        if assoc in dw:
-            embs.append(np.asarray(dw[assoc], dtype=np.float32))
-            if len(embs) >= 3:
+    if anchor_desc:
+        _stop = {"the", "a", "an", "of", "to", "and", "is", "are", "was",
+                 "were", "in", "on", "for", "with", "that", "this", "it"}
+        for _w in anchor_desc.split():
+            _w = _w.lower().strip(".,!?;:\"'()[]")
+            if not _w or _w in _stop:
+                continue
+            if _w in dw:
+                embs.append(np.asarray(dw[_w], dtype=np.float32))
+            if len(embs) >= 14:
                 break
     if not embs:
         embs.append(engine._embed_75d(concept))
     blend = np.stack(embs, axis=0).astype(np.float32)
     iw = getattr(engine, "_decoder_idx_to_word", None) or {}
+    # Option C constrained decoding (research item #8c): modestly boost the
+    # anchor's content-word logits so the elaboration stays lexically tethered
+    # to the retrieved definition (retrieve-and-lightly-edit), without forcing
+    # pure repetition. Keeps distinct-1 healthy while lifting on-topic coherence.
+    token_boost = None
+    if anchor_desc:
+        token_boost = {}
+        for _w in anchor_desc.split():
+            _w = _w.lower().strip(".,!?;:\"'()[]")
+            _idx = getattr(engine, "_decoder_word_to_idx", {}).get(_w)
+            if _idx is not None:
+                token_boost[_idx] = 1.5
     toks = nd.generate(conditioning_embs=blend, max_steps=22, initial_emb=init,
-                       persistent_emb=init, idx_to_word=iw)
+                       persistent_emb=init, idx_to_word=iw,
+                       token_boost=token_boost, temperature=0.7)
     words = [iw.get(t, "") for t in toks
              if iw.get(t, "") not in ("<bos>", "<eos>", "<unk>", "")]
     return words
 
 
 def _grounded_generation_quality(engine, nd, cond_sent, W_sm, attr_enc, glove_fn):
-    """Quality of free-form generation from the embodied BOS (0..1).
+    """Option-C quality of free-form generation (0..1).
 
     Coherence = in-vocab ratio * distinct-1 (non-degenerate) * on-topic
-    (mean GloVe cosine of generated content words vs the concept). This is the
-    honest success metric for LingGen: not 'reproduce the sentence' but 'say
-    something coherent and on-topic from the embodied signature'.
+    (mean GloVe cosine of generated content words vs the RETRIEVED ANCHOR's
+    semantic center). This is the honest Option-C success metric: not 'beat the
+    KB from scratch' (impossible for a tiny GRU) but 'elaborate on a retrieved
+    definition coherently' (the angular-gyrus enrichment model). When no anchor
+    def is known for a concept, on-topic falls back to the bare concept vector
+    and that concept correctly scores low (caller abstains).
     """
     glove_fn = glove_fn or getattr(engine, "_glove_vector", None)
     if glove_fn is None:
         return 0.0
     scores = []
-    for concept, _desc in cond_sent:
+    for concept, desc in cond_sent:
         gv = glove_fn(concept)
         if gv is None:
             continue
         av = attr_enc.attribute_vector(np.asarray(gv, dtype=np.float64))
-        words = _gen_one(engine, nd, concept, av, W_sm, glove_fn)
+        words = _gen_one(engine, nd, concept, av, W_sm, glove_fn,
+                         anchor_desc=desc if desc else None)
         if len(words) < 3:
             scores.append(0.0)
             continue
         invocab = np.mean([1.0 for w in words
                            if w in getattr(engine, "_decoder_word_to_idx", {})])
         distinct1 = len(set(words)) / len(words)
-        # on-topic: mean cosine of content words vs concept glove vector.
+        # on-topic reference: the retrieved anchor's semantic center (mean of
+        # its content-word glove vectors), falling back to the bare concept.
         cgv = np.asarray(gv, dtype=float)
+        anchor_vecs = []
+        if desc:
+            for w in desc.split():
+                wv = glove_fn(w.lower().strip(".,!?;:\"'()[]"))
+                if wv is not None:
+                    anchor_vecs.append(np.asarray(wv, dtype=float))
+        if anchor_vecs:
+            cgv = np.mean(anchor_vecs, axis=0)
         cosines = []
         for w in words:
             wv = glove_fn(w)

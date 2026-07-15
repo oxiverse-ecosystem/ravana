@@ -668,7 +668,52 @@ class ResponseGenMixin(ChainWalkerMixin):
             return None
         return np.stack(concept_embs, axis=0).astype(np.float32)
 
-    # ─── Neural Decoder Generation ───
+    def _grounded_anchor(self, concept: str) -> Optional[str]:
+        """Option C (angular-gyrus elaboration): retrieve a known grounded
+        definition for `concept` to anchor free-form generation. Preference
+        order (brain-faithful: retrieved semantic knowledge is the coherence
+        floor; generation only enriches it):
+          1. engine._definitions -- clean curated KB defs (Wikipedia/ConceptNet),
+             the SAME source the live engine uses for coherent answers.
+          2. data/corpora/grounded_descriptions.txt -- harvested novel sentences
+             (noisy; only used as a last resort).
+        Returns the definition string, or None if no anchor is known.
+        """
+        concept = (concept or "").lower().strip()
+        if not concept:
+            return None
+        # 1. Clean curated KB definition (preferred).
+        defs = getattr(self, "_definitions", None)
+        if isinstance(defs, dict):
+            d = defs.get(concept)
+            if isinstance(d, str) and d.strip():
+                return d.strip()
+        # 2. Noisy harvested corpus (fallback).
+        if not hasattr(self, "_grounded_anchor_cache"):
+            self._grounded_anchor_cache = {}
+            self._grounded_anchor_loaded = False
+        if not self._grounded_anchor_loaded:
+            self._grounded_anchor_loaded = True
+            import os as _os
+            _root = _os.path.dirname(_os.path.dirname(
+                _os.path.dirname(_os.path.abspath(__file__))))
+            _p = _os.path.join(_root, "data", "corpora",
+                               "grounded_descriptions.txt")
+            try:
+                with open(_p, "r", encoding="utf-8") as _fh:
+                    for _line in _fh:
+                        _line = _line.rstrip("\n")
+                        if "\t" not in _line:
+                            continue
+                        _c, _d = _line.split("\t", 1)
+                        _c = _c.strip().lower()
+                        if _c and _c not in self._grounded_anchor_cache:
+                            self._grounded_anchor_cache[_c] = _d.strip()
+            except Exception:
+                pass
+        return self._grounded_anchor_cache.get(concept)
+
+
 
 
 
@@ -734,6 +779,28 @@ class ResponseGenMixin(ChainWalkerMixin):
             elif vw in self._decoder_word_to_embed:
                 concept_embs.append(self._decoder_word_to_embed[vw].copy())
 
+        # Option C (angular-gyrus elaboration): when the free-form path is on,
+        # anchor generation to a RETRIEVED grounded definition so coherence is
+        # guaranteed by retrieval and the decoder only adds bounded variation.
+        # The anchor's content words are appended as conditioning scaffold
+        # (retrieval-augmented scaffolding -- research item #8). Without an
+        # anchor the decoder stays unconditioned and the caller abstains.
+        if use_linggen:
+            anchor = self._grounded_anchor(subject)
+            if anchor:
+                _seen = set(id(e) for e in concept_embs)
+                for _w in anchor.split():
+                    _w = _w.lower().strip(".,!?;:\"'()[]")
+                    if not _w or _w in ("the", "a", "an", "of", "to", "and",
+                                        "is", "are", "was", "were", "in", "on",
+                                        "for", "with", "that", "this", "it"):
+                        continue
+                    if _w in self._decoder_word_to_embed:
+                        _e = self._decoder_word_to_embed[_w].copy()
+                        concept_embs.append(_e)
+                    if len(concept_embs) >= 14:
+                        break
+
         # Final fallback
         if len(concept_embs) < 1:
             return None
@@ -748,20 +815,6 @@ class ResponseGenMixin(ChainWalkerMixin):
         # Special token indices
         bos_idx = self._decoder_word_to_idx.get("<bos>", 0)
         eos_idx = self._decoder_word_to_idx.get("<eos>", 2)
-
-        print(f"  [Decoder Gen] conditioning_embs shape={conditioning_embs.shape}, vocab_words={vocab_words[:6]}, bos_idx={bos_idx}, eos_idx={eos_idx}")
-
-        # Add sentence-level compositional vector (N400/P600 integration) as conditioning
-        sent_vec = getattr(ctx, 'sentence_vector', None)
-        if sent_vec is not None and np.any(sent_vec != 0):
-            concept_embs.append(sent_vec.astype(np.float32) * 0.6)
-
-        conditioning_embs = np.stack(concept_embs, axis=0).astype(np.float32)
-
-        # Special token indices
-        bos_idx = self._decoder_word_to_idx.get("<bos>", 0)
-        eos_idx = self._decoder_word_to_idx.get("<eos>", 2)
-
         print(f"  [Decoder Gen] conditioning_embs shape={conditioning_embs.shape}, bos_idx={bos_idx}, eos_idx={eos_idx}, subject='{subject}'")
 
         # Dynamic temperature from cognitive state.
@@ -857,11 +910,23 @@ class ResponseGenMixin(ChainWalkerMixin):
             except Exception:
                 initial_emb = None
 
-        # Stage 2: Boost subject concept in conditioning to seed content words
+        # Stage 2: Boost subject concept in conditioning to seed content words.
+        # Option C: also modestly boost the anchor's content-word logits so the
+        # free-form elaboration stays lexically tethered to the retrieved
+        # definition (retrieve-and-lightly-edit; research item #8c).
         subject_idx = self._decoder_word_to_idx.get(subject.lower())
+        subject_boost = {}
         if subject_idx is not None:
-            subject_boost = {subject_idx: 3.0}
-        else:
+            subject_boost[subject_idx] = 3.0
+        if use_linggen:
+            anchor = self._grounded_anchor(subject)
+            if anchor:
+                for _w in anchor.split():
+                    _w = _w.lower().strip(".,!?;:\"'()[]")
+                    _ai = self._decoder_word_to_idx.get(_w)
+                    if _ai is not None:
+                        subject_boost[_ai] = max(subject_boost.get(_ai, 0.0), 1.5)
+        if not subject_boost:
             subject_boost = None
 
         try:
