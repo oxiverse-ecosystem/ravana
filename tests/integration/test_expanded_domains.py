@@ -4,6 +4,8 @@ import sys, os, numpy as np
 sys.path.insert(0, "/c/Users/Likhith/Documents/projects/ravana")
 sys.path.insert(0, "/c/Users/Likhith/Documents/projects/ravana/ravana-v2")
 
+import pytest
+
 from ravana_ml.nn.rlm_v2 import RLMv2
 from ravana_ml.tokenizer import WordTokenizer
 from experiments.experiment_phase4_integrated import inject_minilm_embeddings
@@ -245,7 +247,14 @@ def build_domain_b_social():
 # MAIN TEST
 # ============================================================
 
+@pytest.mark.slow
 def test_expanded_domains():
+    """Heavy RLMv2 training integration test (marked slow).
+
+    Runs real encoder pretraining + two-domain training + cross-domain
+    alignment + full evaluation. Takes ~10-15 min of CPU; excluded from a
+    bare `pytest` run. Run explicitly with `-m slow`.
+    """
     np.random.seed(42)
     
     domain_a = build_domain_a_science()
