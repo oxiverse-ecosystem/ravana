@@ -162,7 +162,83 @@ class LingGenConditioner:
             return cls()
 
 
-# ── adaptive floor (fail-closed, distribution-driven) ────────────────────────
+# ── angular-gyrus bounded elaboration (real Option C) ───────────────────────
+def hrr_vary_words(
+        trajectory: Sequence[Tuple[str, np.ndarray]],
+        role_seed: int = 0,
+        shift: int = 13,
+        n_vary: int = 2,
+        word_to_embed: Optional[Dict[str, np.ndarray]] = None,
+        rng: Optional[np.random.RandomState] = None) -> List[Tuple[str, np.ndarray]]:
+    """Real angular-gyrus binding: bounded variation of a retrieved trajectory.
+
+    This is the honest "Option C" — instead of the old approach (which only
+    boosted logits toward the retrieved definition's exact words), we use the
+    VSA role-filler idiom to ELABORATE. For a small number of positions we bind
+    the trajectory word's filler to a novel role vector (permutation channel) and
+    recover the nearest *different* embedding in the decoder vocab. The result
+    is wording variation grounded in the same attractor — no salad, no pure
+    repetition.
+
+    Brain basis: the angular gyrus dynamically buffers/rebinds the multisensory
+    representation (Farahibozorg et al. 2022; Trends in Neurosciences 2021) —
+    bounded rebinding, not open-ended generation.
+
+    Args:
+        trajectory: ordered [(word, embed)] recovered from attractor_memory.
+        role_seed: random seed for role vectors.
+        shift: permutation shift for the novel role channel.
+        n_vary: max positions to elaborate (kept SMALL = bounded).
+        word_to_embed: decoder vocab mapping for nearest-neighbour recovery.
+        rng: RNG (for reproducibility / fail-closed).
+
+    Returns a (possibly lightly edited) list of [(word, embed)].
+    """
+    if rng is None:
+        rng = np.random.RandomState(role_seed)
+    out = list(trajectory)
+    n = len(out)
+    if n == 0 or word_to_embed is None:
+        return out
+    # Choose up to n_vary distinct positions to vary (never the first word —
+    # keep the subject anchoring the opening).
+    cand = list(range(1, n))
+    if not cand:
+        return out
+    rng.shuffle(cand)
+    vary_pos = set(cand[: min(n_vary, len(cand))])
+    if not vary_pos:
+        return out
+    # Build a cheap similarity lookup over the decoder vocab.
+    words = list(word_to_embed.keys())
+    emb_mat = np.stack([np.asarray(word_to_embed[w], dtype=np.float64)
+                        for w in words], axis=0)
+    norms = np.linalg.norm(emb_mat, axis=1)
+    safe = norms > 0
+    emb_mat_safe = emb_mat[safe]
+    inv = np.where(safe)[0]
+    for pos in vary_pos:
+        w, e = out[pos]
+        ev = np.asarray(e, dtype=np.float64)
+        evn = np.linalg.norm(ev)
+        if evn == 0:
+            continue
+        ev = ev / evn
+        # Rebind via permutation (role-filler): recover a *shifted* neighbour so
+        # the wording differs but stays in the same conceptual neighbourhood.
+        perm = np.roll(ev, shift)
+        sims = emb_mat_safe @ perm / (np.linalg.norm(emb_mat_safe, axis=1) + 1e-9)
+        order = np.argsort(-sims)
+        # Skip the exact original word; pick the next nearest distinct one.
+        for rank in range(min(5, len(order))):
+            j = inv[order[rank]]
+            nw = words[j]
+            if nw != w and not nw.startswith("<"):
+                out[pos] = (nw, emb_mat[j].astype(np.float32))
+                break
+    return out
+
+
 def adaptive_floor(gen_conf_seq: Sequence[float], k: float = 2.0) -> float:
     """Dataset-derived confidence floor for the free-form vs template decision.
 

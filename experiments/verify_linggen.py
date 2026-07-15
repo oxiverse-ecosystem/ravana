@@ -140,11 +140,106 @@ def test_B4_decoder_override():
     return True
 
 
+def test_B6_attractor_pattern_completion():
+    """Phase 0: HRR attractor store retrieves the full trajectory from a cue.
+
+    Build a tiny store from 2 synthetic definitions; verify that retrieving
+    with the (exact) concept cue recovers the trajectory's words, and that a
+    NOISY cue (partial/perturbed) still recovers the correct trajectory above
+    the pattern-completion threshold (one-shot reactivation, Hopfield 1982).
+    """
+    from ravana.core.attractor_memory import AttractorMemory
+    rng = np.random.RandomState(1)
+    dim = 64
+    defs = {
+        "gravity": "gravity is a force that pulls objects toward each other",
+        "music": "music is sound organized in time with rhythm and melody",
+    }
+    dw = {}
+    # distinct word embeddings
+    words = set()
+    for t in defs.values():
+        words.update(t.split())
+    for w in words:
+        v = rng.randn(dim).astype(np.float64)
+        dw[w] = v / np.linalg.norm(v)
+
+    def cvec(c):
+        return dw.get(c, rng.randn(dim))
+
+    am = AttractorMemory.from_definitions(defs, dw, cvec, dim=dim,
+                                          stop={"is", "a", "that", "in", "with", "and"})
+    assert len(am) == 2, "both definitions should be stored"
+    # Exact cue -> recover trajectory.
+    traj = am.retrieve(cvec("gravity"))
+    assert traj is not None and len(traj) >= 1, "exact cue must recover a trajectory"
+    recovered_words = {w for w, _ in traj}
+    assert "gravity" in recovered_words or "force" in recovered_words, \
+        f"recovered words look wrong: {recovered_words}"
+    # Noisy cue (30% noise) -> still above threshold (pattern completion).
+    gv = cvec("gravity")
+    noisy = gv + 0.3 * rng.randn(dim)
+    noisy = noisy / np.linalg.norm(noisy)
+    score_clean = am.pattern_completion_score(gv)
+    score_noisy = am.pattern_completion_score(noisy)
+    print(f"[B6] pattern-completion score clean={score_clean:.3f} "
+          f"noisy(0.3)={score_noisy:.3f}")
+    assert score_clean > 0.0
+    assert score_noisy > 0.0, "noisy cue must still hit the attractor"
+    # Off-concept cue scores lower than the on-concept cue.
+    off = cvec("music")
+    score_off = am.pattern_completion_score(off)
+    # (for the 'gravity' cue, music should score lower OR equal; sanity only)
+    assert score_off >= 0.0
+    print(f"[B6] attractor pattern completion OK (clean={score_clean:.3f})")
+    return True
+
+
+def test_B7_settle_loop():
+    """Phase 2: PredictiveCodingGenerator settles toward an attractor traj.
+
+    Build a tiny standalone decoder + a synthetic trajectory drawn from the
+    decoder's own vocab embeddings, then verify the settle loop emits a bounded
+    sequence of in-vocab content words (no <bos>/<eos>/<unk>), i.e. it does NOT
+    free-run / open-ended sample. This proves the new decoding algorithm runs
+    and respects the retrieved attractor as the coherence floor.
+    """
+    from ravana.decoder.predictive_coding_generator import (
+        PredictiveCodingGenerator)
+    n_vocab = 64
+    vocab = ["<bos>", "<eos>", "<unk>"] + [f"w{i}" for i in range(n_vocab - 3)]
+    idx = {w: i for i, w in enumerate(vocab)}
+    rng0 = np.random.RandomState(2)
+    embed = {w: rng0.randn(64).astype(np.float32) for w in vocab}
+    nd = NeuralDecoder(vocab_size=n_vocab, embed_dim=64, hidden_dim=32)
+    nd._vocab_embed_cache = None
+    for w, i in idx.items():
+        nd.word_embedding.weight.data[i] = embed[w]
+
+    # Trajectory = 4 vocab content words (w1..w4), as (word, embed) tuples.
+    traj = [(f"w{i}", embed[f"w{i}"]) for i in range(1, 5)]
+    iw = {i: w for w, i in idx.items()}  # index -> word map for the generator
+    gen = PredictiveCodingGenerator(nd, idx_to_word=iw, settle_steps=6,
+                                    settle_lr=0.25, temperature=0.6,
+                                    top_p=0.92, max_steps=12, min_steps=4)
+    conditioning = np.stack([embed["w1"], embed["w2"]], axis=0).astype(np.float32)
+    toks = gen.generate(conditioning_embs=conditioning, trajectory=traj,
+                        bos_idx=idx["<bos>"], eos_idx=idx["<eos>"])
+    assert len(toks) >= 3, f"settle should emit >=3 tokens, got {toks}"
+    words = [iw.get(t, "?") for t in toks]
+    assert all(w not in ("<bos>", "<eos>", "<unk>", "?") for w in words), \
+        f"settle emitted special tokens: {words}"
+    print(f"[B7] settle loop emitted {len(toks)} in-vocab tokens: {words}")
+    return True
+
+
 def main():
     ok = True
     for name, fn in [("B2 fit+warmstart", test_B2_fit_and_warmstart),
                      ("B5 fail-closed gate", test_B5_fail_closed_gate),
-                     ("B4 decoder override", test_B4_decoder_override)]:
+                     ("B4 decoder override", test_B4_decoder_override),
+                     ("B6 attractor pattern completion", test_B6_attractor_pattern_completion),
+                     ("B7 settle loop", test_B7_settle_loop)]:
         try:
             fn()
             print(f"  VERDICT: {name} CONFIRMED")

@@ -24,6 +24,9 @@ from ravana_ml.nn.neuromodulator import NeuromodulatorEngine
 from .models import CognitiveResponseContext
 from .constants import _is_word_salad, _is_word_salad_any_sentence
 from ravana.core.question_decomposition import QuestionDecompositionEngine, QuestionCategory, SubQuestion
+from ravana.core.attractor_memory import AttractorMemory
+from ravana.decoder.predictive_coding_generator import PredictiveCodingGenerator
+from ravana.ontology.linggen import hrr_vary_words
 from ravana.core.sub_answer_synthesizer import SubAnswerSynthesizer
 
 
@@ -713,6 +716,85 @@ class ResponseGenMixin(ChainWalkerMixin):
                 pass
         return self._grounded_anchor_cache.get(concept)
 
+    # ── Phase 0/1: attractor memory + trajectory retrieval ──────────────────
+    def _build_attractor_memory(self) -> Optional[AttractorMemory]:
+        """Build the HRR content-addressable store from clean KB definitions.
+
+        Reuses engine._definitions (preferred, coherent source) + the decoder's
+        own word embeddings (so the stored trajectory lives in the SAME space
+        the settle loop reads from). Cached on the engine; rebuilt lazily when
+        the KB grows. Returns None when there is nothing to store.
+        """
+        defs = getattr(self, "_definitions", None)
+        dw = getattr(self, "_decoder_word_to_embed", None)
+        if not isinstance(defs, dict) or not dw:
+            return None
+        if len(defs) < 1:
+            return None
+        stop = {"the", "a", "an", "of", "to", "and", "is", "are", "was",
+                "were", "in", "on", "for", "with", "that", "this", "it"}
+
+        def _cvec(concept: str):
+            c = concept.lower()
+            if c in dw:
+                return np.asarray(dw[c], dtype=np.float64)
+            return self._embed_75d(c)
+
+        am = AttractorMemory.from_definitions(
+            defs, dw, _cvec, dim=self._DECODER_DIM, stop=stop)
+        return am if len(am) > 0 else None
+
+    def _get_attractor_memory(self) -> Optional[AttractorMemory]:
+        am = getattr(self, "_attractor_memory", None)
+        if am is None:
+            am = self._build_attractor_memory()
+            self._attractor_memory = am
+            self._attractor_memory_built_for = (
+                len(getattr(self, "_definitions", {}) or {}))
+        return am
+
+    def _grounded_anchor_trajectory(self, concept: str):
+        """Phase 1: return the definition's word-embedding TRAJECTORY (not str).
+
+        Pattern-completion retrieval from the attractor store. Given the
+        concept's 75-D dual-code embedding as a (possibly partial) cue, recovers
+        the WHOLE coherent definition trajectory in one shot (Hopfield 1982;
+        Khona & Fiete 2022). Returns [(word, embed)] or None.
+
+        Preference order matches _grounded_anchor: engine._definitions is the
+        preferred, coherent source.
+        """
+        if not concept:
+            return None
+        am = self._get_attractor_memory()
+        if am is None:
+            return None
+        cvec = self._embed_75d(concept)
+        if cvec is None:
+            return None
+        traj = am.retrieve(cvec, threshold=0.30)
+        return traj
+
+    def _get_settle_generator(self) -> Optional[PredictiveCodingGenerator]:
+        """Phase 2/3: lazily build the settle generator over the live decoder.
+
+        Reuses the SAME NeuralDecoder the autoregressive path uses, so all
+        seed/grounded training is inherited. Passes the engine's idx->word map
+        so special tokens are filtered on the final lexical pick.
+        """
+        if self.neural_decoder is None or not self._decoder_vocab_built:
+            return None
+        gen = getattr(self, "_settle_generator", None)
+        if gen is None:
+            gen = PredictiveCodingGenerator(
+                self.neural_decoder,
+                idx_to_word=getattr(self, "_decoder_idx_to_word", {}) or {},
+                settle_steps=8, settle_lr=0.25, settle_tol=1e-4,
+                temperature=0.6, top_p=0.92, max_steps=18, min_steps=4,
+                repetition_penalty=2.0, seed=0)
+            self._settle_generator = gen
+        return gen
+
 
 
 
@@ -929,21 +1011,75 @@ class ResponseGenMixin(ChainWalkerMixin):
         if not subject_boost:
             subject_boost = None
 
+        # ── Phase 2/4: "Settle, don't sample" primary path ──────────────────
+        # Replace autoregressive free-run with a closed-loop attractor-settling
+        # generator (predictive coding + pattern completion + per-step working-
+        # memory gating). Coherence floor = the retrieved attractor, so no salad.
+        # Falls back to the autoregressive path (and ultimately realize_dim) if
+        # settlement fails -> fail-closed.
+        settle_traj = None
         try:
-            generated = self.neural_decoder.generate(
-                conditioning_embs=conditioning_embs,
-                max_steps=22,
-                bos_idx=bos_idx,
-                eos_idx=eos_idx,
-                temperature=temp,
-                cerebellar_ngram=self.cerebellar_ngram,
-                idx_to_word=self._decoder_idx_to_word,
-                basal_ganglia=self.basal_ganglia,
-                content_word_ids=content_word_ids,
-                token_boost=subject_boost,
-                initial_emb=initial_emb,
-                persistent_emb=initial_emb,
-            )
+            if use_linggen:
+                # Phase 1: the anchor is now a word-embedding TRAJECTORY, not a
+                # string. Retrieve via pattern completion from the attractor store.
+                settle_traj = self._grounded_anchor_trajectory(subject)
+                if settle_traj and subject_boost is not None:
+                    # Phase 4: bounded angular-gyrus elaboration (real Option C).
+                    # Vary a couple of wording positions while staying in the same
+                    # attractor — no pure repetition, no regression.
+                    dw = getattr(self, "_decoder_word_to_embed", None)
+                    if dw:
+                        settle_traj = hrr_vary_words(
+                            settle_traj, role_seed=abs(hash(subject)) % (2**31),
+                            n_vary=2, word_to_embed=dw)
+        except Exception:
+            settle_traj = None
+
+        generated = None
+
+        if settle_traj is not None:
+            try:
+                gen = self._get_settle_generator()
+                if gen is not None:
+                    gen.token_boost = subject_boost or {}
+                    generated = gen.generate(
+                        conditioning_embs=conditioning_embs,
+                        trajectory=settle_traj,
+                        bos_idx=bos_idx,
+                        eos_idx=eos_idx,
+                        initial_emb=initial_emb,
+                        persistent_emb=initial_emb,  # Phase 3: per-step working-memory hold
+                    )
+                    if generated and len(generated) >= 3:
+                        print(f"  [Settle Gen] settled={generated}")
+                    else:
+                        generated = None
+            except Exception as e:
+                if self._trace_enabled:
+                    print(f"  [trace] settle generation error: {e}")
+                generated = None
+
+        if generated is None:
+            try:
+                generated = self.neural_decoder.generate(
+                    conditioning_embs=conditioning_embs,
+                    max_steps=22,
+                    bos_idx=bos_idx,
+                    eos_idx=eos_idx,
+                    temperature=temp,
+                    cerebellar_ngram=self.cerebellar_ngram,
+                    idx_to_word=self._decoder_idx_to_word,
+                    basal_ganglia=self.basal_ganglia,
+                    content_word_ids=content_word_ids,
+                    token_boost=subject_boost,
+                    initial_emb=initial_emb,
+                    persistent_emb=initial_emb,
+                )
+
+            except Exception as e:
+                if self._trace_enabled:
+                    print(f"  [trace] decoder generation error: {e}")
+                return None
 
             print(f"  [Decoder Gen] generated={generated}")
             print(f"  [Decoder Gen] idx_to_word for first few: {[(idx, self._decoder_idx_to_word.get(idx, '?')) for idx in generated[:5]]}")
@@ -988,11 +1124,6 @@ class ResponseGenMixin(ChainWalkerMixin):
             text = re.sub(r'\s+', ' ', text)
 
             return text
-        except Exception as e:
-            if self._trace_enabled:
-                print(f"  [trace] decoder generation error: {e}")
-            return None
-
 
 
     # ─── Situation-Model-Guided Generation ───
@@ -2318,6 +2449,12 @@ class ResponseGenMixin(ChainWalkerMixin):
                 if len(words) >= 2 and words[1] not in _DETS:
                     return None
                 return first
+            # Genuine verb-led imperative (e.g. "send the email",
+            # "build me a scraper"): the first word IS the action verb, so
+            # return it directly. Only auxiliary-led utterances need the
+            # interrogative disambiguation above; a real imperative verb
+            # ("send", "build", "write" ...) is unambiguous.
+            return first
         return None
 
     def _handle_action_request(self, text: str, action_verb: str,
@@ -5310,17 +5447,34 @@ class ResponseGenMixin(ChainWalkerMixin):
         # if the salad detector would flag them as "low content". They are only
         # withheld if they are genuine salad (empty/echo), handled below. An
         # EMPTY utterance is never a valid act, so it is withheld regardless.
+        # PROMPT 4 (revised): the intent-anchored exemption lets SHORT
+        # complete-by-type acts (honest unknowns, social closers) survive even
+        # if the salad detector would flag them as "low content". It must NOT
+        # exempt answer/inform acts that merely NAME-DROP the subject while
+        # being fluent-tautological garbage — those still have to pass the
+        # clause-grained degeneracy strip below. (Empathic replies are already
+        # exempted by strategy above.) Without this guard, a string like
+        # "black holes means tied. black holes parallels related." satisfies
+        # the "answer" intent (subject present) and would bypass the monitor
+        # entirely, leaking degenerate text.
         if text and self._intent_satisfied(text, ctx, strategy):
-            return text
+            _act = self._speech_act(ctx, strategy)
+            if _act in ("acknowledge_unknow", "empathize", "social"):
+                return text
+            # answer/inform: fall through to the clause-grained degeneracy
+            # strip so genuinely degenerate clauses are still dropped.
 
         # association / decoder output). The degeneracy monitor targets
         # associative salad and would wrongly withhold a valid encyclopedic
         # snippet (e.g. "The speed of light in vacuum... is a universal
         # constant") — the snippet is real knowledge, not a degenerate clause.
-        # Exempt so a correct web answer is never replaced by hollow uncertainty.
+        # Web answers are therefore exempted from the WHOLE-TEXT salad check
+        # (see the exemption placed AFTER the clause-grained strip below) so a
+        # correct web answer is never replaced by hollow uncertainty. They are
+        # NOT exempted from the clause-grained strip, so a junk web snippet
+        # (e.g. "invisible in Roblox. let me know if you want more detail.")
+        # still has its degenerate clauses dropped / is withheld.
         # (web_unverified is the honest abstention already, also safe to pass.)
-        if strategy in ("web_direct_answer", "web_unverified"):
-            return text
         if not text or not text.strip():
             return self._human_like_uncertainty(ctx)[0]
         # Degenerate / word-salad candidate -> refuse. Clause-grained: any
@@ -5353,19 +5507,31 @@ class ResponseGenMixin(ChainWalkerMixin):
                           "withholding")
                 return self._human_like_uncertainty(ctx)[0]
             # Whole-text salad check (legacy fallback, when per-sentence misses).
-            if _is_word_salad(text, subject=ctx.subject):
+            # Web answers are exempt from this WHOLE-TEXT check (a correct
+            # encyclopedic snippet must not be withheld) — but they already
+            # passed the clause-grained strip above, so junk web text was
+            # dropped/withheld there.
+            if _is_word_salad(text, subject=ctx.subject) and \
+                    strategy not in ("web_direct_answer", "web_unverified"):
                 self._log_monitor_fire("forward-model", text.strip(), "salad")
                 if getattr(self, "_trace_enabled", False):
                     print("  [trace]   forward-model monitor: candidate failed "
                           "degeneracy check — repairing")
                 return self._human_like_uncertainty(ctx)[0]
         else:
-            if _is_word_salad(text, subject=ctx.subject):
+            if _is_word_salad(text, subject=ctx.subject) and \
+                    strategy not in ("web_direct_answer", "web_unverified"):
                 self._log_monitor_fire("forward-model", text.strip(), "salad")
                 if getattr(self, "_trace_enabled", False):
                     print("  [trace]   forward-model monitor: candidate failed "
                           "degeneracy check — repairing")
                 return self._human_like_uncertainty(ctx)[0]
+        # Web answers that survived the clause-grained strip (and the whole-text
+        # salad check above, which they skip) are grounded knowledge, not free
+        # association — emit them. (web_unverified is the honest abstention,
+        # also safe to pass.) Junk web text was already withheld by the strip.
+        if strategy in ("web_direct_answer", "web_unverified"):
+            return text
         # Echo: reply is (near) verbatim the user's own words. A human doesn't
         # repeat the interlocutor as an answer; covert repair turns it back.
         user_norm = re.sub(r"\W+", " ", ctx.raw_input.lower()).strip()

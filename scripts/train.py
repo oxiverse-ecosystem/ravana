@@ -331,6 +331,11 @@ def _gen_one(engine, nd, concept, av, W_sm, glove_fn, anchor_desc=None):
     GRU ELABORATES on the retrieved def rather than generating from a void).
     Coherence is then measured against the anchor's semantic center, not the
     bare concept — this is the honest success metric for the enrichment path.
+
+    Phase 2: prefers the settle path (PredictiveCodingGenerator) whenever an
+    attractor trajectory is retrievable, so the promotion gate measures the
+    SAME algorithm the engine runs. Falls back to autoregressive generation when
+    no trajectory is available (fail-closed).
     """
     init = (W_sm @ np.asarray(av, dtype=np.float32)[:65]).astype(np.float32)
     nn = np.linalg.norm(init)
@@ -357,6 +362,39 @@ def _gen_one(engine, nd, concept, av, W_sm, glove_fn, anchor_desc=None):
         embs.append(engine._embed_75d(concept))
     blend = np.stack(embs, axis=0).astype(np.float32)
     iw = getattr(engine, "_decoder_idx_to_word", None) or {}
+
+    # ── Phase 2: settle path (mirrors engine._generate_with_decoder) ──
+    # If the concept has a retrievable attractor trajectory, settle toward it.
+    traj = None
+    try:
+        traj = engine._grounded_anchor_trajectory(concept)
+    except Exception:
+        traj = None
+    if traj:
+        from ravana.decoder.predictive_coding_generator import (
+            PredictiveCodingGenerator)
+        gen = PredictiveCodingGenerator(
+            nd, idx_to_word=iw, settle_steps=8, settle_lr=0.25,
+            settle_tol=1e-4, temperature=0.6, top_p=0.92,
+            max_steps=18, min_steps=4, repetition_penalty=2.0, seed=0)
+        token_boost = {}
+        if anchor_desc:
+            for _w in anchor_desc.split():
+                _w = _w.lower().strip(".,!?;:\"'()[]")
+                _idx = getattr(engine, "_decoder_word_to_idx", {}).get(_w)
+                if _idx is not None:
+                    token_boost[_idx] = 1.5
+        gen.token_boost = token_boost
+        toks = gen.generate(conditioning_embs=blend, trajectory=traj,
+                            bos_idx=iw.get("<bos>", 0) if isinstance(iw, dict) else 0,
+                            eos_idx=iw.get("<eos>", 2) if isinstance(iw, dict) else 2,
+                            initial_emb=init, persistent_emb=init)
+        if toks:
+            words = [iw.get(t, "") for t in toks
+                     if iw.get(t, "") not in ("<bos>", "<eos>", "<unk>", "")]
+            return words
+
+    # ── Fallback: autoregressive (fail-closed) ──
     # Option C constrained decoding (research item #8c): modestly boost the
     # anchor's content-word logits so the elaboration stays lexically tethered
     # to the retrieved definition (retrieve-and-lightly-edit), without forcing
