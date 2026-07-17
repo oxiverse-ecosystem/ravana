@@ -2484,6 +2484,37 @@ class ResponseGenMixin(ChainWalkerMixin):
         confabulation, no abstract filler.
         """
         import random
+        # B5 (DMN divergent-thinking / social warmth; Shah 2011, Stevenson 2020):
+        # a creative request ("write me a poem/story/haiku about X") should NOT
+        # get the same cold "i can't do that on your system" refusal used for
+        # tool actions (build/click/send). A teen brain leans INTO creative play
+        # and finds cold refusal aversive. If the decoder-based free-form path is
+        # available we could generate; it's off by default, so we decline with
+        # WARMTH and invite collaboration (keeps honesty: we don't fake an
+        # artifact, but we don't sound like a locked-down assistant either).
+        _creative = re.search(
+            r"\b(poem|story|haiku|song|tale|limerick|rap|verse|lyric|lyrics)\b",
+            text.lower())
+        if _creative:
+            _art = _creative.group(1)
+            # topic after "about"
+            _m = re.search(r"\babout\s+(.+)", text.lower())
+            _topic = (_m.group(1).strip(" .,!?") if _m else "").strip()
+            _about = f" about {_topic}" if _topic else ""
+            _warm = [
+                f"ooh, a {_art}{_about} — i love that idea. i'm honestly still "
+                f"finding my creative footing, so i'd rather not hand you "
+                f"something clumsy. want to build one together? you give me a "
+                f"line and i'll riff off it.",
+                f"i really wish i could spin you a {_art}{_about} right now — "
+                f"that sounds fun. my creative writing is still shaky though, so "
+                f"how about we make one together? toss me a first image and "
+                f"we'll go from there.",
+                f"a {_art}{_about} — nice. i'm not confident enough in my own "
+                f"verse yet to just produce one cold, but i'd genuinely enjoy "
+                f"writing it WITH you. what mood are you going for?",
+            ]
+            return random.choice(_warm)
         # Extract the object of the request (what they want built/done).
         obj = ""
         try:
@@ -3771,9 +3802,39 @@ class ResponseGenMixin(ChainWalkerMixin):
                 continue
             if _chain_coh:
                 _coh_scores.append(float(np.mean(_chain_coh)))
-            lines.append(f"{a} would lead to {b}")
+            # A5 (nearest-possible-world cascade; Van Hoeck 2015): realize the
+            # FULL multi-hop path so the simulation reads as a cascade
+            # ("gravity would lead to X, which would lead to Y"), not a shallow
+            # star of 1-hop associations all rooted at the intervened concept.
+            _mids = [p for p in parts if p.lower() not in _VERB_BLOCK
+                     and p.lower() not in STOP_WORDS and len(p) >= 3]
+            # de-dup consecutive repeats while preserving order
+            _seq = []
+            for _p in _mids:
+                if not _seq or _seq[-1].lower() != _p.lower():
+                    _seq.append(_p)
+            if len(_seq) >= 3:
+                _chain_str = _seq[0]
+                for _nxt in _seq[1:]:
+                    _chain_str += f" would lead to {_nxt}, which"
+                _chain_str = _chain_str.rsplit(", which", 1)[0]
+                lines.append(_chain_str)
+            else:
+                lines.append(f"{a} would lead to {b}")
         if not lines:
             return None
+        # A5 density detector (nearest-possible-world): if EVERY realized line is
+        # a shallow 1-hop star rooted at the intervened concept (no cascade), the
+        # graph is too sparse to simulate a real counterfactual. Withhold so the
+        # caller falls through to the hedged-candidate / honest-uncertainty path
+        # rather than emitting a thin "X would lead to A; X would lead to B" fan.
+        _cascades = [ln for ln in lines if ln.count("would lead to") >= 2]
+        if not _cascades and len(lines) >= 1:
+            _heads = {ln.split(" would lead to")[0].strip().lower() for ln in lines}
+            if len(_heads) <= 1:
+                if getattr(self, '_trace_enabled', False):
+                    print(f"  [counterfactual] sparse graph (shallow star) — withholding")
+                return None
         body = "; ".join(lines)
         # Output-side coherence gate (Fix D): if the realized narrative is
         # incoherent/looping, withhold it and let the caller fall through to

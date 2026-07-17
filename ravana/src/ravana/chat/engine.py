@@ -4467,6 +4467,16 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             # If only individual words are known but the phrase isn't in _definitions —
             # the frontopolar cortex detects a mismatch and signals low FOK.
             phrase_known = has_definition or has_web_knowledge or has_schema
+            # B7 (ATL retrieval priority; Binder & Desai 2011): protected/seeded
+            # domain concepts (ravana, oxiverse, intentforge, ...) are guaranteed
+            # stable semantic knowledge with authored typed relations in the
+            # graph. Treat them as KNOWN so the FOK->LPFC web pause never fires
+            # for them — internal retrieval must win over external search (web is
+            # the absolute last resort). This removes the "oxiverse hits 21s web
+            # but ravana is instant" inconsistency.
+            _is_seeded = (subj_lower in getattr(self, "_PROTECTED_CONCEPTS", set())
+                          or subj_lower in getattr(self, "_seeded_domain_concepts", set()))
+            phrase_known = phrase_known or _is_seeded
             is_multi_word = ' ' in subject.lower().strip()
             if (strong_assocs < 2 and not phrase_known) or (is_multi_word and not phrase_known):
                 self._fok_pre_queued = True
