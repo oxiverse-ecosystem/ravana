@@ -1955,6 +1955,23 @@ class ResponseGenMixin(ChainWalkerMixin):
         elif intent == "wellbeing":
             return self._compose_wellbeing(valence, arousal)
         elif intent == "capability":
+            # The social-intent classifier is trained on self-referential
+            # capability prompts ("who are you", "tell me about yourself",
+            # "what can you do"). It over-triggers on TOPIC requests of the
+            # form "tell me about <X>" where X is NOT the agent (e.g.
+            # "tell me about music" -> emits the self-description). That buries
+            # the real factual answer. Capability intent only makes sense for
+            # explicit self-queries; for "tell me about <topic>" with a
+            # non-self topic, ABSTAIN so the turn falls through to the factual
+            # / knowledge path (which already answers "what is music" correctly).
+            _tm = re.match(r"tell\s+me\s+about\s+(.+)", t)
+            if _tm:
+                _topic = _tm.group(1).strip()
+                _self_ref = re.search(
+                    r"\b(yourself|you|ravana|what you (can|do)|your (abilities|capabilities|powers))\b",
+                    _topic)
+                if not _self_ref:
+                    return None
             return self._compose_capability()
         elif intent == "farewell":
             return self._compose_farewell(valence, arousal)
@@ -3361,10 +3378,69 @@ class ResponseGenMixin(ChainWalkerMixin):
         else:
             return None
         text = raw.lower()
+        # First-person bereavement / loss schema (brain-faithful loss
+        # detector). Death/grief words ("died", "death", "grief", "passed
+        # away", "lost" in a loss sense) are often ABSENT from the VAD lexicon,
+        # so a disclosure like "my dog died" would otherwise slip through to
+        # the cold backchannel ("nice, so you're dog died"). Bereavement is an
+        # unambiguous high-intensity NEGATIVE autonomic state — it must reach
+        # the empathic responder regardless of whether the lexicon carries the
+        # word. Caught here, BEFORE the VAD token scan, because "died" yields
+        # no lexical valence and the early `if not vals: return None` would
+        # otherwise suppress it. This mirrors the lexical-hard-threshold path:
+        # a clear emotion label is caught directly, no distributional inference.
+        #
+        # Human-Likeness Plan (A2): TPJ pragmatic frame-guard. The loss word
+        # must belong to a SELF-possessive disclosure ("my dog died"), not sit
+        # inside a creative/request frame about a third entity ("tell me a
+        # story about someone who died" / "a poem about a dog that died"). The
+        # TPJ maintains a meta-representational boundary between the speaker's
+        # own affect and a fictional/narrated agent's (Koster-Hale 2017;
+        # Qiao-Tasserit 2024). Without this guard, "tell me a story about a
+        # lonely robot who died" would wrongly trigger bereavement empathy.
+        _LOSS_TERMS = ("died", "dies", "death", "dead", "grief", "grieving",
+                       "bereaved", "bereavement", "passed away", "passed",
+                       "lost", "losing", "suicide", "funeral", "widow",
+                       "widowed", "mourn", "mourning")
+        # Creative / request framing verbs that route the following content into
+        # narrative simulation (DMN) rather than empathic resonance. If such a
+        # frame is present AND the loss word is NOT self-possessive, it is a
+        # story/request, not a personal loss disclosure — abstain.
+        _NARRATIVE_FRAME = re.compile(
+            r"\b(tell|write|create|make|imagine|describe|teach|compose|give|"
+            r"draw)\b.*\b(me|us|him|her|them)\b|"
+            r"\b(a|an|the)\s+(story|poem|song|haiku|joke|tale|letter|book)\s+"
+            r"(about|of|for|where)\b")
+        _has_narrative_frame = bool(_NARRATIVE_FRAME.search(text))
+        _self_possessive_loss = bool(re.search(
+            r"\b(my|our)\s+\w*\s*(dog|cat|pet|grandma|grandpa|grandmother|"
+            r"grandfather|mom|mother|dad|father|sister|brother|friend|wife|"
+            r"husband|son|daughter|child|kid|baby|partner|bro|fam)\w*\s+"
+            r"(died|dies|death|dead|passed|lost|losing|grief|grieving|"
+            r"mourn|mourning|suicide|funeral)\b", text))
+        if any(t in text for t in _LOSS_TERMS):
+            if _has_narrative_frame and not _self_possessive_loss:
+                # Loss word lives in a story/request frame, not a self-disclosure.
+                pass
+            else:
+                self._update_vad_baseline(-0.8)
+                return ("negative", "hurting")
         if not re.search(r"\b(i|i'm|i am|my|me|we|we're|we are)\b", text):
             return None
         if re.search(r"\blike (?:i am|i'm|i)\s+(?:a |an )?\w+\b", text) or \
            re.search(r"\b(explain|describe|teach|tell me about).*\b(like|as if)\b.*\b(i am|i'm|i)\b", text):
+            return None
+        # Human-Likeness Plan (A2): TPJ frame-guard on the general empathy path.
+        # A genuine self-disclosure requires the first-person token to be a
+        # proximal self-construct ("i am/feel/my"), not merely an imperative
+        # request verb ("tell me a story about a lonely robot"). If the ONLY
+        # first-person signal is inside a creative/request frame, the affect
+        # word describes a third entity, not the user — abstain (fail-closed),
+        # so the turn falls through to creative generation, not false empathy.
+        if _has_narrative_frame and not re.search(
+                r"\b(i|i'm|i\s+am|i\s+feel|my)\b.*\b(feel|am|hurt|sad|happy|"
+                r"angry|lonely|tired|scared|afraid|anxious|excited|love|hate)\b",
+                text):
             return None
 
         from ravana.core.mirror import UserEmotionDetector, _NEGATORS
@@ -3521,6 +3597,13 @@ class ResponseGenMixin(ChainWalkerMixin):
         _ck = dict(getattr(self, "_concept_keywords", {}) or {})
         # Verbs / function words that a counterfactual acts ONTO, never the
         # subject of the intervention (e.g. "disappeared", "happen", "were").
+        # Also includes the intervention CUE verbs themselves (stop/stopped,
+        # switch/switched, destroy/destroyed, vanish/vanished, remove/removed,
+        # cease/ceased) -- they are the predicate describing the change, never
+        # the entity being changed. Treating "stopped" as the intervened node
+        # ("if we stopped sleeping" -> "stopped would lead to fire") is a
+        # subject-resolution failure; exclude them so resolution skips to the
+        # real entity (sleep / sleeping).
         _VERB_BLOCK = {
             "disappear", "disappeared", "gone", "vanish", "vanished", "cease",
             "ceased", "destroy", "destroyed", "remove", "removed", "happen",
@@ -3529,6 +3612,9 @@ class ResponseGenMixin(ChainWalkerMixin):
             "were", "was", "could", "would", "should", "can", "will",
             "do", "does", "did", "have", "has", "had", "be", "is", "are",
             "different", "same", "alive", "dead", "real", "true", "instead",
+            "stop", "stopped", "stops", "switch", "switched", "turn", "turned",
+            "cease", "ceased", "break", "broke", "broke", "fall", "fell",
+            "disappear", "disappeared",
         }
         # Discourse / spinner adverbs that often introduce a hypothetical
         # ("suddenly", "out of nowhere", "one day") but are NOT the thing that
@@ -3567,6 +3653,33 @@ class ResponseGenMixin(ChainWalkerMixin):
                         break
                 if start:
                     break
+        # Hypothetical-opener handling (counterfactual subject resolution).
+        # Queries like "imagine if gravity suddenly stopped working" or
+        # "what if humans could photosynthesize" open with a MODAL verb
+        # (imagine / suppose / what if / if) that is NOT the thing being
+        # intervened on. The naive fallback above would grab "imagine"/"what"
+        # as `start`, so the simulation is built around the wrong node and
+        # produces garbage ("imagine would lead to something"). The intervened
+        # entity is the first real content noun AFTER the opener (gravity,
+        # humans). Strip the opener, then prefer a content noun that is NOT the
+        # modal verb itself.
+        if not start:
+            _opener_strip = re.sub(
+                r"^(imagine|suppose|assume|what if|if|say|pretend)\b[\s,]*"
+                r"(?:that\s+|if\s+|we\s+|you\s+|they\s+|he\s+|she\s+|it\s+)?",
+                "", _raw)
+            _opened = _opener_strip != _raw
+            _after_nouns = [w for w in re.findall(r"[a-z']+", _opener_strip)
+                            if w not in STOP_WORDS and w not in _VERB_BLOCK
+                            and len(w) > 2]
+            # Prefer a noun that is a real graph concept; else the first
+            # content noun after the opener (skip the modal verb itself).
+            for w in _after_nouns:
+                if w in _ck:
+                    start = w
+                    break
+            if not start and _opened and _after_nouns:
+                start = _after_nouns[0]
         # Fallback candidate order: a query noun that exists in the graph,
         # else the parsed subject only if it is itself a content noun
         # (not a verb), else the first salient query noun.
@@ -3600,6 +3713,18 @@ class ResponseGenMixin(ChainWalkerMixin):
         except Exception:
             chains = []
         if not chains:
+            # Human-Likeness Plan (A2): the graph has no causal material for the
+            # intervened concept, but the query is a genuine why/what-if classic.
+            # Instead of collapsing straight to uncertainty (the metaphor
+            # dead-end is already excluded upstream), attempt a web/FOK escape:
+            # reuse the engine's Feeling-of-Knowing + WebLearner to fetch a real
+            # answer for the canonical puzzle. The escape is honest — it is a
+            # retrieved well-known answer, not a confident assertion from the
+            # graph. Fail-closed: if web/FOK cannot produce anything, return None
+            # and the caller falls through to honest uncertainty.
+            _web = self._counterfactual_web_escape(ctx)
+            if _web:
+                return _web
             return None
         # Realize a causal narrative (no templates: causal connector phrases).
         # The causal graph accrues noisy web-learned edges, so a single-hop
@@ -3618,6 +3743,14 @@ class ResponseGenMixin(ChainWalkerMixin):
                 # single-hop association, not a deduced consequence
                 continue
             a, b = parts[0], parts[-1]
+            # Drop endpoints that are intervention-cue / verb-block words.
+            # A counterfactual's intervened predicate (e.g. "stopped" in
+            # "gravity suddenly stopped working") can leak into the graph as a
+            # neighbor and surface as a "consequence" ("gravity would lead to
+            # stopped") -- fluent nonsense. The cue verb is the CHANGE, never a
+            # knock-on effect, so exclude it from realized tails/heads.
+            if a.lower() in _VERB_BLOCK or b.lower() in _VERB_BLOCK:
+                continue
             if b.lower() in STOP_WORDS or b.lower() == start.lower() or len(b) < 3:
                 continue
             # consecutive-node coherence: every adjacency in the path must be
@@ -3731,11 +3864,22 @@ class ResponseGenMixin(ChainWalkerMixin):
                     "other systems would scramble to fill the gap"]
 
         lines = []
+        # Intervention-cue / verb-block words must never surface as a knock-on
+        # "consequence". They are the predicate describing the change (e.g.
+        # "stopped" in "gravity stopped working"), not an effect -- so a causal
+        # neighbor labeled "stopped" is fluent nonsense, not a real consequence.
+        _CUE_VERBS = {"stop", "stopped", "stops", "switch", "switched", "turn",
+                      "turned", "cease", "ceased", "break", "broke", "fall",
+                      "fell", "go", "went", "gone", "disappear", "disappeared",
+                      "vanish", "vanished", "destroy", "destroyed", "remove",
+                      "removed", "change", "changed", "happen", "happened"}
         for p in paths[:3]:
             if len(p) < 2:
                 continue
             head, tail = p[0], p[-1]
             if tail.lower() == _s or tail.lower() in STOP_WORDS or len(tail) < 3:
+                continue
+            if tail.lower() in _CUE_VERBS or head.lower() in _CUE_VERBS:
                 continue
             lines.append(f"{head} would lead to {tail}")
         if not lines:

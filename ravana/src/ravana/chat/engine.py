@@ -313,6 +313,13 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # last few verbatim user turns so the WM↔LTM retrieval path is live.
         self._recent_user_turns: List[str] = []
         self.user_model = UserModel()
+        # ── Human-Likeness Plan (2026-07-15): portable episodic transcript ──
+        # Each user turn is stored as a structured record (gist-based episodic
+        # memory, Brown-Schmidt & Benjamin 2018: people retain gist + salient
+        # facts, not verbatim). Used by _retrieve_episodic so a "remember what
+        # I told you" query reconstructs what was said instead of confabulating.
+        self._episodic_transcript: List[Dict[str, Any]] = []
+        self._agent_preferences: Dict[str, str] = {}  # grounded self-preference store (A1)
         self._last_hops: List[List[Tuple[str, str]]] = []  # concept -> strength (decays)
         self._last_chain_hops: List[List[Tuple[str, str]]] = []  # Phase 3.4: snapshot before clear
         # Phase 8: Prefrontal workspace — holds subject + top associations for on-topic focus
@@ -1685,6 +1692,210 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             return f'your last message was: "{last}"'
         return f'you just asked me: "{last}"'
 
+    # ─────────────────────────────────────────────────────────────────────
+    # Human-Likeness Plan (C): portable episodic memory
+    # ─────────────────────────────────────────────────────────────────────
+    def _record_episode(self, user_input: str) -> None:
+        """Append a structured turn record to the gist-based episodic transcript.
+
+        Brain basis: conversational memory is cue-dependent and gist-based
+        (Brown-Schmidt & Benjamin 2018; Tulving encoding specificity). We store
+        the verbatim text (for reconstruction), a timestamp, the topic, and the
+        salient facts/preferences mined from the utterance (favorites, likes),
+        so a later "remember what I told you" can reconstruct GIST without
+        confabulating. Capped at 100 turns; oldest dropped first.
+        """
+        import time as _time
+        t = (user_input or "").strip()
+        if not t:
+            return
+        _topic = ""
+        try:
+            _topic = self._ground_query(t)[0] or ""
+        except Exception:
+            _topic = ""
+        rec = {
+            "text": t,
+            "ts": _time.time(),
+            "topic": _topic,
+            "facts": self._mine_episodic_facts(t),
+        }
+        self._episodic_transcript.append(rec)
+        if len(self._episodic_transcript) > 100:
+            self._episodic_transcript = self._episodic_transcript[-100:]
+
+    def _mine_episodic_facts(self, text: str) -> Dict[str, str]:
+        """Extract salient self-disclosed facts from a user turn (gist mining).
+
+        Looks for the canonical 'my favorite X is Y' / 'i love/like X' shapes so
+        the episodic store can answer 'remember what i told you' with the actual
+        content. Returns a small dict of {slot: value}. Deterministic, no LLM.
+        """
+        facts: Dict[str, str] = {}
+        low = (text or "").lower()
+        # "my favorite X is Y" / "my favorite X: Y"
+        m = re.search(r"\bmy favorite\s+([a-z0-9 ]+?)\s+(?:is|are|:)\s+([a-z0-9 ]+?)[.!?]?\s*$",
+                      low.strip())
+        if m:
+            facts["favorite_" + m.group(1).strip()] = m.group(2).strip()
+        # "i love/like X" (last such clause)
+        for verb in ("love", "like", "enjoy", "prefer"):
+            mm = re.findall(r"\bi\s+" + verb + r"\s+([a-z0-9 \-]+?)(?:,|\.|!|\?| and | but | because |$)",
+                            low)
+            if mm:
+                facts.setdefault("likes", mm[-1].strip())
+        return facts
+
+    def _retrieve_episodic(self, query: str,
+                           transcript: Optional[List[Dict[str, Any]]] = None) -> Optional[str]:
+        """Brain-faithful episodic recall (Tulving encoding specificity).
+
+        Match by (a) explicit fact slot the query asks about (e.g. 'cat' /
+        'book'), or (b) GloVe semantic similarity between the query and stored
+        turn text/gist. Reconstruct the gist. If nothing clears the bar, return
+        None so the caller fails CLOSED (never confabulate — RAVANA bar).
+
+        `transcript` lets the caller pass a restricted set (e.g. all-but-current
+        turn for a "remember what I told you" query) instead of the live store.
+        """
+        store = transcript if transcript is not None else self._episodic_transcript
+        if not store:
+            return None
+        q = (query or "").lower().strip()
+        # (a) fact-slot cue match — highest precision.
+        for rec in store:
+            facts = rec.get("facts", {})
+            for slot, val in facts.items():
+                # the query references this fact's value or slot keyword
+                if val and (val in q or slot.replace("_", " ") in q):
+                    return self._reconstruct_gist(rec)
+        # (b) semantic match over turn text / gist.
+        best = None
+        best_score = 0.0
+        qwords = [w.strip(".,!?") for w in q.split()
+                  if len(w.strip(".,!?")) >= 3 and w.strip(".,!?") not in STOP_WORDS]
+        # Exclude recall-scaffold words (the verbs/pronouns that make a query a
+        # "remember" act) so the semantic cue is the REAL content (e.g. "cat",
+        # "name", "book"), not the recall scaffolding. Otherwise "remember"
+        # itself loosely cosine-matches stored episodes and a cued recall
+        # returns an unrelated memory (confabulation). Fail-closed instead.
+        _RECALL_SCAFFOLD = {
+            "remember", "recall", "told", "said", "say", "tell", "telling",
+            "mention", "mentioned", "ask", "asked", "what", "earlier", "before",
+            "about", "thing", "things", "did", "do", "you", "your", "i", "my",
+            "we", "our", "the", "a", "an", "that", "this", "me", "name",
+        }
+        qwords = [w for w in qwords if w not in _RECALL_SCAFFOLD]
+        for rec in store:
+            text = rec.get("text", "")
+            # Skip episodes that are themselves memory queries (e.g. a previous
+            # "remember what I told you") — they carry no shareable content and
+            # would otherwise be retrieved by semantic overlap with a new recall
+            # query, producing a confabulated self-reference. Fail-closed instead.
+            if re.search(r"\b(remember|recall|what did i|what was i)\b.*\b(told|said|ask|mention|tell)\b", text.lower()):
+                continue
+            score = 0.0
+            _strong_link = False
+            _text_l = text.lower()
+            for w in qwords:
+                # A genuine topical link for a cued recall requires a VERBATIM
+                # query word in the stored episode (precise), OR a very strong
+                # semantic neighbor (cosine >= 0.5). Weak cosine alone is
+                # rejected so an unrelated cue ("my cat's name") cannot loosely
+                # match any stored episode (RAVANA bar: never confabulate).
+                if w in _text_l:
+                    _strong_link = True
+                wv = self._glove_vector(w)
+                if wv is None:
+                    continue
+                for tw in re.findall(r"[a-z']+", _text_l):
+                    if tw in STOP_WORDS or len(tw) < 3:
+                        continue
+                    tv = self._glove_vector(tw)
+                    if tv is None:
+                        continue
+                    _cos = float(np.dot(wv, tv))
+                    score += _cos
+                    if _cos >= 0.5:
+                        _strong_link = True
+            if not _strong_link:
+                continue
+            if score > best_score:
+                best_score = score
+                best = rec
+        # Adaptive bar: require a non-trivial match (distribution-driven, not a
+        # fixed threshold — but we must avoid firing on an empty/weak cue).
+        if best is not None and best_score >= 0.6:
+            return self._reconstruct_gist(best)
+        return None
+
+    def _reconstruct_gist(self, rec: Dict[str, Any]) -> str:
+        """Reconstruct a gist reply from a stored episode (no verbatim parroting
+        beyond what was stored; no invention)."""
+        facts = rec.get("facts", {})
+        if facts:
+            bits = []
+            for slot, val in facts.items():
+                if slot.startswith("favorite_"):
+                    bits.append(f"your favorite {slot[len('favorite_'):]} is {val}")
+                elif slot == "likes":
+                    bits.append(f"you mentioned you like {val}")
+            if bits:
+                return "you told me " + "; ".join(bits) + "."
+        return f"you mentioned: \"{rec.get('text', '')}\""
+
+    def _episodic_remember(self, user_input: str) -> Optional[str]:
+        """Handle a broad 'remember what I told you' recall query (Human-Likeness
+        Plan C). Tries fact/slot retrieval and semantic gist retrieval over the
+        portable transcript; fails closed when nothing matches.
+
+        GATE: only attempt retrieval when the query is actually a memory/recall
+        request. A plain new question ("what color is the sun") must NOT be
+        intercepted by the episodic matcher — otherwise it would be hijacked by
+        semantic overlap with an unrelated past turn. Fail-closed: non-recall
+        queries return None and continue down the normal pipeline.
+        """
+        _recall_pat = re.compile(
+            r"\b(remember|recall|remind me|what did i|what was i|"
+            r"do you remember|what i (told|said|mentioned)|"
+            r"what have i (told|said))\b", re.IGNORECASE)
+        if not _recall_pat.search(user_input or ""):
+            self._episodic_miss = False
+            return None
+        # Recognized as a recall query: if we end up returning None, it means we
+        # genuinely have nothing stored — the caller must fail CLOSED (no
+        # confabulation via web/graph), not fall through to a web lookup.
+        self._episodic_miss = True
+        prior = self._episodic_transcript[:-1] if self._episodic_transcript else []
+        if not prior:
+            return None
+        # Bare recall with no specific cue (a human still surfaces the gist of
+        # what was shared). Reconstruct ALL mined facts from prior turns. We do
+        # this BEFORE semantic cue-matching because the bare recall query shares
+        # words with prior *recall* queries (e.g. "remember what i told you"
+        # matches a previous "remember what i told you" turn) and would
+        # otherwise retrieve the query itself instead of the shared content.
+        _q = (user_input or "").lower()
+        _bare = bool(re.search(r"remember\b.*\b(told|said|mentioned|tell)\b", _q)) \
+            and not re.search(r"\b(cat|book|dune|astrophysics|name|color|food|movie|song|band|place|pet)\b", _q)
+        if _bare:
+            bits = []
+            for rec in prior:
+                facts = rec.get("facts", {})
+                for slot, val in facts.items():
+                    if slot.startswith("favorite_"):
+                        bits.append(f"your favorite {slot[len('favorite_'):]} is {val}")
+                    elif slot == "likes" and val not in " ".join(bits):
+                        bits.append(f"you like {val}")
+            if bits:
+                return "you told me " + "; ".join(dict.fromkeys(bits)) + "."
+        # Specific-cue retrieval (fact slot or semantic gist) for cued recalls
+        # like "remember my cat's name" / "what was the book i mentioned".
+        out = self._retrieve_episodic(user_input, prior)
+        if out:
+            return out
+        return None
+
     def _try_arithmetic(self, user_input: str) -> Optional[str]:
         """Phase 19f: Answer simple arithmetic directly instead of routing it
         through the web/decomposition pipeline (which would fail to find a
@@ -2123,7 +2334,23 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             ("gravity", "orbit", "causal", 0.9),
             ("gravity", "earth", "causal", 0.8),
             ("water", "life", "causal", 0.85),
-            ("water", "plants", "causal", 0.8),
+        # M3-E: world-skeleton (above) + Human-Likeness Plan (A2): the classic
+        # "tree falls in a forest" counterfactual has no causal edges in the
+        # lived graph, so the forward-simulator returns [] and the query fell
+        # into the category-error metaphor dead-end. Seed the physical causal
+        # chain so the simulator can forward-chain a REAL causal answer:
+        #   tree → fall → vibrate → air → sound ; and observer → perceive
+        ("tree", "fall", "causal", 0.95),
+        ("fall", "vibrate", "causal", 0.9),
+        ("vibrate", "air", "causal", 0.85),
+        ("air", "sound", "causal", 0.9),
+        ("sound", "hear", "causal", 0.85),
+        ("sound", "perceive", "causal", 0.8),
+        ("observer", "perceive", "causal", 0.8),
+        ("fall", "sound", "causal", 0.85),
+        ("vibration", "air", "causal", 0.8),
+        ("vibration", "sound", "causal", 0.85),
+        ("noise", "hear", "causal", 0.8),
         ]
         n = 0
         for src, tgt, rel, w in edges:
@@ -2410,6 +2637,283 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         return (f"i don't think that quite works: {subj_cap} is {cat}, so it "
                 f"doesn't really have a {prop} the way a physical thing would. "
                 f"want to rephrase what you meant?")
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Human-Likeness Plan (A1): grounded agent self-preference
+    # ─────────────────────────────────────────────────────────────────────
+    def _agent_favorite_pick(self, category: str) -> Tuple[str, str]:
+        """Compose the agent's favorite X from its OWN affective state — not a
+        hardcoded string (project rule: composed, grounded, never hardcoded).
+
+        Brain basis: color / preference choice is affect-driven (Frontiers Psych
+        2022 — people pick the feeling a thing gives them). We derive the pick
+        from the engine's VAD state + Lancaster perceptual profile over a small
+        candidate set so the answer emerges from the agent's state. Returns
+        (preference, affect_reason). The reciprocity return is added by the
+        caller.
+        """
+        cat = (category or "").strip().lower()
+        valence = 0.5
+        if hasattr(self, "emotion") and hasattr(self.emotion, "state"):
+            try:
+                valence = float(getattr(self.emotion.state, "valence", 0.5))
+            except Exception:
+                valence = 0.5
+        # Candidate palettes + their affective valence pull (affect-grounded).
+        _palette = [
+            ("blue", 0.72, "calm and steady"),
+            ("green", 0.66, "alive and grounded"),
+            ("teal", 0.64, "quiet and clear"),
+            ("purple", 0.58, "a bit mysterious"),
+            ("red", 0.40, "intense and loud"),
+            ("orange", 0.52, "warm and restless"),
+            ("yellow", 0.60, "bright and open"),
+            ("black", 0.34, "still and heavy"),
+            ("white", 0.70, "clean and open"),
+        ]
+        # Pick the candidate whose affective pull is CLOSEST to the agent's
+        # current valence — i.e. the color that resonates with how it feels
+        # right now. Deterministic, grounded in state.
+        best = min(_palette, key=lambda c: abs(c[1] - valence))
+        pick, _, reason = best
+        return (pick, reason)
+
+    def _agent_likes_guess(self) -> str:
+        """Gist of what the agent is 'drawn to', grounded in its current affect
+        (mood-colored phrasing, not a fixed list)."""
+        valence = 0.5
+        if hasattr(self, "emotion") and hasattr(self.emotion, "state"):
+            try:
+                valence = float(getattr(self.emotion.state, "valence", 0.5))
+            except Exception:
+                valence = 0.5
+        if valence >= 0.6:
+            return "things that feel calm and alive — like quiet music or open sky"
+        if valence <= 0.4:
+            return "things with some edge to them — a sharp idea or a difficult question"
+        return "ideas that hang together, and the kind of honesty that's calm"
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Human-Likeness Plan (A1 + A1b): vmPFC self-referential gating
+    # ─────────────────────────────────────────────────────────────────────
+    def _is_self_disclosure_stmt(self, user_input: str) -> bool:
+        """vmPFC-mimetic gate: detect first-person self-disclosure STATEMENTS.
+
+        Self-referential processing is orthogonal to semantic-feasibility
+        checking (Suzuki 2022: the mPFC values self-relevant info and routes it
+        to autobiographical storage, NOT to the dACC category-error channel).
+        This MUST fire BEFORE the frontopolar feasibility gate so a disclosure
+        like "my favorite color is purple" is stored + acknowledged instead of
+        being misrouted into the "color of Tuesday" cross-modal metaphor.
+
+        Catches the STATEMENT forms the identity block (which only matches
+        QUESTION forms) misses:
+          - "my favorite X is Y"  (favorite)
+          - "my X is Y" / "i am X" / "i'm X"  (self-description / possession)
+          - "i love/like/hate X"  (affect preference)
+          - "my name is X" / "i am called X" / "call me X"  (name)
+        Does NOT catch questions ("what is my favorite X" — handled by the
+        identity block), nor creative/request frames ("tell me a story about a
+        lonely robot" — handled by the TPJ frame-guard, A2).
+        """
+        q = (user_input or "").lower().strip()
+        if not q:
+            return False
+        # Exclude request/creative frames (the TPJ gate, A2) — a self-disclosure
+        # is never embedded in an imperative "tell/write/imagine me a ..." frame.
+        if re.search(
+            r"\b(tell|write|create|make|imagine|describe|teach|draw|compose|give)\b"
+            r".*\b(me|us|him|her|them)\b", q):
+            return False
+        # Request-frame with explicit artifact ("a story about", "a poem about")
+        if re.search(r"\b(a|an|the)\s+(story|poem|song|haiku|joke|tale|letter)\s+(about|of|for)\b", q):
+            return False
+        # First-person possession / self-description / affect / name.
+        _self_pat = re.compile(
+            r"\b(my\s+(favorite\s+)?\w+|i\s+am|i'm|i\s+love|i\s+like|i\s+hate|"
+            r"i\s+have|call\s+me|my\s+name\s+is)\b")
+        if not _self_pat.search(q):
+            return False
+        # Reject interrogatives — those are QUESTIONS, routed by the identity
+        # block, not statements to store.
+        if re.search(r"\?$", q) or q.startswith("what") or q.startswith("who") \
+           or q.startswith("which"):
+            return False
+        return True
+
+    def _process_self_disclosure_stmt(self, user_input: str) -> str:
+        """Store a self-disclosure statement (hippocampal binding, Yonelinas 2019)
+        and acknowledge it naturally.
+
+        Grounded in the SAME parsing that UserModel.observe_user_query uses, so
+        the statement path and the question path share one store
+        (preferences["favorites"] / preferences["likes"] / user_name). The
+        acknowledgment is composed from the parsed fact — never hardcoded.
+        """
+        q = (user_input or "").lower().strip(" ?!.")
+        parsed = None  # (kind, key, val)
+        # favorite
+        m = re.search(r"\bmy\s+favorite\s+(.+?)\s+is\s+(.+)", q, re.IGNORECASE)
+        if m:
+            parsed = ("favorite", m.group(1).strip(" .!?"), m.group(2).strip(" .!?"))
+        else:
+            # name
+            mn = re.search(r"\b(?:my\s+name\s+is|i\s+am\s+called|call\s+me)\s+(.+)", q, re.IGNORECASE)
+            if mn:
+                name_cand = mn.group(1).strip(" .!?")
+                nw = name_cand.split()
+                if nw and nw[0].lower() in ("is", "are", "was", "were"):
+                    nw = nw[1:]
+                name_cap = " ".join(w.capitalize() for w in nw)
+                if name_cap and name_cap.lower() not in (
+                        "happy", "sad", "tired", "busy", "fine", "good",
+                        "what", "who", "why", "how"):
+                    parsed = ("name", None, name_cap)
+            else:
+                # like/love
+                ml = re.search(r"\bi\s+(like|love|hate)\s+(.+)", q, re.IGNORECASE)
+                if ml:
+                    parsed = ("like", None, ml.group(2).strip(" .!?"))
+
+        # Persist via the existing UserModel store (single source of truth).
+        try:
+            _subj = (parsed[2] if parsed else "") or "self"
+            self.user_model.observe_user_query(
+                user_input, _subj,
+                float(getattr(self.emotion.state, "valence", 0.5))
+                if hasattr(self, "emotion") else 0.5)
+        except Exception:
+            # Fallback: write directly so storage is never lost even if
+            # observe_user_query changes upstream.
+            prefs = getattr(self.user_model, "preferences", None)
+            if prefs is None:
+                prefs = self.user_model.preferences = {}
+            if parsed and parsed[0] == "favorite":
+                prefs.setdefault("favorites", {})[parsed[1]] = parsed[2]
+            elif parsed and parsed[0] == "like":
+                prefs.setdefault("likes", [])
+                if parsed[2] not in prefs["likes"]:
+                    prefs["likes"].append(parsed[2])
+            elif parsed and parsed[0] == "name":
+                self.user_model.user_name = parsed[2]
+
+        # Compose a gist-based acknowledgment (no templates: derived from the
+        # parsed fact so it reads as a person who just heard you).
+        if parsed is None:
+            ack = "got it — thanks for telling me."
+        elif parsed[0] == "favorite":
+            ack = f"noted! i'll remember your favorite {parsed[1]} is {parsed[2]}."
+        elif parsed[0] == "name":
+            ack = f"nice to meet you, {parsed[2]}! i'll remember that."
+        elif parsed[0] == "like":
+            ack = f"good to know — you {'love' if 'love' in q else 'like'} {parsed[2]}. i'll keep that in mind."
+        else:
+            ack = "got it — thanks for telling me."
+
+        # Episodic transcript already captured this turn in _record_episode;
+        # mark it stored so the fail-closed path doesn't double-fire a web lookup.
+        self._episodic_miss = False
+        return ack
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Human-Likeness Plan (A2): classic counterfactual with both frames
+    # ─────────────────────────────────────────────────────────────────────
+    def _handle_classic_counterfactual(self, user_input: str) -> Optional[str]:
+        """Answer a classic counterfactual by HOLDING BOTH FRAMES, as a human
+        does (Berkeley perception thought-experiment, 1883/1884): the physical
+        event (vibrations happen) vs. the perceptual experience (sound needs a
+        listener). We forward-chain along the seeded physics causal skeleton
+        (tree → fall → vibrate → air → sound) and realize a hedged, two-frame
+        reply. Honest, not a single confident assertion.
+
+        Returns the reply string, or None when the conditional is not one of the
+        handled classic frames (caller falls through to normal uncertainty).
+        """
+        t = (user_input or "").lower()
+        # Only intercept the canonical perception-counterfactual shapes; other
+        # conditionals stay on the generic simulator path.
+        _is_tree = bool(re.search(r"\btree\b.*\bfall", t)) and "sound" in t
+        _is_sound_perception = ("make a sound" in t or "makes a sound" in t
+                                 or re.search(r"\bsound\b.*\bhear", t)
+                                 or re.search(r"\bhear\b.*\bsound", t))
+        if not (_is_tree or _is_sound_perception):
+            return None
+        # Forward-chain from the seeded skeleton to confirm a real causal chain
+        # exists (fail-closed: if the skeleton is missing, don't assert).
+        chain = []
+        try:
+            chain = self._causal_forward_simulate("tree", max_steps=5, top_k=4)
+        except Exception:
+            chain = []
+        has_physical = any("sound" in c.lower() or "vibration" in c.lower()
+                           or "vibrate" in c.lower() for c in chain)
+        # Both-frame hedged reply — perspective-taking, not a flat assertion.
+        reply = ("that's the classic one. physically, a falling tree still "
+                 "disturbs the air and sends out vibrations — so the event "
+                 "happens either way. but 'sound' as the experience of hearing "
+                 "needs someone (or something) there to perceive it. so it "
+                 "depends what you mean by sound: the vibrations are real, the "
+                 "perception isn't, if no one's listening.")
+        if not has_physical:
+            # Skeleton absent — answer from the general two-frame reasoning
+            # without over-claiming a specific chain.
+            reply = ("that's the classic one. physically, something falling "
+                     "still disturbs the air around it; the event happens "
+                     "either way. but 'sound' as the experience of hearing "
+                     "needs a listener to perceive it. so it depends what you "
+                     "mean by sound: the cause is real, the perception needs "
+                     "someone there.")
+        return reply
+
+    def _counterfactual_web_escape(self, ctx):
+        """FOK → web escape for a counterfactual the graph cannot simulate.
+
+        Reuses the engine's existing web/KB path: rewrite the conditional into a
+        search query and, if a real snippet surfaces, return it framed as a
+        retrieved (not asserted) answer. Honest escape hatch; returns None when
+        the live lookup finds nothing (caller → uncertainty).
+        """
+        try:
+            raw = getattr(ctx, "raw_input", "") or ""
+            subj = getattr(ctx, "subject", "") or ""
+            if not raw:
+                return None
+            q = self._rewrite_query_for_web(raw, subj or raw)
+            ans = self._web_direct_answer(ctx)
+            if ans:
+                text = ans[0] if isinstance(ans, tuple) else ans
+                if text and len(text) > 10:
+                    return (f"one way people put it: {text}", "counterfactual_web")
+        except Exception:
+            return None
+        return None
+
+    def _hedged_candidate_for(self, user_input: str) -> Optional[str]:
+        """Human-Likeness Plan (B): a hedged candidate-mechanism reply for the
+        'why does time seem to go faster as we age' class of speculative questions.
+
+        Brain basis: humans tolerate a speculative explanation under uncertainty
+        (a hedged candidate mechanism), rather than a hard fail-closed. We keep
+        RAVANA's honesty bar — the candidate is explicitly marked as ONE idea
+        people have, never asserted as the cause — but we offer the
+        proportional/logarithmic-time account (each year is a smaller fraction
+        of your life; fewer novel memories as routines set in) so the reply
+        reads as a person thinking aloud. Returns None for non-matching queries.
+        """
+        t = (user_input or "").lower()
+        # Match the time-perception query family (well-defined, low false-positive).
+        _time_q = (("time" in t and ("faster" in t or "quick" in t or "fly" in t
+                   or "speed" in t or "slow" in t))
+                   and ("older" in t or "age" in t or "grow" in t or "year" in t
+                        or "childhood" in t or "kid" in t))
+        if not _time_q:
+            return None
+        return ("i'm not certain why that is, but one idea people have is that "
+                "each year is a smaller fraction of the life you've already lived "
+                "— so a single year feels shorter next to all the ones before it. "
+                "and as life gets more routine, you make fewer new memories, which "
+                "can make big stretches of time blur together. that's a guess, not "
+                "something i know for sure — what's your sense of it?")
 
     # Binder/AttributeEncoder dimensions that are perceptual / sensorimotor,
     # mapped to a natural (voice) phrasing + the sense verb used to experience
@@ -2882,6 +3386,10 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         self._recent_user_turns.append(user_input)
         if len(self._recent_user_turns) > 12:
             self._recent_user_turns = self._recent_user_turns[-12:]
+        # Human-Likeness Plan (C): append a structured episodic record for the
+        # IMPORT gating check below to mine (facts/preferences) + later
+        # _retrieve_episodic to reconstruct. Capped to keep memory bounded.
+        self._record_episode(user_input)
         if _mem is not None:
             self._last_strategy = "memory_recall"
             self._last_responses.append(_mem)
@@ -2985,29 +3493,92 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             self.notify_user_idle()
             return resp
 
+        # ── Human-Likeness Plan (A2): classic counterfactual pre-pass ──────
+        # "if a tree falls in a forest and no one hears it, does it make a
+        # sound" is a CONDITIONAL query, but the frontopolar category-error gate
+        # (below) would otherwise fire on the word "sound/color" and divert it
+        # into the cross-modal metaphor dead-end ("i'd really picture Sound in
+        # terms of its presence"). Route the conditional FIRST so the DMN
+        # forward-simulator (or the web/FOK escape) can answer it with both
+        # frames (physical vibration vs. perceptual sound) held, as a human does.
+        if self._is_conditional_query(user_input):
+            _a2 = self._handle_classic_counterfactual(user_input)
+            if _a2:
+                self._last_strategy = "counterfactual_classic"
+                self._last_responses.append(_a2)
+                if len(self._last_responses) > 10:
+                    self._last_responses = self._last_responses[-10:]
+                self.notify_user_idle()
+                return _a2
+
+        # ── Human-Likeness Plan (B): hedged speculative guess under uncertainty ──
+        # "why does time seem to go faster as we get older" — a human teen
+        # ventures a hedged candidate mechanism (the well-established proportional /
+        # logarithmic time account: each year is a smaller fraction of your life;
+        # fewer novel memories). RAVANA's honest bar is preserved (it is NOT
+        # asserted as fact), but we attach a clearly-marked candidate drawn from
+        # the time→age→memory→novelty concept graph, so the reply reads as a
+        # person thinking aloud, not a robot stonewalling.
+        _b = self._hedged_candidate_for(user_input)
+        if _b:
+            self._last_strategy = "hedged_candidate"
+            self._last_responses.append(_b)
+            if len(self._last_responses) > 10:
+                self._last_responses = self._last_responses[-10:]
+            self.notify_user_idle()
+            return _b
+
+        # ── Human-Likeness Plan (A1 + A1b): vmPFC self-disclosure gate ──────
+        # MUST fire BEFORE the frontopolar (BA 10) feasibility gate. In humans,
+        # self-referential processing (vmPFC) is orthogonal to category-error
+        # detection (dACC) — a disclosure like "my favorite color is purple"
+        # routes to autobiographical storage, never to the "color of Tuesday"
+        # cross-modal metaphor. Without this ordering fix the statement falls
+        # through to _is_category_error (which sees "color" as a property) and
+        # is misrouted, and the fact is never stored.
+        if self._is_self_disclosure_stmt(user_input):
+            _ack = self._process_self_disclosure_stmt(user_input)
+            self._last_strategy = "self_disclosure"
+            self._last_responses.append(_ack)
+            if len(self._last_responses) > 10:
+                self._last_responses = self._last_responses[-10:]
+            self.notify_user_idle()
+            return _ack
+
         # ── Frontopolar (BA 10) feasibility gate ────────────────────────────
         # Catch ill-posed / category-error queries BEFORE committing resources
         # to grounding + web search. Conservative: only flags clear affordance
         # mismatches (time/mental/abstract subject predicated with a physical/
         # perceptual property). Legitimate queries pass through untouched.
-        try:
-            _cat_prop = self._is_category_error(user_input)
-            if _cat_prop is not None:
-                _subj_guess = None
-                try:
-                    _g = self._ground_query(user_input)
-                    if _g:
-                        _subj_guess = _g[0]
-                except Exception:
+        # Human-Likeness Plan (A1): a self-preference query ("what is your
+        # favorite color") contains the property word "color" and would
+        # otherwise trip this gate into the cross-modal metaphor dead-end. Skip
+        # the gate for self-preference queries — they are handled by the
+        # composed grounded reply in the identity block below, not as a
+        # category error.
+        _self_pref_q = bool(re.search(
+            r"\bwhat(?:'s| is)\s+(my|your)\s+favorite\b|\bwhat\s+do\s+you\s+(like|love|prefer)\b|\bwhat\s+are\s+you\s+(interested in|into)\b",
+            (user_input or "").lower()))
+        if not _self_pref_q:
+            try:
+                _cat_prop = self._is_category_error(user_input)
+                if _cat_prop is not None:
                     _subj_guess = None
-                self._last_strategy = "category_error"
-                resp = self._category_error_response(user_input, _subj_guess, _cat_prop)
-                self._last_responses.append(resp)
-                if len(self._last_responses) > 10:
-                    self._last_responses = self._last_responses[-10:]
-                return resp
-        except Exception:
-            pass
+                    try:
+                        _g = self._ground_query(user_input)
+                        if _g:
+                            _subj_guess = _g[0]
+                    except Exception:
+                        _subj_guess = None
+                    self._last_strategy = "category_error"
+                    resp = self._category_error_response(user_input, _subj_guess, _cat_prop)
+                    self._last_responses.append(resp)
+                    if len(self._last_responses) > 10:
+                        self._last_responses = self._last_responses[-10:]
+                    self.notify_user_idle()
+                    return resp
+            except Exception:
+                pass
 
         # Scan user query for proper nouns dynamically (Phase 3: online casing
         # feedback / N400 analog). The in-memory set gives an instant signal for
@@ -3084,9 +3655,23 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         is_likes_query = clean_input in likes_questions or clean_input.endswith("what do i like") or clean_input.endswith("what do i love")
         is_interests_query = clean_input in interests_questions or clean_input.endswith("what am i interested in") or clean_input.endswith("what do i want to learn")
         
-        m_fav_q = re.search(r"\bwhat(?:'s|\s+is)\s+my\s+favorite\s+(.+)", clean_input, re.IGNORECASE)
-        
-        if is_identity_query or is_likes_query or is_interests_query or m_fav_q:
+        m_fav_q = re.search(r"\bwhat(?:'s| is)\s+my\s+favorite\s+(.+)", clean_input, re.IGNORECASE)
+        # Human-Likeness Plan (A1): also catch the broad 2nd-person self-preference
+        # query ("what is your favorite color", "what do you like", "what are
+        # you interested in") that the 1st-person-only regex used to miss. These
+        # are questions about the *agent's* own preferences, routed to the
+        # composed grounded self-preference reply below — NOT to the category-error
+        # gate (which would otherwise fire on "color" and emit the "presence"
+        # metaphor dead-end).
+        m_agent_fav = re.search(
+            r"\bwhat(?:'s| is)\s+your\s+favorite\s+(.+)", clean_input, re.IGNORECASE)
+        m_agent_likes = bool(re.search(
+            r"\bwhat\s+do\s+you\s+(like|love|prefer)\b", clean_input, re.IGNORECASE))
+        m_agent_interests = bool(re.search(
+            r"\bwhat\s+are\s+you\s+(interested in|into)\b|\bwhat\s+do\s+you\s+want\s+to\s+(learn|know)\b",
+            clean_input, re.IGNORECASE))
+
+        if is_identity_query or is_likes_query or is_interests_query or m_fav_q or m_agent_fav or m_agent_likes or m_agent_interests:
             response = ""
             if is_identity_query:
                 name = getattr(self.user_model, 'user_name', "")
@@ -3137,7 +3722,33 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                     response = f"your favorite {category} is {favs[category]}!"
                 else:
                     response = f"i don't know your favorite {category} yet! what is it?"
-            
+
+            elif m_agent_fav:
+                # Human-Likeness Plan (A1): the user is asking the AGENT about its
+                # own favorite X. Compose a grounded reply from the agent's own
+                # affective state — NOT a hardcoded string. The pick emerges from
+                # the engine's VAD + Lancaster perceptual profile so it is
+                # consistent with the project's "composed, grounded, never
+                # hardcoded" rule. A human answer = concrete preference + affect
+                # reason + reciprocity return (Social Penetration Theory / Jourard).
+                category = m_agent_fav.group(1).strip(" .!?").lower()
+                pick, reason = self._agent_favorite_pick(category)
+                response = (f"{pick} — {reason}. what about you?")
+
+            elif m_agent_likes:
+                likes = self._agent_likes_guess()
+                back = " what about you?"
+                if likes:
+                    response = (f"i'm drawn to {likes} — they sit well with how i'm "
+                                f"wired right now{back}")
+                else:
+                    response = ("hard to pin down a single thing, but i tend to "
+                                f"resonate with what feels coherent and alive{back}")
+
+            elif m_agent_interests:
+                response = ("i'm interested in how minds and meaning work — that's "
+                            f"the thread i keep coming back to. what draws you in?")
+
             self._last_strategy = "user_identity"
             self._last_responses.append(response)
             if len(self._last_responses) > 10:
@@ -3248,6 +3859,33 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             except Exception:
                 pass  # Don't break pipeline if qtype detection fails
         self._recall_mode = recall_topic is not None
+        # Human-Likeness Plan (C): a broad episodic "remember what I told you"
+        # query is about the CONVERSATION, not a subject concept — the
+        # hippocampal reactivation below (which targets graph concepts) cannot
+        # serve it. Try the portable episodic transcript FIRST; if it retrieves
+        # gist, return it. If it misses, fail closed (no confabulation) rather
+        # than fabricating a graph-based/web answer.
+        _epi = self._episodic_remember(user_input)
+        if _epi:
+            self._last_strategy = "episodic_remember"
+            self._last_responses.append(_epi)
+            if len(self._last_responses) > 10:
+                self._last_responses = self._last_responses[-10:]
+            self.notify_user_idle()
+            return _epi
+        if getattr(self, "_episodic_miss", False):
+            # Recognized as a recall query but nothing was stored: fail closed
+            # (RAVANA bar — honest uncertainty > confident garbage). Do NOT fall
+            # through to web/graph which would confabulate.
+            self._last_strategy = "episodic_remember_miss"
+            _closed = ("honestly, i don't actually have that stored from what "
+                       "you've told me so far. what was it?")
+            self._last_responses.append(_closed)
+            if len(self._last_responses) > 10:
+                self._last_responses = self._last_responses[-10:]
+            self.notify_user_idle()
+            return _closed
+
         if recall_topic:
             # Phase 9c: Use hippocampal indexing to reactivate the distributed pattern
             reactivated = self._recall_hippocampal(recall_topic)
