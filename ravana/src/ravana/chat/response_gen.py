@@ -3785,7 +3785,19 @@ class ResponseGenMixin(ChainWalkerMixin):
             _ok, _reason = True, "coherence_skip"
         if not _ok:
             return None
-        # ── PROMPT 1: graded confidence (Gerstenberg 2021; Lewis 1973). Map the
+        # Human-Likeness Plan (A6): causal-chain coherence filter. Reject
+        # degenerate/tautological narratives (placeholder endpoints like
+        # "reduce"/"though", or self-loops) so we fall through to honest
+        # uncertainty instead of emitting fluent nonsense.
+        try:
+            _deg, _deg_reason = self._causal_narrative_degenerate(_narr)
+        except Exception:
+            _deg, _deg_reason = False, "degenerate_skip"
+        if _deg:
+            if getattr(self, '_trace_enabled', False):
+                print(f"  [counterfactual] degenerate: {_deg_reason} — withholding")
+            return None
+
         # realized-chain robustness (mean consecutive coherence + count) to a
         # modality, and vary the LEAD-IN by modality instead of a fixed string —
         # a human tags the simulation with possibility/likelihood, never a flat
@@ -5168,6 +5180,20 @@ class ResponseGenMixin(ChainWalkerMixin):
             self._log_monitor_fire(
                 "coherence_gate", synthesis_text[:80], _coh_reason)
             return None
+        # Human-Likeness Plan (A6): causal/relational coherence filter. Catch
+        # degenerate narratives that pass the salad/loop gate but still name a
+        # placeholder endpoint ("leads to reduce") or collapse to a self-loop
+        # ("unlike though"). Fail-closed: withhold, fall through to honesty.
+        try:
+            _deg, _deg_reason = self._causal_narrative_degenerate(synthesis_text)
+        except Exception:
+            _deg, _deg_reason = False, "degenerate_skip"
+        if _deg:
+            if getattr(self, '_trace_enabled', False):
+                print(f"  [decomp-gen] causal-degenerate: {_deg_reason} — withholding")
+            self._log_monitor_fire(
+                "causal_degenerate_gate", synthesis_text[:80], _deg_reason)
+            return None
 
         synthesis_text = synthesis_text[0].upper() + synthesis_text[1:] if synthesis_text else synthesis_text
         if not synthesis_text.endswith((".", "?", "!")):
@@ -5334,6 +5360,68 @@ class ResponseGenMixin(ChainWalkerMixin):
         if _mean < 0.10:
             return False, f"low_coherence:{_mean:.2f}"
         return True, f"coherence:{_mean:.2f}"
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Human-Likeness Plan (A6): causal-chain coherence filter
+    # ─────────────────────────────────────────────────────────────────────
+    _CAUSAL_PLACEHOLDERS = frozenset({
+        "reduce", "cause", "caused", "causes", "reason", "reasons", "effect",
+        "effects", "result", "results", "thing", "things", "way", "ways",
+        "change", "changes", "happen", "happens", "occur", "occurs", "lead",
+        "leads", "follow", "follows", "though", "however", "something",
+        "anything", "nothing", "stuff", "matter", "matters", "kind", "sort",
+        "type", "perhaps", "maybe",
+    })
+
+    def _causal_narrative_degenerate(self, text: str) -> Tuple[bool, str]:
+        """Reject incoherent / tautological causal narratives (A6).
+
+        Brain basis: the vLPFC→ACC→AI causal-reasoning hierarchy carries a
+        built-in coherence filter (Operskalski & Barbey 2016). A valid causal
+        claim must name a NON-PLACEHOLDER endpoint and a non-tautological link:
+        "Anxiety leads to reduce" fails because "reduce" is a semantically empty
+        placeholder, and "Life is unlike people fall, and that in turn is unlike
+        though" fails on the placeholder "though" + self-reference. The filter
+        is fail-closed: degenerate -> (True, reason) meaning "withhold".
+
+        Step 1 (endpoint novelty, ACC analog): any causal tail/head that is a
+        generic placeholder is incoherent.
+        Step 2 (tautology, vLPFC analog): the realized chain's endpoints must
+        not collapse to the subject itself or to each other.
+        """
+        if not text or not text.strip():
+            return True, ""
+        _low = text.lower()
+        # Find candidate endpoints: words following "leads to" / "would lead to"
+        # and words after "is unlike" / "unlike".
+        _endpoints = []
+        for m in re.finditer(r"(?:leads? to|would lead to|is unlike|unlike)\s+([a-z']+)", _low):
+            _endpoints.append(m.group(1))
+        # also the final word of each clause after a relation verb
+        for cl in re.split(r"[.;]", _low):
+            for m in re.finditer(r"\b(?:leads? to|is|are|was|were)\s+([a-z']+)\s*$", cl.strip()):
+                _endpoints.append(m.group(1))
+        # Step 1: placeholder endpoint check
+        for ep in _endpoints:
+            if ep in self._CAUSAL_PLACEHOLDERS:
+                return True, f"placeholder_endpoint:{ep}"
+        # Step 2: tautological self-loop — the realized chain names no concrete
+        # novel concept beyond the subject + glue. Detect when, after removing
+        # relation glue, the distinct content words are <= 2 (e.g. only the
+        # subject and a placeholder already stripped above).
+        _content = [w for w in re.findall(r"[a-z']+", _low)
+                    if w not in self._CAUSAL_PLACEHOLDERS
+                    and w not in STOP_WORDS
+                    and w not in ("is", "are", "was", "were", "be", "been",
+                                  "being", "to", "of", "in", "on", "for", "and",
+                                  "or", "but", "that", "this", "it", "its",
+                                  "leads", "unlike", "relates", "relate",
+                                  "would", "could", "should", "turn", "in",
+                                  "than", "as", "at", "by", "from", "with")]
+        if len(set(_content)) <= 1:
+            return True, f"tautological:self_loop"
+        return False, "causal_coherent"
+
 
     def _clause_vec(self, clause: str, gvec) -> "Optional[np.ndarray]":
         """Mean GloVe vector of the content words in a clause."""

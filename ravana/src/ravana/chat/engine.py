@@ -319,6 +319,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # facts, not verbatim). Used by _retrieve_episodic so a "remember what
         # I told you" query reconstructs what was said instead of confabulating.
         self._episodic_transcript: List[Dict[str, Any]] = []
+        self._episodic_index: Dict[str, Dict[str, str]] = {}  # hippocampal entity index (A3)
         self._agent_preferences: Dict[str, str] = {}  # grounded self-preference store (A1)
         self._last_hops: List[List[Tuple[str, str]]] = []  # concept -> strength (decays)
         self._last_chain_hops: List[List[Tuple[str, str]]] = []  # Phase 3.4: snapshot before clear
@@ -1727,23 +1728,64 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
     def _mine_episodic_facts(self, text: str) -> Dict[str, str]:
         """Extract salient self-disclosed facts from a user turn (gist mining).
 
-        Looks for the canonical 'my favorite X is Y' / 'i love/like X' shapes so
-        the episodic store can answer 'remember what i told you' with the actual
-        content. Returns a small dict of {slot: value}. Deterministic, no LLM.
+        Brain basis: hippocampal relational binding encodes ANY
+        subject->relation->object triple (Hannula 2008; Yonelinas 2019), not
+        just favorite/like slots. We capture the canonical shapes AND possessive
+        disclosures so a later "remember my cat's name" reconstructs the right
+        entity (pattern separation — Yassa & Stark 2011), never a cross-contaminated
+        gist. Returns a small dict of {slot: value}. Deterministic, no LLM.
+
+        Shapes captured:
+          - "my favorite X is Y"      -> favorite_X: Y
+          - "my X's Y is Z"           -> X_Y: Z   (e.g. cat_name: whiskers)
+          - "my X is Y" / "i am X"    -> X: Y     (self/pet description)
+          - "i love/like X"           -> likes: X
+        The entity is also indexed in self._episodic_index (keyed by entity)
+        for precise pattern-completion recall.
         """
         facts: Dict[str, str] = {}
-        low = (text or "").lower()
+        low = (text or "").lower().strip()
         # "my favorite X is Y" / "my favorite X: Y"
         m = re.search(r"\bmy favorite\s+([a-z0-9 ]+?)\s+(?:is|are|:)\s+([a-z0-9 ]+?)[.!?]?\s*$",
-                      low.strip())
+                      low)
         if m:
             facts["favorite_" + m.group(1).strip()] = m.group(2).strip()
+        # Possessive relational: "my X's Y is Z" -> entity X, attribute Y, value Z
+        # e.g. "my cat's name is whiskers" / "my dog's age is 3"
+        for pm in re.finditer(
+                r"\bmy\s+([a-z0-9]+)'?s\s+([a-z0-9 ]+?)\s+(?:is|are|:)\s+([a-z0-9 ]+?)[.!?]?\s*$",
+                low):
+            ent, attr, val = pm.group(1).strip(), pm.group(2).strip(), pm.group(3).strip()
+            if ent and attr and val:
+                facts[f"{ent}_{attr}"] = val
+        # Bare possession / self-description: "my X is Y" (X not 'favorite')
+        if "favorite" not in low:
+            for bm in re.finditer(
+                    r"\bmy\s+([a-z0-9]+)\s+(?:is|are|:)\s+([a-z0-9 ]+?)[.!?]?\s*$",
+                    low):
+                ent, val = bm.group(1).strip(), bm.group(2).strip()
+                if ent and val and ent not in ("name",):
+                    facts[ent] = val
         # "i love/like X" (last such clause)
         for verb in ("love", "like", "enjoy", "prefer"):
             mm = re.findall(r"\bi\s+" + verb + r"\s+([a-z0-9 \-]+?)(?:,|\.|!|\?| and | but | because |$)",
                             low)
             if mm:
                 facts.setdefault("likes", mm[-1].strip())
+        # Index mined facts into the hippocampal entity store (pattern separation).
+        for slot, val in facts.items():
+            # entity = leading token before an underscore (cat_name -> cat) or
+            # the slot itself for favorites (favorite_color -> color concept).
+            if "_" in slot and not slot.startswith("favorite_"):
+                ent = slot.split("_", 1)[0]
+            elif slot.startswith("favorite_"):
+                ent = slot[len("favorite_"):]
+            else:
+                ent = slot
+            attr = slot.split("_", 1)[1] if "_" in slot and not slot.startswith("favorite_") else \
+                ("favorite" if slot.startswith("favorite_") else "is")
+            idx = self._episodic_index.setdefault(ent, {})
+            idx[attr] = val
         return facts
 
     def _retrieve_episodic(self, query: str,
@@ -1762,6 +1804,57 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         if not store:
             return None
         q = (query or "").lower().strip()
+        # (a0) HIPPOCAMPAL ENTITY INDEX — highest precision pattern completion
+        # (A3: Yassa & Stark 2011). Extract the cued entity and attribute from
+        # the recall query ("remember my cat's name" / "what was the book i
+        # mentioned") and return ONLY that entity's stored facts. This prevents
+        # the wrong-episode contamination bug where "my book" returned the cat's
+        # gist. We match against the live index AND a transcript-derived index
+        # so cued recall works even when the index store and transcript diverge.
+        # Both indexes share the SAME entity->attr->value shape, so folding is a
+        # clean merge (never keyed by raw slot, which would pollute attr keys).
+        def _slot_to_ent_attr(slot):
+            if slot.startswith("favorite_"):
+                return slot[len("favorite_"):], "favorite"
+            if slot == "likes":
+                return "likes", "likes"
+            if "_" in slot:
+                e, _, a = slot.partition("_")
+                return e, a
+            return slot, "is"
+        _entity_idx = {e: dict(v) for e, v in self._episodic_index.items()}
+        for rec in store:
+            for slot, val in rec.get("facts", {}).items():
+                ent, attr = _slot_to_ent_attr(slot)
+                _entity_idx.setdefault(ent, {})[attr] = val
+
+        def _reconstruct_entity(ent, facts):
+            bits = []
+            for attr, val in facts.items():
+                if attr == "favorite":
+                    bits.append(f"your favorite {ent} is {val}")
+                elif attr == "likes":
+                    bits.append(f"you mentioned you like {val}")
+                elif attr == "is":
+                    bits.append(f"your {ent} is {val}")
+                else:
+                    bits.append(f"your {ent}'s {attr} is {val}")
+            return bits
+
+        # find an entity token from the query that exists in the index
+        # (strip a trailing "'s" so "cat's" matches entity "cat").
+        _ent_hit = None
+        for tok in re.findall(r"[a-z']+", q):
+            _tok = tok[:-2] if tok.endswith("'s") else tok
+            if _tok in _entity_idx:
+                _ent_hit = _tok
+                break
+        if _ent_hit is not None:
+            _facts = _entity_idx[_ent_hit]
+            if _facts:
+                _bits = _reconstruct_entity(_ent_hit, _facts)
+                if _bits:
+                    return "you told me " + "; ".join(dict.fromkeys(_bits)) + "."
         # (a) fact-slot cue match — highest precision.
         for rec in store:
             facts = rec.get("facts", {})
@@ -1887,6 +1980,14 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                         bits.append(f"your favorite {slot[len('favorite_'):]} is {val}")
                     elif slot == "likes" and val not in " ".join(bits):
                         bits.append(f"you like {val}")
+                    else:
+                        # possessive/relational slot (cat_name) -> reconstruct as
+                        # "your cat's name is whiskers" (pattern-completion, not
+                        # the last episode's verbatim text). Fixes the
+                        # wrong-episode contamination bug where bare recall echoed
+                        # an unrelated prior turn's text.
+                        ent, _, attr = slot.partition("_")
+                        bits.append(f"your {ent}'s {attr} is {val}")
             if bits:
                 return "you told me " + "; ".join(dict.fromkeys(bits)) + "."
         # Specific-cue retrieval (fact slot or semantic gist) for cued recalls
@@ -4368,16 +4469,27 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 # instead of waiting for background learning. The brain's LPFC
                 # buys time (~200-500ms) by inhibiting the prepotent generic
                 # response while the hippocampus retrieves specific knowledge.
+                # A7 (FOK familiarity ordering): for an entity-factual question
+                # ("who invented X" / "when was X built") the search MUST target
+                # the actual informational intent, not a generic "definition"
+                # rewrite — otherwise we learn a definition but never fetch the
+                # requested attribute (inventor/date) and then fail-closed-claim
+                # "i couldn't verify" even though the web had the answer. So we
+                # pass the real query when one is present, else the definition
+                # framing. This is the hippocampus->PFC familiarity signal
+                # (Koriat 1993): attempt retrieval of the SPECIFIC attribute
+                # asked about, not just entity familiarity.
+                _fok_query = query if (query and self._is_informational_query(query, subject)) else \
+                    f"{subject} definition meaning explained"
                 if self.baby_mode and not self._fok_pause_done:
                     self._fok_pause_done = True
-                    search_query = f"{subject} definition meaning explained"
                     if self._trace_enabled:
-                        print(f"  [LPFC] Pausing generation â€” searching '{search_query}'...")
+                        print(f"  [LPFC] Pausing generation — searching '{_fok_query}'...")
                     try:
-                        self.learn_from_web(search_query, max_results=2)
+                        self.learn_from_web(_fok_query, max_results=2)
                         if self._trace_enabled:
-                            print(f"  [LPFC] Web search complete â€” re-activating concepts")
-                        # Track recently learned concepts for dopamine novelty boost
+                            print(f"  [LPFC] Web search complete — re-activating concepts")
+
                         # During re-spread, these will get 1.5x activation priority
                         self._recently_learned_labels.clear()
                         subj_lower = subject.lower()
