@@ -1921,10 +1921,16 @@ class ResponseGenMixin(ChainWalkerMixin):
                 intent, _scores = clf.detect(t)
             except Exception:
                 intent = None
-        else:
-            # Fallback: minimal regex if the classifier is unavailable.
+        # Run the regex fallback whenever the classifier is absent OR it
+        # ABSTAINs/returns nothing. The prototype bank (trained on clean
+        # phrasings) misses minor variants like "how are you today" (the
+        # trailing "today" shifts it off-centroid), so the regex must be the
+        # safety net — otherwise a wellbeing query falls through to association
+        # salad (A4). Brain-faithful: the LIFG frame-selector has a robust
+        # template fallback for canonical social frames (Yoshioka 2023).
+        if intent in (None, "ABSTAIN"):
             _g = re.search(r"\b(hi|hello|hey|yo|sup|greetings|whats\s*up|what's\s*up|whatsup|howdy|good\s*(morning|afternoon|evening))\b", t)
-            _w = re.search(r"\b(how\s*are\s*you|how\s*is\s*it\s*going|how\s*have\s*you\s*been)\b", t)
+            _w = re.search(r"\b(how\s*are\s*you|how\s*is\s*it\s*going|how\s*have\s*you\s*been|how\s*are\s*you\s*doing)\b", t)
             _c = re.search(r"\b(what\s*can\s*you\s*do|who\s*are\s*you|tell\s*me\s*about\s*yourself)\b", t)
             _f = re.search(r"\b(bye|goodbye|see\s*you|good\s*night|farewell)\b", t)
             _gr = re.search(r"\b(thanks|thank\s*you|cheers|appreciate|grateful)\b", t)
@@ -4733,12 +4739,23 @@ class ResponseGenMixin(ChainWalkerMixin):
         # Step 1: PFC Classifier — detect question type and knowledge confidence
         qtype, _ = self.pfc_workspace.detect_question_type(ctx.raw_input, concept_pos=self._concept_pos)
 
-        # Social/chitchat → always Ventral path
+        # Social/chitchat → dedicated social reflex (TPJ/DMN), NOT the generic
+        # ventral path. The ventral path's syntactic pipeline degenerated
+        # wellbeing ("how are you today") into association salad ("how ties
+        # with life..."). A4 (LIFG pragmatic frame selector; Yoshioka 2023):
+        # social frames must route to the composed social-response generator
+        # (_handle_chitchat → _compose_wellbeing/_compose_greeting), which is
+        # grounded in interoceptive VAD state, never the semantic association
+        # path. This is the brain-faithful social-script response.
         if qtype in ("greeting", "wellbeing", "capability", "farewell"):
-            ventral_res = self._ventral_path(ctx)
-            if ventral_res:
-                return ventral_res
-            return self._graph_fallback_response(ctx)
+            social_res = self._handle_chitchat(ctx.raw_input, ctx.subject or "")
+            if social_res:
+                return (social_res, f"social_{qtype}")
+            # Fail-closed: if the social reflex can't compose, fall back to the
+            # graph fallback rather than the salad-producing ventral path.
+            gf = self._graph_fallback_response(ctx)
+            if gf:
+                return gf
 
         # ── Fix C: self-model + humor social reflexes ──
         # "tell me a joke" / "do you have feelings" are social, not factual —

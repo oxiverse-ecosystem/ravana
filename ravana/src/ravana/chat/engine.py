@@ -2846,6 +2846,15 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # Request-frame with explicit artifact ("a story about", "a poem about")
         if re.search(r"\b(a|an|the)\s+(story|poem|song|haiku|joke|tale|letter)\s+(about|of|for)\b", q):
             return False
+        # Exclude memory/recall frames (Human-Likeness Plan C): "remember what
+        # i told you about my cat" / "what did i tell you" are EPISODIC RECALL
+        # queries, not self-disclosure statements to store. They contain "my
+        # cat" etc. and would otherwise be miscaught here and acked, never
+        # reaching the _episodic_remember recall path. Route them past this gate.
+        if re.search(
+            r"\b(remember|recall|remind me|what did i|what was i|"
+            r"what have i|do you remember)\b", q):
+            return False
         # First-person possession / self-description / affect / name.
         _self_pat = re.compile(
             r"\b(my\s+(favorite\s+)?\w+|i\s+am|i'm|i\s+love|i\s+like|i\s+hate|"
@@ -4534,7 +4543,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 # framing. This is the hippocampus->PFC familiarity signal
                 # (Koriat 1993): attempt retrieval of the SPECIFIC attribute
                 # asked about, not just entity familiarity.
-                _fok_query = query if (query and self._is_informational_query(query, subject)) else \
+                _fok_query = user_input if (user_input and self._is_informational_query(user_input, subject)) else \
                     f"{subject} definition meaning explained"
                 if self.baby_mode and not self._fok_pause_done:
                     self._fok_pause_done = True
