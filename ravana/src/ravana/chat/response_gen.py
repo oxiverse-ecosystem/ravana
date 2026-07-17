@@ -4348,7 +4348,29 @@ class ResponseGenMixin(ChainWalkerMixin):
                 "i'd love to hear your take first.",
                 "what made you wonder about that?",
             ]
-        text = random.choice(openers) + random.choice(closers)
+        # B2 (metacognitive modulation; Fleming et al.): vary the uncertainty
+        # expression by CONTINUOUS metacognitive state (VAD arousal) AND a
+        # novelty counter so the same closer isn't reused across nearby turns
+        # (the "what's your take? / what's your sense?" cycling the audit flagged).
+        # Higher arousal -> more exploratory/collaborative closers; low arousal
+        # -> gentler deferrals. This is composition over state, not a fixed pick.
+        arousal = getattr(self.emotion.state, 'arousal', 0.5) if hasattr(self, 'emotion') else 0.5
+        if arousal >= 0.6:
+            closers = closers + [
+                "i wonder what the real answer is — any theories?",
+                "let's dig into it — what's your first instinct?",
+            ]
+        _recent = getattr(self, "_recent_uncertainty_closers", None)
+        if _recent is None:
+            from collections import deque as _deque
+            _recent = self._recent_uncertainty_closers = _deque(maxlen=3)
+        _fresh = [c for c in closers if c not in _recent]
+        if not _fresh:
+            _fresh = closers
+        closer = random.choice(_fresh)
+        _recent.append(closer)
+        text = random.choice(openers) + closer
+
         # P2 safety net: the fallback must NEVER degenerate into fluent-empty
         # text (that would mean the guard failed closed into the very garbage it
         # was meant to prevent). If the composed fallback is somehow salad, drop
@@ -4419,6 +4441,18 @@ class ResponseGenMixin(ChainWalkerMixin):
                 " pretty interesting, right?",
             ])
             text = text.rstrip(".!?") + "." + q
+        # B8 (epistemic follow-through; Gruber & Ranganath 2019 PACE): if this
+        # concept was learned THIS turn (gap just closed by the LPFC pause),
+        # preface the answer with an honest acknowledgment that we didn't know
+        # it a moment ago. Signals epistemic humility + that we cared to look.
+        _tags = getattr(self, "_epistemic_new_tags", None)
+        if _tags and sl in _tags and _tags.get(sl) == getattr(self, "turn_count", -1):
+            _ack = random.choice([
+                "i actually didn't know this until just now, but ",
+                "i just looked this up — ",
+                "hadn't come across this before, but here's what i found: ",
+            ])
+            text = _ack + text[0].lower() + text[1:] if text else text
         return (text, "definition_with_assoc")
 
     def _reflective_response(self, ctx: CognitiveResponseContext):

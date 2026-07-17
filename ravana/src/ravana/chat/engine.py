@@ -320,6 +320,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # I told you" query reconstructs what was said instead of confabulating.
         self._episodic_transcript: List[Dict[str, Any]] = []
         self._episodic_index: Dict[str, Dict[str, str]] = {}  # hippocampal entity index (A3)
+        self._epistemic_new_tags: Dict[str, int] = {}  # B8: concept -> turn learned (decays)
         self._agent_preferences: Dict[str, str] = {}  # grounded self-preference store (A1)
         self._last_hops: List[List[Tuple[str, str]]] = []  # concept -> strength (decays)
         self._last_chain_hops: List[List[Tuple[str, str]]] = []  # Phase 3.4: snapshot before clear
@@ -3124,15 +3125,27 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                        val: float, prop: str) -> str:
         """Build the magnitude-conditioned cross-modal metaphor reply. Shared by
         the human-Lancaster Path 1 and the legacy probe fallback so phrasing is
-        identical; vivid when activation is high, tentative when low."""
+        identical; vivid when activation is high, tentative when low.
+
+        B3 (semantic control; Lambon Ralph 2016): ANCHOR on the property the
+        user actually asked about, THEN offer the cross-modal substitute. The
+        old form led with the substituted dimension ("i'd picture Tuesday in
+        terms of its shape") when the user asked about COLOR — which reads as
+        answering a different question. The brain's semantic-control network
+        keeps the assigned query (the asked property) in focus, so we name the
+        mismatch on {prop} first, then bridge to the sensory dimension we DO
+        have a profile for.
+        """
+        # Bridge phrasing to the sensory dimension we actually have a read on.
         if val >= 2.0:
-            lead = f"i'd really picture {subj_cap} in terms of its {phrase}"
+            bridge = f"if anything, i'd picture it more by its {phrase}"
         elif val >= 1.0:
-            lead = f"i'd think of {subj_cap} more in terms of its {phrase}"
+            bridge = f"if anything, i'd think of it by its {phrase}"
         else:
-            lead = f"i'd maybe relate {subj_cap} to its {phrase}"
-        return (f"{lead} — it's something you'd {sense}, not really "
-                f"something with a {prop}. what were you getting at?")
+            bridge = f"maybe i'd loosely relate it to its {phrase}"
+        return (f"{subj_cap} doesn't really have a {prop} — that's not the "
+                f"kind of thing it is. {bridge} — something you'd {sense}. "
+                f"what were you getting at?")
 
     def _metaphor_for_category_error(self, subject: str, prop: str) -> Optional[str]:
         """Build a data-derived cross-modal metaphor for a category error.
@@ -4489,6 +4502,19 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                         self.learn_from_web(_fok_query, max_results=2)
                         if self._trace_enabled:
                             print(f"  [LPFC] Web search complete — re-activating concepts")
+                        # B8 (epistemic tag; Gruber & Ranganath 2019 PACE): mark
+                        # the just-closed knowledge gap so the answer this turn can
+                        # be prefaced with an honest "i actually didn't know that
+                        # earlier — here's what i found". This is the VTA->hippo
+                        # dopamine "new" tag; it decays after N turns (below).
+                        if subject and subject.lower() in getattr(self, "_definitions", {}):
+                            self._epistemic_new_tags[subject.lower()] = self.turn_count
+                            # decay: drop tags older than 20 turns (hippocampal
+                            # trace decay — knowledge transitions "new" -> "known")
+                            _tc = self.turn_count
+                            self._epistemic_new_tags = {
+                                _k: _v for _k, _v in self._epistemic_new_tags.items()
+                                if _tc - _v <= 20}
 
                         # During re-spread, these will get 1.5x activation priority
                         self._recently_learned_labels.clear()
