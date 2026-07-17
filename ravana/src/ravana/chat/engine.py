@@ -2755,6 +2755,17 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         caller.
         """
         cat = (category or "").strip().lower()
+        # B6 (vmPFC self-attribute consolidation; D'Argembeau 2013, Berkman 2020):
+        # a stable self-attribute must return the SAME answer within a session,
+        # not drift with momentary VAD. The first time this category is asked we
+        # compute from state (episodic), then consolidate to a stable identity
+        # value cached in _agent_preferences (semantic). Subsequent calls return
+        # the cached pick — the brain separates transient affect from identity.
+        _cache = getattr(self, "_agent_preferences", None)
+        if _cache is not None and cat in _cache:
+            _cached = _cache[cat]
+            if isinstance(_cached, tuple) and len(_cached) == 2:
+                return _cached
         valence = 0.5
         if hasattr(self, "emotion") and hasattr(self.emotion, "state"):
             try:
@@ -2778,6 +2789,11 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # right now. Deterministic, grounded in state.
         best = min(_palette, key=lambda c: abs(c[1] - valence))
         pick, _, reason = best
+        # Consolidate: store as the stable self-attribute for this category so
+        # future asks return the same identity value (B6). Recompute only if the
+        # cache is explicitly cleared (session boundary / user challenge).
+        if _cache is not None:
+            _cache[cat] = (pick, reason)
         return (pick, reason)
 
     def _agent_likes_guess(self) -> str:
@@ -4060,6 +4076,22 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                     for nid in self._concept_keywords[subject]:
                         subject_ids.add(nid)
                         self.graph.activate(nid, 0.8)
+        # A4 (LIFG pragmatic frame selector; Yoshioka 2023): wellbeing/greeting
+        # queries must route to the SOCIAL-response generator, not the semantic
+        # association path. The old code only ran the social-frame regex when NO
+        # subject was extracted — but "how are you today" makes grounding extract
+        # "today"/"day" as a spurious subject, so the social frame never fired and
+        # the reply degenerated into "connected with day". Fix: detect the social
+        # frame FIRST and let it OVERRIDE a mis-extracted subject.
+        _t_social = user_input.lower().strip(" ?!.,").replace("'", "")
+        _wellbeing_fuzzy = re.search(
+            r"\bhow\s*(?:are|is|'?s|r)?\s*(?:you|u|ya)\b|"
+            r"\bhow\s*(?:you|u)\s*(?:doin|doing|feeling|going|been)\b|"
+            r"\bhows\s*(?:it\s*going|life|things|everything)\b",
+            _t_social)
+        if _wellbeing_fuzzy and (not subject or subject.lower() in (
+                "today", "day", "you", "how", "doing", "feeling", "going")):
+            subject = "how"
         if not subject:
             # Set default subject for chitchat/social queries to route them correctly
             t = user_input.lower().strip(" ?!.,")

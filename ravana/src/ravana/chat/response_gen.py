@@ -3455,7 +3455,24 @@ class ResponseGenMixin(ChainWalkerMixin):
                 pass
             else:
                 self._update_vad_baseline(-0.8)
-                return ("negative", "hurting")
+                # B4 (empathy specificity; Jankowiak-Siuda 2011): extract the
+                # SPECIFIC lost entity so the reply names the relationship
+                # ("i'm so sorry about your dog") instead of a generic
+                # "hurting". The hippocampus retrieves the specific relationship;
+                # a human never uses one word for every loss. Encode as
+                # "loss:<entity>" so _emotional_response can specialize.
+                _ent_m = re.search(
+                    r"\b(?:my|our)\s+(\w+(?:\s+\w+)?)\s+"
+                    r"(?:died|dies|death|dead|passed|lost|losing|grief|"
+                    r"grieving|mourn|mourning|suicide|funeral)\b", text)
+                _lost = ""
+                if _ent_m:
+                    _lost = _ent_m.group(1).strip()
+                    # drop a leading possessive/filler ("dear old dog" -> keep dog)
+                    _lw = _lost.split()
+                    if _lw:
+                        _lost = _lw[-1]
+                return ("negative", f"loss:{_lost}" if _lost else "hurting")
         if not re.search(r"\b(i|i'm|i am|my|me|we|we're|we are)\b", text):
             return None
         if re.search(r"\blike (?:i am|i'm|i)\s+(?:a |an )?\w+\b", text) or \
@@ -3580,15 +3597,39 @@ class ResponseGenMixin(ChainWalkerMixin):
         """Empathic reply to a user's affective self-disclosure (mirror/emotion contagion)."""
         kind, word = disclosure
         if kind == "negative":
-            lines = [
-                f"aw, i'm sorry you're feeling {word}. that's really rough. "
-                f"do you wanna talk about what's going on?",
-                f"i hear you — feeling {word} is hard, and i'm here for it. "
-                f"what happened?",
-                f"that sounds tough. i'm sorry you're feeling {word}. "
-                f"i'm listening if you want to share more.",
-                f"oh no, i'm sorry you're feeling {word}. you're not alone in this, okay?",
-            ]
+            # B4 (empathy specificity; Jankowiak-Siuda 2011): a bereavement
+            # disclosure carries a specific lost relationship. Name it so the
+            # reply isn't the one-size-fits-all "feeling hurting" slot — a human
+            # never uses one word for every loss. The entity was extracted in
+            # _detect_emotional_disclosure and encoded as "loss:<entity>".
+            if isinstance(word, str) and word.startswith("loss:"):
+                lost = word[len("loss:"):].strip()
+                if lost:
+                    lines = [
+                        f"i'm so sorry about your {lost}. that's a real loss, "
+                        f"and it hurts. i'm here if you want to talk about them.",
+                        f"oh no — i'm really sorry about your {lost}. that's "
+                        f"devastating. take all the time you need, okay?",
+                        f"i'm so sorry. losing your {lost} is so hard. i'm "
+                        f"listening whenever you want to share.",
+                    ]
+                else:
+                    lines = [
+                        f"i'm so sorry for your loss. that's really painful, "
+                        f"and i'm here for you. do you want to talk about it?",
+                        f"oh no, i'm so sorry. that kind of loss is devastating. "
+                        f"i'm listening if you need me.",
+                    ]
+            else:
+                lines = [
+                    f"aw, i'm sorry you're feeling {word}. that's really rough. "
+                    f"do you wanna talk about what's going on?",
+                    f"i hear you — feeling {word} is hard, and i'm here for it. "
+                    f"what happened?",
+                    f"that sounds tough. i'm sorry you're feeling {word}. "
+                    f"i'm listening if you want to share more.",
+                    f"oh no, i'm sorry you're feeling {word}. you're not alone in this, okay?",
+                ]
         elif kind == "positive":
             follow = f"what do you love about it?" if word == "love" else \
                      f"what's got you feeling so {word}?"

@@ -1297,10 +1297,18 @@ class PrefrontalWorkspace:
         elif qtype == "why":
             plan = self._plan_causal_explain(subject, associations, seen, qtype)
         elif qtype == "tell_me":
+            # B9 (frame normalization; Tyler et al. 2011): "tell me about X" and
+            # "what is X" both request the SAME semantic core about X — the LIFG
+            # matches both frames against one retrieval network. The brain
+            # retrieves identical information; only the pragmatic framing differs.
+            # Route BOTH to the same explain-plan so the definitional content is
+            # identical (the old code gave "tell me about X" an elaborate+ask-back
+            # plan that collapsed to honest-uncertainty while "what is X" produced
+            # an asserted fact — a quality split for the same concept).
             if self._is_abstract_concept(subject):
                 plan = self._plan_abstract(subject, associations, seen, qtype)
             else:
-                plan = self._plan_elaborate(subject, associations, seen, qtype)
+                plan = self._plan_explain(subject, associations, seen, qtype)
         elif qtype == "compare":
             plan = self._plan_compare(subject, parts, associations, seen, qtype)
         elif qtype == "follow_up":
