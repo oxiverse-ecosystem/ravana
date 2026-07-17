@@ -153,7 +153,16 @@ def test_metaphor_path1_fires_for_broad_subjects():
             continue
         # Path-1 signature: cross-modal phrasing referencing the subject's own
         # sensorimotor profile. (Path 3 would say 'can have the taste of <Y>'.)
-        if "more in terms of its" in reply.lower() and subj in reply.lower():
+        # Path-1 signature after the B3 semantic-control rewrite: the reply
+        # ANCHORS on the asked property first ("doesn't really have a <prop>"),
+        # then bridges to the subject's own cross-modal dimension via
+        # "more by its <phrase>" / "think of it by its <phrase>" /
+        # "relate it to its <phrase>". The old literal "more in terms of its"
+        # substring was replaced by the better (property-anchored) phrasing.
+        if subj in reply.lower() and (
+                "more by its" in reply.lower()
+                or "think of it by its" in reply.lower()
+                or "relate it to its" in reply.lower()):
             fired += 1
         else:
             # Allow Path 2 (ConceptNet feature frame) as an acceptable derived
@@ -227,7 +236,14 @@ def test_engine_wires_combined_encoder_with_lancaster():
     e._is_category_error("what is the taste of a triangle")
     subj = getattr(e, "_last_category_subject", "triangle")
     reply = e._metaphor_for_category_error(subj, "taste")
-    assert reply and "more in terms of its" in reply.lower(), (
+    # B3 rewrite: Path 1 now anchors on the asked property ("doesn't really
+    # have a taste") then bridges to the subject's cross-modal read via
+    # "more by its <phrase>" — the old literal "more in terms of its" is gone
+    # by design. Assert the Lancaster-driven cross-modal profile fires and
+    # stays subject-anchored (no random draw, no 'flavor of a tuesday').
+    assert reply and subj in reply.lower() and (
+        "more by its" in reply.lower() or "think of it by its" in reply.lower()
+        or "relate it to its" in reply.lower()), (
         f"Lancaster-driven Path 1 should fire: {reply!r}")
 
 

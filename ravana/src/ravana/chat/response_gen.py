@@ -4288,10 +4288,17 @@ class ResponseGenMixin(ChainWalkerMixin):
 
     # Relation types that assert a real, structured predicate (not mere
     # distributional proximity). Used to gate vacuous grounding (Fix 6).
-    _CONTENTFUL_RELATIONS = {
-        "causal", "contrastive", "analogical", "temporal",
-        "is_a", "isa", "part_of", "has_a", "property",
-    }
+    # Genuinely vacuous relations: pure distributional proximity from the ATL
+    # hub ("semantic"/"related" edges, or an untyped/empty edge). These are the
+    # semantic-dementia risk — fluent but empty. EVERYTHING ELSE (a real typed
+    # predicate: likes, causal, is_a, part_of, property, ...) is a contentful
+    # assertion. We use a DENYLIST of only the vacuous relations rather than an
+    # ALLOWLIST of "known good" ones: an allowlist is a fragile hardcoded verb
+    # table that silently drops legitimate typed edges (e.g. "likes"), whereas
+    # the denylist is adaptive to whatever typed relations the graph actually
+    # learns. The HRR chain is only ever recovered through TYPED edges, so any
+    # non-distributional chain endpoint is, by construction, contentful.
+    _DISTRIBUTIONAL_RELATIONS = {"semantic", "related", ""}
 
     def _relation_has_contentful_edge(self, subject: str, obj: str) -> bool:
         """Fix 6: True iff a genuine contentful typed edge links subject→obj
@@ -4299,28 +4306,45 @@ class ResponseGenMixin(ChainWalkerMixin):
 
         The ATL hub binds concepts by proximity; a real assertion needs a
         structured predicate. We consult the graph for an actual edge whose
-        relation_type is contentful. No fixed weight threshold — presence of a
-        typed contentful edge IS the evidence (adaptive to whatever the graph
-        learned). Returns False when we can't resolve the nodes, so the caller
-        falls back to honest uncertainty instead of empty fluent speech.
+        relation_type is NOT a vacuous distributional relation. No fixed weight
+        threshold and no hardcoded allowlist — presence of a typed (non-
+        distributional) edge IS the evidence (adaptive to whatever the graph
+        learned, including "likes"/"loves"/"belongs_to"/...). Returns False when
+        we can't resolve the nodes, so the caller falls back to honest
+        uncertainty instead of empty fluent speech.
         """
         try:
             g = self.graph
             ck = getattr(self, "_concept_keywords", {})
-            s_ids = ck.get((subject or "").lower(), [])
-            o_ids = set(ck.get((obj or "").lower(), []))
+
+            def _resolve(label):
+                # Prefer the seeded-concept keyword index; fall back to scanning
+                # the live node set by label so nodes added directly via
+                # graph.add_node (e.g. HRR test fixtures with typed "likes"
+                # edges) are also resolved. Without this fallback, legitimately
+                # contentful typed edges between non-seeded nodes are invisible
+                # to the gate and the answer is wrongly withheld.
+                ids = list(ck.get((label or "").lower(), []))
+                if not ids and g is not None:
+                    for nid, node in g.nodes.items():
+                        if node is not None and (node.label or "").lower() == (label or "").lower():
+                            ids.append(nid)
+                return ids
+
+            s_ids = _resolve(subject)
+            o_ids = set(_resolve(obj))
             if not s_ids or not o_ids:
                 return False
             for sid in s_ids:
                 for tid, edge in g.get_outgoing(sid):
                     if tid in o_ids and \
-                            (edge.relation_type or "").lower() in self._CONTENTFUL_RELATIONS:
+                            (edge.relation_type or "").lower() not in self._DISTRIBUTIONAL_RELATIONS:
                         return True
             # reverse direction
             for oid in o_ids:
                 for tid, edge in g.get_outgoing(oid):
                     if tid in set(s_ids) and \
-                            (edge.relation_type or "").lower() in self._CONTENTFUL_RELATIONS:
+                            (edge.relation_type or "").lower() not in self._DISTRIBUTIONAL_RELATIONS:
                         return True
         except Exception:
             return False
