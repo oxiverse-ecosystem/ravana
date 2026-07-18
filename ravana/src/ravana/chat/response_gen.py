@@ -533,12 +533,14 @@ class ResponseGenMixin(ChainWalkerMixin):
                 idx = len(self._decoder_word_to_idx)
                 self._decoder_word_to_idx[wl] = idx
                 self._decoder_idx_to_word[idx] = wl
-                vec = self._glove_vector(wl)
-                if vec is None:
-                    vec = np.random.randn(self._DECODER_DIM).astype(np.float32) * 0.1
-                    n = np.linalg.norm(vec)
-                    if n > 0:
-                        vec /= n
+                # G4/G5 fix: the decoder read-out is the 75-D dual-code embedding
+                # (GloVe-64 | Lancaster-11), NOT the raw 64-D GloVe vector.
+                # Storing a bare 64-D GloVe vector here mismatched the 75-D
+                # table built in __init__ (embed_dim=self._DECODER_DIM) and
+                # crashed _expand_decoder_vocab at the resize below (broadcast
+                # 64-D into the 75-D slot). Use _embed_75d() so every read-out
+                # row lives in the same 75-D space.
+                vec = self._embed_75d(wl)
                 self._decoder_word_to_embed[wl] = vec.astype(np.float32)
                 added += 1
 
@@ -548,16 +550,20 @@ class ResponseGenMixin(ChainWalkerMixin):
             old_vocab_size = self.neural_decoder.vocab_size
             new_vocab_size = len(self._decoder_word_to_idx)
 
-            # Resize decoder embedding table (preserve existing weights)
+            # Resize decoder embedding table (preserve existing weights).
+            # NOTE: the table dimension MUST be _DECODER_DIM (75), the same
+            # value passed as embed_dim at __init__ — self.dim (64) is the
+            # distributional backbone and would build a 64-D table that the
+            # 75-D weight from the existing decoder cannot broadcast into.
             old_weight = self.neural_decoder.word_embedding.weight.data
-            new_weight = np.zeros((new_vocab_size, self.dim), dtype=np.float32)
+            new_weight = np.zeros((new_vocab_size, self._DECODER_DIM), dtype=np.float32)
             new_weight[:len(old_weight)] = old_weight
             for word, idx in list(self._decoder_word_to_idx.items()):
                 if idx >= len(old_weight) and word in self._decoder_word_to_embed:
                     new_weight[idx] = self._decoder_word_to_embed[word]
 
             from ravana_ml.nn.module import Embedding, Linear
-            new_emb = Embedding(new_vocab_size, self.dim)
+            new_emb = Embedding(new_vocab_size, self._DECODER_DIM)
             new_emb.weight.data = new_weight
             self.neural_decoder.word_embedding = new_emb
 
@@ -577,7 +583,7 @@ class ResponseGenMixin(ChainWalkerMixin):
             self.neural_decoder.output_proj = new_out_proj
 
             self.neural_decoder.vocab_size = new_vocab_size
-            self.neural_decoder._vocab_dim = self.dim
+            self.neural_decoder._vocab_dim = self._DECODER_DIM
             self.neural_decoder.rebuild_vocab_cache()
 
         # Hippocampal replay: mix new embeddings with similar existing ones
@@ -2257,38 +2263,63 @@ class ResponseGenMixin(ChainWalkerMixin):
         #    cosine) -- familiar frames colliding at Z is the surprise.
         candidates.sort(key=lambda x: (-x[0], x[1]))
         _recog, _dist, Y, Z, rel = candidates[0]
-        _CONNECTOR = {
-            "contrastive": "but", "causal": "because",
-            "is_a": "is", "part_of": "is part of",
-            "analogical": "like", "temporal": "then", "semantic": "and",
-        }.get((rel or "related").lower(), "and")
 
-        # 4) ASSEMBLE: setup builds the expectation around X; punchline reveals
-        #    the second frame Z that reconciles X and Y (the bisociation payoff).
+        # 4) ASSEMBLE + RESOLUTION COHERENCE GATE (§1).
+        #    The bisociation only "pays out mirth" (Hurley/Dennett) when the
+        #    assembled punchline is a COHERENT resolution — i.e. passes the
+        #    existing learned salad classifier on the GENERATED joke. A salad
+        #    punchline is a resolved-prediction-error FAILURE, so we retracted
+        #    it and try the next candidate/combination; only if NO combination
+        #    clears do we abstain (the honest "my joke circuits are warming up"
+        #    branch is the brain-faithful fail-closed, not a bug).
+        from ravana.chat.brain_regions import humor_is_coherent
+
+        def _connector_for(r):
+            return {
+                "contrastive": "but", "causal": "because",
+                "is_a": "is", "part_of": "is part of",
+                "analogical": "like", "temporal": "then", "semantic": "and",
+            }.get((r or "related").lower(), "and")
+
         _setups = [
-            f"why did the {X} and the {Y} end up in the same conversation?",
-            f"what do {X} and {Y} have in common?",
-            f"why don't {X} and {Y} get along?",
+            lambda X, Y: f"why did the {X} and the {Y} end up in the same conversation?",
+            lambda X, Y: f"what do {X} and {Y} have in common?",
+            lambda X, Y: f"why don't {X} and {Y} get along?",
         ]
         _punchlines = [
-            f"they both run on {Z} -- {_CONNECTOR} that's the only thing that "
-            f"bridges them.",
-            f"{Z}. turns out {X} only makes sense {_CONNECTOR} of {Z}, and so "
-            f"does {Y}.",
-            f"they keep fighting over {Z} -- {_CONNECTOR} neither one will admit "
-            f"they need it.",
+            lambda Y, Z, C: f"they both run on {Z} -- {C} that's the only thing that bridges them.",
+            lambda Y, Z, C: f"{Z}. turns out {X} only makes sense {C} of {Z}, and so does {Y}.",
+            lambda Y, Z, C: f"they keep fighting over {Z} -- {C} neither one will admit they need it.",
         ]
-        _i = (getattr(self, "turn_count", 0) or 0) % len(_setups)
-        out = f"{_setups[_i]} {_punchlines[_i]}"
+        # Iterate candidates best-first; for each, try every setup×punchline
+        # combination and keep the FIRST that is coherent (non-salad).
+        for _recog, _dist, Y, Z, rel in sorted(candidates, key=lambda x: (-x[0], x[1])):
+            _C = _connector_for(rel)
+            for _si in range(len(_setups)):
+                for _pi in range(len(_punchlines)):
+                    _out = (f"{_setups[_si](X, Y)} "
+                            f"{_punchlines[_pi](Y, Z, _C)}")
+                    if humor_is_coherent(_out, subject=X):
+                        # Mesolimbic reward (NAcc analog): resolved prediction
+                        # error -> mirth spike, reinforcing error-correction.
+                        try:
+                            self.emotion.update(stimulus_valence=0.6,
+                                                stimulus_arousal=0.5,
+                                                stimulus_dominance=0.3)
+                        except Exception:
+                            pass
+                        return _out
+        # No coherent resolution found across all candidates -> fail-closed
+        # (honest abstention; the resolved-prediction-error reward did not fire).
+        return random.choice([
+            "haha, my joke circuits are still warming up. ask me again later?",
+            "i tried to think of a joke but it came out as a graph theory "
+            "lecture. sorry!",
+            "my humor module is still loading -- give me a sec and i'll do "
+            "better.",
+        ])
 
-        # Mesolimbic reward (NAcc analog): resolved prediction error -> mirth
-        # spike, reinforcing error-correction (Hurley, Dennett & Adams 2011).
-        try:
-            self.emotion.update(stimulus_valence=0.6, stimulus_arousal=0.5,
-                                stimulus_dominance=0.3)
-        except Exception:
-            pass
-        return out
+
     def _handle_assertion(self, text: str, subject: str) -> Optional[str]:
         """Respond when the user is *telling* RAVANA something (an assertion)
         rather than *asking* a question.
@@ -4820,7 +4851,22 @@ class ResponseGenMixin(ChainWalkerMixin):
         decomposition = getattr(ctx, 'decomposition', None)
         if decomposition and getattr(decomposition, 'sub_questions', None):
             cat = getattr(decomposition, 'category', None)
-            try_first = cat and cat.value in ('how', 'why', 'compare', 'complex', 'hypothetical', 'abstract', 'impossible')
+            # Decomposition-first is reserved for queries that genuinely benefit
+            # from multi-perspective sub-question spreading (how/why/compare/
+            # complex/hypothetical/impossible). A `what is X` / `abstract`
+            # *definitional* query is the simplest factual lookup and must NOT be
+            # routed into decomposition: the decomposition engine over-engineers
+            # it into sub-questions ("what is the common definition of X",
+            # "different perspectives on X") that return image captions / junk,
+            # and the grounded clause then gets dropped by the per-clause monitor
+            # — so a query the web could answer cleanly instead falls back to
+            # uncertain salad. Definitional queries route instead to
+            # _web_direct_answer below, which surfaces a vetted snippet directly.
+            # (Confirmed: "what is gravity" was classified ABSTRACT and degraded;
+            # removing `abstract` from try_first sends it to web_direct_answer,
+            # which grounds it correctly as "Gravity is the force by which a
+            # planet...".)
+            try_first = cat and cat.value in ('how', 'why', 'compare', 'complex', 'hypothetical', 'impossible')
             if try_first:
                 decomp_res = self._decomposition_generation_path(ctx)
                 if decomp_res:
@@ -5271,9 +5317,28 @@ class ResponseGenMixin(ChainWalkerMixin):
         # (Disabled by _disable_grounding_gate for A/B / benchmarking.)
         if not getattr(self, "_disable_grounding_gate", False):
             _filtered = []
+            # Web-sourced sub-answers (from _web_direct_answer, stamped
+            # "according to <src>," / "from the web") are externally-retrieved
+            # knowledge, NOT free-association salad. The shared
+            # _sm_response_grounded monitor was built to censor RAVANA's OWN
+            # degenerate generated text and mis-flags these correct clauses as
+            # "degenerate" (observed: "according to a web source, Batteries are
+            # specified by three main characteristics..." dropped, collapsing the
+            # synthesis to graph-association garbage). Junk web text is already
+            # filtered at the snippet level (_web_direct_answer withholds
+            # degenerate snippets), so a sub-answer that reaches here with a
+            # web-source framing is vetted and must survive the per-clause
+            # monitor. Exempt it (same source-monitoring exemption applied to the
+            # main forward-model and final-emit guard).
+            _WEB_MARKERS = ("according to", "from the web", "i read that",
+                            "according to a web source", "per the web")
             for _sq in answered_sqs:
                 _sq_text = getattr(_sq, "answer", "") or ""
                 if len(_sq_text) < 5:
+                    continue
+                _sq_lower = _sq_text.strip().lower()
+                if _sq_lower.startswith(_WEB_MARKERS):
+                    _filtered.append(_sq)
                     continue
                 _sq_subj = (getattr(_sq, "target_concept", "")
                            or ctx.subject or "").lower().strip()
@@ -5886,6 +5951,33 @@ class ResponseGenMixin(ChainWalkerMixin):
         # (web_unverified is the honest abstention already, also safe to pass.)
         if not text or not text.strip():
             return self._human_like_uncertainty(ctx)[0]
+        # Web-sourced answers that already cleared the snippet-level plausibility
+        # gate (trust=1.0 + non-degenerate coherence) are vetted knowledge, not
+        # free-association salad. They must be exempt from the clause-grained
+        # strip below: that strip cannot tell a correct encyclopedic clause
+        # ("Mitosis is a method of cell division...") from junk, so it wrongly
+        # drops valid answers (observed: mitosis/quantum-entanglement/dna
+        # definitions withheld as "all clauses degenerate"). Junk web text is
+        # already filtered at the SOURCE — _web_direct_answer withholds
+        # degenerate snippets (GloVe cosine < _SNIPPET_PLAUSIBILITY_DEGENERATE,
+        # e.g. the Roblox example) before they become clauses — so by the time a
+        # web_direct_answer reaches this monitor it is grounded, and the
+        # clause-grained strip must not veto it. (Whole-text salad check already
+        # exempts web_direct_answer at line 5945; this extends the same exemption
+        # to the clause-grained strip. We ALSO exempt any text that *quotes a
+        # verified web source* (starts with "according to" / "from the web"),
+        # because a decomposition synthesis (strategy decomposed_how/why/...) may
+        # weave web-sourced sub-answers into a combined reply — the strategy is
+        # no longer web_direct_answer, but the CONTENT is externally-grounded
+        # knowledge and must not be re-litigated as free-association salad. Junk
+        # web text was already filtered at the snippet level, so a clause that
+        # reaches here with a web-source framing is vetted.
+        if strategy in ("web_direct_answer", "web_unverified"):
+            return text
+        _WEB_MARKERS = ("according to", "from the web", "i read that",
+                        "according to a web source", "per the web")
+        if text and text.strip().lower().startswith(_WEB_MARKERS):
+            return text
         # Degenerate / word-salad candidate -> refuse. Clause-grained: any
         # sentence that is salad (subject+glue filler, truncated repetition,
         # vague-concept-metawords) fails the whole reply. This is the

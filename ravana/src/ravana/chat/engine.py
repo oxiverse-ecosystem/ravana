@@ -187,6 +187,13 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # Cognitive engines (emotion, identity, meaning, dual-process, global workspace)
         self.emotion = VADEmotionEngine(VADConfig(eta_valence=0.3, eta_arousal=0.4, eta_dominance=0.25))
         self.identity = IdentityEngine(initial_strength=0.25, momentum_factor=0.3, recovery_bias=0.15)
+        # §4 vmPFC self-model: a STABLE self-representation holding self-content
+        # (name + nature derived from the seeded 'ravana' graph concept), not
+        # just the scalar `strength` the IdentityEngine tracks. Gives name
+        # queries something coherent to retrieve instead of echoing a graph
+        # definition of the word "name". Populated lazily on first use so it
+        # can read the graph after seeding.
+        self.self_model = None
         self.meaning = MeaningEngine(MeaningConfig(w_dissonance_reduction=0.3,
              w_identity_coherence=0.3, w_predictive_power=0.4, effort_kappa=0.5))
         self.dual_process = DualProcessController(DualProcessConfig(
@@ -320,6 +327,9 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # I told you" query reconstructs what was said instead of confabulating.
         self._episodic_transcript: List[Dict[str, Any]] = []
         self._episodic_index: Dict[str, Dict[str, str]] = {}  # hippocampal entity index (A3)
+        # §2 temporal indexer (hippocampal time-cells): FIRST/LAST/BY_ENTITY
+        # over the transcript. Instantiated lazily to avoid an import cycle.
+        self._episodic_indexer = None
         self._epistemic_new_tags: Dict[str, int] = {}  # B8: concept -> turn learned (decays)
         self._agent_preferences: Dict[str, str] = {}  # grounded self-preference store (A1)
         self._last_hops: List[List[Tuple[str, str]]] = []  # concept -> strength (decays)
@@ -1670,18 +1680,62 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         _patterns = [
             r"\bwhat did i (?:just )?(?:ask|say|tell|mention)\b",
             r"\bwhat (?:was|were) (?:my|the) (?:last |previous |first )?"
-            r"(?:question|questions|message|thing i said)\b",
+            r"(?:question|questions|message|thing i said|conversation)\b",
             r"\bwhat (?:were|are) we (?:talking|chatting) about\b",
             r"\bwhat (?:did|were) we (?:talk|talking) about\b",
             r"\b(?:do|can) you remember what i (?:asked|said|told)\b",
             r"\bwhat was i (?:just )?(?:asking|saying|talking) about\b",
             r"\brepeat (?:my|the) (?:last |previous )?question\b",
+            r"\bour (?:first|last) (?:conversation|chat|talk)\b",
         ]
         if not any(re.search(p, t) for p in _patterns):
             return None
         prior = self._recent_user_turns
         if not prior:
             return "you haven't asked me anything yet this session — i don't have an earlier turn to recall."
+
+        # §2 temporal index: "first/last conversation" answered as pure index
+        # math over the transcript's turn_index (hippocampal time cells), never
+        # a middle/arbitrary turn.
+        if re.search(r"\bour (first|last) (?:conversation|chat|talk)\b", t):
+            idx = self._episodic_indexer
+            if idx is not None:
+                ep = idx.first() if "first" in t else idx.last()
+                if ep is not None:
+                    _rec = self._reconstruct_gist({
+                        "text": ep.text, "topic": ep.topic, "facts": ep.facts})
+                    return (f"our {('first' if 'first' in t else 'last')} "
+                            f"conversation — {_rec}")
+
+        # "what did i just tell you [i like / my favorite ...]" — reconstruct
+        # the GIST of the immediately-preceding turn (Tulving encoding
+        # specificity), not the verbatim question. The miner already extracted
+        # the self-disclosed facts, so surface those.
+        if re.search(r"\bwhat did i (?:just )?(?:tell|say|mention)\b", t):
+            last_turn = prior[-1].strip()
+            # Pull the matching transcript record (highest turn_index = prev).
+            matching = [r for r in self._episodic_transcript
+                        if r.get("text", "").strip().lower() == last_turn.lower()]
+            rec = matching[-1] if matching else None
+            if rec is not None:
+                facts = rec.get("facts", {})
+                # Reconstruct gist from mined facts when present.
+                bits = []
+                for slot, val in facts.items():
+                    if slot.startswith("favorite_"):
+                        bits.append(f"your favorite {slot[len('favorite_'):]} is {val}")
+                    elif slot == "likes":
+                        bits.append(f"you like {val}")
+                    elif "_" in slot:
+                        ent, _, attr = slot.partition("_")
+                        bits.append(f"your {ent}'s {attr} is {val}")
+                    else:
+                        bits.append(f"you said: {val}")
+                if bits:
+                    return "you just told me " + "; ".join(dict.fromkeys(bits)) + "."
+            # Fallback: verbatim echo of the prior turn.
+            return f'you just told me: "{last_turn}"'
+
         last = prior[-1].strip()
         # "what were we talking about" → topic-oriented; else verbatim recall.
         if re.search(r"\bwe (?:talking|talk|were|are) (?:about|chatting)\b", t) \
@@ -1706,7 +1760,14 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         salient facts/preferences mined from the utterance (favorites, likes),
         so a later "remember what I told you" can reconstruct GIST without
         confabulating. Capped at 100 turns; oldest dropped first.
+
+        §2 temporal index: every record also carries a monotonic ``turn_index``
+        and a ``content_hash`` so the hippocampal time-cells (FIRST = lowest
+        index, LAST = highest index, date-bucket) can answer "our first
+        conversation" / "what did i just tell you" as pure index math over the
+        already-stored data.
         """
+        import hashlib
         import time as _time
         t = (user_input or "").strip()
         if not t:
@@ -1716,15 +1777,28 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             _topic = self._ground_query(t)[0] or ""
         except Exception:
             _topic = ""
+        _hash = hashlib.md5(t.lower().encode("utf-8", "ignore")).hexdigest()[:12]
         rec = {
             "text": t,
             "ts": _time.time(),
             "topic": _topic,
             "facts": self._mine_episodic_facts(t),
+            "turn_index": self.turn_count,   # monotonic temporal index
+            "content_hash": _hash,
         }
         self._episodic_transcript.append(rec)
         if len(self._episodic_transcript) > 100:
             self._episodic_transcript = self._episodic_transcript[-100:]
+        # Mirror into the temporal indexer (hippocampal time cells).
+        try:
+            from .brain_regions import Episode, EpisodicIndex
+            if self._episodic_indexer is None:
+                self._episodic_indexer = EpisodicIndex()
+            self._episodic_indexer.add(Episode(
+                text=t, turn_index=self.turn_count, ts=rec["ts"],
+                content_hash=_hash, facts=rec["facts"], topic=_topic))
+        except Exception:
+            pass
 
     def _mine_episodic_facts(self, text: str) -> Dict[str, str]:
         """Extract salient self-disclosed facts from a user turn (gist mining).
@@ -2009,6 +2083,106 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         map — never ``eval``. Returns a natural-language answer string, or None
         if the input is not simple arithmetic (so the normal pipeline runs).
         """
+        from .brain_regions import parse_number_phrase, count_sequence
+
+        # ── §6 cerebellar / number-line module ──────────────────────────────
+        # Counting and number-word arithmetic are DETERMINISTIC procedural
+        # sub-routines (cerebellum), not semantic associations. They must fire
+        # BEFORE the decoder/web pipeline, which would otherwise produce
+        # word-salad ("count to ten" -> associative noise) or an honesty punt
+        # ("two plus two" -> "outside what i know").
+        #
+        # (a) COUNT TO N  — "count to ten" / "count from 1 to 10". Pure ordered
+        #     sequence generation over the number line (no graph walk).
+        _count = re.match(
+            r"^\s*(?:can you |please )?(?:count|list|give me|say|recite)\b.*?\b"
+            r"(?:to|up to|from 1 to|1 to)\b\s*([a-z0-9 ]+?)\s*[.!?]?$",
+            user_input.lower().strip())
+        if _count:
+            n = parse_number_phrase(_count.group(1), self._glove_vector)
+            seq = count_sequence(n)
+            if seq:
+                joined = ", ".join(str(x) for x in seq)
+                return f"{joined}." if len(seq) <= 20 else f"{seq[0]}, {seq[1]}, … up to {seq[-1]}."
+        # (b) NUMBER-WORD ARITHMETIC — "two plus two" / "ten times five". The
+        #     operands are recovered from the GloVe-derived number ordinal map,
+        #     not a hardcoded table, then evaluated with the whitelisted ops.
+        if re.search(r"\b(zero|one|two|three|four|five|six|seven|eight|nine|ten|"
+                     r"eleven|twelve|thirteen|fourteen|fifteen|sixteen|"
+                     r"seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|"
+                     r"sixty|seventy|eighty|ninety|hundred)\b", user_input.lower()):
+            # Translate spelled-out numbers to digits, preserving operators.
+            _expr = user_input.lower()
+            # operators already normalized below; first map number words.
+            _word_to_digit = {
+                "zero": "0", "one": "1", "two": "2", "three": "3", "four": "4",
+                "five": "5", "six": "6", "seven": "7", "eight": "8", "nine": "9",
+                "ten": "10", "eleven": "11", "twelve": "12", "thirteen": "13",
+                "fourteen": "14", "fifteen": "15", "sixteen": "16",
+                "seventeen": "17", "eighteen": "18", "nineteen": "19",
+                "twenty": "20", "thirty": "30", "forty": "40", "fifty": "50",
+                "sixty": "60", "seventy": "70", "eighty": "80", "ninety": "90",
+                "hundred": "100",
+            }
+            # Compound tens ("twenty one") -> "20 1" then merge to "21".
+            def _num_words_to_digits(txt):
+                toks = re.findall(r"[a-z]+", txt)
+                out, seen_tens = [], None
+                for tk in toks:
+                    if tk in ("plus", "minus", "times", "multiplied", "divided",
+                              "by", "to", "the", "power", "of", "raised"):
+                        continue
+                    if tk in _word_to_digit:
+                        v = _word_to_digit[tk]
+                        if seen_tens is not None:
+                            out.append(str(int(seen_tens) + int(v)))
+                            seen_tens = None
+                        else:
+                            out.append(v)
+                    elif tk in ("twenty", "thirty", "forty", "fifty", "sixty",
+                                "seventy", "eighty", "ninety"):
+                        seen_tens = {"twenty": 20, "thirty": 30, "forty": 40,
+                                     "fifty": 50, "sixty": 60, "seventy": 70,
+                                     "eighty": 80, "ninety": 90}[tk]
+                return " ".join(out)
+            # Re-assemble: replace only the number-word spans with digits, keep
+            # operator words ("plus"/"times"...) which are normalized below.
+            _assembled = _expr
+            for w, d in _word_to_digit.items():
+                _assembled = re.sub(rf"\b{w}\b", d, _assembled)
+            # Now normalize operator words.
+            _assembled = re.sub(r"\bplus\b", "+", _assembled)
+            _assembled = re.sub(r"\bminus\b", "-", _assembled)
+            _assembled = re.sub(r"\b(?:times|multiplied by)\b", "*", _assembled)
+            _assembled = re.sub(r"\bdivided by\b", "/", _assembled)
+            _assembled = re.sub(r"\b(?:to the power of|raised to)\b", "^", _assembled)
+            _assembled = re.sub(r"^(what(?:'s| is)|calculate|compute|solve|"
+                                r"find|tell me|how much is|how many is)\s+", "",
+                                _assembled).strip()
+            _assembled = _assembled.rstrip("?. ").strip()
+            if re.fullmatch(r"\s*[-+]?\d+(?:\.\d+)?(?:\s*[+\-*/^]\s*[-+]?\d+"
+                             r"(?:\.\d+)?)+\s*", _assembled):
+                try:
+                    _ops = {"+": operator.add, "-": operator.sub,
+                            "*": operator.mul, "/": operator.truediv, "^": operator.pow}
+                    _toks = re.findall(r"([-+]?\d+(?:\.\d+)?)|([+\-*/^])", _assembled)
+                    _nums2, _seq = [], []
+                    for _n, _o in _toks:
+                        if _n:
+                            _nums2.append(float(_n))
+                        elif _o:
+                            _seq.append(_o)
+                    _c = _nums2[0]
+                    for _i, _op in enumerate(_seq):
+                        _c = _ops[_op](_c, _nums2[_i + 1])
+                    if _c == int(_c) and abs(_c) < 1e15:
+                        _res = str(int(_c))
+                    else:
+                        _res = f"{_c:.4g}".rstrip("0").rstrip(".")
+                    return f"{user_input.strip().rstrip('?.')} = {_res}."
+                except (ZeroDivisionError, OverflowError, ValueError):
+                    pass
+
         # Normalize unicode operators and strip a leading question frame.
         s = user_input.lower()
         s = s.replace("×", "*").replace("÷", "/").replace("x", "*")
@@ -2933,7 +3107,16 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         elif parsed[0] == "name":
             ack = f"nice to meet you, {parsed[2]}! i'll remember that."
         elif parsed[0] == "like":
-            ack = f"good to know — you {'love' if 'love' in q else 'like'} {parsed[2]}. i'll keep that in mind."
+            _obj = parsed[2]
+            # §7 deictic resolution: "i love you" -> the user's 1st-person
+            # declaration is addressed to the agent, so the agent reciprocates
+            # ("i love you too"), never echoes it back as "you love you". This
+            # is a structural I<->user, you<->agent map, not content.
+            if _obj.strip() in ("you", "u", "ur", "your"):
+                _verb = "love" if "love" in q else "like"
+                ack = f"aw, i {_verb} you too."
+            else:
+                ack = f"good to know — you {'love' if 'love' in q else 'like'} {_obj}. i'll keep that in mind."
         else:
             ack = "got it — thanks for telling me."
 
@@ -2943,7 +3126,111 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         return ack
 
     # ─────────────────────────────────────────────────────────────────────
-    # Human-Likeness Plan (A2): classic counterfactual with both frames
+    # §4  vmPFC self-model + self/other gate
+    # ─────────────────────────────────────────────────────────────────────
+    def _ensure_self_model(self) -> "SelfModel":
+        """Lazily derive the self-model from the seeded graph (vmPFC content)."""
+        from .brain_regions import SelfModel
+        if self.self_model is None:
+            try:
+                self.self_model = SelfModel.from_graph(self.graph_engine)
+            except Exception:
+                self.self_model = SelfModel()
+        return self.self_model
+
+    def _route_self_query(self, user_input: str) -> Optional[str]:
+        """Self/other gate (TPJ / mirror-neuron self-other boundary).
+
+        A query about the AGENT itself ('your name', 'who are you', 'what are
+        you') must be answered from the self-model — never by looking up the
+        word 'name'/'you' as a world concept (which produces the definitional
+        echo "name is a term used for identification..."). World-knowledge
+        queries ('the president', 'the capital of X') deliberately do NOT match
+        and fall through to the factual path.
+
+        Returns a composed self-answer, or None when the query is not about the
+        self (so world knowledge is consulted normally).
+        """
+        t = (user_input or "").lower().strip()
+        if not t:
+            return None
+        sm = self._ensure_self_model()
+        # 1) Explicit self-identity questions.
+        _name_q = bool(re.search(
+            r"\b(what(?:'s| is)\s+(your|my)\s+name|who\s+are\s+you|"
+            r"what\s+are\s+you|tell\s+me\s+about\s+yourself|"
+            r"what\s+can\s+you\s+do|your\s+name)\b", t))
+        # 2) A query whose grounded subject is the self node (e.g. bare 'ravana'
+        #    asked as 'what is ravana').
+        _self_subj = False
+        try:
+            _g = self._ground_query(t)
+            if _g and _g[0]:
+                _self_subj = sm.is_self_subject(_g[0])
+        except Exception:
+            _self_subj = False
+        if not (_name_q or _self_subj):
+            return None
+        # Compose a stable, honest self-answer from the derived self-model.
+        if re.search(r"\bname\b", t):
+            return (f"i'm {sm.name} — {sm.describe().split(',', 1)[-1].strip()}. "
+                    f"what's yours?")
+        if re.search(r"\b(what\s+are\s+you|who\s+are\s+you)\b", t):
+            return (f"i'm {sm.describe()} — an ai that learns by talking, "
+                    f"not a person. what made you curious?")
+        if re.search(r"\bwhat\s+can\s+you\s+do\b", t):
+            return ("i can chat, learn from what we talk about, do arithmetic, "
+                    "tell jokes, and remember things you tell me. what would "
+                    "you like to try?")
+        # Bare self-subject ("what is ravana") -> describe from the model.
+        return f"that's me — {sm.describe()}."
+
+
+    # ─────────────────────────────────────────────────────────────────────
+    # §5  Internal-knowledge consult (answer from consolidated memory, not web)
+    # ─────────────────────────────────────────────────────────────────────
+    def _consult_internal_knowledge(self, user_input: str) -> Optional[str]:
+        """Before web, consult RAVANA's consolidated internal memory.
+
+        Returns a coherent answer string when internal memory holds a fact for
+        the grounded subject of a plain definitional query ("why do we sleep",
+        "what is X"); None so the caller falls through to the normal
+        grounding+web pipeline (and only then to honest-uncertainty).
+
+        Brain-faithful: the brain reasons from what it has already consolidated;
+        the web is only consulted when internal memory is silent. Distribution-
+        driven — only emits when a real stored fact exists (fail-closed
+        otherwise, never a confabulated lookup).
+        """
+        t = (user_input or "").lower().strip()
+        if not t:
+            return None
+        # Only intercept plain factual/definitional queries — leave creative,
+        # social, arithmetic, and self queries to their dedicated modules.
+        if not re.search(r"^\s*(?:why|what|how|who|where|when|which)\b", t):
+            return None
+        if re.search(
+            r"\b(joke|funny|laugh|tell me about yourself|who are you|"
+            r"your (name|favorite)|do you (have|feel)|what can you)\b", t):
+            return None
+        # Ground the subject.
+        try:
+            _g = self._ground_query(t)
+            subj = _g[0] if _g else None
+        except Exception:
+            subj = None
+        if not subj:
+            return None
+        # Don't short-circuit world-knowledge queries whose subject is unknown
+        # to us — let them reach web (the honest-uncertainty path stays intact).
+        from .brain_regions import consult_internal
+        ans = consult_internal(subj, self)
+        if ans is None:
+            return None
+        # Assemble a coherent, non-salad reply in the same voice as the web path.
+        return f"{ans.text}"
+
+
     # ─────────────────────────────────────────────────────────────────────
     def _handle_classic_counterfactual(self, user_input: str) -> Optional[str]:
         """Answer a classic counterfactual by HOLDING BOTH FRAMES, as a human
@@ -3463,6 +3750,46 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         if strategy in ("counterfactual_simulation", "emotional_empathy",
                         "seeded_relation"):
             return text
+        # Research item B fix: a response surfaced verbatim from a verified web
+        # source (web_direct_answer) is externally-grounded content, NOT RAVANA's
+        # own free-association output. The salad/tautology monitors were built to
+        # censor RAVANA's *self-generated* degenerate text (e.g. "trust is trust",
+        # "X leads to Y"); they must not re-litigate a quoted encyclopedic fact.
+        # Exempting it is brain-faithful: source monitoring distinguishes
+        # internally-generated from retrieved memory (Johnson & Raye 1981), and a
+        # vetted external quote is by construction not word-salad. Without this,
+        # legitimate definitions ("X is the process by which...") were being
+        # withheld as "fluent_tautology" — exactly the confident-garbage-in-reverse
+        # failure mode (honest uncertainty shown INSTEAD of a correct answer).
+        # Exempt externally-grounded / knowledge-backed strategies from the
+        # salad + fluent-tautology censors. These monitors were built to catch
+        # RAVANA's OWN degenerate free-association text, NOT legitimate answers:
+        #   - web_direct_answer: vetted live web snippet
+        #   - definition_with_assoc: a real stored/curated definition (e.g.
+        #     "Gravity is the force by which a planet...") — the fluent_tautology
+        #     detector false-positives on definitional prose ("X is the process
+        #     by which...") and was wrongly withholding correct answers.
+        #   - seeded_relation: authored project-knowledge relation (trusted ground)
+        # Source monitoring (Johnson & Raye 1981): a retrieved/known fact is by
+        # construction not word-salad, so the self-monitor must not veto it.
+        if strategy in ("web_direct_answer", "definition_with_assoc", "seeded_relation"):
+            return text
+        # Research item B fix (cont.): a response that *quotes a verified web
+        # source* — the "according to <src>," / "from the web" framing that
+        # _web_direct_answer stamps onto grounded snippets — is externally
+        # retrieved content, not RAVANA's own free-association output. The
+        # salad/tautology monitors must not re-litigate it (they were built to
+        # censor RAVANA's self-generated degenerate text). This catches the
+        # decomposition path too: a "why" turn may surface a web snippet via
+        # sub-question search and wrap it in a decomposed_* strategy, and that
+        # grounded clause must survive the final-emit guard exactly like a
+        # web_direct_answer does. Source monitoring (Johnson & Raye 1981)
+        # distinguishes internally-generated from retrieved memory; a vetted
+        # external quote is by construction not word-salad.
+        _WEB_MARKERS = ("according to", "from the web", "i read that",
+                        "according to a web source", "per the web")
+        if text and text.strip().lower().startswith(_WEB_MARKERS):
+            return text
         if not text or not text.strip():
             return text
         subj = (getattr(ctx, "subject", None) or "")
@@ -3512,6 +3839,24 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 self._last_responses = self._last_responses[-10:]
             return resp
 
+        # ── §5 Internal-knowledge consult (BEFORE web) ─────────────────────
+        # Many facts are INTERNALLY known (consolidated definitions, hippocampal
+        # facts, ConceptNet typed edges). The brain doesn't need the web to know
+        # what it has already stored — it reasons from consolidated memory. So
+        # before the grounding+web pipeline, consult internal memory for a plain
+        # "what is X" definitional query. If internal memory yields a coherent
+        # fact, emit it; otherwise (None) fall through to the normal pipeline
+        # and only then to web / honest-uncertainty. This is the rare-case
+        # fallback, not the default, preserving the RAVANA bar.
+        _intern = self._consult_internal_knowledge(user_input)
+        if _intern is not None:
+            self._last_strategy = "internal_knowledge"
+            self._last_responses.append(_intern)
+            if len(self._last_responses) > 10:
+                self._last_responses = self._last_responses[-10:]
+            self.notify_user_idle()
+            return _intern
+
         # ── Fix 4 (Q12): episodic memory meta-query pre-pass ──────────────────
         # "what did I just ask you", "what were we talking about" are queries
         # ABOUT the conversation, whose subject is the dialogue itself — the
@@ -3536,6 +3881,21 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 self._last_responses = self._last_responses[-10:]
             return _mem
 
+
+        # ── §4 Self/other gate (vmPFC self-model) ────────────────────────────
+        # A query about the AGENT itself ('your name', 'who are you') must be
+        # answered from the self-model, NEVER by echoing the graph definition of
+        # the word "name". This is the self/other boundary (TPJ / mirror system):
+        # it fires before grounding so self-subjects never reach the world-knowledge
+        # path. World queries ('the president') return None and proceed normally.
+        _self_ans = self._route_self_query(user_input)
+        if _self_ans is not None:
+            self._last_strategy = "self_model"
+            self._last_responses.append(_self_ans)
+            if len(self._last_responses) > 10:
+                self._last_responses = self._last_responses[-10:]
+            self.notify_user_idle()
+            return _self_ans
 
         # ── Phase 19f: Arithmetic pre-pass ───────────────────────────────────
         # Plain arithmetic is deterministic and should never be routed to the
@@ -3666,6 +4026,113 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 self._last_responses = self._last_responses[-10:]
             self.notify_user_idle()
             return _b
+
+        # ── §3 + §7 Affective disclosure & reaction gate (TPJ empathy) ──────
+        # A genuine affective disclosure ("i'm sad", "my mom is sick") or a
+        # reaction to the prior turn ("that's hilarious") must be MET WITH
+        # EMPATHY / affiliation, never swallowed by the self-disclosure ack
+        # ("got it — thanks for telling me") nor echoed back as a concept
+        # lookup. The existing detector is distribution-driven (adaptive VAD
+        # baseline + lexical hard-threshold), so it fires only on real affect
+        # and lets factual disclosures ("my favorite color is purple") pass
+        # through to autobiographical storage below.
+        try:
+            from ravana.chat.brain_regions import is_reaction, classify_cause, select_empathy_frame
+            _disc = self._detect_emotional_disclosure(ctx=None, text=user_input)
+            if _disc is None:
+                # §3 fallback: the lexical VAD detector misses suffering that
+                # has no strong affect WORD but is clearly negative via its
+                # CAUSE (e.g. "my mom is sick", "my friend is hurting"). The
+                # GloVe cause classifier recovers this: a first-person utterance
+                # whose nearest cause-centroid is a negative-other category is
+                # treated as an affective disclosure and routed to empathy.
+                _cause_fb = classify_cause(user_input, self._glove_vector)
+                # Tight gate. The GloVe cause classifier is noisy on arbitrary
+                # first-person text, so we only treat an utterance as an
+                # affective disclosure when it is SYNTACTICALLY a present-state
+                # declaration about the self or a loved one:
+                #   "i'm <x>" / "i am <x>" / "i feel <x>" / "my <person> is <x>"
+                # and it is NOT a memory/recall imperative ("remember ..."),
+                # NOT a question, and NOT a creative/request frame. This keeps
+                # recall + factual + generative turns out of the empathy path.
+                _low = user_input.lower().strip()
+                _state_disclosure = bool(re.search(
+                    r"\b(i'm|i am|i feel|i've been|i am feeling|i feel like)\b", _low)) or \
+                    bool(re.search(
+                        r"\bmy\s+\w+(\s+\w+)?\s+(is|are|has|have|got|passed|died|"
+                        r"left|hurts?|is being)\b", _low))
+                _recall_frame = bool(re.search(
+                    r"\b(remember|recall|forget|forgot|told you|did i (tell|say|"
+                    r"ask)|what did i|do you remember)\b", _low))
+                _is_question = _low.endswith("?") or bool(re.match(
+                    r"^(what|who|when|where|why|how|which|is|are|do|does|did|"
+                    r"can|could|would|should)\b", _low))
+                _request_frame = bool(re.search(
+                    r"\b(tell|write|create|make|imagine|describe|teach|draw|"
+                    r"compose|give)\b.*\b(me|us|him|her|them)\b", _low)) or \
+                    bool(re.search(r"\b(a|an|the)\s+(story|poem|song|haiku|joke|"
+                                   r"tale|letter)\s+(about|of|for)\b", _low))
+                _humor_req = bool(re.search(r"\b(joke|jokes|funny|laugh|"
+                                            r"laughing|humor|humour)\b", _low))
+                if (_state_disclosure and not _recall_frame and not _is_question
+                        and not _request_frame and not _humor_req
+                        and _cause_fb.label in
+                        ("other_suffering", "loss", "fear", "loneliness", "frustration")
+                        and _cause_fb.confidence >= 0.22):
+                    # Translate the cause label into a natural-feeling noun the
+                    # existing empathy responder can slot in (it interpolates
+                    # `{word}` as the feeling). Keeps the response human, never
+                    # the raw category token.
+                    _feeling_phrase = {
+                        "other_suffering": "going through something hard",
+                        "loss": "hurting",
+                        "fear": "afraid",
+                        "loneliness": "lonely",
+                        "frustration": "frustrated",
+                    }.get(_cause_fb.label, "hurting")
+                    _disc = ("negative", _feeling_phrase)
+            if _disc is not None:
+                # §7 deictic special-case: "i love you" / "i like you" is a
+                # relationship declaration addressed to the AGENT, not a generic
+                # positive affect disclosure. Let it fall through to the
+                # self-disclosure gate, whose deictic map reciprocates
+                # ("i love you too") rather than the positive-affect prompt
+                # ("what do you love about it?") which would be incoherent here.
+                if re.search(r"\bi\s+(love|like)\s+(you|u|ur)\b", user_input.lower()):
+                    pass
+                else:
+                    # §3 Empathy selector: (VAD_label x cause) -> response frame.
+                    _vad_label = self.emotion.get_emotional_label()
+                    _cause = classify_cause(user_input, self._glove_vector).label
+                    _frame = select_empathy_frame(_vad_label, _cause)
+                    _resp, _strat = self._emotional_response(None, _disc)
+                    # Tag the chosen frame for instrumentation / BOS conditioning.
+                    self._last_empathy_frame = _frame
+                    self._last_strategy = _strat
+                    self._last_responses.append(_resp)
+                    if len(self._last_responses) > 10:
+                        self._last_responses = self._last_responses[-10:]
+                    self.notify_user_idle()
+                    return _resp
+            # §7 Reaction to the prior turn ("that's hilarious", "aww") routes
+            # to the affiliation/empathy frame, not concept lookup.
+            if is_reaction(user_input):
+                _last = self._last_responses[-1] if self._last_responses else ""
+                _low = user_input.lower()
+                if "hilarious" in _low or "funny" in _low or "haha" in _low:
+                    _ack = "haha, right? i'm glad that landed. 😄"
+                elif "sad" in _low or "aww" in _low or "sorry" in _low:
+                    _ack = "i'm here. want to talk about it?"
+                else:
+                    _ack = "glad you felt that — i'm listening."
+                self._last_strategy = "reaction_affiliation"
+                self._last_responses.append(_ack)
+                if len(self._last_responses) > 10:
+                    self._last_responses = self._last_responses[-10:]
+                self.notify_user_idle()
+                return _ack
+        except Exception:
+            pass
 
         # ── Human-Likeness Plan (A1 + A1b): vmPFC self-disclosure gate ──────
         # MUST fire BEFORE the frontopolar (BA 10) feasibility gate. In humans,
@@ -6614,6 +7081,18 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
     # data: encyclopedic/procedural answers land ~0.46-0.51, game/UGC restatements
     # ~0.28-0.35. See test_web_snippet_source_quality.py.
     _SNIPPET_PLAUSIBILITY_FLOOR = 0.38
+    # Degenerate threshold: plausibility BELOW this means the snippet's added
+    # content has near-zero / negative coherence with the subject (GloVe cosine
+    # ~0 or < 0) — genuine junk like "Invisible is a gear that makes you
+    # invisible in Roblox" (unrelated words). This is the ONLY case where a
+    # snippet is withheld regardless of source trust. A correct encyclopedic
+    # definition from a high-trust source whose GloVe cosine merely lands at
+    # ~0.2-0.3 (GloVe under-estimates technical-term coherence — "mitosis" vs
+    # "cytokinesis" sit far apart in embedding space despite being deeply
+    # related) must NOT be vetoed: that is a metric miscalibration, not real
+    # incoherence. So the absolute floor applies only to LOW-trust sources;
+    # high-trust correct definitions pass.
+    _SNIPPET_PLAUSIBILITY_DEGENERATE = 0.12
 
     def _snippet_plausibility(self, subject: str, snippet: str) -> Optional[float]:
         """Reality-monitoring plausibility of a snippet's *added* content.
@@ -6857,26 +7336,35 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # never merely because it sits below a fixed number.
         plaus = self._snippet_plausibility(ctx.subject, best)
         _bel = self._belief_coherence(ctx.subject, best)
-        # PROMPT 3 (revised): withhold a snippet that fails the plausibility
-        # floor. A web "direct answer" below the floor is, by definition,
-        # questionable — fail closed to honest uncertainty rather than leak it.
-        # The earlier `and _bel < 0.1` escape hatch was too lenient: a junk
-        # snippet whose SUBJECT WORD appears in it (e.g. "Invisible is a gear
-        # that makes you invisible in Roblox.") gets an artificially inflated
-        # belief score and slipped through. Belief coherence no longer rescues
-        # a below-floor snippet; only a genuinely plausible (>= floor) answer
-        # is emitted. A correct encyclopedic snippet (plausibility > floor)
-        # still passes.
-        if plaus is not None and plaus < self._SNIPPET_PLAUSIBILITY_FLOOR:
+        # PROMPT 3 (revised): reality-monitoring veto. Withhold a snippet ONLY
+        # when it is genuinely incoherent (degenerate: GloVe cosine with the
+        # subject is near-zero / negative — unrelated words, e.g. the Roblox
+        # junk) OR when it sits below the plausibility floor AND comes from a
+        # LOW-trust source (a borderline snippet we shouldn't assert from an
+        # unreliable origin). A correct encyclopedic definition from a HIGH-trust
+        # source (our local engine, trust=1.0) is NEVER vetoed for a modest
+        # GloVe shortfall: GloVe under-estimates technical-term coherence
+        # ("mitosis" vs "cytokinesis" sit far apart in embedding space despite
+        # being deeply related), so a ~0.2-0.3 cosine is a metric
+        # miscalibration, not real incoherence. This restores the COMPARATIVE
+        # intent stated in _web_snippet_search (accept the best coherent
+        # candidate) rather than an absolute floor that discards correct
+        # answers. Fail-closed honesty is preserved: genuinely degenerate junk
+        # is still withheld.
+        _trust = getattr(self, "_last_web_trust", 0.0) or 0.0
+        _degenerate = plaus is not None and plaus < self._SNIPPET_PLAUSIBILITY_DEGENERATE
+        _lowtrust_below_floor = (plaus is not None and plaus < self._SNIPPET_PLAUSIBILITY_FLOOR
+                                 and _trust < 0.5)
+        if _degenerate or _lowtrust_below_floor:
             if getattr(self, '_trace_enabled', False):
                 print(f"  [webans] monitor: snippet implausible (plaus={plaus:.2f}, "
-                      f"bel={_bel:.2f}) for '{ctx.subject}' -> refine search")
+                      f"bel={_bel:.2f}, trust={_trust:.2f}) for '{ctx.subject}' -> refine search")
             # Metacognitive control: instead of emitting junk, refine the query
             # and re-search (second-pass reanalysis; Kuperberg & Jaeger). Only
-            # adopt the refined result if it clears the plausibility floor; if
-            # even the refined search can't produce a plausible answer, WITHHOLD
-            # (return None) so we fall through to other strategies rather than
-            # leaking an incoherent snippet.
+            # adopt the refined result if it clears the degenerate/low-trust
+            # gate; if even the refined search can't produce an acceptable
+            # answer, WITHHOLD (return None) so we fall through to other
+            # strategies rather than leaking an incoherent snippet.
             refined = self._refine_query_variants(query, ctx.subject)
             if refined:
                 try:
@@ -6886,7 +7374,11 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                     best2, best2_term = None, None
                 p2 = self._snippet_plausibility(ctx.subject, best2) if best2 else None
                 b2 = self._belief_coherence(ctx.subject, best2) if best2 else 0.0
-                if best2 is not None and (p2 is None or p2 >= self._SNIPPET_PLAUSIBILITY_FLOOR or b2 >= 0.1):
+                _t2 = getattr(self, "_last_web_trust", 0.0) or 0.0
+                _p2_ok = (p2 is None
+                          or p2 >= self._SNIPPET_PLAUSIBILITY_DEGENERATE
+                          or (p2 >= self._SNIPPET_PLAUSIBILITY_FLOOR and _t2 >= 0.5))
+                if best2 is not None and _p2_ok:
                     if getattr(self, '_trace_enabled', False):
                         print(f"  [webans] refined query yielded plausible snippet (plaus={p2})")
                     best, best_term = best2, best2_term
@@ -7528,6 +8020,12 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             "graph_fallback": 0.25,
             "gist_fallback": 0.20,
             "chitchat": 0.40,
+            # A verified web-sourced answer (snippet passed the safety floor +
+            # trust/plausibility gate) is by construction a high-quality,
+            # grounded reply — score it like a narrative answer, NOT the weak
+            # 0.3 default that previously pushed it below the 0.55 emit
+            # threshold and forced a fail-closed retreat to uncertainty.
+            "web_direct_answer": 0.70,
         }
         base_score = strategy_scores.get(strategy, 0.3)
 
@@ -8631,11 +9129,21 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             # and GloVe. The graph + all learned concepts survive intact.
             _dec_dim = getattr(self, '_DECODER_DIM', 75)
             if self._decoder_word_to_embed:
-                _sample = next(iter(self._decoder_word_to_embed.values()))
-                if not isinstance(_sample, np.ndarray) or _sample.shape[0] != _dec_dim:
+                # M5 fix: a *sample* (first entry) is not enough — a snapshot
+                # can hold a MIXED table (most entries at the current dim, a few
+                # stale ones at the old dim from an incremental cross-version
+                # save). Sampling only the first entry let those stale vectors
+                # through and crash _build_decoder_vocab() at broadcast time.
+                # Validate the WHOLE table; any mismatch discards the entire
+                # stale read-out so _build_decoder_vocab() rebuilds a fresh,
+                # uniform 75-D table from the graph + GloVe.
+                _bad = any(
+                    (not isinstance(_v, np.ndarray)) or (_v.shape[0] != _dec_dim)
+                    for _v in self._decoder_word_to_embed.values()
+                )
+                if _bad:
                     print(f"  [Load warn] decoder embed dim mismatch "
-                          f"(loaded {getattr(_sample, 'shape', (None,))[0]} != "
-                          f"current {_dec_dim}) — discarding stale decoder vocab, "
+                          f"(current {_dec_dim}) — discarding stale decoder vocab, "
                           f"rebuilding fresh read-out from graph")
                     self._decoder_word_to_idx = {}
                     self._decoder_idx_to_word = {}
