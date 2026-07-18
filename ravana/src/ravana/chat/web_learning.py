@@ -1023,10 +1023,25 @@ class WebLearningMixin(ResponseGenMixin):
     # must be stripped or rejected outright.
     _CODE_CALL = re.compile(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*){1,}\s*\([^)]*\)")
     _CODE_CHAIN = re.compile(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*){2,}")
+    # GTM/analytics IIFE loader: (function(w,d,s,l,i){...})(window,document,
+    # 'script','dataLayer','GTM-XXXX'); — the single most common piece of junk
+    # that rides in on a failed deep-read and must never be stored as a
+    # "learned definition". Catches both the parenthesised-function-expression
+    # call and the trailing ;-terminated invocation.
+    _CODE_IIFE = re.compile(
+        r"\(\s*function\s*\([^)]*\)\s*\{?.*?\}\s*\)\s*\("
+        r"|\(function\s*\([^)]*\)\s*\)\s*\(\s*window",
+        re.IGNORECASE | re.DOTALL)
     _CODE_PUNCT = re.compile(r"[;{}\[\]<>]")
     _CODE_KEYWORD = re.compile(
         r"\b(function|var|let|const|import|export|return|console|window|"
-        r"document|enabled_slots|undefined|null)\b", re.IGNORECASE)
+        r"document|enabled_slots|undefined|null|gtm|gtag|datalayer|"
+        r"googletagmanager|_gaq|gtag\.js|analytics|addEventListener|"
+        r"createElement|appendChild|getElementById|setTimeout)\b", re.IGNORECASE)
+    # Literal tracking-ID / container tokens (GTM-XXXX, gtm_p3x3vt7, UA-XXXX-Y).
+    _CODE_TRACKING = re.compile(
+        r"\b(GTM-[A-Z0-9]{4,}|gtm_[a-z0-9]+|UA-\d{4,}-\d+|G-[A-Z0-9]{6,})\b",
+        re.IGNORECASE)
     _HTML_TAG = re.compile(r"<[^>]+>")
 
     # ── M7: non-linguistic residue (brain-analog: vmPFC/mPFC source
@@ -1055,6 +1070,8 @@ class WebLearningMixin(ResponseGenMixin):
         s = self._HTML_TAG.sub(" ", s)
         s = self._CODE_CALL.sub(" ", s)
         s = self._CODE_CHAIN.sub(" ", s)
+        s = self._CODE_IIFE.sub(" ", s)
+        s = self._CODE_TRACKING.sub(" ", s)
         s = s.replace("=>", " ")
         s = self._CODE_PUNCT.sub(" ", s)
         s = self._CODE_KEYWORD.sub(" ", s)
@@ -1079,6 +1096,8 @@ class WebLearningMixin(ResponseGenMixin):
             self._HTML_TAG.search(text)
             or self._CODE_CALL.search(text)
             or self._CODE_CHAIN.search(text)
+            or self._CODE_IIFE.search(text)
+            or self._CODE_TRACKING.search(text)
             or self._CODE_PUNCT.search(text)
             or self._CODE_KEYWORD.search(text)
             or "=>" in text
