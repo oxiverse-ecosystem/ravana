@@ -3155,9 +3155,12 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         if not t:
             return None
         sm = self._ensure_self_model()
-        # 1) Explicit self-identity questions.
+        # 1) Explicit self-identity questions. NOTE: "my name" is the USER's
+        #    autobiographical fact, NOT the agent's self-model — only "your
+        #    name"/"who are you"/etc. are about the AGENT. Matching "my name"
+        #    here wrongly answered "what is my name" with the agent's own name.
         _name_q = bool(re.search(
-            r"\b(what(?:'s| is)\s+(your|my)\s+name|who\s+are\s+you|"
+            r"\b(what(?:'s| is)\s+your\s+name|who\s+are\s+you|"
             r"what\s+are\s+you|tell\s+me\s+about\s+yourself|"
             r"what\s+can\s+you\s+do|your\s+name)\b", t))
         # 2) A query whose grounded subject is the self node (e.g. bare 'ravana'
@@ -3212,6 +3215,16 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         if re.search(
             r"\b(joke|funny|laugh|tell me about yourself|who are you|"
             r"your (name|favorite)|do you (have|feel)|what can you)\b", t):
+            return None
+        # First-person identity / preference RECALL queries ("what is my name",
+        # "what's my favorite color", "what do i like", "who am i") are about
+        # the USER's stored autobiographical facts, not encyclopedic knowledge
+        # of the subject word. They must reach the identity/recall block below,
+        # never be answered with the dictionary definition of "name"/"color".
+        if re.search(
+            r"\bmy\s+(name|favorite)\b|\bwho\s+am\s+i\b|"
+            r"\bwhat\s+(do|did)\s+i\s+(like|love|prefer|want)\b|"
+            r"\bwhat\s+am\s+i\s+(interested|into)\b", t):
             return None
         # Ground the subject.
         try:
@@ -4091,6 +4104,34 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                         "frustration": "frustrated",
                     }.get(_cause_fb.label, "hurting")
                     _disc = ("negative", _feeling_phrase)
+            # ── Frame-guard on the PRIMARY empathy result (A2 extension) ──────
+            # The primary VAD detector (and the cause fallback) can fire on a
+            # RECALL QUESTION ("what do i like") or a FACTUAL self-disclosure
+            # ("i like pizza", "my name is Likhith") because "like/love" carry
+            # lexical valence and "my <x> is" matches the state-disclosure
+            # syntax. Neither is an affective DISTRESS disclosure: a question
+            # belongs to the identity/recall block below, and a preference/name
+            # statement belongs to autobiographical storage (the self-disclosure
+            # gate). The TPJ keeps the boundary between "the user is reporting a
+            # feeling to be met with empathy" and "the user is stating a fact /
+            # asking about a stored fact". Empathy stays reserved for genuine
+            # affect states ("i'm sad", "i love you"). Fail-closed: drop _disc
+            # and let the turn fall through.
+            if _disc is not None:
+                _low_g = user_input.lower().strip()
+                _is_q_g = _low_g.endswith("?") or bool(re.match(
+                    r"^(what|who|when|where|why|how|which|do|does|did|can|"
+                    r"could|would|should|is|are|have|has)\b", _low_g))
+                # preference disclosure "i like/love/hate/enjoy/prefer <thing>"
+                # (NOT "i love you" — that stays for reciprocation below).
+                _pref_stmt_g = bool(re.search(
+                    r"\bi\s+(like|love|hate|enjoy|prefer)\s+(?!you\b|u\b|ur\b)\w+",
+                    _low_g))
+                # name / identity self-disclosure statement.
+                _name_stmt_g = bool(re.search(
+                    r"\b(my\s+name\s+is|i\s+am\s+called|call\s+me)\b", _low_g))
+                if _is_q_g or _pref_stmt_g or _name_stmt_g:
+                    _disc = None
             if _disc is not None:
                 # §7 deictic special-case: "i love you" / "i like you" is a
                 # relationship declaration addressed to the AGENT, not a generic
