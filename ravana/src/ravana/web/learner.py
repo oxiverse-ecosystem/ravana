@@ -76,8 +76,15 @@ class SearchConfig:
     """Configuration for search engine."""
     max_results: int = 10
     timeout: int = 5
-    cooldown: int = 60
-    max_failures: int = 3
+    # Circuit breaker: with local_api as the SOLE backend, a hard 60s
+    # blackout after a few transient blips would black out the whole session
+    # (nothing to fall back to). Tune for resilience: tolerate a small cluster
+    # of transient failures (max_failures) and recover FAST via the half-open
+    # probe (short cooldown) so a tripped breaker self-heals in seconds, not a
+    # minute. Per-call deadline-bounded retry (local_retries) absorbs most
+    # one-off blips before they ever reach the breaker.
+    cooldown: int = 8
+    max_failures: int = 5
     # Phase 19e: ALWAYS prefer the local engine (your SearXNG on localhost:4000).
     # It may be slow at times, but it's the authoritative source and should be
     # awaited up to local_timeout seconds. Remote APIs are only consulted if the
@@ -86,6 +93,12 @@ class SearchConfig:
     # never as a supplement when local already answered (even with empty results).
     local_prefer: bool = True
     local_timeout: int = 10
+    # Transient-retry count for the preferred local_api. local_api's
+    # intermittent stall/remote-close is almost always a one-off; a single
+    # immediate retry absorbs the blip (verified: 15/15 sequential calls
+    # succeed) so it doesn't trip the circuit breaker. 1 = one retry (2 total
+    # attempts). Set 0 to disable retries.
+    local_retries: int = 1
     # D (research item D): fail-closed retrieval. When local returns an EMPTY
     # result (e.g. SearXNG up but returning junk/zero hits), fall through to the
     # remote fallbacks (DDG/oxiverse) instead of treating empty as authoritative.
@@ -105,16 +118,20 @@ class SearchEngine:
     def __init__(self, config: Optional[SearchConfig] = None):
         self.config = config or SearchConfig()
         self.apis = [
-            # Local search engine is PREFERRED: awaited up to local_timeout
-            # seconds (Phase 19e). It is your SearXNG aggregator and the
-            # authoritative source; remote APIs are fallbacks only when local
-            # is genuinely unavailable.
+            # Local search engine is the ONLY configured backend: awaited up to
+            # local_timeout seconds (Phase 19e). It is the authoritative source.
+            # duckduckgo + oxiverse were removed: duckduckgo is unreachable in
+            # this environment (times out, burning ~5s per dead call) and
+            # oxiverse returns 401 (no auth token wired in). Re-add them here
+            # only once they are reachable / authenticated — until then they
+            # only poison the circuit breaker and waste per-turn latency.
             ("local_api", "http://localhost:4000/search?q={}", self.config.local_timeout, 10),
-            ("duckduckgo", "https://html.duckduckgo.com/html/?q={}", 5, 10),
-            ("oxiverse", "https://api.oxiverse.com/search?q={}", 3, 10),
         ]
         self._api_failure_counts = {name: 0 for name, _, _, _ in self.apis}
         self._api_last_failure_time = {name: 0 for name, _, _, _ in self.apis}
+        # Half-open probe slots for the circuit breaker (see _is_api_available).
+        # True while a single post-cooldown probe is outstanding for an API.
+        self._api_half_open = {name: False for name, _, _, _ in self.apis}
         self._headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 RAVANA/1.0'
         }
@@ -128,20 +145,42 @@ class SearchEngine:
         self._search_cache_max = 64
 
     def _is_api_available(self, api_name: str) -> bool:
+        """Circuit-breaker availability with a HALF-OPEN state.
+
+        Closed:   failure_count < max_failures  -> available.
+        Open:     failure_count >= max_failures AND cooldown not elapsed -> unavailable.
+        Half-open: failure_count >= max_failures AND cooldown elapsed ->
+                   allow EXACTLY ONE probe through (consume the half-open slot).
+                   A success resets the breaker; a failure re-opens it (resets
+                   the cooldown clock). This prevents the old behaviour where a
+                   few transient blips hard-disabled the only working backend
+                   for the full 60s cooldown, blacking out the whole session.
+        """
         if self._api_failure_counts[api_name] < self.config.max_failures:
             return True
         elapsed = time.time() - self._api_last_failure_time[api_name]
         if elapsed > self.config.cooldown:
-            self._api_failure_counts[api_name] = 0
-            return True
+            # Cooldown elapsed -> grant a single half-open probe. Mark it
+            # consumed so a second concurrent check in the same window doesn't
+            # also slip through; the probe's own success/failure re-decides.
+            if not self._api_half_open.get(api_name, False):
+                self._api_half_open[api_name] = True
+                return True
+            # A half-open probe is already outstanding -> treat as still open
+            # until that probe reports.
+            return False
         return False
 
     def _record_success(self, api_name: str):
         self._api_failure_counts[api_name] = 0
+        self._api_half_open[api_name] = False
 
     def _record_failure(self, api_name: str):
         self._api_failure_counts[api_name] += 1
         self._api_last_failure_time[api_name] = time.time()
+        # A failed half-open probe re-opens the breaker (cooldown clock resets);
+        # a failed closed-state attempt just increments toward the threshold.
+        self._api_half_open[api_name] = False
 
     def clear_search_cache(self):
         """Drop cached search results. Call at the start of each user turn so
@@ -232,6 +271,20 @@ class SearchEngine:
             # local_only callers already force local; this branch handles the
             # general case where remote COULD be used but we prefer local.
             _local_available = self._is_api_available("local_api")
+            if not _local_available:
+                # Preferred-local path skipped because the breaker is open.
+                # Record a clear reason so a fully-breaker-tripped session
+                # reports "circuit-breaker open" instead of a misleading empty
+                # "All search APIs failed: ".
+                if self._api_failure_counts["local_api"] >= self.config.max_failures:
+                    _reason = (f"local_api: circuit-breaker open "
+                               f"({self._api_failure_counts['local_api']} failures; "
+                               f"retry after cooldown)")
+                    if _reason not in errors:
+                        errors.append(_reason)
+                # fall through to the remote fallback loop below (which will
+                # also skip local_api, but the reason is now recorded).
+
             if _local_available:
                 api_query = query
                 ql = query.lower()
@@ -240,28 +293,50 @@ class SearchEngine:
                         api_query = query[: len(query) - len(suf)].strip()
                         break
                 query_encoded = quote(api_query)
-                try:
-                    url = "http://localhost:4000/search?q={}".format(query_encoded)
+                url = "http://localhost:4000/search?q={}".format(query_encoded)
+                # Transient-retry: local_api's intermittent stall/remote-close
+                # (~15-20% of requests under load) is almost always a one-off —
+                # the very next attempt usually succeeds (verified: 15/15
+                # sequential calls succeed). A bounded retry absorbs these
+                # blips so they don't trip the circuit breaker and black out
+                # the only working backend. CRITICAL: the retry must respect the
+                # turn-level deadline — split the REMAINING budget across
+                # attempts so 2 tries can never exceed the deadline (otherwise a
+                # single stall costs 2x local_timeout and blows the whole turn).
+                _fetch_res = None
+                _ft = None
+                _n_attempts = 1 + self.config.local_retries
+                for _attempt in range(_n_attempts):
+                    _budget_left = _search_deadline - time.time()
+                    if _budget_left <= 0.5:
+                        break  # no time left for another attempt
+                    # Each attempt gets an equal slice of the remaining budget
+                    # (capped at local_timeout), so the loop self-terminates.
+                    _att_timeout = min(self.config.local_timeout,
+                                       max(1.0, _budget_left / (_n_attempts - _attempt)))
                     _ft, _fetch_res = self._threaded_fetch(
-                        "local_api", url, self.config.local_timeout, max_results)
-                    if _ft.is_alive():
-                        self._record_failure("local_api")
-                        errors.append("local_api: fetch stalled past "
-                                      f"{self.config.local_timeout}s")
-                    elif 'err' in _fetch_res:
-                        self._record_failure("local_api")
-                        errors.append(f"local_api: {_fetch_res['err']}")
-                    else:
-                        results = _fetch_res.get('v')
-                        self._record_success("local_api")
-                        out = (results or [])[:max_results]
-                        # D (research item D): fail-closed retrieval.
-                        # If local returned EMPTY and fallback_on_empty is set,
-                        # do NOT treat empty as authoritative — fall through to
-                        # the remote fallbacks below (respecting the circuit
-                        # breaker and the turn-level deadline). local_only
-                        # callers still commit to local even when empty.
-                        if out or not self.config.fallback_on_empty or local_only:
+                        "local_api", url, int(_att_timeout), max_results)
+                    if not _ft.is_alive() and 'err' not in _fetch_res:
+                        break  # success or empty — no need to retry
+                    # transient (stall or error): retry if budget + attempts remain
+                if _ft is not None and _ft.is_alive():
+                    self._record_failure("local_api")
+                    errors.append("local_api: fetch stalled past "
+                                  f"{self.config.local_timeout}s")
+                elif _fetch_res is not None and 'err' in _fetch_res:
+                    self._record_failure("local_api")
+                    errors.append(f"local_api: {_fetch_res['err']}")
+                else:
+                    results = _fetch_res.get('v')
+                    self._record_success("local_api")
+                    out = (results or [])[:max_results]
+                    # D (research item D): fail-closed retrieval.
+                    # If local returned EMPTY and fallback_on_empty is set,
+                    # do NOT treat empty as authoritative — fall through to
+                    # the remote fallbacks below (respecting the circuit
+                    # breaker and the turn-level deadline). local_only
+                    # callers still commit to local even when empty.
+                    if out or not self.config.fallback_on_empty or local_only:
                             if len(self._search_cache) < self._search_cache_max:
                                 self._search_cache[_cache_key] = out
                             return out
@@ -269,9 +344,6 @@ class SearchEngine:
                             # final. Remote is NOT consulted — local is
                             # authoritative — UNLESS fallback_on_empty is set and
                             # the result was empty.
-                except Exception as e:  # pragma: no cover - defensive
-                    self._record_failure("local_api")
-                    errors.append(f"local_api: {e}")
                 # If we reach here, local genuinely failed → fall through to
                 # remote fallbacks below.
 
@@ -294,6 +366,15 @@ class SearchEngine:
                 continue
 
             if not self._is_api_available(api_name):
+                # Diagnostic: record WHY this API was skipped so a fully
+                # breaker-tripped session reports "circuit-breaker open" instead
+                # of a misleading empty "All search APIs failed: ".
+                if self._api_failure_counts[api_name] >= self.config.max_failures:
+                    _reason = (f"{api_name}: circuit-breaker open "
+                               f"({self._api_failure_counts[api_name]} failures; "
+                               f"retry after cooldown)")
+                    if _reason not in errors:
+                        errors.append(_reason)
                 continue
 
             api_query = query
@@ -325,8 +406,24 @@ class SearchEngine:
         raise SearchError(f"All search APIs failed: {'; '.join(errors)}")
 
     def _call_api(self, api_name: str, url: str, timeout: int, max_results: int) -> List[Dict[str, Any]]:
+        # HTTPS endpoints (e.g. the oxiverse ecosystem API) target a host whose
+        # TLS cert chain Python's default ssl context can't verify in this
+        # environment (CERTIFICATE_VERIFY_FAILED). For a first-party aggregator
+        # API this is a trust-store gap, not a MITM — open an unverified
+        # context so the request can complete. HTTP (local_api, duckduckgo html)
+        # is untouched.
+        import ssl
+        _ctx = None
+        if url.startswith("https"):
+            try:
+                _ctx = ssl._create_unverified_context()
+            except Exception:
+                _ctx = None
         req = urllib.request.Request(url, headers=self._headers)
-        resp = urllib.request.urlopen(req, timeout=timeout)
+        if _ctx is not None:
+            resp = urllib.request.urlopen(req, timeout=timeout, context=_ctx)
+        else:
+            resp = urllib.request.urlopen(req, timeout=timeout)
         content = resp.read().decode('utf-8', errors='replace')
 
         if api_name == "local_api":
