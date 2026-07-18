@@ -3240,8 +3240,11 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         ans = consult_internal(subj, self)
         if ans is None:
             return None
+        # Attribute-focused recall: "what is the capital of France" must return
+        # the capital clause (Paris), not France's whole stored definition.
+        _focused = self._focus_attribute_answer(user_input, subj, ans.text)
         # Assemble a coherent, non-salad reply in the same voice as the web path.
-        return f"{ans.text}"
+        return f"{_focused}"
 
 
     # ─────────────────────────────────────────────────────────────────────
@@ -7017,6 +7020,66 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # 'adj' but the curated set knows are function (adverbs, numerals).
         return _w in getattr(self, "_GRAMMATICAL_CONCEPTS", set())
 
+    # ── Attribute-focused answer extraction (hippocampal relational recall) ──
+    # Cognitive basis: when asked "what is the capital OF France" a human does
+    # NOT recite everything they know about France — they retrieve the SPECIFIC
+    # relational fact (capital-of → Paris). The retrieval cue is the attribute
+    # word ("capital"), not the entity. Our web/internal paths ground to the
+    # entity ("france") and return its whole encyclopedic definition, burying
+    # the answer. This focuser detects an attribute-style query and, when the
+    # snippet contains the attribute relation, extracts just the clause that
+    # carries it. Heuristic, no LLM, no fact table — pattern over the snippet.
+    _ATTR_WORDS = (
+        "capital", "population", "author", "director", "president", "ceo",
+        "founder", "inventor", "creator", "currency", "language", "religion",
+        "area", "height", "length", "width", "depth", "weight", "mass",
+        "age", "birthday", "meaning", "symbol", "color", "colour",
+    )
+
+    def _focus_attribute_answer(self, query: str, subject: str, snippet: str) -> str:
+        """Return a focused clause when `query` asks for an attribute of an
+        entity and `snippet` carries that attribute; else return `snippet`
+        unchanged. Fail-open: never worse than the full snippet.
+        """
+        if not snippet or not query:
+            return snippet
+        q = query.lower()
+        # Detect "what/which is the <attr> of <entity>" or "who wrote/…".
+        attr = None
+        m = re.search(r"\b(?:what|which)\s+(?:is|are|was|were)\s+the\s+"
+                      r"([a-z]+)\s+of\b", q)
+        if m and m.group(1) in self._ATTR_WORDS:
+            attr = m.group(1)
+        # "who wrote/directed/founded/invented X" -> attribute is the verb-object.
+        _who = re.search(r"\bwho\s+(wrote|directed|founded|invented|created|"
+                         r"discovered|painted|composed|built)\b", q)
+        # Split snippet into sentences; prefer the sentence that carries the
+        # attribute AND a capitalized answer token (proper noun / number).
+        sents = re.split(r"(?<=[.!?])\s+", snippet.strip())
+        if attr:
+            # Look for "<attr> ... is <Answer>" or "... <attr> is <Answer>".
+            for sent in sents:
+                sl = sent.lower()
+                if attr in sl and re.search(r"\bis\b|\bwas\b|:", sl):
+                    # Prefer a clause starting at "Its capital ... is X" / "The
+                    # capital of Y is X".
+                    cm = re.search(
+                        r"((?:its?\s+|the\s+)?[^.]*\b" + re.escape(attr) +
+                        r"\b[^.]*?\bis\b[^.]*)", sent, re.IGNORECASE)
+                    if cm:
+                        clause = cm.group(1).strip(" ,;")
+                        # Only accept when the clause actually names something
+                        # (a capitalized token or a number after "is").
+                        if re.search(r"\bis\b\s+.*[A-Z0-9]", clause):
+                            return clause[0].upper() + clause[1:] if clause else snippet
+            return snippet
+        if _who:
+            # Return the sentence naming the person (has a capitalized full name).
+            for sent in sents:
+                if re.search(r"\b[A-Z][a-z]+\s+[A-Z][a-z]+", sent):
+                    return sent.strip()
+        return snippet
+
     def _snippet_quality(self, snippet: str, subject: str, term: str,
                          is_conditional: bool = False) -> float:
         """Heuristic quality signal for a candidate answer snippet.
@@ -7301,11 +7364,23 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
 
         if not _cands:
             return None, None, attempted
-        # Comparative selection: higher = better. Plausibility + trust weighted
-        # so a well-sourced, belief-coherent snippet wins even if shape is equal.
+        # Comparative selection: higher = better.
+        # Brain-faithful reality-monitoring (N400; Johnson & Raye 1981): source
+        # trust is only meaningful for content that COHERES with the query. A
+        # snippet whose *added content* is anti-coherent with the subject
+        # (plausibility < 0 — e.g. junk "a bordure of France", a promo blurb,
+        # an off-topic paragraph) is a reality-monitoring failure and must NOT
+        # be rescued by a high-trust domain: trusted sources still surface
+        # off-topic snippets. So:
+        #   - plausibility weighs heavily (it is the coherence signal),
+        #   - trust contributes ONLY when plausibility is non-negative (gated),
+        # which demotes anti-coherent junk below any coherent candidate even if
+        # the junk sits on a high-trust domain and has a better surface shape.
         def _score(c):
             # c = (snippet, term, quality, plaus, trust, url)
-            return c[2] + 2.0 * c[3] + 2.0 * c[4]
+            _q, _plaus, _trust = c[2], c[3], c[4]
+            _trust_term = 2.0 * _trust if _plaus >= 0.0 else 0.0
+            return _q + 3.0 * _plaus + _trust_term
         _cands.sort(key=lambda c: -_score(c))
         best, second = _cands[0], (_cands[1] if len(_cands) > 1 else None)
         # Accept if clearly best OR coherent with belief; else abstain (don't
@@ -7430,6 +7505,12 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         if getattr(self, '_trace_enabled', False):
             print(f"  [webans] best snippet (via '{best_term}'): {(best or 'NONE')[:80]}")
         best = self._strip_title_echo(best.strip(), ctx.subject)
+        # Attribute-focused recall: for "what is the capital of France" / "who
+        # wrote X" queries, extract the clause carrying the attribute rather
+        # than emitting the entity's whole encyclopedic definition (which buries
+        # the answer). Fail-open: returns the snippet unchanged when it can't
+        # confidently isolate the attribute.
+        best = self._focus_attribute_answer(ctx.raw_input, ctx.subject, best)
         # Sanitise dictionary/UI chrome and dateline prefixes from the live
         # snippet before it is emitted as the answer (the store-side sanitiser
         # only covers learned definitions, not directly-surfaced web answers).
