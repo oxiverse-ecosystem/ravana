@@ -438,6 +438,22 @@ class QuestionAnalyzer:
         r"^instead\s+of\s+",
         r"^versus\s+",
     )
+    # Colour lexicon (lexical resource, like STOP_WORDS — not a hardcoded
+    # answer). Used to detect the predicative-complement pattern in
+    # "why is the sky blue?" / "why is grass green?": the LAST token is a colour
+    # word describing the subject, not part of the subject noun. The real
+    # subject is the head noun(s) before it (sky, grass, blood, ocean...). This
+    # is a GENERAL syntactic rule — it fires for any "<noun> <colour>" subject
+    # extracted from a why/what-causes query, with no per-idiom string matching.
+    _COLOR_WORDS = {
+        "red", "blue", "green", "yellow", "orange", "purple", "violet", "pink",
+        "black", "white", "brown", "grey", "gray", "cyan", "magenta", "gold",
+        "golden", "silver", "silvery", "turquoise", "teal", "beige", "tan",
+        "maroon", "crimson", "scarlet", "indigo", "violet", "amber", "bronze",
+        "copper", "lavender", "lilac", "rose", "rosy", "salmon", "coral",
+        "navy", "olive", "ivory", "cream", "charcoal", "aqua", "azure",
+    }
+
     _SUBJECT_TRAIL_VERBS = {
         "rise", "fall", "go", "come", "happen", "happens", "occur", "occurs",
         "exist", "exists", "work", "works", "function", "operate", "form",
@@ -450,6 +466,32 @@ class QuestionAnalyzer:
         "feel", "think", "learn", "help", "lift", "meet", "do", "does",
         "did", "is", "are", "was", "were", "be", "been", "being",
     }
+
+    @classmethod
+    def _extract_predicative_context(cls, subject: str) -> str:
+        """Recover the PREDICATIVE COMPLEMENT stripped by _clean_subject.
+
+        Mirrors the brain's binding of a copular complement (the "blue" in
+        "why is the sky blue?") to its subject. _clean_subject correctly drops
+        the colour so the *graph lookup* targets the phenomenon (sky), but the
+        *decomposition sub-queries* must PRESERVE the predicative context, or
+        they degenerate into a bare noun ("what causes sky") and fall back to a
+        weak graph-association clause instead of a crisp web answer
+        ("what causes the sky to be blue").
+
+        Returns the stripped complement (e.g. "blue") or "" if none. This is a
+        GENERAL syntactic rule (any "<noun> <colour>"), detected via the
+        _COLOR_WORDS lexicon — NOT per-idiom string matching.
+        """
+        if not subject:
+            return ""
+        s = subject.lower().strip(" ?!.,;:()\"'")
+        if not s:
+            return ""
+        _toks = s.split()
+        if len(_toks) >= 2 and _toks[-1] in cls._COLOR_WORDS:
+            return _toks[-1]
+        return ""
 
     @classmethod
     def _clean_subject(cls, subject: str) -> str:
@@ -469,8 +511,30 @@ class QuestionAnalyzer:
         for pat in cls._SUBJECT_LEAD_MODS:
             s = re.sub(pat, "", s, flags=re.IGNORECASE).strip()
 
-        # 1b. Strip a leading dummy pronoun "it " ("it rain" -> "rain")
-        s = re.sub(r"^it\s+", "", s, flags=re.IGNORECASE).strip()
+        # 1b. Strip a leading dummy pronoun ("it rain" -> "rain",
+        # "we sleep" -> "sleep"). "why do we sleep" / "how do you learn"
+        # capture the pronoun+verb as the raw subject; the real subject is the
+        # activity (the verb), so drop the personal pronoun. (Matches the
+        # existing "it " handling; "we/you/they/I" are likewise dummy subjects
+        # for an intransitive activity query.)
+        s = re.sub(r"^(it|we|you|they|i)\s+", "", s, flags=re.IGNORECASE).strip()
+
+        # 1c. Predicative-colour complement: in "why is the sky blue?" the LAST
+        # token ("blue") is the colour being explained, not part of the subject
+        # noun — the real subject is the head ("sky"). This is a GENERAL
+        # syntactic pattern (any "<noun> <colour>" subject), detected via the
+        # _COLOR_WORDS lexicon, NOT per-idiom string matching. Strip the
+        # trailing colour word (and any leading determiner) so downstream lookup
+        # targets the phenomenon. Fires for "sky blue" -> "sky", "grass green"
+        # -> "grass", "blood red" -> "blood", etc.
+        # NOTE: the stripped complement is recoverable via
+        # _extract_predicative_context so the decomposer can preserve it.
+        _toks = s.split()
+        if len(_toks) >= 2 and _toks[-1] in cls._COLOR_WORDS:
+            _head = " ".join(_toks[:-1])
+            _head = re.sub(r"^(?:the|an?)\s+", "", _head, flags=re.IGNORECASE).strip()
+            if _head:
+                s = _head
 
         # 2. Strip a leading determiner + relational "of"-head
         #    ("the causes of WW1" -> "WW1"). Deliberately excludes valid
@@ -504,7 +568,7 @@ class QuestionAnalyzer:
         subject noun phrase the question is about.
         """
         query_lower = query.lower().strip(" ?!.,;:")
-        
+
         # Try to extract from known question patterns
         all_patterns = [
             (cls.WHAT_IS_PATTERNS, lambda m: m.group(m.lastindex).strip()),
@@ -645,7 +709,7 @@ class DecompositionStrategies:
         )
 
     @staticmethod
-    def causal(subject: str, query: str = "") -> DecompositionResult:
+    def causal(subject: str, query: str = "", pred_context: str = "") -> DecompositionResult:
         """'Why X?' decomposition.
         
         Human cognitive process:
@@ -654,48 +718,64 @@ class DecompositionStrategies:
         3. CONDITIONS: "Under what conditions?" (counterfactual thinking)
         4. ALTERNATIVES: "Are there other causes?" (exploratory search)
         5. SIGNIFICANCE: "Why does it matter?" (valuation/meaning)
+
+        ``pred_context`` (e.g. "blue" recovered from "why is the sky blue?")
+        is the PREDICATIVE COMPLEMENT that _clean_subject stripped from the
+        subject head. The brain binds the copular complement to its subject, so
+        sub-queries must preserve it — otherwise they degenerate into a bare
+        noun ("what causes sky") and fall back to a weak graph-association
+        clause instead of a crisp web answer ("what causes the sky to be blue").
         """
         subj_lower = subject.lower() if subject else ""
-        
+        # The head (subject) is already the cleaned noun ("sky"); the
+        # predicative complement ("blue") is kept SEPARATE so sub-queries can
+        # read "the sky to be blue" rather than re-concatenating "sky blue".
+        has_pred = bool(pred_context)
+        pred_full = subject or ""
+
         sub_questions = []
-        
-        # SQ1: Direct cause
+
+        # SQ1: Direct cause — preserve the predicative context so the sub-query
+        # is answerable ("what causes the sky to be blue") rather than the bare
+        # head ("what causes sky").
         sq1 = SubQuestion(
             id=1,
-            text=f"what causes {subject}" if subject else "what causes this",
+            text=(f"what causes {pred_full} to be {pred_context}"
+                  if has_pred else (f"what causes {subject}" if subject else "what causes this")),
             category=QuestionCategory.WHY,
             target_concept=subj_lower,
             relation_type="causal",
             depth=1,
         )
         sub_questions.append(sq1)
-        
-        # SQ2: Mechanism explanation
+
+        # SQ2: Mechanism explanation — "how does the sky become blue?"
         sq2 = SubQuestion(
             id=2,
-            text=f"how does {subject} happen" if subject else "how does it happen",
+            text=(f"how does {subject} become {pred_context}"
+                  if has_pred else (f"how does {subject} happen" if subject else "how does it happen")),
             category=QuestionCategory.HOW,
             target_concept=subj_lower,
             relation_type="causal",
             depth=1,
         )
         sub_questions.append(sq2)
-        
+
         # SQ3: Conditions/context
         sq3 = SubQuestion(
             id=3,
-            text=f"under what conditions does {subject} occur" if subject else "under what conditions",
+            text=f"under what conditions does {pred_full} occur" if pred_full else "under what conditions",
             category=QuestionCategory.HYPOTHETICAL,
             target_concept=subj_lower,
             relation_type="causal",
             depth=1,
         )
         sub_questions.append(sq3)
-        
+
         # SQ4: Significance
         sq4 = SubQuestion(
             id=4,
-            text=f"why does {subject} matter" if subject else "why does it matter",
+            text=f"why does {pred_full} matter" if pred_full else "why does it matter",
             category=QuestionCategory.ABSTRACT,
             target_concept=subj_lower,
             relation_type="causal",
@@ -1142,6 +1222,14 @@ class QuestionDecompositionEngine:
         # Step 1: Analyze the question
         category, subject, complexity = QuestionAnalyzer.analyze(query, self.vector_fn)
 
+        # Recover any PREDICATIVE COMPLEMENT so the decomposition sub-queries
+        # can PRESERVE it. E.g. for "why is the sky blue?" the head is "sky"
+        # but the coherent sub-query needs "blue" ("what causes the sky to be
+        # blue"), not the bare noun "sky". The complement is best recovered from
+        # the ORIGINAL query, because analyze()/_clean_subject already strip it
+        # from the returned subject.
+        pred_context = QuestionAnalyzer._extract_predicative_context(query)
+
         # IFG-style dependency cleanup: recover the true head noun phrase from
         # the greedily-captured surface subject ("similar to time" -> "time",
         # "the causes of WW1" -> "world war 1", "the sun to rise" -> "sun").
@@ -1149,7 +1237,10 @@ class QuestionDecompositionEngine:
 
         # If no subject was extracted, try harder
         if not subject or subject == query.lower().strip(" ?!.,;:"):
-            subject = QuestionAnalyzer._clean_subject(QuestionAnalyzer.extract_subject(query))
+            _raw = QuestionAnalyzer.extract_subject(query)
+            if not pred_context:
+                pred_context = QuestionAnalyzer._extract_predicative_context(query)
+            subject = QuestionAnalyzer._clean_subject(_raw)
         
         result = None
         
@@ -1157,7 +1248,7 @@ class QuestionDecompositionEngine:
         if category == QuestionCategory.WHAT_IS:
             result = DecompositionStrategies.definitional(subject, self.vector_fn)
         elif category == QuestionCategory.WHY:
-            result = DecompositionStrategies.causal(subject, query)
+            result = DecompositionStrategies.causal(subject, query, pred_context=pred_context)
         elif category == QuestionCategory.HOW:
             # Clean the subject before decomposing
             how_subject = QuestionAnalyzer._clean_verb_phrases(subject)
