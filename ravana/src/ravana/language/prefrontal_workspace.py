@@ -1228,6 +1228,34 @@ class PrefrontalWorkspace:
             return hint
         if self._sac is None:
             self._sac = SpeechActClassifier(vector_fn=self.vector_fn, dim=getattr(self, "capacity", 64) or 64)
+        # Plan Stage 1 (M-F immediate win): the brain decodes interrogative
+        # SYNTAX early (~100 ms, left IFG + posterior temporal) and that signal
+        # should win over the slower semantic prototype when it is unambiguous.
+        # The symbolic cascade is confident on a question when the text carries
+        # an explicit '?', a sentence-initial wh- word, or subject–auxiliary
+        # inversion ("do you…", "are we…"). In those cases the semantic
+        # prototype (which can be fooled by a word like "tired" sitting near the
+        # statement prototype) must NOT override a clear question into a
+        # statement — doing so is what produced "yeah, ever tired" for
+        # "do you ever get tired". So: a confident syntactic QUESTION is
+        # returned as-is; the semantic path is only trusted when the cascade is
+        # itself unsure (default 'question' on weak input) or when it agrees.
+        _confident_question = bool(
+            text.strip().endswith("?")
+            or re.match(r"^(what|who|whom|whose|where|when|why|which|how)\b",
+                         (text or "").lower().strip(" ?!.,"))
+            or re.match(r"^(am|is|are|was|were|do|does|did|have|has|had|can|"
+                        r"could|would|will|shall|should|may|might|must)\b",
+                        (text or "").lower().strip(" ?!.,")))
+        if _confident_question and hint == "question":
+            # Semantic agreement -> fine; semantic disagreement on a confident
+            # syntactic question -> trust syntax (fail-closed to question).
+            act, _scores, _method = self._sac.classify(text, syntactic_hint=hint)
+            if act == "question":
+                return "question"
+            # Semantic says 'statement' but syntax is unambiguously interrogative:
+            # prefer the early, high-confidence syntactic read.
+            return "question"
         act, _scores, _method = self._sac.classify(text, syntactic_hint=hint)
         return act
 

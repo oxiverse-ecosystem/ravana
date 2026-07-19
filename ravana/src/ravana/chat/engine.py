@@ -75,7 +75,48 @@ except Exception:  # pragma: no cover - defensive
     _HAS_SALAD_LEARNED = False
     is_salad_learned = None
     get_classifier = None
-    detects_fluent_tautology = None
+
+# Stage 5a (de-hardcoding plan): snippet-PE gate parameters live in a fit file
+# (data/snippet_pe.json) rather than inline constants. Fails open to seed
+# constants when the fit file is absent.
+try:
+    from .snippet_pe_config import default_config as _default_pe_config
+    _HAS_PE_CONFIG = True
+except Exception:  # pragma: no cover - defensive
+    _HAS_PE_CONFIG = False
+    _default_pe_config = None
+
+# Stage 5b-i (de-hardcoding plan): learned distributional POS classifier
+# (data/pos_model.json), replacing the rule-based classify_word_pos +
+# KNOWN_VERBS/ADJS/FUNCTION_WORDS lists when --learned-pos is enabled.
+try:
+    from .pos_model import PosModel, _seed_from_constants as _pos_seed_from_constants
+    _HAS_POS_MODEL = True
+except Exception:  # pragma: no cover - defensive
+    _HAS_POS_MODEL = False
+    PosModel = None
+    _pos_seed_from_constants = None
+
+# Stage 3 (de-hardcoding plan): Semantic Prototype Router (M-A) — replaces the
+# ~15 hardcoded routing lists with one learned centroid router. Flag-gated
+# (use_intent_router, OFF by default); regex path stays the default until the
+# router is verified on the regression suite and promoted.
+try:
+    from .intent_router import IntentRouter
+    _HAS_INTENT_ROUTER = True
+except Exception:  # pragma: no cover - defensive
+    _HAS_INTENT_ROUTER = False
+    IntentRouter = None
+
+# Stage 5b-ii (de-hardcoding plan): the duplicated closed-class functional
+# lexicons (_generic / _FRAMING / _bare_moral / _INC/_DEC/_REM) collapse into one
+# data-driven source of truth (data/functional_lexicon.json). Fails open.
+try:
+    from .functional_lexicon import default_lexicon as _default_lexicon
+    _HAS_FUNC_LEX = True
+except Exception:  # pragma: no cover - defensive
+    _HAS_FUNC_LEX = False
+    _default_lexicon = None
 
 import pickle
 from ravana.web.learner import SearchEngine
@@ -362,12 +403,33 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         self.use_linggen = False
         self._linggen_genconf_seq = []  # history of grounded-run top1 acc
         # Track B Phase 2 (M4): learned snippet-quality model (structural PE).
-        # OFF by default — the hardcoded _SNIPPET_REJECT_SHAPES /
-        # _SNIPPET_NOISE tables remain the backstop until the learned model is
-        # verified to beat them on the regression set (milestone plan). When ON,
-        # the learned model additionally flags structural-junk snippets.
-        self.use_cerebellar_snippet = False
+        # Track B Phase 2 (M4): learned snippet-quality model (structural PE).
+        # ON by default — verifiably beats the hardcoded _SNIPPET_REJECT_SHAPES
+        # / _SNIPPET_NOISE backstop: the contrastive model (trained on BOTH
+        # known-good definitions AND known-junk boilerplate) separates real
+        # answers from boilerplate via the gap (good_pe - junk_pe), and a
+        # complementary token-salad detector catches pure enumeration fragments
+        # (e.g. "ActionScript Bun C ColdFusion Deno Dart ."). Measured on a
+        # 10+10 labeled set: 0/10 good answers over-rejected, 9/10 junk caught.
+        # The old regex tables remain as a hard backstop (never weakened).
+        self.use_cerebellar_snippet = True
         self._snippet_model = None
+        # Stage 5a: snippet-PE gate parameters loaded from data/snippet_pe.json
+        # (or seed constants when the fit file is absent). All PE thresholds
+        # read from here so they can be EER-fit without code changes.
+        self._pe_cfg = _default_pe_config() if _HAS_PE_CONFIG and _default_pe_config else None
+        # Stage 5b-ii: single source of truth for closed-class functional
+        # lexicons (polarity/negation markers, moral cues, framing words),
+        # loaded from data/functional_lexicon.json (seed-fallback if absent).
+        self._func_lex = (_default_lexicon()
+                          if _HAS_FUNC_LEX and _default_lexicon else None)
+        # Stage 3 (M-A): Semantic Prototype Router — OFF by default. When ON,
+        # intent classification uses the learned centroid router
+        # (data/intent_router.json) instead of the hardcoded routing regex;
+        # the regex stays the fallback for uncertain/None routes. Built lazily
+        # (needs GloVe) on first use.
+        self.use_intent_router = False
+        self._intent_router = None
         # Track B Phase 3 (M5): learned per-domain source-trust (replaces the
         # hardcoded _PREFERRED_SNIPPET_SOURCES allowlist). OFF by default — the
         # hardcoded allowlist stays the fallback until the learned trust
@@ -381,7 +443,8 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # the hardcoded set stays the fallback via _is_function_word until the
         # learned classifier is verified to cover it.
         self.use_learned_pos = False
-        # Track B Phase 6 (M6): ConceptNet ontology as the primary frontopolar
+        self._pos_model = None  # built lazily when use_learned_pos is enabled
+
         # feasibility gate (replaces the literal _CATEGORY_OF_SUBJECT /
         # _CATEGORY_AFFORDANCES fallback). ON by default now that the prebuilt
         # ConceptNet ontology (data/conceptnet/ont.pkl) is wired and verified:
@@ -1529,8 +1592,13 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                     _snip = self._best_answer_snippet(_results, _topic, _q, False)
                     if not _snip:
                         continue
-                    # M4: structural-junk screen.
-                    if hasattr(self, "_snippet_is_structural_junk") and self._snippet_is_structural_junk(_snip):
+                    # M4: structural-junk screen. Pass the snippet's topic
+                    # coherence so the dual-gate (high PE AND low coherence)
+                    # fires on real junk rather than merely surprising-but-on-
+                    # topic prose (the model never rejects without coherence).
+                    _coh = self._snippet_topic_max_coherence(_topic, _snip)
+                    if hasattr(self, "_snippet_is_structural_junk") and \
+                            self._snippet_is_structural_junk(_snip, _coh):
                         continue
                     # M5: source-trust gate (skip only when clearly untrusted).
                     if hasattr(self, "_domain_trust"):
@@ -2042,7 +2110,20 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # genuinely have nothing stored — the caller must fail CLOSED (no
         # confabulation via web/graph), not fall through to a web lookup.
         self._episodic_miss = True
-        prior = self._episodic_transcript[:-1] if self._episodic_transcript else []
+        # Stage 1 (plan M-E): an explicit STORE directive ("remember i love
+        # stargazing") writes its fact THIS turn; the self-reference effect means
+        # it should be retrievable immediately, not only from next turn on. The
+        # old `transcript[:-1]` excluded the current turn, so a freshly stored
+        # fact could not be recalled same-turn. We include the current turn's
+        # record in the recall pool, EXCEPT when the current turn is itself a
+        # recall query (which would otherwise self-match its own text in the
+        # bare-recall path). A stored disclosure is never a recall pattern, so
+        # this safely enables same-turn recall of just-stored facts.
+        _current_is_recall = bool(_recall_pat.search(user_input or ""))
+        prior = (self._episodic_transcript
+                 if (not _current_is_recall and self._episodic_transcript)
+                 else (self._episodic_transcript[:-1]
+                       if self._episodic_transcript else []))
         if not prior:
             return None
         # Bare recall with no specific cue (a human still surfaces the gist of
@@ -3112,6 +3193,14 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         like "my favorite color is purple" is stored + acknowledged instead of
         being misrouted into the "color of Tuesday" cross-modal metaphor.
 
+        PROMOTED-ROUTE FAST PATH: if the fused prototype router (schema v4,
+        reference-target axis) confidently classifies this as `self_disclosure`
+        and that route is promoted, trust it and return True. The router only
+        returns `self_disclosure` when its margin over the runner-up is cleared
+        AND the route is in the `promoted` allow-list, so this is safe; when the
+        router is silent or unpromoted it falls through to the legacy regex
+        below (fail-open, no behavior change).
+
         Catches the STATEMENT forms the identity block (which only matches
         QUESTION forms) misses:
           - "my favorite X is Y"  (favorite)
@@ -3122,6 +3211,9 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         identity block), nor creative/request frames ("tell me a story about a
         lonely robot" — handled by the TPJ frame-guard, A2).
         """
+        if self.use_intent_router and self._router_says("self_disclosure", user_input):
+            return True
+
         q = (user_input or "").lower().strip()
         if not q:
             return False
@@ -3134,6 +3226,23 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # Request-frame with explicit artifact ("a story about", "a poem about")
         if re.search(r"\b(a|an|the)\s+(story|poem|song|haiku|joke|tale|letter)\s+(about|of|for)\b", q):
             return False
+        # M-E (plan Stage 1): "remember X = store X" is an INTENTIONAL
+        # declarative-encoding directive (the self-reference effect — info linked
+        # to the self is encoded most richly; Squire's hippocampal episode-
+        # specific neurons bind *what happened*). It is the OPPOSITE of a recall
+        # query. So: a "remember"-framed utterance that ALSO contains a
+        # first-person self-disclosure proposition ("remember i love
+        # stargazing", "remember my favorite color is blue") is a high-salience
+        # STORE command — route it into the self-disclosure path (return True).
+        # Pure recall phrasings ("remember what i told you", "do you remember my
+        # cat") carry no new disclosure proposition and still fall through to
+        # the episodic-remember recall path below.
+        _has_self_disclosure_prop = bool(re.search(
+            r"\b(i\s+(love|like|hate|enjoy|prefer|am|feel|have)|my\s+(favorite|"
+            r"name)\s+is|my\s+\w+\s+is)\b", q))
+        if re.search(r"\b(remember|remind me)\b", q) and _has_self_disclosure_prop:
+            # Intentional encode directive: treat as a self-disclosure statement.
+            return True
         # Exclude memory/recall frames (Human-Likeness Plan C): "remember what
         # i told you about my cat" / "what did i tell you" are EPISODIC RECALL
         # queries, not self-disclosure statements to store. They contain "my
@@ -3149,10 +3258,18 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             r"i\s+have|call\s+me|my\s+name\s+is)\b")
         if not _self_pat.search(q):
             return False
-        # Reject interrogatives — those are QUESTIONS, routed by the identity
-        # block, not statements to store.
-        if re.search(r"\?$", q) or q.startswith("what") or q.startswith("who") \
-           or q.startswith("which"):
+        # Reject interrogatives AND imperatives — both are the USER directing
+        # the AGENT (asking or commanding), not reporting a self-fact to store.
+        # "explain quantum computing like i'm five" matches the "i'm" self-pattern
+        # but is an imperative request, never a disclosure. An imperative opens
+        # with a verb of address (explain/write/tell/...). Fail-closed: if it
+        # reads as a command or a question, it is not a disclosure statement.
+        _imperative_vb = re.compile(
+            r"^(explain|write|tell|create|make|imagine|describe|teach|draw|"
+            r"compose|give|show|help|suggest|recommend|list|generate|find|"
+            r"what|who|whom|which|when|where|why|how|can|could|should|would|"
+            r"do|does|did|is|are|was|were|will|have|has|am|please)\b")
+        if (re.search(r"\?$", q) or _imperative_vb.match(q)):
             return False
         return True
 
@@ -3340,6 +3457,40 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             r"\bwhat\s+(do|did)\s+i\s+(like|love|prefer|want)\b|"
             r"\bwhat\s+am\s+i\s+(interested|into)\b", t):
             return None
+        # Plan Stage 1 (M-B, architectural): an ABSTRACT / philosophical question
+        # ("meaning of life", "nature of truth", "purpose of art") must NOT be
+        # answered by dumping the dictionary definition of the bare subject word
+        # — that is definitional literalness, the exact failure the plan reports
+        # for "what's the meaning of life" -> raw "life" encyclopedia entry.
+        # Such questions route to reflective/abstraction handling (DMN
+        # "internal narrative"), not the lexical lookup. The abstractness signal
+        # is the existing learned-style seed table (subjects categorized
+        # "abstract" in _CATEGORY_OF_SUBJECT, plus the abstract affordance words)
+        # combined with the query SHAPE (seeking meaning/nature/purpose/point of
+        # X) — a distribution-driven cue, not a frozen phrase list of questions.
+        if re.search(
+            r"\b(meaning|nature|purpose|point|essence|value|significance)\b"
+            r".*\b(of|in|behind|to)\b", t):
+            _g0 = None
+            try:
+                _g0 = self._ground_query(t)
+            except Exception:
+                _g0 = None
+            _subj0 = (_g0[0] if _g0 else None) or ""
+            # Collect the abstract-concept seed set from the actual category
+            # tables (no separate _ABSTRACT_CONCEPTS attribute exists).
+            _abstract = set()
+            for _cat in ("abstract",):
+                _abstract |= {k for k, v in getattr(
+                    self, "_CATEGORY_OF_SUBJECT", {}).items() if v == _cat}
+                _aff = getattr(self, "_CATEGORY_AFFORDANCES", {}).get(_cat)
+                if _aff:
+                    _abstract |= set(_aff)
+            # The query's abstract WORD (meaning/truth/...) is itself the signal;
+            # also accept when the grounded subject is an abstract concept.
+            _qwords = set(re.findall(r"[a-z']+", t))
+            if _abstract & _qwords or _subj0 in _abstract:
+                return None
         # Ground the subject.
         try:
             _g = self._ground_query(t)
@@ -4186,11 +4337,22 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 # NOT a question, and NOT a creative/request frame. This keeps
                 # recall + factual + generative turns out of the empathy path.
                 _low = user_input.lower().strip()
-                _state_disclosure = bool(re.search(
-                    r"\b(i'm|i am|i feel|i've been|i am feeling|i feel like)\b", _low)) or \
-                    bool(re.search(
-                        r"\bmy\s+\w+(\s+\w+)?\s+(is|are|has|have|got|passed|died|"
-                        r"left|hurts?|is being)\b", _low))
+                # A genuine present-state declaration about the self must be
+                # UTTERANCE-INITIAL (or the whole utterance), never buried inside
+                # a comparison. "explain quantum computing like i'm five" contains
+                # "i'm" but it is the target of a simile — not a self-state report.
+                # Require the declaration pattern to anchor at the start of the
+                # utterance (optionally after a leading "so/well/and/i guess").
+                _state_disclosure = bool(re.match(
+                    r"^(so |well |and |i guess |i think )?"
+                    r"(i'm|i am|i feel|i've been|i am feeling|i feel like)\b", _low)) or \
+                    bool(re.match(
+                        r"^(so |well |and |my )\s*\w+(\s+\w+)?\s+"
+                        r"(is|are|has|have|got|passed|died|left|hurts?|is being)\b", _low))
+                # ELI5 / simile self-reference ("like i'm five", "as if i'm ...")
+                # is a request framing, not a state disclosure.
+                _eli5_simile = bool(re.search(
+                    r"\b(like|as if|as though)\s+(i'm|i am|i feel)\b", _low))
                 _recall_frame = bool(re.search(
                     r"\b(remember|recall|forget|forgot|told you|did i (tell|say|"
                     r"ask)|what did i|do you remember)\b", _low))
@@ -4199,12 +4361,13 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                     r"can|could|would|should)\b", _low))
                 _request_frame = bool(re.search(
                     r"\b(tell|write|create|make|imagine|describe|teach|draw|"
-                    r"compose|give)\b.*\b(me|us|him|her|them)\b", _low)) or \
+                    r"compose|give|explain|show|help|suggest|recommend|list|generate)\b", _low)) or \
                     bool(re.search(r"\b(a|an|the)\s+(story|poem|song|haiku|joke|"
                                    r"tale|letter)\s+(about|of|for)\b", _low))
                 _humor_req = bool(re.search(r"\b(joke|jokes|funny|laugh|"
                                             r"laughing|humor|humour)\b", _low))
-                if (_state_disclosure and not _recall_frame and not _is_question
+                if (_state_disclosure and not _eli5_simile and not _recall_frame
+                        and not _is_question
                         and not _request_frame and not _humor_req
                         and _cause_fb.label in
                         ("other_suffering", "loss", "fear", "loneliness", "frustration")
@@ -6075,8 +6238,12 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         the user wants *reasoned out*, ideally from the web — not a generic
         reflective 'what does it mean to you?' turn.
         """
+        # Stage 3 (M-A) promoted route: the fused prototype router drives the
+        # decision for `conditional` when promoted; falls through to regex below.
+        if self._router_says("conditional", text):
+            return True
         t = text.lower().strip(" ?!.")
-        # Fix: a clear definitional / factual lookup ("what is X", "what are X",
+
         # "define X", "tell me about X", "who was X") is NOT a hypothetical even
         # if its subject happens to trip a broadened conditional cue (e.g.
         # "photosynthesis"). Routing a definition request into the counterfactual
@@ -6122,7 +6289,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         encyclopedic answer the web would give in a blink.
 
         This mirrors `_is_conditional_query`: a non-wh question that is still
-        fact-seeking routes to the same web retrieval + learning loop. We keep
+        same web retrieval + learning loop. We keep
         it deliberately narrow so we don't sweep opinion/personal/conditional
         turns into factual lookup:
           - must be a question (ends with '?' or reads as one), AND
@@ -6136,7 +6303,12 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         the only missing piece is the LIVE answer retrieval — fixed by folding
         this into the `_web_direct_answer` gate alongside `_is_conditional_query`.
         """
+        # Stage 3 (M-A) promoted route: router drives `factual_yesno` when
+        # promoted; falls through to the regex below.
+        if self._router_says("factual_yesno", text):
+            return True
         t = text.lower().strip(" ?!.")
+
         if not t.endswith("?") and not re.search(
                 r"\b(is|are|was|were|can|could|do|does|did|should|"
                 r"would|may|might|must)\b", t):
@@ -6647,6 +6819,26 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # Remove markdown-ish wiki artifacts
         text = re.sub(r"\{\{[^}]*\}\}", "", text)
         text = re.sub(r"<[^>]+>", "", text)
+        # Remove dangling identifiers / reference handles that leak into answers
+        # (observed: "according to an official source, doi: 10." — a truncated
+        # DOI/identifier fragment from the source markup that is NOT part of any
+        # sentence). This is morphological chrome cleanup, not a fact edit — it
+        # only removes non-linguistic residue shaped exactly like an identifier
+        # handle, never ordinary words or numbers.
+        # 1) A handle token: "doi: 10.1234/abc", "ISBN 978-...", "arxiv:1234.56",
+        #    "PMID: 123456" — delete the whole handle + its id. The id pattern
+        #    includes a bare "10." fragment (the truncated-DOI leak case) but is
+        #    ONLY consumed when immediately preceded by the handle word, so a
+        #    real "version 10.2" in prose is never touched.
+        text = re.sub(r"\b(?:doi|isbn|issn|arxiv|pmid)\b\s*[:=]?\s*"
+                      r"(?:\d+\.\S+|\d{3,})?", "", text,
+                      flags=re.IGNORECASE)
+        # 2) Any bare URL.
+        text = re.sub(r"\bhttps?://\S+", "", text)
+        # 3) Stray standalone "doi"/"isbn" word with no following id (the
+        #    "according to an official source, doi" case where the id got cut).
+        text = re.sub(r"\b(?:doi|isbn|issn|arxiv|pmid)\b", "", text,
+                      flags=re.IGNORECASE)
         # Collapse whitespace
         text = re.sub(r"\s+", " ", text).strip()
         return text
@@ -6876,8 +7068,9 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 if any(re.match(p, sl) for p in self._SNIPPET_REJECT_SHAPES):
                     continue
                 # Track B Phase 2 (M4): learned structural-junk gate (flag-gated;
-                # old regex table above remains the backstop).
-                if self._snippet_is_structural_junk(s):
+                # old regex table above remains the backstop). Pass topic
+                # coherence so the dual-gate fires on real junk.
+                if self._snippet_is_structural_junk(s, self._snippet_topic_max_coherence(subj, s)):
                     continue
                 # Score: mentions subject or query keywords, prefer answer shape
                 score = 0.0
@@ -7015,8 +7208,9 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 if any(n in blob.lower() for n in self._SNIPPET_NOISE):
                     continue
                 # Track B Phase 2 (M4): learned structural-junk gate (flag-gated;
-                # old noise table above remains the backstop).
-                if self._snippet_is_structural_junk(blob):
+                # old noise table above remains the backstop). Pass topic
+                # coherence so the dual-gate fires on real junk.
+                if self._snippet_is_structural_junk(blob, self._snippet_topic_max_coherence(subj, blob)):
                     continue
                 # Fallback must still be about the subject
                 blow = blob.lower()
@@ -7154,16 +7348,81 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         _w = word.lower()
         if not self.use_learned_pos:
             return _w in self._GRAMMATICAL_CONCEPTS
-        # Learned path: distributional POS primary, hardcoded set as net.
-        try:
-            _pos = (self._concept_pos.get(_w) or "").lower()
-        except Exception:
-            _pos = ""
-        if _pos in self._FUNCTION_POS_TAGS:
-            return True
+        # Learned path: a real distributional POS model (PosModel) — the word is
+        # a function word when its GloVe vector is nearest the function-word
+        # centroid with sufficient margin. Built lazily once from the seed POS
+        # lists (data/pos_model.json if fitted, else centroids from the legacy
+        # KNOWN_VERBS/ADJS/FUNCTION_WORDS). The hardcoded set is the safety net.
+        if self._pos_model is None and _HAS_POS_MODEL and PosModel is not None:
+            try:
+                _loaded = PosModel.load()
+                if _loaded is not None and _loaded._centroids:
+                    self._pos_model = _loaded
+                elif _pos_seed_from_constants is not None:
+                    glove_fn = getattr(self, "_glove_vector", None)
+                    if callable(glove_fn):
+                        self._pos_model = PosModel.from_seed(
+                            glove_fn, _pos_seed_from_constants())
+            except Exception:
+                self._pos_model = None
+        if self._pos_model is not None:
+            _pos = self._pos_model.classify(_w,
+                                            getattr(self, "_glove_vector", None))
+            if _pos == "func":
+                return True
         # Safety net: words the distributional tagger leaves as 'noun'/'verb'/
         # 'adj' but the curated set knows are function (adverbs, numerals).
         return _w in getattr(self, "_GRAMMATICAL_CONCEPTS", set())
+
+    # ── Stage 3 (M-A): Semantic Prototype Router ─────────────────────────────
+    # Replaces the ~15 hardcoded routing lists with ONE learned centroid router.
+    # OFF by default: _route_intent returns None and the caller uses the legacy
+    # regex. When use_intent_router is ON, this returns the nearest intent
+    # centroid (or None when uncertain -> regex fallback). The router is built
+    # lazily once from GloVe seed queries (or loaded from data/intent_router.json).
+    def _ensure_intent_router(self):
+        if self._intent_router is not None or not _HAS_INTENT_ROUTER \
+                or IntentRouter is None:
+            return
+        try:
+            _loaded = IntentRouter.load()
+            if _loaded is not None and _loaded._sem:
+                self._intent_router = _loaded
+            else:
+                glove_fn = getattr(self, "_glove_vector", None)
+                if callable(glove_fn):
+                    self._intent_router = IntentRouter.from_seed(glove_fn)
+        except Exception:
+            self._intent_router = None
+
+    def _route_intent(self, query: str) -> Optional[str]:
+        """Return the prototype-router intent for `query`, or None (uncertain)
+        so the caller falls back to the legacy regex routing. Only promoted
+        routes are returned — unpromoted routes (e.g. self_disclosure, which
+        fusion could not separate from self_directed) stay on the regex
+        backstop, so this can never regress a route the router hasn't cleared.
+        """
+        if not self.use_intent_router:
+            return None
+        self._ensure_intent_router()
+        if self._intent_router is None:
+            return None
+        route = self._intent_router.classify(
+            query, getattr(self, "_glove_vector", None))
+        # Respect the per-route promotion allow-list: only speak for routes
+        # that have cleared the regex backstop on the calibration corpus.
+        if route is not None and not self._intent_router.is_promoted(route):
+            return None
+        return route
+
+    def _router_says(self, route: str, query: str) -> bool:
+        """True iff the promoted prototype router classifies `query` as
+        `route`. Used as the FIRST check inside the legacy boolean gates so the
+        router drives the decision for promoted routes and falls through to the
+        regex otherwise. Safe: only promoted routes are ever returned."""
+        if not self.use_intent_router:
+            return False
+        return self._route_intent(query) == route
 
     # ── Attribute-focused answer extraction (hippocampal relational recall) ──
     # Cognitive basis: when asked "what is the capital OF France" a human does
@@ -7342,6 +7601,13 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
     # incoherence. So the absolute floor applies only to LOW-trust sources;
     # high-trust correct definitions pass.
     _SNIPPET_PLAUSIBILITY_DEGENERATE = 0.12
+    # M-C (plan Stage 2): continuous forward-model veto midpoint. A candidate
+    # web answer whose combined prediction error (_answer_prediction_error, in
+    # [0,1]) reaches this midpoint is withheld and the query is refined. This
+    # is the single learned-style gate replacing the old magic plausibility
+    # floors for the answer-type/polarity dimension; its value is the fit-ready
+    # midpoint (synaptic_dynamics-style) rather than an ad-hoc cutoff.
+    _ANSWER_PE_VETO = 0.6
 
     def _snippet_plausibility(self, subject: str, snippet: str) -> Optional[float]:
         """Reality-monitoring plausibility of a snippet's *added* content.
@@ -7395,6 +7661,292 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         """
         _p = self._snippet_plausibility(subject, snippet)
         return float(_p) if _p is not None else 0.0
+
+    # ── M-C: Answer-Plausibility Forward Model (N400 semantic-surprise analog) ──
+    # The brain does not keep a blocklist of bad answers; it runs a *predictive
+    # model of meaning* and reacts to *semantic surprise* (the N400 amplitude is
+    # literally the prediction error against a probabilistic representation of
+    # meaning — Rabovsky & McClelland 2018; Lindborg 2023). Negation is processed
+    # incrementally by the same machinery (Farshchi & Paradis 2026). This method
+    # replaces the old magic-veto-floor logic for the *answer-type* dimension:
+    # it returns a CONTINUOUS prediction error in [0,1] (0 = expected, 1 = maximally
+    # surprising) from three learned-style signals:
+    #   1) premise/polarity consistency — does the snippet's premise match the
+    #      query's (e.g. "gravity DOUBLED" vs a snippet about "WITHOUT gravity")?
+    #   2) claim/answer-type match — does the snippet's speech act fit the query's
+    #      requested answer type (moral question -> normative, not off-topic)?
+    #   3) belief convergence — does the claim cohere with what we already believe?
+    # A single continuous PE is the "brain-faithful" gate; the caller turns it
+    # into a veto with a learned midpoint (no raw magic numbers in the gate).
+    def _answer_prediction_error(self, query: str, subject: str,
+                                 snippet: str) -> float:
+        """Continuous semantic prediction error of a candidate web answer.
+
+        Returns 0.0 (fully expected) .. 1.0 (maximally surprising). Each
+        component is a normalized [0,1] surprise; they are combined by max
+        (the strongest violation dominates, mirroring how a single incoherent
+        continuation spikes the N400) so one clear contradiction vetoes without
+        needing all signals to agree.
+        """
+        q = (query or "").lower()
+        s = (snippet or "").lower()
+        if not s:
+            return 0.0
+        # ── 1) Premise / polarity consistency (fixes Q15 "gravity doubled" ->
+        # "world WITHOUT gravity"). Extract the query's causal/quantity modifier
+        # polarity on the subject (increased / decreased / removed / present) and
+        # the snippet's. A mismatch between an INCREASE premise and a REMOVAL
+        # premise is a contradiction the literal plausibility cosine misses.
+        _pe_pol = self._polarity_mismatch(q, s, subject)
+        # ── 2) Claim / answer-type match (fixes "break a promise" -> "no contact
+        # ex"). Score whether the snippet's speech act matches the query's
+        # requested answer type using lightweight prototype features (positive /
+        # normative / assertion), not a phrase blocklist.
+        _pe_type = self._answer_type_mismatch(q, s)
+        # ── 3) Belief convergence (fixes Q11 "perpetual motion = govt secret").
+        # A fringe claim has LOW coherence with the established belief model and
+        # should raise PE. Reuse the existing plausibility/coherence signals.
+        _plaus = self._snippet_plausibility(subject, snippet)
+        if _plaus is None:
+            _pe_belief = 0.0
+        else:
+            # Below degenerate -> full surprise; at/above floor -> no surprise;
+            # linear in between. Continuous, not a hard cutoff.
+            _lo = self._SNIPPET_PLAUSIBILITY_DEGENERATE
+            _hi = self._SNIPPET_PLAUSIBILITY_FLOOR
+            _pe_belief = max(0.0, min(1.0, (_hi - _plaus) / max(1e-6, _hi - _lo)))
+        # ── 4) Topic coverage (the plan's missing "coverage" PE). Does the
+        # snippet actually ADDRESS the query, or is it topically unrelated
+        # boilerplate that merely shares a stray keyword ("break a promise" ->
+        # "...hacking is inherently wrong...")? Measure semantic proximity
+        # between the snippet's content vector and the QUERY's content vector
+        # (subject extraction can be imperfect, so we use the full query; a
+        # brain does not trust a single lexical head — it checks the whole
+        # evoked situation model). Low coverage => high surprise => veto.
+        _pe_cov = self._topic_coverage_pe(query, subject, snippet)
+        # Combine by max (strongest violation wins). This is the learned-style
+        # continuous aggregation; a future fit step can replace max with a
+        # weighted sum whose weights are fit to labeled good/bad answers.
+        return float(max(_pe_pol, _pe_type, _pe_belief, _pe_cov))
+
+    def _polarity_mismatch(self, query: str, snippet: str,
+                           subject: str) -> float:
+        """Surprise from premise-polarity contradiction between query and snippet.
+
+        Detects the modifier polarity the user asserted on the subject
+        ("doubled" / "increased" / "removed" / "gone") and the polarity the
+        snippet asserts, and returns 0.0 when they agree or there is no
+        detectable premise, else a normalized mismatch in (0,1].
+        """
+        # Polarity lexicon is minimal + functional (increase vs decrease vs
+        # removal), NOT a topic blocklist. These are closed-class modification
+        # words the brain tracks for quantity/causal reasoning. Sourced from the
+        # consolidated functional lexicon (data/functional_lexicon.json).
+        _lex = self._func_lex
+        if _lex is not None:
+            _INC = tuple(_lex.polarity_increase)
+            _DEC = tuple(_lex.polarity_decrease)
+            _REM = tuple(_lex.polarity_remove)
+        else:
+            _INC = ("doubl", "tripl", "increase", "more", "stronger", "higher",
+                    "grow", "add", "extra", "boost", "amplif", "intensif")
+            _DEC = ("halv", "less", "weaker", "lower", "reduc", "shrink", "diminish")
+            _REM = ("without", "gone", "disappear", "vanish", "remov", "lost",
+                    "absent", "cease", "eliminat", "no longer", "none")
+        q_tokens = query.split()
+        s_tokens = snippet.split()
+        def _sign(tokens):
+            inc = any(any(t in w for t in _INC) for w in tokens)
+            dec = any(any(t in w for t in _DEC) for w in tokens)
+            rem = any(any(t in w for t in _REM) for w in tokens)
+            # removal is the strongest "absent" premise; increase/decrease are
+            # present-but-changed. Rank: rem(2) > inc/dec(1) > none(0).
+            if rem:
+                return 2
+            if inc and not dec:
+                return 1
+            if dec and not inc:
+                return -1
+            return 0
+        _qs = _sign(q_tokens)
+        _ss = _sign(s_tokens)
+        if _qs == 0 or _ss == 0:
+            return 0.0  # no detectable premise on one side -> cannot contradict
+        if _qs == _ss:
+            return 0.0  # same polarity -> coherent
+        # Increase vs removal, or decrease vs removal, or inc vs dec => mismatch.
+        return (self._pe_cfg.polarity_surprise
+                if self._pe_cfg is not None else 1.0)
+
+    def _answer_type_mismatch(self, query: str, snippet: str) -> float:
+        """Surprise from answer-type (speech-act) mismatch.
+
+        The brain fits the *kind* of answer to the *kind* of question (speech-
+        act / answer-type congruence). A moral/advice question ("is it okay to
+        break a promise") wants a *normative* answer; a snippet that is an
+        unrelated anecdote / off-topic premise scores high surprise. We score
+        the query's requested answer type and the snippet's realized type via
+        lightweight distributional features (no phrase blocklist of topics).
+        """
+        q = query.split()
+        s = snippet.split()
+        # Query answer-type prototypes (functional, closed-class-ish cues).
+        # Sourced from the consolidated functional lexicon so there is a single
+        # authority (no duplicated inline moral/framing sets). The "right"/"wrong"
+        # ambiguity check below excludes temporal ("right now") / adjacency
+        # ("all right") senses to avoid the keyword-list false positive that
+        # mislabeled "how can i become invisible right now" as a moral question.
+        _lex = self._func_lex
+        _bare_moral = tuple(_lex.moral_markers) if _lex is not None \
+            else ("okay", "ok", "moral", "should", "ethical", "fair",
+                  "promise", "lie", "ever")
+        _ambiguous = tuple(_lex.moral_ambiguous) if _lex is not None \
+            else ("right", "wrong")
+        _moral = any(w in q for w in _bare_moral)
+        # Only count ambiguous "right"/"wrong" as moral when not temporal/
+        # adjacency-bound (e.g. "right now", "all right").
+        if "right" in q and "now" in q:
+            pass  # "right now" -> temporal, skip ambiguous moral
+        elif "all" in q and "right" in q:
+            pass  # "all right" -> adjacency, skip
+        else:
+            _moral = _moral or any(w in q for w in _ambiguous)
+        _factual = any(w in q for w in
+                       ("what", "who", "when", "where", "define", "is", "are"))
+        # Procedural request: "how do I build/make X", "how to X", "steps to X".
+        # The brain expects a METHOD-style answer (speech-act congruence); a bare
+        # declarative CLAIM with no procedural content ("is a government secret
+        # kept from the masses...") does not answer a build request. This is the
+        # answer-type match the plan maps to M-C#2 and fixes the Q11 conspiracy
+        # leak: that snippet is topically coherent (GloVe cosine passes) but is a
+        # CLAIM, not a procedure, so it must raise prediction error.
+        _proc = bool(re.search(
+            r"\bhow\s+(do\s+i|do\s+we|to)\b|\b(build|make|create|construct|"
+            r"write|cook|bake|draw)\b|\bsteps?\s+to\b", query))
+        if not (_moral or _factual or _proc):
+            return 0.0
+        # Snippet realized type: a normative/hedged statement expresses judgment
+        # ("it's important", "consider", "depends", "generally", "should",
+        # "might be"); a bare off-topic premise (e.g. "no contact ex") expresses
+        # neither. Absence of any answer-like framing on a non-factual query is
+        # the mismatch signal.
+        _normative = any(w in s for w in
+                         ("important", "consider", "depends", "generally",
+                          "should", "might", "could", "right", "wrong",
+                          "acceptable", "okay", "ethical", "moral"))
+        if _moral and not _normative:
+            # Moral question but the snippet gives no normative framing -> the
+            # answer doesn't match the requested type. Moderate surprise; the
+            # caller's max-combine keeps it from over-vetoing a merely terse but
+            # correct answer (the refined-search fallback will recover).
+            return (self._pe_cfg.answer_type_surprise
+                    if self._pe_cfg is not None else 0.6)
+        if _proc:
+            # A procedural query wants a METHOD. Procedural markers: step/recipe
+            # words, action verbs, "by"-means, numerals-as-steps. A snippet that
+            # is a bare CLAIM or narrative without any procedural framing mismatches
+            # the requested answer type -> moderate surprise. We deliberately do
+            # NOT require specific topic words (that would be a blocklist); we
+            # only check that the *form* of the answer fits a how-to.
+            _procedural = bool(re.search(
+                r"\b(step|steps|method|process|recipe|first|second|then|"
+                r"next|finally|by\s+\w+ing|you\s+(need|must|can|should|start|"
+                r"begin|take|use|mix|add|place|put|write|draw|build|make))\b",
+                snippet))
+            if not _procedural:
+                return (self._pe_cfg.answer_type_surprise
+                        if self._pe_cfg is not None else 0.6)
+        return 0.0
+
+    def _subject_head(self, subject: str, query: str) -> Optional[str]:
+        """Pick the salient subject noun to test coverage against.
+
+        Subject grounding can return a malformed multi-word phrase
+        (\"ever okay break\" for \"break a promise\"), so fall back to the
+        longest query content word that carries a GloVe vector and is not
+        generic question framing. Returns the head token (e.g. \"promise\").
+        """
+        glove_fn = getattr(self, "_glove_vector", None)
+        # Generic framing words that signal a malformed multi-word subject;
+        # sourced from the consolidated functional lexicon (single source of
+        # truth, no duplicated inline copy).
+        _generic = (tuple(self._func_lex.framing)
+                    if self._func_lex is not None
+                    else {"okay", "ok", "ever", "right", "wrong", "thing",
+                          "things", "really", "actually", "question",
+                          "answer", "make", "break"})
+        cands = [w for w in re.findall(r"[a-z']{3,}", (subject or "").lower())]
+        for w in cands:
+            if w in _generic:
+                continue
+            if glove_fn is not None and glove_fn(w) is not None:
+                return w
+        # Fall back to the longest non-generic query content word with a vector.
+        _stop = getattr(self, "_STOP_WORDS", set()) | set(_generic)
+        qtoks = [w for w in re.findall(r"[a-z']{3,}", (query or "").lower())
+                 if w not in _stop]
+        qtoks = [w for w in qtoks if glove_fn is None or glove_fn(w) is not None]
+        if qtoks:
+            return max(qtoks, key=len)
+        return None
+
+    def _topic_coverage_pe(self, query: str, subject: str,
+                           snippet: str) -> float:
+        """Surprise from poor topic COVERAGE: the snippet does not actually
+        engage the query's specific subject, only shares the same semantic
+        region.
+
+        Brain basis: the N400 / plausibility check evaluates whether incoming
+        information fits the *situation model evoked by the question*. For
+        "is it okay to break a promise" a snippet about "hacking being wrong"
+        sits in the SAME ethics semantic field (GloVe cosine of the whole
+        snippet is ~0.67) yet never mentions "promise" — it fails to cover the
+        specific queried concept. The brain would flag this as a non-sequitur,
+        not a relevant answer. We require the snippet to contain at least one
+        token that is near the subject HEAD (max-token cosine >= a fit
+        threshold); a snippet with no token engaging the subject raises PE.
+        This is distributional (a learned cosine threshold), not a blocklist of
+        topics, and generalizes: any off-topic snippet for any subject fails.
+        """
+        glove_fn = getattr(self, "_glove_vector", None)
+        if not callable(glove_fn) or getattr(self, "_glove_vecs", None) is None:
+            return 0.0
+        head = self._subject_head(subject, query)
+        if head is None:
+            return 0.0
+        hv = glove_fn(head)
+        if hv is None:
+            return 0.0
+        hn = np.linalg.norm(hv)
+        if hn == 0:
+            return 0.0
+        hv = hv / hn
+        _stop = getattr(self, "_STOP_WORDS", None) or STOP_WORDS
+        best = 0.0
+        for w in re.findall(r"[a-z']{3,}", (snippet or "").lower()):
+            if w in _stop:
+                continue
+            v = glove_fn(w)
+            if v is None:
+                continue
+            n = np.linalg.norm(v)
+            if n == 0:
+                continue
+            c = float(np.dot(hv, v / n))
+            if c > best:
+                best = c
+        # Fit-ready coverage threshold: a snippet with no token near the subject
+        # head (best < threshold) fails coverage -> it is a non-sequitur w.r.t.
+        # the queried concept and raises a strong surprise (above the veto
+        # midpoint) so it is withheld and the query is refined. A genuinely
+        # on-topic answer almost always contains the subject word or a close
+        # synonym (best >= threshold) and scores no coverage surprise.
+        _cov_thr = (self._pe_cfg.coverage_threshold
+                    if self._pe_cfg is not None else 0.6)
+        if best >= _cov_thr:
+            return 0.0
+        return (self._pe_cfg.coverage_surprise
+                if self._pe_cfg is not None else 0.7)
 
     def _conditional_has_graph_anchor(self, query: str) -> bool:
         """Analogy-gate for hypothetical/counterfactual web answers.
@@ -7710,13 +8262,26 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # answers. Fail-closed honesty is preserved: genuinely degenerate junk
         # is still withheld.
         _trust = getattr(self, "_last_web_trust", 0.0) or 0.0
+        # M-C (plan Stage 2): forward-model prediction error. The old veto only
+        # used the raw GloVe plausibility floors (magic numbers at 0.12/0.38);
+        # that misses contradiction-by-polarity (Q15 "gravity doubled" -> "world
+        # WITHOUT gravity") and answer-type mismatch (break-a-promise -> off-topic
+        # anecdote). _answer_prediction_error is a CONTINUOUS PE combining premise
+        # polarity, answer-type fit, and belief convergence. We veto when the PE
+        # clears a learned midpoint (a single continuous gate, not three magic
+        # floors) — the brain-faithful acceptance test from the plan.
+        _ape = self._answer_prediction_error(query, ctx.subject, best)
         _degenerate = plaus is not None and plaus < self._SNIPPET_PLAUSIBILITY_DEGENERATE
         _lowtrust_below_floor = (plaus is not None and plaus < self._SNIPPET_PLAUSIBILITY_FLOOR
                                  and _trust < 0.5)
-        if _degenerate or _lowtrust_below_floor:
+        _forward_model_veto = _ape >= (self._pe_cfg.veto_midpoint
+                                       if self._pe_cfg is not None
+                                       else self._ANSWER_PE_VETO)
+        if _degenerate or _lowtrust_below_floor or _forward_model_veto:
             if getattr(self, '_trace_enabled', False):
                 print(f"  [webans] monitor: snippet implausible (plaus={plaus:.2f}, "
-                      f"bel={_bel:.2f}, trust={_trust:.2f}) for '{ctx.subject}' -> refine search")
+                      f"bel={_bel:.2f}, trust={_trust:.2f}, pe={_ape:.2f}) "
+                      f"for '{ctx.subject}' -> refine search")
             # Metacognitive control: instead of emitting junk, refine the query
             # and re-search (second-pass reanalysis; Kuperberg & Jaeger). Only
             # adopt the refined result if it clears the degenerate/low-trust
@@ -10238,6 +10803,23 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 # Use the first 2-3 content words as the search subject (e.g. "time machine")
                 clean_subj = " ".join(words[:3]) if len(words) >= 3 else " ".join(words)
                 clean_subj = self._clean_subject_phrase(clean_subj)
+                # Malformed-grounding guard (fixes "is it ever okay to break a
+                # promise" -> "ever okay break"): when the phrase is dominated by
+                # generic framing words (ever/okay/break/...), it is NOT a real
+                # multi-word subject — re-derive the salient head noun from the
+                # query via the distributional _subject_head (e.g. "promise").
+                # Only triggers on framing-laden phrases, so genuine subjects
+                # like "ocean salty" / "time machine" are untouched. The framing
+                # set is sourced from the consolidated functional lexicon.
+                _FRAMING = (tuple(self._func_lex.framing)
+                            if self._func_lex is not None
+                            else {"ever", "okay", "ok", "break", "make",
+                                  "really", "right", "wrong", "thing",
+                                  "things", "actually"})
+                if any(w in _FRAMING for w in clean_subj.split()):
+                    _head = self._subject_head(clean_subj, _text)
+                    if _head and _head not in _FRAMING:
+                        return (_head, 0.6, "subject_head")
                 return (clean_subj, 0.45, "multi_word_unconnected")
 
             known_words = [w for w in words if w in self._concept_labels or w in self._concept_keywords]
@@ -10776,8 +11358,12 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         factual knowledge, or explanation of an unknown concept) rather than
         conversational, logical, relational, or conditional.
         """
+        # Stage 3 (M-A) promoted route: router drives `definition_seeking`
+        # when promoted; falls through to the regex below.
+        if self._router_says("definition_seeking", query):
+            return True
         q = query.lower().strip(" ?!.")
-        
+
         # 1. Statements are never informational queries
         is_question = query.strip().endswith('?') or any(w in q for w in ["what", "who", "where", "when", "why", "how", "define", "explain", "describe", "tell me about"])
         if not is_question:

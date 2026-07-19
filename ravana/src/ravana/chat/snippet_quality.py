@@ -42,6 +42,40 @@ _TOKEN_RE = re.compile(r"[a-z0-9]+")
 _CHAR_RE = re.compile(r"[a-z0-9@#|/_.():;=+\-\[\]{}<>]")
 _CHAR_N = 4  # character n-gram order for structural (code/symbol) detection
 
+# Copula / definitional-structure words. A genuine definition or answer almost
+# always contains one of these (a verb or determiner+noun spine); a pure token
+# salad ("ActionScript Bun C ColdFusion Deno Dart .") contains none.
+_STRUCTURE_WORDS = {
+    "is", "are", "was", "were", "be", "been", "being", "means", "refers",
+    "describes", "define", "defined", "denotes", "represents", "refers",
+    "a", "an", "the", "of", "in", "on", "for", "to", "with", "and", "or",
+    "that", "which", "who", "used", "used", "process", "system", "type",
+    "form", "kind", "part", "made", "consists", "includes", "contains",
+}
+
+
+def is_token_salad(snippet: str) -> bool:
+    """Cheap structural detector for pure token-salad / enumeration junk
+    (e.g. "ActionScript Bun C ColdFusion Deno Dart .").
+
+    Brain basis: a well-formed declarative answer has a syntactic spine
+    (copula / determiner-noun structure); a list of disconnected proper nouns
+    or symbols has none. This is a *structural* signal, not a blocklist of
+    specific tokens — it fires on ANY high-entropy fragment with no syntactic
+    structure, regardless of topic. Complements the contrastive gap (which
+    catches coherent boilerplate but not equally-OOD-from-both token salad).
+    """
+    toks = _TOKEN_RE.findall((snippet or "").lower())
+    if len(toks) < 3:
+        return False
+    if any(w in _STRUCTURE_WORDS for w in toks):
+        return False
+    # High type-token ratio => few repeated words => disconnected fragments.
+    ttr = len(set(toks)) / len(toks)
+    if ttr >= 0.85 and len(toks) >= 4:
+        return True
+    return False
+
 
 # Seed corpus of known-good declarative snippets. These teach the model the
 # structural shape of a real definition/answer (subject + copula + predicate),
@@ -62,6 +96,27 @@ _SEED_GOOD = [
     "the sun is the star at the center of the solar system",
     "knowledge is the understanding acquired through experience or study",
     "an economy is a system of production distribution and consumption of goods",
+]
+
+# Seed corpus of known-JUNK snippets (boilerplate / navigation / lists /
+# promotional / tangential). Training on junk as well as good lets the model
+# compute a *contrastive* prediction error — how much more surprising the
+# snippet is under the well-formed model than under the boilerplate model.
+# A real answer looks equally (un)surprising under both; boilerplate looks
+# FAR more surprising under the good model. This is the brain-faithful fix the
+# single-distribution model could not provide (everything real is OOD from a
+# tiny good-only seed, so good and junk were indistinguishable on PE alone).
+_SEED_JUNK = [
+    "skip to content home about us our programs contact schedule try a class",
+    "navigation menu terms of service privacy policy cookie settings subscribe",
+    "buy now sign up for our newsletter download the app follow us on social",
+    "loading please wait while we redirect you to the requested page",
+    "action script bun c cold fusion deno dart",
+    "according to an official source perpetual motion is a government secret",
+    "last updated feb category the question of whether it is ever okay is complex",
+    "as technology continues to advance so does the debate around its implications",
+    "click here to learn more read the full article view all comments share this",
+    "welcome to our website we are committed to providing the best experience",
 ]
 
 
@@ -137,6 +192,85 @@ class SnippetStructureModel:
         """Train on the built-in seed corpus of known-good definitions."""
         self.train(_SEED_GOOD)
 
+    # ─── contrastive training (good AND junk) ───────────────────────────────
+    def train_contrastive(self, good_snippets: Sequence[str],
+                          junk_snippets: Sequence[str]) -> None:
+        """Train BOTH a good-only and a junk-only model.
+
+        A single good-only distribution cannot separate real answers from
+        boilerplate, because *every* real web snippet is out-of-distribution
+        from a small definition seed (all accrue near-identical high PE). The
+        brain analog is prediction error against a *pair* of learned
+        distributions: a snippet that is boilerplate is far more surprising
+        under the well-formed model than under the boilerplate model, while a
+        genuine answer is about equally surprising under both. The decision
+        signal is the *contrastive gap* ``good_pe - junk_pe`` (see
+        ``contrastive_gap``), which cleanly separates the classes.
+        """
+        self._good_model = SnippetStructureModel(order=self.order,
+                                                 smoothing=self.smoothing,
+                                                 margin=self.margin)
+        self._good_model.train(good_snippets)
+        self._junk_model = SnippetStructureModel(order=self.order,
+                                                 smoothing=self.smoothing,
+                                                 margin=self.margin)
+        self._junk_model.train(junk_snippets)
+        self._trained = True
+        # Fit the gap threshold from the labeled distributions: midpoint between
+        # the worst (most junk-like) good gap and the best (most good-like) junk
+        # gap. Continuous + fit, not a hand-picked cutoff.
+        _gaps_good = [self._good_model.structural_pe(s) - self._junk_model.structural_pe(s)
+                      for s in good_snippets if len(self._wtokens(s)) >= 3]
+        _gaps_junk = [self._good_model.structural_pe(s) - self._junk_model.structural_pe(s)
+                      for s in junk_snippets if len(self._wtokens(s)) >= 3]
+        if _gaps_good and _gaps_junk:
+            self._gap_theta = (max(_gaps_good) + min(_gaps_junk)) / 2.0
+        else:
+            self._gap_theta = 0.0
+
+    def train_contrastive_seed(self) -> None:
+        self.train_contrastive(_SEED_GOOD, _SEED_JUNK)
+
+    def contrastive_gap(self, snippet: str) -> Optional[float]:
+        """good_pe - junk_pe. Positive => more boilerplate-like; negative/~
+        small => well-formed. None when not contrastively trained."""
+        if not hasattr(self, "_good_model") or self._good_model is None:
+            return None
+        return (self._good_model.structural_pe(snippet)
+                - self._junk_model.structural_pe(snippet))
+
+    def is_junk(self, snippet: str,
+                coherence: Optional[float] = None) -> bool:
+        """Dual-gate junk decision.
+
+        When contrastively trained, the decision is the *contrastive gap*
+        (good_pe - junk_pe) against the fit threshold — this is the brain-
+        faithful signal that separates real answers from coherent boilerplate.
+        A pure token-salad / enumeration fragment (no syntactic spine, high
+        type-token ratio) is rejected by ``is_token_salad`` even when it is
+        equally OOD from both distributions (so the contrastive gap cannot
+        separate it). The old single-distribution PE gate (high PE AND low
+        coherence) remains as the fall-back when only the good corpus was used.
+        """
+        # Complementary structural signal: pure token salad has no syntactic
+        # spine and fires regardless of topic (not a blocklist).
+        if is_token_salad(snippet):
+            return True
+        # Contrastive path (preferred): separate the classes on the gap.
+        if hasattr(self, "_good_model") and self._good_model is not None:
+            gap = self.contrastive_gap(snippet)
+            if gap is None:
+                return False
+            return gap > getattr(self, "_gap_theta", 0.0)
+        # Single-distribution fall-back (good-only seed).
+        if self.theta_struct is None:
+            return False
+        pe = self.structural_pe(snippet)
+        if pe > self.theta_struct:
+            if coherence is None or coherence < self.theta_sem:
+                return True
+        return False
+
     # ─── inference ────────────────────────────────────────────────────────────
     def _stream_pe(self, ngrams, vocab, tokens, order) -> float:
         if len(tokens) < order or not self._trained:
@@ -172,29 +306,17 @@ class SnippetStructureModel:
             return c_pe
         return max(w_pe, c_pe)
 
-    def is_junk(self, snippet: str,
-                coherence: Optional[float] = None) -> bool:
-        """Dual-gate junk decision: high structural PE AND low coherence.
-
-        Untrained or no threshold => never rejects (safe default; the old
-        hardcoded filters remain the backstop in that case).
-        """
-        if self.theta_struct is None:
-            return False
-        pe = self.structural_pe(snippet)
-        if pe > self.theta_struct:
-            # High structural surprise; reject only if semantics also fail.
-            if coherence is None or coherence < self.theta_sem:
-                return True
-        return False
-
     # ─── convenience for tests / diagnostics ───────────────────────────────
     def pe_distribution(self, snippets: Iterable[str]) -> List[float]:
         return [self.structural_pe(s) for s in snippets]
 
 
 def default_model() -> "SnippetStructureModel":
-    """A ready-to-use model trained on the seed corpus."""
+    """A ready-to-use model trained contrastively on the seed corpora
+    (good definitions AND known-junk boilerplate), so it separates real
+    answers from boilerplate via the contrastive gap rather than failing to
+    distinguish OOD-from-a-tiny-seed snippets.
+    """
     m = SnippetStructureModel()
-    m.train_seed()
+    m.train_contrastive_seed()
     return m

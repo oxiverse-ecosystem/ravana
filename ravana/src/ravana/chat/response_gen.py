@@ -14,7 +14,9 @@ from collections import deque, Counter
 
 from .constants import STOP_WORDS, WEB_GARBAGE, TEEN_CONCEPT_LABELS
 from .chain_walker import ChainWalkerMixin
+from .realizer_lexicon import RealizerLexicon, default_lexicon
 from ravana.language.surface_realizer import DiscourseState
+
 # Compute project root (same logic as engine.py)
 _proj_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 
@@ -2016,9 +2018,16 @@ class ResponseGenMixin(ChainWalkerMixin):
         import re
         from .self_model_router import is_self_addressed
         t = (text or "").lower()
+        # Introspection predicates: what the agent might be asked about its own
+        # nature/experience. This is the seed set for the learned self-reference
+        # router (M-A) — prototype-based, not a frozen gate; "tired" was missing
+        # and caused "do you ever get tired" to fall through to the assertion
+        # mirror (the "yeah, ever tired" glitch). Cognition/experience words
+        # (tired, sleep, rest, energy) are genuine self-nature questions.
         _feel = re.search(r"\b(feel|feeling|feelings|emotion|emotions)\b", t)
         _alive = re.search(r"\b(alive|living|real|human)\b", t)
-        _think = re.search(r"\b(think|thoughts|conscious|aware|mind)\b", t)
+        _think = re.search(r"\b(think|thoughts|conscious|aware|mind|tired|"
+                           r"tiredness|sleep|rest|energy|exhausted|wear)\b", t)
         if not (_feel or _alive or _think):
             return None
         # Item C: only treat as self-model when genuinely self-addressed.
@@ -2392,37 +2401,24 @@ class ResponseGenMixin(ChainWalkerMixin):
         except Exception:
             pass
 
-        # Compose an acknowledgment from primitives (mirrors _handle_chitchat).
+        # Compose an acknowledgment from the externalized exemplar pool
+        # (Stage 6): the canned leads/follows/backchannels are now exemplars in
+        # data/realizer_lexicon.json, drawn via RealizerLexicon.realize() rather
+        # than blind random.choice over an inline typed list. The seed scorer
+        # is uniform (== random.choice distribution) so day-one behavior is
+        # identical; a learned fluency/coherence ranker can later bias the draw
+        # without touching this code (seed-then-decay discipline).
+        _rl = default_lexicon()
         if is_about_user:
-            leads = [
-                f"got it — so you're {topic}." if topic else "got it.",
-                f"ah, i see — you're {topic}." if topic else "ah, i see.",
-                f"nice, so you're {topic}." if topic else "nice, noted.",
-                f"makes sense. you're {topic}." if topic else "makes sense.",
-            ]
+            _lead_pool = "user_leads" if topic else "user_leads_notopic"
         else:
-            leads = [
-                f"right, {topic}." if topic else "right.",
-                f"got it — {topic}." if topic else "got it.",
-                f"ok, noted: {topic}." if topic else "ok, noted.",
-                f"yeah, {topic}." if topic else "yeah.",
-            ]
-        follows = [
-            "what made you think of that?",
-            "tell me more about it?",
-            "anything else on your mind?",
-            "what do you make of it?",
-        ]
+            _lead_pool = "other_leads" if topic else "other_leads_notopic"
+        lead = _rl.realize(_lead_pool, topic=topic, rng=random)
         # Short, casual statements (backchannels like "nothing") stay brief.
         if len(t.split()) <= 3:
-            return random.choice([
-                "haha fair enough.",
-                "nice.",
-                "gotcha.",
-                "makes sense.",
-                "alright.",
-            ])
-        return random.choice(leads) + " " + random.choice(follows)
+            return _rl.realize("backchannels", rng=random)
+        follow = _rl.realize("follows", rng=random)
+        return f"{lead} {follow}"
 
     # Imperative verbs that signal the user wants RAVANA to *do* something
     # (build a scraper, write code, send an email, open an app) rather than
@@ -3464,6 +3460,44 @@ class ResponseGenMixin(ChainWalkerMixin):
         else:
             return None
         text = raw.lower()
+        # ── Fail-closed interrogative / imperative guard (covers ALL THREE call
+        # sites: process_turn §3, the social-intent bank, and _generate_response).
+        # Affective disclosure is a SELF-REPORT, not a question or a command.
+        # "should i lie to protect a friend" / "explain quantum computing like
+        # i'm five" contain a first-person token ("i"/"i'm") and an affect-adjacent
+        # word ("friend"/"like"), so the downstream VAD scan misreads them as a
+        # positive disclosure and routes them to empathy. They are NOT
+        # disclosures: one is a moral QUESTION, the other an IMPERATIVE ELI5
+        # request whose "i'm five" is a simile, not a state. The process_turn
+        # frame-guard used to strip these, but _generate_response re-runs this
+        # detector and returned empathy anyway — the guard was defeated by
+        # re-detection. So the guard must live HERE, in the detector itself, so
+        # every call site is consistent and fail-closed. A self-report is, by
+        # construction, a declarative assertion; anything that asks or commands
+        # is NOT one. Distribution-driven, not a fixed keyword list of topics.
+        _tokens0 = re.findall(r"[a-z']+", text)
+        _first = _tokens0[0] if _tokens0 else ""
+        _is_interrogative = (
+            text.rstrip().endswith("?")
+            or _first in ("what", "who", "whom", "which", "when", "where",
+                          "why", "how", "can", "could", "should", "would",
+                          "do", "does", "did", "is", "are", "was", "were",
+                          "will", "may", "might", "shall", "am", "have",
+                          "has", "had")
+            # "... like i'm five" / "as if i'm ..." — ELI5 / simile framing, not
+            # a real self-state declaration. The "i'm" is the target of a
+            # comparison, never the speaker's reported feeling.
+            or bool(re.search(
+                r"\b(like|as if|as though)\s+(i'm|i am|i feel)\b", text))
+        )
+        # Imperative creative/request frame ("write me a poem", "tell me about
+        # X", "explain X") addresses the AGENT, not the speaker's affect.
+        _is_imperative_req = bool(re.search(
+            r"\b(write|tell|create|make|imagine|describe|teach|draw|compose|"
+            r"give|explain|show|help|suggest|recommend|list|summar\w*|generate)\b",
+            text))
+        if _is_interrogative or _is_imperative_req:
+            return None
         # First-person bereavement / loss schema (brain-faithful loss
         # detector). Death/grief words ("died", "death", "grief", "passed
         # away", "lost" in a loss sense) are often ABSENT from the VAD lexicon,

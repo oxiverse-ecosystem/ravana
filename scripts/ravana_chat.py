@@ -118,9 +118,12 @@ def main():
     parser.add_argument("--no-beliefs", action="store_true", help="Disable belief store")
     parser.add_argument("--no-curiosity", action="store_true", help="Disable autonomous curiosity-driven learning")
     parser.add_argument("--snippet-pe", action="store_true",
-                        help="Enable Track B Phase 2 learned snippet-quality model "
+                        help="Force-enable Track B Phase 2 learned snippet-quality model "
                              "(structural prediction-error gate) for web snippets. "
-                             "Off by default; hardcoded filters remain the backstop.")
+                             "ON by default now; pass --no-cerebellar-snippet to disable.")
+    parser.add_argument("--no-cerebellar-snippet", action="store_true",
+                        help="Disable the learned snippet-quality model (revert to the "
+                             "hardcoded _SNIPPET_REJECT_SHAPES backstop only).")
     parser.add_argument("--source-trust", action="store_true",
                         help="Enable Track B Phase 3 learned per-domain source-trust "
                              "(replaces the hardcoded preferred-source allowlist). "
@@ -129,19 +132,28 @@ def main():
                         help="Enable Track B Phase 5 learned distributional POS "
                              "(replaces the hardcoded function-word set). "
                              "Off by default; the hardcoded set remains the backstop.")
+    parser.add_argument("--intent-router", action="store_true",
+                        help="Enable Stage 3 M-A Semantic Prototype Router "
+                             "(replaces the ~15 hardcoded routing regex/lists "
+                             "with one learned centroid router). Off by default; "
+                             "the regex path stays the fallback for uncertain routes.")
+
     parser.add_argument("--conceptnet-primary", action="store_true",
                         help="Enable Track B Phase 6 ConceptNet as the primary "
                              "frontopolar feasibility gate (replaces the literal "
                              "category tables). Off by default; the literal dicts "
                              "remain the fallback when ConceptNet is silent.")
+
     parser.add_argument("--register", type=str, default="default",
                         choices=["default", "confident", "cautious", "verbose", "terse"],
                         help="P6: epistemic register (roadmap #12) — one knob for "
                              "confidence/verbosity/curiosity. 'terse' suppresses "
                              "on-demand retrieval + sourced-evidence clauses.")
+
     parser.add_argument("--mode", type=str, default="stochastic", choices=["stochastic", "deterministic", "exploratory"],
                         help="Reasoning mode: stochastic (default), deterministic (reproducible), exploratory (high-temp)")
     parser.add_argument("--debug", action="store_true", help="Print debug tracebacks for exceptions")
+
 
     parser.add_argument("--user", type=str, default=None,
                         help="User name for multi-user isolation (creates user-specific save files)")
@@ -189,7 +201,10 @@ def main():
     if args.no_curiosity:
         engine._curiosity_drive_enabled = False
         print('  [Curiosity] Autonomous learning disabled')
-    if args.snippet_pe:
+    if args.no_cerebellar_snippet:
+        engine.use_cerebellar_snippet = False
+        print('  [Snippets] learned structural-PE gate DISABLED (hardcoded backstop only)')
+    elif args.snippet_pe:
         engine.use_cerebellar_snippet = True
         print('  [Snippets] Track B Phase 2 learned structural-PE gate ENABLED')
     if args.source_trust:
@@ -198,7 +213,10 @@ def main():
     if args.learned_pos:
         engine.use_learned_pos = True
         print('  [POS] Track B Phase 5 learned distributional POS ENABLED')
-    if args.conceptnet_primary:
+    if args.intent_router:
+        engine.use_intent_router = True
+        print('  [Router] Stage 3 M-A Semantic Prototype Router ENABLED')
+
         engine.use_conceptnet_primary = True
         print('  [Ontology] Track B Phase 6 ConceptNet-primary gate ENABLED')
 

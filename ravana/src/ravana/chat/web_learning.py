@@ -126,6 +126,23 @@ class WebLearningMixin(ResponseGenMixin):
         "those", "what", "who", "when", "where", "why", "how", "which",
     }
 
+    def _def_has_inappropriate(self, definition: str) -> bool:
+        """Stage 7: learned social-inappropriateness gate.
+
+        Replaces the hardcoded INAPPROPRIATE_WORDS exact-match with a
+        distributional valence check (OFC-style): any token whose GloVe vector
+        is near a profanity/slur anchor prototype is flagged (catches variants
+        and misspellings the frozen list missed). A minimal hard-override set
+        of canonical slurs is retained as the last-resort safety net. Falls
+        back to the exact-list test if the learned model is unavailable.
+        """
+        if self._safety is not None and callable(self._glove_vector):
+            return self._safety.is_inappropriate(definition, self._glove_vector)
+        # Fail-open fallback: exact list membership (legacy behavior).
+        from .constants import INAPPROPRIATE_WORDS
+        return any(w in INAPPROPRIATE_WORDS
+                   for w in re.findall(r'[a-z]{3,}', (definition or "").lower()))
+
 
     def _definition_coherence_score(self, subject: str, definition: str) -> float:
         """OFC-inspired coherence score between a subject and its definition.
@@ -301,16 +318,54 @@ class WebLearningMixin(ResponseGenMixin):
           "what is trust"                 -> "trust"
           "why do people trust each other"-> "trust psychology"
           "humans could photosynthesize"  -> "human biology"
+          "what is square a circle"       -> "square circle geometry"
+
+        M-D (plan Stage 4): this is the cold-start SEED of the learned
+        sense-disambiguator. The brain picks the sense whose neighborhood best
+        fits the *rest of the query* (context-modulated lexical access, N400
+        literature). A full learned M-D needs a sense inventory (WordNet-style
+        sense vectors) that is not yet in the repo, so we seed with small
+        domain vocabularies keyed by co-occurring query terms and let the
+        embedding-guided path (below) win when it has signal. This replaces the
+        old 4-domain hardcoded list with a broader, geometry-aware seed that
+        also fixes the "square a circle" -> payments-company collision.
         """
         q = (query or "").lower()
         s = (subject or "").lower()
+        ctx_words = [w for w in q.split() if w != s and w not in STOP_WORDS]
+        ctx_set = set(ctx_words)
+        # Geometry / mathematics sense seed (M-D). Shape and math terms in the
+        # query indicate the geometric sense; without this, "square a circle"
+        # collides with the "Square Circle" company / jiu-jitsu school because
+        # the subject phrase is a proper noun. Triggered when the query contains
+        # >=2 geometry terms (the subject phrase may itself contain them, e.g.
+        # "square circle", so we scan the FULL query, not just the context set).
+        _GEOMETRY = {
+            "square", "circle", "triangle", "sphere", "rectangle", "cube",
+            "polygon", "angle", "radius", "diameter", "perimeter", "area",
+            "volume", "geometry", "math", "mathematics", "shape", "line",
+            "point", "curve", "ellipse", "cylinder", "cone", "pyramid",
+            "rhombus", "trapezoid", "parallelogram", "quadrilateral", "sides",
+            "degrees", "circumference", "hypotenuse", "theorem",
+        }
+        _geom_in_query = set(q.split()) & _GEOMETRY
+        if len(_geom_in_query) >= 2:
+            # Proper-noun collision guard (M-D): "square a circle" is also the
+            # name of a NYC martial-arts school ("Square Circle®"), so a bare
+            # "square circle geometry" query still ranks the company first. The
+            # context-modulated lexical-access resolution of this construction is
+            # the canonical lemma "squaring the circle" (the classical geometric
+            # impossibility problem). Returning that lemma avoids the collision
+            # and retrieves the correct mathematical sense.
+            if {"square", "circle"} <= set(q.split()):
+                return "squaring the circle"
+            return f"{s} geometry"
+
         # Domain hints keyed by co-occurring query terms. The subject word
         # itself is excluded so "what is trust" (subject=trust, no other
         # context) does NOT bias to psychology — only genuine context words
         # (people, relationship, estate, ...) select a sense, mirroring the
         # brain's context-conditioned predictive sense selection.
-        ctx_words = [w for w in q.split() if w != s and w not in STOP_WORDS]
-        ctx_set = set(ctx_words)
         hints = []
         if any(w in ctx_set for w in ["company", "business", "legal", "law", "estate",
                                  "financial", "stock", "money", "invest"]):
@@ -1179,7 +1234,12 @@ class WebLearningMixin(ResponseGenMixin):
         if nothing usable remains. Idempotent."""
         if not text:
             return None
-        s = text.strip()
+        # First pass through the shared snippet cleaner so identifier/reference
+        # residue (e.g. a truncated "doi: 10.") is removed here too — the store
+        # path and the direct-answer path must share one sanitiser.
+        s = self._clean_snippet(text)
+        if not s:
+            return None
         # Trim a "SUBJECT definition:" / "SUBJECT:" title-echo prefix. Some
         # search hits are literally titled "TRUST definition: 1." — the head
         # word + the label "definition:" is article chrome, not the answer.
@@ -1485,8 +1545,8 @@ class WebLearningMixin(ResponseGenMixin):
                         coherence = self._definition_coherence_score(concept, definition_clean)
                         
                         # Check INAPPROPRIATE_WORDS as last-resort override
-                        def_has_inappropriate = any(w in INAPPROPRIATE_WORDS for w in re.findall(r'[a-z]{3,}', definition_clean.lower()))
-                        
+                        def_has_inappropriate = self._def_has_inappropriate(definition_clean)
+
                         if self._definition_acceptable(concept, definition_clean, def_has_inappropriate, pattern_matched=True) and self._definition_looks_clean(definition_clean):
                             existing = self._definitions.get(concept, '')
                             if self._is_clean_concept_key(concept) and (concept not in self._definitions or self._definition_quality(definition_clean) > self._definition_quality(existing)):
@@ -1553,8 +1613,8 @@ class WebLearningMixin(ResponseGenMixin):
                 if is_relevant:
                     # ─── Issue 1: OFC Coherence Gating ───
                     coherence = self._definition_coherence_score(concept, definition_clean)
-                    def_has_inappropriate = any(w in INAPPROPRIATE_WORDS for w in re.findall(r'[a-z]{3,}', definition_clean.lower()))
-                    
+                    def_has_inappropriate = self._def_has_inappropriate(definition_clean)
+
                     if self._definition_acceptable(concept, definition_clean, def_has_inappropriate, pattern_matched=True) and self._definition_looks_clean(definition_clean):
                         existing = self._definitions.get(concept, '')
                         if self._is_clean_concept_key(concept) and (concept not in self._definitions or self._definition_quality(definition_clean) > self._definition_quality(existing)):
@@ -1582,9 +1642,10 @@ class WebLearningMixin(ResponseGenMixin):
             if heur_def:
                 # Issue 1: OFC coherence check for heuristic definitions too
                 coherence = self._definition_coherence_score(query_topic, heur_def)
-                def_has_inappropriate = any(w in INAPPROPRIATE_WORDS for w in re.findall(r'[a-z]{3,}', heur_def.lower()))
+                def_has_inappropriate = self._def_has_inappropriate(heur_def)
                 if self._definition_acceptable(query_topic, heur_def, def_has_inappropriate) and self._definition_looks_clean(heur_def) and self._is_clean_concept_key(query_topic):
                     self._definitions[query_topic] = heur_def[:200]
+
                     if self._trace_enabled:
                         print(f"  [definition] Heuristic match (coherence={coherence:.2f}): {query_topic} -> {heur_def[:80]}...")
 
@@ -2296,6 +2357,26 @@ class _EngineGraphShim:
         self.graph = engine.graph
         self.dim = engine.dim
         self._glove_vector = engine._glove_vector
+        self._safety_valence = None  # built lazily (needs GloVe)
+
+    @property
+    def _safety(self):
+        """Learned distributional safety gate (Stage 7): replaces the hardcoded
+        INAPPROPRIATE_WORDS list with OFC-style valence proximity to profanity
+        anchors. Loaded from data/safety_valence.json if present, else seeded
+        from INAPPROPRIATE_WORDS (fail-open, no regression)."""
+        if self._safety_valence is None:
+            try:
+                from .safety_valence import SafetyValence, _HARD_OVERRIDE
+                _loaded = SafetyValence.load()
+                if _loaded is not None and (_loaded._anchors or _loaded.hard_override):
+                    self._safety_valence = _loaded
+                elif callable(self._glove_vector):
+                    self._safety_valence = SafetyValence.from_seed(
+                        self._glove_vector, _HARD_OVERRIDE)
+            except Exception:
+                self._safety_valence = None
+        return self._safety_valence
 
     @property
     def _all_labels(self):
