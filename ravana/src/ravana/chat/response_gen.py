@@ -2647,11 +2647,29 @@ class ResponseGenMixin(ChainWalkerMixin):
                 "i am okay",
                 "i'm doing alright, just a bit quiet today",
             ])
-            reciprocity = random.choice([
-                "how are you?",
-                "what do you need?",
-                "how can i assist?",
-            ])
+            # Repair plan D (weakness D): a teenage self answers "how are you"
+            # with a self-state reflection, NOT a service-script tail. Service
+            # language ("how can i assist?", "what do you need?") only belongs
+            # in an explicit assistant configuration — gate it behind the
+            # epistemic register so the default/teen persona never bleeds
+            # customer-support phrasing. Brain basis: self-attributes are
+            # colored by affect (D'Argembeau 2013) but a teen offers STATE, not
+            # assistance.
+            _reg = getattr(self, "epistemic_register", "default")
+            if _reg in ("verbose", "terse") or getattr(self, "use_vad", True) is False:
+                # Assistant-configured modes may offer help, but still keep it
+                # framed as a question, never an imperative "assist".
+                reciprocity = random.choice([
+                    "how are you?",
+                    "what is on your mind?",
+                    "how can i help?",
+                ])
+            else:
+                reciprocity = random.choice([
+                    "how are you?",
+                    "what is on your mind?",
+                    "what about you — how's your day going?",
+                ])
         else:
             state = random.choice([
                 "i am doing well",
@@ -4212,6 +4230,18 @@ class ResponseGenMixin(ChainWalkerMixin):
         if not lines:
             return None
         body = "; ".join(lines[:3])
+        # Fail-closed coherence gate (A6): the generic path assembles a
+        # causal narrative from the subject's LOCAL definition words. If that
+        # narrative is degenerate (placeholder/junk endpoints like
+        # "claims would lead to results"), withhold it so the caller
+        # falls through to honest uncertainty rather than emitting garbage.
+        _gen_text = f"if {subj_cap.lower()} were different, {body}."
+        try:
+            _g, _gr = self._causal_narrative_degenerate(_gen_text)
+        except Exception:
+            _g, _gr = False, "deg_skip"
+        if _g:
+            return None
         return (f"{lead} {body}.", "counterfactual_simulation")
 
     # ── Work A0: structured relation retrieval BEFORE web (cheap, grounded) ──
@@ -4268,6 +4298,47 @@ class ResponseGenMixin(ChainWalkerMixin):
                     _prev = _nxt
             if not _content_found:
                 return None
+        # Phase 20c (L5 fail-closed): the HRR/graph accrues
+        # SPURIOUS temporal edges from noisy web/KB learning
+        # such as "humans comes before animal". These are
+        # distributional association artifacts, not real
+        # orderings, and surfacing them as "X comes before
+        # Y" is fluent garbage. Reject a temporal-only answer
+        # whose recovered chain is semantically implausible: every
+        # hop must be a CONTENTFUL typed edge (the check above
+        # already requires at least one), AND the terminal endpoint
+        # must not be a generic noun (a real ordering names a
+        # concrete concept, not "animal"/"thing"). Fail-closed ->
+        # None so the caller falls through to honest uncertainty / web.
+        if _rel == "temporal":
+            _end = chain[-1] if chain else None
+            _end_generic = (_end in getattr(self, "_GENERIC_NOUNS", set()))
+            _all_content = True
+            _p = target
+            for _n in chain:
+                if not self._relation_has_contentful_edge(_p, _n):
+                    _all_content = False
+                    break
+                _p = _n
+            if _end_generic or not _all_content:
+                return None
+            # Distributional plausibility gate (adaptive, no hardcoded
+            # table): a real temporal ordering names a terminal
+            # concept that is SEMANTICALLY RELATED to the subject
+            # (a genuine subsequent stage), not a random GloVe neighbor
+            # the HRR chain happened to walk into. If the subject
+            # and the terminal endpoint are distributionally unrelated
+            # (cosine below a low floor), the chain is a spurious
+            # association -> refuse (fall through to honest / web).
+            _gv = getattr(self, "_glove_vector", None)
+            if callable(_gv) and _end:
+                _sv, _ev = _gv(target), _gv(_end)
+                if _sv is not None and _ev is not None:
+                    _n = (np.linalg.norm(_sv) * np.linalg.norm(_ev))
+                    if _n > 0:
+                        _cos = float(np.dot(_sv, _ev) / _n)
+                        if _cos < 0.10:
+                            return None
         # ── Fix 1 (Q7): NEVER interpolate the raw relation_type token
         # ("semantic"/"causal"/"contrastive"/…) into the phonology stream — that
         # is the semantic-dementia analog where an amodal ATL relation tag leaks
@@ -5071,6 +5142,72 @@ class ResponseGenMixin(ChainWalkerMixin):
         return self._graph_fallback_response(ctx)
 
 
+    def _temporal_subanswer_junk(self, subject: str, text: str) -> bool:
+        """Fail-closed check: is `text` a spurious temporal-HRR artifact?
+
+        Brain basis: a real temporal ordering ("X comes before Y") names a
+        terminal concept that is a GENUINE subsequent stage of X — i.e.
+        semantically related to X (prediction-consistent, low prediction
+        error). A spurious HRR chain ("humans comes before animal") walks
+        into an unrelated noun; surfacing it as a fluent consequence is the
+        same fluent-garbage failure mode the ACC->AI coherence filter
+        (Operskalski & Barbey 2016) must catch.
+
+        Adaptive (no hardcoding): reject when (a) the text is a bare
+        "X comes before Y" temporal observation AND (b) the subject and the
+        terminal Y are distributionally unrelated (GloVe cosine < 0.10) OR
+        Y is a known generic noun. If GloVe is unavailable, fail OPEN (do not
+        censor) so we never delete a possibly-valid answer.
+        """
+        if not text or not subject:
+            return False
+        _m = re.search(r"\b(\w+)\s+comes before\s+(\w+)\b", text.lower())
+        if not _m:
+            return False
+        _end = _m.group(2)
+        if _end in getattr(self, "_GENERIC_NOUNS", set()):
+            return True
+        # A real temporal ordering ("X comes before Y") must be GROUNDED in a
+        # genuine predicate edge between X and Y (causal / part-of / process /
+        # belongs_to / ...) — not merely a "comes_before" / "temporal" edge,
+        # which is itself the artifact we are trying to suppress (the HRR
+        # graph accrues spurious "comes_before" edges from noisy web/KB
+        # learning, e.g. "humans comes before animal"). So we require a
+        # contentful edge whose relation type is NOT temporal/comes-before
+        # and NOT a vacuous distributional relation. Fail OPEN (return False,
+        # keep) when we cannot resolve the nodes / no graph is present, so we
+        # never delete a possibly-valid answer.
+        _g = getattr(self, "graph", None)
+        _ck = getattr(self, "_concept_keywords", {})
+        if _g is None:
+            return False
+        try:
+            def _resolve(label):
+                ids = list(_ck.get((label or "").lower(), []))
+                if not ids:
+                    for nid, node in _g.nodes.items():
+                        if node is not None and (node.label or "").lower() == (label or "").lower():
+                            ids.append(nid)
+                return ids
+            _s_ids = _resolve(subject)
+            _e_ids = set(_resolve(_end))
+            if not _s_ids or not _e_ids:
+                return False
+            _REAL = {"semantic", "related", "", "comes_before", "temporal", "comes before"}
+            for _sid in _s_ids:
+                for _tid, _edge in _g.get_outgoing(_sid):
+                    if _tid in _e_ids and (_edge.relation_type or "").lower() not in _REAL:
+                        return False  # genuine predicate -> keep
+            for _oid in _e_ids:
+                for _tid, _edge in _g.get_outgoing(_oid):
+                    if _tid in set(_s_ids) and (_edge.relation_type or "").lower() not in _REAL:
+                        return False
+        except Exception:
+            return False
+        # Only temporal/comes-before/distributional links (or none) exist ->
+        # spurious temporal artifact -> refuse.
+        return True
+
     def _decomposition_generation_path(self, ctx: CognitiveResponseContext) -> Optional[Tuple[str, str]]:
         """Generate a multi-perspective response using question decomposition.
         
@@ -5155,19 +5292,30 @@ class ResponseGenMixin(ChainWalkerMixin):
                 try:
                     structured = self._structured_fact_answer(sq_target, sq_rel)
                     if structured:
-                        sq.is_answered = True
-                        sq.answer = structured
-                        # A structured relation answer is recovered from the
-                        # grounded HRR/graph store, so it is high-confidence.
-                        # Must set sq.confidence here: it defaults to 0.0 and the
-                        # emit gate below requires confidence >= 0.5, so leaving
-                        # it unset would reject every structurally-answered
-                        # sub-question and collapse the whole decomposed answer
-                        # to honest-uncertainty (a real regression — see
-                        # test_decomposition_drops_degenerate_subanswer_keeps_good).
-                        sq.confidence = 0.8
-                        answered_sqs.append(sq)
-                        continue
+                        # Phase 20c (L5 fail-closed): a structured temporal
+                        # answer recovered from the HRR/graph store can still
+                        # be a spurious association ("humans comes before
+                        # animal") with no contentful grounding. Refuse it so
+                        # the sub-question stays unanswered and falls through
+                        # to web / honest uncertainty instead of emitting
+                        # fluent garbage (the ACC->AI coherence filter,
+                        # Operskalski & Barbey 2016).
+                        if self._temporal_subanswer_junk(sq_target, structured):
+                            structured = None
+                        if structured:
+                            sq.is_answered = True
+                            sq.answer = structured
+                            # A structured relation answer is recovered from the
+                            # grounded HRR/graph store, so it is high-confidence.
+                            # Must set sq.confidence here: it defaults to 0.0 and the
+                            # emit gate below requires confidence >= 0.5, so leaving
+                            # it unset would reject every structurally-answered
+                            # sub-question and collapse the whole decomposed answer
+                            # to honest-uncertainty (a real regression — see
+                            # test_decomposition_drops_degenerate_subanswer_keeps_good).
+                            sq.confidence = 0.8
+                            answered_sqs.append(sq)
+                            continue
                 except Exception:
                     pass
 
@@ -5290,10 +5438,28 @@ class ResponseGenMixin(ChainWalkerMixin):
                     pass
             
             if answer_text:
-                sq.answer = answer_text
-                sq.confidence = answer_conf
-                sq.is_answered = True
-                answered_sqs.append(sq)
+                # Phase 20c (L5 fail-closed): the decomposition path can
+                # recover a spurious temporal HRR chain ("humans comes
+                # before animal") for a hypothetical/conditional query and
+                # surface it as a fluent "immediate effect would be ..."
+                # clause. This is a distributional association artifact,
+                # not a real consequence. Refuse it here (do NOT mark the
+                # sub-question answered) so it drops out of the synthesis
+                # and the reply falls through to honest uncertainty / web
+                # rather than emitting fluent garbage. Uses an adaptive
+                # semantic-plausibility check (GloVe cosine of subject vs
+                # chain endpoint) — no fixed fact table.
+                if sq_rel == "temporal" and self._temporal_subanswer_junk(
+                        sq_target or ctx.subject or "", answer_text):
+                    if getattr(self, '_trace_enabled', False):
+                        print(f"  [decomp-gen] temporal-junk sub-answer refused: "
+                              f"{answer_text[:60]}")
+                    answer_text = ""
+                if answer_text:
+                    sq.answer = answer_text
+                    sq.confidence = answer_conf
+                    sq.is_answered = True
+                    answered_sqs.append(sq)
             if getattr(self, '_trace_enabled', False):
                 print(f"  [decomp-gen]     answer: {answer_text[:60] if answer_text else 'NONE'}...")
         
@@ -5383,6 +5549,32 @@ class ResponseGenMixin(ChainWalkerMixin):
                 synthesis_text = " ".join(parts)
         if not synthesis_text:
             return None
+
+        # Repair plan B (weakness B): the web-answer closer ("let me know if you
+        # want more detail." / "(that's what i found, at least.)") is emitted
+        # PER web snippet, so a decomposition that stitches several sub-answers
+        # repeats the same canned clause — a speech-plan template, not reasoning.
+        # Strip every occurrence from the stitched text, then re-append exactly
+        # ONE closer at the end if any were present, so the answer reads as a
+        # single composed utterance. Brain basis: the brain emits one
+        # conversational close per reply, not one per retrieved fragment.
+        _CLOSERS = (
+            "let me know if you want more detail",
+            "that's what i found, at least",
+            "hope that helps",
+        )
+        _had_closer = any(_c in synthesis_text.lower() for _c in _CLOSERS)
+        for _c in _CLOSERS:
+            _idx = synthesis_text.lower().find(_c)
+            while _idx != -1:
+                _end = _idx + len(_c)
+                synthesis_text = synthesis_text[:_idx] + synthesis_text[_end:]
+                _idx = synthesis_text.lower().find(_c)
+        synthesis_text = re.sub(r"\s+", " ", synthesis_text).strip()
+        if _had_closer and synthesis_text and not synthesis_text.endswith((".", "!", "?")):
+            synthesis_text += ". let me know if you want more detail."
+        elif _had_closer and synthesis_text:
+            synthesis_text += " let me know if you want more detail."
 
         # ── Reality-monitoring gate (anterior PFC / Johnson source-monitoring) ──
         # The decomposition path otherwise returns BEFORE the ACC/ERN
@@ -5630,9 +5822,14 @@ class ResponseGenMixin(ChainWalkerMixin):
         generic placeholder is incoherent.
         Step 2 (tautology, vLPFC analog): the realized chain's endpoints must
         not collapse to the subject itself or to each other.
+        Step 3 (junk-endpoint, AI analog): reject when the realized chain
+        leans on known garbage endpoints that the graph accrues from noisy
+        web/KB edges ("comes before occur", "comes before known",
+        "would lead to results/conditions/claims") — these are distributional
+        artifacts, not real consequences, and must never reach the surface.
         """
         if not text or not text.strip():
-            return True, ""
+            return True, "empty"
         _low = text.lower()
         # Find candidate endpoints: words following "leads to" / "would lead to"
         # and words after "is unlike" / "unlike".
@@ -5643,10 +5840,17 @@ class ResponseGenMixin(ChainWalkerMixin):
         for cl in re.split(r"[.;]", _low):
             for m in re.finditer(r"\b(?:leads? to|is|are|was|were)\s+([a-z']+)\s*$", cl.strip()):
                 _endpoints.append(m.group(1))
-        # Step 1: placeholder endpoint check
+        # Step 1 + 3: placeholder / junk endpoint check
         for ep in _endpoints:
             if ep in self._CAUSAL_PLACEHOLDERS:
                 return True, f"placeholder_endpoint:{ep}"
+        # Step 3 (junk chains): rule-derived cues for clear garblings.
+        # "comes before occur" / "comes before known" are the HRR temporal-
+        # edge artifacts (none-vector endpoints) — never a real fact.
+        if re.search(r"\bcomes before (?:occur|occurs|known|results|conditions|nothing)\b", _low):
+            return True, "junk_temporal_chain"
+        if re.search(r"\bwould lead to (?:results|conditions|claims|occur|known)\b", _low):
+            return True, "junk_causal_chain"
         # Step 2: tautological self-loop — the realized chain names no concrete
         # novel concept beyond the subject + glue. Detect when, after removing
         # relation glue, the distinct content words are <= 2 (e.g. only the
@@ -5655,13 +5859,13 @@ class ResponseGenMixin(ChainWalkerMixin):
                     if w not in self._CAUSAL_PLACEHOLDERS
                     and w not in STOP_WORDS
                     and w not in ("is", "are", "was", "were", "be", "been",
-                                  "being", "to", "of", "in", "on", "for", "and",
-                                  "or", "but", "that", "this", "it", "its",
-                                  "leads", "unlike", "relates", "relate",
-                                  "would", "could", "should", "turn", "in",
-                                  "than", "as", "at", "by", "from", "with")]
+                                 "being", "to", "of", "in", "on", "for", "and",
+                                 "or", "but", "that", "this", "it", "its",
+                                 "leads", "unlike", "relates", "relate",
+                                 "would", "could", "should", "turn", "in",
+                                 "than", "as", "at", "by", "from", "with")]
         if len(set(_content)) <= 1:
-            return True, f"tautological:self_loop"
+            return True, "tautological:self_loop"
         return False, "causal_coherent"
 
 

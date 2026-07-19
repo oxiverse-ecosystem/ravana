@@ -1,0 +1,50 @@
+{
+  "item": "SCHEMA",
+  "substrate": "utterance-generation path coverage",
+  "template_subjects_total": 13,
+  "template_subjects": [
+    "change",
+    "communication",
+    "creativity",
+    "friendship",
+    "growth",
+    "hope",
+    "knowledge",
+    "learning",
+    "life",
+    "love",
+    "respect",
+    "trust",
+    "truth"
+  ],
+  "vsa_syn_structures": [
+    [
+      "subject",
+      "verb",
+      "object"
+    ],
+    [
+      "subject",
+      "verb",
+      "object",
+      "adverb"
+    ],
+    [
+      "subject",
+      "verb"
+    ],
+    [
+      "adverb",
+      "subject",
+      "verb",
+      "object"
+    ]
+  ],
+  "vsa_event_subjects_total": 0,
+  "vsa_event_subjects": [],
+  "battery_path_counts": {
+    "TEMPLATE": 13,
+    "FREE_ASSOC": 12
+  },
+  "verdict": "13 subjects served by HARDCODED EventSchema templates; 0 by VSA event schemas (SchemaLibrary currently has only syntactic SVO schemas). Baseline established: template path is the primary narrative generator and must be replaced by VSA event schemas in Phase 2."
+}

@@ -9,11 +9,14 @@ import ravana._numpy_threading  # noqa: F401  (side-effect: thread + faulthandle
 import sys
 import os
 import time
+import random
 import json
 import re
 import hashlib
+import socket
 import urllib.request
 from urllib.parse import quote
+from urllib.error import URLError
 import threading
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Any, Set, Tuple
@@ -105,6 +108,21 @@ class SearchConfig:
     # This closes the silent-failure root cause where a known subject with hollow
     # graph edges is answered from the graph instead of being web-searched.
     fallback_on_empty: bool = True
+    # Phase 20a: transient-retry budget INSIDE a single fetch. The local
+    # engine (SearXNG on localhost:4000) intermittently aborts/refuses a
+    # fraction of real requests (ConnectionAborted / RemoteDisconnected /
+    # per-call timeout) but answers the very next attempt fine. The OLD code
+    # counted every such blip as a circuit-breaker failure, so ~5 flaky
+    # aborts blacked out the only backend for the full cooldown -> bare
+    # SearchError -> "couldn't verify from web". Brain-analog: a dropped
+    # sensory packet is a transient, re-requested, NOT evidence the channel
+    # is dead. Retry transient errors with jittered backoff BEFORE recording
+    # a breaker failure, so the breaker only trips on a sustained true outage.
+    transient_retries: int = 5
+    # Whole-search hard wall-clock deadline (seconds). Resilient retries share
+    # this budget; the join+retry loop self-terminates when it is exhausted so
+    # a stalled engine can NEVER block the user turn past this.
+    search_deadline: float = 14.0
 
 
 class SearchError(Exception):
@@ -197,23 +215,66 @@ class SearchEngine:
         timeout. Running the fetch in a thread and ``join(timeout)`` guarantees
         the call can never exceed ``timeout`` seconds, so the turn can't hang.
 
+        Phase 20a (transient resilience): the local engine (SearXNG on
+        localhost:4000) intermittently ABORTS a fraction of real requests
+        (ConnectionAborted / RemoteDisconnected / per-call timeout) but
+        answers the very next attempt fine. The OLD code counted every abort
+        as a circuit-breaker failure, so ~5 flaky aborts blacked out the
+        only backend -> bare SearchError -> "couldn't verify from web".
+        We now retry transient aborts at the OUTER (join-visible) level with a
+        short per-ATTEMPT deadline and jittered backoff, bounded by the
+        turn deadline, so the retries are absorbed BEFORE the breaker is
+        touched. A single attempt that stalls past its per-attempt deadline is
+        an implicit transient failure and is retried too. Only a *sustained*
+        failure (exceeds the retry budget, or a non-transient error) is
+        returned as an error to the breaker.
+
         Returns ``(thread, result_dict)`` where ``result_dict`` is either
         ``{'v': <list>}`` on success or ``{'err': <exception>}`` on failure.
-        If the thread is still alive after the join, the fetch stalled — the
-        caller should treat it as a failure and consult the next API.
+        If the final attempt's thread is still alive after the join, the fetch
+        stalled -> the caller treats it as a failure and consults the next API.
         """
-        _fetch_res = {}
+        _TRANSIENT = (
+            ConnectionError, ConnectionAbortedError, ConnectionResetError,
+            urllib.error.URLError, TimeoutError, socket.timeout,
+            BrokenPipeError,
+        )
+        _attempts = 1 + getattr(self.config, 'transient_retries', 3)
+        # Per-attempt deadline: short enough to absorb an instant abort and
+        # re-request, but capped so the whole retry loop can never exceed
+        # the caller's turn deadline. We hard-cap it at 4s so a single
+        # stalled attempt can't eat the entire search budget.
+        _per_attempt = min(timeout, 4.0)
+        _fetch_res: Dict[str, Any] = {}
 
         def _do_fetch():
             try:
                 _fetch_res['v'] = self._call_api(api_name, url, timeout, max_results)
-            except Exception as _fe:  # noqa: BLE001 - we re-raise via dict
+            except _TRANSIENT as _fe:
+                # Transient: let the outer loop retry (don't record to breaker).
+                _fetch_res['transient'] = _fe
+            except Exception as _fe:  # noqa: BLE001 - non-transient (e.g. JSON decode)
                 _fetch_res['err'] = _fe
 
-        _ft = threading.Thread(target=_do_fetch, daemon=True)
-        _ft.start()
-        _ft.join(timeout)
-        return _ft, _fetch_res
+        for _k in range(_attempts):
+            _fetch_res.clear()
+            _ft = threading.Thread(target=_do_fetch, daemon=True)
+            _ft.start()
+            _ft.join(_per_attempt)
+            if not _ft.is_alive() and 'err' not in _fetch_res and 'transient' not in _fetch_res:
+                # Clean success (or authoritative empty/non-transient path handled
+                # by caller). Return immediately.
+                return _ft, _fetch_res
+            # Transient failure or stall -> back off and retry (bounded by caller).
+            _wait = min(0.05 + 0.10 * _k + random.uniform(0.0, 0.05), 0.4)
+            if _k < _attempts - 1:
+                time.sleep(_wait)
+        # Exhausted retries: surface the last error (transient or non-transient)
+        # so the caller records exactly one breaker failure for a sustained outage.
+        if 'err' in _fetch_res:
+            return None, {'err': _fetch_res['err']}
+        # Last attempt stalled (thread still alive) or transient-exhausted.
+        return None, {'err': _fetch_res.get('transient', TimeoutError("fetch stalled"))}
 
     def search(self, query: str, max_results: int = 10,
                 local_only: bool = False) -> List[Dict[str, Any]]:
@@ -294,58 +355,53 @@ class SearchEngine:
                         break
                 query_encoded = quote(api_query)
                 url = "http://localhost:4000/search?q={}".format(query_encoded)
-                # Transient-retry: local_api's intermittent stall/remote-close
-                # (~15-20% of requests under load) is almost always a one-off —
-                # the very next attempt usually succeeds (verified: 15/15
-                # sequential calls succeed). A bounded retry absorbs these
-                # blips so they don't trip the circuit breaker and black out
-                # the only working backend. CRITICAL: the retry must respect the
-                # turn-level deadline — split the REMAINING budget across
-                # attempts so 2 tries can never exceed the deadline (otherwise a
-                # single stall costs 2x local_timeout and blows the whole turn).
-                _fetch_res = None
-                _ft = None
-                _n_attempts = 1 + self.config.local_retries
-                for _attempt in range(_n_attempts):
-                    _budget_left = _search_deadline - time.time()
-                    if _budget_left <= 0.5:
-                        break  # no time left for another attempt
-                    # Each attempt gets an equal slice of the remaining budget
-                    # (capped at local_timeout), so the loop self-terminates.
+                # Phase 20a: transient-retry now lives INSIDE
+                # _threaded_fetch (outer-level, per-attempt deadline +
+                # jittered backoff, bounded so it can't blow the turn
+                # deadline). So this is a single call; a sustained
+                # outage surfaces as one breaker failure. The local
+                # engine's measured ~30-50% abort rate is absorbed
+                # inside _threaded_fetch WITHOUT tripping the breaker,
+                # which is exactly the fix (previously each abort was a
+                # breaker failure -> blackout -> "couldn't verify from web").
+                _budget_left = _search_deadline - time.time()
+                if _budget_left > 0.5:
+                    # Per-attempt deadline = min(local_timeout, remaining
+                    # budget). _threaded_fetch spends this across its
+                    # internal retries, so the whole call self-terminates.
                     _att_timeout = min(self.config.local_timeout,
-                                       max(1.0, _budget_left / (_n_attempts - _attempt)))
+                                           max(1.0, _budget_left))
                     _ft, _fetch_res = self._threaded_fetch(
                         "local_api", url, int(_att_timeout), max_results)
-                    if not _ft.is_alive() and 'err' not in _fetch_res:
-                        break  # success or empty — no need to retry
-                    # transient (stall or error): retry if budget + attempts remain
-                if _ft is not None and _ft.is_alive():
-                    self._record_failure("local_api")
-                    errors.append("local_api: fetch stalled past "
-                                  f"{self.config.local_timeout}s")
-                elif _fetch_res is not None and 'err' in _fetch_res:
-                    self._record_failure("local_api")
-                    errors.append(f"local_api: {_fetch_res['err']}")
-                else:
-                    results = _fetch_res.get('v')
-                    self._record_success("local_api")
-                    out = (results or [])[:max_results]
-                    # D (research item D): fail-closed retrieval.
-                    # If local returned EMPTY and fallback_on_empty is set,
-                    # do NOT treat empty as authoritative — fall through to
-                    # the remote fallbacks below (respecting the circuit
-                    # breaker and the turn-level deadline). local_only
-                    # callers still commit to local even when empty.
-                    if out or not self.config.fallback_on_empty or local_only:
+                    # _threaded_fetch returns (_ft, _) on success, or
+                    # (None, {'err': ...}) when retries are exhausted
+                    # (sustained outage / stall). Handle both shapes.
+                    if _ft is None:
+                        self._record_failure("local_api")
+                        errors.append(f"local_api: {_fetch_res.get('err')}")
+                    elif _ft.is_alive():
+                        self._record_failure("local_api")
+                        errors.append(f"local_api: fetch stalled past "
+                                      f"{_att_timeout}s")
+                    elif 'err' in _fetch_res:
+                        self._record_failure("local_api")
+                        errors.append(f"local_api: {_fetch_res['err']}")
+                    else:
+                        results = _fetch_res.get('v')
+                        self._record_success("local_api")
+                        out = (results or [])[:max_results]
+                        # D (research item D): fail-closed retrieval.
+                        # If local returned EMPTY and fallback_on_empty is set,
+                        # do NOT treat empty as authoritative — fall through to
+                        # the remote fallbacks below. local_only
+                        # callers still commit to local even when empty.
+                        if out or not self.config.fallback_on_empty or local_only:
                             if len(self._search_cache) < self._search_cache_max:
                                 self._search_cache[_cache_key] = out
                             return out
-                            # NOTE: we return local's answer (incl. empty) as
-                            # final. Remote is NOT consulted — local is
-                            # authoritative — UNLESS fallback_on_empty is set and
-                            # the result was empty.
-                # If we reach here, local genuinely failed → fall through to
-                # remote fallbacks below.
+                        # NOTE: empty local + fallback_on_empty -> fall through.
+                # If we reach here, local genuinely failed or ran out of
+                # budget -> fall through to the remote fallbacks below.
 
         for api_name, url_template, timeout, api_max_results in self.apis:
             # Phase 19c: bail out if we've exceeded the turn-level deadline.

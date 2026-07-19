@@ -842,6 +842,14 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # Deferred item 1: materialize ConceptNet typed edges into the
         # cold-start graph (seeded above) so the inheritance walk works.
         self._typed_edges_bootstrap()
+        # Stable-node snapshot: the graph as it stands AFTER cold-start
+        # bootstrap but BEFORE any web-learning this session. Used by the
+        # counterfactual analogy-gate (_conditional_has_graph_anchor) so that
+        # same-turn web-learning (which adds causal/analogical edges to a
+        # freshly-looked-up concept like "pig") cannot retroactively "anchor"
+        # an unanchored hypothetical and defeat the gate. Only edges among
+        # these stable nodes count as a simulation anchor.
+        self._stable_node_ids = set(self.graph.nodes.keys())
 
     # ─── Neural Decoder Vocabulary ───
 
@@ -2985,6 +2993,112 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             return "things with some edge to them — a sharp idea or a difficult question"
         return "ideas that hang together, and the kind of honesty that's calm"
 
+    def _agent_stance_on(self, target: str) -> Tuple[str, str]:
+        """vmPFC value resolver: compute a stance + affect-reason over an
+        ARBITRARY target concept (not just a curated palette).
+
+        Brain basis (repair plan A2): liking/preference is value-based,
+        computed in OFC/vmPFC as a continuous subjective-value signal over an
+        option (Yu 2018; Le Bouc 2026 encode value + its uncertainty on a
+        common scale). A teenager answers "do you like music" / "what do you
+        think about cats" with a stance + affect because the self's value map
+        is habitually online — defining the noun is an ATL semantic-hub
+        operation that must NOT fire for a preference question.
+
+        The stance is derived from state, not a topic table:
+          (1) the agent's current VAD valence (already produced by
+              VADEmotionEngine) sets the value polarity,
+          (2) the target's GloVe proximity to concepts the agent has ALREADY
+              expressed stance toward (transitivity of preference — vmPFC
+              values options on a common scale, so "if i like X and X is near
+              Y, i lean toward Y"),
+          (3) its accumulated edge-weight in the graph (liked things accrue
+              semantic/part_of links through interaction).
+        Consolidated in _agent_preferences so the answer is STABLE within a
+        session (B6: self-attributes don't drift with transient affect) —
+        reuse, never a second source of truth.
+        """
+        target = (target or "").strip().lower()
+        valence = 0.5
+        if hasattr(self, "emotion") and hasattr(self.emotion, "state"):
+            try:
+                valence = float(getattr(self.emotion.state, "valence", 0.5))
+            except Exception:
+                valence = 0.5
+        # A target-less call (e.g. "what do you like" with no object) falls back
+        # to the gist guess rather than inventing a concept.
+        if not target:
+            gist = self._agent_likes_guess()
+            return ("i'm drawn to", f"things like {gist} — they sit well with how i'm wired right now")
+        # Session stability: a self-attribute must return the SAME stance within
+        # a session (D'Argembeau 2013; Berkman 2020 — stable self-attributes,
+        # momentarily colored by affect). Cache keyed by target concept.
+        _cache = getattr(self, "_agent_preferences", None)
+        _ckey = f"stance:{target}"
+        if _cache is not None and _ckey in _cache:
+            _c = _cache[_ckey]
+            if isinstance(_c, tuple) and len(_c) == 2:
+                return _c
+        glove_fn = getattr(self, "_glove_vector", None)
+        # Polarity from affect: positive valence -> lean "drawn to / warm to",
+        # low valence -> lean "cautious about / not really my thing", mid ->
+        # "curious about". This is the value signal, not a verdict.
+        if valence >= 0.6:
+            polarity = "drawn to"
+        elif valence <= 0.4:
+            polarity = "a bit cautious about"
+        else:
+            polarity = "curious about"
+        reason = ""
+        # GloVe transitivity: project the target onto the concepts this agent
+        # has already taken a stance toward. If the target sits near something
+        # the agent likes, that transfers (common-value-scale transitivity).
+        if callable(glove_fn) and getattr(self, "_glove_vecs", None) is not None:
+            tvec = glove_fn(target)
+            if tvec is not None:
+                # Seed affect anchors from the agent's own past stances.
+                _known = [(k.split(":", 1)[1], v[0]) for k, v in (_cache or {}).items()
+                          if k.startswith("stance:") and isinstance(v, tuple) and v[0]]
+                _best_sim = -1.0
+                _anchor = None
+                for _concept, _pol in _known:
+                    _cv = glove_fn(_concept)
+                    if _cv is None:
+                        continue
+                    _s = float(np.dot(tvec, _cv))
+                    if _s > _best_sim:
+                        _best_sim = _s
+                        _anchor = (_concept, _pol)
+                if _anchor and _best_sim >= 0.45:
+                    reason = (f"it's close to {_anchor[0]}, which i already lean "
+                              f"{_anchor[1]} — so that pulls me the same way")
+                else:
+                    # No transfer anchor: color the stance by the target's
+                    # semantic field via its top graph association, so the
+                    # reason names something real rather than empty affect.
+                    _nids = self._concept_keywords.get(target, [])
+                    _assoc_label = ""
+                    if _nids:
+                        try:
+                            _out = self.graph.get_outgoing(_nids[0])
+                            if _out:
+                                _assoc_label = self.graph.get_node(
+                                    _out[0][0]).label if self.graph.get_node(_out[0][0]) else ""
+                        except Exception:
+                            _assoc_label = ""
+                    if _assoc_label and _assoc_label.lower() != target:
+                        reason = (f"it connects to {_assoc_label}, and that resonates "
+                                  f"with how i'm feeling right now")
+                    else:
+                        reason = "it sits well with how i'm wired right now"
+        else:
+            reason = "it sits well with how i'm wired right now"
+        stance = f"i'm {polarity} {target}" if target else "i'm drawn to"
+        result = (stance, reason)
+        if _cache is not None:
+            _cache[_ckey] = result
+        return result
+
     # ─────────────────────────────────────────────────────────────────────
     # Human-Likeness Plan (A1 + A1b): vmPFC self-referential gating
     # ─────────────────────────────────────────────────────────────────────
@@ -4317,11 +4431,27 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             r"\bwhat(?:'s| is)\s+your\s+favorite\s+(.+)", clean_input, re.IGNORECASE)
         m_agent_likes = bool(re.search(
             r"\bwhat\s+do\s+you\s+(like|love|prefer)\b", clean_input, re.IGNORECASE))
+        # Human-Likeness Plan (A): broaden the self-preference gate so the
+        # yes/no form ("do you like music?") AND the stance form
+        # ("what do you think about cats?", "how do you feel about X?") hit the
+        # vmPFC value resolver instead of falling through to a definition lookup
+        # or the uncertainty path. A teen answers these with a stance + affect,
+        # not a noun definition. Detected via a learned-style cue combination
+        # (self-address + preference/stance predicate) mirroring
+        # self_model_router.extract_features — NOT a topic whitelist.
+        m_agent_likes_yesno = bool(re.search(
+            r"\bdo\s+you\s+(like|love|hate|enjoy|prefer|care\s+for)\b",
+            clean_input, re.IGNORECASE))
+        m_agent_stance = re.search(
+            r"\bwhat\s+do\s+you\s+think\s+about\b|\bhow\s+do\s+you\s+(feel|think)\s+about\b|"
+            r"\byour\s+(opinion|thoughts|take)\s+on\b|\bwhat's\s+your\s+(opinion|take)\s+on\b|"
+            r"\bwhat\s+is\s+your\s+(opinion|take)\s+on\b",
+            clean_input, re.IGNORECASE)
         m_agent_interests = bool(re.search(
             r"\bwhat\s+are\s+you\s+(interested in|into)\b|\bwhat\s+do\s+you\s+want\s+to\s+(learn|know)\b",
             clean_input, re.IGNORECASE))
 
-        if is_identity_query or is_likes_query or is_interests_query or m_fav_q or m_agent_fav or m_agent_likes or m_agent_interests:
+        if is_identity_query or is_likes_query or is_interests_query or m_fav_q or m_agent_fav or m_agent_likes or m_agent_likes_yesno or m_agent_stance or m_agent_interests:
             response = ""
             if is_identity_query:
                 name = getattr(self.user_model, 'user_name', "")
@@ -4385,15 +4515,30 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 pick, reason = self._agent_favorite_pick(category)
                 response = (f"{pick} — {reason}. what about you?")
 
-            elif m_agent_likes:
-                likes = self._agent_likes_guess()
-                back = " what about you?"
-                if likes:
-                    response = (f"i'm drawn to {likes} — they sit well with how i'm "
-                                f"wired right now{back}")
+            elif m_agent_likes or m_agent_likes_yesno or m_agent_stance:
+                # Human-Likeness Plan (A2): vmPFC value resolver. The target
+                # concept is extracted from the query and a stance is computed
+                # as a CONTINUOUS subjective-value signal (Yu 2018; Le Bouc 2026
+                # — OFC/vmPFC encode value + its uncertainty on a common scale),
+                # NOT a noun definition. This is why "do you like music" now
+                # yields a stance + affect rather than a dictionary entry.
+                if m_agent_stance:
+                    # "what do you think about cats" -> target after the cue.
+                    _tail = clean_input[m_agent_stance.end():]
+                    target = _tail.strip(" ?!.").split()[0] if _tail.strip(" ?!.").split() else ""
+                elif m_agent_likes_yesno:
+                    _ym = re.search(
+                        r"\bdo\s+you\s+(?:like|love|hate|enjoy|prefer|care\s+for)\s+([a-z][a-z\s'-]{1,30}?)[\?\.]?$",
+                        clean_input, re.IGNORECASE)
+                    target = _ym.group(1).strip(" ?!.'") if _ym else ""
                 else:
-                    response = ("hard to pin down a single thing, but i tend to "
-                                f"resonate with what feels coherent and alive{back}")
+                    target = ""
+                stance, reason = self._agent_stance_on(target)
+                back = " what about you?" if target else " what do you think?"
+                _reason = reason.rstrip()
+                if _reason and not _reason.endswith((".", "!", "?")):
+                    _reason += "."
+                response = f"{stance} {_reason}{back}"
 
             elif m_agent_interests:
                 response = ("i'm interested in how minds and meaning work — that's "
@@ -7251,6 +7396,75 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         _p = self._snippet_plausibility(subject, snippet)
         return float(_p) if _p is not None else 0.0
 
+    def _conditional_has_graph_anchor(self, query: str) -> bool:
+        """Analogy-gate for hypothetical/counterfactual web answers.
+
+        Repair plan C (weakness C): a counterfactual needs an anchor in known
+        structure to simulate (Van Hoeck 2015 — FPC tracks counterfactual value
+        only when simulation has an anchor). For an unanchored hypothetical
+        ("if pigs could fly would democracy still work") the graph has no
+        analogical or causal edge to project onto, so simulation cannot engage;
+        a human says "i can't really picture how that'd play out" rather than
+        dumping an encyclopedia article. So we veto the literal web path when
+        NONE of the premise concepts resolve to a graph node that carries at
+        least one outgoing edge (i.e. the premise is unanchored).
+
+        Distribution-driven (graph connectivity), not a topic blocklist. Returns
+        True when at least one premise concept has a graph anchor (so the query
+        may proceed to web/simulation), False when the premise is fully
+        unanchored (caller should abstain to honest uncertainty). On any failure
+        to resolve the premise (no graph / GloVe), returns True so we never
+        silently suppress a potentially answerable query — fail-open, not
+        fail-closed-suppress.
+        """
+        graph = getattr(self, "graph", None)
+        _kw = getattr(self, "_concept_keywords", None)
+        if graph is None or not _kw:
+            return True
+        # Premise content words (drop conditional lead-ins + stopwords).
+        _DROP = set(("if", "when", "would", "could", "should", "what", "how",
+                     "why", "do", "does", "did", "can", "will", "happen",
+                     "still", "the", "a", "an", "and", "or", "but", "to",
+                     "of", "in", "on", "for", "with", "is", "are", "be"))
+        _words = [w for w in re.findall(r"[a-z']{3,}", (query or "").lower())
+                  if w not in STOP_WORDS and w not in _DROP]
+        if not _words:
+            return True
+        _stable = getattr(self, "_stable_node_ids", None)
+        for _w in _words:
+            _nids = _kw.get(_w)
+            if not _nids:
+                continue
+            for _nid in _nids:
+                # Only pre-existing (stable) nodes can anchor a simulation;
+                # web-learned nodes from THIS turn are not a counterfactual
+                # anchor (they were just looked up, not known structure).
+                if _stable is not None and _nid not in _stable:
+                    continue
+                try:
+                    _out = graph.get_outgoing(_nid)
+                except Exception:
+                    _out = []
+                if not _out:
+                    continue
+                # Require a SIMULATION-grade edge: a counterfactual projects onto
+                # causal or analogical structure (Van Hoeck 2015 — FPC needs an
+                # anchor in known causal/structural relations). Mere semantic or
+                # episodic edges (e.g. a concept learned from the web this turn)
+                # are NOT a simulation anchor, so they don't legitimize a literal
+                # web dump for an unanchored hypothetical. This also stops
+                # same-turn web-learning from retroactively "anchoring" the
+                # premise (pig -> pig-article semantic edge) and defeating the gate.
+                for _tgt, _e in _out:
+                    # The anchor target must also be stable knowledge (not a
+                    # freshly-learned leaf) to count as real structure.
+                    if _stable is not None and _tgt not in _stable:
+                        continue
+                    _rt = getattr(_e, "relation_type", "semantic")
+                    if _rt in ("causal", "analogical", "temporal", "contrastive"):
+                        return True
+        return False
+
     @staticmethod
     def _result_url(res) -> str:
         """Best-effort extraction of a source URL from a search-result payload."""
@@ -7357,6 +7571,34 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             trust = self._domain_trust(self._result_url(res))
             # belief coherence: snippet's phrase embedding vs the subject's vector
             _bel = self._belief_coherence(ctx.subject, cand)
+            # Repair plan C (weakness C): hypothetical/counterfactual web answers
+            # need an analogy-gate. The brain only launches a literal "look it
+            # up" routine when simulation FAILS AND the query is genuinely
+            # factual — and crucially, a counterfactual needs an anchor in known
+            # structure to simulate. For an unanchored hypothetical ("if pigs
+            # could fly would democracy still work") the graph has no analogical
+            # or causal edge to project onto, so simulation cannot engage; a
+            # human says "i can't really picture how that'd play out" rather
+            # than dumping an encyclopedia article. So: a conditional query whose
+            # premise concepts have NO graph anchor is vetoed from the literal
+            # web path, letting the pipeline fall through to honest uncertainty.
+            # This is distribution-driven (graph connectivity), not a topic
+            # blocklist. Fail-closed: if we cannot resolve the premise at all
+            # (no GloVe/graph), we let the general plausibility path decide.
+            if is_conditional:
+                # Analogy-gate: veto literal web answers for unanchored
+                # hypotheticals (see _conditional_has_graph_anchor). Fail-open:
+                # if the gate cannot decide, let the candidate proceed rather
+                # than silently suppress a possibly-answerable query.
+                try:
+                    _anchored = self._conditional_has_graph_anchor(query)
+                except Exception:
+                    _anchored = True
+                if not _anchored:
+                    if getattr(self, '_trace_enabled', False):
+                        print(f"  [webans] conditional analogy-gate: premise "
+                              f"unanchored in graph; veto literal web, abstain")
+                    continue
             if getattr(self, '_trace_enabled', False):
                 print(f"  [webans] '{term}' -> {cand[:70]!r} (q={quality:.2f}, "
                       f"plaus={plaus}, trust={trust:.2f}, bel={_bel:.2f})")

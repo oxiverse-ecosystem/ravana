@@ -1,0 +1,33 @@
+{
+  "item": "D",
+  "substrate": "retrieval hit-rate + fallback measurement",
+  "fallback_effectiveness": {
+    "fail_closed_returned_results": true,
+    "fail_closed_hit": 2,
+    "fail_open_returned_empty": true,
+    "all_empty_raises_search_error": true,
+    "local_has_results_authoritative": true,
+    "local_has_results_remote_not_called": true
+  },
+  "zero_result_rate_by_scenario": {
+    "local_flaky_remote_ok": {
+      "queries": 10,
+      "hits": 10,
+      "zero_result_rate": 0.0,
+      "pipeline_hit_rate": 1.0
+    },
+    "local_ok_remote_ok": {
+      "queries": 10,
+      "hits": 10,
+      "zero_result_rate": 0.0,
+      "pipeline_hit_rate": 1.0
+    },
+    "all_down": {
+      "queries": 10,
+      "hits": 0,
+      "zero_result_rate": 1.0,
+      "pipeline_hit_rate": 0.0
+    }
+  },
+  "verdict": "fail-closed: empty local now falls through to remote; informational queries always attempt web (see _needs_web_search override)."
+}

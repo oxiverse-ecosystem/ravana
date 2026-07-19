@@ -1,0 +1,58 @@
+{
+  "eer_threshold": 0.49849907650150277,
+  "eer": 0.4222222222222222,
+  "fpr": 0.4444444444444444,
+  "fnr": 0.4,
+  "deploy_threshold": 0.5471132424318013,
+  "held_out_accuracy": 0.5909090909090909,
+  "weights": {
+    "word_coherence": -0.7327822011019167,
+    "word_coherence_spread": 0.014026497839097603,
+    "type_token_ratio": -0.3913707927467229,
+    "centroid_coherence": -1.1624802620312429,
+    "ngram_repeat": 0.47830445316815806,
+    "topic_entropy": -0.2638557268739398,
+    "novel_content_ratio": -0.626773664238253,
+    "anchor_density": -0.3306168739107189,
+    "length_norm": 0.2646651587917666
+  },
+  "bias": 1.5957500675692333,
+  "n_samples": 124,
+  "n_invalid": 98,
+  "legacy_missed": [
+    "Deserves humans continents fool interstitials harm",
+    "Sleep leads to depression.",
+    "Inflation leads to increase.",
+    "black holes bend spacetime is black holes bend.",
+    "Life semantic people, which semantic cannot.",
+    "gravity semantic pet. perspectives vary, meaning o",
+    "purple bicycle quantum octopus silently waterfall ",
+    "mountain spoon whisper carbon algebra fog lighthou",
+    "tiger candle orbit frost library comet puzzle velv",
+    "river piano comet frost wisdom ladder volcano marb",
+    "neon forest kettle gravity ember ladder comet whis",
+    "spoon comet forest velvet oxygen ladder puzzle thu",
+    "oxygen marble ladder forest comet velvet whisper c",
+    "candle river fog comet ladder oxygen velvet marble"
+  ],
+  "learned_missed": [
+    "Sleep leads to depression.",
+    "Inflation leads to increase.",
+    "pet pet pet semantic causal even great",
+    "Life semantic people, which semantic cannot.",
+    "gravity semantic pet. perspectives vary, meaning o"
+  ],
+  "canonical_escapes_missed_at_deploy": [
+    "Sleep leads to depression.",
+    "Inflation leads to increase.",
+    "pet pet pet semantic causal even great",
+    "Life semantic people, which semantic cannot.",
+    "gravity semantic pet. perspectives vary, meaning o"
+  ],
+  "valid_blocked_at_deploy": [],
+  "or_guard_missed": [
+    "Sleep leads to depression.",
+    "Inflation leads to increase.",
+    "gravity semantic pet. perspectives vary, meaning o"
+  ]
+}
