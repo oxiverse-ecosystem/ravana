@@ -1,0 +1,36 @@
+{
+  "fit": {
+    "coverage_threshold": 0.6,
+    "coverage_surprise": 0.7,
+    "answer_type_surprise": 0.6,
+    "polarity_surprise": Infinity,
+    "veto_midpoint": 0.7,
+    "veto_slope": 8.0
+  },
+  "per_component_eer": {
+    "coverage_surprise": {
+      "eer": 0.08333333333333337,
+      "fpr": 0.25,
+      "fnr": 0.33333333333333337
+    },
+    "polarity_surprise": {
+      "eer": 1.0,
+      "fpr": 0.0,
+      "fnr": 1.0
+    },
+    "answer_type_surprise": {
+      "eer": 0.7083333333333334,
+      "fpr": 0.125,
+      "fnr": 0.8333333333333334
+    }
+  },
+  "veto_midpoint_eer": {
+    "eer": 0.08333333333333337,
+    "fpr": 0.25,
+    "fnr": 0.33333333333333337
+  },
+  "legacy_veto_midpoint": 0.6,
+  "legacy_vetoes": 8,
+  "fitted_vetoes": 6,
+  "n_samples": 14
+}

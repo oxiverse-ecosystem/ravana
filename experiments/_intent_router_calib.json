@@ -1,0 +1,25 @@
+{
+  "alpha": 2.0,
+  "beta": 1.0,
+  "gamma": 1.0,
+  "delta": 0.5,
+  "margin": 0.03,
+  "agreement": "44/54",
+  "fused_min_gap_per_route": {
+    "self_disclosure": 0.031,
+    "episodic_recall": 0.023,
+    "remember_store": 0.005,
+    "self_directed": 0.044
+  },
+  "ablation_gap_no_reference": {
+    "self_disclosure": 0.015,
+    "self_directed": 0.012
+  },
+  "promotable_routes": [
+    "factual_yesno",
+    "conditional",
+    "self_disclosure"
+  ],
+  "reference_finding": "Reference-target axis (schema v4: semantic\u2295shape\u2295affect\u2295reference, reusing SelfAddressRouter features) PROVES via ablation that it opens the residual pair: self_disclosure +0.015 (OFF) -> +0.031 (ON); self_directed +0.012 (OFF) -> +0.044 (ON). Separates self (ventral mPFC) vs other/assistant (dorsal mPFC/TPJ).",
+  "note": "v4 schema: semantic\u2295shape\u2295affect\u2295reference. Alpha/beta/gamma/delta/margin grid-fit at EER-style criterion. Reference-ablation proves the axis opens the residual pair. Promoted routes cleared gap>=0.02."
+}

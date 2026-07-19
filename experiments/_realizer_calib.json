@@ -1,0 +1,13 @@
+{
+  "pools": [
+    "user_leads",
+    "other_leads",
+    "user_leads_notopic",
+    "other_leads_notopic",
+    "follows",
+    "backchannels"
+  ],
+  "legacy_other_leads_covered": 4,
+  "legacy_other_leads_total": 4,
+  "note": "Templates demoted to externalized exemplars; seed scorer uniform (== legacy random.choice). Learned fluency/coherence ranker is the future extension point (fit here)."
+}

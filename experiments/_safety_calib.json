@@ -1,0 +1,9 @@
+{
+  "eer_threshold": 1.0,
+  "learned_accuracy": 15,
+  "legacy_accuracy": 15,
+  "n": 15,
+  "anchors": 17,
+  "hard_override": 17,
+  "note": "Distributional gate generalizes to variants; EER-fit criterion externalized to data/safety_valence.json. Hard-override set retained as last-resort safety net."
+}

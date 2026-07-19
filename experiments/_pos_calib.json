@@ -1,0 +1,11 @@
+{
+  "learned_accuracy": 17,
+  "legacy_accuracy": 19,
+  "n": 27,
+  "centroid_sizes": {
+    "verb": 64,
+    "adj": 64,
+    "func": 64
+  },
+  "note": "Seed centroids from constants.json; ambiguity_margin seed 0.04 pending EER fit on a larger POS corpus."
+}
