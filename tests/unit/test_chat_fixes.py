@@ -134,3 +134,86 @@ def test_settle_generator_over_decoder():
     assert len(toks) >= 3
     assert all(iw.get(t) not in ("<bos>", "<eos>", "<unk>") for t in toks)
 
+
+# ── Empathy / self-disclosure routing regressions (2026-07-19) ───────────────
+# The empathy path was being hijacked by INTERROGATIVES and IMPERATIVES that
+# merely contain a first-person token ("should i lie to protect a friend" ->
+# positive empathy; "explain ... like i'm five" -> empathy/self-ack), and the
+# self-disclosure ack was swallowing troubleshooting questions ("why does my
+# code keep crashing" -> "got it — thanks for telling me"). Affective disclosure
+# is a self-REPORT, not a question or command; the fail-closed guard now lives
+# in the detector + the self-disclosure gate so every call site is consistent.
+
+_INTERROGATIVE_IMPERATIVE = [
+    "should i lie to protect a friend",
+    "explain quantum computing like i'm five",
+    "why does my code keep crashing",
+    "how can i learn to cook",
+    "what should i do when i feel overwhelmed",
+    "can you help me understand gravity",
+    "do i need to worry about that",
+]
+
+
+def test_empathy_not_fired_on_questions_or_commands(engine):
+    # Interrogatives / imperatives must NOT be read as affective disclosures.
+    for q in _INTERROGATIVE_IMPERATIVE:
+        disclosure = engine._detect_emotional_disclosure(text=q)
+        assert disclosure is None, (
+            f"interrogative/imperative {q!r} wrongly detected as disclosure: "
+            f"{disclosure}")
+
+
+def test_self_disclosure_not_fired_on_questions_or_commands(engine):
+    # Questions/commands that contain a first-person token ("i'm", "my") are
+    # NOT self-disclosure STATEMENTS to store — they must fall through.
+    for q in _INTERROGATIVE_IMPERATIVE:
+        assert engine._is_self_disclosure_stmt(q) is False, (
+            f"interrogative/imperative {q!r} wrongly treated as self-disclosure")
+
+
+def test_self_disclosure_accepts_real_statement(engine):
+    # Genuine first-person statements must STILL be captured (no regression).
+    for q in ["my favorite color is blue", "i am called Likhith",
+              "i love pizza", "my name is Sam"]:
+        assert engine._is_self_disclosure_stmt(q) is True, (
+            f"real self-disclosure statement {q!r} rejected")
+
+
+def test_empathy_fired_on_cause_fallback_disclosure(engine):
+    # "my mom is sick" has no strong affect WORD but a negative CAUSE; the
+    # process_turn cause-fallback must still route it to empathy.
+    out = engine.process_turn("my mom is sick")
+    assert "sorry" in out.lower() or "hard" in out.lower(), (
+        f"'my mom is sick' did not reach empathy: {out!r}")
+
+
+def test_empathy_fired_on_real_disclosure_still_works(engine):
+    # Regression guard: genuine disclosures keep working after the interrogative
+    # guard was added.
+    for q in ["i'm sad", "i am feeling really bored", "i love you"]:
+        disclosure = engine._detect_emotional_disclosure(text=q)
+        assert disclosure is not None, f"real disclosure {q!r} missed"
+
+
+def test_clean_snippet_strips_dangling_doi(engine):
+    # A truncated DOI / reference handle must not leak into a surfaced answer.
+    for raw, bad in [
+        ("according to an official source, doi: 10.1234/abc. def is a thing.",
+         "doi"),
+        ("doi: 10. The trust is a belief in reliability.", "doi"),
+        ("see https://example.com/ref for details.", "https"),
+    ]:
+        cleaned = engine._clean_snippet(raw)
+        assert "doi" not in cleaned.lower(), (
+            f"doi residue leaked from {raw!r} -> {cleaned!r}")
+        assert "https" not in cleaned.lower(), (
+            f"url leaked from {raw!r} -> {cleaned!r}")
+
+
+def test_sanitize_definition_text_strips_doi(engine):
+    raw = "IntentForge is a search engine. <ref>doi:10.1000/xyz</ref> It indexes."
+    san = engine._sanitize_definition_text(raw)
+    assert san is not None
+    assert "doi" not in san.lower(), f"doi leaked: {san!r}"
+

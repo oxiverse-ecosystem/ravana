@@ -75,7 +75,13 @@ def test_roblox_snippet_withheld_end_to_end():
     ctx = CognitiveResponseContext(subject="invisible",
                                    raw_input="how can i become invisible right now")
     result = eng._web_direct_answer(ctx)
-    assert result is None, f"Roblox-style snippet leaked as answer: {result}"
+    # The Roblox-style snippet must NOT be leaked as the answer. With the
+    # learned structural-junk gate ON, the junk snippet is withheld; the
+    # pipeline either returns None or an honest abstention (no leak either way).
+    # The key assertion is content-based: the Roblox text never reaches the user.
+    _text = (result[0] if isinstance(result, tuple) else result or "")
+    assert "roblox" not in _text.lower(), f"Roblox-style snippet leaked: {result}"
+    assert "invisible in roblox" not in _text.lower(), f"Roblox snippet leaked: {result}"
 
 
 # ── 4. END-TO-END: an encyclopedic snippet is still surfaced ──────────────────
