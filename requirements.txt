@@ -1,0 +1,42 @@
+# RAVANA — runtime and development dependencies
+#
+# The core system (ravana + ravana_ml) needs only numpy and scipy.
+# The GRACE cognitive layer (ravana_grace) and the web-learning / benchmark
+# scripts pull in the optional packages below. Install with:
+#
+#     pip install -r requirements.txt          # core + full extras
+#     pip install -e .[full,dev]                # editable install (used by CI)
+#
+# Pinned to the versions verified against Python 3.14 on the dev machine.
+
+# ── Core (always required) ──
+numpy>=1.23
+scipy>=1.9
+
+# ── Deep-learning backend (optional; CPU-only) ──
+torch>=2.0
+
+# ── Web learning / retrieval ──
+requests>=2.31
+feedparser>=5.2.1
+beautifulsoup4>=4.11
+trafilatura>=1.4
+nltk>=3.8
+
+# ── Graph + embeddings ──
+networkx>=3.0
+sentence-transformers>=2.2
+transformers>=4.30
+tiktoken>=0.5
+
+# ── Analysis / plotting ──
+pandas>=1.5
+matplotlib>=3.6
+psutil>=5.9
+
+# ── Optional LLM bridges (only if you wire them in) ──
+openai>=1.12
+
+# ── Test / dev ──
+pytest>=7.0
+pytest-cov>=4.0

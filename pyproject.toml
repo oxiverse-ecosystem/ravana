@@ -1,61 +1,68 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "ravana-cognitive"
-version = "0.3.5"
-description = "RAVANA -- Pressure-driven cognitive ML framework (unified package)"
+name = "ravana"
+version = "0.3.0"
+description = "RAVANA — a decoder-first ML cognitive architecture that learns continuously from conversation and the web (no LLM required)."
 readme = "README.md"
-license = {text = "OCL-1.0"}
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "RAVANA Project" }]
+keywords = ["cognitive-architecture", "decoder-first", "continual-learning", "free-energy", "ml", "neuro-symbolic"]
 classifiers = [
-    "License :: Other/Proprietary License",
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
-    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
-requires-python = ">=3.9"
 dependencies = [
-    "numpy>=1.20",
-    "feedparser",
+    "numpy>=1.23",
+    "scipy>=1.9",
 ]
-optional-dependencies = {dev = ["pytest>=7.0", "pytest-cov", "black", "ruff"], web = ["requests", "sentence-transformers"], viz = ["matplotlib", "networkx"], full = ["requests", "sentence-transformers", "matplotlib", "networkx", "tiktoken"]}
+
+[project.optional-dependencies]
+# Heavy / optional dependencies used by some scripts and the web-learning path.
+full = [
+    "torch>=2.0",
+    "requests>=2.31",
+    "feedparser>=5.2.1",
+    "beautifulsoup4>=4.11",
+    "trafilatura>=1.4",
+    "nltk>=3.8",
+    "networkx>=3.0",
+    "sentence-transformers>=2.2",
+    "transformers>=4.30",
+    "tiktoken>=0.5",
+    "pandas>=1.5",
+    "matplotlib>=3.6",
+    "psutil>=5.9",
+    "openai>=1.12",
+]
+# Everything needed to run the test suite.
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "numpy>=1.23",
+    "scipy>=1.9",
+]
 
 [project.urls]
-Homepage = "https://codeberg.org/oxiverse/ravana"
-Repository = "https://codeberg.org/oxiverse/ravana"
-Documentation = "https://codeberg.org/oxiverse/ravana/src/branch/main/docs"
-Issues = "https://codeberg.org/oxiverse/ravana/issues"
+Homepage = "https://github.com/ravana-project/ravana"
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["ravana*", "ravana_ml*"]
-
-[tool.setuptools.package-dir]
-"ravana_v2" = "ravana-v2"
+# ── Three first-party packages live under */src ──
+[tool.setuptools]
+packages = { find = { where = ["ravana/src", "ravana_ml/src", "ravana-v2/src"] } }
 
 [tool.pytest.ini_options]
-testpaths = ["tests/unit", "tests/integration", "tests/ci", "ravana-v2/tests"]
-python_files = ["test_*.py"]
-python_classes = ["Test*"]
-python_functions = ["test_*"]
-addopts = "-v --tb=short --import-mode=importlib -m \"not slow and not ci\""
+testpaths = ["tests"]
+pythonpath = ["ravana_ml/src", "ravana/src", "ravana-v2/src", "."]
+addopts = "-ra"
 markers = [
-    "ci: CI-critical test — runs in the fast CI pipeline on every push.",
-    "slow: Long-running integration/soak test (heavy CPU training or many engine builds). Excluded from a bare `pytest` run; run explicitly with `-m slow` or `-m \"slow or ci\"`.",
+    "ci: marks tests that run in the fast CI-critical job",
 ]
-
-[tool.black]
-line-length = 100
-target-version = ['py39']
-include = '\.py$'
-
-[tool.ruff]
-line-length = 100
-target-version = "py39"
-select = ["E", "F", "I", "UP", "B", "C4", "PTH"]
-ignore = ["E501", "B008"]
