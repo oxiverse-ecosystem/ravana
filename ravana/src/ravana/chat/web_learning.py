@@ -1239,6 +1239,59 @@ class WebLearningMixin(ResponseGenMixin):
         "last updated", "page last modified",
     )
 
+    # B6-EXT (perceptual-buffer body cleaning): structural UI/section
+    # boilerplate that appears EMBEDDED in a snippet body (not at the
+    # leading edge like bylines/datelines). These match format/shape
+    # signatures of SEO / section-heading chrome, NOT factual claims, so
+    # removing them is predictive-coding buffer cleaning (Friston 2010),
+    # never hardcoding knowledge. Applied globally so every caller
+    # (direct-answer, decompose sub-answer, stored definition) benefits.
+    _DEFINITION_BODY_BOILERPLATE = (
+        # Bare byline/dateline signature embedded mid-body: "Greg Miller May
+        # 2010", "Jane Doe July 8, 2025". A Capitalized "Firstname Lastname"
+        # followed by a month name and a year is overwhelmingly author/date
+        # metadata, not prose (you don't write "Greg Miller May 2010" as a
+        # sentence). CASE-SENSITIVE so ordinary lowercase names in prose are
+        # untouched.
+        (r"[A-Z][a-z]+\s+[A-Z][a-z]+\s+(?:January|February|March|April|May|"
+         r"June|July|August|September|October|November|December)\.?"
+         r"(?:\s+\d{1,2},?)?\s+\d{4}", 0),
+        # Institution-label shape mid-sentence ("Paris Brain Institute",
+        # "Max Planck Institute"). Proper-noun phrases are fully capitalized, so
+        # every word up to the keyword must be Capitalized -- no lowercase gap
+        # words and CASE-SENSITIVE (re.IGNORECASE would let "centre" match the
+        # keyword via a lowercase body word, deleting real content).
+        (r"[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s+(?:Institute|University|Foundation|"
+         r"Laboratory|Clinic|Centre|Center|Academy)\b", 0),
+        # Heading-stack artifact: a Title-Case phrase followed by a CAPITALIZED
+        # past-participle verb then a prepositional tail ("Neural networks
+        # Threatened by several factors"). The participle is the key: in normal
+        # prose the verb is lowercase ("the brain stores", "gravity is the force
+        # by which") so it never matches. CASE-SENSITIVE for the same reason as
+        # the institution pattern.
+        (r"[A-Z][a-z]+(?:\s+[a-z]+)+\s+(?:Threatened|Accompanied|Surrounded|"
+         r"Wrapped|Paired|Coupled|Combined)\s+(?:by|with|to|in|for)\s+[a-z]", 0),
+        # Embedded SEO section headers / helper chrome (case-insensitive is fine
+        # -- these are specific phrases, never a structural capital signal).
+        (r"(?:Related articles|Related posts|You may also like|Popular articles|Featured|Trending|"
+         r"Recommended for you|More from|About the author|Disclosure|Sponsored content|Was this helpful|Was this page helpful)\b",
+         re.IGNORECASE),
+        # Social-share rail chrome embedded mid-body ("Share Copy link Email
+        # SMS Facebook X Reddit LinkedIn Bluesky Print Add as preferred
+        # source"). Match a RUN of >=2 consecutive UI/social-action tokens
+        # (only whitespace/punctuation between) so it strips the whole rail but
+        # never bridges real prose ("share this with you by email" has
+        # non-UI words between, so it is not a run and survives).
+        (r"\b(?:Share|Copy link|Email|SMS|Facebook|Twitter|X|Reddit|LinkedIn|"
+         r"Bluesky|Print|Add as preferred source|Bookmark|Save|Cite)(?:\s+"
+         r"(?:Share|Copy link|Email|SMS|Facebook|Twitter|X|Reddit|LinkedIn|"
+         r"Bluesky|Print|Add as preferred source|Bookmark|Save|Cite))+\b",
+         re.IGNORECASE),
+        # Truncated parenthetical fragments anywhere in the body
+        # (e.g. "(.", "(. )", "(. .)").
+        (r"\(\s*[.\s)]*\s*\)", re.IGNORECASE),
+    )
+
     def _sanitize_definition_text(self, text: str) -> Optional[str]:
         """Strip dictionary/UI chrome from a candidate definition; reject if
         the residue is all the snippet contained. Returns cleaned text, or None
@@ -1285,6 +1338,20 @@ class WebLearningMixin(ResponseGenMixin):
         s = re.sub(r"\(\s*(?:read|see|learn|more|continue)[^)]{0,30}\)\.?", " ", s, flags=re.IGNORECASE)
         s = re.sub(r"\(\s*\.\.\.\s*\)", " ", s)
         s = re.sub(r"[\(\)]\s*$", " ", s).strip()
+
+        # B6-EXT: strip body-embedded structural boilerplate (heading
+        # stacks, institution labels, SEO section headers, truncated
+        # parentheticals) anywhere in the snippet. Iterate so a chain of
+        # stacked artifacts collapses fully. Fail-closed: if the whole
+        # snippet is boilerplate, the length/UI reject below returns None.
+        for _pat, _fl in self._DEFINITION_BODY_BOILERPLATE:
+            _prev = None
+            _guard = 0
+            while _prev != s and _guard < 6:
+                _prev = s
+                s = re.sub(_pat, " ", s, flags=_fl)
+                _guard += 1
+        s = re.sub(r"\s{2,}", " ", s).strip()
 
         # Trim leading/trailing list markers like "1." / "a." that are artefacts
         # of numbered dictionary entries (the source of "TRUST definition: 1.").

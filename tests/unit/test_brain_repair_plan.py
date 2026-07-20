@@ -239,3 +239,59 @@ def test_g_deictic_love_you_reciprocates():
 def test_g_mirror_deictic_pure():
     assert br.mirror_deictic("i love you") == "i love you too"
     assert br.mirror_deictic("hello") == "hello"  # unchanged for non-1st-person
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# B6-EXT  decompose-path / body-embedded snippet hygiene
+# ─────────────────────────────────────────────────────────────────────────
+def test_b6ext_body_boilerplate_stripped():
+    """The shared _sanitize_definition_text (used by the decompose sub-answer
+    path via _web_direct_answer) must strip body-embedded UI/heading chrome,
+    not just leading bylines/datelines. The garbled 'brain store memories'
+    snippet carries a heading-stack, a bare byline, and SEO residue mid-body.
+    """
+    e = _engine()
+    snippet = ("Not one, but five memories Neural networks Threatened by several "
+               "factors At Paris Brain Institute Foire aux questions Memory is a "
+               "valued building block of our autonomy.")
+    out = e._sanitize_definition_text(snippet)
+    assert out is not None, "sanitizer rejected a snippet with real content"
+    low = out.lower()
+    # heading-stack / institution / seo residue must be gone
+    assert "threatened by several factors" not in low
+    assert "paris brain institute" not in low
+    assert "foire aux questions" not in low
+    # the genuine content survives
+    assert "memory is a valued building block" in low
+
+
+def test_b6ext_no_overstrip_on_prose():
+    """The body-boilerplate pass must NOT delete real prose. A capitalized
+    participle verb in normal lowercase prose, a social 'share ... email'
+    bridge, a bare name, and an institution used as the subject must all
+    survive intact.
+    """
+    e = _engine()
+    prose = [
+        "The Human Brain stores memories by reshaping its connections.",
+        "Gravity is the force by which a planet draws objects toward its centre.",
+        "The brain region associated with memory is the hippocampus.",
+        "I want to share this with you by email.",
+        "According to Mary Smith, the brain stores memory.",
+    ]
+    for t in prose:
+        out = e._sanitize_definition_text(t)
+        assert out is not None, f"sanitizer dropped real prose: {t!r}"
+        # the full content (sans final period) is preserved
+        assert t.rstrip(".") in out, f"sanitizer mangled prose: {t!r} -> {out!r}"
+
+
+def test_b6ext_bare_byline_stripped():
+    """A bare 'Firstname Lastname Month Year' byline embedded mid-body is
+    author metadata, not content, and must be removed."""
+    e = _engine()
+    out = e._sanitize_definition_text(
+        "Greg Miller May 2010 Memories are stored in the hippocampus.")
+    assert out is not None
+    assert "greg miller may 2010" not in out.lower()
+    assert "memories are stored in the hippocampus" in out.lower()
