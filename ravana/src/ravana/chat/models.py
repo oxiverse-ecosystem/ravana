@@ -93,3 +93,10 @@ class CognitiveResponseContext:
     situation_narrative: Dict[str, Any] = field(default_factory=dict)
     decomposition: Any = None
     sub_questions: List[Dict[str, Any]] = field(default_factory=list)
+    # B4: when the user frames a query with a simplification request ("like i'm
+    # five", "in simple terms", "for a child"), the metacommunicative frame is
+    # stripped from raw_input/subject at the ctx boundary (single source of
+    # truth) and this flag tells the surface realizer to lower lexical/syntactic
+    # complexity. It is a register signal, not part of the referent.
+    simplification_requested: bool = False
+    cleaned_input: str = ""

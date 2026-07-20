@@ -1226,6 +1226,17 @@ class WebLearningMixin(ResponseGenMixin):
         "learn more", "read more", "find out more", "see full entry",
         "full article", "continue reading", "show more", "view source",
         "this page is a", "was this page helpful", "did this help",
+        # B6: high-precision SEO / UI chrome that leaks into raw snippets
+        # as fragment residue (not content). These are structural UI
+        # strings, so removing them is perceptual-buffer cleaning, not
+        # fact editing.
+        "foire aux questions", "table of contents", "related articles",
+        "related posts", "you may also like", "popular articles",
+        "at paris brain institute", "paris brain institute",
+        "privacy policy", "terms of service", "cookie policy",
+        "share this", "print this page", "subscribe to", "newsletter",
+        "advertisement", " sponsored content", "all rights reserved",
+        "last updated", "page last modified",
     )
 
     def _sanitize_definition_text(self, text: str) -> Optional[str]:
@@ -1257,6 +1268,24 @@ class WebLearningMixin(ResponseGenMixin):
                    r"(?:[A-Z][a-z]+\.? \d{1,2},? \d{4}|"
                    r"\d{1,2} [A-Z][a-z]+ \d{4}|"
                    r"[A-Z][a-z]+\.? \d{1,2},? \d{4})\s*", "", s).strip()
+        # B6 (perceptual-buffer gating): drop author bylines / contributor
+        # boilerplate and residual datelines ANYWHERE in the snippet, not just
+        # the leading edge. These are extrinsic context (authorship metadata),
+        # not the predicted utterance (predictive coding). Structural regexes
+        # over UI chrome -- not content, so no facts are hardcoded.
+        s = re.sub(r"(?:written|authored|reviewed|edited|updated|published|reported|contributed)(?:\s+(?:by|on))?\s+"
+                   r"(?:[A-Z][a-z]+(?:\s+[A-Z]\.?)?(?:\s+[A-Z][a-z]+){0,3})", " ", s, flags=re.IGNORECASE)
+        s = re.sub(r"(?:contributing writer|staff writer|science writer|medical reviewer|fact(?:-| )checked)"
+                   r"(?:\s+by\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})?", " ", s, flags=re.IGNORECASE)
+        s = re.sub(r"(?:updated|published|posted|last reviewed)\s+"
+                   r"(?:on\s+)?(?:[A-Z][a-z]+\.?\s+)?\d{1,2},?\s*\d{4}", " ", s, flags=re.IGNORECASE)
+        # Truncated parenthetical / fragment residue from search snippets.
+        s = re.sub(r"\(\s*[\.\)]\s*\)", " ", s)
+        s = re.sub(r"\(\s*cont\.\s*\)", " ", s, flags=re.IGNORECASE)
+        s = re.sub(r"\(\s*(?:read|see|learn|more|continue)[^)]{0,30}\)\.?", " ", s, flags=re.IGNORECASE)
+        s = re.sub(r"\(\s*\.\.\.\s*\)", " ", s)
+        s = re.sub(r"[\(\)]\s*$", " ", s).strip()
+
         # Trim leading/trailing list markers like "1." / "a." that are artefacts
         # of numbered dictionary entries (the source of "TRUST definition: 1.").
         # Done last so a marker exposed by the title/dateline strips above is

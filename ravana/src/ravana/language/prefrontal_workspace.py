@@ -523,6 +523,21 @@ class SocialIntentClassifier(QuestionSubtypeClassifier):
             "what can you do", "who are you", "tell me about yourself",
             "what are you", "what is your deal", "what are you capable of",
         ],
+        # B2: 'invite' MUST be declared BEFORE 'farewell' in this dict. Both
+        # share the only content word "talk" (should/we/about are SOCIAL_STOP),
+        # so on a tie the first-declared type wins the strict-'>' coverage
+        # break — declaring farewell first made it hijack "what should we talk
+        # about" (via its "talk to you later" seed). Invite is the more specific
+        # speech act, so it leads and wins the {talk} tie; a genuine "talk to you
+        # later" still scores 1.0 on farewell vs 0.5 on invite, so farewell wins
+        # that one. Order = intent specificity, not alphabetical.
+        "invite": [
+            "what should we talk about", "what do you want to discuss",
+            "what can we chat about", "what do you want to talk about",
+            "any ideas what to talk about", "what should i ask you",
+            "what do you want to know", "what would you like to chat about",
+            "what shall we discuss", "anything you want to talk about",
+        ],
         "farewell": [
             "bye", "goodbye", "see you", "good night", "farewell",
             "catch you later", "talk to you later",
@@ -534,6 +549,22 @@ class SocialIntentClassifier(QuestionSubtypeClassifier):
         "affect_disclosure": [
             "i am bored", "i am sad", "i feel tired", "i am lonely",
             "i am frustrated", "i am happy", "i feel anxious", "i am excited",
+        ],
+        # B1 (source monitoring / self-other boundary): "what do you remember
+        # about me", "what do you know about me", "what have i told you" are
+        # recalls of the USER's own disclosed autobiographical facts — they must
+        # reach the hippocampal entity index (_retrieve_episodic), never be
+        # answered with the dictionary definition of the word "remember". The
+        # centroids below let the prototype classifier recognize the self-recall
+        # speech act by structure (first/second person + recall verb + self
+        # reference), so we don't enumerate a routing regex. Detected here, the
+        # engine.py:_try_memory_query routes it to the personal episodic store.
+        "self_recall": [
+            "what do you remember about me", "what do you know about me",
+            "what have i told you", "what do you know about me so far",
+            "remember what i told you", "do you remember me",
+            "what did i tell you about myself", "anything you remember about me",
+            "what do you recall about me", "tell me what you know about me",
         ],
     }
 

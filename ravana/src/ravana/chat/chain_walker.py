@@ -1928,10 +1928,39 @@ class ChainWalkerMixin:
         if not start_ids:
             return []
         start_id = start_ids[0]
+        start_label = self.graph.get_node(start_id).label if self.graph.get_node(start_id) else start_concept
+
+        # B5 (constructive-simulation stability): simulate on a STABLE snapshot
+        # of the causal subgraph, not the live graph. The background web-learner
+        # mutates self.graph concurrently, so a live walk can drift between runs
+        # ("share would lead to cambridge") — brains run simulation on a
+        # consolidated model (post hippocampal replay), not the online plasticity
+        # stream. Snapshot the causal adjacency reachable from start_id into a
+        # frozen local dict ONCE, then walk on that. Nodes/labels are copied by
+        # value (ints/strings) so the snapshot is immune to later mutation.
+        _SNAP_BUDGET = 400  # bound the BFS so a huge component can't explode memory
+        _snap_adj: Dict[int, List[Tuple[int, str]]] = {}
+        _snap_label: Dict[int, str] = {start_id: start_label}
+        _frontier = [start_id]
+        _snapped = 0
+        while _frontier and _snapped < _SNAP_BUDGET:
+            _cur = _frontier.pop()
+            if _cur in _snap_adj:
+                continue
+            _snap_adj[_cur] = []
+            for _nid, _edge in self.graph.get_outgoing(_cur):
+                if _edge.relation_type != "causal":
+                    continue
+                _nlabel = self.graph.get_node(_nid)
+                if _nlabel and _nlabel.label:
+                    _snap_label[_nid] = _nlabel.label
+                    _snap_adj[_cur].append((_nid, _nlabel.label))
+                    if _nid not in _snap_adj and _nid not in _frontier:
+                        _frontier.append(_nid)
+                _snapped += 1
 
         from heapq import heappush, heappop
-        _start_label = self.graph.get_node(start_id).label if self.graph.get_node(start_id) else start_concept
-        open_set = [(0.0, 0, [_start_label])]
+        open_set = [(0.0, 0, [start_label])]
         visited = {start_id: 0.0}
         consequences: List[Tuple[float, List[str]]] = []
 
@@ -1945,18 +1974,14 @@ class ChainWalkerMixin:
                     current_id = start_id
                 else:
                     continue
-            for neighbor_id, edge in self.graph.get_outgoing(current_id):
-                if edge.relation_type != "causal":
-                    continue
+            for neighbor_id, _nlabel in _snap_adj.get(current_id, []):
                 if neighbor_id in visited and visited[neighbor_id] <= cost + 0.2:
                     continue
                 visited[neighbor_id] = cost + 0.2
-                neighbor = self.graph.get_node(neighbor_id)
-                if neighbor and neighbor.label:
-                    npath = path + [neighbor.label]
-                    ncost = cost + 0.2
-                    heappush(open_set, (ncost, depth + 1, npath))
-                    consequences.append((ncost, npath))
+                npath = path + [_nlabel]
+                ncost = cost + 0.2
+                heappush(open_set, (ncost, depth + 1, npath))
+                consequences.append((ncost, npath))
 
         seen = set()
         out = []

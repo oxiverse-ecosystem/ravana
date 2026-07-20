@@ -743,6 +743,15 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # Phase 18b: User priming - track recent user topics for curiosity boosting
         self._user_query_topics: List[str] = []  # last 10 topics user asked about
         self._user_last_topic: str = ""  # most recent user topic
+        # B3 (source-monitoring for greetings): the "welcome back" family is a
+        # memory CLAIM about a PRIOR session, so it must only fire when we have
+        # genuinely resumed from a saved snapshot — NOT on an arbitrary mid-session
+        # turn (that asserts a past episode that never happened: confabulation,
+        # Tulving 1985 / Johnson source-monitoring). _load() sets this True exactly
+        # once on a successful resume; process_turn consumes it on the first turn
+        # so the greeting is a reactivation artifact, never a periodic tick.
+        self._session_resumed: bool = False
+        self._greeting_emitted_this_session: bool = False
         self._activation_boost: Optional[Dict[str, float]] = None
         # Solution #2: Reasoning mode (stochastic / deterministic / exploratory)
         self.reasoning_mode: str = "stochastic"
@@ -1751,6 +1760,60 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         t = (user_input or "").lower().strip(" ?!.")
         if not t:
             return None
+        # B1: self-knowledge recall. "what do you remember about me" / "what do
+        # you know about me" / "what have i told you" are recalls of the USER's
+        # own disclosed autobiographical facts (stored in the hippocampal entity
+        # index, self._episodic_index). They must be answered from that personal
+        # store, NEVER by looking up the dictionary definition of the word
+        # "remember" (source monitoring / self-other boundary; Mitchell & Johnson
+        # 2009). Detect the speech act structurally (first/second person + recall
+        # verb + self reference) and via the SocialIntentClassifier 'self_recall'
+        # centroid, then route to _retrieve_episodic. Fail-closed: if the episodic
+        # store has nothing for the user, return None and let the pipeline fall
+        # through to honest uncertainty (the ConceptNet def of "remember" is NOT
+        # a valid answer for this query).
+        _self_recall_struct = bool(re.search(
+            r"\b(?:what|anything|tell me)\b.*\b(?:do )?you\b.*\b(?:remember|know|recall|told|tell)\b"
+            r".*\b(?:about me|me|my|myself)\b", t)) or \
+            bool(re.search(r"\b(?:remember|recall)\b.*\b(?:what i|what i told|me)\b", t))
+        _self_recall_intent = False
+        _clf = getattr(self, "_social_intent", None)
+        if _clf is not None:
+            try:
+                _si, _ = _clf.detect(t)
+                _self_recall_intent = (_si == "self_recall")
+            except Exception:
+                _self_recall_intent = False
+        if _self_recall_struct or _self_recall_intent:
+            _ep = self._retrieve_episodic(user_input)
+            if _ep is not None:
+                return _ep
+            # Generic self-recall ("what do you remember about me" / "what do
+            # you know about me") carries NO specific entity cue, so the
+            # entity-indexed _retrieve_episodic returns None. Reconstruct a gist
+            # from ALL disclosed user facts held in the hippocampal entity index
+            # (Tulving encoding specificity: a self-directed memory query without
+            # a target reconstructs the whole disclosed self-profile). Brain-
+            # faithful: we surface what was actually stored, never a dictionary
+            # node. Fail-closed: if the index is genuinely empty, fall through to
+            # the honest "you haven't told me much" uncertainty path.
+            _idx = getattr(self, "_episodic_index", None) or {}
+            _bits = []
+            for _ent, _facts in _idx.items():
+                for _attr, _val in _facts.items():
+                    if _attr == "favorite":
+                        _bits.append(f"your favorite {_ent} is {_val}")
+                    elif _attr == "likes":
+                        _bits.append(f"you like {_val}")
+                    elif _attr == "is":
+                        _bits.append(f"your {_ent} is {_val}")
+                    else:
+                        _bits.append(f"your {_ent}'s {_attr} is {_val}")
+            if _bits:
+                _summary = "; ".join(dict.fromkeys(_bits))
+                return f"from what you've told me, {_summary}."
+            return ("i don't think you've told me much about yourself yet — "
+                    "but i'm listening whenever you want to share.")
         # First/second-person + a recall/speech verb, referring to a prior turn.
         # Require an explicit conversational-memory phrasing to stay narrow.
         _patterns = [
@@ -3456,6 +3519,19 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             r"\bmy\s+(name|favorite)\b|\bwho\s+am\s+i\b|"
             r"\bwhat\s+(do|did)\s+i\s+(like|love|prefer|want)\b|"
             r"\bwhat\s+am\s+i\s+(interested|into)\b", t):
+            return None
+        # B1 (source monitoring / self-other boundary): self-knowledge RECALL
+        # queries ("what do you remember about me", "what do you know about me",
+        # "what have i told you") are about the USER's stored autobiographical
+        # facts, not the dictionary definition of the word "remember". They must
+        # reach _try_memory_query -> _retrieve_episodic (the hippocampal entity
+        # index), never be answered with the ConceptNet node for "remember".
+        # Excluded here so _consult_internal_knowledge does not intercept them
+        # before the memory pre-pass runs. Fail-closed: if the episodic store is
+        # empty, the caller's honest-uncertainty path handles it.
+        if re.search(
+            r"\b(?:what|anything|tell me)\b.*\b(?:do )?you\b.*\b(?:remember|know|recall|told|tell)\b"
+            r".*\b(?:about me|me|my|myself)\b|\b(?:remember|recall)\b.*\b(?:what i|me)\b", t):
             return None
         # Plan Stage 1 (M-B, architectural): an ABSTRACT / philosophical question
         # ("meaning of life", "nature of truth", "purpose of art") must NOT be
@@ -5506,8 +5582,17 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
 
         # Attach decomposition result to context for discourse planning
         decomp_ctx = self._current_decomposition_result
+        # B4: strip simplification framing ("like i'm five", "in simple terms")
+        # from the query ONCE here, at the ctx boundary, so every downstream
+        # consumer — web query variants, topic extractor, counterfactual
+        # resolution — sees the cleaned referent and not the metacommunicative
+        # frame. Predictive coding: the frame is not part of the referent. Set
+        # simplification_requested so the surface realizer lowers register.
+        _stripped = self._strip_eli5_tail(user_input)
+        _simplification = (_stripped.strip() != user_input.lower().strip())
         ctx = CognitiveResponseContext(
-            subject=subject, relation=relation, object=obj, raw_input=user_input,
+            subject=subject, relation=relation, object=obj, raw_input=_stripped,
+            simplification_requested=_simplification, cleaned_input=_stripped,
             associated_concepts=associations,
             bridge_concept=self._find_bridge(associations, subject),
             valence=self.emotion.state.valence, arousal=self.emotion.state.arousal,
@@ -5872,11 +5957,22 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         if self._current_context_vector is not None:
             self._current_context_vector *= 0.3
 
-        # P1 Theory of Mind: personalized greeting when relationship warrants it (roadmap §9)
+        # P1 Theory of Mind: personalized greeting when relationship warrants it (roadmap §9).
+        # B3: a "welcome back" is a memory CLAIM — only emit it when we have
+        # genuinely resumed from a prior session (self._session_resumed, set once
+        # by _load) AND we haven't already done so this session. This stops the
+        # mid-session "Welcome back! Last time we discussed X" leak, where the
+        # old interaction_count % 10 gate slapped a false recollection onto an
+        # arbitrary turn. The greeting becomes a reactivation artifact, not a tick.
         try:
-            greeting = self._personalized_greeting()
-            if greeting and response:
-                response = greeting + response
+            if self._session_resumed and not self._greeting_emitted_this_session:
+                greeting = self._personalized_greeting()
+                if greeting and response:
+                    response = greeting + response
+                    self._greeting_emitted_this_session = True
+                # Consume the resume flag regardless of whether we emitted — we
+                # only get ONE shot at a grounded greeting per resumed session.
+                self._session_resumed = False
         except Exception:
             pass  # Never break the pipeline for a greeting
 
@@ -8344,16 +8440,19 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             best = _san
         if not best.endswith((".", "!", "?")):
             best = best + "."
-        # Light conversational close (generative, not hardcoded fact)
-        closers = [
-            "",
-            " (that's what i found, at least.)",
-            " let me know if you want more detail.",
-            " hope that helps.",
-        ]
+        # B4: simplification register. When the user framed the query with a
+        # "like i'm five" / "in simple terms" frame (ctx.simplification_requested,
+        # set at the ctx boundary), lower the lexical/syntactic complexity of the
+        # emitted answer: keep only the FIRST sentence (the core definitional
+        # statement) and drop the conversational closer. This is a register
+        # signal, not a fact edit — the content is unchanged, just shorter and
+        # plainer. Fail-closed: if there's only one sentence, nothing is trimmed.
         closer = ""
-        if random.random() < 0.4:
-            closer = random.choice(closers[1:])
+        if getattr(ctx, "simplification_requested", False):
+            _sent = re.split(r"(?<=[.!?])\s+", best.strip())
+            if _sent:
+                best = _sent[0].strip().rstrip(".!?") + "."
+            closer = ""
         # PROMPT 3: tag the answer with its source + comparative modesty instead
         # of presenting it as settled fact. Modality from trust + plausibility.
         from ravana.chat.hedges import hedge_frame, modality_from_support
@@ -10060,6 +10159,11 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                                       max_nodes=getattr(self, '_max_nodes', 20000))
             self._concept_keywords = state['concept_keywords']
             self.turn_count = state['turn_count']
+            # B3: a successful resume from a saved snapshot means a PRIOR session
+            # actually occurred — so a "welcome back" greeting is a grounded
+            # autonoetic claim, not a confabulation. Flag it once; process_turn
+            # consumes it on the first turn and never re-emits mid-session.
+            self._session_resumed = True
 
             # Restore decoder vocab mapping
             self._decoder_word_to_idx = state.get('decoder_word_to_idx', {})
@@ -10702,7 +10806,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         s = text.lower()
         # ELI5: "like i am five", "like i'm five", "like a five year old",
         # "like i am five years old", "as if i were five".
-        s = re.sub(r"\b(?:like|as if|as though)\b\s+(?:i am|i'm|i|i were|he is|she is|he were|she were|a|an|they are)\s+"
+        s = re.sub(r"\b(?:like|as if|as though)\b\s+(?:i am|i'm|im|i|i were|he is|she is|he were|she were|a|an|they are)\s+"
                    r"(?:five|five year old|five years old|(?:a |an )?\d+\s*(?:year|yr)s?\s*old)\b.*$",
                    "", s)
         # "in simple terms", "in plain language", "simply", "for kids", "for a child".

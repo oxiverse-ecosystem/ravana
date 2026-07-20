@@ -1942,8 +1942,17 @@ class ResponseGenMixin(ChainWalkerMixin):
             _c = re.search(r"\b(what\s*can\s*you\s*do|who\s*are\s*you|tell\s*me\s*about\s*yourself)\b", t)
             _f = re.search(r"\b(bye|goodbye|see\s*you|good\s*night|farewell)\b", t)
             _gr = re.search(r"\b(thanks|thank\s*you|cheers|appreciate|grateful)\b", t)
+            # B2: topic-invite speech act (distinct from farewell). Centroid
+            # detection in the prototype bank owns the main path; this regex is
+            # only the safety net for minor variants the classifier abstains on.
+            _inv = re.search(
+                r"\b(what\s*(?:should|shall|can|do\s*you\s*want\s*to)\s*(?:we|i|you)\s*"
+                r"(?:talk|chat|discuss)|what\s*should\s*i\s*ask\s*you|"
+                r"any\s*(?:ideas|thoughts)\s*(?:what|on)\s*to\s*talk|"
+                r"what\s*(?:do|would)\s*you\s*want\s*to\s*(?:talk|know|chat)|"
+                r"anything\s*you\s*want\s*to\s*talk\s*about)\b", t)
             intent = "greeting" if _g else "wellbeing" if _w else "capability" if _c else \
-                     "farewell" if _f else "gratitude" if _gr else None
+                     "farewell" if _f else "gratitude" if _gr else "invite" if _inv else None
 
         if intent == "ABSTAIN" or intent is None:
             return None
@@ -1991,6 +2000,12 @@ class ResponseGenMixin(ChainWalkerMixin):
             return self._compose_farewell(valence, arousal)
         elif intent == "gratitude":
             return self._compose_gratitude(valence, arousal)
+        elif intent == "invite":
+            # B2: conversational topic-invite — propose something grounded in
+            # real interests/curiosity, not a canned line. Fail-closed: if there
+            # is genuinely nothing to suggest, return None so the turn falls
+            # through to the normal (honest) pipeline rather than a hollow string.
+            return self._compose_invite(valence, arousal)
 
         return None
 
@@ -2710,12 +2725,25 @@ class ResponseGenMixin(ChainWalkerMixin):
                 "take care and see you soon!",
             ])
         elif valence < 0.4:
-            farewell_word = random.choice(["goodbye", "bye"])
-            warmth_suffix = random.choice([
-                "entering sleep mode.",
-                "shutting down for now.",
-                "logging off.",
-            ])
+            # B2: low-arousal / low-valence farewell must stay AFFILIATIVE, not
+            # service-language. "logging off / shutting down" is robot-speak that
+            # breaks the teen persona and reads as abandonment. A flat-affect
+            # human still closes warmly ("take care", "talk soon") — sample from
+            # relationship depth so a longer bond closes even softer.
+            _rel_depth = getattr(getattr(self, "user_model", None), "relationship_depth", 0.0)
+            farewell_word = random.choice(["bye", "goodbye", "see you"])
+            if _rel_depth > 0.6:
+                warmth_suffix = random.choice([
+                    "take care — i'll be here next time.",
+                    "talk soon, yeah?",
+                    "it was good hanging out. see you.",
+                ])
+            else:
+                warmth_suffix = random.choice([
+                    "take care.",
+                    "talk to you later.",
+                    "i'll be around if you want to pick this up.",
+                ])
         else:
             farewell_word = random.choice(["goodbye", "bye", "farewell"])
             warmth_suffix = random.choice([
@@ -2725,6 +2753,69 @@ class ResponseGenMixin(ChainWalkerMixin):
                 "it was good talking with you!",
             ])
         return f"{farewell_word}! {warmth_suffix}"
+
+    def _compose_invite(self, valence: float, arousal: float) -> Optional[str]:
+        """B2: answer a topic-invite ("what should we talk about") by proposing
+        something GROUNDED in real interests, not a canned string.
+
+        Brain basis: a topic-invite is a social bid for the agent to take
+        initiative (dmPFC ToM; Zhen et al. 2025). Humans answer with a concrete
+        suggestion drawn from shared context, not a fixed phrase. We draw from:
+          - the real recent topic list (what we were just on),
+          - the curiosity queue (genuine open questions the agent wants to
+            explore),
+          - the user's disclosed interests (episodic index),
+        and compose a short, valence-gated open question. Fail-closed: if none
+        of those yield anything, return None so the turn falls through to the
+        honest pipeline instead of emitting hollow text.
+        """
+        import random
+        _suggestions: List[str] = []
+        # 1) Resume a real thread we were on.
+        _topics = getattr(self, "_topic_list", None) or []
+        for _tp in reversed(_topics[-3:]):
+            if _tp and _tp.lower() not in ("how", "today", "day", "you"):
+                _suggestions.append(f"we could pick up on {_tp}")
+                break
+        # 2) Curious about something the agent has flagged.
+        _cq = getattr(self, "_curiosity_topics_queue", None) or []
+        if _cq:
+            _suggestions.append(f"i've been curious about {_cq[0]}")
+        # 3) A disclosed user interest.
+        _epi = getattr(self, "_episodic_index", None) or {}
+        for _ent, _facts in _epi.items():
+            _likes = _facts.get("likes") or _facts.get("favorite")
+            if _likes:
+                _suggestions.append(f"tell me more about your interest in {_likes}")
+                break
+        if not _suggestions:
+            # No personal context yet (fresh user). Fail-closed but non-empty:
+            # suggest from the agent's OWN grounded knowledge (domain concepts /
+            # curated topics) rather than a canned phrase. This is still
+            # brain-faithful — the agent proposes something it can actually
+            # discuss. If even that is empty, return None and let the pipeline
+            # fall through to honest uncertainty.
+            _known = [c for c in ("ravana", "oxiverse", "intentforge")
+                      if c in getattr(self, "_concept_keywords", {})]
+            if _known:
+                _suggestions.append(f"i could tell you about {_known[0]}")
+            else:
+                return None
+        _lead = random.choice(_suggestions)
+        # Valence-gated warmth on the closing question.
+        if valence > 0.6:
+            _close = random.choice([
+                "what do you think?",
+                "want to dive into that?",
+                "i'm game if you are!",
+            ])
+        else:
+            _close = random.choice([
+                "what's on your mind?",
+                "anything you'd rather talk about?",
+                "up to you — what sounds good?",
+            ])
+        return f"{_lead}. {_close}"
 
     def _compose_gratitude(self, valence: float, arousal: float) -> str:
         """Compose a gratitude acknowledgment from primitives.
@@ -3774,8 +3865,12 @@ class ResponseGenMixin(ChainWalkerMixin):
             "do", "does", "did", "have", "has", "had", "be", "is", "are",
             "different", "same", "alive", "dead", "real", "true", "instead",
             "stop", "stopped", "stops", "switch", "switched", "turn", "turned",
-            "cease", "ceased", "break", "broke", "broke", "fall", "fell",
+            "break", "broke", "broke", "fall", "fell",
             "disappear", "disappeared",
+            # B5: verb forms of the intervention predicate must never surface as
+            # a *consequence* (e.g. "gravity would lead to working"). "work" is
+            # the predicate in "gravity stopped working", not a knock-on effect.
+            "work", "working", "works", "worked",
         }
         # Discourse / spinner adverbs that often introduce a hypothetical
         # ("suddenly", "out of nowhere", "one day") but are NOT the thing that
@@ -3915,7 +4010,10 @@ class ResponseGenMixin(ChainWalkerMixin):
             if b.lower() in STOP_WORDS or b.lower() == start.lower() or len(b) < 3:
                 continue
             # consecutive-node coherence: every adjacency in the path must be
-            # semantically related, else the chain drifted into noise.
+            # semantically related, else the chain drifted into noise. B5:
+            # raise the floor from 0.12 to 0.30 so weak GloVe-wired associations
+            # (the noisy residue of web-learned causal edges) are withheld and
+            # the realized narrative only keeps genuinely linked consequences.
             _coherent = True
             _chain_coh = []
             for _i in range(len(parts) - 1):
@@ -3925,7 +4023,7 @@ class ResponseGenMixin(ChainWalkerMixin):
                 _cos = float(np.dot(_u, _v) / (
                     np.linalg.norm(_u) * np.linalg.norm(_v) + 1e-8))
                 _chain_coh.append(_cos)
-                if _cos < 0.12:
+                if _cos < 0.30:
                     _coherent = False
                     break
             if not _coherent:
@@ -4075,7 +4173,12 @@ class ResponseGenMixin(ChainWalkerMixin):
                       "turned", "cease", "ceased", "break", "broke", "fall",
                       "fell", "go", "went", "gone", "disappear", "disappeared",
                       "vanish", "vanished", "destroy", "destroyed", "remove",
-                      "removed", "change", "changed", "happen", "happened"}
+                      "removed", "change", "changed", "happen", "happened",
+                      # B5: the intervention predicate "working" (in "gravity
+                      # stopped working") is the CHANGE, never a knock-on effect;
+                      # exclude it from realized tails/heads so it can't surface
+                      # as a consequence ("gravity would lead to working").
+                      "work", "working", "works", "worked"}
         for p in paths[:3]:
             if len(p) < 2:
                 continue
