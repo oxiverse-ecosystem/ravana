@@ -11,6 +11,23 @@ except ImportError:
     _HAS_SCIPY_SPARSE = False
 
 
+class _DimensionMismatch(Exception):
+    """Raised when a candidate node vector cannot be projected to the graph's
+    canonical dimension. Callers (add_node) quarantine the vector instead of
+    writing a corrupt node."""
+    pass
+
+
+# Round 4 (C1): labels that must never be sleep-pruned even if low-degree
+# (protective set for canonical/hub concepts; guards rare-but-valid singletons
+# from synaptic homeostasis). Small and curated — not an exhaustive blocklist.
+_PROTECTED_NODE_LABELS = {
+    "trust", "memory", "love", "fear", "time", "self", "mind", "brain",
+    "language", "learning", "knowledge", "consciousness", "intent", "ravana",
+    "oxiverse", "intentforge", "privacy", "freedom", "truth", "causality",
+    "emotion", "thought", "dream", "death", "life", "reason", "perception",
+}
+
 class ConceptNodeType:
     """Node type categories for semantic organization."""
     CONCRETE = "concrete"        # tangible entities (objects, persons, places)
@@ -1037,6 +1054,19 @@ class ConceptGraph:
         self._adaptive_downscale = adaptive_downscale
         self.nodes: Dict[int, ConceptNode] = {}
         self.edges: Dict[Tuple[int, int], ConceptEdge] = {}
+        # ── Issue 2: canonical-dimension write boundary ──
+        # Quarantine log records every rejected vector (label, shape, reason)
+        # so dimension drift is OBSERVABLE, never silent. Inspect via
+        # graph._quarantine_log or the --trace-monitors self-monitor dump.
+        self._quarantine_log: List[Tuple[str, object, str]] = []
+        # Embedding-source registry: maps a known source width -> its
+        # canonical projection. The dual-code [GloVe-64 | Lancaster-11] = 75-D
+        # source is the documented stale-corruption case; its leading `dim`
+        # channels ARE the canonical GloVe space, so the projection is a
+        # non-lossy leading-channel slice. Unknown widths are rejected.
+        self._embedding_registry: Dict[int, str] = {self.dim: "canonical"}
+        if self.dim + 11 not in self._embedding_registry:
+            self._embedding_registry[self.dim + 11] = "dual_code_75"
         # Thread-safety: the web learner / background thread mutate the graph
         # concurrently with turn-time reasoning that iterates these dicts.
         # All mutators below take this lock; read loops in callers snapshot
@@ -1177,7 +1207,28 @@ class ConceptGraph:
                 self._prune_oldest()
             nid = self.next_id
             self.next_id += 1
-            v = vector.copy() if vector is not None else np.random.randn(self.dim).astype(np.float32) * 0.1
+            # ── Canonical-dimension enforcement layer (Issue 2 fix) ──
+            # Hippocampal "common currency" analogue: every vector entering
+            # the graph must be in the canonical dim (self.dim). A stale
+            # dual-code embedding [GloVe-64 | Lancaster-11] = 75-D from an
+            # older persisted snapshot is the known corruption source; its
+            # LEADING self.dim channels ARE the canonical GloVe space, so we
+            # recover them (non-lossy for that source). Truly-unknown widths
+            # are QUARANTINED (rejected) — never silently padded/truncated,
+            # which would corrupt the stacked similarity matrix and throw
+            # matmul: size 75 != 64 in the background-learn thread.
+            raw = vector.copy() if vector is not None else None
+            if raw is not None:
+                try:
+                    v = self._project_to_canonical(raw, source="add_node")
+                except _DimensionMismatch as _dm:
+                    self._quarantine_log.append(
+                        (label, getattr(raw, "shape", None), str(_dm)))
+                    if getattr(self, "_trace_enabled", False):
+                        print(f"  [graph] QUARANTINE node '{label}': {_dm}")
+                    return None
+            else:
+                v = np.random.randn(self.dim).astype(np.float32) * 0.1
             # G2: Lancaster-11 sensorimotor co-primary. If not passed in,
             # try the engine-supplied fn (set by CognitiveChatEngine) so every
             # node auto-carries its dual-code vector without touching each call
@@ -1195,6 +1246,35 @@ class ConceptGraph:
             self._adj_dirty = True
             self.version = getattr(self, "version", 0) + 1
             return node
+
+    def _project_to_canonical(self, vec: np.ndarray, source: str = "unknown") -> np.ndarray:
+        """Hippocampal common-currency projection (Issue 2).
+
+        Returns `vec` projected to the canonical width ``self.dim``. The only
+        registered non-canonical source is the stale dual-code embedding
+        [GloVe-64 | Lancaster-11] = 75-D; its leading ``self.dim`` channels are
+        already the canonical GloVe space, so we slice them (non-lossy for that
+        source, documented in the embedding registry). Any other width is
+        rejected with ``_DimensionMismatch`` — the vector is quarantined, never
+        silently padded/truncated (which would corrupt the similarity matrix).
+        """
+        if vec is None:
+            raise _DimensionMismatch("vector is None")
+        try:
+            w = int(vec.shape[-1])
+        except Exception:
+            raise _DimensionMismatch("vector has no width")
+        if w == self.dim:
+            return np.asarray(vec, dtype=np.float32)
+        src = self._embedding_registry.get(w, "unknown")
+        if src == "dual_code_75":
+            # Recover the leading canonical GloVe channels.
+            proj = np.asarray(vec.reshape(-1)[:self.dim], dtype=np.float32)
+            if getattr(self, "_trace_enabled", False):
+                print(f"  [graph] project 75->64 (dual-code) for source '{source}'")
+            return proj
+        raise _DimensionMismatch(
+            f"width {w} (source='{src}') has no canonical projection to dim {self.dim}")
 
     def get_node(self, nid: int) -> Optional[ConceptNode]:
         return self.nodes.get(nid)
@@ -1223,6 +1303,62 @@ class ConceptGraph:
                 self._active_nodes.discard(nid)
                 self._adj_dirty = True
                 self.version = getattr(self, "version", 0) + 1
+
+    def prune_low_degree_junk_nodes(self, tau_low: int = 1,
+                                     tau_high: int = 8) -> Tuple[int, List[str], List[str]]:
+        """Round 4 (C1): sleep-time junk-node pruning (synaptic homeostasis).
+
+        Remove concept nodes that are low-degree singletons AND have no typed
+        edge to any hub. This reclaims accumulated junk (website names, POS-tag
+        fragments, one-shot scraped tokens that slipped through via 2-source
+        reactivation but never formed real structure) that the edge-only prune
+        leaves behind. Hubs (degree >= tau_high) are protected (zero
+        prune-gradient) so real concepts survive. Structural, not a literal
+        label blocklist — degree is the learned/emergent quality signal.
+
+        Round 5 (D1): returns (count, removed_labels, surviving_hub_labels) so
+        the engine can self-label them (removed -> negative oracle; surviving
+        hubs -> positive oracle) for the self-supervised junk classifier.
+        """
+        with self._lock:
+            # Compute degree per node (undirected: outgoing + incoming).
+            deg = {}
+            for nid in self.nodes:
+                out = len(self._outgoing.get(nid, []))
+                inc = len(self._incoming.get(nid, []))
+                deg[nid] = out + inc
+            hubs = {nid for nid, d in deg.items() if d >= tau_high}
+            hub_labels = [getattr(self.nodes[n], "label", "") for n in hubs
+                          if getattr(self.nodes[n], "label", "")]
+            # A node is junk-eligible if it is low-degree AND not adjacent to a
+            # hub (no path into the real conceptual structure).
+            to_remove = []
+            for nid, d in deg.items():
+                if d >= tau_low:
+                    continue
+                # Check adjacency to any hub.
+                _adj_hub = False
+                for (_s, _t), _e in self.edges.items():
+                    if _s == nid and _t in hubs:
+                        _adj_hub = True
+                        break
+                    if _t == nid and _s in hubs:
+                        _adj_hub = True
+                        break
+                if not _adj_hub:
+                    to_remove.append(nid)
+            removed_labels = []
+            for nid in to_remove:
+                # Protect nodes that are the ONLY representative of a protected
+                # concept (defensive: never prune a node whose label is in the
+                # canonical teen/core set — guards rare-but-valid singletons).
+                _node = self.nodes.get(nid)
+                if _node is not None and getattr(_node, "label", "") in _PROTECTED_NODE_LABELS:
+                    continue
+                if getattr(_node, "label", ""):
+                    removed_labels.append(_node.label)
+                self.remove_node(nid)
+            return len(removed_labels), removed_labels, hub_labels
 
     # ── adjacency helpers ──
 
@@ -1668,6 +1804,14 @@ class ConceptGraph:
     # ── similarity search ──
 
     def find_similar(self, vector: np.ndarray, k: int = 5) -> List[Tuple[int, float]]:
+        # Issue 2: canonical-dimension guard on the query vector. A stray
+        # 75-D vector (e.g. from a dual-code source) would throw matmul:
+        # size 75 != 64 against the normed matrix; project it to canonical
+        # first so the caller silently works instead of crashing the thread.
+        try:
+            vector = self._project_to_canonical(vector, source="find_similar")
+        except _DimensionMismatch:
+            return []
         if self._vectors_dirty or self._vector_matrix_normed is None:
             self._rebuild_vector_matrix()
         if self._vector_matrix_normed is None or len(self._node_id_order) == 0:

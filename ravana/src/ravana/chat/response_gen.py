@@ -13,6 +13,7 @@ from collections import deque, Counter
 
 
 from .constants import STOP_WORDS, WEB_GARBAGE, TEEN_CONCEPT_LABELS
+from .constants import junk_score as _junk_score  # Round 4 (C1) read-time gate
 from .chain_walker import ChainWalkerMixin
 from .realizer_lexicon import RealizerLexicon, default_lexicon
 from ravana.language.surface_realizer import DiscourseState
@@ -2605,6 +2606,7 @@ class ResponseGenMixin(ChainWalkerMixin):
         # stays internally grounded in the agent's own vocabulary.
         assoc = []
         tnode = None
+        _jtheta = getattr(self, "_junk_theta", 0.5)
         try:
             for _n in g.nodes.values():
                 if _n.label.lower() == topic_l:
@@ -2613,7 +2615,11 @@ class ResponseGenMixin(ChainWalkerMixin):
             if tnode is not None:
                 for _t, _e in g.get_outgoing(tnode.id):
                     _nn = g.get_node(_t)
-                    if _nn is not None and not _is_meta(_nn.label):
+                    # Round 4 (C1): read-time gate — never weave a junk label
+                    # (website name, POS-tag fragment, hash-OOV) even if one
+                    # leaked past the write-time consolidation buffer.
+                    if _nn is not None and not _is_meta(_nn.label) \
+                            and _junk_score(_nn.label) < _jtheta:
                         assoc.append(_nn.label)
         except Exception:
             pass
@@ -2627,6 +2633,8 @@ class ResponseGenMixin(ChainWalkerMixin):
                         continue
                     if _is_meta(_n.label):
                         continue
+                    if _junk_score(_n.label) >= _jtheta:
+                        continue
                     vv = getattr(_n, "vector", None)
                     if vv is None:
                         continue
@@ -2639,21 +2647,102 @@ class ResponseGenMixin(ChainWalkerMixin):
                 assoc.extend([lbl for _, lbl in scored[:6]])
             except Exception:
                 pass
-        assoc = [a for a in assoc if a and a.lower() != topic_l][:6]
+        assoc = [a for a in assoc if a and a.lower() != topic_l
+                 and _junk_score(a) < _jtheta][:6]
         if not assoc:
             return None
         # Evocative connectors (abstract, never a factual claim about the world).
-        _connectors = ["whispers to", "holds", "remembers", "becomes",
-                       "meets", "dreams of", "opens into", "carries"]
-        random.shuffle(_connectors)
-        lines = [f"{topic.capitalize()} {_connectors[0]} {assoc[0].lower()}."]
-        if len(assoc) > 1:
-            lines.append(f"and {assoc[1].lower()} {_connectors[1]} the quiet.")
-        if len(assoc) > 2:
-            lines.append(f"{assoc[2].lower().capitalize()} {_connectors[2]} what {topic.lower()} forgets.")
-        if len(assoc) > 3:
-            lines.append(f"so {topic.lower()} and {assoc[3].lower()} are never quite alone.")
+        # Transitive verbs that each take (subject, object) so a line built as
+        # "<A> <connector> <B>." is a COMPLETE independent clause. Paired with
+        # plural forms so subject-verb NUMBER AGREEMENT holds (a fluency critic:
+        # "Focuses becomes" -> "Focuses become"); the DMN line is still free
+        # association, just grammatically well-formed.
+        _connectors_sg = ["whispers to", "holds", "remembers", "becomes",
+                          "meets", "dreams of", "opens into", "carries"]
+        _connectors_pl = ["whisper to", "hold", "remember", "become",
+                          "meet", "dream of", "open into", "carry"]
+        # B1 (Round 3): every creative line must pass through the SAME fan-in
+        # completeness monitor that guards the normal path (surface_realizer
+        # ._utterance_complete, CoherenceGate.judge) — the DMN free-association
+        # used to concatenate raw f-strings ("and {x} {verb} the quiet.") that
+        # produced dangling fragments with no matrix verb. Now each line is
+        # woven as a complete (subject, predicate, object) frame and filtered;
+        # a line that cannot be made complete after bounded resampling is
+        # DROPPED (never emitted), so broken lines are structurally impossible.
+        _sr = getattr(self, "surface_realizer", None)
+        _gate = getattr(self, "_coherence_gate", None)
+        _use_gate = getattr(self, "use_coherence_gate", True)
+
+        def _is_plural(label: str) -> bool:
+            # Rough morphological heuristic: an English noun label ending in a
+            # sibilant 's' (and not a known singular like "bus"/"us") reads as
+            # plural -> require a plural verb. Good enough for fluency; the
+            # creative line is free association, not a grammatical oracle.
+            _l = (label or "").lower().rstrip(".!")
+            if not _l:
+                return False
+            if _l.endswith("ss") or _l.endswith("us") or _l.endswith("is"):
+                return False
+            return _l.endswith("s")
+
+        def _line_complete(line: str) -> bool:
+            # Complete independent clause: has a finite verb/copula AND does not
+            # begin with a coordinating conjunction (which would make it a
+            # subordinate fragment with no matrix).
+            _t = line.strip().lower()
+            if _t.startswith(("and ", "so ", "but ", "or ")):
+                return False
+            if _sr is not None:
+                try:
+                    _ok, _ = _sr._utterance_complete(line)
+                    if not _ok:
+                        return False
+                except Exception:
+                    pass
+            return True
+
+        def _build_line(a: str, b: str, idx: int) -> str:
+            # Pick singular/plural connector by the SUBJECT's number so the
+            # clause agrees ("Word becomes" / "Focuses become").
+            _sg = _connectors_sg[idx % len(_connectors_sg)]
+            _pl = _connectors_pl[idx % len(_connectors_pl)]
+            _conn = _pl if _is_plural(a) else _sg
+            return f"{a.capitalize()} {_conn} {b.lower()}."
+
+        lines = []
+        # Line 1 anchors the topic with the first association (complete clause).
+        if assoc:
+            lines.append(_build_line(topic, assoc[0], 0))
+        # Remaining lines pair distinct associations into complete SVO clauses.
+        _i = 1
+        while _i + 1 < len(assoc) and len(lines) < 4:
+            _a, _b = assoc[_i], assoc[_i + 1]
+            _base = _i
+            # Resample loop: try alternate connector indices until the line is
+            # both number-agreeing and complete, or attempts exhausted; drop if
+            # none resolve.
+            _candidate = _build_line(_a, _b, _base)
+            _attempts = 0
+            while (not _line_complete(_candidate)) and _attempts < len(_connectors_sg):
+                _candidate = _build_line(_a, _b, _base + _attempts + 1)
+                _attempts += 1
+            if _line_complete(_candidate):
+                lines.append(_candidate)
+            _i += 2
+        if not lines:
+            return None
         verse = "\n".join(lines)
+        # Fan-in monitor: route the whole verse through the shared CoherenceGate
+        # (same gate as every other generator) when enabled.
+        if _use_gate and _gate is not None:
+            try:
+                _broadcast, _reason, _score = _gate.judge(text=verse)
+                if not _broadcast:
+                    if getattr(self, '_trace_enabled', False):
+                        print(f"  [creative] CoherenceGate withheld verse: {_reason}")
+                    return None
+            except Exception:
+                pass
         # Fail-closed: reject degenerate free-association.
         try:
             from ravana.chat.constants import _is_word_salad
@@ -2769,21 +2858,57 @@ class ResponseGenMixin(ChainWalkerMixin):
         # available we could generate; it's off by default, so we decline with
         # WARMTH and invite collaboration (keeps honesty: we don't fake an
         # artifact, but we don't sound like a locked-down assistant either).
+        # Defect E fix: broaden the creative detector to also catch generative
+        # invention shapes — "make up / invent / coin (a) (new) word",
+        # "imagine / picture a world / scene", "draw / sketch / doodle (a) ...".
+        # These are DMN free-association requests and must reach _generate_creative
+        # instead of being swallowed by the action-request refusal path below.
         _creative = re.search(
-            r"\b(poem|story|haiku|song|tale|limerick|rap|verse|lyric|lyrics)\b",
+            r"\b(poem|story|haiku|song|tale|limerick|rap|verse|lyric|lyrics|"
+            r"word|world|scene|character|creature)\b",
             text.lower())
-        if _creative:
-            _art = _creative.group(1)
-            # topic after "about"
+        _creative_shape = re.search(
+            r"\b(make up|invent|coin|imagine|picture|envision|draw|sketch|"
+            r"doodle|compose|create|come up with)\b",
+            text.lower())
+        if _creative or _creative_shape:
+            # topic after "about" (covers "poem about X", "world about X")
             _m = re.search(r"\babout\s+(.+)", text.lower())
             _topic = (_m.group(1).strip(" .,!?") if _m else "").strip()
+            if not _topic:
+                # For "make up a new word" / "invent a creature" shapes, the
+                # artifact type ("word"/"world"/"creature") is the topic anchor.
+                _tm = re.search(
+                    r"\b(a|an|new|the)?\s*(word|world|scene|character|"
+                    r"creature|story|poem|song|tale)\b",
+                    text.lower())
+                if _tm:
+                    _topic = _tm.group(2)
             # W4: generate from the agent's own graph associations (DMN
             # free-association), grounded and salad-gated. If generation fails
             # or degenerates, fall back to the warm honest defer below.
-            _verse = self._generate_creative(_topic, _art)
+            _verse = self._generate_creative(_topic, _topic or "something")
             if _verse:
                 self._last_creative = True
                 return _verse
+            # Defect E: the warm-defer templates below reference the artifact
+            # noun (a poem / a story / a word / a world). Derive it from the
+            # matched art noun so we never reference an undefined `_art` NOR
+            # duplicate the topic (e.g. "ooh, a a robot who learns to dream
+            # about a robot who learns to dream"). When no canonical art noun
+            # matched (generative-shape requests like "imagine a world"),
+            # fall back to the artifact type extracted from the shape, else
+            # "piece".
+            _art = None
+            if _creative:
+                _art = _creative.group(1)
+            if not _art:
+                _tm = re.search(
+                    r"\b(a|an|new|the)?\s*(word|world|scene|character|"
+                    r"creature|story|poem|song|tale)\b", text.lower())
+                if _tm:
+                    _art = _tm.group(2)
+            _art = _art or "piece"
             _about = f" about {_topic}" if _topic else ""
             _warm = [
                 f"ooh, a {_art}{_about} — i love that idea. i'm honestly still "
@@ -4543,6 +4668,27 @@ class ResponseGenMixin(ChainWalkerMixin):
             break
         if lines:
             body = "; ".join(lines[:3])
+            # ── Fail-closed coherence gate (Defect C fix) ──
+            # The premise-matched branch assembled `body` and returned at the
+            # OLD line 4544 WITHOUT routing it through the A6 degenerate gate
+            # that the generic branch (below) already uses. That let
+            # junk-endpoint narratives ("claims would lead to results") slip
+            # past the gate. Route the assembled narrative through
+            # _causal_narrative_degenerate; on degenerate -> return None so the
+            # caller falls through to the honest-uncertainty fallback (the
+            # designed failure mode). Brain-faithful: the vLPFC→AI causal
+            # coherence filter (Operskalski & Barbey 2016) rejects incoherent
+            # causal chains regardless of which branch built them.
+            _gen_text = f"if {subj_cap.lower()} were different, {body}."
+            try:
+                _g, _gr = self._causal_narrative_degenerate(_gen_text)
+            except Exception:
+                _g, _gr = False, "deg_skip"
+            if _g:
+                if getattr(self, "_trace_enabled", False):
+                    print(f"  [counterfactual] premise-branch degenerate: "
+                          f"{_gr} — withholding")
+                return None
             return (f"{lead} {body}.", "counterfactual_simulation")
         # Generic path: only use a CLEAN LOCAL definition (not a noisy web
 

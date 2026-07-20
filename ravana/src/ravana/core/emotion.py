@@ -20,7 +20,13 @@ class VADConfig:
     eta_valence: float = 0.3      # valence update rate
     eta_arousal: float = 0.4      # arousal update rate
     eta_dominance: float = 0.25   # dominance update rate
-    decay_rate: float = 0.95      # return-to-baseline per turn
+    decay_rate: float = 0.95      # return-to-baseline per turn (arousal/dominance)
+    # Issue 1: valence decays toward NEUTRAL (0.0) faster than arousal/dominance,
+    # so stale ambient mood does not persist and leak into unrelated turns
+    # (the VAD-echo defect). Stronger neutral decay mirrors natural affective
+    # dissipation; the emotional channel is (re)opened only by a fresh, explicit
+    # affective stimulus, not by residual state.
+    valence_decay_rate: float = 0.6  # per-turn decay of valence toward 0.0
     baseline_arousal: float = 0.3 # engagement floor
 
 
@@ -48,7 +54,7 @@ class VADEmotionEngine:
         cfg = self.config
 
         # Apply decay toward baseline
-        self.state.valence *= cfg.decay_rate ** dt
+        self.state.valence *= cfg.valence_decay_rate ** dt
         self.state.arousal = cfg.baseline_arousal + (self.state.arousal - cfg.baseline_arousal) * (cfg.decay_rate ** dt)
         self.state.dominance = 0.5 + (self.state.dominance - 0.5) * (cfg.decay_rate ** dt)
 

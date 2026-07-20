@@ -124,6 +124,21 @@ def main():
     parser.add_argument("--no-cerebellar-snippet", action="store_true",
                         help="Disable the learned snippet-quality model (revert to the "
                              "hardcoded _SNIPPET_REJECT_SHAPES backstop only).")
+    parser.add_argument("--no-coherence-gate", action="store_true",
+                        help="Disable the Global Workspace coherence gate "
+                             "(Defect A/C/D/F shared broadcast gate). ON by "
+                             "default; pass to fall back to per-path heuristics.")
+    parser.add_argument("--no-affect-gate", action="store_true",
+                        help="Disable the VAD-echo gate (Issue 1): allow the "
+                             "self-referential affective tail to fire on every "
+                             "stance query regardless of mood-topic congruence. "
+                             "ON by default (gate active).")
+    parser.add_argument("--no-snippet-gate", action="store_true",
+                        help="Disable the learned snippet structural-quality "
+                             "model (Defect F / B2 #3): the hardcoded "
+                             "_SNIPPET_REJECT_SHAPES backstop still applies, but "
+                             "the learned SnippetStructureModel hard-reject is "
+                             "bypassed. ON by default (learned gate active).")
     parser.add_argument("--source-trust", action="store_true",
                         help="Enable Track B Phase 3 learned per-domain source-trust "
                              "(replaces the hardcoded preferred-source allowlist). "
@@ -207,6 +222,15 @@ def main():
     elif args.snippet_pe:
         engine.use_cerebellar_snippet = True
         print('  [Snippets] Track B Phase 2 learned structural-PE gate ENABLED')
+    if args.no_snippet_gate:
+        engine.use_cerebellar_snippet = False
+        print('  [Snippets] learned snippet structural model DISABLED (defect-F/B2 learned reject off)')
+    if args.no_coherence_gate:
+        engine.use_coherence_gate = False
+        print('  [Coherence] Global Workspace broadcast gate DISABLED (per-path heuristics)')
+    if args.no_affect_gate:
+        engine.use_affect_gate = False
+        print('  [Affect] VAD-echo gate DISABLED (affective tail fires on every stance)')
     if args.source_trust:
         engine.use_source_trust = True
         print('  [Sources] Track B Phase 3 learned per-domain source-trust ENABLED')

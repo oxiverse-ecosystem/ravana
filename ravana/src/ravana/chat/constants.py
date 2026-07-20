@@ -386,3 +386,37 @@ def _is_word_salad_any_sentence(text: str, subject: Optional[str] = None, grain:
         if _is_word_salad(s, subject=subject, grain=grain):
             return True
     return False
+
+
+# ── Round 4 (C1): node-admission junk score ────────────────────────────────────
+# A single learned/structural gate reused at BOTH write-time (web-learning node
+# admission, web_learning.py:713) and read-time (creative weaver association
+# filter, response_gen.py:2608). Higher score = more likely junk. Combines:
+#   - learned SaladClassifier (if a fit model is available),
+#   - structural heuristics: keyboard-mash, POS-tag-likeness, website-name
+#     SHAPE (TLD tail / embedded digit / low vowel ratio — never a hardcoded
+#     site blocklist), and OOV/hash-vector magnitude (no embedding structure).
+# Thresholds are parameters, not literals; the function is pure (no graph
+# access) so it composes with co-occurrence/distinct-source gating upstream.
+_WEBSITE_SHAPE = re.compile(
+    r"(com|net|org|edu|gov|io|html|php|asp|jsp|www)$", re.I)
+_POS_TAGS = {"adj", "adv", "noun", "verb", "nouns", "verbs", "adjs", "advs",
+             "prep", "conj", "det", "pron", "aux", "adjp", "np", "vp"}
+
+
+def junk_score(word: str, glove_mag: Optional[float] = None,
+               degree: Optional[int] = None,
+               source_count: Optional[int] = None,
+               pmi_stability: Optional[float] = None) -> float:
+    """Return junk probability in [0,1] for a candidate graph node label.
+
+    Delegates to ravana.chat.junk_scorer.junk_score — a self-supervised
+    classifier (Round 5 / D1) that cold-starts exactly equal to the previous
+    hand-weighted formula and adapts as consolidation-outcome labels accrue.
+    Higher score = more likely junk. See junk_scorer.py for the brain-faithful
+    design (hippocampal self-labeling + error-driven refit; structural floor
+    stays a non-learnable backstop).
+    """
+    from ravana.chat.junk_scorer import junk_score as _js
+    return _js(word, glove_mag=glove_mag, degree=degree,
+               source_count=source_count, pmi_stability=pmi_stability)

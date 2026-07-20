@@ -1203,6 +1203,15 @@ class ChatInterface:
                 if not admitted and cue and not s.rstrip().endswith(")"):
                     s = s.rstrip(". ") + (f" — {cue}." if cue else ".")
                 return s
+            # Defect A: if the realizer withheld the clause because it was an
+            # INCOMPLETE fragment (bare NP, no predicate — Broca's forward-model
+            # monitor), do NOT fall back to the hardcoded frame templates
+            # below, which would surface the fragment as a confident fact.
+            # Instead return None so the caller falls through to honest
+            # uncertainty (fail-closed). This is the designed Defect-A repair:
+            # incomplete -> withhold, never surface.
+            if getattr(self.surface_realizer, "_last_realize_incomplete", None):
+                return None
             if admitted:
                 frames = [
                     f"{subject.capitalize()} {v1} {l1.lower()}.",
@@ -1230,6 +1239,11 @@ class ChatInterface:
             if s2:
                 return s1 + " " + s2
             return s1
+        # Defect A: if the realizer withheld an INCOMPLETE fragment, do not emit
+        # the hardcoded coordination templates (which would surface the bare NP
+        # as a confident fact). Fall through to honest uncertainty instead.
+        if getattr(self.surface_realizer, "_last_realize_incomplete", None):
+            return None
         coord_patterns = [
             lambda s, l1, v1, l2, v2: f"{s.capitalize()} {v1} {l1.lower()}, and it also {v2} {l2.lower()}.",
             lambda s, l1, v1, l2, v2: f"While {s.lower()} {v1} {l1.lower()}, it also {v2} {l2.lower()}.",
@@ -1443,6 +1457,17 @@ class ChatInterface:
                 s = self.surface_realizer.realize(frame=frame, discourse_context=d,
                     dopamine_tone=getattr(self, '_dopamine_tone', 0.5),
                     cerebellar_ngram=getattr(self, 'cerebellar_ngram', None))
+                # Defect A: the realizer's Broca's forward-model monitor returns
+                # "" when the realized clause is an incomplete fragment (bare NP,
+                # no predicate). Treat that as realization failure and fall back
+                # to honest uncertainty instead of surfacing the fragment. Log a
+                # monitor fire so --trace-monitors can prove the gate fired.
+                if not s:
+                    _inc = getattr(self.surface_realizer, '_last_realize_incomplete', None)
+                    if _inc and getattr(self, '_trace_enabled', False):
+                        self._log_monitor_fire("utterance_incomplete",
+                                               f"fragment:{_inc}", "incomplete_clause")
+                    return None
                 if s and len(s) > min_len:
                     return s
         except Exception:

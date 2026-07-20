@@ -23,6 +23,7 @@ from typing import Dict, List, Optional, Any, Set, Tuple
 from collections import defaultdict
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from ravana.chat.constants import junk_score  # Round 4 (C1) node-admission gate
 
 
 # Research item E: provenance population helper (TrustGraph / PROV-O style).
@@ -731,7 +732,13 @@ class WebLearner:
                             edge.confidence = min(0.8, edge.confidence + 0.05)
                 continue
 
+            # Round 4 (C1): write-time consolidation gate (hippocampal filter).
+            # Mirror of web_learning.py / web_to_graph.py: a scraped token is
+            # NOT admitted on first sight. It must clear junk_score AND be
+            # reactivated across >= k DISTINCT sources (provisional buffer on
+            # the graph engine), else it never reaches the permanent graph.
             vec = self._glove_vector(word)
+            _mag = None
             if vec is None:
                 h = hash(word) % 50000
                 vr = np.random.RandomState(h + 100)
@@ -739,13 +746,51 @@ class WebLearner:
                 norm = np.linalg.norm(vec)
                 if norm > 0:
                     vec /= norm
-            node = self.graph_engine.graph.add_node(vector=vec, label=word)
-            label_to_id[word] = node.id
-            self.graph_engine._concept_keywords[word] = self.graph_engine._concept_keywords.get(word, []) + [node.id]
-            self.graph_engine._concept_labels.add(word.lower())
-            existing_labels.add(word)
-            new_count += 1
-            self._concept_sources[word] = {source_id}
+                _mag = float(norm) if norm > 0 else 0.0
+            else:
+                _mag = float(np.linalg.norm(vec))
+            _theta = getattr(self.graph_engine, "_junk_theta", 0.5)
+            _k = getattr(self.graph_engine, "_promote_min_sources", 2)
+            _js = junk_score(word, glove_mag=_mag)
+            if _js >= _theta:
+                # Round 5 (D1): self-label as junk (decayed trace).
+                try:
+                    from ravana.chat.junk_scorer import record_label
+                    record_label(word, "junk", glove_mag=_mag,
+                                 meta={"degree": 0, "source_count": 1, "glove_mag": _mag})
+                except Exception:
+                    pass
+                continue  # clear junk: never integrate
+            _prov = getattr(self.graph_engine, "_provisional_nodes", None)
+            if _prov is None:
+                self.graph_engine._provisional_nodes = _prov = {}
+            if word in _prov:
+                _prov[word].add(source_id)
+                if len(_prov[word]) >= _k:
+                    node = self.graph_engine.graph.add_node(vector=vec, label=word)
+                    if node is None:
+                        continue
+                    label_to_id[word] = node.id
+                    self.graph_engine._concept_keywords[word] = \
+                        self.graph_engine._concept_keywords.get(word, []) + [node.id]
+                    self.graph_engine._concept_labels.add(word.lower())
+                    existing_labels.add(word)
+                    self._concept_sources[word] = set(_prov[word])
+                    _prov.pop(word, None)
+                    new_count += 1
+                    # Round 5 (D1): self-label as promoted (consolidated).
+                    try:
+                        from ravana.chat.junk_scorer import record_label
+                        record_label(word, "promoted", glove_mag=_mag,
+                                     meta={"degree": 1,
+                                           "source_count": len(self._concept_sources[word]),
+                                           "glove_mag": _mag})
+                    except Exception:
+                        pass
+                continue
+            else:
+                _prov[word] = {source_id}
+                continue
 
         # Form connections between co-occurring words
         article_words = [w for w in re.findall(r"[a-zA-Z']{3,}", text.lower())

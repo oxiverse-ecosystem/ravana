@@ -581,7 +581,69 @@ class SurfaceRealizer:
                 self._recent_variants = self._recent_variants[-3:]
         self._last_free_energy = free_energy
 
+        # ── Broca's forward-model monitor (Defect A fix) ──
+        # The realized string must carry a predicate (finite verb / copula).
+        # A bare noun phrase with no verb ("its psychological underpinnings",
+        # "a powerful yet seemingly imperfect brain") is an INCOMPLETE clause —
+        # the frame's object node attached to an association, not a predicate-
+        # typed edge, so surface realization produced only a fragment. Rather
+        # than emit the fragment (confident garbage), flag it incomplete so the
+        # caller's repair loop (or honest-uncertainty fallback) can intervene.
+        # Structural test only: a content verb or copula token => complete.
+        _complete, _why = self._utterance_complete(sentence)
+        if not _complete:
+            # Signal the gap; the wrapper (_try_surface_realize) reads
+            # _last_realize_incomplete and falls back to honest uncertainty
+            # instead of surfacing the fragment. We return "" so every caller
+            # that tests `if s:` treats this as "realization failed".
+            self._last_realize_incomplete = _why
+            return ""
+        self._last_realize_incomplete = None
+
         return sentence
+
+    # Content-verb / copula tables for the completeness monitor. A clause that
+    # contains ANY of these asserts a real predicate; otherwise it is a bare NP.
+    _COMPLETE_COPULA = {"is", "are", "was", "were", "be", "been", "being", "am",
+                        "'s", "'re", "'m", "seem", "seems", "become",
+                        "becomes", "remain", "remains", "feel", "feels",
+                        "look", "looks", "sound", "sounds", "get", "gets"}
+    _COMPLETE_VERBS = {"pull", "pulls", "attract", "attracts", "bend", "bends",
+                       "escape", "escapes", "grow", "grows", "reproduce",
+                       "adapt", "rely", "care", "believe", "learn", "think",
+                       "know", "happen", "exist", "live", "die", "change",
+                       "move", "fall", "rise", "create", "help", "use", "make",
+                       "build", "show", "find", "give", "bring", "keep",
+                       "break", "hold", "send", "tell", "need", "want", "love",
+                       "hate", "see", "hear", "feel", "do", "does", "did",
+                       "has", "have", "had", "will", "would", "can", "could",
+                       "should", "may", "might"}
+
+    def _utterance_complete(self, text: str) -> Tuple[bool, Optional[str]]:
+        """Broca's forward-model completeness check (Defect A).
+
+        Returns (complete, reason). A complete clause carries a finite verb or
+        copula. A bare noun phrase / glue-only / 1-2 token fragment with no
+        predicate is incomplete -> (False, reason). Structural only — no topic
+        lists — so it generalizes across all concepts.
+        """
+        if not text or not text.strip():
+            return False, "empty"
+        import re
+        toks = re.findall(r"[a-z']+", text.lower())
+        if any(w in self._COMPLETE_VERBS for w in toks):
+            return True, "has_verb"
+        if any(w in self._COMPLETE_COPULA for w in toks):
+            return True, "has_copula"
+        real = [w for w in toks if w not in (
+            "the", "a", "an", "of", "in", "on", "for", "to", "and", "or",
+            "but", "that", "this", "it", "its", "with", "from", "as", "by",
+            "than", "at")]
+        # No predicate token anywhere -> incomplete. Short bare NP (<=2 real
+        # words) is the classic Defect-A fragment.
+        if len(real) <= 2:
+            return False, "bare_np_fragment"
+        return False, "no_predicate"
 
     def _select_variant(self, si, subject_is_pronoun, has_copula,
                          is_explain_mode, has_adverb, discourse_type,

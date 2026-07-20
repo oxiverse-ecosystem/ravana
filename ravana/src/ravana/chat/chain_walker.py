@@ -1853,6 +1853,17 @@ class ChainWalkerMixin:
                 s = self.surface_realizer.realize(frame=frame, discourse_context=disc_ctx,
                     dopamine_tone=getattr(self, '_dopamine_tone', 0.5),
                     cerebellar_ngram=getattr(self, 'cerebellar_ngram', None))
+                # Defect A: the realizer's Broca's forward-model monitor returns
+                # "" when the realized clause is an incomplete fragment (bare NP,
+                # no predicate). Treat that as realization failure and fall back
+                # to honest uncertainty instead of surfacing the fragment. Log a
+                # monitor fire so --trace-monitors can prove the gate fired.
+                if not s:
+                    _inc = getattr(self.surface_realizer, '_last_realize_incomplete', None)
+                    if _inc and getattr(self, '_trace_enabled', False):
+                        self._log_monitor_fire("utterance_incomplete",
+                                               f"fragment:{_inc}", "incomplete_clause")
+                    return None
                 if s and len(s) > min_len:
                     return s
         except Exception:

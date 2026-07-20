@@ -63,7 +63,16 @@ except ImportError:
 from .constants import (TEEN_CONCEPTS, WEB_GARBAGE, STOP_WORDS, ConceptPosDict,
                         _is_word_salad, _is_keyboard_mash)
 from .web_learning import WebLearningMixin
-from .snippet_quality import SnippetStructureModel, default_model
+# Defect F: learned structural-PE snippet model (contrastive gap). Imported
+# lazily-safe so a missing module degrades gracefully (the gate stays None and
+# the old heuristic floor remains the backstop, never weakened).
+try:
+    from .snippet_quality import SnippetStructureModel, default_model
+    _HAS_SNIPPET_MODEL = True
+except Exception:  # pragma: no cover - defensive
+    SnippetStructureModel = None  # type: ignore
+    default_model = None  # type: ignore
+    _HAS_SNIPPET_MODEL = False
 # Research item B (fail-closed salad monitor): learned distributional classifier
 # + fluent-tautology signature gate. Imported lazily-safe so a missing fit file
 # degrades gracefully (the guard falls back to the legacy rule-based detector).
@@ -413,7 +422,38 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # 10+10 labeled set: 0/10 good answers over-rejected, 9/10 junk caught.
         # The old regex tables remain as a hard backstop (never weakened).
         self.use_cerebellar_snippet = True
-        self._snippet_model = None
+        # Defect A/C/D/F: Global Workspace coherence gate (GWT broadcast gate).
+        # Default ON. When ON, candidate utterances (association fragments,
+        # counterfactual narratives, numeric claims, web snippets) are checked
+        # by a single learned/structural gate before broadcast. When OFF, the
+        # per-path legacy heuristics remain (fail-open, no regression).
+        self.use_coherence_gate = True
+        try:
+            from ravana.chat.coherence_gate import CoherenceGate
+            self._coherence_gate = CoherenceGate()
+        except Exception:
+            self._coherence_gate = None
+        # Issue 1: VAD-echo gate (vmPFC value-integration + lPFC inhibitory
+        # control). When ON (default), the first-person affective echo in
+        # _agent_stance_on only fires when the agent's current mood is
+        # CONGRUENT with the topic (cosine > tau) OR the user has explicitly
+        # opened the emotional channel ("i'm sad"); otherwise the self-
+        # referential feeling leak is suppressed. Disable via --no-affect-gate.
+        self.use_affect_gate = True
+        self._emotional_channel_active = False
+        self._emotional_channel_turns = 0
+        self._affect_congruence_tau = 0.35
+        # Defect F: instantiate the learned structural-PE snippet model as the
+        # hard reject used in _web_snippet_search. Train contrastively on the
+        # seed (good definitions + known junk) so the contrastive-gap decision
+        # separates real answers from boilerplate. None when disabled (the old
+        # heuristic floor remains the backstop, never weakened).
+        self._snippet_structure_model = None
+        if self.use_cerebellar_snippet and _HAS_SNIPPET_MODEL and default_model:
+            try:
+                self._snippet_structure_model = default_model()
+            except Exception:
+                self._snippet_structure_model = None
         # Stage 5a: snippet-PE gate parameters loaded from data/snippet_pe.json
         # (or seed constants when the fit file is absent). All PE thresholds
         # read from here so they can be EER-fit without code changes.
@@ -761,6 +801,22 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         self._consistency_trace: List[str] = []
         # Phase 18c: Multi-source consensus tracking for hallucination guard
         self._concept_sources: Dict[str, Set[str]] = {}  # concept -> set of source URLs
+        # Round 4 (C1): provisional buffer (the "hippocampus"). Tokens scraped
+        # from the web but not yet cleared for permanent graph admission live
+        # here — tracked by distinct source so reactivation (>= k distinct
+        # sources) promotes them, while one-shot junk (website names, POS-tag
+        # fragments) never reaches the live graph the DMN weaver reads.
+        self._provisional_nodes: Dict[str, Set[str]] = {}  # label -> set of source URLs
+        self._junk_theta: float = 0.5        # junk_score threshold for admission
+        self._promote_min_sources: int = 2   # distinct sources required to promote
+        # Round 5 (D1): self-supervised junk_score — point the singleton at this
+        # engine's data dir so weak labels + fitted model persist (junk_labels.jsonl,
+        # junk_classifier.json). Cold-start reproduces the Round-4 formula exactly.
+        try:
+            from ravana.chat.junk_scorer import configure as _js_configure
+            _js_configure(data_dir)
+        except Exception:
+            pass
         # Phase 18d: Explored contradiction pairs (prevent re-queuing "good vs bad debate")
         self._explored_contradictions: Set[Tuple[str, str]] = set()
 
@@ -2270,6 +2326,71 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             if seq:
                 joined = ", ".join(str(x) for x in seq)
                 return f"{joined}." if len(seq) <= 20 else f"{seq[0]}, {seq[1]}, … up to {seq[-1]}."
+        # (a.5) ROOTS / RADICALS — "square root of X", "cube root of X",
+        # "sqrt(X)". Defect D fix: the old arithmetic pass only handled
+        # + - * / ^, so "square root of negative one" fell through to the web
+        # path and surfaced a misleading snippet ("a positive number"). Roots
+        # are deterministic procedural math (cerebellum), evaluate them directly
+        # with the stdlib `math` module and a sign check — imaginary results
+        # are reported as i·√|x|, never asserted as a real number. No web
+        # lookup, no confabulation.
+        import math as _math
+        # Capture the radicand as a phrase AFTER "root (of/from)" — this covers
+        # both literal digits ("square root of -1", "sqrt(9)") AND spelled-out
+        # numbers ("square root of negative one", "cube root of eight"). We
+        # parse the phrase with parse_number_phrase (GloVe-derived number map,
+        # not a hardcoded table) so no topic list is needed.
+        _root_degree = re.search(
+            r"\b(cube root|fourth root|square root|sqrt|root)\b",
+            user_input.lower().replace("×", "*").replace("x", "*"))
+        _radicand_phrase = None
+        if _root_degree:
+            # find the phrase following "of"/"from"/"(" after the root word
+            _m = re.search(
+                r"\b(?:square root|cube root|fourth root|sqrt|root)\b"
+                r"\s*(?:of|from|\(|\s)*\s*([a-z0-9 +\-]+?)\s*(?:\)|\?|\.|,|$)",
+                user_input.lower().replace("×", "*").replace("x", "*"))
+            if _m:
+                _radicand_phrase = _m.group(1).strip().rstrip(").")
+        if _root_degree and _radicand_phrase is not None:
+            _degree = 2
+            _raw = user_input.lower()
+            if re.search(r"cube root", _raw):
+                _degree = 3
+            elif re.search(r"fourth root", _raw):
+                _degree = 4
+            # Parse the radicand: digits first, else spelled-out number words.
+            # Handle an explicit sign word ("negative one" / "minus eight") so
+            # the sign check below reports imaginary roots correctly.
+            _x = None
+            _phrase = _radicand_phrase
+            _neg = False
+            if re.match(r"^(negative|minus)\b", _phrase):
+                _neg = True
+                _phrase = re.sub(r"^(negative|minus)\s+", "", _phrase).strip()
+            try:
+                _x = float(_phrase)
+            except (ValueError, TypeError):
+                try:
+                    _x = parse_number_phrase(_phrase, self._glove_vector)
+                except Exception:
+                    _x = None
+            if _x is not None and _neg:
+                _x = -abs(_x)
+            if _x is not None:
+                if _x < 0 and _degree % 2 == 1:
+                    # odd root of a negative number is real and negative
+                    _val = -_math.pow(-_x, 1.0 / _degree)
+                    return (f"{user_input.strip().rstrip('?.')} = {_val:.4g} "
+                            f"(negative, since an odd root of a negative is real).")
+                if _x < 0 and _degree % 2 == 0:
+                    # even root of a negative number is imaginary: i·ⁿ√|x|
+                    _mag = _math.pow(-_x, 1.0 / _degree)
+                    return (f"{user_input.strip().rstrip('?.')} = i·{_mag:.4g} "
+                            f"— that's imaginary (no real number squares to a "
+                            f"negative).")
+                _val = _math.pow(_x, 1.0 / _degree)
+                return (f"{user_input.strip().rstrip('?.')} = {_val:.4g}.")
         # (b) NUMBER-WORD ARITHMETIC — "two plus two" / "ten times five". The
         #     operands are recovered from the GloVe-derived number ordinal map,
         #     not a hardcoded table, then evaluated with the whitelisted ops.
@@ -3245,17 +3366,97 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                         except Exception:
                             _assoc_label = ""
                     if _assoc_label and _assoc_label.lower() != target:
-                        reason = (f"it connects to {_assoc_label}, and that resonates "
-                                  f"with how i'm feeling right now")
+                        # Issue 1: VAD-echo gate. The self-referential affective
+                        # tail ("...and that resonates with how i'm feeling right
+                        # now") must only fire when the agent's current mood is
+                        # CONGRUENT with the topic (vmPFC "is this feeling about
+                        # the topic?") OR the user has opened the emotional
+                        # channel. Otherwise stale ambient affect leaks into every
+                        # stance reply (the reported defect). When gated off, the
+                        # reason names the real graph association without the
+                        # first-person feeling echo.
+                        _emotion_relevant = True
+                        if getattr(self, "use_affect_gate", True):
+                            _emotion_relevant = self._affect_is_relevant(
+                                target, tvec)
+                        if _emotion_relevant:
+                            reason = (f"it connects to {_assoc_label}, and that "
+                                      f"resonates with how i'm feeling right now")
+                        else:
+                            reason = f"it connects to {_assoc_label}"
                     else:
-                        reason = "it sits well with how i'm wired right now"
+                        # Neutral / non-affective fallback — no feeling echo
+                        # (the leak was here: "...sits well with how i'm wired
+                        # right now" on a neutral topic with ambient mood). When
+                        # the emotional channel is explicitly open (user invited
+                        # affect), the self-referential echo is permitted.
+                        if getattr(self, "_emotional_channel_active", False):
+                            reason = "it sits well with how i'm wired right now"
+                        else:
+                            reason = f"it connects to {_assoc_label}" if _assoc_label else "i've been thinking about it"
         else:
-            reason = "it sits well with how i'm wired right now"
+            # No GloVe target vector: without a topic embedding we cannot
+            # compute congruence, so default to the NON-affective fallback
+            # unless the emotional channel is explicitly open (Issue 1).
+            if getattr(self, "use_affect_gate", True) and not getattr(
+                    self, "_emotional_channel_active", False):
+                reason = "i've been thinking about it"
+            else:
+                reason = "it sits well with how i'm wired right now"
         stance = f"i'm {polarity} {target}" if target else "i'm drawn to"
         result = (stance, reason)
         if _cache is not None:
             _cache[_ckey] = result
         return result
+
+    def _affect_is_relevant(self, target: str, tvec) -> bool:
+        """Issue 1 — Emotion–Topic Congruence Gate (vmPFC value integration).
+
+        Decides whether the agent's CURRENT ambient mood may surface as a
+        first-person affective echo for `target`. Brain-faithful: the feeling
+        is only "about the topic" when the topic's embedding is near the
+        mood's affect anchor. A neutral ambient mood (no salient valence) has
+        NO affect anchor, so congruence is undefined -> the echo is suppressed
+        (the reported leak). The user opening the emotional channel
+        (_emotional_channel_active) is an OR-override (they invited affect).
+
+        Returns True (emit echo) / False (suppress, use neutral reason).
+        """
+        # Explicit emotional channel: user invited affect — permit echo.
+        if getattr(self, "_emotional_channel_active", False):
+            return True
+        # No GloVe target vector -> cannot assess congruence; default suppress
+        # (fail-closed: don't leak feeling without a topic to attach it to).
+        if tvec is None:
+            return False
+        valence = 0.5
+        try:
+            valence = float(getattr(self.emotion.state, "valence", 0.0))
+        except Exception:
+            valence = 0.0
+        # Map valence to a mood anchor. VAD valence is neutral at 0.0 (range
+        # -1..1), so the dead-band is symmetric around 0, NOT around 0.5. A
+        # near-neutral ambient mood (|valence| below the salience threshold)
+        # has NO affect anchor -> the echo is suppressed (the reported leak:
+        # stale neutral mood must not bleed "how i'm feeling" into every
+        # reply). Only a salient positive/negative mood can anchor an echo, and
+        # even then only when congruent with the topic.
+        _salience = 0.25
+        if valence >= _salience:
+            _anchor_word = "happy"
+        elif valence <= -_salience:
+            _anchor_word = "sad"
+        else:
+            return False  # neutral ambient mood -> gate closed, no echo
+        glove_fn = getattr(self, "_glove_vector", None)
+        if not callable(glove_fn):
+            return False
+        _fv = glove_fn(_anchor_word)
+        if _fv is None or tvec is None:
+            return False
+        _denom = (float(np.linalg.norm(_fv)) * float(np.linalg.norm(tvec)) + 1e-9)
+        _c = float(np.dot(_fv, tvec) / _denom)
+        return _c > getattr(self, "_affect_congruence_tau", 0.35)
 
     # ─────────────────────────────────────────────────────────────────────
     # Human-Likeness Plan (A1 + A1b): vmPFC self-referential gating
@@ -3598,6 +3799,24 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # Attribute-focused recall: "what is the capital of France" must return
         # the capital clause (Paris), not France's whole stored definition.
         _focused = self._focus_attribute_answer(user_input, subj, ans.text)
+        # Defect A (coherence gate): the consulted internal fact may be a bare
+        # fragment (e.g. a junk learned association like "its psychological
+        # underpinnings") with no predicate — not a complete clause. Route it
+        # through the Global Workspace completeness check; an incomplete clause
+        # is WITHHELD (fail-closed) so the caller falls through to honest
+        # uncertainty rather than emitting a confident fragment. Structural
+        # only — no topic list, generalizes across all concepts.
+        _gate = getattr(self, "_coherence_gate", None)
+        if _gate is not None and self.use_coherence_gate:
+            try:
+                _ok, _why, _score = _gate.judge(text=_focused, subject=subj)
+                if not _ok:
+                    if getattr(self, "_trace_enabled", False):
+                        print(f"  [coherence] internal_knowledge withheld "
+                              f"({_why}): {_focused[:50]!r}")
+                    return None
+            except Exception:
+                pass
         # Assemble a coherent, non-salad reply in the same voice as the web path.
         return f"{_focused}"
 
@@ -4210,6 +4429,31 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 self._last_responses = self._last_responses[-10:]
             return resp
 
+        # ── Issue 1: emotional-channel open/decay (lPFC inhibitory control) ──
+        # A genuine first-person emotion disclosure ("i'm sad", "i feel anxious",
+        # "my mom is sick") opens the affective channel so the agent's OWN
+        # first-person echo is permitted for congruent topics. The channel
+        # DECAYS: if no fresh disclosure arrives within a few turns it auto-
+        # closes, mirroring natural affective dissipation — this prevents the
+        # stale-leak failure mode (the channel persisting would re-introduce the
+        # VAD-echo defect in long sessions).
+        _low_in = (user_input or "").lower().strip()
+        _emotion_disclosure = bool(re.match(
+            r"^(so |well |and |i guess |i think )?"
+            r"(i'm|i am|i feel|i've been|i am feeling|i feel like)\b", _low_in)) or \
+            bool(re.match(
+                r"^(so |well |and |my )\s*\w+(\s+\w+)?\s+"
+                r"(is|are|has|have|got|passed|died|left|hurts?|is being)\b", _low_in))
+        if _emotion_disclosure:
+            self._emotional_channel_active = True
+            self._emotional_channel_turns = 0
+        elif getattr(self, "_emotional_channel_active", False):
+            self._emotional_channel_turns = getattr(
+                self, "_emotional_channel_turns", 0) + 1
+            if self._emotional_channel_turns >= 3:
+                self._emotional_channel_active = False
+                self._emotional_channel_turns = 0
+
         # ── §5 Internal-knowledge consult (BEFORE web) ─────────────────────
         # Many facts are INTERNALLY known (consolidated definitions, hippocampal
         # facts, ConceptNet typed edges). The brain doesn't need the web to know
@@ -4467,6 +4711,12 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                     bool(re.match(
                         r"^(so |well |and |my )\s*\w+(\s+\w+)?\s+"
                         r"(is|are|has|have|got|passed|died|left|hurts?|is being)\b", _low))
+                # Issue 1: the user explicitly opening the emotional channel
+                # ("i'm sad", "my mom is sick") raises the lPFC inhibitory
+                # release so the agent's own affective echo is permitted to
+                # surface for congruent topics (vmPFC value integration).
+                if _state_disclosure:
+                    self._emotional_channel_active = True
                 # ELI5 / simile self-reference ("like i'm five", "as if i'm ...")
                 # is a request framing, not a state disclosure.
                 _eli5_simile = bool(re.search(
@@ -5288,8 +5538,20 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # instead of being mislabeled an assertion ("poem ocean. anything
         # else?"). A creative intent = an art noun (poem/story/haiku/...) AND a
         # generation verb (write/tell/make/create/compose/give/spin).
+        # Defect E fix: also catch generative-invention shapes — "make up /
+        # invent / coin (a) (new) word", "imagine / picture a world", "draw /
+        # sketch / doodle (a) ..." — these are DMN free-association requests
+        # too, and must be routed to _generate_creative BEFORE _is_action_request
+        # can swallow them as tool actions.
         _creative_intent = re.search(
-            r"\b(poem|story|haiku|song|tale|limerick|rap|verse|lyric|lyrics)\b",
+            r"\b(poem|story|haiku|song|tale|limerick|rap|verse|lyric|lyrics|"
+            r"word|world|scene|character|creature)\b",
+            user_input.lower())
+        # Generative-shape detector: a creative verb applied to an invented
+        # artifact (make up / invent / coin / imagine / draw / sketch / doodle).
+        _creative_shape = re.search(
+            r"\b(make up|invent|coin|imagine|picture|envision|draw|sketch|"
+            r"doodle|compose|create|write|tell|spit|come up with)\b",
             user_input.lower())
         _gen_verb = self._is_action_request(user_input) if hasattr(self, "_is_action_request") else None
         # A creative request may lack a literal generation verb ("a haiku about
@@ -5299,6 +5561,21 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         _creative_topic_anchor = bool(re.search(
             r"\b(about|of|for|where|when)\b", user_input.lower()))
         if _creative_intent and (_gen_verb or _creative_topic_anchor):
+            resp = self._handle_action_request(user_input, _gen_verb or "write", subject)
+            self._last_strategy = ("creative_generation"
+                                   if getattr(self, "_last_creative", False)
+                                   else "action_request")
+            self._last_responses.append(resp)
+            if len(self._last_responses) > 10:
+                self._last_responses = self._last_responses[-10:]
+            self.notify_user_idle()
+            return resp
+        # Defect E fix (cont.): generative-shape creative requests
+        # ("make up a new word", "imagine a world without money", "draw me a
+        # dog") that name no canonical art noun still belong to the DMN
+        # generator. Route them to _generate_creative BEFORE the action-request
+        # handler can refuse them as tool actions.
+        if _creative_shape:
             resp = self._handle_action_request(user_input, _gen_verb or "write", subject)
             self._last_strategy = ("creative_generation"
                                    if getattr(self, "_last_creative", False)
@@ -6383,6 +6660,17 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
     _SNIPPET_REJECT_SHAPES = (
         r"^(what does .* mean in text)",
         r"definition of .* is where open source",
+        # B2 (Round 3): dictionary-title reject was POS-anchored
+        # (r"definition of .* (noun|verb|adjective)") which MISSES the
+        # "Definition of memory in English us." locale-tag shape. Generalise
+        # to the structural "Definition of <subject> in <language/locale>"
+        # title prefix — this is UI chrome, not an answer, so reject it at
+        # fetch time (source-monitoring at the retrieval boundary), before it
+        # can reach the answer assembler. Covers "in english us.", "... in us.",
+        # "... in english.", etc. (Fail-closed: a leading title prefix is
+        # never the payload.)
+        r"^definition of .* in (english|spanish|french|german|us|uk|en|es|fr|de)\b",
+        r"^definition of .* (us|uk|en|es|fr|de)\.?$",
         r"get the latest",
         r"sign in to your",
         r"applies to",
@@ -7426,15 +7714,16 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             return True
         if not self.use_cerebellar_snippet:
             return False
-        # Lazy-init the learned model (trained on the seed corpus once).
-        if self._snippet_model is None:
+        # Lazy-init the learned model (trained on the seed corpus once). Reuse
+        # the instance created in __init__ (Defect F) so we don't re-train.
+        if self._snippet_structure_model is None and _HAS_SNIPPET_MODEL and default_model:
             try:
-                self._snippet_model = default_model()
+                self._snippet_structure_model = default_model()
             except Exception:
-                self._snippet_model = False  # avoid re-init on failure
-        if self._snippet_model and hasattr(self._snippet_model, "is_junk"):
+                self._snippet_structure_model = False  # avoid re-init on failure
+        if self._snippet_structure_model and hasattr(self._snippet_structure_model, "is_junk"):
             try:
-                return bool(self._snippet_model.is_junk(snippet, coherence))
+                return bool(self._snippet_structure_model.is_junk(snippet, coherence))
             except Exception:
                 return False
         return False
@@ -8351,6 +8640,36 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             _q, _plaus, _trust = c[2], c[3], c[4]
             _trust_term = 2.0 * _trust if _plaus >= 0.0 else 0.0
             return _q + 3.0 * _plaus + _trust_term
+        # ── Defect F: hard-wire the learned structural-PE snippet model ──
+        # Replace the loose safety-floor heuristic (quality >= 1.0 only) with a
+        # *learned* junk reject from SnippetStructureModel (contrastive gap).
+        # This is the Track B Phase 2 model that was previously only reachable
+        # behind a flag; we now apply it as a HARD reject before the comparative
+        # score selection, so boilerplate / off-topic / token-salad snippets
+        # never reach the surface — fail-closed to honest uncertainty.
+        # Structural + distribution-driven (contrastive gap), not a hardcoded
+        # shape list, matching the de-hardcoding philosophy.
+        _snip_model = getattr(self, "_snippet_structure_model", None)
+        if _snip_model is not None:
+            _filtered = []
+            for c in _cands:
+                _snip_text = c[0]
+                try:
+                    if _snip_model.is_junk(_snip_text):
+                        if getattr(self, "_trace_enabled", False):
+                            print(f"  [webans] learned snippet-PE reject: "
+                                  f"{_snip_text[:50]!r} (boilerplate/off-topic)")
+                        continue
+                except Exception:
+                    pass
+                _filtered.append(c)
+            if _filtered:
+                _cands = _filtered
+            # If the learned model rejected EVERY candidate, fall through to
+            # honest uncertainty (don't rescue junk via the old heuristic).
+            elif getattr(self, "_trace_enabled", False):
+                print("  [webans] learned snippet-PE rejected all candidates "
+                      "-> abstain")
         _cands.sort(key=lambda c: -_score(c))
         best, second = _cands[0], (_cands[1] if len(_cands) > 1 else None)
         # Accept if clearly best OR coherent with belief; else abstain (don't
@@ -8455,8 +8774,12 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                                        else self._ANSWER_PE_VETO)
         if _degenerate or _lowtrust_below_floor or _forward_model_veto:
             if getattr(self, '_trace_enabled', False):
-                print(f"  [webans] monitor: snippet implausible (plaus={plaus:.2f}, "
-                      f"bel={_bel:.2f}, trust={_trust:.2f}, pe={_ape:.2f}) "
+                _plaus_s = f"{plaus:.2f}" if isinstance(plaus, (int, float)) else str(plaus)
+                _bel_s = f"{_bel:.2f}" if isinstance(_bel, (int, float)) else str(_bel)
+                _trust_s = f"{_trust:.2f}" if isinstance(_trust, (int, float)) else str(_trust)
+                _ape_s = f"{_ape:.2f}" if isinstance(_ape, (int, float)) else str(_ape)
+                print(f"  [webans] monitor: snippet implausible (plaus={_plaus_s}, "
+                      f"bel={_bel_s}, trust={_trust_s}, pe={_ape_s}) "
                       f"for '{ctx.subject}' -> refine search")
             # Metacognitive control: instead of emitting junk, refine the query
             # and re-search (second-pass reanalysis; Kuperberg & Jaeger). Only
@@ -8502,6 +8825,45 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             best = _san
         if not best.endswith((".", "!", "?")):
             best = best + "."
+        # ── Defect D: numeric-claim honesty gate (ACC conflict + FOK) ──
+        # When a surfaced snippet asserts a numeric/math verdict
+        # ("rational"/"irrational", "square root", numeric equality), check
+        # RAVANA's internal Feeling-of-Knowing for that concept. If there is no
+        # confident internal support, the claim is externally-sourced and
+        # uncertain — attach a modality hedge ("i'm not certain, but…") rather
+        # than presenting it as flat fact (the honesty bar). Brain-faithful:
+        # the ACC gates assertion on confidence > theta_withhold; below that,
+        # the claim is hedged, not asserted. This directly fixes "√-1" style
+        # misleading snippets and the "is pi rational" evasion (force a verdict
+        # via internal BeliefStore rather than dodging).
+        self._last_numeric_honesty = None
+        if best:  # guard: only run when a real snippet was produced
+            _NUM_CLAIM = re.compile(
+                r"\b(rational|irrational|square root|cube root|prime|even|odd|"
+                r"equals|=|divisible|multiple of|factor of)\b", re.I)
+            if _NUM_CLAIM.search(best) and not best.startswith("according to"):
+                try:
+                    from ravana.chat.metacognition import Metacognition
+                    _mc = getattr(self, "_metacognition", None) or Metacognition()
+                    self._metacognition = _mc
+                    # support = how many graph edges / stored beliefs back the subject
+                    _support = float(len(getattr(self, "_concept_keywords", {})
+                                        .get(ctx.subject.lower(), [])))
+                    _bel = self.belief_store.query_belief(ctx.subject.lower(), "def") \
+                        if hasattr(self, "belief_store") else None
+                    _retrieved = bool(_bel) or getattr(self, "_last_web_source", "") not in ("", "the web")
+                    _conf, _may_assert, _modality = _mc.read(_support, _retrieved)
+                    if not _may_assert:
+                        _honest = (f"i'm not fully certain, but {best}"
+                                   if not best[0].isupper() else
+                                   f"I'm not fully certain, but {best[0].lower()}{best[1:]}")
+                        self._last_numeric_honesty = _modality
+                        if getattr(self, "_trace_enabled", False):
+                            print(f"  [webans] numeric-claim honesty gate: low FOK "
+                                  f"(conf={_conf}) -> hedged")
+                        best = _honest
+                except Exception:
+                    pass
         # B4: simplification register. When the user framed the query with a
         # "like i'm five" / "in simple terms" frame (ctx.simplification_requested,
         # set at the ctx boundary), lower the lexical/syntactic complexity of the
@@ -8543,7 +8905,10 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             existing = None
         if existing is not None:
             prior_val = existing[0]
-            prior_conf = existing[1] if isinstance(existing, (tuple, list)) and len(existing) > 1 else 0.0
+            try:
+                prior_conf = float(existing[1]) if isinstance(existing, (tuple, list)) and len(existing) > 1 else 0.0
+            except (TypeError, ValueError):
+                prior_conf = 0.0
             overlap = self._belief_value_overlap(prior_val, best)
             # Only treat a divergence as a real *conflict* when the prior belief
             # is itself well-established (reinforced beyond a single low-conf
@@ -8560,16 +8925,29 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                           f"(overlap={overlap:.2f}) -> conf {confidence:.2f}")
             elif overlap < 0.15 and _prior_established:
                 # Nontrivial conflict: web disagrees with an established belief.
-                confidence = max(0.1, confidence - 0.25)
+                # B2 (Round 3): make this FAIL-CLOSED. The prior fix only
+                # lowered confidence + prepended a "[unverified: conflicts with
+                # what I knew]" tag but STILL returned the snippet — so the
+                # junk claim was spoken with a footnote. The rAI/ACC "feeling
+                # of wrongness" (belief-coherence signal) must SUPPRESS, not
+                # caveat: a conflicting low-plausibility item is quarantined
+                # before the speech buffer. Route to honest uncertainty / re-
+                # query instead. (Corroborating + novel-but-not-contradicting
+                # branches below are untouched, so the gate does not
+                # over-suppress a genuinely supported snippet.)
                 old_triple = (subject_key, "def", prior_val)
                 new_triple = (subject_key, "def", best)
                 self.belief_store.contradictions.append(
                     (old_triple, new_triple, self.belief_store.turn_num))
-                answer_text = "[unverified: conflicts with what I knew] " + answer_text
                 if getattr(self, '_trace_enabled', False):
-                    print(f"  [webans] belief conflict on '{subject_key}': "
+                    print(f"  [webans] conflict FAIL-CLOSED on '{subject_key}': "
                           f"prior={prior_val[:40]!r} web={best[:40]!r} "
-                          f"(overlap={overlap:.2f}, prior_conf={prior_conf:.2f}) -> conf {confidence:.2f}")
+                          f"(overlap={overlap:.2f}, prior_conf={prior_conf:.2f}) "
+                          f"-> withheld (route to honest uncertainty)")
+                # Do NOT store the conflicting claim as a low-conf candidate,
+                # and do NOT emit it. Returning None makes the caller fall
+                # through to KB lookup / honest uncertainty.
+                return None
         # The web claim now LIVES in the belief store as a low-confidence
         # candidate; a matching prior boosted it, a conflicting prior demoted it.
         # Either way sleep can reconcile it against local knowledge and prune it
@@ -8579,6 +8957,25 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                                             confidence=confidence)
         except Exception:
             pass
+        # B2 (Round 3) #3: route the final assembled answer through the shared
+        # CoherenceGate used by every other generator (engine.py:3793). This
+        # enforces the learned SnippetStructureModel hard-reject (Defect F) and
+        # completeness uniformly — no web-assembly path slips around the gate.
+        # Fail-closed: a non-broadcastable answer is withheld (returns None ->
+        # caller routes to honest uncertainty) rather than emitted. Guarded by
+        # use_coherence_gate so it can be A/B'd with --no-coherence-gate.
+        if getattr(self, "use_coherence_gate", True):
+            _gate = getattr(self, "_coherence_gate", None)
+            if _gate is not None:
+                try:
+                    _broadcast, _reason, _score = _gate.judge(text=answer_text)
+                    if not _broadcast:
+                        if getattr(self, '_trace_enabled', False):
+                            print(f"  [webans] CoherenceGate withheld final answer "
+                                  f"on '{subject_key}': {_reason}")
+                        return None
+                except Exception:
+                    pass
         return (answer_text, "web_direct_answer")
 
 
@@ -9345,6 +9742,48 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         except Exception as e:
             if getattr(self, '_trace_enabled', False):
                 print(f"  [sleep] prune_low_quality_edges error: {e}")
+        # Round 4 (C1): sleep-time junk-NODE pruning (synaptic homeostasis).
+        # Edge-only prune leaves low-degree junk singletons behind; this removes
+        # them (unless adjacent to a hub or in the protected core set). Count
+        # folded into the sleep metrics for observability.
+        try:
+            _tau_low = getattr(self, "_sleep_prune_tau_low", 1)
+            _tau_high = getattr(self, "_sleep_prune_tau_high", 8)
+            _pruned = self.graph.prune_low_degree_junk_nodes(
+                tau_low=_tau_low, tau_high=_tau_high)
+            nodes_pruned, removed_labels, hub_labels = _pruned
+            result['junk_nodes_pruned'] = nodes_pruned
+            if getattr(self, '_trace_enabled', False) and nodes_pruned:
+                print(f"  [sleep] pruned {nodes_pruned} low-degree junk nodes")
+            # Round 5 (D1): self-label the sleep oracle. Removed nodes = decayed
+            # traces (negative); surviving hubs = consolidated (positive). These
+            # feed the self-supervised junk classifier's weak-label buffer.
+            try:
+                from ravana.chat.junk_scorer import record_label, get_buffer, refit_now
+                for _lbl in removed_labels:
+                    record_label(_lbl, "pruned",
+                                 meta={"degree": 0, "source_count": 1, "glove_mag": None})
+                # Sample a few surviving hubs as positives (avoid label flood).
+                for _lbl in hub_labels[:50]:
+                    record_label(_lbl, "hub",
+                                 meta={"degree": _tau_high, "source_count": 5,
+                                       "glove_mag": 1.0})
+                # Advance the consolidation cycle and refit periodically.
+                _buf = get_buffer(getattr(self, "data_dir", None))
+                _buf.tick()
+                _refit_every = getattr(self, "_junk_refit_every", 1)
+                if self.sleep_cycles_completed % _refit_every == 0:
+                    _delta = refit_now()
+                    if _delta and getattr(self, '_trace_enabled', False):
+                        print(f"  [junk-clf] refit n={_delta['n']} "
+                              f"brier={_delta['brier_after']:.3f} "
+                              f"theta={_delta['theta']:.3f} kappa={_delta['kappa']:.3f}")
+            except Exception as e:
+                if getattr(self, '_trace_enabled', False):
+                    print(f"  [sleep] junk-self-label error: {e}")
+        except Exception as e:
+            if getattr(self, '_trace_enabled', False):
+                print(f"  [sleep] prune_low_degree_junk_nodes error: {e}")
         # P7: reconcile & prune beliefs — close the web-grounding loop.
         # The grace sleep engine ignores the chat BeliefStore, so drive
         # belief maintenance here: reconcile contradictions (recency-decayed
@@ -10205,11 +10644,34 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             loaded_graph = state['graph']
             if isinstance(loaded_graph, ConceptGraph):
                 if loaded_graph.nodes:
-                    first_node = next(iter(loaded_graph.nodes.values()))
-                    if first_node.vector is not None and len(first_node.vector) != self.dim:
-                        print(f"  [Load warning] Dimension mismatch: loaded graph has dim {len(first_node.vector)} but engine has dim {self.dim}. Discarding saved state.")
-                        return False
-                self.graph = loaded_graph
+                    # Issue 2: scan ALL nodes for dimension drift, not just the
+                    # first (a mixed-era snapshot can have a 64-D first node but
+                    # 75-D others — the old guard passed it and corrupted the
+                    # live similarity matrix). Quarantine any off-dim node by
+                    # re-adding it through the canonical projection; if too many
+                    # are corrupt (>50%), discard the saved graph entirely.
+                    _offdim = [n for n in loaded_graph.nodes.values()
+                               if n.vector is not None and len(n.vector) != self.dim]
+                    if _offdim:
+                        _frac = len(_offdim) / len(loaded_graph.nodes)
+                        print(f"  [Load] {len(_offdim)}/{len(loaded_graph.nodes)} "
+                              f"nodes off canonical dim {self.dim} "
+                              f"({_frac:.0%}); repairing via canonical projection")
+                        if _frac > 0.5:
+                            print(f"  [Load warning] Too many off-dim nodes; "
+                                  f"discarding saved graph.")
+                            return False
+                        # Repair in place: project each off-dim node's vector to
+                        # the canonical width (75->64 dual-code recovery, etc.).
+                        for _n in _offdim:
+                            try:
+                                _n.vector = loaded_graph._project_to_canonical(
+                                    _n.vector, source="load_repair")
+                            except Exception as _e:
+                                print(f"  [Load] quarantined node '{getattr(_n,'label','?')}': {_e}")
+                                # drop the unrecoverable node by detaching it
+                                loaded_graph.nodes.pop(_n.id, None)
+                    self.graph = loaded_graph
             else:
                 # Corrupt graph (e.g. a str from an old sanitizer path) —
                 # rebuild fresh rather than aborting the WHOLE load (M5:

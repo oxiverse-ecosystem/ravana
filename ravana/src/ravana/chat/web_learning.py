@@ -13,7 +13,8 @@ from typing import Dict, Any, List, Optional, Tuple, Set
 from collections import deque, Counter
 
 
-from .constants import STOP_WORDS, WEB_GARBAGE, INAPPROPRIATE_WORDS, _is_question_phrase
+from .constants import (STOP_WORDS, WEB_GARBAGE, INAPPROPRIATE_WORDS,
+                         _is_question_phrase, junk_score)
 from .response_gen import ResponseGenMixin
 # Compute project root (same logic as engine.py)
 _proj_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
@@ -136,8 +137,12 @@ class WebLearningMixin(ResponseGenMixin):
         of canonical slurs is retained as the last-resort safety net. Falls
         back to the exact-list test if the learned model is unavailable.
         """
-        if self._safety is not None and callable(self._glove_vector):
-            return self._safety.is_inappropriate(definition, self._glove_vector)
+        try:
+            _safety = getattr(self, "_safety", None)
+        except Exception:
+            _safety = None
+        if _safety is not None and callable(self._glove_vector):
+            return _safety.is_inappropriate(definition, self._glove_vector)
         # Fail-open fallback: exact list membership (legacy behavior).
         from .constants import INAPPROPRIATE_WORDS
         return any(w in INAPPROPRIATE_WORDS
@@ -706,6 +711,8 @@ class WebLearningMixin(ResponseGenMixin):
             source_id = hashlib.md5((source_url or topic).encode()).hexdigest()[:16]
 
         # Add new concepts (locked to prevent graph mutation during save iteration)
+        _theta = getattr(self, "_junk_theta", 0.5)
+        _k = getattr(self, "_promote_min_sources", 2)
         for word in important_words:
             # Belt-and-suspenders: never mint a graph node for a question/
             # sentence frame, even if the phrase appeared verbatim in fetched
@@ -723,8 +730,17 @@ class WebLearningMixin(ResponseGenMixin):
                         for tid, edge in self.graph.get_outgoing(nid):
                             edge.confidence = min(0.8, edge.confidence + 0.05)
                 continue
-            # GloVe vector if available, else hash-based random
+            # Round 4 (C1): write-time consolidation gate (hippocampal filter).
+            # A scraped token is NOT admitted to the permanent graph on first
+            # sight. It must clear the learned/structural junk_score AND be
+            # reactivated across >= k DISTINCT sources (the provisional buffer
+            # is the "hippocampus" — never read by the DMN weaver). This stops
+            # one-shot junk (website names, POS-tag fragments, hash-vector OOV)
+            # from polluting the concept graph that the creative weaver pulls.
+            # GloVe vector if available, else hash-based random (used for the
+            # junk_score magnitude signal and for promotion).
             vec = self._glove_vector(word)
+            _mag = None
             if vec is None:
                 h = hash(word) % 50000
                 vr = np.random.RandomState(h + 100)
@@ -732,16 +748,55 @@ class WebLearningMixin(ResponseGenMixin):
                 norm = np.linalg.norm(vec)
                 if norm > 0:
                     vec /= norm
-            with self._graph_lock:
-                node = self.graph.add_node(vector=vec, label=word)
-            label_to_id[word] = node.id
-            self._concept_keywords[word] = self._concept_keywords.get(word, []) + [node.id]
-            self._concept_labels.add(word.lower())
-            existing_labels.add(word)
-            new_count += 1
-            # Phase 18c: Track source for new concepts
-            self._concept_sources[word] = {source_id}
-            # New concepts tracked by source (confidence set naturally by prediction error)
+                _mag = float(norm) if norm > 0 else 0.0
+            else:
+                _mag = float(np.linalg.norm(vec))
+            _js = junk_score(word, glove_mag=_mag)
+            if _js >= _theta:
+                # Clear junk: never integrate (not even provisionally tracked,
+                # so it cannot accumulate fake reactivation counts).
+                # Round 5 (D1): self-label this token as junk (decayed trace).
+                try:
+                    from ravana.chat.junk_scorer import record_label
+                    record_label(word, "junk", glove_mag=_mag,
+                                 meta={"degree": 0, "source_count": 1, "glove_mag": _mag})
+                except Exception:
+                    pass
+                continue
+            # Not junk -> route through the provisional buffer by distinct source.
+            _prov = getattr(self, "_provisional_nodes", None)
+            if _prov is None:
+                self._provisional_nodes = _prov = {}
+            if word in _prov:
+                _prov[word].add(source_id)
+                # Reactivation across >= k distinct sources -> promote to the
+                # permanent graph (consolidation).
+                if len(_prov[word]) >= _k:
+                    with self._graph_lock:
+                        node = self.graph.add_node(vector=vec, label=word)
+                    if node is None:
+                        continue
+                    label_to_id[word] = node.id
+                    self._concept_keywords[word] = self._concept_keywords.get(word, []) + [node.id]
+                    self._concept_labels.add(word.lower())
+                    existing_labels.add(word)
+                    self._concept_sources[word] = set(_prov[word])
+                    _prov.pop(word, None)
+                    new_count += 1
+                    # Round 5 (D1): self-label this token as promoted
+                    # (consolidated trace -> positive oracle).
+                    try:
+                        from ravana.chat.junk_scorer import record_label
+                        record_label(word, "promoted", glove_mag=_mag,
+                                     meta={"degree": 1, "source_count": len(self._concept_sources[word]),
+                                           "glove_mag": _mag})
+                    except Exception:
+                        pass
+                continue
+            else:
+                # First sighting of a non-junk token: hold in provisional buffer.
+                _prov[word] = {source_id}
+                continue
 
         # Form connections between co-occurring important words
         # Words that appear together in the article get edges
@@ -790,7 +845,12 @@ class WebLearningMixin(ResponseGenMixin):
                     self.graph._rebuild_vector_matrix()
                 if self.graph._vector_matrix_normed is not None and len(self.graph._node_id_order) > 0:
                     vec_norm = node.vector / (np.linalg.norm(node.vector) + 1e-15)
-                    all_sims = self.graph._vector_matrix_normed @ vec_norm.astype(np.float32)
+                    # Issue 2: canonical-dimension guard before the matrix
+                    # multiply. If the stored matrix is wider than this node
+                    # (stale mixed-era graph), skip similarity instead of
+                    # throwing matmul: size N != 64 and corrupting the thread.
+                    if vec_norm.shape[0] == self.graph._vector_matrix_normed.shape[1]:
+                        all_sims = self.graph._vector_matrix_normed @ vec_norm.astype(np.float32)
                     
                     # Find candidate nodes with similarity > 0.45
                     candidates = []
@@ -1321,6 +1381,16 @@ class WebLearningMixin(ResponseGenMixin):
         s = re.sub(r"^\s*[A-Z][A-Za-z]*(?:\s+[A-Z][A-Za-z]*)?\s+definition:\s*", "", s,
                    flags=re.IGNORECASE)
         s = re.sub(r"^\s*[A-Z][A-Za-z]*(?:\s+[A-Z][A-Za-z]*)?:\s*", "", s)
+        # B2 (Round 3): strip the "Definition of <subject> in <locale>" title
+        # prefix (e.g. "Definition of memory in English us.") — the POS-anchored
+        # reject at the snippet level missed the *locale-tag* shape ("... in us."),
+        # so the prefix leaked into the emitted answer. This is dictionary UI
+        # chrome, not the payload; strip it here so the sanitiser and the
+        # reject-shapes agree. Strip only the LEADING title (up to the first
+        # period) so the real definition that follows is preserved. Covers
+        # "in english us.", "... in us.", "... in english.", and bare
+        # "Definition of X." (which becomes empty -> rejected upstream).
+        s = re.sub(r"^\s*definition of [^.]*\.?\s*", "", s, flags=re.IGNORECASE)
         # Trim dateline / byline prefixes the search API prepends, e.g.
         # "Reviewed by Gary Drevitch on November 10, 2025 Trust—or the belief..."
         # or a bare "November 10, 2025 Trust—or...". Strip any leading

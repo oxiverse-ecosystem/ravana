@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set, Tuple
 
 from ravana.web.openie import Fact, OpenIEExtractor
+from ravana.chat.constants import junk_score  # Round 4 (C1) node-admission gate
 
 
 @dataclass
@@ -69,8 +70,19 @@ class WebToGraph:
         self._topic_edges: Dict[str, int] = {}
         self._fact_count = 0
 
-    def _ensure_node(self, label: str) -> Optional[int]:
-        """Mint a concept node (reuse glove embedding if available)."""
+    def _ensure_node(self, label: str, source_url: str = "") -> Optional[int]:
+        """Round 4 (C1): write-time consolidation gate (hippocampal filter).
+
+            A scraped OpenIE subject/object is NOT admitted to the permanent graph
+            on first sight. It must clear the learned/structural junk_score AND be
+            reactivated across >= k DISTINCT sources (tracked in the engine's
+            _provisional_nodes buffer — the "hippocampus", never read by the DMN
+            weaver). This stops one-shot junk (website names, POS-tag fragments,
+            hash-vector OOV) from polluting the concept graph. Mirrors the gate in
+            web_learning.py:_learn_from_text so both admission paths agree.
+            """
+        if not label:
+            return None
         label_l = label.lower().strip()
         if not label_l:
             return None
@@ -78,21 +90,60 @@ class WebToGraph:
         existing = self.ge._all_labels.get(label_l)
         if existing is not None:
             return existing
-        vec = None
+        # Round 4 (C1): junk gate. Clear junk is never integrated (not even
+        # provisionally tracked, so it cannot accumulate fake reactivation).
+        _theta = getattr(self.ge, "_junk_theta", 0.5)
+        _k = getattr(self.ge, "_promote_min_sources", 2)
+        _vec = None
         if hasattr(self.ge, "_glove_vector"):
-            vec = self.ge._glove_vector(label_l)
-        if vec is None:
-            # deterministic seed for OOV so the same word maps to one node
-            import numpy as np
-            h = hash(label_l) % 100000
-            rng = np.random.RandomState(h + 7)
-            vec = rng.randn(self.ge.dim).astype("float32")
-            n = float(np.linalg.norm(vec))
-            if n > 0:
-                vec /= n
-        node = self.ge.graph.add_node(vector=vec, label=label_l)
-        self.ge._all_labels[label_l] = node.id
-        return node.id
+            _vec = self.ge._glove_vector(label_l)
+        _mag = None
+        if _vec is not None:
+            _mag = float(__import__("numpy").linalg.norm(_vec))
+        _js = junk_score(label_l, glove_mag=_mag)
+        if _js >= _theta:
+            # Round 5 (D1): self-label as junk (decayed trace).
+            try:
+                from ravana.chat.junk_scorer import record_label
+                record_label(label_l, "junk", glove_mag=_mag,
+                             meta={"degree": 0, "source_count": 1, "glove_mag": _mag})
+            except Exception:
+                pass
+            return None
+        # Not junk -> route through the provisional buffer by distinct source.
+        _prov = getattr(self.ge, "_provisional_nodes", None)
+        if _prov is None:
+            self.ge._provisional_nodes = _prov = {}
+        _sid = None
+        if source_url:
+            import hashlib
+            _sid = hashlib.md5(source_url.encode()).hexdigest()[:16]
+        if label_l in _prov:
+            if _sid is not None:
+                _prov[label_l].add(_sid)
+            # Reactivation across >= k distinct sources -> promote.
+            if _sid is None or len(_prov[label_l]) >= _k:
+                node = self.ge.graph.add_node(vector=_vec, label=label_l)
+                if node is not None:
+                    self.ge._all_labels[label_l] = node.id
+                    _prov.pop(label_l, None)
+                    # Round 5 (D1): self-label as promoted (consolidated).
+                    try:
+                        from ravana.chat.junk_scorer import record_label
+                        record_label(label_l, "promoted", glove_mag=_mag,
+                                     meta={"degree": 1,
+                                           "source_count": len(_prov.get(label_l, set())) + 1,
+                                           "glove_mag": _mag})
+                    except Exception:
+                        pass
+                return node.id if node is not None else None
+            return None
+        else:
+            if _sid is not None:
+                _prov[label_l] = {_sid}
+            else:
+                _prov[label_l] = set()
+            return None
 
     def learn_text(self, text: str, source_url: str = "",
                  context: Optional[str] = None) -> int:
@@ -112,8 +163,8 @@ class WebToGraph:
         facts = self.openie.extract(text)
         written = 0
         for f in facts:
-            subj_id = self._ensure_node(f.subject)
-            obj_id = self._ensure_node(f.obj)
+            subj_id = self._ensure_node(f.subject, source_url)
+            obj_id = self._ensure_node(f.obj, source_url)
             if subj_id is None or obj_id is None or subj_id == obj_id:
                 continue
             edge_type = self.RELATION_TO_EDGE.get(f.relation, "semantic")
