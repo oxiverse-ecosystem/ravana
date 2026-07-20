@@ -11,12 +11,18 @@ sys.path.insert(0, "/c/Users/Likhith/Documents/projects/ravana/ravana-v2")
 
 from ravana_ml.nn.rlm_v2 import RLMv2
 from ravana_ml.tokenizer import WordTokenizer
+
 from experiments.experiment_cross_domain import (
     build_domain_a_science, build_domain_b_social,
     train_rlm_on_domain, evaluate_rlm
 )
-from tests.test_structural_transfer import strip_trailing_spaces
 from experiments.experiment_phase4_integrated import inject_minilm_embeddings
+
+
+def strip_trailing_spaces(facts):
+    """Normalize (input, target, rel) triples — local copy so this script does
+    not depend on a test module (tests.test_structural_transfer was removed)."""
+    return [(i.rstrip(), t.rstrip(), r) for i, t, r in facts]
 
 
 def build_model_and_tokenizer():

@@ -39,11 +39,16 @@ from experiments.experiment_cross_domain import (
     train_rlm_on_domain, evaluate_rlm, evaluate_mlp,
     encode_fact
 )
-from tests.integration.test_structural_transfer import strip_trailing_spaces
 from experiments.experiment_phase4_integrated import inject_minilm_embeddings
 from scripts.ravana_chat import CognitiveChatEngine
 from ravana.cognitive import CognitiveFramework, FrameworkConfig
 from ravana_ml.graph import ConceptGraph
+
+
+def strip_trailing_spaces(facts):
+    """Normalize (input, target, rel) triples — local copy so this script does
+    not depend on a test module (tests.test_structural_transfer was removed)."""
+    return [(i.rstrip(), t.rstrip(), r) for i, t, r in facts]
 
 
 # ═══════════════════════════════════════════════════════════════════════════
