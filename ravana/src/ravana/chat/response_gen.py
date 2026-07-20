@@ -2703,6 +2703,50 @@ class ResponseGenMixin(ChainWalkerMixin):
                 return (f"{effect.capitalize()} -- because {cause.lower()}.")
         return None
 
+    def _causal_chain_from_graph(self, target: str) -> Optional[str]:
+        """W2: realize a causal sub-answer as a CAUSE -> SUBJECT -> EFFECT chain
+        by reading the GRAPH'S OWN typed causal edges (never fabricating a
+        mechanism). If the subject has >=2 typed causal neighbours (incoming
+        causes and outgoing effects), weave them into >=2 causal clauses:
+        'X causes <subject>, and <subject> leads to Y.' Fail-closed: if fewer
+        than 2 causal edges exist, return None and the caller keeps the single
+        sentence / web snippet (no confabulation, RAVANA truthfulness bar).
+        """
+        if not target:
+            return None
+        g = getattr(self, "graph", None)
+        if g is None:
+            return None
+        nids = getattr(self, "_concept_keywords", {}).get(target.lower(), [])
+        if not nids:
+            return None
+        try:
+            node = g.get_node(nids[0])
+            if node is None:
+                return None
+            causes_in, effects_out = [], []
+            for tgt, e in g.get_outgoing(nids[0]):
+                if (e.relation_type or "").lower() == "causal":
+                    tn = g.get_node(tgt)
+                    if tn and not _is_meta(tn.label):
+                        effects_out.append((tn.label, e.weight))
+            for src, e in g.get_incoming(nids[0]):
+                if (e.relation_type or "").lower() == "causal":
+                    sn = g.get_node(src)
+                    if sn and not _is_meta(sn.label):
+                        causes_in.append((sn.label, e.weight))
+        except Exception:
+            return None
+        # Need at least 2 causal clauses total to be a real chain.
+        clauses = []
+        for c, w in sorted(causes_in, key=lambda x: -x[1])[:2]:
+            clauses.append(f"{c.capitalize()} causes {target.lower()}")
+        for e2, w in sorted(effects_out, key=lambda x: -x[1])[:2]:
+            clauses.append(f"{target.lower()} leads to {e2.lower()}")
+        if len(clauses) >= 2:
+            return "; ".join(clauses) + "."
+        return None
+
     def _handle_action_request(self, text: str, action_verb: str,
                                subject: str) -> str:
         """Honest, helpful reply to an action request RAVANA cannot literally do.
@@ -5714,15 +5758,23 @@ class ResponseGenMixin(ChainWalkerMixin):
                     if wa:
                         answer_text = wa[0] if isinstance(wa, tuple) else wa
                         answer_conf = 0.7
-                        # W2: for a causal sub-question, realize the web snippet
-                        # as a CAUSE -> EFFECT chain when the source text itself
-                        # signals causality (extractive split, no fabrication).
-                        # Fail-closed: if no causal connective, keep the sentence.
+                        # W2: for a causal sub-question, realize the answer as a
+                        # CAUSE -> EFFECT chain. Two complementary, fail-closed
+                        # sources, both using the agent's OWN knowledge (no
+                        # fabrication): (a) extractively split the retrieved web
+                        # snippet on a causal connective; (b) if that yields
+                        # nothing, chain the graph's own typed causal edges for
+                        # the subject into >=2 causal clauses. If neither fires,
+                        # keep the single sentence.
                         if sq_rel in ("causal", "mechanism", "consequence",
                                       "cause", "reason", "why", "how"):
                             _cr = self._causal_restructure(answer_text, sq_rel)
                             if _cr:
                                 answer_text = _cr
+                            elif sq_target:
+                                _cc = self._causal_chain_from_graph(sq_target)
+                                if _cc:
+                                    answer_text = _cc
             except Exception:
                 pass
             

@@ -1234,7 +1234,7 @@ class WebLearningMixin(ResponseGenMixin):
         "related posts", "you may also like", "popular articles",
         "at paris brain institute", "paris brain institute",
         "privacy policy", "terms of service", "cookie policy",
-        "share this", "print this page", "subscribe to", "newsletter",
+        "print this page", "subscribe to", "newsletter",
         "advertisement", " sponsored content", "all rights reserved",
         "last updated", "page last modified",
     )
@@ -1286,6 +1286,15 @@ class WebLearningMixin(ResponseGenMixin):
          r"Bluesky|Print|Add as preferred source|Bookmark|Save|Cite)(?:\s+"
          r"(?:Share|Copy link|Email|SMS|Facebook|Twitter|X|Reddit|LinkedIn|"
          r"Bluesky|Print|Add as preferred source|Bookmark|Save|Cite))+\b",
+         re.IGNORECASE),
+        # "Share this" UI-chrome (imperative social button: "Share this
+        # article / page / post / story / entry / link", or "Share this on
+        # ..."). Must NOT match the ordinary verb phrase "I want to share this
+        # with you" -- so anchor to the UI-chrome continuation (a content noun
+        # or a share-target preposition), never to a prose continuation like
+        # "with you". Precision over recall: dropping real prose is worse than
+        # leaving one stray button label.
+        (r"\bshare this (?:article|page|post|story|entry|link|on|via|—|:)\b",
          re.IGNORECASE),
         # Truncated parenthetical fragments anywhere in the body
         # (e.g. "(.", "(. )", "(. .)").

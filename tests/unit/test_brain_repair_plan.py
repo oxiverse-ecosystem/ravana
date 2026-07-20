@@ -346,3 +346,86 @@ def test_w4_creative_fails_closed_without_associations():
         assert "straight from my own associations" in out.lower()
     else:
         assert e._last_strategy == "action_request"
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# W2  causal decomposition: chain the graph's OWN typed causal edges into
+#      >=2 causal clauses when the subject has them; fail-closed (None) when
+#      it does not (no fabrication).
+# ─────────────────────────────────────────────────────────────────────────
+def test_w2_causal_chain_from_graph_edges():
+    """A causal subject with >=2 typed causal neighbours must chain into
+    >=2 causal clauses drawn from the graph itself (no confabulation)."""
+    e = _engine()
+    chain = e._causal_chain_from_graph("gravity")
+    assert chain is not None, "gravity has seeded causal edges; must chain"
+    # >=2 causal-link clauses + the causal connective vocabulary
+    assert chain.count("causes") + chain.count("leads to") >= 2
+    assert "gravity" in chain.lower()
+
+
+def test_w2_causal_chain_fail_closed_without_edges():
+    """A subject with no typed causal edges (e.g. web-learned 'poverty') must
+    NOT be fabricated into a causal chain — fail-closed returns None so the
+    caller keeps the single sentence / honest uncertainty."""
+    e = _engine()
+    assert e._causal_chain_from_graph("poverty") is None
+    assert e._causal_chain_from_graph("zxqwplk") is None
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# W3  humor cross-turn contamination: the joke anchor X must be drawn from the
+#      stable teen subgraph, NOT from web-learned nodes whose out-degree was
+#      inflated by prior-session web learning.
+# ─────────────────────────────────────────────────────────────────────────
+def test_w3_humor_anchor_immune_to_web_pollution():
+    """Pollute the LIVE graph with web-learned NON-teen topics ('quantum
+    entanglement', 'blockchain', 'photosynthesis') that have huge out-degree
+    (the cross-turn bleed scenario -- background web-learning inflates
+    recently-learned nodes' degree), then force a humor pool rebuild and assert
+    those web topics are NEVER in the pool. The pool must contain ONLY the
+    stable seeded teen concepts, so a joke anchored on a prior web topic can
+    never happen. (Note: 'science'/'sleep' are themselves stable teen
+    concepts and belong in the pool; the bleed is non-teen web topics leaking
+    in, which this test guards against.)"""
+    e = _engine()
+    g = e.graph
+    for polluted in ("quantum entanglement", "blockchain", "photosynthesis"):
+        v = e._glove_vector(polluted.split()[0])  # any vector; label is the key
+        node = g.add_node(vector=v, label=polluted)
+        # inflate out-degree far beyond any teen concept
+        for i in range(30):
+            tgt = g.add_node(label=f"_polluted_{polluted}_{i}")
+            try:
+                g.add_edge(node.id, tgt.id, relation_type="causal", weight=0.9)
+            except Exception:
+                pass
+    # force a fresh humor-pool snapshot
+    if hasattr(e, "_humor_teen_pool"):
+        del e._humor_teen_pool
+    e._handle_humor("tell me a joke")
+    pool = getattr(e, "_humor_teen_pool", [])
+    labels = [lbl for lbl, _ in pool]
+    # web-learned NON-teen topics must never leak into the humor anchor pool
+    assert "quantum entanglement" not in labels, f"humor anchor polluted: {labels}"
+    assert "blockchain" not in labels, f"humor anchor polluted: {labels}"
+    assert "photosynthesis" not in labels, f"humor anchor polluted: {labels}"
+    # every anchor is a seeded teen concept (the isolated stable subgraph)
+    from ravana.chat.constants import TEEN_CONCEPT_LABELS
+    assert all(lbl in TEEN_CONCEPT_LABELS for lbl in labels)
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# W4  no hardcoded template leaked into generated verse
+# ─────────────────────────────────────────────────────────────────────────
+def test_w4_no_hardcoded_template_in_verse():
+    """The generated verse must be grounded free-association, identified by
+    the 'straight from my own associations' marker -- NOT the old hard-coded
+    'not confident enough in my own verse' defer, and NOT a fixed template."""
+    e = _engine()
+    out = e.process_turn("a haiku about sleep")
+    assert e._last_strategy == "creative_generation", f"got {e._last_strategy}: {out!r}"
+    low = out.lower()
+    assert "straight from my own associations" in low
+    # the old always-defer template must not appear in a GENERATED verse
+    assert "not confident enough in my own verse" not in low
