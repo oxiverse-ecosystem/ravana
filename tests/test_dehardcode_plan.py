@@ -153,6 +153,30 @@ def test_intent_router_promoted_routes_match_regex(engine):
     engine.use_intent_router = False
 
 
+def test_self_directed_promoted_pre_admit_no_empty_regression(engine):
+    # Stage 3 residual-cluster completion: self_directed is promoted as a
+    # PRE-ADMIT gate to _route_self_query (never a replacement). The exact
+    # regression from the earlier attempt was "do you ever get tired" ->
+    # EMPTY response (router admitted but the block's compositional answering
+    # didn't fire). The pre-admit must call _route_self_query and return its
+    # answer; if the block returns None it falls through to the legacy path.
+    assert "self_directed" in set(IntentRouter.load()._promoted), \
+        "self_directed must be in promoted for this gate to be active"
+    engine.use_intent_router = True
+    # Router classifies the agent-mind query without contradicting the corpus.
+    assert engine._route_intent("do you ever get tired") == "self_directed"
+    # End-to-end: must produce a non-empty self-model answer, NOT a web def.
+    resp = engine.process_turn("do you ever get tired")
+    assert resp and resp.strip(), "self_directed query regressed to empty response"
+    assert "web source" not in resp.lower(), \
+        "self_directed query wrongly routed to web definition"
+    _self_keys = ("think", "feel", "weigh", "learn", "person", "ravana",
+                  "ai", "conscious")
+    assert any(k in resp.lower() for k in _self_keys), \
+        f"self_directed query not answered from self-model: {resp!r}"
+    engine.use_intent_router = False
+
+
 from ravana.chat.safety_valence import SafetyValence, _FIT_PATH as _SV_PATH
 import os as _os4
 

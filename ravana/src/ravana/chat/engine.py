@@ -4169,6 +4169,24 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # the word "name". This is the self/other boundary (TPJ / mirror system):
         # it fires before grounding so self-subjects never reach the world-knowledge
         # path. World queries ('the president') return None and proceed normally.
+        # Router-driven pre-admit (promoted self_directed, schema v4 reference
+        # axis): the router confirms the utterance is about the AGENT's mind
+        # (2nd-person / about-agent reference features). It only CALLS
+        # _route_self_query — the block's compositional answering logic (name /
+        # identity / favorite branches) stays intact, so an empty response is
+        # impossible: if the block returns None we fall through to the legacy
+        # regex admission below exactly as today. Inert unless self_directed is
+        # in `promoted`, and fully skipped at use_intent_router=False (default).
+        if self.use_intent_router and self._router_says("self_directed", user_input):
+            _self_ans = self._route_self_query(user_input)
+            if _self_ans is not None:
+                self._last_strategy = "self_model"
+                self._last_responses.append(_self_ans)
+                if len(self._last_responses) > 10:
+                    # trim oldest
+                    self._last_responses = self._last_responses[-10:]
+                self.notify_user_idle()
+                return _self_ans
         _self_ans = self._route_self_query(user_input)
         if _self_ans is not None:
             self._last_strategy = "self_model"
