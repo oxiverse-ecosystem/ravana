@@ -8,11 +8,15 @@ Modes:
   phase2    — Heavy decoder training on teen_seeds.txt (fast, ~1hr)
   full      — Full pipeline: seed → web → consolidate → evaluate (~3-5hrs)
   test      — Quick diagnostic that decoder trains on real text
+  linggen   — Offline LingGen P6 promotion: harvest grounded corpus + train
+               the sensorimotor decoder to EARN use_linggen (writes
+               data/linggen_train_report.txt)
 
 Usage:
     python scripts/train.py --mode phase2
     python scripts/train.py --mode full [--web-topics 10] [--cycles 3]
     python scripts/train.py --mode test
+    python scripts/train.py --mode linggen
 """
 import sys, os, time, json, re
 import numpy as np
@@ -88,6 +92,7 @@ def load_corpus(engine):
     new_for_vocab = [w for w in words_in_corpus if w not in engine._decoder_word_to_idx]
     if new_for_vocab:
         engine._expand_decoder_vocab(new_for_vocab)
+    nd = engine.neural_decoder
     # LingGen P6: train the decoder on web-harvested grounded descriptions
     # (data/corpora/grounded_descriptions.txt) BEFORE freezing the vocab. This
     # fits W_sm (65->75) and trains the angular-gyrus binding. No-op if the
@@ -98,7 +103,6 @@ def load_corpus(engine):
     except Exception as _e:
         print(f"  [LingGen] grounded training skipped: {_e}")
     engine._freeze_decoder_vocab = True
-    nd = engine.neural_decoder
     all_sentences = nd.prepare_sentences(
         text, engine._decoder_word_to_embed, engine._decoder_word_to_idx,
         min_sentence_len=3,
@@ -504,11 +508,6 @@ def _heldout_grounded_ce(engine, nd, cond_sent, W_sm, attr_enc, glove_fn,
     return (total_ce / n) if n else 0.0
 
 
-    print(f"\n{'='*60}")
-    print("EVALUATION")
-    print(f"{'='*60}")
-
-
 def evaluate(engine, questions=EVAL_QUESTIONS):
     print(f"\n{'='*60}")
     print("EVALUATION")
@@ -635,6 +634,49 @@ def _mode_full(args):
     _mode_phase2(args)
 
 
+# ─── Mode: linggen ───
+
+def _mode_linggen(args):
+    """Offline LingGen P6 promotion driver.
+
+    Larger grounded harvest from local Gutenberg books + longer sensorimotor
+    decoder training to EARN use_linggen. This was previously scripts/
+    _linggen_train_big.py — folded here as a training mode so all training
+    lives in one place.
+
+    Writes a small report to data/linggen_train_report.txt.
+    """
+    import time as _time
+    t0 = _time.time()
+    eng = CognitiveChatEngine(dim=args.dim, seed=args.seed, baby_mode=True)
+    nd = eng.neural_decoder
+
+    # 1) Larger grounded harvest from local books (clean, deterministic).
+    n_harvest = eng.harvest_grounded_corpus(
+        max_concepts=2000, local_books=True, force=True)
+    report = [f"[harvest] local_books concepts written: {n_harvest}"]
+
+    # 2) Longer grounded training. freeze_core=True protects the seed-language
+    #    core from drift; scheduled sampling + aux lambda close the exposure
+    #    gap and force the concept pointer through the network.
+    SCHEDULED_EPS = 0.25
+    AUX_LAMBDA = 0.5
+    trained, use_ling = train_decoder_grounded(
+        eng, nd, n_passes=40, pp=200, si=4, freeze_core=True,
+        scheduled_eps=SCHEDULED_EPS, aux_lambda=AUX_LAMBDA)
+    report.append(f"[train] trained={trained} use_linggen={use_ling}")
+    report.append(
+        f"[train] W_sm saved="
+        f"{os.path.exists(os.path.join(_proj_root, 'data', 'linggen_wsm.npz'))}")
+    report.append(f"[elapsed] {_time.time()-t0:.1f}s")
+
+    out = os.path.join(_proj_root, "data", "linggen_train_report.txt")
+    with open(out, "w", encoding="utf-8") as f:
+        f.write("\n".join(report) + "\n")
+    print("\n".join(report))
+    print(f"REPORT_WRITTEN={out}")
+
+
 # ─── Mode: test ───
 
 def _mode_test(args):
@@ -666,7 +708,8 @@ def _mode_test(args):
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="RAVANA unified trainer")
-    parser.add_argument("--mode", choices=["phase2", "full", "test"], default="phase2",
+    parser.add_argument("--mode", choices=["phase2", "full", "test", "linggen"],
+                        default="phase2",
                         help="Training mode (default: phase2)")
     parser.add_argument("--dim", type=int, default=64, help="Graph dimension")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
@@ -679,7 +722,8 @@ def main():
 
     args = parser.parse_args()
 
-    modes = {"phase2": _mode_phase2, "full": _mode_full, "test": _mode_test}
+    modes = {"phase2": _mode_phase2, "full": _mode_full, "test": _mode_test,
+             "linggen": _mode_linggen}
     modes[args.mode](args)
 
 
