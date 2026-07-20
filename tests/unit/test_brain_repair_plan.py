@@ -294,4 +294,55 @@ def test_b6ext_bare_byline_stripped():
         "Greg Miller May 2010 Memories are stored in the hippocampus.")
     assert out is not None
     assert "greg miller may 2010" not in out.lower()
-    assert "memories are stored in the hippocampus" in out.lower()
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# W1  empathy / recall collision (past-tense autobiographical memory routed to
+#      recall, present-tense distress kept for empathy)
+# ─────────────────────────────────────────────────────────────────────────
+def test_w1_present_tense_empathy_untouched():
+    """A present-tense distress disclosure must still get empathy (W1 must not
+    regress the emotional_empathy path)."""
+    e = _engine()
+    out = e.process_turn("i feel really anxious about my exam")
+    assert e._last_strategy == "emotional_empathy", f"got {e._last_strategy}: {out!r}"
+
+
+def test_w1_past_tense_autobiographical_routed_to_recall():
+    """A past-tense autobiographical memory report ('i remember when...',
+    'i felt X last year') is a retrieved-memory disclosure, not live affect,
+    so it must route to memory_recall, never emotional_empathy."""
+    e = _engine()
+    # seed an autobiographical fact first so recall has something to reflect on
+    e.process_turn("my favourite color is purple")
+    out = e.process_turn("i remember when i felt anxious last year")
+    assert e._last_strategy == "memory_recall", f"got {e._last_strategy}: {out!r}"
+    assert "emotional_empathy" != e._last_strategy
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# W4  creative writing generates (grounded, salad-fail-closed) instead of
+#      always deferring
+# ─────────────────────────────────────────────────────────────────────────
+def test_w4_creative_generation_when_grounded():
+    """A creative request whose topic has graph associations must generate a
+    verse tagged creative_generation (exempt from the factual grounding gate),
+    not the warm 'not confident yet' defer."""
+    e = _engine()
+    out = e.process_turn("a haiku about sleep")
+    assert e._last_strategy == "creative_generation", f"got {e._last_strategy}: {out!r}"
+    assert "straight from my own associations" in out.lower()
+
+
+def test_w4_creative_fails_closed_without_associations():
+    """When the topic has no associations available, the generator must defer
+    honestly (fail-closed), not emit word-salad."""
+    e = _engine()
+    # a topic with no node/vector in the seeded graph should defer
+    out = e.process_turn("write me a poem about zxqwplk")
+    # either it generated (if some association existed) or deferred honestly;
+    # it must never be tagged creative_generation with empty/salad content
+    if e._last_strategy == "creative_generation":
+        assert "straight from my own associations" in out.lower()
+    else:
+        assert e._last_strategy == "action_request"

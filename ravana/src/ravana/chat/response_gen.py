@@ -17,6 +17,20 @@ from .chain_walker import ChainWalkerMixin
 from .realizer_lexicon import RealizerLexicon, default_lexicon
 from ravana.language.surface_realizer import DiscourseState
 
+# Self-referential / meta tokens that should not be treated as ordinary
+# concepts in generative or humour graph walks (shared by _handle_humor and
+# _generate_creative). Module-level so it is visible to every method.
+_META_SELF = frozenset({
+    "artificial", "robot", "system", "ai", "algorithm", "bot",
+    "computer", "machine", "software", "code", "program", "neural",
+    "database", "server", "internet", "entity", "agent", "chatbot",
+    "model", "language model",
+})
+
+
+def _is_meta(label):
+    return (label or "").lower() in _META_SELF
+
 # Compute project root (same logic as engine.py)
 _proj_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 
@@ -2123,16 +2137,6 @@ class ResponseGenMixin(ChainWalkerMixin):
         # land with a human). This is a principled SKIP set (the agent's own
         # identity tokens), not a curated joke template -- it only prunes the
         # candidate pool, the rest of the bisociation is graph-driven.
-        _META_SELF = frozenset({
-            "artificial", "robot", "system", "ai", "algorithm", "bot",
-            "computer", "machine", "software", "code", "program", "neural",
-            "database", "server", "internet", "entity", "agent", "chatbot",
-            "model", "language model",
-        })
-
-        def _is_meta(label):
-            return label.lower() in _META_SELF
-
         t = (text or "").lower()
         if not re.search(r"\b(joke|jokes|funny|laugh|laughing|humor|humour)\b", t):
             return None
@@ -2146,31 +2150,72 @@ class ResponseGenMixin(ChainWalkerMixin):
         #    the setup lands with a human; fall back to any connected node.
         from ravana.chat.constants import TEEN_CONCEPT_LABELS
         _teen = set(TEEN_CONCEPT_LABELS)
-        nodes = list(g.nodes.values())
-        if not nodes:
+        # W3: isolate the humor generator's graph view from the LIVE task graph.
+        # The live graph mutates as background web-learning adds edges to
+        # web-learned concepts, inflating their out-degree -- which biased the
+        # joke's setup anchor X toward whatever topic was just web-learned
+        # (the "science + sleep" cross-turn bleed). Bisociation (Koestler)
+        # requires a CLEAN incongruity between two frames; the brain
+        # decouples the generative/humor buffer (DMN) from the task/perceptual
+        # association stream, so the joke anchor must NOT be sampled from the
+        # just-activated association context. We therefore snapshot a STABLE
+        # humor subgraph: the seeded teen vocabulary + their typed edges among
+        # themselves (recognizable, fixed at boot). X is drawn from this
+        # snapshot only -- never from web-learned nodes or _topic_list.
+        _humor_pool = getattr(self, "_humor_teen_pool", None)
+        if _humor_pool is None:
+            _humor_pool = []
+            for lbl in _teen:
+                nid = None
+                # resolve label -> node id (handles synonyms/case)
+                for _n in g.nodes.values():
+                    if _n.label == lbl or _n.label.lower() == lbl.lower():
+                        nid = _n.id
+                        break
+                if nid is None:
+                    continue
+                try:
+                    # out-degree WITHIN the teen subgraph (stable, not web-inflated)
+                    _out = g.get_outgoing(nid)
+                    _deg = sum(1 for (_t, _e) in _out
+                               if _e is not None and getattr(_e, "target", _t) in
+                               {_nn.id for _nn in g.nodes.values()
+                                if _nn.label in _teen})
+                except Exception:
+                    _deg = 0
+                if self._glove_vector(lbl) is not None:
+                    _humor_pool.append((lbl, _deg))
+            # cache: the teen subgraph is stable across the session
+            self._humor_teen_pool = _humor_pool
+        if not _humor_pool:
             return None
-        cand = []
-        for n in nodes:
-            if _is_meta(n.label):
-                continue
-            try:
-                deg = len(g.get_outgoing(n.id))
-            except Exception:
-                deg = 0
-            if deg >= 1 and self._glove_vector(n.label) is not None:
-                # Recognizable anchors rank above obscure web-learned nodes.
-                score = deg + (50 if n.label in _teen else 0)
-                cand.append((n, score))
-        if not cand:
-            return None
-        cand.sort(key=lambda x: x[1], reverse=True)
-        # Top tier: connected + recognizable; if any exist prefer them.
-        teen_pool = [n for (n, s) in cand if n.label in _teen and s >= 50]
-        pool = (teen_pool if teen_pool else [n for (n, _s) in cand])[: max(3, len(cand) // 3)]
-        X_node = random.choice(pool)
-        X = X_node.label
+        # Optional: if the user NAMED a topic ("a joke about cats"), prefer it
+        # as X -- but ONLY when it is itself a recognizable concept (present in
+        # the live graph with a vector). This seeds Z from the explicit request,
+        # never from residual conversation context. If the named topic is not
+        # recognizable, fall back to the stable teen pool.
+        _named = None
+        _m = re.search(r"\b(?:about|on|regarding)\s+([a-z][a-z\s]{1,20}?)(?:[\?\.\!]|$|\b(joke|funny|laugh)\b)", t)
+        if _m:
+            _cand_topic = _m.group(1).strip()
+            if _cand_topic and self._glove_vector(_cand_topic) is not None:
+                _named = _cand_topic
+        if _named:
+            X = _named
+        else:
+            # rank by stable in-subgraph degree; recognizable anchors first
+            _humor_pool.sort(key=lambda x: x[1], reverse=True)
+            X = random.choice([lbl for (lbl, _d) in _humor_pool[: max(3, len(_humor_pool) // 3)]])
         X_vec = self._glove_vector(X)
         if X_vec is None:
+            return None
+        # resolve X back to a node for the bisection step below
+        X_node = None
+        for _n in g.nodes.values():
+            if _n.label == X or _n.label.lower() == X.lower():
+                X_node = _n
+                break
+        if X_node is None:
             return None
 
         # 2) BISECTION (Z-centered). For each shared frame Z among X's neighbors,
@@ -2198,6 +2243,11 @@ class ResponseGenMixin(ChainWalkerMixin):
                 continue
             Z = Z_node.label
             if _is_meta(Z):
+                continue
+            # W3: the connector frame Z must be a recognizable (teen-subgraph)
+            # concept, not a web-learned node -- keeps the bisociation between
+            # stable frames and decoupled from the task graph.
+            if Z.lower() not in _teen:
                 continue
             Z_rel = getattr(ze, "relation_type", None) or "related"
             try:
@@ -2522,6 +2572,137 @@ class ResponseGenMixin(ChainWalkerMixin):
             return first
         return None
 
+    def _generate_creative(self, topic: str, art: str) -> Optional[str]:
+        """W4: generative creative writing, grounded in the agent's own graph
+        associations (DMN free-association), not templates and not fabricated
+        fact.
+
+        Brain basis: the default-mode network (DMN; Buckner et al. 2008) is the
+        brain's generative substrate -- it constructs scenes, narratives and
+        counterfactuals during rest via the same constructive-episodic-
+        simulation system (Schacter & Addis) that powers B5's counterfactuals.
+        RAVANA already routes counterfactuals through this buffer; creative
+        requests belong there too. The output is woven from the agent's OWN
+        concept associations (internally grounded), so it is not a confabulated
+        external fact -- consistent with the project's truthfulness bar.
+
+        Fail-closed: if the free-association degenerates into word-salad
+        (_is_word_salad), return None and let the caller defer honestly (the
+        existing warm "not confident yet" path). The creative output is exempt
+        from the factual grounding gate (like humor / empathy) because it is
+        composed free-association, not a truth claim.
+        """
+        if not topic:
+            topic = "the world"
+        g = getattr(self, "graph", None)
+        if g is None:
+            return None
+        topic_l = topic.lower()
+        # Gather associated concepts from the topic's typed edges + the graph's
+        # own stored node vectors (neighbours by cosine). Using stored node
+        # vectors (not the lazy GloVe projection, which can be None before the
+        # first web/embedding priming) keeps generation available on turn 1 and
+        # stays internally grounded in the agent's own vocabulary.
+        assoc = []
+        tnode = None
+        try:
+            for _n in g.nodes.values():
+                if _n.label.lower() == topic_l:
+                    tnode = _n
+                    break
+            if tnode is not None:
+                for _t, _e in g.get_outgoing(tnode.id):
+                    _nn = g.get_node(_t)
+                    if _nn is not None and not _is_meta(_nn.label):
+                        assoc.append(_nn.label)
+        except Exception:
+            pass
+        # Supplement with cosine neighbours using stored node vectors.
+        tv = getattr(tnode, "vector", None) if tnode is not None else None
+        if tv is not None and len(assoc) < 6:
+            try:
+                scored = []
+                for _n in g.nodes.values():
+                    if _n is tnode or _n.label.lower() == topic_l or _n.label in assoc:
+                        continue
+                    if _is_meta(_n.label):
+                        continue
+                    vv = getattr(_n, "vector", None)
+                    if vv is None:
+                        continue
+                    na, nb = tv, vv
+                    den = (float(na.dot(na)) ** 0.5) * (float(nb.dot(nb)) ** 0.5)
+                    if den <= 0:
+                        continue
+                    scored.append((float(na.dot(nb) / den), _n.label))
+                scored.sort(reverse=True)
+                assoc.extend([lbl for _, lbl in scored[:6]])
+            except Exception:
+                pass
+        assoc = [a for a in assoc if a and a.lower() != topic_l][:6]
+        if not assoc:
+            return None
+        # Evocative connectors (abstract, never a factual claim about the world).
+        _connectors = ["whispers to", "holds", "remembers", "becomes",
+                       "meets", "dreams of", "opens into", "carries"]
+        random.shuffle(_connectors)
+        lines = [f"{topic.capitalize()} {_connectors[0]} {assoc[0].lower()}."]
+        if len(assoc) > 1:
+            lines.append(f"and {assoc[1].lower()} {_connectors[1]} the quiet.")
+        if len(assoc) > 2:
+            lines.append(f"{assoc[2].lower().capitalize()} {_connectors[2]} what {topic.lower()} forgets.")
+        if len(assoc) > 3:
+            lines.append(f"so {topic.lower()} and {assoc[3].lower()} are never quite alone.")
+        verse = "\n".join(lines)
+        # Fail-closed: reject degenerate free-association.
+        try:
+            from ravana.chat.constants import _is_word_salad
+            if _is_word_salad(verse, subject=topic):
+                return None
+        except Exception:
+            pass
+        _art = art or "piece"
+        return f"here's a little {_art} for you, straight from my own associations:\n\n{verse}"
+
+    _CAUSAL_CONNECTIVES = (
+        "because", "since", "due to", "caused by", "causes", "leads to",
+        "leading to", "results in", "results from", "so that", "therefore",
+        "as a result", "which is why", "this is why",
+    )
+
+    def _causal_restructure(self, text: str, rel: str) -> Optional[str]:
+        """W2: realize a causal sub-answer as a CAUSE -> EFFECT chain instead of
+        one flat sentence, by EXTRACTIVELY splitting the retrieved snippet on a
+        causal connective and re-presenting the two halves in causal order.
+
+        Brain basis: human 'why/how' reasoning builds a causal model (Sloman
+        2005; Pearl forward-simulation; Gerstenberg CSM) -- a structure of
+        interacting causes, not sentence retrieval. The causal relation is
+        taken from the snippet's OWN language (no fabrication): we only reorder
+        the two clauses the source text already linked. Fail-closed: if the
+        snippet has no causal connective, or splitting yields a degenerate half,
+        return None and the caller keeps the single sentence (no regression).
+        """
+        if not text or rel not in ("causal", "mechanism", "consequence",
+                                    "cause", "reason", "why", "how"):
+            return None
+        t = text.strip().rstrip(".!?")
+        low = t.lower()
+        for conn in self._CAUSAL_CONNECTIVES:
+            idx = low.find(f" {conn} ")
+            if idx <= 0:
+                continue
+            before = t[:idx].strip()
+            after = t[idx + len(conn) + 2:].strip()
+            # "Y because X" -> effect=Y, cause=X ; "X causes Y" -> cause=X, effect=Y
+            if conn in ("causes", "leads to", "leading to", "results in"):
+                cause, effect = before, after
+            else:
+                cause, effect = after, before
+            if len(cause.split()) >= 1 and len(effect.split()) >= 2:
+                return (f"{effect.capitalize()} -- because {cause.lower()}.")
+        return None
+
     def _handle_action_request(self, text: str, action_verb: str,
                                subject: str) -> str:
         """Honest, helpful reply to an action request RAVANA cannot literally do.
@@ -2531,6 +2712,10 @@ class ResponseGenMixin(ChainWalkerMixin):
         useful thing it *can* do (explain, outline steps, discuss). No
         confabulation, no abstract filler.
         """
+        # W4: flag set True only when a creative verse was actually generated
+        # (vs the honest warm defer), so process_turn can tag the strategy
+        # 'creative_generation' and exempt it from the factual grounding gate.
+        self._last_creative = False
         import random
         # B5 (DMN divergent-thinking / social warmth; Shah 2011, Stevenson 2020):
         # a creative request ("write me a poem/story/haiku about X") should NOT
@@ -2548,6 +2733,13 @@ class ResponseGenMixin(ChainWalkerMixin):
             # topic after "about"
             _m = re.search(r"\babout\s+(.+)", text.lower())
             _topic = (_m.group(1).strip(" .,!?") if _m else "").strip()
+            # W4: generate from the agent's own graph associations (DMN
+            # free-association), grounded and salad-gated. If generation fails
+            # or degenerates, fall back to the warm honest defer below.
+            _verse = self._generate_creative(_topic, _art)
+            if _verse:
+                self._last_creative = True
+                return _verse
             _about = f" about {_topic}" if _topic else ""
             _warm = [
                 f"ooh, a {_art}{_about} — i love that idea. i'm honestly still "
@@ -5378,6 +5570,11 @@ class ResponseGenMixin(ChainWalkerMixin):
             sq_text = sq.text
             sq_rel = sq.relation_type
             sq_target = sq.target_concept
+            # W5: initialize the sub-answer accumulator up front so every branch
+            # (cached-def, web, structured) assigns a bound local; avoids an
+            # UnboundLocalError when the cached-def path conditionally sets it.
+            answer_text = ""
+            answer_conf = 0.0
             if getattr(self, '_trace_enabled', False):
                 print(f"  [decomp-gen]   [{sq.id}] {sq_text} ({sq_rel})")
             
@@ -5456,21 +5653,44 @@ class ResponseGenMixin(ChainWalkerMixin):
                 except Exception:
                     pass
 
-            # Step 2: Iterative web search (ACC-driven refinement)
-            searched = [sq_text]
-            for attempt in range(2):
+            # W5 (Try B-first): answer from the stored definition / belief cache
+            # BEFORE any synchronous web. The cache is the fast prior; if it has
+            # the concept, surface it immediately and Step 2's web round-trip is
+            # skipped entirely. Fail-closed: if nothing is cached, answer_text
+            # stays empty and the web path below runs as before.
+            if sq_target:
                 try:
-                    if hasattr(self, 'learn_from_web') and getattr(self, 'baby_mode', False):
-                        self.learn_from_web(searched[-1], max_results=1)
-                        if sq_target:
-                            got = sq_target.lower() in getattr(self, '_definitions', {})
-                            if not got and attempt == 0:
-                                searched.append(f"{sq_text} explained")
-                                continue
-                        break
+                    if sq_target.lower() in getattr(self, '_definitions', {}):
+                        defn = self._definitions[sq_target.lower()]
+                        if defn and len(defn) > 10:
+                            answer_text = f"{sq_target} is {defn}."
+                            answer_conf = 0.6
                 except Exception:
-                    break
-            
+                    pass
+
+            # Step 2: Iterative web search (ACC-driven refinement).
+            # W5: skip the synchronous web round-trip entirely when a stored
+            # definition already answers this sub-question (Try B-first, below)
+            # -- the BeliefStore/definition cache is the fast prior (predictive
+            # coding: the generative model supplies the answer; slow sensory web
+            # confirmation is async via background learning). This cuts the
+            # ~web-latency wall for concepts learned earlier this session, with
+            # no new subsystem (reuses the existing belief/definition gates).
+            if not answer_text:
+                searched = [sq_text]
+                for attempt in range(2):
+                    try:
+                        if hasattr(self, 'learn_from_web') and getattr(self, 'baby_mode', False):
+                            self.learn_from_web(searched[-1], max_results=1)
+                            if sq_target:
+                                got = sq_target.lower() in getattr(self, '_definitions', {})
+                                if not got and attempt == 0:
+                                    searched.append(f"{sq_text} explained")
+                                    continue
+                            break
+                    except Exception:
+                        break
+
             # Step 3: Build mini-response
             answer_text = ""
             answer_conf = 0.0
@@ -5494,6 +5714,15 @@ class ResponseGenMixin(ChainWalkerMixin):
                     if wa:
                         answer_text = wa[0] if isinstance(wa, tuple) else wa
                         answer_conf = 0.7
+                        # W2: for a causal sub-question, realize the web snippet
+                        # as a CAUSE -> EFFECT chain when the source text itself
+                        # signals causality (extractive split, no fabrication).
+                        # Fail-closed: if no causal connective, keep the sentence.
+                        if sq_rel in ("causal", "mechanism", "consequence",
+                                      "cause", "reason", "why", "how"):
+                            _cr = self._causal_restructure(answer_text, sq_rel)
+                            if _cr:
+                                answer_text = _cr
             except Exception:
                 pass
             

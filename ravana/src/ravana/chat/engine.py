@@ -1772,10 +1772,24 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         # store has nothing for the user, return None and let the pipeline fall
         # through to honest uncertainty (the ConceptNet def of "remember" is NOT
         # a valid answer for this query).
+        # W1: first-person PAST-TENSE autobiographical memory report
+        # ("i remember when i felt anxious last year", "i felt anxious
+        # last year", "we experienced that back then"). A tense/aspect
+        # detector: a first/second-person subject + a past-memory verb or a
+        # recall verb, optionally with a temporal-displacement anchor
+        # (last year / yesterday / ago / when i / back then). This is a
+        # grammatical-aspect signal, not a topic keyword list, so it stays
+        # brain-faithful (Tulving autonoetic recollection is past-displaced;
+        # source-monitoring tags a retrieved memory vs a present feeling).
         _self_recall_struct = bool(re.search(
             r"\b(?:what|anything|tell me)\b.*\b(?:do )?you\b.*\b(?:remember|know|recall|told|tell)\b"
             r".*\b(?:about me|me|my|myself)\b", t)) or \
-            bool(re.search(r"\b(?:remember|recall)\b.*\b(?:what i|what i told|me)\b", t))
+            bool(re.search(r"\b(?:remember|recall)\b.*\b(?:what i|what i told|me)\b", t)) or \
+            bool(re.search(
+                r"\b(?:i|we|you)\b\s+(?:remember|recall|felt|felt like|was feeling|"
+                r"experienced|went through|lived through|thought about)\b"
+                r"(?:.*\b(?:last year|last week|yesterday|ago|back then|when i|"
+                r"when we|that time)\b)?", t))
         _self_recall_intent = False
         _clf = getattr(self, "_social_intent", None)
         if _clf is not None:
@@ -4105,7 +4119,7 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
 
     def _final_emit_guard(self, text: str, ctx, strategy: str = "") -> str:
         if strategy in ("counterfactual_simulation", "emotional_empathy",
-                        "seeded_relation"):
+                        "creative_generation", "seeded_relation"):
             return text
         # Research item B fix: a response surfaced verbatim from a verified web
         # source (web_direct_answer) is externally-grounded content, NOT RAVANA's
@@ -4414,6 +4428,16 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
         try:
             from ravana.chat.brain_regions import is_reaction, classify_cause, select_empathy_frame
             _disc = self._detect_emotional_disclosure(ctx=None, text=user_input)
+            # W1: compute the recall/memory frame flag UNCONDITIONALLY (it is
+            # consumed by the frame-guard at the bottom of this block). It must
+            # not live inside `if _disc is None:` -- when primary empathy fires
+            # (disc already set) that branch is skipped and the name would be
+            # unbound, which raised NameError and silently fell through to
+            # self-disclosure (a W1 regression). A recall frame marks a retrieved
+            # memory report (past-tense / "remember"), not live present affect.
+            _recall_frame = bool(re.search(
+                r"\b(remember|recall|forget|forgot|told you|did i (tell|say|"
+                r"ask)|what did i|do you remember)\b", (user_input or "").lower()))
             if _disc is None:
                 # §3 fallback: the lexical VAD detector misses suffering that
                 # has no strong affect WORD but is clearly negative via its
@@ -4447,9 +4471,6 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 # is a request framing, not a state disclosure.
                 _eli5_simile = bool(re.search(
                     r"\b(like|as if|as though)\s+(i'm|i am|i feel)\b", _low))
-                _recall_frame = bool(re.search(
-                    r"\b(remember|recall|forget|forgot|told you|did i (tell|say|"
-                    r"ask)|what did i|do you remember)\b", _low))
                 _is_question = _low.endswith("?") or bool(re.match(
                     r"^(what|who|when|where|why|how|which|is|are|do|does|did|"
                     r"can|could|would|should)\b", _low))
@@ -4504,7 +4525,14 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
                 # name / identity self-disclosure statement.
                 _name_stmt_g = bool(re.search(
                     r"\b(my\s+name\s+is|i\s+am\s+called|call\s+me)\b", _low_g))
-                if _is_q_g or _pref_stmt_g or _name_stmt_g:
+                # W1: a recall/memory frame ("i remember when...", "i felt X
+                # last year") is a retrieved-memory report, not a present-state
+                # distress disclosure -- source monitoring tags it as memory, not
+                # live affect. Drop empathy and let it fall through to the
+                # episodic/recall path (handled upstream by _try_memory_query's
+                # self-recall detection). Present-tense "i feel anxious" is
+                # untouched (no recall frame).
+                if _is_q_g or _pref_stmt_g or _name_stmt_g or _recall_frame:
                     _disc = None
             if _disc is not None:
                 # §7 deictic special-case: "i love you" / "i like you" is a
@@ -5252,6 +5280,35 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             self.notify_user_idle()
             return _self_resp
 
+        # ─── W4: Creative-writing request pre-router ───
+        # "write me a poem about X" / "tell me a story about Y" are GENERATIVE
+        # creative requests, not assertions or factual questions. They must be
+        # caught BEFORE the assertion/chitchat handlers below (the same reason
+        # humor is routed first) so the DMN free-association generator runs
+        # instead of being mislabeled an assertion ("poem ocean. anything
+        # else?"). A creative intent = an art noun (poem/story/haiku/...) AND a
+        # generation verb (write/tell/make/create/compose/give/spin).
+        _creative_intent = re.search(
+            r"\b(poem|story|haiku|song|tale|limerick|rap|verse|lyric|lyrics)\b",
+            user_input.lower())
+        _gen_verb = self._is_action_request(user_input) if hasattr(self, "_is_action_request") else None
+        # A creative request may lack a literal generation verb ("a haiku about
+        # sleep", "tell me a story about X" where 'tell' is read as a question
+        # auxiliary) -- route it if it names an art noun AND a topic anchor
+        # (about/of/for), which is the creative-request signature.
+        _creative_topic_anchor = bool(re.search(
+            r"\b(about|of|for|where|when)\b", user_input.lower()))
+        if _creative_intent and (_gen_verb or _creative_topic_anchor):
+            resp = self._handle_action_request(user_input, _gen_verb or "write", subject)
+            self._last_strategy = ("creative_generation"
+                                   if getattr(self, "_last_creative", False)
+                                   else "action_request")
+            self._last_responses.append(resp)
+            if len(self._last_responses) > 10:
+                self._last_responses = self._last_responses[-10:]
+            self.notify_user_idle()
+            return resp
+
         # ─── Assertion / "telling vs asking" Check ───
         # If the user is TELLING RAVANA something (an assertion) rather than
         # asking, acknowledge the speech act instead of explaining a concept.
@@ -5299,7 +5356,12 @@ class CognitiveChatEngine(WebLearningMixin):  # Methods inherited from mixins
             action_verb = self._is_action_request(user_input)
             if action_verb:
                 resp = self._handle_action_request(user_input, action_verb, subject)
-                self._last_strategy = "action_request"
+                # W4: a generated creative verse is internally-grounded
+                # free-association (DMN), not a factual claim -- exempt it from
+                # the factual grounding gate and tag it creative_generation.
+                self._last_strategy = ("creative_generation"
+                                       if getattr(self, "_last_creative", False)
+                                       else "action_request")
                 self._last_responses.append(resp)
                 if len(self._last_responses) > 10:
                     self._last_responses = self._last_responses[-10:]
