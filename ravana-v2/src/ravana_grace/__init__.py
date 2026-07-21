@@ -1,4 +1,4 @@
-"""RAVANA GRACE -- 27-phase cognitive architecture."""
+"""RAVANA GRACE -- 20-phase cognitive architecture (A–P)."""
 
 from .core import (
     Governor,

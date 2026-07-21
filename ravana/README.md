@@ -39,7 +39,7 @@ RAVANA:             Prediction Error → Free Energy (Pressure) → Hebbian Plas
 RAVANA now contains **two complementary cognitive architectures**:
 
 ### 1. **RAVANA v2** — GRACE Cognitive Core (`ravana-v2/`)
-The original GRACE (General Recursive Adaptive Cognitive Engine) with 27 phases (A–P) implementing:
+The original GRACE (General Recursive Adaptive Cognitive Engine) with 20 phases (A–P, H–I reserved) implementing:
 - **Governor regulation** (Phases A–C) — Hard constraints, predictive dampening, center-seeking homeostasis
 - **Strategy & Intent** (Phases D–J) — 4 strategy modes, planning, hypotheses, Occam layer
 - **World Model & Epistemology** (Phases F–G.5) — Belief reasoning, active probes, VoI-driven action
@@ -108,7 +108,9 @@ git clone https://codeberg.org/oxiverse/ravana.git
 # Mirror (GitHub)
 git clone https://github.com/oxiverse-ecosystem/ravana.git
 cd ravana
-pip install -e ravana/          # NumPy only (modular package)
+pip install -e .[full,dev]       # editable install (also what CI runs)
+# or, just the modular package:
+pip install -e ravana/          # NumPy only
 pip install tiktoken            # Optional: BPE tokenizer
 ```
 
@@ -206,7 +208,7 @@ python external_benchmark.py --quick --skip-pcx        # Lifelong + Graph
 | Cross-domain transfer Top-1 | **100%** (6/6) |
 | Cross-domain transfer Top-10 | **100%** (6/6) |
 | Held-out Science Top-1 (adapted) | **93.8%** (n=16) |
-| Held-out Social Top-1 (adapted) | **85–100%** (n=20) |
+| Held-out Social Top-1 (adapted) | **80.0%** (n=20) |
 | Graph Inference P95 / P99 | 2.7 ms / 2.9 ms |
 | Graph Peak Memory / Throughput | 0.3 MB / 556 QPS |
 | W_rel Causal Alignment | 0.38 (clean data ceiling) |
@@ -222,7 +224,7 @@ python external_benchmark.py --quick --skip-pcx        # Lifelong + Graph
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Complete architecture reference — GRACE, RLMv2, Phases A–P, GloVe, verb-stem offset |
 | [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md) | Quickstart tutorial — install to first model in 5 minutes |
 | [`docs/ML_FRAMEWORK.md`](docs/ML_FRAMEWORK.md) | ravana_ml deep dive — tensors, modules, ConceptGraph, RLM v1/v2 |
-| [`docs/COGNITIVE_CORE.md`](docs/COGNITIVE_CORE.md) | ravana-v2 reference — all 27 GRACE modules, configurations |
+| [`docs/COGNITIVE_CORE.md`](docs/COGNITIVE_CORE.md) | ravana-v2 reference — all 20 GRACE modules (A–P), configurations |
 | [`docs/UNIFIED_PACKAGE.md`](docs/UNIFIED_PACKAGE.md) | ravana/ package — PyTorch API, CognitiveFramework, serialization |
 | [`docs/API_REFERENCE.md`](docs/API_REFERENCE.md) | Complete function/class reference for all three layers |
 | [`docs/CONCEPTS.md`](docs/CONCEPTS.md) | Theoretical foundations — pressure, free energy, Hebbian, sleep, VAD, triples |
@@ -252,7 +254,7 @@ python -m pytest ravana-v2/tests/ -v
 python -m pytest tests/ ravana-v2/tests/ -v
 ```
 
-**Current status: 1456+ tests passing** (30 CI + 1310 unit + 95 integration + 16 GRACE + 5 generation)
+**Current status: 1890+ tests collected** (CI + unit + integration + GRACE)
 
 ---
 
@@ -342,7 +344,7 @@ ravana/
 │   ├── plasticity.py                   # Hebbian, Anti-Hebbian, Structural
 │   └── ... (tokenizer, embedder, free_energy, currencies, propagation)
 ├── ravana-v2/                          # GRACE Cognitive Core (~19,500 lines)
-│   ├── core/                           # 27 Phases A–P modules
+│   ├── core/                           # 20 Phases A–P modules
 │   │   ├── governor.py                 # Central regulation
 │   │   ├── identity.py                 # Momentum-based self-concept
 │   │   ├── sleep.py                    # 4-stage SWS+REM

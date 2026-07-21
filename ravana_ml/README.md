@@ -39,7 +39,7 @@ RAVANA:             Prediction Error → Free Energy (Pressure) → Hebbian Plas
 RAVANA now contains **two complementary cognitive architectures**:
 
 ### 1. **RAVANA v2** — GRACE Cognitive Core (`ravana-v2/`)
-The original GRACE (General Recursive Adaptive Cognitive Engine) with 27 phases (A–P) implementing:
+The original GRACE (General Recursive Adaptive Cognitive Engine) with 20 phases (A–P) implementing:
 - **Governor regulation** (Phases A–C) — Hard constraints, predictive dampening, center-seeking homeostasis
 - **Strategy & Intent** (Phases D–J) — 4 strategy modes, planning, hypotheses, Occam layer
 - **World Model & Epistemology** (Phases F–G.5) — Belief reasoning, active probes, VoI-driven action

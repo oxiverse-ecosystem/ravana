@@ -39,7 +39,7 @@ RAVANA:             Prediction Error → Free Energy (Pressure) → Hebbian Plas
 RAVANA now contains **two complementary cognitive architectures**:
 
 ### 1. **RAVANA v2** — GRACE Cognitive Core (`ravana-v2/`)
-The original GRACE (General Recursive Adaptive Cognitive Engine) with 27 phases (A–P) implementing:
+The original GRACE (General Recursive Adaptive Cognitive Engine) with 20 phases (A–P) implementing:
 - **Governor regulation** (Phases A–C) — Hard constraints, predictive dampening, center-seeking homeostasis
 - **Strategy & Intent** (Phases D–J) — 4 strategy modes, planning, hypotheses, Occam layer
 - **World Model & Epistemology** (Phases F–G.5) — Belief reasoning, active probes, VoI-driven action
@@ -183,7 +183,7 @@ logits = model.forward(inp)
 
 ## Benchmarks (External)
 
-All benchmarks are run via external benchmarking infrastructure. See [`docs/EXPERIMENTS.md`](docs/EXPERIMENTS.md) for reproduction instructions and expected results.
+All benchmarks are run via external benchmarking infrastructure. See [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) for reproduction instructions and expected results.
 
 ### External Benchmark Harness (NEW)
 
@@ -205,6 +205,8 @@ python external_benchmark.py --quick --skip-pcx        # Lifelong + Graph
 |--------|--------|
 | Cross-domain transfer Top-1 | **75.0%** |
 | Cross-domain transfer Top-10 | **100%** |
+
+> *Note: these RLMv2 numbers differ from the modular chat engine benchmarks in the root README — they measure different architectures.*
 | Held-out Science Top-1 / Top-10 | 8.3% / 25.0% (n=12) |
 | Held-out Social Top-1 / Top-10 | 0.0% / 8.3% (n=36) |
 | Graph Inference P95 / P99 | 2.7 ms / 2.9 ms |
@@ -219,17 +221,17 @@ python external_benchmark.py --quick --skip-pcx        # Lifelong + Graph
 
 | Document | Description |
 |----------|-------------|
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Complete architecture reference — GRACE, RLMv2, Phases A–P, GloVe, verb-stem offset |
-| [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md) | Quickstart tutorial — install to first model in 5 minutes |
-| [`docs/ML_FRAMEWORK.md`](docs/ML_FRAMEWORK.md) | ravana_ml deep dive — tensors, modules, ConceptGraph, RLM v1/v2 |
-| [`docs/COGNITIVE_CORE.md`](docs/COGNITIVE_CORE.md) | ravana-v2 reference — all 27 GRACE modules, configurations |
-| [`docs/UNIFIED_PACKAGE.md`](docs/UNIFIED_PACKAGE.md) | ravana/ package — PyTorch API, CognitiveFramework, serialization |
-| [`docs/API_REFERENCE.md`](docs/API_REFERENCE.md) | Complete function/class reference for all three layers |
+| [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md) | Quickstart — install to first model in 5 minutes |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Architecture reference — package relationships, turn-level data flow, Mermaid diagram |
+| [`docs/MODULES.md`](docs/MODULES.md) | Map of the three source packages and key modules |
 | [`docs/CONCEPTS.md`](docs/CONCEPTS.md) | Theoretical foundations — pressure, free energy, Hebbian, sleep, VAD, triples |
-| [`docs/EXPERIMENTS.md`](docs/EXPERIMENTS.md) | Running experiments — cross-domain, Phase 4, RLMv2 benchmarks, cognitive phases, **modular ablations, per-triple eval** |
-| [`docs/ADVANCED_TOPICS.md`](docs/ADVANCED_TOPICS.md) | Customization — tokenizers, plasticity, sleep, governor, multi-agent, lifelong |
-| [`docs/TUTORIALS.md`](docs/TUTORIALS.md) | 8 step-by-step tutorials — Hello World to visualization |
-| [`docs/DEVELOPER_GUIDE.md`](docs/DEVELOPER_GUIDE.md) | Contributing — code standards, testing, architecture principles, release process |
+| [`docs/TRAINING.md`](docs/TRAINING.md) | `train.py` modes, the LingGen promotion gate |
+| [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) | Every benchmark/diagnostic script and what it measures |
+| [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) | Repo layout, path shims, test commands, conventions, common pitfalls |
+| [`docs/API_REFERENCE.md`](docs/API_REFERENCE.md) | Complete function/class reference for all three packages |
+| [`docs/FAQ.md`](docs/FAQ.md) | Troubleshooting — installation, runtime, development issues |
+| [`docs/WHICH_ARCHITECTURE.md`](docs/WHICH_ARCHITECTURE.md) | Guide to `ravana/` vs `ravana-v2/` — which to use and why |
+| [`tutorials/01-chat-basics/`](tutorials/01-chat-basics/) through [`tutorials/07-rlm/`](tutorials/07-rlm/) | 7 progressive tutorials — chatbot to RLMv2 |
 
 ---
 
@@ -252,7 +254,7 @@ python -m pytest ravana-v2/tests/ -v
 python -m pytest tests/ ravana-v2/tests/ -v
 ```
 
-**Current status: 1456+ tests passing** (30 CI + 1310 unit + 95 integration + 16 GRACE + 5 generation)
+**Current status: 1890+ tests collected** (CI + unit + integration + GRACE)
 
 ---
 
@@ -293,7 +295,7 @@ cd ravana-v2 && python experiments/runner.py
 
 ### Custom Experiments
 
-See [`docs/EXPERIMENTS.md`](docs/EXPERIMENTS.md#custom-experiments) for templates and configuration reference.
+See [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) for templates and configuration reference.
 
 ---
 
@@ -342,7 +344,7 @@ ravana/
 │   ├── plasticity.py                   # Hebbian, Anti-Hebbian, Structural
 │   └── ... (tokenizer, embedder, free_energy, currencies, propagation)
 ├── ravana-v2/                          # GRACE Cognitive Core (~19,500 lines)
-│   ├── core/                           # 27 Phases A–P modules
+│   ├── core/                           # 20 Phases A–P modules
 │   │   ├── governor.py                 # Central regulation
 │   │   ├── identity.py                 # Momentum-based self-concept
 │   │   ├── sleep.py                    # 4-stage SWS+REM
@@ -457,4 +459,4 @@ If you use RAVANA in research, please cite:
 ## Links
 
 - **Documentation**: [`docs/`](docs/)
-- **External Audit**: [`docs/EXTERNAL_AUDIT.md`](docs/EXTERNAL_AUDIT.md)
+- **Getting Started**: [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md)

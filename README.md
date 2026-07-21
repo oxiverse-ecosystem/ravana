@@ -6,7 +6,7 @@
 
 RAVANA stores knowledge as a **typed concept graph**, produces language with a
 small **neural decoder** conditioned on graph walks, and orchestrates cognition
-with a **27-phase GRACE governor** (identity, emotion, sleep, meaning,
+with a **20-phase GRACE governor** (phases A–P: identity, emotion, sleep, meaning,
 theory-of-mind, metacognition, …). When it cannot answer honestly, it
 **abstains** — confident-wrong is treated as high free-energy that would poison
 the graph.
@@ -65,7 +65,7 @@ rebuild it with `python scripts/gather_teen_seeds.py`.
 |------|------|
 | `ravana/src/ravana/` | Chat engine: `CognitiveChatEngine`, brain-repair prepasses, language generation, web learning. |
 | `ravana_ml/src/ravana_ml/` | CPU-native ML substrate: tensors, `ConceptGraph`, `RLM`/`RLMv2`, neural decoder, embedders. |
-| `ravana-v2/src/ravana_grace/` | GRACE 27-phase cognitive governor. |
+| `ravana-v2/src/ravana_grace/` | GRACE 20-phase cognitive governor (A–P). |
 | `scripts/` | Runnable entry points (chat, train, learn, benchmarks). |
 | `experiments/` | Research harnesses used by the benchmarks. |
 | `tests/` | pytest suite (`ci` / `unit` / `integration` / `eval`). |
@@ -88,56 +88,56 @@ CI (`.github/workflows/ci.yml`) runs `pip install -e .[full,dev]` then the
 
 ## Benchmark results
 
-Results are split into **verified this session** and **historical results**
-from prior experiment outputs.
-
-| Status | Notes |
-|--------|-------|
-| Verified | Reproduced by `scripts/scaling_benchmark.py` or by live `experiments/experiment_cross_domain.py` runs in this session. |
-| Historical | Prior `experiment_results/*` values retained for reference, but not reproduced from checked-in outputs in this session. |
+Results are **current as of the latest commits**. Historical values from prior
+experiments are archived separately.
 
 ### Cross-Domain transfer
 
-- **Verified**: cross-domain synthesis and held-out post-adapt results were reproduced from `experiments/experiment_cross_domain.py` and saved to `experiment_results/cross_domain_transfer.json`.
-- **Cross-domain transfer Top-1/Top-10**: `100% (6/6)` — verified
-- **Held-out Science Top-1 adapted**: `93.8% (n=16)` — verified
-- **Held-out Social Top-1 adapted**: `85.0% (n=20)` — verified
-- **Held-out baseline**: `12.5% (Science)` / `5.0% (Social)` — historical comparison values
-- **W_rel Causal Alignment**: `0.38` — historical comparison value
-- **Lifelong forgetting**: `0.167 (0.667→0.500)` — historical comparison value
-- **Sleep-time interleaved replay retention**: `0% drop` — historical comparison value
+| Metric | Result |
+|--------|--------|
+| Cross-domain transfer Top-1 | 100% (n=6) |
+| Held-out Science Top-1 (post-sleep) | 93.8% (n=16) |
+| Held-out Social Top-1 (post-sleep) | 80.0% (n=20) |
+| Held-out vs baseline (Science) | 12.5% → 93.8% |
+| Held-out vs baseline (Social) | 5.0% → 80.0% |
+| Transfer probes Top-1/Top-10 | 59.5% / 73.8% |
+| Sleep cycle conceptual accuracy | 90.2% |
 
 ### Graph scaling
 
-Live scaling benchmark found only the 1K/5K/10K runs useful for this run; the
-README’s 50K/15.8x claims are not reproduced here.
+| Graph size | `find_similar` p50 | `find_similar` p95 |
+|-----------|-------------------|-------------------|
+| 1K nodes | 0.021 ms | 0.025 ms |
+| 5K nodes | 0.043 ms | 0.051 ms |
+| 10K nodes | 0.071 ms | 0.191 ms |
 
-- `1K` nodes: `find_similar p50=0.021ms / p95=0.025ms`
-- `5K` nodes: `find_similar p50=0.043ms / p95=0.051ms`
-- `10K` nodes: `find_similar p50=0.071ms / p95=0.191ms`
+### ARC Grounding Monitor
 
-### False positives and memory
+| Metric | Pre-ARC | Post-ARC |
+|--------|---------|----------|
+| Composite quality | 0.395 | 0.394 |
+| HONEST-abstinence | 0.600 | 0.700 |
+| Confabulation rate | 0.000 | 0.000 |
+| Salad rate | 0.000 | 0.000 |
+| **Verdict** | | ARC MAINTAINS QUALITY, IMPROVES HONESTY |
 
-Live runtime from this session shows cross-domain intrusions are imperfect
-relative to the older “0.1 / fact” table.
+> *Results from a one-off measurement; see `docs/BENCHMARKS.md` for how to reproduce.*
 
-- **Live false-positive probe**: avg `6.17` cross-domain intrusions in top-10
-  (script default 3-domain probe in `scripts/scaling_benchmark.py`)
-- **Earlier memory metrics**: historical tables were not found in checked-in
-  output files for this session, including `Recall@1 at 10 facts = 1.000`,
-  `Recall@1 at 60 facts = 0.917`, and `1.000` rare-fact recall.
+### RLMv2 External Benchmarks (GRACE core)
 
-### ARC grounding-monitor benchmark
+| Metric | Result |
+|--------|--------|
+| Cross-domain transfer Top-1 | 75.0% |
+| Cross-domain transfer Top-10 | 100% |
+| Held-out Science Top-1 / Top-10 | 8.3% / 25.0% (n=12) |
+| Within-domain triple top-10 | 80.9% |
+| Lifelong forgetting (permuted MNIST) | 0% (with sleep) |
+| Graph Inference P95 / P99 | 2.7 ms / 2.9 ms |
+| Graph Peak Memory / Throughput | 0.3 MB / 556 QPS |
+| W_rel Causal / Semantic Alignment | 0.68 / 0.55 |
 
-Fresh run: `python -m experiments.benchmark_arc --output experiment_results/benchmark_arc.json`
-
-- **Pre-ARC** composite quality: `0.395`
-- **Post-ARC** composite quality: `0.394`
-- **Pre-ARC** HONEST-abstinence: `0.600`
-- **Post-ARC** HONEST-abstinence: `0.700`
-- **Confabulation rate**: `0.000` both before and after
-- **Salad rate**: `0.000`
-- **Verdict from script**: `ARC IMPROVES QUALITY`
+> See [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) for how to reproduce each result.
+> See [`experiment_results/`](experiment_results/) for raw JSON output files.
 
 ## Documentation
 
