@@ -86,6 +86,59 @@ python -m pytest tests/ --tb=short     # full suite
 CI (`.github/workflows/ci.yml`) runs `pip install -e .[full,dev]` then the
 `ci` / `unit` / `integration` jobs on Python 3.10.
 
+## Benchmark results
+
+Results are split into **verified this session** and **historical results**
+from prior experiment outputs.
+
+| Status | Notes |
+|--------|-------|
+| Verified | Reproduced by `scripts/scaling_benchmark.py` or by live `experiments/experiment_cross_domain.py` runs in this session. |
+| Historical | Prior `experiment_results/*` values retained for reference, but not reproduced from checked-in outputs in this session. |
+
+### Cross-Domain transfer
+
+- **Verified**: cross-domain synthesis and held-out post-adapt results were reproduced from `experiments/experiment_cross_domain.py` and saved to `experiment_results/cross_domain_transfer.json`.
+- **Cross-domain transfer Top-1/Top-10**: `100% (6/6)` — verified
+- **Held-out Science Top-1 adapted**: `93.8% (n=16)` — verified
+- **Held-out Social Top-1 adapted**: `85.0% (n=20)` — verified
+- **Held-out baseline**: `12.5% (Science)` / `5.0% (Social)` — historical comparison values
+- **W_rel Causal Alignment**: `0.38` — historical comparison value
+- **Lifelong forgetting**: `0.167 (0.667→0.500)` — historical comparison value
+- **Sleep-time interleaved replay retention**: `0% drop` — historical comparison value
+
+### Graph scaling
+
+Live scaling benchmark found only the 1K/5K/10K runs useful for this run; the
+README’s 50K/15.8x claims are not reproduced here.
+
+- `1K` nodes: `find_similar p50=0.021ms / p95=0.025ms`
+- `5K` nodes: `find_similar p50=0.043ms / p95=0.051ms`
+- `10K` nodes: `find_similar p50=0.071ms / p95=0.191ms`
+
+### False positives and memory
+
+Live runtime from this session shows cross-domain intrusions are imperfect
+relative to the older “0.1 / fact” table.
+
+- **Live false-positive probe**: avg `6.17` cross-domain intrusions in top-10
+  (script default 3-domain probe in `scripts/scaling_benchmark.py`)
+- **Earlier memory metrics**: historical tables were not found in checked-in
+  output files for this session, including `Recall@1 at 10 facts = 1.000`,
+  `Recall@1 at 60 facts = 0.917`, and `1.000` rare-fact recall.
+
+### ARC grounding-monitor benchmark
+
+Fresh run: `python -m experiments.benchmark_arc --output experiment_results/benchmark_arc.json`
+
+- **Pre-ARC** composite quality: `0.395`
+- **Post-ARC** composite quality: `0.394`
+- **Pre-ARC** HONEST-abstinence: `0.600`
+- **Post-ARC** HONEST-abstinence: `0.700`
+- **Confabulation rate**: `0.000` both before and after
+- **Salad rate**: `0.000`
+- **Verdict from script**: `ARC IMPROVES QUALITY`
+
 ## Documentation
 
 See [`docs/`](docs/README.md):
@@ -107,4 +160,4 @@ See [`docs/`](docs/README.md):
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+Oxiverse Community License (OCL) v1.0 — see [LICENSE](LICENSE).

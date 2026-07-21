@@ -4,7 +4,7 @@
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue)](https://python.org)
 [![NumPy](https://img.shields.io/badge/NumPy-1.20%2B-orange)](https://numpy.org)
-[![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
+[![License](https://img.shields.io/badge/License-OCL%20v1.0-blue)](/LICENSE)
 [![Status](https://img.shields.io/badge/Status-Research%20Prototype-yellow)]()
 
 ---
@@ -425,7 +425,7 @@ python scripts/triple_eval.py --triples-file my_triples.json --output report.jso
 
 ## License
 
-MIT — Built for the RAVANA-AGI-Research initiative.
+Oxiverse Community License (OCL) v1.0 — see [LICENSE](/LICENSE).
 
 ---
 

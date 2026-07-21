@@ -8,13 +8,12 @@ version = "0.3.0"
 description = "RAVANA — a decoder-first ML cognitive architecture that learns continuously from conversation and the web (no LLM required)."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
-authors = [{ name = "RAVANA Project" }]
+license = { text = "OCL v1.0" }
+authors = [{ name = "Likhith Sai Seemala" }]
 keywords = ["cognitive-architecture", "decoder-first", "continual-learning", "free-energy", "ml", "neuro-symbolic"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
