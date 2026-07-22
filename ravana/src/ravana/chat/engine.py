@@ -1187,6 +1187,14 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         self._cerebellar_depth: Dict[str, float] = {}
         self._concept_confidence: Dict[str, float] = {}
         self._calibration_error: float = 0.0
+        # P2-C: calibration signal (was dead state). Track recent response
+        # quality to derive a real error rate + adaptive window. Cold-start:
+        # buffer empty => error 0.0, window 15 (today's behavior). No
+        # theta_withhold modulation is wired because no prediction-vs-quality
+        # pair exists in the codebase to drive it; this makes the signal
+        # observable for future calibration work instead of leaving it dead.
+        self._calib_buf: list = []
+        self._calib_window: int = 15
         self._metacognitive_review_turn: int = 0
         # Background web learning
         self._bg_learning_thread: Optional[threading.Thread] = None
@@ -3048,6 +3056,28 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # read it without re-scoring (used by experiments/experiment_ablation.py
         # and the pre-arc vs post-arc benchmark as the always-on cheap signal).
         self._last_quality_score = quality_score
+        # P2-C: keep the dead calibration signal alive. Fold the just-scored
+        # quality into a short buffer; derive a real error rate (1 - quality)
+        # and an adaptive window via rolling std (stable => wider, volatile
+        # => narrower). At cold-start (buffer empty) error=0.0, window=15
+        # => identical to the legacy fixed behavior. No theta_withhold
+        # modulation: no prediction-vs-quality pair exists to drive it.
+        self._calib_buf.append(quality_score)
+        if len(self._calib_buf) > 60:
+            self._calib_buf = self._calib_buf[-60:]
+        _mean_q = sum(self._calib_buf) / len(self._calib_buf)
+        self._calibration_error = round(1.0 - _mean_q, 4)
+        if len(self._calib_buf) >= 5:
+            _mean = _mean_q
+            _var = sum((q - _mean) ** 2 for q in self._calib_buf) / len(self._calib_buf)
+            _std = _var ** 0.5
+            _target = 15
+            if _std < 0.1:
+                _target = 30
+            elif _std > 0.3:
+                _target = 5
+            # EMA toward target so the window drifts, never snaps.
+            self._calib_window = int(round(0.9 * self._calib_window + 0.1 * _target))
 
         # Phase 19g: if the generated response was flagged as word salad /
         # tautology (e.g. "gravity and time causes time"), do NOT emit it.
