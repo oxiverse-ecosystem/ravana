@@ -1,0 +1,1190 @@
+"""Auto-generated mixin module for CognitiveChatEngine.
+Episodic & working-memory mixin — recall, retrieval, activation, user-model updates, forward simulation.
+"""
+from __future__ import annotations
+
+# RAVANA Cognitive Chat Engine -- main orchestrator.
+# Contains CognitiveChatEngine with __init__, process_turn, save/_load.
+# Helper classes in models.py, user_model.py, belief_store.py.
+# M0 crash-hardening: pin BLAS/OpenMP threads to 1 BEFORE numpy is imported, so
+# worker-thread BLAS calls (web learner) can't race the main-thread decoder and
+# trigger the Windows access-violation (numpy #27989). Must be the very first
+# import -- ahead of `import numpy as np` below.
+import ravana._numpy_threading  # noqa: F401  (side-effect: thread + faulthandler setup)
+import sys, os, time, random, json, re, threading, hashlib, operator
+import urllib.request
+import socket
+socket.setdefaulttimeout(4.0)
+from urllib.error import URLError
+from urllib.parse import quote
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import numpy as np
+from dataclasses import dataclass, field
+from typing import Dict, Any, List, Optional, Tuple, Set
+
+from collections import deque, Counter
+
+# Import constants from shared module
+_proj_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
+sys.path.insert(0, _proj_root)
+sys.path.insert(0, os.path.join(_proj_root, "ravana_ml", "src"))
+sys.path.insert(0, os.path.join(_proj_root, "ravana", "src"))
+sys.path.insert(0, os.path.join(_proj_root, "ravana-v2", "src"))
+
+from ravana_ml.graph import ConceptGraph, ConceptEdge
+from ravana_grace.core.emotion import VADEmotionEngine, VADConfig
+from ravana_grace.core.identity import IdentityEngine
+from ravana_grace.core.meaning import MeaningEngine, MeaningConfig
+from ravana_grace.core.dual_process import DualProcessController, DualProcessConfig
+from ravana_grace.core.global_workspace import GlobalWorkspace, GWConfig
+from ravana_grace.core.meta_cognition import MetaCognition, MetaCognitiveConfig, EpistemicMode
+from ravana_grace.core.sleep import SleepConsolidation, SleepConfig
+from ravana.language.basal_ganglia import BasalGangliaGate
+from ravana.language.cerebellar_ngram import CerebellarNgram, CerebellarState
+from ravana.language.prefrontal_workspace import PrefrontalWorkspace, DiscourseIntent, DiscoursePlan, DiscourseType, SocialIntentClassifier
+from ravana.language.syntactic_cell_assembly import SyntacticCellAssembly, SyntacticFrame
+from ravana.language.surface_realizer import SurfaceRealizer, DiscourseState
+from ravana_ml.nn.neural_decoder import NeuralDecoder
+from ravana.core import UserEmotionDetector, EmotionalMirrorEngine, MirrorConfig
+from ravana.core.hippocampal_buffer import HippocampalBuffer, HippocampalConfig
+from ravana.core.proposition_parser import PropositionParser
+from ravana.core.causal_schema import CausalSchemaLearner, CausalSchemaConfig
+from ravana.core.implicature_detector import ImplicatureDetector
+from ravana.core.relation_memory import RelationMemory, RelationMemoryConfig
+from ravana.core.quantity_modifier import QuantityModifierSystem
+from ravana.core.situation_model import SituationModel
+from ravana.core.event_schema import EventSchemaLibrary
+from ravana.ontology import DerivedOntology
+from ravana.ontology.conceptnet import ConceptNetOntology
+
+# Optional bs4
+try:
+    import bs4  # noqa: F401
+    HAS_BS4 = True
+except ImportError:
+    HAS_BS4 = False
+
+# Import constants
+from .constants import (TEEN_CONCEPTS, WEB_GARBAGE, STOP_WORDS, ConceptPosDict,
+                        _is_word_salad, _is_keyboard_mash)
+from .web_learning import WebLearningMixin
+# Defect F: learned structural-PE snippet model (contrastive gap). Imported
+# lazily-safe so a missing module degrades gracefully (the gate stays None and
+# the old heuristic floor remains the backstop, never weakened).
+try:
+    from .snippet_quality import SnippetStructureModel, default_model
+    _HAS_SNIPPET_MODEL = True
+except Exception:  # pragma: no cover - defensive
+    SnippetStructureModel = None  # type: ignore
+    default_model = None  # type: ignore
+    _HAS_SNIPPET_MODEL = False
+# Research item B (fail-closed salad monitor): learned distributional classifier
+# + fluent-tautology signature gate. Imported lazily-safe so a missing fit file
+# degrades gracefully (the guard falls back to the legacy rule-based detector).
+try:
+    from .salad_classifier import is_salad_learned, get_classifier
+    from .monitor_gate import detects_fluent_tautology
+    _HAS_SALAD_LEARNED = True
+except Exception:  # pragma: no cover - defensive
+    _HAS_SALAD_LEARNED = False
+    is_salad_learned = None
+    get_classifier = None
+
+# Stage 5a (de-hardcoding plan): snippet-PE gate parameters live in a fit file
+# (data/snippet_pe.json) rather than inline constants. Fails open to seed
+# constants when the fit file is absent.
+try:
+    from .snippet_pe_config import default_config as _default_pe_config
+    _HAS_PE_CONFIG = True
+except Exception:  # pragma: no cover - defensive
+    _HAS_PE_CONFIG = False
+    _default_pe_config = None
+
+# Stage 5b-i (de-hardcoding plan): learned distributional POS classifier
+# (data/pos_model.json), replacing the rule-based classify_word_pos +
+# KNOWN_VERBS/ADJS/FUNCTION_WORDS lists when --learned-pos is enabled.
+try:
+    from .pos_model import PosModel, _seed_from_constants as _pos_seed_from_constants
+    _HAS_POS_MODEL = True
+except Exception:  # pragma: no cover - defensive
+    _HAS_POS_MODEL = False
+    PosModel = None
+    _pos_seed_from_constants = None
+
+# Stage 3 (de-hardcoding plan): Semantic Prototype Router (M-A) — replaces the
+# ~15 hardcoded routing lists with one learned centroid router. Flag-gated
+# (use_intent_router, OFF by default); regex path stays the default until the
+# router is verified on the regression suite and promoted.
+try:
+    from .intent_router import IntentRouter
+    _HAS_INTENT_ROUTER = True
+except Exception:  # pragma: no cover - defensive
+    _HAS_INTENT_ROUTER = False
+    IntentRouter = None
+
+# Stage 5b-ii (de-hardcoding plan): the duplicated closed-class functional
+# lexicons (_generic / _FRAMING / _bare_moral / _INC/_DEC/_REM) collapse into one
+# data-driven source of truth (data/functional_lexicon.json). Fails open.
+try:
+    from .functional_lexicon import default_lexicon as _default_lexicon
+    _HAS_FUNC_LEX = True
+except Exception:  # pragma: no cover - defensive
+    _HAS_FUNC_LEX = False
+    _default_lexicon = None
+
+import pickle
+from ravana.web.learner import SearchEngine
+from ravana.core.dual_code_space import DualCodeSpace
+from ravana.core.hrr_reasoner import HRRReasoner
+
+# Universal closed-class / pronoun words that can never own a learned definition
+# (you don't "define" the word "you"). This is the only hand-listed part of the
+# definition purge — a minimal universal seed, not a per-word category table.
+# The rest of the purge is derived from the learned graph (see
+# _derive_definition_purge).
+_UNIVERSAL_PURGE = {
+    "you", "i", "we", "they", "he", "she", "it", "me", "my", "your",
+    "our", "their", "us", "them", "him", "her", "this", "that",
+}
+
+# Assertion/copula detector (vmPFC/mPFC reality-monitor analog): a definition
+# that does not assert anything (no copula / defining verb) is structurally
+# not a definition — it is a junk fragment. Used by the learned
+# definition-attraction score in _derive_definition_purge to decide whether a
+# concept is chronically collecting non-asserted web fragments (Phase 1,
+# Track B). Mirrors web_learning._DEFINITION_PREDICATE.
+_DEFINITION_ASSERTION = re.compile(
+    r"\b(is|are|was|were|be|been|being|means?|refers?\s+to|describes?|"
+    r"occurs?|happens?|defined\s+as|represents?|signifies?|constitutes?|"
+    r"denotes?)\b", re.IGNORECASE)
+
+
+from ravana.language.verb_lexicon import VerbLexicon
+from .models import FailedQuery, ChainHop, ChainTrace, CognitiveResponseContext, Correction, CorrectionType
+
+from .user_model import UserModel
+from .belief_store import BeliefStore
+from ravana.nn.rlm import Plasticity
+
+# Phase 1 & 2 Imports
+from ravana.core.predictive_coding import PredictiveCodingLearner
+from ravana.core.coherence import CoherenceNetwork
+from ravana.core.working_memory import WorkingMemory
+from ravana.storage.db import CognitiveDB, migrate_pickle_to_sqlite
+from ravana.core.vsa import VSAManager
+from ravana.language.schemas import SchemaLibrary
+from ravana.core.system1 import System1Attractor
+from ravana.core.system2 import System2Simulator
+from ravana.core.question_decomposition import QuestionDecompositionEngine, QuestionCategory
+from ravana.core.sub_answer_synthesizer import SubAnswerSynthesizer
+
+# Phase 3 Imports
+from ravana.learn.curiosity import CuriosityEngine
+from ravana.learn.consolidation import HippocampalReplay
+from ravana.language.register import RegisterController
+
+
+
+
+class MemoryMixin:
+    """Episodic & working-memory mixin — recall, retrieval, activation, user-model updates, forward simulation."""
+
+    def _record_episode(self, user_input: str) -> None:
+        """Append a structured turn record to the gist-based episodic transcript.
+
+        Brain basis: conversational memory is cue-dependent and gist-based
+        (Brown-Schmidt & Benjamin 2018; Tulving encoding specificity). We store
+        the verbatim text (for reconstruction), a timestamp, the topic, and the
+        salient facts/preferences mined from the utterance (favorites, likes),
+        so a later "remember what I told you" can reconstruct GIST without
+        confabulating. Capped at 100 turns; oldest dropped first.
+
+        §2 temporal index: every record also carries a monotonic ``turn_index``
+        and a ``content_hash`` so the hippocampal time-cells (FIRST = lowest
+        index, LAST = highest index, date-bucket) can answer "our first
+        conversation" / "what did i just tell you" as pure index math over the
+        already-stored data.
+        """
+        import hashlib
+        import time as _time
+        t = (user_input or "").strip()
+        if not t:
+            return
+        _topic = ""
+        try:
+            _topic = self._ground_query(t)[0] or ""
+        except Exception:
+            _topic = ""
+        _hash = hashlib.md5(t.lower().encode("utf-8", "ignore")).hexdigest()[:12]
+        rec = {
+            "text": t,
+            "ts": _time.time(),
+            "topic": _topic,
+            "facts": self._mine_episodic_facts(t),
+            "turn_index": self.turn_count,   # monotonic temporal index
+            "content_hash": _hash,
+        }
+        self._episodic_transcript.append(rec)
+        if len(self._episodic_transcript) > 100:
+            self._episodic_transcript = self._episodic_transcript[-100:]
+        # Mirror into the temporal indexer (hippocampal time cells).
+        try:
+            from .brain_regions import Episode, EpisodicIndex
+            if self._episodic_indexer is None:
+                self._episodic_indexer = EpisodicIndex()
+            self._episodic_indexer.add(Episode(
+                text=t, turn_index=self.turn_count, ts=rec["ts"],
+                content_hash=_hash, facts=rec["facts"], topic=_topic))
+        except Exception:
+            pass
+
+    def _mine_episodic_facts(self, text: str) -> Dict[str, str]:
+        """Extract salient self-disclosed facts from a user turn (gist mining).
+
+        Brain basis: hippocampal relational binding encodes ANY
+        subject->relation->object triple (Hannula 2008; Yonelinas 2019), not
+        just favorite/like slots. We capture the canonical shapes AND possessive
+        disclosures so a later "remember my cat's name" reconstructs the right
+        entity (pattern separation — Yassa & Stark 2011), never a cross-contaminated
+        gist. Returns a small dict of {slot: value}. Deterministic, no LLM.
+
+        Shapes captured:
+          - "my favorite X is Y"      -> favorite_X: Y
+          - "my X's Y is Z"           -> X_Y: Z   (e.g. cat_name: whiskers)
+          - "my X is Y" / "i am X"    -> X: Y     (self/pet description)
+          - "i love/like X"           -> likes: X
+        The entity is also indexed in self._episodic_index (keyed by entity)
+        for precise pattern-completion recall.
+        """
+        facts: Dict[str, str] = {}
+        low = (text or "").lower().strip()
+        # "my favorite X is Y" / "my favorite X: Y"
+        m = re.search(r"\bmy favorite\s+([a-z0-9 ]+?)\s+(?:is|are|:)\s+([a-z0-9 ]+?)[.!?]?\s*$",
+                      low)
+        if m:
+            facts["favorite_" + m.group(1).strip()] = m.group(2).strip()
+        # Possessive relational: "my X's Y is Z" -> entity X, attribute Y, value Z
+        # e.g. "my cat's name is whiskers" / "my dog's age is 3"
+        for pm in re.finditer(
+                r"\bmy\s+([a-z0-9]+)'?s\s+([a-z0-9 ]+?)\s+(?:is|are|:)\s+([a-z0-9 ]+?)[.!?]?\s*$",
+                low):
+            ent, attr, val = pm.group(1).strip(), pm.group(2).strip(), pm.group(3).strip()
+            if ent and attr and val:
+                facts[f"{ent}_{attr}"] = val
+        # Bare possession / self-description: "my X is Y" (X not 'favorite')
+        if "favorite" not in low:
+            for bm in re.finditer(
+                    r"\bmy\s+([a-z0-9]+)\s+(?:is|are|:)\s+([a-z0-9 ]+?)[.!?]?\s*$",
+                    low):
+                ent, val = bm.group(1).strip(), bm.group(2).strip()
+                if ent and val and ent not in ("name",):
+                    facts[ent] = val
+        # "i love/like X" (last such clause)
+        for verb in ("love", "like", "enjoy", "prefer"):
+            mm = re.findall(r"\bi\s+" + verb + r"\s+([a-z0-9 \-]+?)(?:,|\.|!|\?| and | but | because |$)",
+                            low)
+            if mm:
+                facts.setdefault("likes", mm[-1].strip())
+        # Index mined facts into the hippocampal entity store (pattern separation).
+        for slot, val in facts.items():
+            # entity = leading token before an underscore (cat_name -> cat) or
+            # the slot itself for favorites (favorite_color -> color concept).
+            if "_" in slot and not slot.startswith("favorite_"):
+                ent = slot.split("_", 1)[0]
+            elif slot.startswith("favorite_"):
+                ent = slot[len("favorite_"):]
+            else:
+                ent = slot
+            attr = slot.split("_", 1)[1] if "_" in slot and not slot.startswith("favorite_") else \
+                ("favorite" if slot.startswith("favorite_") else "is")
+            idx = self._episodic_index.setdefault(ent, {})
+            idx[attr] = val
+        return facts
+
+    def _retrieve_episodic(self, query: str,
+                           transcript: Optional[List[Dict[str, Any]]] = None) -> Optional[str]:
+        """Brain-faithful episodic recall (Tulving encoding specificity).
+
+        Match by (a) explicit fact slot the query asks about (e.g. 'cat' /
+        'book'), or (b) GloVe semantic similarity between the query and stored
+        turn text/gist. Reconstruct the gist. If nothing clears the bar, return
+        None so the caller fails CLOSED (never confabulate — RAVANA bar).
+
+        `transcript` lets the caller pass a restricted set (e.g. all-but-current
+        turn for a "remember what I told you" query) instead of the live store.
+        """
+        store = transcript if transcript is not None else self._episodic_transcript
+        if not store:
+            return None
+        q = (query or "").lower().strip()
+        # (a0) HIPPOCAMPAL ENTITY INDEX — highest precision pattern completion
+        # (A3: Yassa & Stark 2011). Extract the cued entity and attribute from
+        # the recall query ("remember my cat's name" / "what was the book i
+        # mentioned") and return ONLY that entity's stored facts. This prevents
+        # the wrong-episode contamination bug where "my book" returned the cat's
+        # gist. We match against the live index AND a transcript-derived index
+        # so cued recall works even when the index store and transcript diverge.
+        # Both indexes share the SAME entity->attr->value shape, so folding is a
+        # clean merge (never keyed by raw slot, which would pollute attr keys).
+        def _slot_to_ent_attr(slot):
+            if slot.startswith("favorite_"):
+                return slot[len("favorite_"):], "favorite"
+            if slot == "likes":
+                return "likes", "likes"
+            if "_" in slot:
+                e, _, a = slot.partition("_")
+                return e, a
+            return slot, "is"
+        _entity_idx = {e: dict(v) for e, v in self._episodic_index.items()}
+        for rec in store:
+            for slot, val in rec.get("facts", {}).items():
+                ent, attr = _slot_to_ent_attr(slot)
+                _entity_idx.setdefault(ent, {})[attr] = val
+
+        def _reconstruct_entity(ent, facts):
+            bits = []
+            for attr, val in facts.items():
+                if attr == "favorite":
+                    bits.append(f"your favorite {ent} is {val}")
+                elif attr == "likes":
+                    bits.append(f"you mentioned you like {val}")
+                elif attr == "is":
+                    bits.append(f"your {ent} is {val}")
+                else:
+                    bits.append(f"your {ent}'s {attr} is {val}")
+            return bits
+
+        # find an entity token from the query that exists in the index
+        # (strip a trailing "'s" so "cat's" matches entity "cat").
+        _ent_hit = None
+        for tok in re.findall(r"[a-z']+", q):
+            _tok = tok[:-2] if tok.endswith("'s") else tok
+            if _tok in _entity_idx:
+                _ent_hit = _tok
+                break
+        if _ent_hit is not None:
+            _facts = _entity_idx[_ent_hit]
+            if _facts:
+                _bits = _reconstruct_entity(_ent_hit, _facts)
+                if _bits:
+                    return "you told me " + "; ".join(dict.fromkeys(_bits)) + "."
+        # (a) fact-slot cue match — highest precision.
+        for rec in store:
+            facts = rec.get("facts", {})
+            for slot, val in facts.items():
+                # the query references this fact's value or slot keyword
+                if val and (val in q or slot.replace("_", " ") in q):
+                    return self._reconstruct_gist(rec)
+        # (b) semantic match over turn text / gist.
+        best = None
+        best_score = 0.0
+        qwords = [w.strip(".,!?") for w in q.split()
+                  if len(w.strip(".,!?")) >= 3 and w.strip(".,!?") not in STOP_WORDS]
+        # Exclude recall-scaffold words (the verbs/pronouns that make a query a
+        # "remember" act) so the semantic cue is the REAL content (e.g. "cat",
+        # "name", "book"), not the recall scaffolding. Otherwise "remember"
+        # itself loosely cosine-matches stored episodes and a cued recall
+        # returns an unrelated memory (confabulation). Fail-closed instead.
+        _RECALL_SCAFFOLD = {
+            "remember", "recall", "told", "said", "say", "tell", "telling",
+            "mention", "mentioned", "ask", "asked", "what", "earlier", "before",
+            "about", "thing", "things", "did", "do", "you", "your", "i", "my",
+            "we", "our", "the", "a", "an", "that", "this", "me", "name",
+        }
+        qwords = [w for w in qwords if w not in _RECALL_SCAFFOLD]
+        for rec in store:
+            text = rec.get("text", "")
+            # Skip episodes that are themselves memory queries (e.g. a previous
+            # "remember what I told you") — they carry no shareable content and
+            # would otherwise be retrieved by semantic overlap with a new recall
+            # query, producing a confabulated self-reference. Fail-closed instead.
+            if re.search(r"\b(remember|recall|what did i|what was i)\b.*\b(told|said|ask|mention|tell)\b", text.lower()):
+                continue
+            score = 0.0
+            _strong_link = False
+            _text_l = text.lower()
+            for w in qwords:
+                # A genuine topical link for a cued recall requires a VERBATIM
+                # query word in the stored episode (precise), OR a very strong
+                # semantic neighbor (cosine >= 0.5). Weak cosine alone is
+                # rejected so an unrelated cue ("my cat's name") cannot loosely
+                # match any stored episode (RAVANA bar: never confabulate).
+                if w in _text_l:
+                    _strong_link = True
+                wv = self._glove_vector(w)
+                if wv is None:
+                    continue
+                for tw in re.findall(r"[a-z']+", _text_l):
+                    if tw in STOP_WORDS or len(tw) < 3:
+                        continue
+                    tv = self._glove_vector(tw)
+                    if tv is None:
+                        continue
+                    _cos = float(np.dot(wv, tv))
+                    score += _cos
+                    if _cos >= 0.5:
+                        _strong_link = True
+            if not _strong_link:
+                continue
+            if score > best_score:
+                best_score = score
+                best = rec
+        # Adaptive bar: require a non-trivial match (distribution-driven, not a
+        # fixed threshold — but we must avoid firing on an empty/weak cue).
+        if best is not None and best_score >= 0.6:
+            return self._reconstruct_gist(best)
+        return None
+
+    def _reconstruct_gist(self, rec: Dict[str, Any]) -> str:
+        """Reconstruct a gist reply from a stored episode (no verbatim parroting
+        beyond what was stored; no invention)."""
+        facts = rec.get("facts", {})
+        if facts:
+            bits = []
+            for slot, val in facts.items():
+                if slot.startswith("favorite_"):
+                    bits.append(f"your favorite {slot[len('favorite_'):]} is {val}")
+                elif slot == "likes":
+                    bits.append(f"you mentioned you like {val}")
+            if bits:
+                return "you told me " + "; ".join(bits) + "."
+        return f"you mentioned: \"{rec.get('text', '')}\""
+
+    def _episodic_remember(self, user_input: str) -> Optional[str]:
+        """Handle a broad 'remember what I told you' recall query (Human-Likeness
+        Plan C). Tries fact/slot retrieval and semantic gist retrieval over the
+        portable transcript; fails closed when nothing matches.
+
+        GATE: only attempt retrieval when the query is actually a memory/recall
+        request. A plain new question ("what color is the sun") must NOT be
+        intercepted by the episodic matcher — otherwise it would be hijacked by
+        semantic overlap with an unrelated past turn. Fail-closed: non-recall
+        queries return None and continue down the normal pipeline.
+        """
+        _recall_pat = re.compile(
+            r"\b(remember|recall|remind me|what did i|what was i|"
+            r"do you remember|what i (told|said|mentioned)|"
+            r"what have i (told|said))\b", re.IGNORECASE)
+        if not _recall_pat.search(user_input or ""):
+            self._episodic_miss = False
+            return None
+        # Recognized as a recall query: if we end up returning None, it means we
+        # genuinely have nothing stored — the caller must fail CLOSED (no
+        # confabulation via web/graph), not fall through to a web lookup.
+        self._episodic_miss = True
+        # Stage 1 (plan M-E): an explicit STORE directive ("remember i love
+        # stargazing") writes its fact THIS turn; the self-reference effect means
+        # it should be retrievable immediately, not only from next turn on. The
+        # old `transcript[:-1]` excluded the current turn, so a freshly stored
+        # fact could not be recalled same-turn. We include the current turn's
+        # record in the recall pool, EXCEPT when the current turn is itself a
+        # recall query (which would otherwise self-match its own text in the
+        # bare-recall path). A stored disclosure is never a recall pattern, so
+        # this safely enables same-turn recall of just-stored facts.
+        _current_is_recall = bool(_recall_pat.search(user_input or ""))
+        prior = (self._episodic_transcript
+                 if (not _current_is_recall and self._episodic_transcript)
+                 else (self._episodic_transcript[:-1]
+                       if self._episodic_transcript else []))
+        if not prior:
+            return None
+        # Bare recall with no specific cue (a human still surfaces the gist of
+        # what was shared). Reconstruct ALL mined facts from prior turns. We do
+        # this BEFORE semantic cue-matching because the bare recall query shares
+        # words with prior *recall* queries (e.g. "remember what i told you"
+        # matches a previous "remember what i told you" turn) and would
+        # otherwise retrieve the query itself instead of the shared content.
+        _q = (user_input or "").lower()
+        _bare = bool(re.search(r"remember\b.*\b(told|said|mentioned|tell)\b", _q)) \
+            and not re.search(r"\b(cat|book|dune|astrophysics|name|color|food|movie|song|band|place|pet)\b", _q)
+        if _bare:
+            bits = []
+            for rec in prior:
+                facts = rec.get("facts", {})
+                for slot, val in facts.items():
+                    if slot.startswith("favorite_"):
+                        bits.append(f"your favorite {slot[len('favorite_'):]} is {val}")
+                    elif slot == "likes" and val not in " ".join(bits):
+                        bits.append(f"you like {val}")
+                    else:
+                        # possessive/relational slot (cat_name) -> reconstruct as
+                        # "your cat's name is whiskers" (pattern-completion, not
+                        # the last episode's verbatim text). Fixes the
+                        # wrong-episode contamination bug where bare recall echoed
+                        # an unrelated prior turn's text.
+                        ent, _, attr = slot.partition("_")
+                        bits.append(f"your {ent}'s {attr} is {val}")
+            if bits:
+                return "you told me " + "; ".join(dict.fromkeys(bits)) + "."
+        # Specific-cue retrieval (fact slot or semantic gist) for cued recalls
+        # like "remember my cat's name" / "what was the book i mentioned".
+        out = self._retrieve_episodic(user_input, prior)
+        if out:
+            return out
+        return None
+
+    def _recall_past(self, subj: str, obj: str) -> List[str]:
+        related = []
+        for t in self._topic_list:
+            pl = t.lower()
+            sl = subj.lower()
+            if pl != sl and (pl in sl or sl in pl or len(set(pl.split()) & set(sl.split())) > 0):
+                related.append(t)
+        return related[:3]
+
+    def _recall_hippocampal(self, topic: str) -> Optional[List[int]]:
+        """Reactivate a hippocampal index, spreading activation through the
+        indexed graph pattern to reconstruct the memory experience.
+
+        Returns the list of reactivated concept IDs, or None if topic not found.
+        """
+        entry = self._topic_store.get(topic.lower())
+        if not entry:
+            return None
+
+        reactivated = []
+        # Phase 1: Reactivate indexed concepts (sparse pattern)
+        for nid in entry.get('indexed_concepts', []):
+            node = self.graph.get_node(nid)
+            if node and node.label:
+                self.graph.activate(nid, 0.5)
+                reactivated.append(nid)
+
+        # Phase 2: Spread activation through indexed edges (pattern completion)
+        for f_label, t_label in entry.get('indexed_edges', []):
+            f_nids = self._concept_keywords.get(f_label.lower(), [])
+            t_nids = self._concept_keywords.get(t_label.lower(), [])
+            for fn in f_nids:
+                for tn in t_nids:
+                    edge = self.graph.get_edge(fn, tn)
+                    if edge:
+                        # Strengthen episodic edges during recall (pattern strengthening)
+                        if edge.relation_type == "episodic":
+                            edge.weight = min(0.35, edge.weight + 0.05)
+                        # Activate both endpoints
+                        self.graph.activate(fn, 0.4)
+                        self.graph.activate(tn, 0.4)
+                        if fn not in reactivated:
+                            reactivated.append(fn)
+                        if tn not in reactivated:
+                            reactivated.append(tn)
+
+        # Phase 3: Activate the subject concept at higher strength
+        subj_nids = self._concept_keywords.get(topic.lower(), [])
+        for sn in subj_nids:
+            self.graph.activate(sn, 0.7)
+            if sn not in reactivated:
+                reactivated.append(sn)
+
+        return reactivated
+
+    def _hippocampal_index_topic(self, subject: str, activated_ids: List[int],
+                                   hop_labels: List[Tuple[str, str]]):
+        """Create a hippocampal index for the current topic and store it.
+
+        The index is a lightweight pointer to the distributed graph pattern
+        (concept IDs + edge references), not the content itself.
+        """
+        sl = subject.lower()
+        # Build index: which concept nodes were activated
+        indexed_concepts = list(set(activated_ids))
+
+        # Build index: which edge pairs were traversed
+        indexed_edges = [(f.lower(), t.lower()) for f, t in hop_labels]
+
+        # Store as lightweight index, not full content
+        index_entry = {
+            'label': subject,
+            'turn': self.turn_count,
+            'indexed_concepts': indexed_concepts[:10],  # sparse index
+            'indexed_edges': indexed_edges[:5],
+            'vad': (self.emotion.state.valence, self.emotion.state.arousal,
+                    self.emotion.state.dominance),
+            'visit_count': 1,
+            'response_summary': '',  # placeholder, not content
+        }
+
+        if sl not in self._topic_store:
+            self._topic_store[sl] = index_entry
+        else:
+            entry = self._topic_store[sl]
+            entry['visit_count'] += 1
+            entry['turn'] = self.turn_count
+            # Merge new indexed concepts
+            existing_cons = set(entry.get('indexed_concepts', []))
+            existing_cons.update(indexed_concepts[:10])
+            entry['indexed_concepts'] = list(existing_cons)[:15]
+            entry['vad'] = index_entry['vad']
+
+    def _detect_recall_trigger(self, text: str) -> Optional[str]:
+        """Phase 3.3: Detect if user is recalling a past topic using vector semantics.
+        
+        Uses GloVe vector similarity between query words and recall-related seed concepts.
+        If any query word has a cosine similarity >= _RECALL_DETECTION_THRESHOLD to any
+        recall seed concept, the query is treated as a recall attempt.
+        
+        This avoids hardcoded trigger patterns and naturally generalizes to any
+        semantically similar phrasing (e.g., "forgot", "previously", "what did I")."""
+        text_lower = text.lower()
+        words = [w.strip(".,!?") for w in text_lower.split() if len(w.strip(".,!?")) >= 3]
+        
+        # Pre-compute GloVe vectors for recall seeds (lazy cache)
+        if not hasattr(self, '_recall_seed_vecs'):
+            seed_vecs = {}
+            for seed in self._RECALL_SEED_CONCEPTS:
+                v = self._glove_vector(seed)
+                if v is not None:
+                    seed_vecs[seed] = v
+            self._recall_seed_vecs = seed_vecs
+        
+        if not self._recall_seed_vecs:
+            return None
+        
+        # Check each content word in the query for semantic similarity to recall seeds
+        is_recall = False
+        for word in words:
+            wv = self._glove_vector(word)
+            if wv is None:
+                continue
+            for seed, sv in self._recall_seed_vecs.items():
+                sim = float(np.dot(wv, sv))
+                if sim >= self._RECALL_DETECTION_THRESHOLD:
+                    is_recall = True
+                    break
+            if is_recall:
+                break
+        
+        if not is_recall:
+            return None
+        
+        # If recall detected, find the most relevant past topic
+        if self._topic_list:
+            # Score each past topic by semantic similarity to the query
+            best_topic = None
+            best_score = 0.0
+            for topic in reversed(self._topic_list):
+                tv = self._glove_vector(topic)
+                if tv is None:
+                    continue
+                score = 0.0
+                for word in words:
+                    wv = self._glove_vector(word)
+                    if wv is not None:
+                        score += float(np.dot(wv, tv))
+                if score > best_score:
+                    best_score = score
+                    best_topic = topic
+            if best_topic:
+                return best_topic
+            return self._topic_list[-1]
+        
+        return text_lower.split()[0] if words else None
+
+    def _store_episodic(self, subject: str, associations: List[Tuple[str, float]]):
+        """Create episodic edges linking current subject to top associations.
+        Phase 3.2: On revisit, boost weight. 3+ visits => migrate to semantic."""
+        if not subject or not associations:
+            return
+        subj_nids = self._concept_keywords.get(subject.lower(), [])
+        if not subj_nids:
+            return
+        subj_nid = subj_nids[0]
+        for assoc_label, _ in associations[:3]:
+            assoc_nids = self._concept_keywords.get(assoc_label.lower(), [])
+            if not assoc_nids:
+                continue
+            assoc_nid = assoc_nids[0]
+            existing = self.graph.get_edge(subj_nid, assoc_nid)
+            if existing is None:
+                self.graph.add_edge(subj_nid, assoc_nid,
+                                    weight=0.15, relation_type="episodic")
+            elif existing.relation_type == "episodic":
+                sl = subject.lower()
+                entry = self._topic_store.get(sl, {})
+                visits = entry.get('visit_count', 1) if isinstance(entry, dict) else 1
+                if visits >= 3:
+                    existing.relation_type = "semantic"
+                    existing.weight = min(0.40, existing.weight + 0.15)
+                elif visits >= 2:
+                    existing.weight = min(0.30, existing.weight + 0.10)
+
+    def _try_memory_query(self, user_input: str) -> Optional[str]:
+        """Fix 4 (Q12): answer episodic meta-queries about the conversation.
+
+        Handles "what did I just ask you", "what did I say", "what were we
+        talking about", "what was my last question", "do you remember what I
+        asked". These are queries whose subject is the DIALOGUE itself, so the
+        subject-keyed hippocampal buffer cannot serve them — we answer from the
+        verbatim user-turn ring buffer (Baddeley episodic buffer + hippocampal
+        pattern completion). Returns None when the input is not a memory
+        meta-query, so the normal pipeline runs.
+
+        NOTE: called BEFORE the current turn is appended to
+        ``_recent_user_turns``, so ``[-1]`` is the immediately preceding turn.
+        """
+        t = (user_input or "").lower().strip(" ?!.")
+        if not t:
+            return None
+        # B1: self-knowledge recall. "what do you remember about me" / "what do
+        # you know about me" / "what have i told you" are recalls of the USER's
+        # own disclosed autobiographical facts (stored in the hippocampal entity
+        # index, self._episodic_index). They must be answered from that personal
+        # store, NEVER by looking up the dictionary definition of the word
+        # "remember" (source monitoring / self-other boundary; Mitchell & Johnson
+        # 2009). Detect the speech act structurally (first/second person + recall
+        # verb + self reference) and via the SocialIntentClassifier 'self_recall'
+        # centroid, then route to _retrieve_episodic. Fail-closed: if the episodic
+        # store has nothing for the user, return None and let the pipeline fall
+        # through to honest uncertainty (the ConceptNet def of "remember" is NOT
+        # a valid answer for this query).
+        # W1: first-person PAST-TENSE autobiographical memory report
+        # ("i remember when i felt anxious last year", "i felt anxious
+        # last year", "we experienced that back then"). A tense/aspect
+        # detector: a first/second-person subject + a past-memory verb or a
+        # recall verb, optionally with a temporal-displacement anchor
+        # (last year / yesterday / ago / when i / back then). This is a
+        # grammatical-aspect signal, not a topic keyword list, so it stays
+        # brain-faithful (Tulving autonoetic recollection is past-displaced;
+        # source-monitoring tags a retrieved memory vs a present feeling).
+        _self_recall_struct = bool(re.search(
+            r"\b(?:what|anything|tell me)\b.*\b(?:do )?you\b.*\b(?:remember|know|recall|told|tell)\b"
+            r".*\b(?:about me|me|my|myself)\b", t)) or \
+            bool(re.search(r"\b(?:remember|recall)\b.*\b(?:what i|what i told|me)\b", t)) or \
+            bool(re.search(
+                r"\b(?:i|we|you)\b\s+(?:remember|recall|felt|felt like|was feeling|"
+                r"experienced|went through|lived through|thought about)\b"
+                r"(?:.*\b(?:last year|last week|yesterday|ago|back then|when i|"
+                r"when we|that time)\b)?", t))
+        _self_recall_intent = False
+        _clf = getattr(self, "_social_intent", None)
+        if _clf is not None:
+            try:
+                _si, _ = _clf.detect(t)
+                _self_recall_intent = (_si == "self_recall")
+            except Exception:
+                _self_recall_intent = False
+        if _self_recall_struct or _self_recall_intent:
+            _ep = self._retrieve_episodic(user_input)
+            if _ep is not None:
+                return _ep
+            # Generic self-recall ("what do you remember about me" / "what do
+            # you know about me") carries NO specific entity cue, so the
+            # entity-indexed _retrieve_episodic returns None. Reconstruct a gist
+            # from ALL disclosed user facts held in the hippocampal entity index
+            # (Tulving encoding specificity: a self-directed memory query without
+            # a target reconstructs the whole disclosed self-profile). Brain-
+            # faithful: we surface what was actually stored, never a dictionary
+            # node. Fail-closed: if the index is genuinely empty, fall through to
+            # the honest "you haven't told me much" uncertainty path.
+            _idx = getattr(self, "_episodic_index", None) or {}
+            _bits = []
+            for _ent, _facts in _idx.items():
+                for _attr, _val in _facts.items():
+                    if _attr == "favorite":
+                        _bits.append(f"your favorite {_ent} is {_val}")
+                    elif _attr == "likes":
+                        _bits.append(f"you like {_val}")
+                    elif _attr == "is":
+                        _bits.append(f"your {_ent} is {_val}")
+                    else:
+                        _bits.append(f"your {_ent}'s {_attr} is {_val}")
+            if _bits:
+                _summary = "; ".join(dict.fromkeys(_bits))
+                return f"from what you've told me, {_summary}."
+            return ("i don't think you've told me much about yourself yet — "
+                    "but i'm listening whenever you want to share.")
+        # First/second-person + a recall/speech verb, referring to a prior turn.
+        # Require an explicit conversational-memory phrasing to stay narrow.
+        _patterns = [
+            r"\bwhat did i (?:just )?(?:ask|say|tell|mention)\b",
+            r"\bwhat (?:was|were) (?:my|the) (?:last |previous |first )?"
+            r"(?:question|questions|message|thing i said|conversation)\b",
+            r"\bwhat (?:were|are) we (?:talking|chatting) about\b",
+            r"\bwhat (?:did|were) we (?:talk|talking) about\b",
+            r"\b(?:do|can) you remember what i (?:asked|said|told)\b",
+            r"\bwhat was i (?:just )?(?:asking|saying|talking) about\b",
+            r"\brepeat (?:my|the) (?:last |previous )?question\b",
+            r"\bour (?:first|last) (?:conversation|chat|talk)\b",
+        ]
+        if not any(re.search(p, t) for p in _patterns):
+            return None
+        prior = self._recent_user_turns
+        if not prior:
+            return "you haven't asked me anything yet this session — i don't have an earlier turn to recall."
+
+        # §2 temporal index: "first/last conversation" answered as pure index
+        # math over the transcript's turn_index (hippocampal time cells), never
+        # a middle/arbitrary turn.
+        if re.search(r"\bour (first|last) (?:conversation|chat|talk)\b", t):
+            idx = self._episodic_indexer
+            if idx is not None:
+                ep = idx.first() if "first" in t else idx.last()
+                if ep is not None:
+                    _rec = self._reconstruct_gist({
+                        "text": ep.text, "topic": ep.topic, "facts": ep.facts})
+                    return (f"our {('first' if 'first' in t else 'last')} "
+                            f"conversation — {_rec}")
+
+        # "what did i just tell you [i like / my favorite ...]" — reconstruct
+        # the GIST of the immediately-preceding turn (Tulving encoding
+        # specificity), not the verbatim question. The miner already extracted
+        # the self-disclosed facts, so surface those.
+        if re.search(r"\bwhat did i (?:just )?(?:tell|say|mention)\b", t):
+            last_turn = prior[-1].strip()
+            # Pull the matching transcript record (highest turn_index = prev).
+            matching = [r for r in self._episodic_transcript
+                        if r.get("text", "").strip().lower() == last_turn.lower()]
+            rec = matching[-1] if matching else None
+            if rec is not None:
+                facts = rec.get("facts", {})
+                # Reconstruct gist from mined facts when present.
+                bits = []
+                for slot, val in facts.items():
+                    if slot.startswith("favorite_"):
+                        bits.append(f"your favorite {slot[len('favorite_'):]} is {val}")
+                    elif slot == "likes":
+                        bits.append(f"you like {val}")
+                    elif "_" in slot:
+                        ent, _, attr = slot.partition("_")
+                        bits.append(f"your {ent}'s {attr} is {val}")
+                    else:
+                        bits.append(f"you said: {val}")
+                if bits:
+                    return "you just told me " + "; ".join(dict.fromkeys(bits)) + "."
+            # Fallback: verbatim echo of the prior turn.
+            return f'you just told me: "{last_turn}"'
+
+        last = prior[-1].strip()
+        # "what were we talking about" → topic-oriented; else verbatim recall.
+        if re.search(r"\bwe (?:talking|talk|were|are) (?:about|chatting)\b", t) \
+                or re.search(r"\btalking about\b", t):
+            topic = ""
+            if getattr(self, "_topic_list", None):
+                topic = self._topic_list[-1]
+            if topic:
+                return f'we were talking about {topic}. your last message was: "{last}"'
+            return f'your last message was: "{last}"'
+        return f'you just asked me: "{last}"'
+
+    def _reasoning_loop(self, ctx: CognitiveResponseContext) -> Tuple[str, str]:
+        """Reasoning loop: web search + syntactic pipeline only.
+
+        Stripped of the neural decoder (CE ~3.9, always produced word salad).
+        Web search enriches graph knowledge, then the syntactic pipeline
+        generates the response via SurfaceRealizer.
+        """
+        subject = ctx.subject
+        query = ctx.raw_input
+        assocs = ctx.associated_concepts
+
+        subj_lower = subject.lower()
+        subj_known = subj_lower in self._concept_keywords or subj_lower in self._concept_labels
+        assoc_known = len(assocs) > 0
+
+        is_complex = any(w in query.lower() for w in
+                        ["how", "why", "create", "build", "design", "blueprint",
+                         "explain", "detail", "comprehensive", "step by step",
+                         "architecture", "implementation", "guide", "tutorial"])
+        is_unknown = not subj_known or not assoc_known
+
+        search_queries = []
+        if is_complex or is_unknown:
+            search_queries = self._decompose_for_search(query, subject, assocs)
+
+        search_queries = [sq for sq in search_queries if sq][:4]
+
+        for sq in search_queries:
+            try:
+                self.learn_from_web(sq)
+            except Exception:
+                continue
+
+        # Syntactic pipeline only — no neural decoder generation
+        try:
+            syntax_response = self._generate_with_decoder_and_syntax(ctx)
+            if syntax_response and len(syntax_response) > 10 and not _is_word_salad(syntax_response, subject=ctx.subject):
+                _words = syntax_response.lower().split()
+                _unique_ratio = len(set(_words)) / max(1, len(_words))
+                if _unique_ratio >= 0.35:
+                    return (syntax_response, "dorsal_reasoned")
+        except Exception:
+            pass
+
+        return self._graph_fallback_response(ctx)
+
+    def _extract_learning_query(self, text: str, activated_ids: List[int]) -> Optional[str]:
+        """Extract what topic RAVANA should search for.
+
+        Uses the LEAST-known word (not matched to any concept) as the query.
+        """
+        words = re.findall(r"[a-zA-Z']{3,}", text.lower())
+        # Find words NOT matched to any concept
+        matched_labels = set()
+        for nid in activated_ids:
+            node = self.graph.get_node(nid)
+            if node and node.label:
+                matched_labels.add(node.label.lower())
+
+        meaningful = [w.strip("'") for w in words if w.strip("'") not in STOP_WORDS]
+        # Pick the last meaningful word that is NOT already known
+        for w in reversed(meaningful):
+            if w not in matched_labels:
+                return w
+        # If all words are known, use the last meaningful word anyway
+        if meaningful:
+            return meaningful[-1]
+        return None
+
+    def _predict_user_next(self, subject: str, assocs) -> None:
+        """Covert other-monitoring (brief behavior 8): predict the user's likely
+        next concept from the subgraph co-activated with the current subject.
+
+        This is the lightweight forward simulation of the interlocutor — the bot
+        internally "simulates" what the user will say next (mirroring Castellucci
+        / Pickering & Garrod other-monitoring) so the relevant subgraph is
+        pre-activated and common ground can be tracked. The prediction is the
+        most salient association to the current subject that isn't the subject
+        itself, weighted by edge strength. Stored for comparison next turn.
+        """
+        best, best_score = "", 0.0
+        try:
+            for label, score in (assocs or []):
+                ll = label.lower()
+                if ll == (subject or "").lower():
+                    continue
+                if self._is_function_word(ll):
+                    continue
+                s = float(score) if score else 0.0
+                if s > best_score:
+                    best, best_score = ll, s
+        except Exception:
+            pass
+        self._predicted_user_next = best
+        self._predicted_user_conf = best_score
+
+    def _common_ground_score(self, subject: str) -> float:
+        """Compare this turn's subject to the predicted next concept.
+
+        Returns a 0..1 common-ground signal: 1.0 when the user's actual next
+        topic matches the prediction (shared mental model), falling off with
+        topic distance via GloVe cosine when available, else 0.5 on a near
+        match and 0.0 on a miss. Feeds the verbosity knob so the bot stays
+        concise once ground is established rather than re-explaining.
+        """
+        pred = self._predicted_user_next
+        if not pred or not subject:
+            return 0.0
+        subj = subject.lower()
+        if pred == subj:
+            return 1.0
+        sv = self._glove_vector(pred) if hasattr(self, "_glove_vector") else None
+        tv = self._glove_vector(subj) if hasattr(self, "_glove_vector") else None
+        if sv is not None and tv is not None:
+            sim = float(np.dot(sv, tv))
+            if sim > 0.55:
+                return float(np.clip(0.5 + sim * 0.5, 0.0, 1.0))
+        if pred in subj or subj in pred:
+            return 0.5
+        return 0.0
+
+    def _activate_from_input(self, text: str) -> List[int]:
+        """Activate concepts using N400/P600 sequential per-word processing.
+
+        For each word in the input (in order):
+        N400 phase: Retrieve the word's concept vector and compute prediction error
+          (surprise = 1 - cosine similarity with accumulated context). High surprise
+          = stronger retrieval activation (larger N400 amplitude).
+        P600 phase: Integrate the retrieved meaning into the evolving sentence context.
+          Propagate activation to graph neighbors, modulated by how well the word fits.
+
+        Neuroscience basis:
+        - Brouwer Retrieval-Integration theory (2012, 2017): every word elicits
+          N400 (retrieval) followed by P600 (integration)
+        - Nature 2024: single-neuron responses are context-dependent, not fixed
+        - PMC 2023: representational dimensionality ramps across sentence
+        """
+        words = re.findall(r"[a-zA-Z']{1,}", text.lower())
+        scores: Dict[int, float] = {}
+        # Accumulated sentence context for N400 modulation
+        acc_ctx = np.zeros(self.dim, dtype=np.float32)
+        word_count = 0
+
+        for w in words:
+            if w in STOP_WORDS and word_count > 0:
+                continue
+
+            # === N400: Retrieve word meaning ===
+            w_nids = self._concept_keywords.get(w, [])
+            w_vec = None
+            if w_nids:
+                node = self.graph.get_node(w_nids[0])
+                if node and node.vector is not None:
+                    w_vec = node.vector
+
+            # Compute N400 amplitude (surprise): how predictable is this word?
+            n400_surprise = 0.5  # baseline
+            if w_vec is not None and word_count > 0:
+                n_acc = np.linalg.norm(acc_ctx)
+                n_w = np.linalg.norm(w_vec)
+                if n_acc > 1e-8 and n_w > 1e-8:
+                    cos_sim = float(np.dot(acc_ctx, w_vec)) / (n_acc * n_w)
+                    n400_surprise = 1.0 - max(0.0, min(1.0, cos_sim))  # 0=expected, 1=surprising
+            elif word_count == 0:
+                n400_surprise = 0.8  # First word is always somewhat surprising
+
+            # Activate with N400-modulated strength
+            if w_nids:
+                for nid in w_nids:
+                    node = self.graph.nodes.get(nid)
+                    pos_boost = 0.5 if node and node.label and self._concept_pos.get(node.label.lower()) == 'noun' else 0.0
+                    base = 5.0 + pos_boost
+                    # N400 surprise amplifies activation for unexpected words
+                    n400_boost = 1.0 + n400_surprise * 2.0
+                    scores[nid] = scores.get(nid, 0) + base * n400_boost
+
+            # Label matching (same as before)
+            # Snapshot: background learner may add nodes mid-turn.
+            for nid, node in list(self.graph.nodes.items()):
+                if not node or not node.label:
+                    continue
+                label = node.label.lower()
+                s = scores.get(nid, 0.0)
+                if label == w:
+                    s += 5.0 * (1.0 + n400_surprise)
+                elif len(w) >= 3 and (label == w or label.startswith(w + " ") or (" " + w + " ") in label or label.endswith(" " + w)):
+                    s += 3.0
+                elif len(label) >= 3 and label in w:
+                    s += 2.0
+                if s > 0:
+                    scores[nid] = s
+
+            # === P600: Integrate into evolving sentence representation ===
+            if w_vec is not None:
+                # Integration: blend word vector into accumulated context
+                # Gate is lower for surprising words (harder to integrate)
+                integration_gate = 0.5 + 0.3 * (1.0 - n400_surprise)
+                if word_count == 0:
+                    acc_ctx = w_vec.copy()
+                else:
+                    acc_ctx = integration_gate * w_vec + (1.0 - integration_gate) * acc_ctx
+                n = np.linalg.norm(acc_ctx)
+                if n > 0:
+                    acc_ctx /= n
+            word_count += 1
+
+            # Propagate activation to graph neighbors (P600 spread)
+            if w_nids:
+                for src_nid in w_nids:
+                    for tgt_id, edge in self.graph.get_outgoing(src_nid):
+                        if tgt_id not in scores:
+                            # Weaker propagation for surprising words
+                            prop_strength = 2.0 * (1.0 - n400_surprise * 0.5)
+                            scores[tgt_id] = scores.get(tgt_id, 0) + edge.weight * prop_strength
+
+        sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+        activated = []
+        # Keep more activations for richer sentence context (up to 8 vs 5)
+        for nid, sc in sorted_scores[:8]:
+            self.graph.activate(nid, min(1.0, sc * 0.12))
+            activated.append(nid)
+        return activated
+
+    def _get_user_model(self):
+        """Get or create user model for the current session."""
+        if not hasattr(self, 'user_model'):
+            from .user_model import UserModel
+            self.user_model = UserModel()
+        return self.user_model
+
+    def _update_user_model(self, text: str, subject: str,
+                           associations: List[Tuple[str, float]]):
+        """Deep Theory of Mind update after turn processing (roadmap Â§7).
+
+        Extends the lightweight observe_user_query (which runs early in
+        process_turn) with post-spread-activation updates:
+        - Update topic familiarity from graph associations
+        - Track inferred goals alongside cognitive style
+        - Build personalized greeting eligibility
+        """
+        um = self.user_model
+        # Update topic familiarity from the spread-activation associations.
+        # Each association the user's query touched becomes slightly more
+        # familiar (exponential moving average, rate 0.1).
+        for concept, confidence in associations:
+            cl = concept.lower()
+            um.knowledge_model[cl] = (
+                0.9 * um.knowledge_model.get(cl, 0.0)
+                + 0.1 * min(1.0, confidence + 0.3)
+            )
+        # Goal is already inferred inside observe_user_query via infer_user_goal.
+        # Store the last goal for adaptive verbosity check.
+        self._last_user_goal = getattr(self, '_last_user_goal', 'EXPLORING')
+        self._last_user_goal = um.last_goal
+
+    def _update_emotion(self, text: str):
+        """More nuanced emotional processing â€” teenage range of emotions."""
+        positive = {"good", "great", "happy", "love", "nice", "fun", "yay", "wow",
+                     "cool", "amazing", "awesome", "wonderful", "beautiful", "excited",
+                     "grateful", "proud", "hopeful", "joy", "interesting"}
+        negative = {"bad", "sad", "scared", "angry", "hurt", "cry", "mean",
+                     "terrible", "awful", "upset", "frustrated", "anxious",
+                     "worried", "disappointed", "lonely", "guilty", "afraid"}
+        curious = {"why", "how", "what", "wonder", "curious", "interesting",
+                    "really", "tell me", "explain", "mean"}
+        words = set(w.lower().strip(".,!?") for w in text.split())
+        sv = 0.0
+        sa = 0.2  # baseline engagement floor
+        # Positive words boost valence
+        if words & positive:
+            sv += 0.4
+            sa += 0.2
+        # Negative words lower valence
+        if words & negative:
+            sv -= 0.4
+            sa += 0.25
+        # Curiosity words increase arousal (engagement)
+        if words & curious:
+            sa += 0.3
+            if sv == 0.0:
+                sv += 0.05  # slight positive bias for curiosity
+        # Learning excitement
+        if self._learned_this_turn:
+            sa += 0.3
+            sv += 0.2
+        # Novelty-based arousal (unknown words = mild surprise)
+        input_words = [w for w in words if len(w) >= 3]
+        known = sum(1 for w in input_words if w in self._concept_keywords)
+        if input_words and known / len(input_words) < 0.5:
+            sa += 0.15  # novelty surprise
+        # Phase 9b: Prediction error surprise (Active Inference)
+        # High prediction error = world doesn't match expectations = arousal
+        if self._prediction_error_count > 5:
+            pe_surprise = min(0.4, self._mean_prediction_error * 2.0)
+            sa += pe_surprise
+        # Phase 10.4: N400-like arousal modulation from per-hop prediction error
+        if hasattr(self, '_mean_sentence_pe') and self._sentence_pe_count > 0:
+            n400_surprise = min(0.3, self._mean_sentence_pe * 2.0)
+            sa += n400_surprise
+        # Phase 14.4: Identity prediction error
+        if hasattr(self, '_expected_strength'):
+            identity_pe = abs(self.identity.state.strength - self._expected_strength)
+            if identity_pe > 0.3:
+                sa += min(0.3, identity_pe * 0.5)
+        # Phase 7.5: Curiosity drive â€” boost arousal for impossible queries
+        if getattr(self, '_last_strategy_used', '') in ('G_uncertainty', 'F_web_research'):
+            sa += 0.6  # strong curiosity arousal for impossible query
+            sv += 0.1  # slight positive valence for curiosity
+        self.emotion.update(stimulus_valence=sv, stimulus_arousal=sa,
+                           stimulus_dominance=self.identity.state.strength * 0.4 + 0.2,
+                           uncertainty=self._free_energy * 0.5, dt=1.0)
+
+    def _decay_episodic_edges(self):
+        """Phase 15.2: Inter-turn episodic edge decay (forgetting between turns)."""
+        if not hasattr(self, '_episodic_edges') or not self._episodic_edges:
+            return
+        for pair in list(self._episodic_edges.keys()):
+            edge = self._episodic_edges[pair]
+            edge.weight *= 0.95
+            if edge.weight < 0.05:
+                del self._episodic_edges[pair]
+
