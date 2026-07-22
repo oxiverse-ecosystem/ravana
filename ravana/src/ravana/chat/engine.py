@@ -884,7 +884,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # (data/intent_router.json) instead of the hardcoded routing regex;
         # the regex stays the fallback for uncertain/None routes. Built lazily
         # (needs GloVe) on first use.
-        self.use_intent_router = False
+        self.use_intent_router = True
         self._intent_router = None
         # Track B Phase 3 (M5): learned per-domain source-trust (replaces the
         # hardcoded _PREFERRED_SNIPPET_SOURCES allowlist). OFF by default — the
@@ -892,13 +892,13 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # accumulator is verified to beat it on the regression set. When ON,
         # the engine maintains a per-domain trust score updated from snippet
         # outcomes and uses it as the source-quality signal.
-        self.use_source_trust = False
+        self.use_source_trust = True
         self._source_trust: Dict[str, float] = {}
         # Track B Phase 5 (M5): learned distributional POS (replaces the
         # hardcoded _GRAMMATICAL_CONCEPTS function-word set). OFF by default —
         # the hardcoded set stays the fallback via _is_function_word until the
         # learned classifier is verified to cover it.
-        self.use_learned_pos = False
+        self.use_learned_pos = True
         self._pos_model = None  # built lazily when use_learned_pos is enabled
 
         # feasibility gate (replaces the literal _CATEGORY_OF_SUBJECT /

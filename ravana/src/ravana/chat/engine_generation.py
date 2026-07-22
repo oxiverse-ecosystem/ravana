@@ -886,23 +886,32 @@ class GenerationMixin:
         subj = (getattr(ctx, "subject", None) or "")
         _salad = False
         _fire = None
-        # 1. learned classifier (graceful: None if no fit file)
+        # 1. learned classifier (graceful: None verdict if no fit file). When
+        #    the learned gate is present AND returns a definite verdict it is
+        #    AUTHORITATIVE — the legacy rule-based salad check below is skipped.
+        #    The rule runs only as a fallback when the learned classifier is
+        #    unavailable (not imported, is_salad_learned is None) or returned
+        #    None (no fit); this keeps the backstop without weakening the
+        #    learned gate.
+        _learned_verdict = None
         if _HAS_SALAD_LEARNED and is_salad_learned is not None:
             try:
-                if is_salad_learned(text, subj):
-                    _salad = True
-                    _fire = "learned_salad"
+                _learned_verdict = is_salad_learned(text, subj)
             except Exception:
-                pass
-        # 2. legacy rule-based
-        if not _salad:
+                _learned_verdict = None
+            if _learned_verdict is not None:
+                _salad = bool(_learned_verdict)
+                _fire = "learned_salad"
+        # 2. legacy rule-based — fallback ONLY when the learned gate is absent
+        #    or produced no verdict.
+        if is_salad_learned is None or _learned_verdict is None:
             try:
                 if _is_word_salad(text, subject=subj):
                     _salad = True
-                    _fire = "rule_salad"
+                    _fire = _fire or "rule_salad"
             except Exception:
                 pass
-        # 3. fluent-tautology signature
+        # 3. fluent-tautology signature (independent learned detector)
         if not _salad and _HAS_SALAD_LEARNED and detects_fluent_tautology is not None:
             try:
                 if detects_fluent_tautology(text, subj):

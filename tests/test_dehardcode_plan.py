@@ -63,16 +63,15 @@ from ravana.chat.intent_router import IntentRouter, _FIT_PATH as _IR_PATH
 import os as _os3
 
 
-def test_intent_router_off_by_default_and_safe(engine):
-    # Stage 3 (M-A): the Semantic Prototype Router is built and externalized to
-    # data/intent_router.json, but OFF by default (regex path stays the default
-    # routing). When enabled, it must NEVER misroute: it returns the nearest
+def test_intent_router_on_by_default_and_safe(engine):
+    # Stage3 (M-A): the Semantic Prototype Router is built and externalized to
+    # data/intent_router.json, and is ON by default (replacing the hardcoded
+    # routing regex). When enabled, it must NEVER misroute: it returns the nearest
     # intent centroid OR None (uncertain -> regex fallback). The golden corpus
     # must have zero misroutes at the conservative default margin.
-    assert engine.use_intent_router is False, "router must be OFF by default"
+    assert engine.use_intent_router is True, "router must be ON by default"
     assert _os3.path.exists(_IR_PATH), "data/intent_router.json missing"
 
-    engine.use_intent_router = True
     # Golden corpus: (query, correct_legacy_route). The router must either
     # return the matching route or None — never a different wrong route.
     golden = [
@@ -92,7 +91,15 @@ def test_intent_router_off_by_default_and_safe(engine):
         pred = engine._route_intent(q)
         assert pred in (expected, None), (
             f"router misrouted {q!r}: got {pred}, expected {expected} or None")
+    # regex path must remain available as the fallback for uncertain/None routes
     engine.use_intent_router = False
+    try:
+        for q, expected in golden:
+            pred = engine._route_intent(q)
+            assert pred in (expected, None), (
+                f"regex fallback misrouted {q!r}: got {pred}, expected {expected} or None")
+    finally:
+        engine.use_intent_router = True
 
 
 def test_intent_router_promoted_routes_match_regex(engine):
