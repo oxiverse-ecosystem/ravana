@@ -1114,7 +1114,7 @@ class GraphMixin:
                     purge.add(_c)
         return purge
 
-    def _domain_of(url: str) -> str:
+    def _domain_of(self, url: str) -> str:
         from urllib.parse import urlparse
         try:
             net = urlparse(url).netloc.lower()

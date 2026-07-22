@@ -994,7 +994,7 @@ class WebSearchMixin:
             return False
         # Lazy-init the learned model (trained on the seed corpus once). Reuse
         # the instance created in __init__ (Defect F) so we don't re-train.
-        if self._snippet_structure_model is None and _HAS_SNIPPET_MODEL and default_model:
+        if getattr(self, "_snippet_structure_model", None) is None and _HAS_SNIPPET_MODEL and default_model:
             try:
                 self._snippet_structure_model = default_model()
             except Exception:
@@ -1015,7 +1015,7 @@ class WebSearchMixin:
         if not self.use_source_trust:
             return any(s in (url or "").lower()
                        for s in self._PREFERRED_SNIPPET_SOURCES)
-        return self._domain_trust(url) > self._source_trust_threshold
+        return self._domain_trust(url) > self._source_trust_threshold()
 
     def _domain_trust(self, url: str) -> float:
         """Learned trust score for a snippet's source domain.
@@ -1577,28 +1577,19 @@ class WebSearchMixin:
             return False
         _w = word.lower()
         if not self.use_learned_pos:
-            return _w in self._closed_class("grammatical_concepts")
-        # Learned path: a real distributional POS model (PosModel) — the word is
-        # a function word when its GloVe vector is nearest the function-word
-        # centroid with sufficient margin. Built lazily once from the seed POS
-        # lists (data/pos_model.json if fitted, else centroids from the legacy
-        # KNOWN_VERBS/ADJS/FUNCTION_WORDS). The hardcoded set is the safety net.
-        if self._pos_model is None and _HAS_POS_MODEL and PosModel is not None:
+            return _w in self._GRAMMATICAL_CONCEPTS
+        # Learned path: a real distributional POS tagger (ConceptPosDict)
+        # — the word is a function word when its POS tag is a closed-class
+        # category (prep/pron/det/conj/aux/part). The hardcoded set
+        # is the safety net for residual cases the tagger does not
+        # cover (e.g. some adverbs, numerals).
+        _cp = getattr(self, "_concept_pos", None)
+        if _cp is not None:
             try:
-                _loaded = PosModel.load()
-                if _loaded is not None and _loaded._centroids:
-                    self._pos_model = _loaded
-                elif _pos_seed_from_constants is not None:
-                    glove_fn = getattr(self, "_glove_vector", None)
-                    if callable(glove_fn):
-                        self._pos_model = PosModel.from_seed(
-                            glove_fn, _pos_seed_from_constants())
+                _pos = _cp.get(_w)
             except Exception:
-                self._pos_model = None
-        if self._pos_model is not None:
-            _pos = self._pos_model.classify(_w,
-                                            getattr(self, "_glove_vector", None))
-            if _pos == "func":
+                _pos = None
+            if _pos in ("prep", "pron", "det", "conj", "aux", "part", "func"):
                 return True
         # Safety net: words the distributional tagger leaves as 'noun'/'verb'/
         # 'adj' but the curated set knows are function (adverbs, numerals).

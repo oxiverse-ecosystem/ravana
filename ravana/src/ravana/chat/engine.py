@@ -1460,7 +1460,21 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 return getattr(_fl, name)()
             except Exception:
                 pass
-        return getattr(self, name.upper(), set())
+        # Fall back: class attribute (set in __init__), then a direct
+        # module-level load of the fit file so this also works on
+        # engines built via __new__ (the audit tests) where __init__
+        # never ran and neither the instance attr nor _func_lex exists.
+        _ca = getattr(type(self), name.upper(), None)
+        if _ca:
+            return _ca
+        try:
+            from ravana.chat.functional_lexicon import default_lexicon
+            _fl2 = default_lexicon()
+            if _fl2 is not None:
+                return getattr(_fl2, name)()
+        except Exception:
+            pass
+        return set()
 
     def process_turn(self, user_input: str) -> str:
         """Process input and generate a response, auto-learning when needed."""
