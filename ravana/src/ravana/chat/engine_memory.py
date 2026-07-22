@@ -141,6 +141,7 @@ from ravana.core.in_prompt_reasoner import (
     answer_in_prompt_causal,
     answer_universal_syllogism,
 )
+from ravana.core.temporal_reasoner import answer_temporal
 
 # Universal closed-class / pronoun words that can never own a learned definition
 # (you don't "define" the word "you"). This is the only hand-listed part of the
@@ -585,6 +586,9 @@ class MemoryMixin:
         _syll = answer_universal_syllogism(text)
         if _syll is not None:
             return _syll
+        _temp = answer_temporal(text)
+        if _temp is not None:
+            return _temp
         # No in-turn fact matched the question cue — fall through to the
         # normal pipeline (honest path handles it).
         return None

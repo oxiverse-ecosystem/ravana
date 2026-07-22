@@ -396,6 +396,32 @@ class SelfQueryMixin:
         if not t:
             return None
         sm = self._ensure_self_model()
+        # 0) Epistemic-humility / self-knowledge questions. A question about
+        #    the AGENT's *knowledge limits* ("do you know everything?",
+        #    "what don't you know?", "are you sure?") must be answered from
+        #    the self-model with honest uncertainty — NEVER by fetching a web
+        #    definition and presenting it as if RAVANA knew it (that is
+        #    confabulated competence). This is the self/other boundary applied
+        #    to epistemic stance (meta-cognition / Fleming & Dolan 2012).
+        if re.search(
+            r"\b(do|does|did|would|could)\s+you\s+(know|think|believe|"
+            r"understand)\s+(everything|it\s+all|all\s+of\s+it)\b", t) \
+           or re.search(
+            r"\bwhat\s+(don'?t|do\s+not)\s+you\s+know\b", t) \
+           or re.search(
+            r"\bwhat\s+do\s+you\s+wish\s+you\s+(knew|knew\s+more\s+about)\b", t) \
+           or re.search(
+            r"\bhow\s+(much|well)\s+do\s+you\s+(know|understand)\b", t) \
+           or re.search(
+            r"\bare\s+you\s+(sure|certain|confident)\b", t) \
+           or re.search(
+            r"\bdo\s+you\s+(ever|sometimes)\s+(not\s+know|get\s+things\s+wrong)\b", t):
+            answered = len(getattr(self, "_episodic_index", {}) or {})
+            return (
+                "honestly, no — i don't know everything. i learn from what "
+                "we talk about and from the web, so there's plenty i'm still "
+                "unsure about, and i'd rather say 'i don't know' than guess. "
+                "what would you like to explore together?")
         # 1) Explicit self-identity questions. NOTE: "my name" is the USER's
         #    autobiographical fact, NOT the agent's self-model — only "your
         #    name"/"who are you"/etc. are about the AGENT. Matching "my name"
