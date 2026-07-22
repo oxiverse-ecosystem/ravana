@@ -778,7 +778,16 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # I told you" query reconstructs what was said instead of confabulating.
         self._episodic_transcript: List[Dict[str, Any]] = []
         self._episodic_index: Dict[str, Dict[str, str]] = {}  # hippocampal entity index (A3)
-        # §2 temporal indexer (hippocampal time-cells): FIRST/LAST/BY_ENTITY
+        # In-turn fact store: a combined "statement(s) + question" user turn
+        # (e.g. LoCoMo / LongMemEval benchmark items) packs premises AND a
+        # question into ONE process_turn call. The rest of the pipeline treats
+        # the whole blob as one query, so the premises are never stored and
+        # the trailing question is answered from a blank slate (or echoed back).
+        # We capture premise->value bindings here the moment such a turn is
+        # seen and answer the trailing question from them.
+        # (The per-turn store is local to engine_memory._try_combined_fact_query;
+        # see that method for the self-contained logic.)
+
         # over the transcript. Instantiated lazily to avoid an import cycle.
         self._episodic_indexer = None
         self._epistemic_new_tags: Dict[str, int] = {}  # B8: concept -> turn learned (decays)
@@ -1487,6 +1496,24 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             if len(self._last_responses) > 10:
                 self._last_responses = self._last_responses[-10:]
             return resp
+
+        # ── R1: combined "premises + question" interception ─────────────
+        # MUST run before the self-disclosure block (line ~1889) which
+        # would otherwise catch "my favorite X is Y" / "my pet dog is
+        # named Y" as a standalone disclosure and echo the trailing
+        # question back. Here we store ALL premises and answer the
+        # question in one turn.
+        try:
+            _comb = self._try_combined_fact_query(user_input)
+            if _comb is not None:
+                self._last_strategy = "combined_fact_query"
+                self._last_responses.append(_comb)
+                if len(self._last_responses) > 10:
+                    self._last_responses = self._last_responses[-10:]
+                self.notify_user_idle()
+                return _comb
+        except Exception:
+            pass
 
         # ── Issue 1: emotional-channel open/decay (lPFC inhibitory control) ──
         # A genuine first-person emotion disclosure ("i'm sad", "i feel anxious",

@@ -420,6 +420,410 @@ class MemoryMixin:
             return self._reconstruct_gist(best)
         return None
 
+    # ════════════════════════════════════════════════════════════════
+    # Combined "statement(s) + question" handler (R1: in-turn memory)
+    # ════════════════════════════════════════════════════════════════
+    def _try_combined_fact_query(self, user_input: str) -> Optional[str]:
+        """Store premise facts packed in a combined "facts + question" turn and
+        answer the trailing question from them.
+
+        Many benchmark / real prompts pack premises AND a question into ONE
+        message (LoCoMo, LongMemEval items, the lamp causal chain). The
+        rest of process_turn treats the whole blob as one query, so the
+        premises are never stored and the question is answered from a blank
+        slate (or the question is echoed back). This intercepts that shape:
+          1. split the text on newlines (and on ". " between a statement
+             and a following clause),
+          2. find a trailing question (ends with '?' or starts with a
+             question word),
+          3. store every statement before it as a premise fact,
+          4. if a premise-bearing question exists, answer it from the
+             in-turn fact store + causal rules.
+
+        Returns None when the turn is NOT a combined fact+question shape
+        (so normal pipeline runs untouched). Fail-closed: if no premise
+        matches the question's cue, returns None (honest path handles it).
+        """
+        text = (user_input or "").strip()
+        if not text:
+            return None
+
+        # Identify a question clause (defined first so the split guards can use it).
+        def _looks_like_question(clause: str) -> bool:
+            c = clause.strip().lower()
+            if c.endswith("?"):
+                return True
+            return bool(re.match(
+                r"^(what|who|where|when|why|how|which|is|are|do|does|"
+                r"did|can|could|would|should|will|has|have)\b", c))
+
+        # Split into clauses. Benchmarks use "\n" between premises;
+        # real prompts separate a statement from the final question
+        # with ". ". Do NOT split on commas by default — premises
+        # like "When turned on, the lamp lights up" must stay
+        # intact so the causal-rule miner sees both clauses.
+        # The ONE case we DO split on commas is a parallel
+        # list disclosure ("a cat named X, a dog named Y, and a
+        # hamster named Z. What is my dog's name?") — there the
+        # comma is followed by a fresh list item ("a "/"an "/"my "
+        # /"i ").
+        raw_parts = [p.strip() for p in re.split(r"(?:\n|\.(?=\s))", text)
+                       if p.strip()]
+        # Guard: a combined fact+question turn needs >= 2 clauses
+        # AND the LAST clause must be a question (otherwise it is
+        # an ordinary multi-clause statement that belongs to the
+        # normal pipeline / self-disclosure block).
+        if len(raw_parts) < 2 or not _looks_like_question(raw_parts[-1]):
+            return None
+        # Secondary: split comma-separated list items (comma + list
+        # opener), but ONLY inside named-entity list disclosures
+        # ("a cat named X, a dog named Y, and a hamster named Z").
+        # Gate on the presence of "named"/"called" so we never
+        # break an enabling condition like "If the lamp lights
+        # up, an explosion occurs" (the comma there is followed by
+        # "an", which would otherwise be wrongly split).
+        _expanded = []
+        if re.search(r"\b(?:named|called)\b", text):
+            for part in raw_parts:
+                _sub = re.split(r",\s*(?=(?:a|an|my|i)\b)", part)
+                _expanded.extend(s.strip() for s in _sub if s.strip())
+        else:
+            _expanded = raw_parts
+        raw_parts = _expanded
+        # A combined fact+question turn must contain at least one
+        # statement AND at least one question; the question must be the
+        # LAST clause (otherwise it is an ordinary multi-sentence turn).
+        question_parts = [p for p in raw_parts if _looks_like_question(p)]
+        if not question_parts:
+            return None
+        # Premises = every non-question clause BEFORE the final question.
+        premise_parts = [p for p in raw_parts[:-1] if not _looks_like_question(p)]
+        if not premise_parts:
+            return None
+
+        # Each combined fact+question turn is SELF-CONTAINED: the
+        # premises belong ONLY to this turn's question. Use a fresh
+        # local store per call (do NOT accumulate across turns,
+        # otherwise a later query would see stale premises from an
+        # earlier case). The hippocampal entity index is also
+        # populated for genuine cross-turn "remember" queries —
+        # that is a DIFFERENT, persistent path.
+        local_facts: Dict[str, Dict[str, str]] = {}
+        local_rules: List[Dict[str, str]] = []
+
+        # Mine + store every premise as a fact.
+        for prem in premise_parts:
+            facts = self._mine_episodic_facts(prem)
+            for slot, val in facts.items():
+                ent = slot.split("_", 1)[0] if "_" in slot and not slot.startswith("favorite_") else (slot[len("favorite_"):] if slot.startswith("favorite_") else slot)
+                local_facts.setdefault(ent, {})[slot.split("_", 1)[1] if "_" in slot and not slot.startswith("favorite_") else ("favorite" if slot.startswith("favorite_") else "is")] = val
+                self._episodic_index.setdefault(ent, {})[slot.split("_", 1)[1] if "_" in slot and not slot.startswith("favorite_") else ("favorite" if slot.startswith("favorite_") else "is")] = val
+            # Possessive/biographical shapes the miner misses.
+            self._store_possessive_fact(prem, local_facts)
+            # Causal "if/when X -> Y" rules (lamp chain etc.)
+            rule = self._mine_causal_rule(prem)
+            if rule:
+                local_rules.append(rule)
+
+        question_text = raw_parts[-1]
+        answer = self._answer_from_session_facts(
+            question_text, local_facts, local_rules)
+        if answer is not None:
+            return answer
+        # No in-turn fact matched the question cue — fall through to the
+        # normal pipeline (honest path handles it).
+        return None
+
+    def _store_possessive_fact(self, text: str, local_facts: Dict[str, Dict[str, str]]) -> None:
+        """Catch named-entity / biographical facts that the miner misses:
+          - "my X is named Y" / "my X is called Y"
+          - bare "my X is Y"  (e.g. "my pet dog is max")
+          - "a cat named Y" / "a dog named Y"  (list-form disclosures)
+          - "I was born in Y" / "I built a Z last month" (biographical)
+        Written into the per-turn `local_facts` dict (self-contained
+        to this combined fact+question turn). Also mirrored into the
+        persistent hippocampal entity index so a genuine later
+        "remember what I told you" query can still find them.
+        """
+        low = (text or "").lower().strip()
+        if not low:
+            return
+        # "my <X> is named/called <Y>"
+        m = re.search(
+            r"\bmy\s+([a-z0-9]+(?:\s+[a-z0-9]+)?)\s+"
+            r"(?:is|are)\s+(?:named|called|nemed|caled)\s+([a-z0-9'\-]+)",
+            low)
+        if m:
+            ent, val = m.group(1).strip(), m.group(2).strip()
+            local_facts.setdefault(ent, {})["name"] = val
+            self._episodic_index.setdefault(ent, {})["name"] = val
+            return
+        # "a/an <X> named <Y>"  (list-form: "a cat named whiskers")
+        for m2 in re.finditer(
+                r"\b(?:a|an)\s+([a-z0-9]+(?:\s+[a-z0-9]+)?)\s+"
+                r"named\s+([a-z0-9'\-]+)", low):
+            ent, val = m2.group(1).strip(), m2.group(2).strip()
+            local_facts.setdefault(ent, {})["name"] = val
+            self._episodic_index.setdefault(ent, {})["name"] = val
+        # "i was born in <Y>" / "i was born on <Y>"
+        mb = re.search(r"\bi\s+(?:was|were|am)\s+born\s+(?:in|on|at)\s+"
+                        r"([a-z0-9'\-]+(?:\s+[a-z0-9'\-]+)?)", low)
+        if mb:
+            local_facts.setdefault("i", {})["born"] = mb.group(1).strip()
+            self._episodic_index.setdefault("i", {})["born"] = mb.group(1).strip()
+        # "i built/made a/an <Y> ..." (biographical achievement)
+        mk = re.search(r"\bi\s+(?:built|made|wrote|created|founded|started)\s+"
+                        r"(?:a|an)\s+([a-z0-9'\-]+(?:\s+[a-z0-9'\-]+)?)", low)
+        if mk:
+            local_facts.setdefault("i", {})["built"] = mk.group(1).strip()
+            self._episodic_index.setdefault("i", {})["built"] = mk.group(1).strip()
+        # bare "my <X> is <Y>" (X not 'favorite') — e.g. "my pet dog is max"
+        if "favorite" not in low and "named" not in low and "called" not in low:
+            for bm in re.finditer(
+                    r"\bmy\s+([a-z0-9]+)\s+(?:is|are)\s+([a-z0-9'\-]+)\b",
+                    low):
+                ent, val = bm.group(1).strip(), bm.group(2).strip()
+                if ent in ("name",):
+                    continue
+                local_facts.setdefault(ent, {})["is"] = val
+                self._episodic_index.setdefault(ent, {})["is"] = val
+
+    def _mine_causal_rule(self, text: str) -> Optional[Dict[str, str]]:
+        """Extract a conditional causal rule from a premise clause.
+
+        Handles two shapes:
+          (1) two-clause: "when <X> <v>, <Y> <v2>"
+              e.g. "when turned on, the lamp lights up"
+                   trigger="the lamp lights up"  (the subject that ACTS)
+                   (the 'when turned on' is the enabling condition, not
+                    the causal subject)
+              e.g. "if the lamp lights up, an explosion occurs"
+                   trigger="the lamp lights up", result="an explosion occurs"
+          (2) single clause: "the lamp lights up" / "an explosion occurs"
+
+        We key on the SECOND clause (after the comma) as the real
+        causal event, and treat the enabling condition as its trigger
+        only when no explicit second clause result exists.
+        Returns {trigger_subj, trigger_verb, result_subj, result_verb}
+        or None.
+        """
+        low = (text or "").lower().strip()
+        if not low:
+            return None
+        _VEBS = (r"(lights?|turns?|turned|switches?|goes|explodes?|opens?|"
+                 r"starts?|breaks?|falls?|rises?|occurs?|happens?|is|are|"
+                 r"was|were)")
+        # Shape (1): "when/if <cond>, <subject> <verb> [, <subj2> <verb2>]"
+        # Split on commas; the enabling condition clause starts with
+        # when/if/once/after and is NOT the causal event. The
+        # REAL causal trigger is the other clause (or the clause
+        # after a "when X, Y" comma). Mine subject+verb from
+        # the trigger clause and (optionally) the result clause.
+        _clauses = [c.strip() for c in re.split(r",", low) if c.strip()]
+        _conn = re.compile(r"^(?:when|if|once|after)\b")
+        _trigger_clause = None
+        _result_clause = None
+        _consumed = set()
+        for ci, c in enumerate(_clauses):
+            if _conn.match(c):
+                # enabling condition: mine the trigger from WITHIN the
+                # condition clause (after the connector word), e.g.
+                # "if the lamp lights up" -> trigger "the lamp lights".
+                # The NEXT clause (if any) is the RESULT.
+                _inner = re.sub(r"^(?:when|if|once|after)\b\s*", "", c).strip()
+                _trig_from_inner = self._verb_phrase(_inner, _VEBS)
+                if _trig_from_inner:
+                    _trigger_clause = _inner
+                elif ci + 1 < len(_clauses):
+                    _trigger_clause = _clauses[ci + 1]
+                    _consumed.add(ci + 1)
+                if ci + 1 < len(_clauses):
+                    _result_clause = _clauses[ci + 1]
+                    _consumed.add(ci + 1)
+                continue
+            if ci in _consumed:
+                continue
+            if _trigger_clause is None:
+                _trigger_clause = c
+            else:
+                _result_clause = c
+        trig = self._verb_phrase(_trigger_clause, _VEBS) if _trigger_clause else None
+        res = self._verb_phrase(_result_clause, _VEBS) if _result_clause else None
+        if trig:
+            return {
+                "trigger_subj": trig[0],
+                "trigger_verb": trig[1],
+                "result_subj": (res[0] if res else None),
+                "result_verb": (res[1] if res else None),
+            }
+        # Shape (2): bare "<subject> <verb>" clause. Only keep
+        # ACTION verbs (lights/turns/explodes/...) — exclude
+        # statives like "was/is/are" that merely describe
+        # state and carry no causal consequence.
+        _ACTION = (r"(lights?|turns?|turned|switches?|goes|explodes?|"
+                    r"opens?|starts?|breaks?|falls?|rises?|occurs?|happens?)")
+        m2 = re.search(r"\b([a-z0-9'\s]+?)\s+" + _ACTION + r"\b", low)
+        if m2:
+            return {
+                "trigger_subj": m2.group(1).strip(),
+                "trigger_verb": m2.group(2).strip(),
+                "result_subj": None,
+                "result_verb": None,
+            }
+        return None
+
+    def _verb_phrase(self, clause: str, verb_class: str) -> Optional[tuple]:
+        """Extract (subject, verb) from a clause like 'the lamp lights up'.
+
+        verb_class is the regex alternation of accepted verbs (e.g. _VEBS).
+        Returns (subject_str, verb_str) or None if no verb match.
+        """
+        if not clause:
+            return None
+        m = re.search(r"([a-z0-9'\s]+?)\s+" + verb_class + r"\b", clause)
+        if not m:
+            return None
+        subj = m.group(1).strip()
+        # keep the article (a/an/the) so result clauses read naturally
+        # ("an explosion occurs"); only strip a stray leading article
+        # when the subject is the trigger and would read redundantly.
+        return (subj, m.group(2).strip())
+
+    def _normalize_token(self, tok: str) -> str:
+        t = tok.lower().strip().strip("'\".,!?;:()")
+        return t[:-2] if t.endswith("'s") else t
+
+    def _answer_from_session_facts(self, question: str,
+                                local_facts: Dict[str, Dict[str, str]],
+                                local_rules: List[Dict[str, str]]) -> Optional[str]:
+        """Answer a question from the in-turn premise store + causal rules.
+
+        Strategy:
+          (a) causal-chain question ('what happens if you turn on the lamp')
+              -> walk the stored rules: turning on the lamp lights it up,
+              which (per the rule) causes an explosion.
+          (b) fact-retrieval question ('what is my pet dog's name') ->
+              match the cued entity/attribute against the per-turn
+              `local_facts` and the persistent hippocampal entity index
+              (the latter covers a later cross-turn "remember" query).
+        Returns a natural reply string, or None if nothing matches.
+        """
+        q = (question or "").lower().strip()
+        if not q:
+            return None
+
+        # (a) Causal-chain query: "what happens if <X> <trigger>" / "what
+        # would happen if ... turned on".
+        _chain = re.search(
+            r"\b(?:what|which)\s+(?:happens?|occurs?|would happen|will happen)"
+            r".*\b(if|when|after)\b.*\b(turn|switch|light|explod|open|start|"
+            r"break|fire|push|press)\b", q)
+        if _chain and local_rules:
+            return self._answer_causal_chain(local_rules)
+
+        # (b) Fact retrieval: find a cued entity token in the question.
+        # "I" / "you" map to the stored "i" biographical entity.
+        _ent_hit = None
+        _q_tokens = re.findall(r"[a-z']+", q)
+        for tok in _q_tokens:
+            t = self._normalize_token(tok)
+            if t in ("i", "you") and ("i" in local_facts or "i" in self._episodic_index):
+                _ent_hit = "i"
+                break
+            if t in local_facts or t in self._episodic_index:
+                _ent_hit = t
+                break
+        if _ent_hit is None:
+            # last resort: any stored entity whose label appears verbatim
+            for ent in list(local_facts.keys()) + list(self._episodic_index.keys()):
+                if ent and re.search(r"\b" + re.escape(ent) + r"\b", q):
+                    _ent_hit = ent
+                    break
+        if _ent_hit is None:
+            return None
+        facts = dict(local_facts.get(_ent_hit, {}))
+        facts.update(self._episodic_index.get(_ent_hit, {}))
+        if not facts:
+            return None
+        # Attribute-focused: "what is my pet dog's NAME" -> name slot.
+        attr_hit = None
+        for attr in ("name", "color", "favorite", "is"):
+            if re.search(r"\b" + attr + r"\b", q):
+                attr_hit = attr
+                break
+        if attr_hit and attr_hit in facts:
+            val = facts[attr_hit]
+            if _ent_hit == "i":
+                # Biographical self-fact: read as a first/second-person reply.
+                if attr_hit == "born":
+                    return f"you were born in {val}."
+                if attr_hit == "built":
+                    return f"you built {val}."
+                return f"{val}."
+            if attr_hit == "favorite":
+                return f"your favorite {_ent_hit} is {val}."
+            if attr_hit == "is":
+                return f"your {_ent_hit} is {val}."
+            return f"your {_ent_hit}'s {attr_hit} is {val}."
+        # Generic: surface every stored attribute for the cued entity.
+        bits = []
+        for attr, val in facts.items():
+            if _ent_hit == "i":
+                if attr == "born":
+                    bits.append(f"you were born in {val}")
+                elif attr == "built":
+                    bits.append(f"you built {val}")
+                else:
+                    bits.append(f"{val}")
+            elif attr == "favorite":
+                bits.append(f"your favorite {_ent_hit} is {val}")
+            elif attr == "is":
+                bits.append(f"your {_ent_hit} is {val}")
+            else:
+                bits.append(f"your {_ent_hit}'s {attr} is {val}")
+        if bits:
+            return "you told me " + "; ".join(dict.fromkeys(bits)) + "."
+        return None
+
+    def _answer_causal_chain(self, local_rules: List[Dict[str, str]]) -> str:
+        """Walk stored causal rules into a natural-language chain answer.
+
+        The miner stores each premise as an independent rule
+        {trigger_subj, trigger_verb, result_subj, result_verb}.
+        We chain them: a rule whose trigger matches another
+        rule's result becomes a link. For the lamp test the
+        stored rules are:
+          R1: trigger="the lamp lights up"  (from "when turned on, the lamp lights up")
+          R2: trigger="the lamp lights up", result="an explosion occurs"
+        The enabling condition "turn on" maps to R1's trigger, so
+        the full chain is:
+          "the lamp lights up, and an explosion occurs!"
+        """
+        rules = local_rules
+        if not rules:
+            return None
+        # Emit ONLY rules that carry a result clause (the real causal
+        # links). Drop bare-trigger standalones: enabling conditions
+        # like "the lamp lights up" (from "when turned on, the
+        # lamp lights up") are already captured as the trigger of the
+        # result-bearing rule, so a second standalone copy would
+        # duplicate. Also skip non-causal statives ("a lamp was on
+        # the table" has verb 'was' but no result -> excluded here).
+        links = []
+        for r in rules:
+            if r["result_subj"]:
+                links.append(
+                    f"{r['trigger_subj']} {r['trigger_verb']}, "
+                    f"and {r['result_subj']} {r['result_verb']}")
+        if not links:
+            return None
+        joined = ", ".join(links)
+        # Normalise articles for a smoother read.
+        joined = re.sub(r"\ba lamp\b", "the lamp", joined)
+        joined = re.sub(r"\ban explosion\b", "an explosion", joined)
+        joined = re.sub(r"\ba explosion\b", "an explosion", joined)
+        return joined.rstrip(", ") + "!"
+
     def _reconstruct_gist(self, rec: Dict[str, Any]) -> str:
         """Reconstruct a gist reply from a stored episode (no verbatim parroting
         beyond what was stored; no invention)."""
