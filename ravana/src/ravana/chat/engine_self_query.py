@@ -463,6 +463,22 @@ class SelfQueryMixin:
             r"\bwhat\s+(do|did)\s+i\s+(like|love|prefer|want)\b|"
             r"\bwhat\s+am\s+i\s+(interested|into)\b", t):
             return None
+        # B2: first/second-person autobiographical RECALL about the USER's
+        # own stored attributes ("where do i live", "what city am i from",
+        # "when was i born", "what is my name", "how old am i") is about
+        # the USER's hippocampal facts, never encyclopedic knowledge of the
+        # subject word ("live" -> "gives rise to world" is a confabulation).
+        # Return None so the episodic recall pre-pass (_try_memory_query ->
+        # _retrieve_episodic, reading self._episodic_index) answers from the
+        # stored self-profile. This is the self/other boundary applied to
+        # recall (Mitchell & Johnson 2009 source monitoring). Only triggers
+        # on a clear personal-reference + attribute shape, so genuine world
+        # queries ("what do you know about paris") still reach grounding.
+        if re.search(r"\b(i|me|my|we|our|you)\b", t) and re.search(
+                r"\b(live|lives|from|born|named|called|name|location|"
+                r"city|town|country|age|height|weight|work|study|studied|"
+                r"grew up|went to school)\b", t):
+            return None
         # B1 (source monitoring / self-other boundary): self-knowledge RECALL
         # queries ("what do you remember about me", "what do you know about me",
         # "what have i told you") are about the USER's stored autobiographical

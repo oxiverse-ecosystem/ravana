@@ -842,10 +842,19 @@ class ReasoningMixin:
         if m:
             parsed = ("favorite", m.group(1).strip(" .!?"), m.group(2).strip(" .!?"))
         else:
-            # name
-            mn = re.search(r"\b(?:my\s+name\s+is|i\s+am\s+called|call\s+me)\s+(.+)", q, re.IGNORECASE)
+            # name — capture a proper-noun phrase, stop at a clause
+            # boundary ("and"/"but"/comma/period) so "my name is
+            # alex and i live in berlin" does NOT swallow the rest
+            # of the sentence into the name.
+            mn = re.search(
+                r"\b(?:my\s+name\s+is|i\s+am\s+called|call\s+me)\s+"
+                r"([^.,!?]+?)(?:\s+(?:and|but|,|\.|$))", q, re.IGNORECASE)
             if mn:
-                name_cand = mn.group(1).strip(" .!?")
+                name_cand = mn.group(1).strip()
+                # Drop a trailing clause tail the lazy match may have
+                # included (e.g. "alex" is already clean; this is
+                # a defensive trim).
+                name_cand = re.split(r"\s+(?:and|but|,|\.)\s*", name_cand)[0].strip()
                 nw = name_cand.split()
                 if nw and nw[0].lower() in ("is", "are", "was", "were"):
                     nw = nw[1:]
@@ -881,6 +890,25 @@ class ReasoningMixin:
                     prefs["likes"].append(parsed[2])
             elif parsed and parsed[0] == "name":
                 self.user_model.user_name = parsed[2]
+        # Mirror the salient self-facts into the hippocampal entity
+        # index so the EXISTING recall path (_retrieve_episodic,
+        # which reads self._episodic_index) can answer later
+        # "where do I live?" / "what is my name?" without a
+        # separate code path. Entity "i" carries the user's own
+        # biographical attributes (location / name / background).
+        # Runs UNCONDITIONALLY (after both the normal and fallback
+        # persist paths) so the index is always populated.
+        _ei = getattr(self, "_episodic_index", None)
+        if _ei is not None:
+            _me = _ei.setdefault("i", {})
+            if getattr(self.user_model, "user_name", ""):
+                _me["name"] = self.user_model.user_name
+            _loc = getattr(self.user_model, "user_location", "")
+            if _loc:
+                _me["location"] = _loc
+            _bg = getattr(self.user_model, "user_background", "")
+            if _bg:
+                _me["background"] = _bg
 
         # Compose a gist-based acknowledgment (no templates: derived from the
         # parsed fact so it reads as a person who just heard you).

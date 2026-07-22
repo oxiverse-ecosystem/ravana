@@ -137,6 +137,10 @@ import pickle
 from ravana.web.learner import SearchEngine
 from ravana.core.dual_code_space import DualCodeSpace
 from ravana.core.hrr_reasoner import HRRReasoner
+from ravana.core.in_prompt_reasoner import (
+    answer_in_prompt_causal,
+    answer_universal_syllogism,
+)
 
 # Universal closed-class / pronoun words that can never own a learned definition
 # (you don't "define" the word "you"). This is the only hand-listed part of the
@@ -328,6 +332,27 @@ class MemoryMixin:
 
         def _reconstruct_entity(ent, facts):
             bits = []
+            # The "i" entity is the USER's own biographical profile
+            # (populated by the self-disclosure handler), so its attributes
+            # must render as natural first/second-person statements,
+            # never as "your i's name is X".
+            if ent == "i":
+                for attr, val in facts.items():
+                    if attr == "name":
+                        bits.append(f"your name is {val}")
+                    elif attr == "location":
+                        bits.append(f"you live in {val}")
+                    elif attr == "background":
+                        bits.append(f"{val}")
+                    elif attr == "favorite":
+                        bits.append(f"your favorite {val}")
+                    elif attr == "likes":
+                        bits.append(f"you like {val}")
+                    elif attr == "is":
+                        bits.append(f"you are {val}")
+                    else:
+                        bits.append(f"your {attr} is {val}")
+                return bits
             for attr, val in facts.items():
                 if attr == "favorite":
                     bits.append(f"your favorite {ent} is {val}")
@@ -335,18 +360,33 @@ class MemoryMixin:
                     bits.append(f"you mentioned you like {val}")
                 elif attr == "is":
                     bits.append(f"your {ent} is {val}")
+                elif attr == "location":
+                    bits.append(f"you live in {val}")
+                elif attr == "background":
+                    bits.append(f"{val}")
                 else:
                     bits.append(f"your {ent}'s {attr} is {val}")
             return bits
 
         # find an entity token from the query that exists in the index
         # (strip a trailing "'s" so "cat's" matches entity "cat").
+        # ALSO map first/second-person + location/origin question
+        # words to the "i" biographical entity so "where do I live" /
+        # "what city are you from" recall the user's stored location.
         _ent_hit = None
+        _LOC_WORDS = ("live", "lives", "from", "city", "town", "country",
+                      "born", "grew", "located", "location", "origin")
         for tok in re.findall(r"[a-z']+", q):
             _tok = tok[:-2] if tok.endswith("'s") else tok
             if _tok in _entity_idx:
                 _ent_hit = _tok
                 break
+            if _tok in ("i", "you", "my", "your") and "i" in _entity_idx:
+                # only treat as a cued recall when the query also
+                # asks about a biographical attribute
+                if any(w in q for w in _LOC_WORDS) or "name" in q:
+                    _ent_hit = "i"
+                    break
         if _ent_hit is not None:
             _facts = _entity_idx[_ent_hit]
             if _facts:
@@ -530,6 +570,21 @@ class MemoryMixin:
             question_text, local_facts, local_rules)
         if answer is not None:
             return answer
+        # Reasoning fall-through (the in-prompt reasoners are wired
+        # HERE, not left as dead code): a combined fact+question
+        # turn may be a logical deduction, not a stored-fact lookup.
+        #   - answer_in_prompt_causal: causal conditionals
+        #     ("if/when X, Y" multi-hop chains — lamp test).
+        #   - answer_universal_syllogism: categorical syllogisms
+        #     ("all men are mortal; socrates is a man; is socrates
+        #     mortal?"). Both return None when the shape doesn't
+        #     match, so non-reasoning turns fall through untouched.
+        _reason = answer_in_prompt_causal(text)
+        if _reason is not None:
+            return _reason
+        _syll = answer_universal_syllogism(text)
+        if _syll is not None:
+            return _syll
         # No in-turn fact matched the question cue — fall through to the
         # normal pipeline (honest path handles it).
         return None
@@ -1182,6 +1237,25 @@ class MemoryMixin:
                 return f"from what you've told me, {_summary}."
             return ("i don't think you've told me much about yourself yet — "
                     "but i'm listening whenever you want to share.")
+        # A2: first/second-person autobiographical-ATTRIBUTE recall
+        # ("where do i live", "what city am i from", "when was i born",
+        # "what is my name"). These ask about a SPECIFIC stored personal
+        # fact, so route them to the entity-indexed _retrieve_episodic
+        # (which does precise pattern completion on self._episodic_index).
+        # This is the self/other boundary for recall: a personal attribute
+        # is retrieved from the hippocampal self-profile, never from the
+        # world-knowledge graph of the subject word (Mitchell & Johnson 2009
+        # source monitoring). Must NOT match genuine world queries
+        # ("what do you know about paris").
+        _personal_attr_recall = bool(re.search(
+            r"\b(i|me|my|we|our|you)\b", t)) and bool(re.search(
+            r"\b(live|lives|from|born|named|called|name|location|"
+            r"city|town|country|age|height|weight|work|study|studied|"
+            r"grew up|went to school)\b", t))
+        if _personal_attr_recall:
+            _ep = self._retrieve_episodic(user_input)
+            if _ep is not None:
+                return _ep
         # First/second-person + a recall/speech verb, referring to a prior turn.
         # Require an explicit conversational-memory phrasing to stay narrow.
         _patterns = [

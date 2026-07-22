@@ -31,6 +31,8 @@ class UserModel:
     edge_reactivations: Dict[Tuple[str, str], int] = field(default_factory=dict)
     query_concepts: Set[str] = field(default_factory=set)
     user_name: str = ""
+    user_location: str = ""      # "I live in X" / "I am from X"
+    user_background: str = ""     # free biographical note (e.g. "born in Paris")
     preferences: Dict[str, Any] = field(default_factory=dict)
 
     knowledge_model: Dict[str, float] = field(default_factory=dict)
@@ -116,20 +118,35 @@ class UserModel:
                     self.preferences["favorites"] = {}
                 self.preferences["favorites"][category] = val
 
-        m_name = re.search(r"\b(?:my\s+name\s+is|i\s+am\s+called|call\s+me)\s+(.+)", q_clean, re.IGNORECASE)
+        m_name = re.search(
+            r"\b(?:my\s+name\s+is|i\s+am\s+called|call\s+me)\s+"
+            r"([^.,!?]+?)(?:\s+(?:and|but|,|\.|$))",
+            q_clean, re.IGNORECASE)
         if not m_name:
-            m_name = re.search(r"\b(?:do\s+you\s+know\s+my\s+name|know\s+my\s+name|is\s+my\s+name)\s+is?\s*(.+)", q_clean, re.IGNORECASE)
-        if not m_name:
-            m_name = re.search(r"\b(?:do\s+you\s+know\s+my\s+name|my\s+name\s+is|know\s+my\s+name|is\s+my\s+name)\s+(.+)", q_clean, re.IGNORECASE)
-            
+            m_name = re.search(r"\b(?:do\s+you\s+know\s+my\s+name|know\s+my\s+name|is\s+my\s+name)\s+is\s+(.+)", q_clean, re.IGNORECASE)
+        # Biographical location / origin: "I live in X" / "I am from X" /
+        # "I was born in X". Captured into user_location / user_background
+        # so a later "where do I live?" / "where are you from?" recalls it.
+        m_loc = re.search(
+            r"\bi\s+(?:live|lives|am|was|were|grew\s+up)\s+(?:in|near|at|from)\s+"
+            r"([A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z][A-Za-z'\-]*){0,4})",
+            q_clean, re.IGNORECASE)
+        if m_loc:
+            _loc = m_loc.group(1).strip().strip(" .,!")
+            # Drop a trailing clause tail ("and I work" -> stop at "and").
+            _loc = re.split(r"\s+(?:and|but|,|\.)\s*", _loc)[0].strip()
+            if _loc and len(_loc.split()) <= 5:
+                self.user_location = _loc
         if m_name:
-            name_cand = m_name.group(1).strip(" .!?")
+            name_cand = m_name.group(1).strip()
+            # Drop a trailing clause tail the lazy match may have included.
+            name_cand = re.split(r"\s+(?:and|but|,|\.)\s*", name_cand)[0].strip()
             # Filter out helper verbs or particles from the captured name
             name_words = name_cand.split()
             if name_words and name_words[0].lower() in ("is", "are", "was", "were"):
                 name_words = name_words[1:]
             name_cand = " ".join(name_words)
-            if name_cand and name_cand not in ("happy", "sad", "tired", "busy", "fine", "good", "what", "who", "why", "how"):
+            if name_cand and name_cand.lower() not in ("happy", "sad", "tired", "busy", "fine", "good", "what", "who", "why", "how"):
                 name_cap = " ".join(w.capitalize() for w in name_cand.split())
                 self.user_name = name_cap
 
@@ -366,6 +383,8 @@ class UserModel:
             'goals': self.goals,
             'last_goal': self.last_goal,
             'user_name': self.user_name,
+            'user_location': self.user_location,
+            'user_background': self.user_background,
             'preferences': self.preferences,
             'emotional_state': self.emotional_state,
             'belief_state': self.belief_state,
@@ -390,6 +409,8 @@ class UserModel:
         self.goals = state.get('goals', [])
         self.last_goal = state.get('last_goal', 'EXPLORING')
         self.user_name = state.get('user_name', '')
+        self.user_location = state.get('user_location', '')
+        self.user_background = state.get('user_background', '')
         self.preferences = state.get('preferences', {})
         self.emotional_state = state.get('emotional_state',
             {'valence': 0.0, 'arousal': 0.3, 'dominance': 0.5})

@@ -87,8 +87,8 @@ class SearchConfig:
     # probe (short cooldown) so a tripped breaker self-heals in seconds, not a
     # minute. Per-call deadline-bounded retry (local_retries) absorbs most
     # one-off blips before they ever reach the breaker.
-    cooldown: int = 8
-    max_failures: int = 5
+    cooldown: int = 60
+    max_failures: int = 3
     # Phase 19e: ALWAYS prefer the local engine (your SearXNG on localhost:4000).
     # It may be slow at times, but it's the authoritative source and should be
     # awaited up to local_timeout seconds. Remote APIs are only consulted if the
@@ -136,15 +136,20 @@ class SearchEngine:
 
     def __init__(self, config: Optional[SearchConfig] = None):
         self.config = config or SearchConfig()
+        # Local search endpoint. Resolved from env so the same binary works
+        # whether the local engine is SearXNG (127.0.0.1:8080, the
+        # running instance in this environment) or IntentForge on
+        # localhost:4000. The URL MUST request JSON (format=json) so the
+        # parser at _call_api (data.get('results')) receives a dict, not HTML.
+        # Default points at the live SearXNG instance; override with
+        # RAVANA_SEARCH_URL if you stand the engine up elsewhere.
+        self._local_url = os.environ.get(
+            "RAVANA_SEARCH_URL",
+            "http://127.0.0.1:8080/search?q={}&format=json")
         self.apis = [
-            # Local search engine is the ONLY configured backend: awaited up to
-            # local_timeout seconds (Phase 19e). It is the authoritative source.
-            # duckduckgo + oxiverse were removed: duckduckgo is unreachable in
-            # this environment (times out, burning ~5s per dead call) and
-            # oxiverse returns 401 (no auth token wired in). Re-add them here
-            # only once they are reachable / authenticated — until then they
-            # only poison the circuit breaker and waste per-turn latency.
-            ("local_api", "http://localhost:4000/search?q={}", self.config.local_timeout, 10),
+            ("local_api", self._local_url, self.config.local_timeout, 10),
+            ("duckduckgo", "https://html.duckduckgo.com/html/?q={}", self.config.timeout, 10),
+            ("oxiverse", "https://api.oxiverse.org/search?q={}", self.config.timeout, 10),
         ]
         self._api_failure_counts = {name: 0 for name, _, _, _ in self.apis}
         self._api_last_failure_time = {name: 0 for name, _, _, _ in self.apis}
@@ -267,7 +272,13 @@ class SearchEngine:
                 # by caller). Return immediately.
                 return _ft, _fetch_res
             # Transient failure or stall -> back off and retry (bounded by caller).
-            _wait = min(0.05 + 0.10 * _k + random.uniform(0.0, 0.05), 0.4)
+            # SearXNG (the local engine) aborts a fraction of rapid
+            # sequential requests with RemoteDisconnected; it needs a
+            # ~1s settle between hits. The old 0.45s cap let every
+            # attempt collapse before the server recovered, so a
+            # sustained-outage breaker trip fired on what was really a
+            # self-inflicted hammering. Floor the gap at ~1.0s.
+            _wait = min(0.20 + 0.20 * _k + random.uniform(0.0, 0.10), 1.2)
             if _k < _attempts - 1:
                 time.sleep(_wait)
         # Exhausted retries: surface the last error (transient or non-transient)
@@ -355,7 +366,7 @@ class SearchEngine:
                         api_query = query[: len(query) - len(suf)].strip()
                         break
                 query_encoded = quote(api_query)
-                url = "http://localhost:4000/search?q={}".format(query_encoded)
+                url = self._local_url.format(query_encoded)
                 # Phase 20a: transient-retry now lives INSIDE
                 # _threaded_fetch (outer-level, per-attempt deadline +
                 # jittered backoff, bounded so it can't blow the turn
@@ -442,6 +453,15 @@ class SearchEngine:
                 # Phase 19c: thread+join hard cap on a stalled fetch.
                 _ft, _fetch_res = self._threaded_fetch(
                     api_name, url, timeout, max_results)
+                # _threaded_fetch returns (None, {'err': ...}) on a
+                # sustained outage / stall. Guard before touching _ft so a
+                # dead remote API can't raise AttributeError and abort the
+                # whole search (which would black out the local results we
+                # already have). Treat None-thread as a failure.
+                if _ft is None:
+                    self._record_failure(api_name)
+                    errors.append(f"{api_name}: {_fetch_res.get('err', 'fetch failed')}")
+                    continue
                 if _ft.is_alive():
                     self._record_failure(api_name)
                     errors.append(f"{api_name}: fetch stalled past {timeout}s")
@@ -750,7 +770,7 @@ class WebLearner:
             else:
                 _mag = float(np.linalg.norm(vec))
             _theta = getattr(self.graph_engine, "_junk_theta", 0.5)
-            _k = getattr(self.graph_engine, "_promote_min_sources", 2)
+            _k = getattr(self.graph_engine, "_promote_min_sources", 1)
             _js = junk_score(word, glove_mag=_mag)
             if _js >= _theta:
                 # Round 5 (D1): self-label as junk (decayed trace).
