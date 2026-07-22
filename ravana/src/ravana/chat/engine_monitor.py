@@ -66,7 +66,8 @@ except ImportError:
 
 # Import constants
 from .constants import (TEEN_CONCEPTS, WEB_GARBAGE, STOP_WORDS, ConceptPosDict,
-                        _is_word_salad, _is_keyboard_mash)
+                        _is_word_salad, _is_keyboard_mash,
+                        _UNIVERSAL_PURGE, _DEFINITION_ASSERTION)
 from .web_learning import WebLearningMixin
 # Defect F: learned structural-PE snippet model (contrastive gap). Imported
 # lazily-safe so a missing module degrades gracefully (the gate stays None and
@@ -142,22 +143,6 @@ from ravana.core.hrr_reasoner import HRRReasoner
 # definition purge — a minimal universal seed, not a per-word category table.
 # The rest of the purge is derived from the learned graph (see
 # _derive_definition_purge).
-_UNIVERSAL_PURGE = {
-    "you", "i", "we", "they", "he", "she", "it", "me", "my", "your",
-    "our", "their", "us", "them", "him", "her", "this", "that",
-}
-
-# Assertion/copula detector (vmPFC/mPFC reality-monitor analog): a definition
-# that does not assert anything (no copula / defining verb) is structurally
-# not a definition — it is a junk fragment. Used by the learned
-# definition-attraction score in _derive_definition_purge to decide whether a
-# concept is chronically collecting non-asserted web fragments (Phase 1,
-# Track B). Mirrors web_learning._DEFINITION_PREDICATE.
-_DEFINITION_ASSERTION = re.compile(
-    r"\b(is|are|was|were|be|been|being|means?|refers?\s+to|describes?|"
-    r"occurs?|happens?|defined\s+as|represents?|signifies?|constitutes?|"
-    r"denotes?)\b", re.IGNORECASE)
-
 
 from ravana.language.verb_lexicon import VerbLexicon
 from .models import FailedQuery, ChainHop, ChainTrace, CognitiveResponseContext, Correction, CorrectionType

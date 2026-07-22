@@ -420,3 +420,24 @@ def junk_score(word: str, glove_mag: Optional[float] = None,
     from ravana.chat.junk_scorer import junk_score as _js
     return _js(word, glove_mag=glove_mag, degree=degree,
                source_count=source_count, pmi_stability=pmi_stability)
+
+
+
+
+# ── Universal closed-class / pronoun purge (single source of truth) ──
+# Universal closed-class / pronoun words that can never own a learned definition
+# (you don't "define" the word "you"). Minimal universal seed, not a per-word
+# category table. The rest of the purge is derived from the learned graph
+# (see _derive_definition_purge). Mirrors web_learning._DEFINITION_PREDICATE.
+_UNIVERSAL_PURGE = {
+    "you", "i", "we", "they", "he", "she", "it", "me", "my", "your",
+    "our", "their", "us", "them", "him", "her", "this", "that",
+}
+
+# Assertion/copula detector (vmPFC/mPFC reality-monitor analog): a definition
+# that does not assert anything (no copula / defining verb) is structurally
+# not a definition -- it is a junk fragment.
+_DEFINITION_ASSERTION = re.compile(
+    r"\b(is|are|was|were|be|been|being|means?|refers?\s+to|describes?|"
+    r"occurs?|happens?|defined\s+as|represents?|signifies?|constitutes?|"
+    r"denotes?)\b", re.IGNORECASE)
