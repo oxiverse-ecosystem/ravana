@@ -1447,6 +1447,21 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         b["n"] += 1
         return passed
 
+    # ── Closed-class delegation (P1-H) ───────────────────────────
+    # Single data-driven source for the 6 consolidated closed-class
+    # lists. Prefers the fit file (data/functional_lexicon.json, loaded
+    # into self._func_lex); falls back to the original hand set
+    # (class attribute) so behavior is identical at cold-start and
+    # external modules that read the class attr (via MRO) are untouched.
+    def _closed_class(self, name: str) -> Set[str]:
+        _fl = getattr(self, "_func_lex", None)
+        if _fl is not None:
+            try:
+                return getattr(_fl, name)()
+            except Exception:
+                pass
+        return getattr(self, name.upper(), set())
+
     def process_turn(self, user_input: str) -> str:
         """Process input and generate a response, auto-learning when needed."""
         # Guard: reject pure letter-salad so it is not treated as a concept and

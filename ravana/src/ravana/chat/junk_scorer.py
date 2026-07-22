@@ -79,6 +79,11 @@ def _structural_floor(word: str) -> float:
     _vc = sum(1 for ch in w if ch in _vowels)
     if len(w) >= 4 and _vc == 0:
         s += 0.4
+    # Repetition pattern: non-word character cycles (e.g. "xkxk", "abab",
+    # "olol") are structural junk no real English token exhibits. Additive
+    # only — raises the floor for these, never lowers it for real words.
+    if len(w) >= 4 and _is_repetition_pattern(w):
+        s += 0.4
     return s
 
 
@@ -100,6 +105,30 @@ def _is_keyboard_mash(w: str) -> bool:
         else:
             runs = 1
     return best >= 4
+
+
+def _is_repetition_pattern(w: str) -> bool:
+    """Detect non-word cyclic repetition (e.g. 'xkxk', 'abab', 'olol').
+
+    Real English tokens are not perfect repeats of a short unit
+    ('banana' != 'ban'*2, so it is correctly excluded). We flag a
+    word only when it is an exact concatenation of a 2-/3-/4-char unit
+    repeated at least twice. Used by _structural_floor as an additive
+    junk signal.
+    """
+    n = len(w)
+    if n < 4:
+        return False
+    for period in (2, 3, 4):
+        if n % period != 0:
+            continue
+        k = n // period
+        if k < 2:
+            continue
+        unit = w[:period]
+        if w == unit * k:
+            return True
+    return False
 
 
 def _salad_signal(word: str) -> float:

@@ -475,7 +475,7 @@ class ReasoningMixin:
             if _is_keyboard_mash(w):
                 continue
             if (w in self._concept_keywords
-                    or w in self._COMMON_WORDS
+                    or w in self._closed_class("common_words")
                     or w in getattr(self, "_proper_nouns", set())):
                 _real += 1
                 continue
@@ -1271,7 +1271,7 @@ class ReasoningMixin:
         # If the raw query is conditional, prefer the cleaned scenario as subject.
         if self._is_conditional_query(raw_input):
             words = [w.strip(".,!?") for w in raw_input.lower().split()
-                     if w.strip(".,!?") not in self._CONDITIONAL_FRAME
+                     if w.strip(".,!?") not in self._closed_class("conditional_frame")
                      and w.strip(".,!?") not in STOP_WORDS
                      and len(w.strip(".,!?")) >= 2]
             # Prefer a known graph concept among the remaining words (e.g. 'sun',
@@ -1306,7 +1306,7 @@ class ReasoningMixin:
                         "orbit", "orbits", "cause", "causes", "cause", "why"}
         RELATIONAL = _light_verbs | {"why", "what", "when", "where", "who", "how"}
         parts = [w for w in subj.split()
-                 if w not in self._CONDITIONAL_FRAME and w not in RELATIONAL]
+                 if w not in self._closed_class("conditional_frame") and w not in RELATIONAL]
         # Strip trailing light verbs (keep the head noun concept).
         while len(parts) > 1 and parts[-1] in _light_verbs:
             parts = parts[:-1]
@@ -1333,7 +1333,7 @@ class ReasoningMixin:
         subj = subject.lower().strip()
         if self._is_conditional_query(raw_input):
             scenario_words = [w.strip(".,!?") for w in raw_input.lower().split()
-                              if w.strip(".,!?") not in self._CONDITIONAL_FRAME
+                              if w.strip(".,!?") not in self._closed_class("conditional_frame")
                               and w.strip(".,!?") not in STOP_WORDS
                               and len(w.strip(".,!?")) >= 2
                               # drop vague time/duration words that add no signal
@@ -1377,7 +1377,7 @@ class ReasoningMixin:
         if is_conditional:
             subj = subject
             scenario_words = [w.strip(".,!?") for w in query.lower().split()
-                              if w.strip(".,!?") not in self._CONDITIONAL_FRAME
+                              if w.strip(".,!?") not in self._closed_class("conditional_frame")
                               and w.strip(".,!?") not in STOP_WORDS
                               and len(w.strip(".,!?")) >= 2
                               and w.strip(".,!?") not in (

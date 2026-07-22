@@ -90,6 +90,34 @@ class FunctionalLexicon:
     def framing(self) -> Set[str]:
         return self._v.get("framing", set(_SEED["framing"]))
 
+    # ── Stage 5b-iii (P1-H): closed-class lists consolidated from the
+    # 6 hand-crafted engine sets. Each accessor returns the fit-file
+    # value when present, else the seed (the original hand list). The
+    # engine routes its usage sites through CognitiveChatEngine._closed_class.
+    @property
+    def common_words(self) -> Set[str]:
+        return self._v.get("common_words", set(_SEED["common_words"]))
+
+    @property
+    def topic_skip(self) -> Set[str]:
+        return self._v.get("topic_skip", set(_SEED["topic_skip"]))
+
+    @property
+    def subject_context(self) -> Set[str]:
+        return self._v.get("subject_context", set(_SEED["subject_context"]))
+
+    @property
+    def conditional_frame(self) -> Set[str]:
+        return self._v.get("conditional_frame", set(_SEED["conditional_frame"]))
+
+    @property
+    def attr_words(self) -> Set[str]:
+        return self._v.get("attr_words", set(_SEED["attr_words"]))
+
+    @property
+    def grammatical_concepts(self) -> Set[str]:
+        return self._v.get("grammatical_concepts", set(_SEED["grammatical_concepts"]))
+
     @classmethod
     def load(cls) -> Optional["FunctionalLexicon"]:
         if not os.path.exists(_FIT_PATH):

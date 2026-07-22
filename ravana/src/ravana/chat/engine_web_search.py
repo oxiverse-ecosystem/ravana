@@ -1577,7 +1577,7 @@ class WebSearchMixin:
             return False
         _w = word.lower()
         if not self.use_learned_pos:
-            return _w in self._GRAMMATICAL_CONCEPTS
+            return _w in self._closed_class("grammatical_concepts")
         # Learned path: a real distributional POS model (PosModel) — the word is
         # a function word when its GloVe vector is nearest the function-word
         # centroid with sufficient margin. Built lazily once from the seed POS
@@ -1602,7 +1602,7 @@ class WebSearchMixin:
                 return True
         # Safety net: words the distributional tagger leaves as 'noun'/'verb'/
         # 'adj' but the curated set knows are function (adverbs, numerals).
-        return _w in getattr(self, "_GRAMMATICAL_CONCEPTS", set())
+        return _w in self._closed_class("grammatical_concepts")
 
     def _ensure_intent_router(self):
         if self._intent_router is not None or not _HAS_INTENT_ROUTER \
@@ -1660,7 +1660,7 @@ class WebSearchMixin:
         attr = None
         m = re.search(r"\b(?:what|which)\s+(?:is|are|was|were)\s+the\s+"
                       r"([a-z]+)\s+of\b", q)
-        if m and m.group(1) in self._ATTR_WORDS:
+        if m and m.group(1) in self._closed_class("attr_words"):
             attr = m.group(1)
         # "who wrote/directed/founded/invented X" -> attribute is the verb-object.
         _who = re.search(r"\bwho\s+(wrote|directed|founded|invented|created|"
