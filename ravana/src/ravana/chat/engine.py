@@ -937,6 +937,23 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         except Exception:  # pragma: no cover - defensive
             self._connector_learner = None
 
+        # Adaptive (distribution-driven) threshold baselines (P2-E).
+        # Each gate starts with mu == the legacy fixed cutoff, so cold-start
+        # behavior is byte-identical. Over turns, mu/sigma adapt via EMA
+        # (Friston precision-weighting): gates become data-driven, never a
+        # hard-coded constant. sigma starts small so the first gate decision
+        # equals the old `x >= fixed` comparison exactly.
+        self._adaptive_baselines: Dict[str, Dict[str, float]] = {
+            "recall_gist":      {"mu": 0.6,  "sigma": 0.15, "n": 0},
+            "episodic_cos":     {"mu": 0.5,  "sigma": 0.15, "n": 0},
+            "episodic_rel":     {"mu": 0.55, "sigma": 0.15, "n": 0},
+            "selfq_sim":        {"mu": 0.45, "sigma": 0.15, "n": 0},
+            "schema_cos":       {"mu": 0.5,  "sigma": 0.15, "n": 0},
+            "schema_cos_lo":    {"mu": 0.4,  "sigma": 0.15, "n": 0},
+            "schema_cos_hi":    {"mu": 0.6,  "sigma": 0.15, "n": 0},
+            "phrase_sim":       {"mu": 0.75, "sigma": 0.1,  "n": 0},
+        }
+
         # New cognitive modules (Phase 2-5)
         self.hippocampal_buffer = HippocampalBuffer(HippocampalConfig(max_facts=50, decay_turns=50))
         self.proposition_parser = PropositionParser()
@@ -1405,6 +1422,23 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # an unanchored hypothetical and defeat the gate. Only edges among
         # these stable nodes count as a simulation anchor.
         self._stable_node_ids = set(self.graph.nodes.keys())
+    # ── Adaptive threshold gate (P2-E) ────────────────────────────────
+    # Distribution-driven replacement for fixed cosine/similarity cutoffs.
+    # Cold-start: passed == (x >= mu)  [or x > mu when strict=True],
+    # which equals the legacy fixed comparison exactly (mu == old constant).
+    # Each call folds the observed x into the baseline via EMA, so the
+    # gate drifts toward the running distribution (precision-weighting) and
+    # is never a hard-coded number after warm-up.
+    def _adaptive_gate(self, key: str, x: float, strict: bool = False,
+                      eta: float = 0.05) -> bool:
+        b = self._adaptive_baselines[key]
+        passed = (x > b["mu"]) if strict else (x >= b["mu"])
+        # EMA update of the running baseline.
+        b["mu"] = (1.0 - eta) * b["mu"] + eta * x
+        b["sigma"] = (1.0 - eta) * b["sigma"] + eta * abs(x - b["mu"])
+        b["n"] += 1
+        return passed
+
     def process_turn(self, user_input: str) -> str:
         """Process input and generate a response, auto-learning when needed."""
         # Guard: reject pure letter-salad so it is not treated as a concept and

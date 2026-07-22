@@ -318,7 +318,7 @@ class SelfQueryMixin:
                     if _s > _best_sim:
                         _best_sim = _s
                         _anchor = (_concept, _pol)
-                if _anchor and _best_sim >= 0.45:
+                if _anchor and self._adaptive_gate("selfq_sim", _best_sim):
                     reason = (f"it's close to {_anchor[0]}, which i already lean "
                               f"{_anchor[1]} — so that pulls me the same way")
                 else:

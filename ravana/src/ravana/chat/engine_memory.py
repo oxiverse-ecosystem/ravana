@@ -407,7 +407,7 @@ class MemoryMixin:
                         continue
                     _cos = float(np.dot(wv, tv))
                     score += _cos
-                    if _cos >= 0.5:
+                    if self._adaptive_gate("episodic_cos", _cos):
                         _strong_link = True
             if not _strong_link:
                 continue
@@ -416,7 +416,7 @@ class MemoryMixin:
                 best = rec
         # Adaptive bar: require a non-trivial match (distribution-driven, not a
         # fixed threshold — but we must avoid firing on an empty/weak cue).
-        if best is not None and best_score >= 0.6:
+        if best is not None and self._adaptive_gate("recall_gist", best_score):
             return self._reconstruct_gist(best)
         return None
 
@@ -966,7 +966,7 @@ class MemoryMixin:
         tv = self._glove_vector(subj) if hasattr(self, "_glove_vector") else None
         if sv is not None and tv is not None:
             sim = float(np.dot(sv, tv))
-            if sim > 0.55:
+            if self._adaptive_gate("episodic_rel", sim, strict=True):
                 return float(np.clip(0.5 + sim * 0.5, 0.0, 1.0))
         if pred in subj or subj in pred:
             return 0.5

@@ -448,7 +448,7 @@ class GenerationMixin:
         if subj_node is None or subj_node.vector is None:
             return set()
         pe = getattr(self, '_mean_prediction_error', 0.3)
-        threshold = 0.6 if pe < 0.2 else (0.4 if pe > 0.5 else 0.5)
+        _gate_key = "schema_cos_hi" if pe < 0.2 else ("schema_cos_lo" if pe > 0.5 else "schema_cos")
         schema_ids = {subj_nid}
         # Snapshot: background learner may add nodes mid-turn (avoid
         # "dictionary changed size during iteration").
@@ -456,7 +456,7 @@ class GenerationMixin:
             if other_nid == subj_nid or other_node.vector is None:
                 continue
             cos = float(np.dot(subj_node.vector, other_node.vector))
-            if cos > threshold:
+            if self._adaptive_gate(_gate_key, cos, strict=True):
                 schema_ids.add(other_nid)
                 self.graph.activate(other_nid, 0.6)
         return schema_ids
@@ -1689,7 +1689,7 @@ class GenerationMixin:
                         best_sim = sim
                         best_label = node.label
             # Higher threshold + reject TOPIC_SKIP_WORDS matches
-            if best_label and best_sim > 0.75 and best_label.lower() not in self.TOPIC_SKIP_WORDS:
+            if best_label and self._adaptive_gate("phrase_sim", best_sim, strict=True) and best_label.lower() not in self.TOPIC_SKIP_WORDS:
                 return (best_label, best_sim, f"phrase_sim_{best_sim:.2f}")
 
         # Strategy D: Spelling-tolerant close match (handles typos like "intellegence")
@@ -1827,7 +1827,7 @@ class GenerationMixin:
         if subj_node is None or subj_node.vector is None:
             return set()
         pe = getattr(self, '_mean_prediction_error', 0.3)
-        threshold = 0.6 if pe < 0.2 else (0.4 if pe > 0.5 else 0.5)
+        _gate_key = "schema_cos_hi" if pe < 0.2 else ("schema_cos_lo" if pe > 0.5 else "schema_cos")
         schema_ids = {subj_nid}
         # Snapshot: background learner may add nodes mid-turn (avoid
         # "dictionary changed size during iteration").
@@ -1835,7 +1835,7 @@ class GenerationMixin:
             if other_nid == subj_nid or other_node.vector is None:
                 continue
             cos = float(np.dot(subj_node.vector, other_node.vector))
-            if cos > threshold:
+            if self._adaptive_gate(_gate_key, cos, strict=True):
                 schema_ids.add(other_nid)
                 self.graph.activate(other_nid, 0.6)
         return schema_ids
