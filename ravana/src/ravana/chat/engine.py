@@ -920,6 +920,23 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # Plasticity engine for Hebbian learning and episodic triples
         self.plasticity = Plasticity(self.graph, base_lr=0.005)
 
+        # Phase 4: ConnectorLearner (learned connector->relation).
+        # Lazily-safe: if synaptic_dynamics is unavailable the engine
+        # degrades to the curated _EDGE_CONNECTORS map (no behavior change).
+        self._connector_learner = None
+        try:
+            from .synaptic_dynamics import ConnectorLearner
+            if self._glove_vector is not None:
+                self._connector_learner = ConnectorLearner(glove_fn=self._glove_vector)
+                # graph_concepts: (word, vec) pairs from the live graph
+                _gc = None
+                if hasattr(self.graph, "nodes"):
+                    _gc = [(w, self._glove_vector(w)) for w in self.graph.nodes
+                            if self._glove_vector(w) is not None]
+                self._connector_learner.initialize(graph_concepts=_gc)
+        except Exception:  # pragma: no cover - defensive
+            self._connector_learner = None
+
         # New cognitive modules (Phase 2-5)
         self.hippocampal_buffer = HippocampalBuffer(HippocampalConfig(max_facts=50, decay_turns=50))
         self.proposition_parser = PropositionParser()
@@ -991,13 +1008,22 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         self.hippocampal_replay = HippocampalReplay(capacity=200)
         self.register_controller = RegisterController(default_register="casual")
 
-        # Build reverse lookup from connector word → relation type
+        # Build reverse lookup from connector word → relation type.
+        # Cold-start: built entirely from curated _EDGE_CONNECTORS
+        # (today's behavior). If ConnectorLearner initialized with
+        # graph data, overlay its learned connectors on top (OOV
+        # connectors the hand map does not cover); the hand map stays
+        # the prior, so behavior is identical until real learning accrues.
         self._CONNECTOR_TO_REL: Dict[str, str] = {}
         for rel_type, tiers in self._EDGE_CONNECTORS.items():
             for entry in tiers:
                 options = entry[1] if isinstance(entry, tuple) and len(entry) == 2 else entry[2]
                 for opt in options:
                     self._CONNECTOR_TO_REL[opt] = rel_type
+        if self._connector_learner is not None and self._connector_learner._is_initialized:
+            for _w, _r in self._connector_learner.get_connector_to_rel().items():
+                if _w not in self._CONNECTOR_TO_REL:
+                    self._CONNECTOR_TO_REL[_w] = _r
         self._CONNECTOR_SET = set(self._CONNECTOR_TO_REL.keys())
 
         # Concepts that are grammatical/function words - should never be frame targets
