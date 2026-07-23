@@ -1610,6 +1610,32 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # discussed in).
             if _abs_date is None and _sess_date is not None:
                 _abs_date = _sess_date
+            # Phase 4: knowledge updates — when a new statement about a subject
+            # contains an update/retraction cue ("now", "quit", "left", "sold",
+            # "started at", "currently"), mark any earlier stored fact for that
+            # subject as superseded so recency-weighted retrieval returns the
+            # newest value by default (LongMemEval knowledge-update resolution).
+            _update_cue = any(c in user_input.lower() for c in (
+                " now ", "now ", " quit ", "quit ", " left ", "left ",
+                " sold ", "sold ", " started at ", "changed ", " no longer ",
+                " used to ", " i currently ", " i now ", "actually "))
+            if _update_cue:
+                try:
+                    # Scan facts under the subject AND every content-word alias
+                    # so an update phrased with a different head noun ("I sold my
+                    # phone and now ... iPhone") still supersedes the earlier
+                    # value keyed under "phone".
+                    _seen_ids = set()
+                    for _key in [subj] + aliases:
+                        for _prev in (self.hippocampal_buffer.retrieve(_key) or []):
+                            if id(_prev) in _seen_ids:
+                                continue
+                            _seen_ids.add(id(_prev))
+                            if (not _prev.superseded
+                                    and _prev.object != user_input[:120]):
+                                _prev.superseded = True
+                except Exception:
+                    pass
             self.hippocampal_buffer.store(
                 subject=subj,
                 predicate="is_about",

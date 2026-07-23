@@ -783,7 +783,10 @@ class ReasoningMixin:
             objtok = set(re.findall(r"[a-zA-Z']+", obj))
             objstem = {t.rstrip("s").rstrip("e").rstrip("ing")[:6] for t in objtok}
             overlap = len(attr_words & objtok) + 0.5 * len(attr_words & objstem)
-            return (overlap, f.confidence, f.turn_number)
+            # Phase 4: superseded facts (an updated/retracted earlier value) sort
+            # BELOW active ones so recency-wins for knowledge updates.
+            active = 0 if getattr(f, "superseded", False) else 1
+            return (active, overlap, f.confidence, f.turn_number)
 
         # If we have attribute words, prefer the best lexically-overlapping fact
         # (this is what fixes "what did Caroline *research*" selecting the research
@@ -797,9 +800,13 @@ class ReasoningMixin:
         if attr_words:
             ranked = sorted(facts, key=score, reverse=True)
             best = ranked[0]
-            if score(best)[0] > 0:
+            if score(best)[1] > 0:
                 return best.object
-        best_fact = max(facts, key=lambda f: f.confidence)
+        # Fallback: highest-confidence ACTIVE (non-superseded) fact; recency
+        # breaks ties so a knowledge update wins over the value it replaced.
+        best_fact = max(facts, key=lambda f: (
+            0 if getattr(f, "superseded", False) else 1,
+            f.confidence, f.turn_number))
         return best_fact.object
 
     def _phrase_recalled_fact(self, user_input: str, subject: str,
