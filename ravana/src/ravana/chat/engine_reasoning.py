@@ -725,16 +725,52 @@ class ReasoningMixin:
             return None
 
     def _try_hippocampal_retrieval(self, ctx) -> Optional[str]:
-        """Try to retrieve from hippocampal buffer for recall triggers."""
-        if not ctx.subject or not self._recall_mode:
+        """Try to retrieve a fact the user stated earlier this conversation.
+
+        Fix (LoCoMo / LongMemEval): this method used to hard-require
+        ``self._recall_mode`` (set only by the narrow _detect_recall_trigger,
+        which fires on EXPLICIT recall phrasing like "do you remember"). Direct
+        questions about a previously-mentioned subject ("what is wrong with my
+        car?", "when did I go to X?") never set recall_mode, so a stored fact was
+        never surfaced and the query fell through to a generic dictionary
+        definition. We now attempt retrieval whenever the query subject matches a
+        stored episodic fact; ``_recall_mode`` only boosts confidence. Returns
+        None (fail-open) when nothing matches, so fresh-engine benchmarks with an
+        empty buffer are unaffected.
+        """
+        if not getattr(ctx, "subject", None):
             return None
-        facts = self.hippocampal_buffer.retrieve(ctx.subject)
+        try:
+            facts = self.hippocampal_buffer.retrieve(ctx.subject)
+        except Exception:
+            return None
         if not facts:
             return None
-        # Return the highest-confidence fact (Fix 4: was `return None`, which
-        # threw away the retrieved memory — the retrieval path was dead).
+        # Highest-confidence fact wins (Fix 4: was `return None`, dead path).
         best_fact = max(facts, key=lambda f: f.confidence)
         return best_fact.object
+
+    def _phrase_recalled_fact(self, user_input: str, subject: str,
+                              fact_object: str) -> str:
+        """Phrase a recalled episodic fact as a natural answer.
+
+        ``fact_object`` is the stored utterance (e.g. "i went to the lgbtq
+        support group on 7 may 2023"). We echo it back conversationally rather
+        than dumping the raw triple, and normalise a leading first-person "i/my"
+        to "you/your" since the fact was something the USER told us.
+        """
+        text = (fact_object or "").strip()
+        if not text:
+            return "you mentioned that earlier, but i don't have the details."
+        # Flip first-person -> second-person so the recall reads naturally.
+        import re as _re
+        flipped = text
+        flipped = _re.sub(r"^\s*i\s+", "you ", flipped, flags=_re.IGNORECASE)
+        flipped = _re.sub(r"^\s*my\s+", "your ", flipped, flags=_re.IGNORECASE)
+        flipped = _re.sub(r"\bmy\b", "your", flipped)
+        flipped = _re.sub(r"\bI\b", "you", flipped)
+        return f"you told me earlier: {flipped}"
+
 
     def _is_self_disclosure_stmt(self, user_input: str) -> bool:
         """vmPFC-mimetic gate: detect first-person self-disclosure STATEMENTS.

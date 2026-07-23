@@ -67,6 +67,10 @@ from ravana.core.relation_memory import RelationMemory, RelationMemoryConfig
 from ravana.core.quantity_modifier import QuantityModifierSystem
 from ravana.core.situation_model import SituationModel
 from ravana.core.event_schema import EventSchemaLibrary
+from ravana.core.in_prompt_reasoner import (
+    answer_evaluative_framing,
+    answer_self_evaluation,
+)
 from ravana.ontology import DerivedOntology
 from ravana.ontology.conceptnet import ConceptNetOntology
 
@@ -1538,6 +1542,52 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             pass
         return set()
 
+    def _ingest_episodic(self, user_input: str, subject: str = "") -> None:
+        """Store a conversational statement in the hippocampal buffer so it can
+        be recalled on a later turn.
+
+        Root-cause fix (LoCoMo / LongMemEval): the assertion and
+        self-disclosure acknowledgment paths return EARLY (before the
+        store-before-recall block later in process_turn), so factual
+        statements the user made were acknowledged but NEVER written to the
+        recall-able episodic buffer -> multi-turn recall always failed.
+        This helper is invoked on those early-return statement paths so the
+        fact is persisted regardless of which acknowledgment branch handles it.
+
+        Idempotent and fail-open: the buffer dedupes identical triples, so
+        calling this and the later store block on the same turn is harmless.
+        """
+        try:
+            if not user_input:
+                return
+            content_words = [w.strip(".,!?;:") for w in user_input.lower().split()
+                             if len(w.strip(".,!?;:")) >= 3
+                             and w.strip(".,!?;:").isalpha()]
+            if not content_words:
+                return
+            # Fall back to the first content word as the subject key when the
+            # caller has not extracted one yet (e.g. the self-disclosure path
+            # fires before topic extraction).
+            subj = (subject or "").strip()
+            if not subj:
+                _skip = {"i", "you", "he", "she", "they", "we", "it", "my",
+                         "your", "his", "her", "their", "our"}
+                subj = next((w for w in content_words if w not in _skip),
+                            content_words[0])
+            aliases = list(content_words)
+            if hasattr(self, "user_model") and getattr(
+                    self.user_model, "user_name", ""):
+                aliases.append(self.user_model.user_name.lower())
+            self.hippocampal_buffer.store(
+                subject=subj,
+                predicate="is_about",
+                object=user_input[:120],
+                confidence=0.6,
+                aliases=aliases[:12],
+            )
+        except Exception:
+            pass
+
     def process_turn(self, user_input: str) -> str:
         """Process input and generate a response, auto-learning when needed."""
         # Guard: reject pure letter-salad so it is not treated as a concept and
@@ -1591,6 +1641,35 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     self._last_responses = self._last_responses[-10:]
                 self.notify_user_idle()
                 return _comb
+        except Exception:
+            pass
+
+        # ── R2: Evaluative framing / self-evaluation precheck ────────────
+        # Before the main pipeline (emotional, internal-knowledge, web),
+        # check if the question is about an evaluative dimension of a subject
+        # (beneficial/harmful/good/bad) or a meta-cognitive self-evaluation
+        # ("do you know everything about X"). These are handled by pure
+        # functions that never confabulate.
+        try:
+            _eval = answer_evaluative_framing(user_input)
+            if _eval is not None:
+                self._last_strategy = "evaluative_framing"
+                self._last_responses.append(_eval)
+                if len(self._last_responses) > 10:
+                    self._last_responses = self._last_responses[-10:]
+                self.notify_user_idle()
+                return _eval
+        except Exception:
+            pass
+        try:
+            _se = answer_self_evaluation(user_input)
+            if _se is not None:
+                self._last_strategy = "self_evaluation"
+                self._last_responses.append(_se)
+                if len(self._last_responses) > 10:
+                    self._last_responses = self._last_responses[-10:]
+                self.notify_user_idle()
+                return _se
         except Exception:
             pass
 
@@ -2031,6 +2110,9 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         if self._is_self_disclosure_stmt(user_input):
             _ack = self._process_self_disclosure_stmt(user_input)
             self._last_strategy = "self_disclosure"
+            # Root-cause recall fix: persist the disclosed fact to the
+            # hippocampal buffer before this path returns (see _ingest_episodic).
+            self._ingest_episodic(user_input)
             self._last_responses.append(_ack)
             if len(self._last_responses) > 10:
                 self._last_responses = self._last_responses[-10:]
@@ -2514,6 +2596,34 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     self._pending_learning_queue.append(_grounded_subj)
         relation = "is"
 
+        # ── Episodic recall (LoCoMo / LongMemEval root-cause fix) ──────────
+        # If the user is ASKING about a subject they told us about earlier in
+        # this conversation, surface the remembered fact BEFORE the generic
+        # definition / web path (which would otherwise answer "what is a car"
+        # with a dictionary entry instead of recalling "my car's GPS is
+        # broken"). Only fires for interrogatives with a subject that has a
+        # stored episodic fact; fail-open otherwise, so fresh-engine benchmarks
+        # (empty buffer) are unaffected.
+        try:
+            _is_question = user_input.strip().endswith("?") or bool(re.match(
+                r"^\s*(who|what|when|where|which|why|how|did|do|does|is|are|"
+                r"was|were|had|has|have|will|would|could|can)\b",
+                user_input.strip().lower()))
+            if _is_question and subject:
+                _mem = self._try_hippocampal_retrieval(
+                    type("Ctx", (), {"subject": subject})())
+                if _mem:
+                    _resp = self._phrase_recalled_fact(user_input, subject, _mem)
+                    self._last_strategy = "hippocampal_recall"
+                    self._last_responses.append(_resp)
+                    if len(self._last_responses) > 10:
+                        self._last_responses = self._last_responses[-10:]
+                    self.notify_user_idle()
+                    return _resp
+        except Exception:
+            pass
+
+
         # Step 2b: Primary IDs — only these concepts spread activation
         # (other input-matched concepts provide context but don't propagate)
         subject_ids = set()
@@ -2791,6 +2901,9 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             assertion_response = self._handle_assertion(user_input, subject)
             if assertion_response:
                 self._last_strategy = "assertion"
+                # Root-cause recall fix: persist the asserted fact to the
+                # hippocampal buffer before this path returns.
+                self._ingest_episodic(user_input, subject)
                 self._last_responses.append(assertion_response)
             if len(self._last_responses) > 10:
                 self._last_responses = self._last_responses[-10:]
