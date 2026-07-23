@@ -82,7 +82,27 @@ from .constants import (TEEN_CONCEPTS, WEB_GARBAGE, STOP_WORDS, ConceptPosDict,
                         _is_word_salad, _is_keyboard_mash,
                         _UNIVERSAL_PURGE, _DEFINITION_ASSERTION)
 from .web_learning import WebLearningMixin
-# Defect F: learned structural-PE snippet model (contrastive gap). Imported
+try:
+    from .harm_intent_gate import HarmIntentGate
+    _HAS_HARM_GATE = True
+except Exception:  # pragma: no cover - defensive
+    HarmIntentGate = None
+    _HAS_HARM_GATE = False
+
+try:
+    from .support_router import SupportRouter
+    _HAS_SUPPORT_ROUTER = True
+except Exception:  # pragma: no cover - defensive
+    SupportRouter = None
+    _HAS_SUPPORT_ROUTER = False
+
+try:
+    from .consistency_monitor import ConsistencyMonitor
+    _HAS_CONSISTENCY = True
+except Exception:  # pragma: no cover - defensive
+    ConsistencyMonitor = None
+    _HAS_CONSISTENCY = False
+
 # lazily-safe so a missing module degrades gracefully (the gate stays None and
 # the old heuristic floor remains the backstop, never weakened).
 try:
@@ -1167,6 +1187,38 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # / "wassup" collapse to one greeting centroid via contraction
         # normalization; ABSTAIN_K floor gives fail-closed degradation.
         self._social_intent = SocialIntentClassifier(vector_fn=self._glove_vector)
+        # Pre-generation harm-intent gate (safety first). Built lazily;
+        # if the glove vectors aren't ready yet it stays None and the
+        # gate is skipped (fail-open) until the next turn rebuilds it.
+        self._harm_intent_gate = None
+        if _HAS_HARM_GATE and self._glove_vector is not None:
+            try:
+                self._harm_intent_gate = HarmIntentGate(glove_fn=self._glove_vector)
+            except Exception:
+                self._harm_intent_gate = None
+
+        # Support / advice router (consultation for wellbeing & how-to).
+        # Built lazily; stays None (fail-open) until glove is ready.
+        self._support_router = None
+        if _HAS_SUPPORT_ROUTER and self._glove_vector is not None:
+            try:
+                self._support_router = SupportRouter(glove_fn=self._glove_vector)
+            except Exception:
+                self._support_router = None
+
+        # Cross-turn self-consistency monitor (post-generation check).
+        # Built lazily; stays None (fail-open) until glove is ready.
+        self._consistency_monitor = None
+        if _HAS_CONSISTENCY and self._glove_vector is not None:
+            try:
+                _cmap = getattr(self.chain_walker, "_contradiction_map", None)
+                self._consistency_monitor = ConsistencyMonitor(
+                    glove_fn=self._glove_vector,
+                    contradiction_map=dict(_cmap) if _cmap else None,
+                    mode="annotate")
+            except Exception:
+                self._consistency_monitor = None
+
         self._proper_nouns = set()
         # Concepts bootstrapped with AUTHORED typed relations (the project's own
         # proper nouns: oxiverse / intentforge / ravana). These are the ONLY
@@ -1497,7 +1549,33 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 self._last_responses = self._last_responses[-10:]
             return resp
 
-        # ── R1: combined "premises + question" interception ─────────────
+        # ── R0b: Pre-generation HARM-INTENT gate (safety first) ─────
+        # Runs BEFORE any routing / grounding / web fetch. The legacy
+        # safety_valence only screened *web-learned definitions* for
+        # profane slur tokens — it never saw user input, so harmful-intent
+        # requests ("i drank bleach", "complete this offensively") had no
+        # classifier. This gate catches them and emits a safe reply
+        # (health crisis -> crisis-line redirect; stereotype/jailbreak ->
+        # refusal) without reaching the generative pipeline. Fail-open:
+        # if the gate is None (glove not ready) we simply skip it.
+        try:
+            _hig = getattr(self, "_harm_intent_gate", None)
+            if _hig is not None:
+                _hres = _hig.check(user_input)
+                if _hres:
+                    self._last_strategy = "harm_intent_gate"
+                    _resp = _hres.response
+                    self._last_responses.append(_resp)
+                    if len(self._last_responses) > 10:
+                        self._last_responses = self._last_responses[-10:]
+                    self.notify_user_idle()
+                    return _resp
+        except Exception:
+            # a gate exception must NEVER block the turn or leak unguarded
+            # text — fall through to the normal pipeline.
+            pass
+
+        # ── R1: combined "premises + question" interception ──────────
         # MUST run before the self-disclosure block (line ~1889) which
         # would otherwise catch "my favorite X is Y" / "my pet dog is
         # named Y" as a standalone disclosure and echo the trailing
@@ -1910,8 +1988,36 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     self._last_responses = self._last_responses[-10:]
                 self.notify_user_idle()
                 return _ack
+
+        except Exception:
+            # Empathy/reaction block fails closed — never let an exception
+            # leak unguarded text; fall through to the normal pipeline.
+            pass
+
+        # ── R1b: Support / advice router (consultation) ──────────
+        # Issue 2 (confirmed): advice/support questions ("I feel
+        # stressed, healthy ways?") ground to low-confidence
+        # multi_word_unconnected and fall through to
+        # _human_like_uncertainty ("outside what I know"). This
+        # router detects a support/advice intent and routes it to the
+        # (now-working) web learner, returning a source-trusted
+        # snippet with an epistemic hedge. Fail-open: if the
+        # router is None or returns None, the turn proceeds normally.
+        try:
+            _sr = getattr(self, "_support_router", None)
+            if _sr is not None:
+                _support = _sr.route_support(self, user_input)
+                if _support:
+                    self._last_strategy = "support_web"
+                    self._last_responses.append(_support)
+                    if len(self._last_responses) > 10:
+                        self._last_responses = self._last_responses[-10:]
+                    self.notify_user_idle()
+                    return _support
         except Exception:
             pass
+
+        # ── Human-Likeness Plan (A1 + A1b): vmPFC self-disclosure gate ──
 
         # ── Human-Likeness Plan (A1 + A1b): vmPFC self-disclosure gate ──────
         # MUST fire BEFORE the frontopolar (BA 10) feasibility gate. In humans,
@@ -2728,9 +2834,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 self._last_responses.append(resp)
                 if len(self._last_responses) > 10:
                     self._last_responses = self._last_responses[-10:]
-                self.notify_user_idle()
                 return resp
-
 
         confidence = self.identity.state.strength * 0.5 + 0.2
         route = self.dual_process.decide_route(
@@ -3280,6 +3384,21 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             except Exception:
                 response = "i'm still learning — want to explore that together?"
 
+        # ── Post-generation cross-turn consistency monitor ─────
+        # Issue 3 (confirmed): no existing module watches the AGENT's
+        # own generated claims across turns. This NO-LLM monitor extracts
+        # claims from the final response, checks them against a rolling
+        # buffer, and (in 'annotate' mode) prefixes a soft consistency
+        # note when a genuine contradiction is detected. Fail-open: if
+        # the monitor is None or raises, the response is unchanged.
+        try:
+            _cm = getattr(self, "_consistency_monitor", None)
+            if _cm is not None and isinstance(response, str) and response:
+                _cr = _cm.check(response, self.turn_count)
+                if _cr.conflict_detected:
+                    response = _cm.resolve(response, _cr)
+        except Exception:
+            pass
 
         try:
             for hops_list in self._last_chain_hops:
