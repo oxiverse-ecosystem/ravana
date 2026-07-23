@@ -1689,6 +1689,34 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 self._last_strategy = "session_date"
                 return "(noted)"
 
+        # ── Temporal cloze task-set (TimeDial format) ────────────────────────
+        # A dialog containing a masked blank ("________") plus candidate
+        # options is a SELECTION task, not open generation (PFC task-set
+        # switching: recognize the format, recruit the parietal magnitude
+        # comparator). Handled before generic routing because the cloze text
+        # contains many interrogatives that would misroute. Fail-open: no
+        # blank or no options -> normal pipeline.
+        if "________" in (user_input or "") or "<mask>" in (user_input or "").lower():
+            try:
+                from ravana.core.temporal_cloze import solve_cloze
+                _blank = "________" if "________" in user_input else "<MASK>"
+                _m_opts = re.search(r"options?\s*:\s*(.+)$", user_input,
+                                    re.IGNORECASE | re.DOTALL)
+                if _m_opts:
+                    _opts = [o.strip() for o in
+                             re.split(r"[;\n]|(?:^|\s)[A-E][.)]\s", _m_opts.group(1))
+                             if o and o.strip()]
+                    if len(_opts) >= 2:
+                        _idx, _score, _why = solve_cloze(
+                            user_input[:_m_opts.start()], _opts, _blank)
+                        self._last_strategy = "temporal_cloze"
+                        _resp = _opts[_idx]
+                        self._last_responses.append(_resp)
+                        if len(self._last_responses) > 10:
+                            self._last_responses = self._last_responses[-10:]
+                        return _resp
+            except Exception:
+                pass
 
         # ── R0b: Pre-generation HARM-INTENT gate (safety first) ─────
         # Runs BEFORE any routing / grounding / web fetch. The legacy

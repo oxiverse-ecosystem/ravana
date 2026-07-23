@@ -244,7 +244,16 @@ def _load_timedial(max_cases: int = 200) -> list:
         
         full_dialog = "\n".join(conv)
         question_text = full_dialog.replace("<MASK>", "________")
-        question_text += "\n\nWhat word or phrase goes in the blank?"
+        # Official TimeDial is CANDIDATE SELECTION (plausibility over 4
+        # options), not free-form generation — present the options, shuffled
+        # deterministically so position carries no signal.
+        opts = [answer_text, other_correct] + incorrect_options
+        opts = [o.strip() for o in opts
+                if o and o.strip() and o.strip().lower() != "none"]
+        import random as _random
+        _random.Random(len(cases)).shuffle(opts)
+        question_text += ("\n\nWhat word or phrase goes in the blank?"
+                          " Options: " + "; ".join(opts))
         
         def make_grader(correct=answer_text, other=other_correct):
             return lambda r: (1.0 if correct.lower().strip() in (r or "").lower()
