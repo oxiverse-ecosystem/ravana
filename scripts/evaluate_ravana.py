@@ -874,6 +874,20 @@ def run_benchmark_category(engine, category_key: str, category: dict) -> dict:
         
         # Prime memory by feeding conversation turns if provided
         primer_turns = case.get("primer", [])
+        if primer_turns:
+            # Scale the hippocampal buffer to the history being fed. The
+            # engine's default (max_facts=50, decay_turns=50) is calibrated
+            # for interactive chat; multi-session benchmarks feed 400-1300
+            # turns, and with the default the trimmer/decay would delete
+            # everything but the tail before the questions arrive — measuring
+            # capacity misconfiguration, not memory ability. Derived from the
+            # data scale (2x/4x the fed history), not a hand-picked constant.
+            try:
+                cfg = engine.hippocampal_buffer.config
+                cfg.max_facts = max(cfg.max_facts, 2 * len(primer_turns))
+                cfg.decay_turns = max(cfg.decay_turns, 4 * len(primer_turns))
+            except Exception:
+                pass
         for turn in primer_turns:
             try:
                 engine.process_turn(turn)
