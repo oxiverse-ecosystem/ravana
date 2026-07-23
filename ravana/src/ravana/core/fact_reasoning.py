@@ -205,7 +205,8 @@ def conditional_answer(question: str,
     rule_text = fact_sets[best_i][1]
     # Extract the condition clause from the rule text.
     cm = re.search(
-        r"\b(?:only\s+)?(?:when(?:ever)?|if|after|while)\b(.{4,120})",
+        r"\b(?:only\s+)?(?:when(?:ever)?|if|after|while|during|unless|"
+        r"upon)\b(.{4,120})",
         rule_text, re.IGNORECASE)
     cond_words = content_words(cm.group(1)) if cm else set()
     # Context = the part of the question before the conditional verb.
@@ -267,7 +268,7 @@ def conditional_answer(question: str,
 
 
 _ENUM_Q = re.compile(
-    r"\b(?:which|what)\b.{0,80}\b(?:should|do|can|could|would)\s+i\b",
+    r"\b(?:which|what)\b.{0,80}\b(?:should|do|can|could|would)\b",
     re.IGNORECASE)
 
 
@@ -329,14 +330,21 @@ _NAME_STOP = {
 
 
 def _person_names(text: str) -> List[Tuple[str, str]]:
-    """First-Last capitalized pairs that look like person names — leading
-    question/auxiliary words are excluded so 'Would Maya' is not a name."""
+    """First-Last capitalized pairs that look like person names.
+
+    Tokenizes capitalized words with positions, drops question/auxiliary
+    words, then pairs ADJACENT survivors — so 'Would Maya Patel enjoy'
+    yields ('Maya', 'Patel'), not the greedy regex's ('Would', 'Maya')
+    which both consumed Maya and hid the real name."""
+    toks = [(m.start(), m.group(0))
+            for m in re.finditer(r"\b[A-Z][a-z]{2,}\b", text or "")]
+    kept = [(pos, w) for pos, w in toks if w not in _NAME_STOP]
     out = []
-    for first, last in re.findall(
-            r"\b([A-Z][a-z]{2,})\s+([A-Z][a-z]{2,})\b", text or ""):
-        if first in _NAME_STOP or last in _NAME_STOP:
-            continue
-        out.append((first, last))
+    for (p1, w1), (p2, w2) in zip(kept, kept[1:]):
+        # adjacent in the original text (only whitespace between)
+        between = (text or "")[p1 + len(w1):p2]
+        if between.strip() == "":
+            out.append((w1, w2))
     return out
 
 

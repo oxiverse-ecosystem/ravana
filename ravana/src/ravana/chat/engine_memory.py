@@ -140,6 +140,8 @@ from ravana.core.hrr_reasoner import HRRReasoner
 from ravana.core.in_prompt_reasoner import (
     answer_in_prompt_causal,
     answer_universal_syllogism,
+    answer_evaluative_framing,
+    answer_self_evaluation,
 )
 from ravana.core.temporal_reasoner import answer_temporal
 

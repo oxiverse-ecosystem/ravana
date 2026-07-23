@@ -224,7 +224,7 @@ class SnippetStructureModel:
         _gaps_junk = [self._good_model.structural_pe(s) - self._junk_model.structural_pe(s)
                       for s in junk_snippets if len(self._wtokens(s)) >= 3]
         if _gaps_good and _gaps_junk:
-            self._gap_theta = (max(_gaps_good) + min(_gaps_junk)) / 2.0
+            self._gap_theta = min(0.0, (max(_gaps_good) + min(_gaps_junk)) / 2.0)
         else:
             self._gap_theta = 0.0
 

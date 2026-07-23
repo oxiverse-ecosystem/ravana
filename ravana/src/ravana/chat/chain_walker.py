@@ -599,19 +599,21 @@ class ChainWalkerMixin:
         if not text_lower:
             return 0
 
-        # Skip interrogative input: questions ask about causality, they don't
-        # assert it. Parsing "what happens if X?" as "happens → X" would create
-        # spurious edges that derail the chain walk.
-        if text_lower.endswith("?") or re.match(
-            r'^(what|who|where|when|why|how|which|whose|whom|'
-            r'do(es|id)?|is|are|was|were|can|could|will|would|'
-            r'shall|should|may|might|must|have|has|had)\b', text_lower):
-            return 0
-
         edges_created = 0
-        sentences = [s.strip() for s in re.split(r'[.!?]+', text_lower) if s.strip()]
+        # Split text into sentences using standard punctuation first
+        sentences = [s.strip() for s in re.split(r'[.!?\n]+', text_lower) if s.strip()]
 
         for sentence in sentences:
+            # Skip individual interrogative sentences (questions), but process assertions!
+            if sentence.endswith("?") or (
+                re.match(
+                    r'^(what|who|where|why|how|which|whose|whom|'
+                    r'do(es|id)?|is|are|was|were|can|could|will|would|'
+                    r'shall|should)\b', sentence
+                )
+                and not (sentence.endswith(".") or sentence.endswith("!"))
+            ):
+                continue
             words = list(re.finditer(r'[A-Za-z]+', sentence))
             for match in words:
                 word = match.group()

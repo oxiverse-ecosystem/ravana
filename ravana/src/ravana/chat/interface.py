@@ -171,6 +171,7 @@ class ChatInterface:
 
         # Graph engine (handles GloVe internally)
         self.graph_engine = GraphEngine(dim=dim, seed=self.config.seed)
+        self.graph_engine._promote_min_sources = 2
 
         # Decoder engine
         self.decoder_engine = DecoderEngine(DecoderConfig(embed_dim=dim))

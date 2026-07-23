@@ -951,6 +951,16 @@ def run_benchmark_category(engine, category_key: str, category: dict) -> dict:
         # Prime memory by feeding conversation turns if provided
         primer_turns = case.get("primer", [])
         if primer_turns:
+            # Fresh episodic slate per case UNLESS the case opts out
+            # (LoCoMo feeds one dialogue across many cases via
+            # keep_memory=True on followers). Without this, facts from
+            # case N-1's persona leak into case N and cued recall answers
+            # from the WRONG entity's facts.
+            if not case.get("keep_memory", False):
+                try:
+                    engine.hippocampal_buffer.facts.clear()
+                except Exception:
+                    pass
             # Scale the hippocampal buffer to the history being fed. The
             # engine's default (max_facts=50, decay_turns=50) is calibrated
             # for interactive chat; multi-session benchmarks feed 400-1300

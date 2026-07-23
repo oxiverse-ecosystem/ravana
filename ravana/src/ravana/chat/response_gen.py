@@ -4225,9 +4225,8 @@ class ResponseGenMixin(ChainWalkerMixin):
             "were", "was", "could", "would", "should", "can", "will",
             "do", "does", "did", "have", "has", "had", "be", "is", "are",
             "different", "same", "alive", "dead", "real", "true", "instead",
-            "stop", "stopped", "stops", "switch", "switched", "turn", "turned",
-            "break", "broke", "broke", "fall", "fell",
-            "disappear", "disappeared",
+            "stop", "stopped", "stops", "switch", "switched",
+            "break", "broke", "fall", "fell",
             # B5: verb forms of the intervention predicate must never surface as
             # a *consequence* (e.g. "gravity would lead to working"). "work" is
             # the predicate in "gravity stopped working", not a knock-on effect.
@@ -4280,6 +4279,63 @@ class ResponseGenMixin(ChainWalkerMixin):
         # entity is the first real content noun AFTER the opener (gravity,
         # humans). Strip the opener, then prefer a content noun that is NOT the
         # modal verb itself.
+        # Prioritize resolving the start concept from the question sentences if multiple sentences exist.
+        # This prevents resolving to static nouns from the fact premises
+        # (e.g. "lamp" in "Facts: 1. A lamp...") instead of the actual
+        # intervention action in the question ("What happens if you turn on the lamp?").
+        _resolved_from_question = False
+        _raw_sentences = [s.strip() for s in re.split(r'[.!?\n]+', _raw) if s.strip()]
+        _question_sentences = []
+        for _s in _raw_sentences:
+            if _s.endswith("?") or re.match(
+                r'^(what|who|where|when|why|how|which|whose|whom|'
+                r'do(es|id)?|is|are|was|were|can|could|will|would|'
+                r'shall|should)\b', _s.lower()
+            ):
+                _question_sentences.append(_s)
+
+        if _question_sentences:
+            _q_text = " ".join(_question_sentences)
+            _q_strip = re.sub(
+                r"^(imagine|suppose|assume|what if|if|say|pretend|what happens if|what would happen if)\b[\s,]*"
+                r"(?:that\s+|if\s+|we\s+|you\s+|they\s+|he\s+|she\s+|it\s+)?",
+                "", _q_text.lower().strip())
+            _q_nouns = [w for w in re.findall(r"[a-z']+", _q_strip)
+                        if w not in STOP_WORDS and w not in _VERB_BLOCK
+                        and len(w) > 2]
+            for w in _q_nouns:
+                _variants = [w]
+                if w.endswith('e'):
+                    _variants.extend([w + "d", w + "s"])
+                else:
+                    _variants.extend([w + "ed", w + "s", w + "ing"])
+                if w.endswith('y') and len(w) > 3:
+                    _variants.append(w[:-1])
+                if w.endswith('s') and len(w) > 3:
+                    _variants.append(w[:-1])
+                if w.endswith('ed') and len(w) > 3:
+                    _variants.append(w[:-2])
+
+                _found = False
+                for _v in _variants:
+                    _vl = _v.lower().strip()
+                    if _vl in _ck:
+                        _nids = _ck[_vl]
+                        if _nids:
+                            for _nid in _nids:
+                                for _onid, _edge in self.graph.get_outgoing(_nid):
+                                    if _edge.relation_type == "causal":
+                                        start = _vl
+                                        _found = True
+                                        _resolved_from_question = True
+                                        break
+                                if _found:
+                                    break
+                    if _found:
+                        break
+                if _found:
+                    break
+
         if not start:
             _opener_strip = re.sub(
                 r"^(imagine|suppose|assume|what if|if|say|pretend)\b[\s,]*"
@@ -4289,17 +4345,84 @@ class ResponseGenMixin(ChainWalkerMixin):
             _after_nouns = [w for w in re.findall(r"[a-z']+", _opener_strip)
                             if w not in STOP_WORDS and w not in _VERB_BLOCK
                             and len(w) > 2]
-            # Prefer a noun that is a real graph concept; else the first
-            # content noun after the opener (skip the modal verb itself).
+            # Prefer a noun (or its inflected variant) that is a real graph concept and has causal edges;
+            # else just a real graph concept; else the first content noun after the opener.
             for w in _after_nouns:
-                if w in _ck:
-                    start = w
+                _variants = [w]
+                if w.endswith('e'):
+                    _variants.extend([w + "d", w + "s"])
+                else:
+                    _variants.extend([w + "ed", w + "s", w + "ing"])
+                if w.endswith('y') and len(w) > 3:
+                    _variants.append(w[:-1])
+                if w.endswith('s') and len(w) > 3:
+                    _variants.append(w[:-1])
+                if w.endswith('ed') and len(w) > 3:
+                    _variants.append(w[:-2])
+                
+                _found = False
+                for _v in _variants:
+                    _vl = _v.lower().strip()
+                    if _vl in _ck:
+                        _nids = _ck[_vl]
+                        if _nids:
+                            for _nid in _nids:
+                                for _onid, _edge in self.graph.get_outgoing(_nid):
+                                    if _edge.relation_type == "causal":
+                                        start = _vl
+                                        _found = True
+                                        break
+                                if _found:
+                                    break
+                    if _found:
+                        break
+                if _found:
                     break
+
+            if not start:
+                for w in _after_nouns:
+                    if w in _ck:
+                        start = w
+                        break
             if not start and _opened and _after_nouns:
                 start = _after_nouns[0]
-        # Fallback candidate order: a query noun that exists in the graph,
+        # Fallback candidate order: a query noun (or its variants) that has causal edges,
+        # else a query noun that exists in the graph,
         # else the parsed subject only if it is itself a content noun
         # (not a verb), else the first salient query noun.
+        if not start:
+            for w in _query_nouns:
+                _variants = [w]
+                if w.endswith('e'):
+                    _variants.extend([w + "d", w + "s"])
+                else:
+                    _variants.extend([w + "ed", w + "s", w + "ing"])
+                if w.endswith('y') and len(w) > 3:
+                    _variants.append(w[:-1])
+                if w.endswith('s') and len(w) > 3:
+                    _variants.append(w[:-1])
+                if w.endswith('ed') and len(w) > 3:
+                    _variants.append(w[:-2])
+                
+                _found = False
+                for _v in _variants:
+                    _vl = _v.lower().strip()
+                    if _vl in _ck:
+                        _nids = _ck[_vl]
+                        if _nids:
+                            for _nid in _nids:
+                                for _onid, _edge in self.graph.get_outgoing(_nid):
+                                    if _edge.relation_type == "causal":
+                                        start = _vl
+                                        _found = True
+                                        break
+                                if _found:
+                                    break
+                    if _found:
+                        break
+                if _found:
+                    break
+
         if not start:
             for w in _query_nouns:
                 if w in _ck:
@@ -4354,9 +4477,19 @@ class ResponseGenMixin(ChainWalkerMixin):
         _svec = self._glove_vector(start) if hasattr(self, "_glove_vector") else None
         lines = []
         _coh_scores = []
+        has_local_fact = False
         for ch in chains[:3]:
             parts = [p.strip() for p in ch.split("→")]
-            if len(parts) < 3:
+            _local_fact = False
+            if len(parts) >= 2:
+                _uid = self._concept_keywords.get(parts[0].lower(), [None])[0]
+                _vid = self._concept_keywords.get(parts[-1].lower(), [None])[0]
+                _edge = self.graph.get_edge(_uid, _vid) if (_uid is not None and _vid is not None) else None
+                if _edge and _edge.weight >= 0.70:
+                    _local_fact = True
+                    has_local_fact = True
+
+            if len(parts) < 3 and not _local_fact:
                 # single-hop association, not a deduced consequence
                 continue
             a, b = parts[0], parts[-1]
@@ -4378,6 +4511,14 @@ class ResponseGenMixin(ChainWalkerMixin):
             _coherent = True
             _chain_coh = []
             for _i in range(len(parts) - 1):
+                _uid = self._concept_keywords.get(parts[_i].lower(), [None])[0]
+                _vid = self._concept_keywords.get(parts[_i + 1].lower(), [None])[0]
+                _edge = self.graph.get_edge(_uid, _vid) if (_uid is not None and _vid is not None) else None
+                # If it's a high-weight edge (local fact / belief), bypass GloVe check!
+                if _edge and _edge.weight >= 0.70:
+                    _chain_coh.append(0.5) # dummy high score
+                    continue
+
                 _u, _v = self._glove_vector(parts[_i]), self._glove_vector(parts[_i + 1])
                 if _u is None or _v is None:
                     continue
@@ -4418,7 +4559,7 @@ class ResponseGenMixin(ChainWalkerMixin):
         # caller falls through to the hedged-candidate / honest-uncertainty path
         # rather than emitting a thin "X would lead to A; X would lead to B" fan.
         _cascades = [ln for ln in lines if ln.count("would lead to") >= 2]
-        if not _cascades and len(lines) >= 1:
+        if not _cascades and len(lines) >= 1 and not has_local_fact:
             _heads = {ln.split(" would lead to")[0].strip().lower() for ln in lines}
             if len(_heads) <= 1:
                 if getattr(self, '_trace_enabled', False):

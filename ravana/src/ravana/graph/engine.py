@@ -328,6 +328,7 @@ class GraphEngine:
         self._concept_pos: Dict[str, str] = {}
         self._concept_sources: Dict[str, Set[str]] = {}
         self._all_labels: Dict[str, int] = {}
+        self._promote_min_sources: int = 1
 
         # Dormant edges (auto-wired but not visited)
         self._dormant_edges: Set[Tuple[int, int]] = set()

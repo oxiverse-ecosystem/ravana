@@ -1370,7 +1370,8 @@ class WebLearningMixin(ResponseGenMixin):
         # First pass through the shared snippet cleaner so identifier/reference
         # residue (e.g. a truncated "doi: 10.") is removed here too — the store
         # path and the direct-answer path must share one sanitiser.
-        s = self._clean_snippet(text)
+        clean_fn = getattr(self, "_clean_snippet", None)
+        s = clean_fn(text) if callable(clean_fn) else _clean_snippet(text)
         if not s:
             return None
         # Trim a "SUBJECT definition:" / "SUBJECT:" title-echo prefix. Some

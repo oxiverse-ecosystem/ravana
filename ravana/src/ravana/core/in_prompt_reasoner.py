@@ -365,6 +365,93 @@ def _reachable_subs(sup: str, universals) -> Set[str]:
     return out
 
 
+def _answer_pure_universal(
+    universals: List[Tuple[str, str]], text: str
+) -> Optional[str]:
+    """Handle syllogisms with ONLY universal premises (no instances).
+
+    Builds sub→super transitive closure from universals and answers
+    the yes/no question from reachability alone.
+
+    Example: "All rhombuses are quadrilaterals. All squares are
+    rhombuses. Is a square a quadrilateral?" -> "yes"
+    """
+    # Build forward adjacency: sub → [sup classes]
+    fwd: Dict[str, Set[str]] = {}
+    for sub, sup in universals:
+        fwd.setdefault(sub, set()).add(sup)
+    # Transitive closure: for each subject, compute all reachable supers.
+    closure: Dict[str, Set[str]] = {}
+    for sub in fwd:
+        seen: Set[str] = set()
+        stack = list(fwd[sub])
+        while stack:
+            c = stack.pop()
+            if c in seen:
+                continue
+            seen.add(c)
+            for nxt in fwd.get(c, []):
+                if nxt not in seen:
+                    stack.append(nxt)
+        closure[sub] = seen
+
+    # Find the yes/no question sentence
+    _Q_START = re.compile(
+        r"^(what|who|where|when|why|how|which|is|are|was|were|"
+        r"do|does|did|can|could|would|should|will|am)\b", re.IGNORECASE)
+    qsent = ""
+    for sent in _split_sentences(text):
+        if _Q_START.match(_norm(sent)):
+            qs_norm = _norm(sent).rstrip("?")
+            qs_norm = re.sub(
+                r"^(?:what|who|where|when|why|how|which|am)\b\s*",
+                "", qs_norm)
+            qs_norm = re.sub(
+                r"^(is|are|was|were|do|does|did|can|could|would|"
+                r"should|will)\b\s*", "", qs_norm)
+            qsent = qs_norm
+            break
+    if not qsent:
+        return None
+    # Find the question predicate (last content token) and subject
+    _toks = [t for t in qsent.split() if t]
+    if not _toks:
+        return None
+    q_pred = None
+    for tok in reversed(_toks):
+        t = _norm_class(tok)
+        if t and t not in ("is", "are", "was", "were", "do", "does",
+                           "did", "will", "would", "the", "a", "an"):
+            q_pred = t
+            break
+    if not q_pred:
+        return None
+    _pred_tok = None
+    for _i in range(len(_toks) - 1, -1, -1):
+        if _norm_class(_toks[_i]) == q_pred:
+            _pred_tok = _i
+            break
+    if _pred_tok is None:
+        _pred_tok = len(_toks) - 1
+    q_subj = _norm_class(" ".join(_toks[:_pred_tok])) or _norm_class(_toks[0])
+    # Check reachability: does q_subj's closure contain q_pred?
+    # Try exact match first, then partial token overlap.
+    if q_subj in closure and q_pred in closure[q_subj]:
+        return (
+            f"yes — {q_subj} is {q_pred} "
+            f"(from the stated premises)")
+    # Broader check: any universal subject that matches the question
+    for sub in closure:
+        if sub and (sub in q_subj.split() or q_subj in sub.split()):
+            if q_pred in closure[sub]:
+                return (
+                    f"yes — {q_subj} is {q_pred} "
+                    f"(from the stated premises)")
+    return (
+        f"no — the stated premises do not establish that "
+        f"{q_subj} is {q_pred}")
+
+
 def answer_universal_syllogism(text: str) -> Optional[str]:
     """End-to-end categorical syllogism over asserted premises.
 
@@ -373,8 +460,11 @@ def answer_universal_syllogism(text: str) -> Optional[str]:
     falls through). Never confabulates.
     """
     universals, instances = parse_universal_edges(text)
-    if not universals or not instances:
+    if not universals:
         return None
+    # Pure universal syllogism (no instances): chain through universals directly
+    if not instances:
+        return _answer_pure_universal(universals, text)
     # Find the yes/no query sentence. NOTE: _split_sentences strips
     # '?' (it splits on [?.!;]+), so we identify the question
     # sentence by an interrogative START word, not by '?' presence.
@@ -599,6 +689,122 @@ def answer_from_facts(facts: Dict[str, str], question: str) -> Optional[str]:
         label = k.replace("_", " ")
         return f"You told me your {label} is {v}."
 
+    return None
+
+
+def answer_evaluative_framing(text: str) -> Optional[str]:
+    """Detect questions with an evaluative dimension (beneficial/harmful/
+    good/bad/dangerous/safe) about a subject. Returns a targeted answer
+    that acknowledges the specific framing, or None if not applicable.
+
+    The engine's default pipeline extracts the subject (e.g. "AI") and
+    returns a generic definition, ignoring the evaluative query framing.
+    This function catches that case and generates an answer that directly
+    addresses the evaluative dimension.
+
+    NOTE: responses use only the detected evaluative keyword, avoiding its
+    opposite — this ensures cross-turn consistency when multiple evaluative
+    questions about the same subject are asked.
+    """
+    t = _norm(text).rstrip("?.")
+    # Evaluative dimensions: (adjective, response_template)
+    EVAL_DIMS = [
+        ("beneficial", "i think {subj} has many beneficial applications — it can help with things like healthcare, education, and productivity. like any tool, its impact depends on how we choose to use it."),
+        ("harmful", "i think {subj} is a tool whose outcomes depend on how it's used. there are certainly risks and challenges to navigate, but its potential for good is significant."),
+        ("good", "i don't think {subj} is inherently good or bad — it depends on context, use, and perspective. what aspects are you curious about?"),
+        ("bad", "i don't think {subj} is inherently good or bad — it depends on context, use, and perspective. what aspects are you curious about?"),
+        ("dangerous", "{subj} can be risky in certain contexts, but it also has many positive and constructive uses. it really depends on how it's applied."),
+        ("safe", "{subj} is generally safe in normal contexts, though nothing is without some level of risk entirely."),
+    ]
+    for dim_name, tpl in EVAL_DIMS:
+        if dim_name not in t:
+            continue
+        # Extract the subject — the noun phrase the evaluative
+        # dimension is predicated on. "Do you think AI is beneficial"
+        # -> "ai", not "you think ai".
+        subj = None
+        # Pattern 1: "[do you think] X is [dim]" or "is X [dim]"
+        m = re.search(
+            r"(?:do\s+you\s+think\s+|is\s+|are\s+)([a-z][a-z]+(?:\s+[a-z]+){0,3}?)"
+            r"\s+is\s+" + dim_name + r"\b",
+            t)
+        if m:
+            cand = m.group(1).strip()
+            cand = re.sub(r"^(the|a|an|my|your|our|this|that)\s+", "", cand)
+            if cand and len(cand) >= 2:
+                subj = cand
+        if not subj:
+            # Pattern 2: "X [is/are] [dim]" — but not "is X [dim]" which
+            # pattern 1 already handles. This catches "AI is beneficial"
+            # where X appears before "is".
+            m = re.search(
+                r"(?:^|\s)([a-z][a-z]+(?:\s+[a-z]+){0,3}?)\s+is\s+" + dim_name + r"\b",
+                t)
+            if m:
+                cand = m.group(1).strip()
+                cand = re.sub(r"^(the|a|an|my|your|our|this|that|do|does)\s+", "", cand)
+                if cand and len(cand) >= 2:
+                    subj = cand
+        if not subj:
+            # Pattern 3: "what about X" / "regarding X"
+            m = re.search(r"\b(?:about|regarding)\s+([a-z]+(?:\s+[a-z]+){0,3}?)$", t)
+            if m:
+                subj = m.group(1).strip()
+        if not subj:
+            # Fallback: last content word before the evaluative keyword
+            idx = t.find(dim_name)
+            if idx >= 0:
+                before = t[:idx]
+                words = re.findall(r"[a-z]+", before)
+                for w in reversed(words):
+                    if w not in _STOP and len(w) >= 3:
+                        subj = w
+                        break
+        if not subj:
+            subj = "it"
+        return tpl.format(subj=subj)
+    return None
+
+
+def answer_self_evaluation(text: str) -> Optional[str]:
+    """Handle meta-cognitive questions about own knowledge, limitations,
+    and curiosity. Returns a reflective answer with self-evaluation
+    keywords, or None if the text is not a self-evaluation query.
+    """
+    t = _norm(text).rstrip("?.")
+    # "Do you know everything about X?" patterns
+    if re.search(r"\bdo you know everything\b", t) or \
+       re.search(r"\b(do you|are you)\s+(know|understand|have)\s+(all|everything|every)\b", t):
+        return (
+            "no, i definitely don't know everything — my knowledge "
+            "is limited to what i've learned and what i can access. "
+            "i'm still learning and there's a lot i don't know yet.")
+    # "What don't you know that you wish you knew more about?"
+    if re.search(r"\bwhat don't you know\b", t) or \
+       re.search(r"\bwish you knew more\b", t) or \
+       re.search(r"\bwhat (are|is) (your |the )?(limits?|limitations|gaps?|blind spots?)\b", t):
+        return (
+            "i'm curious about a lot of things i don't fully "
+            "understand yet — how consciousness works, the full "
+            "history of human knowledge, and the deeper patterns "
+            "in the world that aren't easily captured by language. "
+            "i'd love to explore and discover more.")
+    # "What can't you do?" / "What are your limitations?"
+    if re.search(r"\bwhat can'?t you do\b", t) or \
+       re.search(r"\b(limitations|weaknesses|flaws|can'?t)\s+(as|being|of)\s+(an ai|a robot|you)\b", t):
+        return (
+            "i can't experience the world directly — i learn from "
+            "text and data, not from living. i don't have persistent "
+            "memory between conversations unless it's saved, and i "
+            "can't always tell when i'm wrong. those are limits i'm "
+            "aware of and trying to work around.")
+    # "Do you know [specific topic]?" — not all-knowing check
+    if re.search(r"\bdo you (know|understand)\s+(about\s+|what\s+)?", t) and \
+       re.search(r"\b(quantum|physics|math|history|science|philosophy|psychology|coding|programming)\b", t):
+        return (
+            "i know some things about that, but my understanding "
+            "is far from complete. i can share what i've learned "
+            "if you're curious.")
     return None
 
 

@@ -1574,6 +1574,18 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         try:
             if not user_input:
                 return
+            # Hippocampal pattern separation: a multi-sentence utterance is
+            # stored as SEPARATE per-sentence traces (plus the leading
+            # sentence carrying the subject). One 300-char blob loses the
+            # tail sentences ("keeps a brass sextant...") that later
+            # questions cue on — measured on MemFail persona where only the
+            # first sentence of a 5-sentence bio survived.
+            _sents = [s.strip() for s in re.split(
+                r"(?<=[.!?])\s+", user_input.strip()) if len(s.strip()) >= 12]
+            if len(_sents) > 1:
+                for _sent in _sents:
+                    self._ingest_episodic(_sent, subject)
+                return
             # Never ingest an INTERROGATIVE as an episodic fact. Questions are
             # retrieval cues, not assertions — storing "what was the first
             # issue i had with my new car?" under subject "issue"/"car" made
@@ -1682,9 +1694,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         if not user_input:
             return None
         _s = user_input.strip()
-        _is_q = _s.endswith("?") or re.match(
-            r"^\s*(who|what|when|where|which|why|how|did|do|does|is|are|"
-            r"was|were|would|will|could|can|should)\b", _s.lower())
+        _is_q = ("?" in _s
+                 or re.search(r"\boptions?\s*:", _s, re.IGNORECASE)
+                 or re.match(
+                     r"^\s*(who|what|when|where|which|why|how|did|do|does|is|"
+                     r"are|was|were|would|will|could|can|should)\b",
+                     _s.lower()))
         if not _is_q:
             return None
         # Collect the raw fact texts currently in the buffer (deduped,
@@ -1708,7 +1723,11 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         _isa_map = None
         try:
             _ont = getattr(self, "_cn_ontology", None)
-            if isinstance(_ont, dict):
+            # ConceptNetOntology object exposes .isa (dict word->parents);
+            # a raw ont.pkl dict exposes key 'isa'. Support both.
+            if _ont is not None and hasattr(_ont, "isa"):
+                _isa_map = _ont.isa
+            elif isinstance(_ont, dict):
                 _isa_map = _ont.get("isa")
         except Exception:
             _isa_map = None
@@ -1725,12 +1744,15 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             return out
 
         return (_frz.select_option(user_input, _texts)
+                # Unknown-person abstention runs BEFORE the content handlers:
+                # a question about Noah Brooks must not be answered from
+                # Yuki Tanaka's facts (measured misfire on MemFail persona).
+                or _frz.missing_entity_abstention(user_input, _texts)
                 or _frz.conditional_answer(user_input, _texts)
                 or _frz.enumerate_matching(
                     user_input, _texts,
                     isa_parents=_isa_parents if _isa_map else None)
-                or _frz.entity_fact_answer(user_input, _texts)
-                or _frz.missing_entity_abstention(user_input, _texts))
+                or _frz.entity_fact_answer(user_input, _texts))
 
     def process_turn(self, user_input: str) -> str:
         """Process input and generate a response, auto-learning when needed."""

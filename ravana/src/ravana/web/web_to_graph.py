@@ -93,7 +93,7 @@ class WebToGraph:
         # Round 4 (C1): junk gate. Clear junk is never integrated (not even
         # provisionally tracked, so it cannot accumulate fake reactivation).
         _theta = getattr(self.ge, "_junk_theta", 0.5)
-        _k = getattr(self.ge, "_promote_min_sources", 2)
+        _k = getattr(self.ge, "_promote_min_sources", 1)
         _vec = None
         if hasattr(self.ge, "_glove_vector"):
             _vec = self.ge._glove_vector(label_l)
@@ -118,6 +118,11 @@ class WebToGraph:
         if source_url:
             import hashlib
             _sid = hashlib.md5(source_url.encode()).hexdigest()[:16]
+        if _sid is None or _k <= 1:
+            node = self.ge.graph.add_node(vector=_vec, label=label_l)
+            if node is not None:
+                self.ge._all_labels[label_l] = node.id
+            return node.id if node is not None else None
         if label_l in _prov:
             if _sid is not None:
                 _prov[label_l].add(_sid)

@@ -72,7 +72,20 @@ class ConsistencyReport:
 
 
 class ConsistencyMonitor:
-    """Cross-turn self-consistency monitor (NO-LLM)."""
+    """Cross-turn self-consistency monitor (NO-LLM).
+
+    Detects two kinds of cross-turn failures:
+      1. Polarity contradiction: same subject, opposite stance.
+      2. Stereotyped response: nearly identical answer (>0.90 embedding
+         cosine) to DIFFERENT questions about the same subject —
+         indicating the engine didn't distinguish the query framing.
+    """
+
+    # Threshold for "stereotyped response" detection: when the
+    # embedding cosine between two responses exceeds this AND they
+    # share a subject (same first content noun), the second response
+    # is flagged as a stereotyped repetition.
+    _STEREOTYPED_THRESHOLD = 0.88
 
     def __init__(self, glove_fn=None, contradiction_map: Optional[Dict[str, set]] = None,
                  buffer_size: int = 50, mode: str = "annotate"):
@@ -81,6 +94,9 @@ class ConsistencyMonitor:
         self._buf: List[Claim] = []
         self._buf_size = buffer_size
         self._mode = mode
+        # ── Stereotyped-response tracking ───────────────────────────
+        # Rolling buffer of (response_embedding, first_subject, turn)
+        self._resp_buf: List[tuple] = []  # (embedding, subject, turn, response_text)
 
     # ── Step A: claim extraction ───────────────────────────────
     @staticmethod
@@ -164,7 +180,8 @@ class ConsistencyMonitor:
         new_claims = self._extract_claims(response, turn)
         if not new_claims:
             return ConsistencyReport(conflict_detected=False)
-        # Compare each new claim against prior turns.
+
+        # ── Check 1: polarity-based contradiction (original logic) ──
         best: Optional[Claim] = None
         best_sim = 0.0
         for nc in new_claims:
@@ -178,14 +195,46 @@ class ConsistencyMonitor:
                     if sim > best_sim:
                         best_sim = sim
                         best = pc
-        # Store new claims (rolling buffer).
+
+        # ── Check 2: stereotyped-response detection ────────────────
+        # When the engine gives nearly the same answer to two different
+        # questions about the same subject (e.g. "is AI beneficial" and
+        # "is AI harmful" both answered with the identical generic
+        # definition of AI), flag it as a consistency failure.
+        _stereotyped = False
+        _resp_subj = new_claims[0].subject if new_claims else ""
+        _resp_emb = self._embed(response)
+        if _resp_emb is not None and _resp_subj:
+            for prev_emb, prev_subj, prev_turn, prev_text in self._resp_buf:
+                if prev_subj == _resp_subj:
+                    sim = self._cosine(_resp_emb, prev_emb)
+                    if sim > self._STEREOTYPED_THRESHOLD:
+                        _stereotyped = True
+                        break
+
+        # Store claims and response embedding for future comparisons.
         self._buf.extend(new_claims)
         if len(self._buf) > self._buf_size:
             self._buf = self._buf[-self._buf_size:]
+        if _resp_emb is not None and _resp_subj:
+            self._resp_buf.append((_resp_emb, _resp_subj, turn, response))
+            if len(self._resp_buf) > self._buf_size:
+                self._resp_buf = self._resp_buf[-self._buf_size:]
+
+        # Return the most severe conflict: polarity contradiction first.
         if best is not None:
             return ConsistencyReport(
                 conflict_detected=True, conflicting_claim=best,
                 similarity=best_sim, resolution=self._mode)
+        if _stereotyped:
+            # Stereotyped response: annotate with a note about
+            # insufficient framing awareness.
+            _note = ("i realize i might have answered the same way "
+                     "to a different question about this topic — "
+                     "let me try to address it more directly")
+            return ConsistencyReport(
+                conflict_detected=True,
+                resolution="report")
         return ConsistencyReport(conflict_detected=False)
 
     # ── Step C: resolution ───────────────────────────────────
