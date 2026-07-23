@@ -174,6 +174,7 @@ from ravana.language.register import RegisterController
 class PersistenceMixin:
     """Persistence & correction mixin — checksum, pickle safety, correction detection/consolidation."""
 
+    @staticmethod
     def _checksum_state(state: dict) -> str:
         """Deterministic, cross-process-stable integrity fingerprint.
 
