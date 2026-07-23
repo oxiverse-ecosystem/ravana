@@ -1574,6 +1574,19 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         try:
             if not user_input:
                 return
+            # Never ingest an INTERROGATIVE as an episodic fact. Questions are
+            # retrieval cues, not assertions — storing "what was the first
+            # issue i had with my new car?" under subject "issue"/"car" made
+            # _try_hippocampal_retrieval echo the PREVIOUS QUESTION back as a
+            # remembered fact ("you told me earlier: what was the first
+            # issue...") on every subsequent question (LongMemEval regression).
+            # Hippocampus encodes experienced content; the PFC holds the query.
+            _stripped = user_input.strip()
+            if _stripped.endswith("?") or re.match(
+                    r"^\s*(who|what|when|where|which|why|how|did|do|does|is|"
+                    r"are|was|were|had|has|have|will|would|could|can)\b",
+                    _stripped.lower()):
+                return
             content_words = [w.strip(".,!?;:") for w in user_input.lower().split()
                              if len(w.strip(".,!?;:")) >= 3
                              and w.strip(".,!?;:").isalpha()]
