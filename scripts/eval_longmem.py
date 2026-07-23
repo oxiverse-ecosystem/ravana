@@ -104,10 +104,18 @@ def run_locomo(path, limit, max_q=None):
     results = []
     for si, sample in enumerate(data[:limit]):
         conv = sample["conversation"]
-        # Collect utterances across sessions in order.
+        # Collect utterances across sessions in order. LoCoMo provides each
+        # session's real-world date in `session_N_date_time`; that timestamp is
+        # part of the INPUT the model is meant to use to answer temporal
+        # questions ("when did X happen"), so we prepend it as a context turn
+        # before each session's utterances (not doing so makes every cat-2
+        # date question unanswerable).
         utter = []
         n = 1
         while f"session_{n}" in conv:
+            dt = conv.get(f"session_{n}_date_time", "")
+            if dt:
+                utter.append(f"(Session {n}, dated {dt})")
             for turn in conv[f"session_{n}"]:
                 spk = turn.get("speaker", "")
                 txt = turn.get("text", "")
