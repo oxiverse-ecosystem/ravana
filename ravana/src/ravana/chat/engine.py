@@ -2669,7 +2669,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         self.notify_user_idle()
                         return _dresp
                 _mem = self._try_hippocampal_retrieval(
-                    type("Ctx", (), {"subject": subject})())
+                    type("Ctx", (), {"subject": subject})(), user_input)
                 if _mem:
                     _resp = self._phrase_recalled_fact(user_input, subject, _mem)
                     self._last_strategy = "hippocampal_recall"

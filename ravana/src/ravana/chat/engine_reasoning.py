@@ -724,7 +724,7 @@ class ReasoningMixin:
         except (ZeroDivisionError, OverflowError, ValueError):
             return None
 
-    def _try_hippocampal_retrieval(self, ctx) -> Optional[str]:
+    def _try_hippocampal_retrieval(self, ctx, user_input: str = "") -> Optional[str]:
         """Try to retrieve a fact the user stated earlier this conversation.
 
         Fix (LoCoMo / LongMemEval): this method used to hard-require
@@ -737,6 +737,11 @@ class ReasoningMixin:
         stored episodic fact; ``_recall_mode`` only boosts confidence. Returns
         None (fail-open) when nothing matches, so fresh-engine benchmarks with an
         empty buffer are unaffected.
+
+        Phase 2 (attribute scoping): when several facts share the same subject
+        (e.g. many facts about "caroline"), pick the one whose text best matches
+        the QUESTION's attribute words — "what did Caroline *research*" should
+        prefer the fact mentioning research, not an arbitrary max-confidence one.
         """
         if not getattr(ctx, "subject", None):
             return None
@@ -746,7 +751,54 @@ class ReasoningMixin:
             return None
         if not facts:
             return None
-        # Highest-confidence fact wins (Fix 4: was `return None`, dead path).
+
+        # Attribute words = content words of the question, minus the subject and
+        # generic interrogative/stop tokens. These identify WHICH stored fact the
+        # user is asking about.
+        subj = (ctx.subject or "").lower()
+        stop = {
+            "what", "when", "where", "which", "who", "whom", "whose", "why",
+            "how", "did", "do", "does", "is", "are", "was", "were", "had",
+            "has", "have", "will", "would", "could", "can", "the", "a", "an",
+            "my", "your", "his", "her", "their", "our", "of", "to", "in", "on",
+            "at", "for", "about", "with", "and", "or", "you", "i", "me", "that",
+            "this", "it", "was", "been", "being", "am", "tell", "told", "say",
+            "said", "get", "got", "go", "went", "there", "here",
+        }
+        # Use ALL content words of the question (entity + attribute). The shared
+        # entity word ("caroline") scores equally across every same-entity fact,
+        # so the DISCRIMINATING attribute word ("research") breaks the tie and
+        # selects the right fact. Also fold in subject tokens in case the parser
+        # absorbed an attribute into a multi-word subject ("caroline research").
+        attr_words = set()
+        for w in re.findall(r"[a-zA-Z']+",
+                            f"{user_input or ''} {subj}".lower()):
+            if len(w) >= 3 and w not in stop:
+                attr_words.add(w)
+                # crude stem so "research"~"researching"~"researched"
+                attr_words.add(w.rstrip("s").rstrip("e").rstrip("ing")[:6])
+
+        def score(f):
+            obj = (f.object or "").lower()
+            objtok = set(re.findall(r"[a-zA-Z']+", obj))
+            objstem = {t.rstrip("s").rstrip("e").rstrip("ing")[:6] for t in objtok}
+            overlap = len(attr_words & objtok) + 0.5 * len(attr_words & objstem)
+            return (overlap, f.confidence, f.turn_number)
+
+        # If we have attribute words, prefer the best lexically-overlapping fact
+        # (this is what fixes "what did Caroline *research*" selecting the research
+        # fact instead of an arbitrary same-entity fact). When no fact shares a
+        # keyword with the question, fall back to the highest-confidence fact
+        # rather than refusing to answer — returning the best available memory
+        # beats returning nothing, and for single-fact subjects it is always
+        # correct. (A GloVe semantic tie-break was tried and REGRESSED: it matched
+        # "relationship status" to "lgbtq support" over "single", so we keep the
+        # deterministic lexical path.)
+        if attr_words:
+            ranked = sorted(facts, key=score, reverse=True)
+            best = ranked[0]
+            if score(best)[0] > 0:
+                return best.object
         best_fact = max(facts, key=lambda f: f.confidence)
         return best_fact.object
 
