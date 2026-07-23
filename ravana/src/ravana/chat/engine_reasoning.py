@@ -771,6 +771,46 @@ class ReasoningMixin:
         flipped = _re.sub(r"\bI\b", "you", flipped)
         return f"you told me earlier: {flipped}"
 
+    def _answer_temporal_recall(self, user_input: str,
+                                subject: str) -> Optional[str]:
+        """Answer a 'when did X happen' / 'how long' question from dated facts.
+
+        Phase 1: uses the absolute_date the DateGrounder resolved and stored on
+        the fact (anchored to the session date). Returns None (fail-open) when
+        no dated fact exists, so the caller falls through to plain recall.
+        """
+        try:
+            facts = self.hippocampal_buffer.retrieve_dated(subject)
+        except Exception:
+            facts = None
+        if not facts:
+            return None
+        ql = user_input.lower()
+        grounder = getattr(self, "_date_grounder", None)
+
+        # "how long ago / how long has it been" → interval from latest fact to
+        # the current session date.
+        if "how long" in ql and grounder is not None:
+            anchor = getattr(self, "_current_session_date", None)
+            target = facts[0].absolute_date
+            if anchor is not None and target is not None:
+                return (f"about {grounder.describe_interval(anchor, target)} "
+                        f"(you mentioned it around "
+                        f"{target.strftime('%B %Y')}).")
+
+        # "when" → report the (earliest) absolute date of the recalled event.
+        best = facts[0]
+        dt = best.absolute_date
+        if dt is None:
+            return None
+        # Platform-safe day-level phrasing (avoid %-d which fails on Windows).
+        try:
+            when = f"{dt.day} {dt.strftime('%B %Y')}"
+        except Exception:
+            when = str(dt.date())
+        return f"you mentioned that around {when}."
+
+
 
     def _is_self_disclosure_stmt(self, user_input: str) -> bool:
         """vmPFC-mimetic gate: detect first-person self-disclosure STATEMENTS.

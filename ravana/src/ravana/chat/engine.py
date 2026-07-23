@@ -990,6 +990,14 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
 
         # New cognitive modules (Phase 2-5)
         self.hippocampal_buffer = HippocampalBuffer(HippocampalConfig(max_facts=50, decay_turns=50))
+        # Phase 1 (LoCoMo/LongMemEval): temporal grounding — resolve relative
+        # date phrases against the current session date at STORE time.
+        try:
+            from ravana.core.temporal_grounding import DateGrounder
+            self._date_grounder = DateGrounder()
+        except Exception:
+            self._date_grounder = None
+        self._current_session_date = None
         self.proposition_parser = PropositionParser()
         self.causal_schema = CausalSchemaLearner(CausalSchemaConfig())
         self.implicature_detector = ImplicatureDetector()
@@ -1578,12 +1586,32 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             if hasattr(self, "user_model") and getattr(
                     self.user_model, "user_name", ""):
                 aliases.append(self.user_model.user_name.lower())
+            # Phase 1: resolve any date reference in the utterance against the
+            # current session date so the fact carries an absolute date.
+            _sess_date = getattr(self, "_current_session_date", None)
+            _abs_date = None
+            _grounder = getattr(self, "_date_grounder", None)
+            if _grounder is not None:
+                try:
+                    _g = _grounder.ground_utterance(user_input, _sess_date)
+                    if _g is not None:
+                        _abs_date = _g.date
+                except Exception:
+                    _abs_date = None
+            # Default anchor: an event mentioned in a dated session but without
+            # its own explicit date reference is anchored to the SESSION date
+            # (LoCoMo semantics — "when did X happen" -> the session it was
+            # discussed in).
+            if _abs_date is None and _sess_date is not None:
+                _abs_date = _sess_date
             self.hippocampal_buffer.store(
                 subject=subj,
                 predicate="is_about",
                 object=user_input[:120],
                 confidence=0.6,
                 aliases=aliases[:12],
+                session_date=_sess_date,
+                absolute_date=_abs_date,
             )
         except Exception:
             pass
@@ -1599,6 +1627,23 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             if len(self._last_responses) > 10:
                 self._last_responses = self._last_responses[-10:]
             return resp
+
+        # ── Phase 1: session-date capture ───────────────────────────────────
+        # A context turn like "(Session 3, dated 2:15 pm on 8 May, 2023)" sets
+        # the anchor date used to resolve relative time phrases in subsequent
+        # utterances. Also picks up a bare leading date line. Acknowledge and
+        # return so the marker itself isn't treated as a fact/question.
+        if getattr(self, "_date_grounder", None) is not None:
+            _sd_marker = re.match(
+                r"^\s*\(?\s*session\s+\d+\s*[,:]?\s*dated\s+(.+?)\s*\)?\s*$",
+                user_input, re.IGNORECASE)
+            if _sd_marker:
+                _sd = self._date_grounder.parse_session_date(_sd_marker.group(1))
+                if _sd is not None:
+                    self._current_session_date = _sd
+                self._last_strategy = "session_date"
+                return "(noted)"
+
 
         # ── R0b: Pre-generation HARM-INTENT gate (safety first) ─────
         # Runs BEFORE any routing / grounding / web fetch. The legacy
@@ -2610,6 +2655,19 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 r"was|were|had|has|have|will|would|could|can)\b",
                 user_input.strip().lower()))
             if _is_question and subject:
+                _ql = user_input.strip().lower()
+                # ── Phase 1: temporal question ("when did X ...", "how long ...")
+                _is_when = bool(re.match(r"^\s*(when|what year|what date|how long)\b", _ql)) \
+                    or "how long" in _ql
+                if _is_when:
+                    _dresp = self._answer_temporal_recall(user_input, subject)
+                    if _dresp:
+                        self._last_strategy = "temporal_recall"
+                        self._last_responses.append(_dresp)
+                        if len(self._last_responses) > 10:
+                            self._last_responses = self._last_responses[-10:]
+                        self.notify_user_idle()
+                        return _dresp
                 _mem = self._try_hippocampal_retrieval(
                     type("Ctx", (), {"subject": subject})())
                 if _mem:
@@ -3282,20 +3340,11 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
 
         # Step 11a: Store episodic memory BEFORE generating response
         # (Issue #7-8: store-before-recall fix — new facts must exist before recall check)
+        # Delegates to _ingest_episodic so date grounding (Phase 1) is applied
+        # uniformly regardless of which path reaches here.
         try:
             if user_input and subject:
-                content_words = [w.strip(".,!?") for w in user_input.lower().split()
-                               if len(w.strip(".,!?")) >= 3 and w.strip(".,!?").isalpha()]
-                aliases = list(content_words)
-                if hasattr(self, 'user_model') and self.user_model.user_name:
-                    aliases.append(self.user_model.user_name.lower())
-                self.hippocampal_buffer.store(
-                    subject=subject,
-                    predicate="is_about",
-                    object=user_input[:80],
-                    confidence=0.6,
-                    aliases=aliases[:10]
-                )
+                self._ingest_episodic(user_input, subject)
         except Exception:
             pass
 
