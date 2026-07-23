@@ -998,6 +998,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         except Exception:
             self._date_grounder = None
         self._current_session_date = None
+        # Phase 3: multi-hop relational reasoning (chains + comparatives).
+        try:
+            from ravana.core.multi_hop_reasoner import MultiHopReasoner
+            self._multi_hop = MultiHopReasoner()
+        except Exception:
+            self._multi_hop = None
         self.proposition_parser = PropositionParser()
         self.causal_schema = CausalSchemaLearner(CausalSchemaConfig())
         self.implicature_detector = ImplicatureDetector()
@@ -2152,7 +2158,14 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # cross-modal metaphor. Without this ordering fix the statement falls
         # through to _is_category_error (which sees "color" as a property) and
         # is misrouted, and the fact is never stored.
-        if self._is_self_disclosure_stmt(user_input):
+        # Guard: never treat an interrogative as a self-disclosure STATEMENT
+        # ("who is older, Alice or Bob?" is a question, not a disclosure). This
+        # keeps questions flowing to the multi-hop / recall paths downstream.
+        _is_interrogative = user_input.strip().endswith("?") or bool(re.match(
+            r"^\s*(who|what|when|where|which|why|how|did|do|does|is|are|was|"
+            r"were|had|has|have|will|would|could|can)\b",
+            user_input.strip().lower()))
+        if not _is_interrogative and self._is_self_disclosure_stmt(user_input):
             _ack = self._process_self_disclosure_stmt(user_input)
             self._last_strategy = "self_disclosure"
             # Root-cause recall fix: persist the disclosed fact to the
@@ -2655,6 +2668,15 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 r"was|were|had|has|have|will|would|could|can)\b",
                 user_input.strip().lower()))
             if _is_question and subject:
+                # ── Phase 3: multi-hop relational question (chains/comparatives)
+                _mh = self._try_multi_hop(user_input)
+                if _mh:
+                    self._last_strategy = "multi_hop"
+                    self._last_responses.append(_mh)
+                    if len(self._last_responses) > 10:
+                        self._last_responses = self._last_responses[-10:]
+                    self.notify_user_idle()
+                    return _mh
                 _ql = user_input.strip().lower()
                 # ── Phase 1: temporal question ("when did X ...", "how long ...")
                 _is_when = bool(re.match(r"^\s*(when|what year|what date|how long)\b", _ql)) \

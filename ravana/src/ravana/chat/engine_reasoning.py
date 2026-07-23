@@ -862,6 +862,88 @@ class ReasoningMixin:
             when = str(dt.date())
         return f"you mentioned that around {when}."
 
+    # ── Phase 3: multi-hop relational reasoning ─────────────────────────────
+    def _hop_retrieve(self, entity: str, attribute: str) -> Optional[str]:
+        """Fact retriever for the MultiHopReasoner: find a stored fact that
+        mentions BOTH `entity` and `attribute` and return its raw text.
+
+        Stored facts are full utterances keyed under many aliases (e.g. "Alice's
+        husband is Bob" is keyed under 'husband','alice',...). A single
+        subject-keyed lookup is not enough — "alice" also matches "alice earns
+        90000". So we gather candidates keyed under the entity AND under the
+        attribute, then require the winning fact's text to contain the entity and
+        rank by how well it also matches the attribute. Returns None when nothing
+        qualifies so the reasoner never confabulates a hop."""
+        if not entity:
+            return None
+        try:
+            ent = entity.lower().strip()
+            attr = (attribute or "").lower().strip()
+            buf = self.hippocampal_buffer
+            cands = []
+            for key in (ent, attr):
+                if not key:
+                    continue
+                got = buf.retrieve(key)
+                if got:
+                    cands.extend(got)
+            # de-dup
+            seen, uniq = set(), []
+            for f in cands:
+                k = (f.subject, f.object)
+                if k not in seen:
+                    seen.add(k)
+                    uniq.append(f)
+            if not uniq:
+                return None
+            # Require the entity to appear in the fact text, and score by
+            # attribute presence (attribute word, its stem, or a linguistic
+            # synonym — "company"~"works at", "salary"~"earns"). These are
+            # relation synonyms, not answer lookups.
+            attr_stem = attr.rstrip("s").rstrip("e")[:5]
+            _ATTR_SYN = {
+                "company": ("works", "work", "employed", "employer", "job"),
+                "employer": ("works", "work", "company", "job"),
+                "job": ("works", "work", "company", "profession"),
+                "salary": ("earns", "earn", "makes", "income", "paid", "salary"),
+                "income": ("earns", "earn", "makes", "salary", "paid"),
+                "age": ("old", "age", "aged", "years"),
+                "hometown": ("lives", "live", "from", "hometown", "city"),
+                "name": ("is", "named", "called", "name"),
+                "husband": ("husband", "married", "spouse"),
+                "wife": ("wife", "married", "spouse"),
+            }
+            syns = _ATTR_SYN.get(attr, ())
+
+            def score(f):
+                obj = (f.object or "").lower()
+                has_ent = 1 if ent in obj else 0
+                has_attr = 1 if (attr and attr in obj) else 0
+                has_attr += 1 if (attr_stem and len(attr_stem) >= 3
+                                  and attr_stem in obj) else 0
+                has_attr += 1 if any(s in obj for s in syns) else 0
+                return (has_ent, has_attr, f.confidence)
+
+            best = max(uniq, key=score)
+            # Only accept if the entity appears AND at least the attribute (or a
+            # synonym) matched — otherwise this hop has no real answer.
+            bs = score(best)
+            if bs[0] and bs[1] > 0:
+                return best.object
+            return None
+        except Exception:
+            return None
+
+    def _try_multi_hop(self, user_input: str) -> Optional[str]:
+        """Attempt to answer a chained/comparative relational question. Returns
+        None (fail-open) unless the reasoner produces a grounded answer."""
+        reasoner = getattr(self, "_multi_hop", None)
+        if reasoner is None:
+            return None
+        try:
+            return reasoner.answer(user_input, self._hop_retrieve)
+        except Exception:
+            return None
 
 
     def _is_self_disclosure_stmt(self, user_input: str) -> bool:
