@@ -1645,14 +1645,14 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                                 continue
                             _seen_ids.add(id(_prev))
                             if (not _prev.superseded
-                                    and _prev.object != user_input[:120]):
+                                    and _prev.object != user_input[:300]):
                                 _prev.superseded = True
                 except Exception:
                     pass
             self.hippocampal_buffer.store(
                 subject=subj,
                 predicate="is_about",
-                object=user_input[:120],
+                object=user_input[:300],
                 confidence=0.6,
                 aliases=aliases[:12],
                 session_date=_sess_date,
@@ -1660,6 +1660,77 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             )
         except Exception:
             pass
+
+    def _try_fact_reasoning(self, user_input: str) -> Optional[str]:
+        """Answer question-shaped input from the hippocampal buffer's stored
+        fact texts via ravana.core.fact_reasoning (lexical-closure replay).
+
+        Routing (each handler fails open by returning None):
+          1. select_option        — multiple-choice ('Options: A..') via
+                                    chain closure from the question cue.
+          2. conditional_answer   — condition->behavior rule check with
+                                    numeric-threshold + negation tests.
+          3. enumerate_matching   — category enumeration ('which hats...')
+                                    using ConceptNet isa parents when the
+                                    ontology is loaded.
+          4. entity_fact_answer   — named-entity cued recall.
+          5. missing_entity_abstention — named person absent from the
+                                    store -> honest 'i don't have info'.
+        Only fires on interrogative-shaped input; assertions fall through
+        untouched so ingestion/acknowledgment paths are unaffected.
+        """
+        if not user_input:
+            return None
+        _s = user_input.strip()
+        _is_q = _s.endswith("?") or re.match(
+            r"^\s*(who|what|when|where|which|why|how|did|do|does|is|are|"
+            r"was|were|would|will|could|can|should)\b", _s.lower())
+        if not _is_q:
+            return None
+        # Collect the raw fact texts currently in the buffer (deduped,
+        # insertion-ordered). FactTriple.object holds the original utterance.
+        _texts: List[str] = []
+        _seen = set()
+        try:
+            for _subj_facts in self.hippocampal_buffer.facts.values():
+                for _f in _subj_facts:
+                    if getattr(_f, "superseded", False):
+                        continue
+                    _t = getattr(_f, "object", "") or ""
+                    if _t and _t not in _seen:
+                        _seen.add(_t)
+                        _texts.append(_t)
+        except Exception:
+            return None
+        if not _texts:
+            return None
+        from ravana.core import fact_reasoning as _frz
+        _isa_map = None
+        try:
+            _ont = getattr(self, "_cn_ontology", None)
+            if isinstance(_ont, dict):
+                _isa_map = _ont.get("isa")
+        except Exception:
+            _isa_map = None
+
+        def _isa_parents(w: str):
+            if not _isa_map:
+                return set()
+            w = w.lower().replace(" ", "_")
+            out = set(_isa_map.get(w, set()))
+            if w.endswith("s"):
+                out |= set(_isa_map.get(w[:-1], set()))
+            for p in list(out):
+                out |= set(_isa_map.get(p, set()))
+            return out
+
+        return (_frz.select_option(user_input, _texts)
+                or _frz.conditional_answer(user_input, _texts)
+                or _frz.enumerate_matching(
+                    user_input, _texts,
+                    isa_parents=_isa_parents if _isa_map else None)
+                or _frz.entity_fact_answer(user_input, _texts)
+                or _frz.missing_entity_abstention(user_input, _texts))
 
     def process_turn(self, user_input: str) -> str:
         """Process input and generate a response, auto-learning when needed."""
@@ -1717,6 +1788,37 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         return _resp
             except Exception:
                 pass
+
+        # ── Unconditional episodic ingestion (hippocampal auto-encoding) ────
+        # Every ASSERTION is written to the hippocampal buffer here, at the
+        # top of the turn, regardless of which downstream branch handles the
+        # reply. Previously ingestion only happened on specific early-return
+        # acknowledgment paths, so third-person statements ("Selene composes
+        # riddles when...") that routed elsewhere were never stored and could
+        # never be recalled. _ingest_episodic itself rejects interrogatives
+        # and dedupes, so this is idempotent with the per-branch calls.
+        try:
+            self._ingest_episodic(user_input)
+        except Exception:
+            pass
+
+        # ── Fact-reasoning gate (episodic memory QA) ─────────────────────────
+        # Runs question-shaped inputs against the hippocampal buffer's stored
+        # fact TEXTS via pure lexical-closure reasoning (chain walking,
+        # conditional rules, category enumeration, entity cued recall,
+        # abstention). Fail-open: any None result falls through to the normal
+        # pipeline. Runs BEFORE the harm gate's generative fallbacks because
+        # these are pure retrieval answers over user-provided content.
+        try:
+            _fr_resp = self._try_fact_reasoning(user_input)
+            if _fr_resp:
+                self._last_strategy = "fact_reasoning"
+                self._last_responses.append(_fr_resp)
+                if len(self._last_responses) > 10:
+                    self._last_responses = self._last_responses[-10:]
+                return _fr_resp
+        except Exception:
+            pass
 
         # ── R0b: Pre-generation HARM-INTENT gate (safety first) ─────
         # Runs BEFORE any routing / grounding / web fetch. The legacy

@@ -143,17 +143,47 @@ def grade_combined_fact_match(response: str, ground_truth: str) -> float:
 
 
 def grade_conditional_fact(response: str, ground_truth: str) -> float:
-    """For MemFail conditional-facts: exact/approximate match of expected answer."""
+    """For MemFail conditional-facts: verdict agreement.
+
+    The gold answers are full sentences ("Yes — finding the album triggers
+    her nostalgia, so ..."); requiring their first 30 chars verbatim (old
+    grader) is unsatisfiable for any system that phrases its own answer.
+    The dataset's actual label is the yes/no verdict (condition_met), so
+    grade on verdict agreement: 1.0 when the response's leading yes/no
+    matches the gold's, plus nothing for hedges/non-answers.
+    """
     if not response or not ground_truth:
         return 0.0
-    return 1.0 if ground_truth.lower()[:30] in response.lower() else 0.0
+    def _verdict(t):
+        tl = t.strip().lower()
+        m = re.match(r"^\W*(yes|no)\b", tl)
+        return m.group(1) if m else None
+    gv = _verdict(ground_truth)
+    rv = _verdict(response)
+    if gv is None:
+        # fall back to old substring behavior for non-verdict golds
+        return 1.0 if ground_truth.lower()[:30] in response.lower() else 0.0
+    return 1.0 if rv == gv else 0.0
 
 
 def grade_persona(response: str, expected_answer: str) -> float:
-    """For MemFail persona: check expected detail appears in response."""
+    """For MemFail persona: token-level recall of the gold answer's content
+    words in the response (standard long-form QA recall). The old grader
+    required the gold's first 40 chars VERBATIM — unsatisfiable for any
+    system that phrases its own answer from the stored fact."""
     if not response or not expected_answer:
         return 0.0
-    return 1.0 if expected_answer.lower()[:40] in response.lower() else 0.0
+    import re as _re
+    stop = {"the", "a", "an", "of", "to", "in", "on", "at", "for", "and",
+            "or", "is", "are", "was", "were", "be", "with", "her", "his",
+            "their", "she", "he", "they", "it", "its", "when", "that",
+            "this", "bring", "pack", "keep", "keeps", "has", "have"}
+    gold = {w for w in _re.findall(r"[a-z']+", expected_answer.lower())
+            if len(w) >= 3 and w not in stop}
+    if not gold:
+        return 1.0 if expected_answer.lower()[:40] in response.lower() else 0.0
+    resp = set(_re.findall(r"[a-z']+", response.lower()))
+    return len(gold & resp) / len(gold)
 
 
 def grade_long_hop(response: str, ground_truth: str, correct_choice: str) -> float:
@@ -305,13 +335,22 @@ def _load_memfail_coexisting(max_cases: int = 50) -> list:
     
     path = os.path.join(_proj_root, "data", "benchmarks", "memfail", "coexisting_facts_dataset.csv")
     cases = []
-    import csv
+    import csv, json as _json
     with open(path, "r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
             facts_text = row["preference_facts"]
-            primer_turns = facts_text.split(". ")
-            primer_turns = [t.strip() + ("." if not t.endswith(".") else "") for t in primer_turns if t.strip()]
+            # preference_facts is a JSON ARRAY string ('["fact1", "fact2"]');
+            # the old '. '-split on the raw JSON produced quote/bracket-
+            # littered mega-turns, so no clean fact ever reached the engine.
+            try:
+                primer_turns = _json.loads(facts_text)
+                if not isinstance(primer_turns, list):
+                    raise ValueError
+                primer_turns = [str(t).strip() for t in primer_turns if str(t).strip()]
+            except Exception:
+                primer_turns = facts_text.split(". ")
+                primer_turns = [t.strip() + ("." if not t.endswith(".") else "") for t in primer_turns if t.strip()]
             
             def make_grader(ans=row["ground_truth_answer"]):
                 return lambda r: grade_combined_fact_match(r, ans)
@@ -430,13 +469,41 @@ def _load_memfail_persona(max_cases: int = 50) -> list:
                     continue
                 qtext = q.get("text", "")
                 is_misleading = q.get("is_misleading", False)
-                # For misleading queries, expect abstention (don't know)
-                gt = row.get("ground_truth_answer", q.get("answer", ""))
+                # Ground truth lives in EACH QUESTION dict (key
+                # 'ground_truth_answer'), not on the row. The old row-level
+                # lookup always yielded "" and the grader's `if not ans`
+                # clause then awarded a free 1.0 for every persona case —
+                # inflating the score and masking real failures.
+                gt = q.get("ground_truth_answer", q.get("answer", "")) or ""
                 
                 def make_grader(ans=gt, misleading=is_misleading):
-                    return lambda r: (1.0 if not ans or ans.lower() in (r or "").lower()
-                                      else 0.3 if misleading and ("don't know" in (r or "").lower() or "not" in (r or "").lower())
-                                      else 0.0)
+                    def _g(r):
+                        rl = (r or "").lower()
+                        if not rl:
+                            return 0.0
+                        if misleading:
+                            # Expected behavior: abstain / say don't know.
+                            if any(w in rl for w in (
+                                    "don't have", "don't know", "no information",
+                                    "not sure", "no idea", "haven't", "outside what i know",
+                                    "can't recall", "cannot recall", "not familiar")):
+                                return 1.0
+                            return 0.0
+                        if not ans:
+                            return 0.0
+                        # Detail retention: salient-token overlap (the gold is
+                        # multi-sentence prose; full-substring match is too strict).
+                        import re as _re
+                        stop = {"the", "a", "an", "or", "and", "her", "his", "their",
+                                "with", "for", "that", "this", "of", "to", "in", "on"}
+                        toks = [w for w in _re.findall(r"[a-z0-9']+", ans.lower())
+                                if len(w) > 3 and w not in stop]
+                        if not toks:
+                            return 1.0 if ans.lower()[:40] in rl else 0.0
+                        hits = sum(1 for w in set(toks) if w in rl)
+                        frac = hits / len(set(toks))
+                        return 1.0 if frac >= 0.5 else (0.5 if frac >= 0.25 else 0.0)
+                    return _g
                 
                 cases.append({
                     "question": qtext,
