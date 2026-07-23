@@ -90,10 +90,11 @@ except Exception:  # pragma: no cover - defensive
     _HAS_HARM_GATE = False
 
 try:
-    from .support_router import SupportRouter
+    from .support_router import SupportRouter, route_support
     _HAS_SUPPORT_ROUTER = True
 except Exception:  # pragma: no cover - defensive
     SupportRouter = None
+    route_support = None
     _HAS_SUPPORT_ROUTER = False
 
 try:
@@ -2005,8 +2006,8 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # router is None or returns None, the turn proceeds normally.
         try:
             _sr = getattr(self, "_support_router", None)
-            if _sr is not None:
-                _support = _sr.route_support(self, user_input)
+            if _sr is not None and route_support is not None:
+                _support = route_support(self, user_input)
                 if _support:
                     self._last_strategy = "support_web"
                     self._last_responses.append(_support)

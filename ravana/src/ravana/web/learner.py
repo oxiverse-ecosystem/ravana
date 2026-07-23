@@ -146,14 +146,28 @@ class SearchEngine:
         self._local_url = os.environ.get(
             "RAVANA_SEARCH_URL",
             "http://127.0.0.1:8080/search?q={}&format=json")
+        # IntentForge (localhost:4000) — the local intent-classification +
+        # retrieval service. It returns the SAME `results` shape as the
+        # SearXNG local_api (title/url/content) PLUS per-result
+        # `authority` / `score` / `is_local` / `sources` signals and a
+        # query `distribution` (how-to / informational / local ...).
+        # It is preferred FIRST (see self.apis below): when it is up it
+        # gives higher-quality, authority-ranked, locality-aware results
+        # than the generic SearXNG scrape. Falls through to the other
+        # providers if it is down. Override with RAVANA_INTENTFORGE_URL.
+        self._intentforge_url = os.environ.get(
+            "RAVANA_INTENTFORGE_URL",
+            "http://localhost:4000/search?q={}")
         self.apis = [
+            ("intentforge", self._intentforge_url, self.config.local_timeout, 10),
             ("local_api", self._local_url, self.config.local_timeout, 10),
             ("duckduckgo", "https://html.duckduckgo.com/html/?q={}", self.config.timeout, 10),
             ("oxiverse", "https://api.oxiverse.org/search?q={}", self.config.timeout, 10),
         ]
+
         self._api_failure_counts = {name: 0 for name, _, _, _ in self.apis}
         self._api_last_failure_time = {name: 0 for name, _, _, _ in self.apis}
-        # Half-open probe slots for the circuit breaker (see _is_api_available).
+
         # True while a single post-cooldown probe is outstanding for an API.
         self._api_half_open = {name: False for name, _, _, _ in self.apis}
         self._headers = {
@@ -332,106 +346,110 @@ class SearchEngine:
             " explained overview", " explained with examples", " explained",
         )
 
-        # ── Phase 19e: ALWAYS PREFER LOCAL ──────────────────────────────────
-        # The local engine (your SearXNG on localhost:4000) is the authoritative
-        # source. We await it up to local_timeout seconds even when it's slow.
-        # We only consult remote fallbacks if the local engine is GENUINELY
-        # unavailable (circuit breaker / exception / stall past local_timeout).
-        # If local answers — even with an empty result — we commit to it and
-        # never query remote as a "supplement". Remote is a last resort, not a
+        # ── Phase 19e (supersedes 19b): LOCAL IS ALWAYS PREFERRED ──
+        # Ordered local providers: IntentForge FIRST (localhost:4000),
+        # then the SearXNG local_api (localhost:8080). We await each
+        # up to local_timeout even when slow; we only consult remote
+        # fallbacks if the local engine is GENUINELY unavailable
+        # (circuit breaker / exception / stall past local_timeout). An
+        # empty local result is treated as authoritative (fail-closed
+        # retrieval) UNLESS fallback_on_empty is set, in which case
+        # we fall through to remote. Remote is a last resort, not a
         # parallel/backup source.
+        _LOCAL_NAMES = ("intentforge", "local_api")
         if self.config.local_prefer and not local_only:
-            # local_only callers already force local; this branch handles the
-            # general case where remote COULD be used but we prefer local.
-            _local_available = self._is_api_available("local_api")
-            if not _local_available:
-                # Preferred-local path skipped because the breaker is open.
-                # Record a clear reason so a fully-breaker-tripped session
-                # reports "circuit-breaker open" instead of a misleading empty
-                # "All search APIs failed: ".
-                if self._api_failure_counts["local_api"] >= self.config.max_failures:
-                    _reason = (f"local_api: circuit-breaker open "
-                               f"({self._api_failure_counts['local_api']} failures; "
-                               f"retry after cooldown)")
-                    if _reason not in errors:
-                        errors.append(_reason)
+            # local_only callers already force local; this branch handles
+            # the general case where remote COULD be used but we prefer local.
+            _any_local_available = any(
+                self._is_api_available(n) for n in _LOCAL_NAMES)
+            if not _any_local_available:
+                # Preferred-local path skipped because every local breaker
+                # is open. Record a clear reason so a fully-breaker-tripped
+                # session reports "circuit-breaker open" instead of a
+                # misleading empty "All search APIs failed:".
+                for n in _LOCAL_NAMES:
+                    if self._api_failure_counts[n] >= self.config.max_failures:
+                        _reason = (f"{n}: circuit-breaker open "
+                                   f"({self._api_failure_counts[n]} failures; "
+                                   f"retry after cooldown)")
+                        if _reason not in errors:
+                            errors.append(_reason)
                 # fall through to the remote fallback loop below (which will
-                # also skip local_api, but the reason is now recorded).
-
-            if _local_available:
-                api_query = query
-                ql = query.lower()
-                for suf in _LOCAL_SUFFIXES:
-                    if ql.endswith(suf):
-                        api_query = query[: len(query) - len(suf)].strip()
+                # also skip the local names, but the reason is now recorded).
+            else:
+                _local_done = False
+                for _lname in _LOCAL_NAMES:
+                    if _local_done:
                         break
-                query_encoded = quote(api_query)
-                url = self._local_url.format(query_encoded)
-                # Phase 20a: transient-retry now lives INSIDE
-                # _threaded_fetch (outer-level, per-attempt deadline +
-                # jittered backoff, bounded so it can't blow the turn
-                # deadline). So this is a single call; a sustained
-                # outage surfaces as one breaker failure. The local
-                # engine's measured ~30-50% abort rate is absorbed
-                # inside _threaded_fetch WITHOUT tripping the breaker,
-                # which is exactly the fix (previously each abort was a
-                # breaker failure -> blackout -> "couldn't verify from web").
-                _budget_left = _search_deadline - time.time()
-                if _budget_left > 0.5:
-                    # Per-attempt deadline = min(local_timeout, remaining
-                    # budget). _threaded_fetch spends this across its
-                    # internal retries, so the whole call self-terminates.
+                    if not self._is_api_available(_lname):
+                        continue
+                    _lurl = (self._intentforge_url if _lname == "intentforge"
+                             else self._local_url)
+                    api_query = query
+                    ql = query.lower()
+                    for suf in _LOCAL_SUFFIXES:
+                        if ql.endswith(suf):
+                            api_query = query[: len(query) - len(suf)].strip()
+                            break
+                    query_encoded = quote(api_query)
+                    url = _lurl.format(query_encoded)
+                    # Strip the definitional suffix from the cache key too
+                    # so the clean subject maps to the same cached entry.
+                    _budget_left = _search_deadline - time.time()
+                    if _budget_left <= 0.5:
+                        break
                     _att_timeout = min(self.config.local_timeout,
-                                           max(1.0, _budget_left))
+                                      max(1.0, _budget_left))
                     _ft, _fetch_res = self._threaded_fetch(
-                        "local_api", url, int(_att_timeout), max_results)
-                    # _threaded_fetch returns (_ft, _) on success, or
-                    # (None, {'err': ...}) when retries are exhausted
-                    # (sustained outage / stall). Handle both shapes.
+                        _lname, url, int(_att_timeout), max_results)
                     if _ft is None:
-                        self._record_failure("local_api")
-                        errors.append(f"local_api: {_fetch_res.get('err')}")
-                    elif _ft.is_alive():
-                        self._record_failure("local_api")
-                        errors.append(f"local_api: fetch stalled past "
+                        self._record_failure(_lname)
+                        errors.append(f"{_lname}: {_fetch_res.get('err')}")
+                        continue
+                    if _ft.is_alive():
+                        self._record_failure(_lname)
+                        errors.append(f"{_lname}: fetch stalled past "
                                       f"{_att_timeout}s")
-                    elif 'err' in _fetch_res:
-                        self._record_failure("local_api")
-                        errors.append(f"local_api: {_fetch_res['err']}")
-                    else:
-                        results = _fetch_res.get('v')
-                        self._record_success("local_api")
-                        out = (results or [])[:max_results]
-                        # D (research item D): fail-closed retrieval.
-                        # If local returned EMPTY and fallback_on_empty is set,
-                        # do NOT treat empty as authoritative — fall through to
-                        # the remote fallbacks below. local_only
-                        # callers still commit to local even when empty.
-                        if out or not self.config.fallback_on_empty or local_only:
-                            if len(self._search_cache) < self._search_cache_max:
-                                self._search_cache[_cache_key] = out
-                            return out
-                        # NOTE: empty local + fallback_on_empty -> fall through.
-                # If we reach here, local genuinely failed or ran out of
-                # budget -> fall through to the remote fallbacks below.
+                        continue
+                    if 'err' in _fetch_res:
+                        self._record_failure(_lname)
+                        errors.append(f"{_lname}: {_fetch_res['err']}")
+                        continue
+                    results = _fetch_res.get('v')
+                    self._record_success(_lname)
+                    out = (results or [])[:max_results]
+                    # Fail-closed retrieval: if local returned EMPTY and
+                    # fallback_on_empty is set, do NOT treat empty as
+                    # authoritative — try the NEXT local provider, and if
+                    # all locals are empty, fall through to remote below.
+                    if out:
+                        if len(self._search_cache) < self._search_cache_max:
+                            self._search_cache[_cache_key] = out
+                        return out
+                    # empty: record and try next local (or fall through)
+                    errors.append(f"{_lname}: empty result")
+                # If we reach here, all locals failed or returned empty.
+                # When fallback_on_empty is set, fall through to remote;
+                # otherwise (local_only-style commit) we already would have
+                # returned above. For the general prefer path, fall through
+                # to remote only if fallback_on_empty.
+                if not self.config.fallback_on_empty:
+                    return []
 
         for api_name, url_template, timeout, api_max_results in self.apis:
             # Phase 19c: bail out if we've exceeded the turn-level deadline.
             if time.time() > _search_deadline:
                 break
-            if api_name == "local_api":
-                # Already handled (and preferred) above when local_prefer is on
-                # and we're allowing remote. But when local_only=True, local_api
-                # is the ONLY allowed source — so it must NOT be skipped here.
+            if api_name in ("intentforge", "local_api"):
+                # Already handled (and preferred, in order) above when
+                # local_prefer is on and we're allowing remote. When
+                # local_only=True, the local names are the ONLY allowed
+                # source — so they must NOT be skipped here.
                 if self.config.local_prefer and not local_only:
                     continue
-                if local_only:
-                    # fall through to consult local_api below
-                    pass
-                else:
+                if local_only and api_name != "local_api":
                     continue
-            if local_only and api_name != "local_api":
-                continue
+                # local_only + local_api falls through to be consulted below.
 
             if not self._is_api_available(api_name):
                 # Diagnostic: record WHY this API was skipped so a fully
@@ -521,6 +539,37 @@ class SearchEngine:
             ]
         elif api_name == "duckduckgo":
             return self._parse_duckduckgo_html(content, max_results)
+        elif api_name == "intentforge":
+            # Local intent-classification + retrieval service. Returns the
+            # same `results` shape as SearXNG (title/url/content) plus
+            # per-result trust signals: `authority` (0..1), `score`,
+            # `is_local` (bool), `sources` (list). We surface those on
+            # the normalized dict so downstream source-trust ranking can
+            # prefer high-authority / local results for advice queries.
+            try:
+                data = json.loads(content)
+            except Exception:
+                return []
+            results = data.get("results", []) if isinstance(data, dict) else []
+            out = []
+            for r in results[:max_results]:
+                if not r.get("url"):
+                    continue
+                _a = r.get("authority", None)
+                try:
+                    _a = float(_a) if _a is not None else None
+                except Exception:
+                    _a = None
+                out.append({
+                    "title": r.get("title", ""),
+                    "url": r.get("url", ""),
+                    "content": r.get("content", r.get("snippet", "")),
+                    "authority": _a,
+                    "score": r.get("score", None),
+                    "is_local": bool(r.get("is_local", False)),
+                    "sources": r.get("sources", []),
+                })
+            return out
         return []
 
     def _parse_duckduckgo_html(self, html: str, max_results: int) -> List[Dict[str, Any]]:
