@@ -802,12 +802,18 @@ class ReasoningMixin:
             best = ranked[0]
             if score(best)[1] > 0:
                 return best.object
-        # Fallback: highest-confidence ACTIVE (non-superseded) fact; recency
-        # breaks ties so a knowledge update wins over the value it replaced.
-        best_fact = max(facts, key=lambda f: (
-            0 if getattr(f, "superseded", False) else 1,
-            f.confidence, f.turn_number))
-        return best_fact.object
+        # Fallback: ONLY when the subject has a single stored fact (where it
+        # is by construction the right one). With multiple same-subject facts
+        # and ZERO lexical overlap, returning max-confidence produced
+        # arbitrary echoes ("caroline: thanks, melanie." for "what is
+        # Caroline's identity?") — measured on LoCoMo dlg0. Better to fail
+        # open to downstream paths than confabulate a wrong memory.
+        active = [f for f in facts if not getattr(f, "superseded", False)]
+        if len(active) == 1:
+            return active[0].object
+        if len(facts) == 1:
+            return facts[0].object
+        return None
 
     def _phrase_recalled_fact(self, user_input: str, subject: str,
                               fact_object: str) -> str:
@@ -846,6 +852,32 @@ class ReasoningMixin:
             return None
         ql = user_input.lower()
         grounder = getattr(self, "_date_grounder", None)
+
+        # Rank dated facts by content overlap with the QUESTION, not storage
+        # order. facts[0] was often a same-subject fact anchored to the
+        # session date, beating the event fact whose own relative phrase
+        # ("yesterday") had been resolved to the true day — measured on
+        # LoCoMo dlg0 as a systematic off-by-one ("8 May" vs gold "7 May").
+        _qw = {w.strip(".,!?;:'") for w in ql.split() if len(w) >= 3}
+        _qw -= {"when", "did", "what", "how", "long", "the", "was", "were",
+                "has", "have", "she", "her", "his", "him", "they", "them"}
+
+        def _ov(f):
+            tw = {w.strip(".,!?;:'") for w in (f.object or "").lower().split()}
+            return len(tw & _qw)
+
+        facts = sorted(facts, key=_ov, reverse=True)
+        if _ov(facts[0]) == 0:
+            return None
+        # Among equally-cued facts, bind to the EARLIEST dated occurrence:
+        # "when did X happen" asks when the event FIRST occurred, and later
+        # sessions re-mention the same event (LoCoMo: the support group is
+        # discussed across many sessions; the gold is the first visit).
+        _top = _ov(facts[0])
+        _tied = [f for f in facts if _ov(f) == _top and f.absolute_date]
+        if _tied:
+            _tied.sort(key=lambda f: f.absolute_date)
+            facts = _tied + [f for f in facts if f not in _tied]
 
         # "how long ago / how long has it been" → interval from latest fact to
         # the current session date.

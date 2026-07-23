@@ -185,6 +185,14 @@ def conditional_answer(question: str,
     if not fact_texts:
         return None
     q = (question or "").strip()
+    # Wh-questions ("When is Melanie going camping?", "What does she do
+    # when...") ask for CONTENT, not a yes/no rule verdict — the embedded
+    # "is <she> <verb>ing" would false-match _COND_Q (measured misfire on
+    # LoCoMo: "When is Melanie planning on going camping?" answered
+    # "yes — you told me...").
+    if re.match(r"^\s*(when|what|where|who|whom|whose|why|how|which)\b",
+                q.lower()):
+        return None
     m = _COND_Q.search(q)
     if not m:
         return None

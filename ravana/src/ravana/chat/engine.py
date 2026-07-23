@@ -1574,6 +1574,29 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         try:
             if not user_input:
                 return
+            # Speaker attribution FIRST (LoCoMo/LongMemEval dialog format
+            # "Caroline: I went to X yesterday. It was great."): bind
+            # first-person pronouns to the SPEAKER so every stored trace is
+            # queryable by name — "When did Caroline go to X?" must lexically
+            # reach "caroline went to x". Must precede the per-sentence split
+            # or tail sentences lose their speaker binding. Hippocampal
+            # source monitoring: the trace carries WHO experienced it, not
+            # the deictic 'I'.
+            _spk_m = re.match(r"^\s*([A-Z][a-z]{2,15})\s*:\s*(.+)$",
+                              user_input.strip(), re.DOTALL)
+            if _spk_m:
+                _spk, _body = _spk_m.group(1), _spk_m.group(2).strip()
+                _body = re.sub(r"\bi'm\b", f"{_spk} is", _body,
+                               flags=re.IGNORECASE)
+                _body = re.sub(r"\bi've\b", f"{_spk} has", _body,
+                               flags=re.IGNORECASE)
+                _body = re.sub(r"\bi'll\b", f"{_spk} will", _body,
+                               flags=re.IGNORECASE)
+                _body = re.sub(r"\bmy\b", f"{_spk}'s", _body,
+                               flags=re.IGNORECASE)
+                _body = re.sub(r"\bi\b", _spk, _body, flags=re.IGNORECASE)
+                self._ingest_episodic(_body, subject or _spk.lower())
+                return
             # Hippocampal pattern separation: a multi-sentence utterance is
             # stored as SEPARATE per-sentence traces (plus the leading
             # sentence carrying the subject). One 300-char blob loses the
