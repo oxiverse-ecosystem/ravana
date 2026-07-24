@@ -34,7 +34,7 @@ Example schemas:
 
 import numpy as np
 import re
-from typing import Dict, List, Optional, Tuple, Set
+from typing import Dict, List, Optional, Tuple, Set, Callable
 from dataclasses import dataclass, field
 
 

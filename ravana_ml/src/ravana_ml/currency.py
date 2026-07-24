@@ -21,6 +21,8 @@ Design principles:
 4. New signals (Bayesian posteriors, episodic confidence) plug in by name
 """
 
+from __future__ import annotations
+
 import numpy as np
 from typing import Dict, List, Optional, Callable, Tuple, Any
 from dataclasses import dataclass, field
