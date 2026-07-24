@@ -190,6 +190,85 @@ class DateGrounder:
 
         return None
 
+    # ── relative-date BEFORE/AFTER an explicit anchor ──────────────────────
+    # LoCoMo / LongMemEval gold answers are phrased RELATIVELY against a stated
+    # absolute date, e.g. "the Sunday before 25 May 2023", "two weekends
+    # before 17 July 2023", "the week before 27 June 2023". The engine stores
+    # the anchored absolute date on the fact; to answer such questions it must
+    # compute the actual calendar date the phrase denotes, then compare to the
+    # stored fact date. Without this, the engine falls back to the session
+    # anchor and returns a wrong date (measured: every "the <weekday> before
+    # <date>" LoCoMo temporal Q scored 0).
+    def resolve_relative_to_anchor(self, phrase: str,
+                                   anchor: Optional[datetime] = None
+                                   ) -> Optional[GroundedDate]:
+        """Resolve 'the <weekday/period> <before|after> <date>' and
+        '<N> <unit> <before|after> <date>' against an explicit anchor date
+        found in the same utterance. Returns the computed calendar date."""
+        if not phrase:
+            return None
+        p = phrase.lower()
+        # Find an explicit absolute date anywhere in the phrase to use as the
+        # anchor if none supplied.
+        if anchor is None:
+            _abs = self._regex_absolute(p)
+            if _abs is not None and re.search(r"\b(19|20)\d{2}\b", p):
+                anchor = _abs
+        if anchor is None:
+            return None
+
+        # "<N> <unit> before|after <date>"
+        m = re.search(
+            r"\b(\d+|a|an|one|two|three|four|five|six|seven|eight|nine|"
+            r"ten|eleven|twelve)\s+(week|weekend|month|day)s?\s+"
+            r"(before|after)\b", p)
+        if m:
+            n = _num(m.group(1)) or 1
+            unit = m.group(2)
+            direction = -1 if m.group(3) == "before" else 1
+            if unit == "weekend":
+                delta = timedelta(weeks=n)
+            elif unit == "week":
+                delta = timedelta(weeks=n)
+            elif unit == "month":
+                delta = _rd(months=n) if _HAVE_DATEUTIL else timedelta(days=30 * n)
+            else:
+                delta = timedelta(days=n)
+            return GroundedDate(anchor + direction * delta, "day", phrase)
+
+        # "the <weekday> before|after <date>"
+        m = re.search(
+            r"\bthe\s+(monday|tuesday|wednesday|thursday|friday|saturday|"
+            r"sunday)\s+(before|after)\b", p)
+        if m:
+            wd = _WEEKDAYS[m.group(1)]
+            direction = -1 if m.group(2) == "before" else 1
+            # Walk back/forward to the nearest such weekday relative to anchor.
+            if direction < 0:
+                delta = (anchor.weekday() - wd) % 7
+                delta = delta or 7
+                return GroundedDate(anchor - timedelta(days=delta), "day", phrase)
+            else:
+                delta = (wd - anchor.weekday()) % 7
+                delta = delta or 7
+                return GroundedDate(anchor + timedelta(days=delta), "day", phrase)
+
+        # "the week|weekend|month before|after <date>"
+        m = re.search(
+            r"\bthe\s+(week|weekend|month)\s+(before|after)\b", p)
+        if m:
+            unit = m.group(1)
+            direction = -1 if m.group(2) == "before" else 1
+            if unit == "month":
+                delta = _rd(months=1) if _HAVE_DATEUTIL else timedelta(days=30)
+            elif unit == "weekend":
+                delta = timedelta(weeks=1)
+            else:
+                delta = timedelta(weeks=1)
+            return GroundedDate(anchor + direction * delta, "day", phrase)
+
+        return None
+
     def _shift(self, base: datetime, unit: str, n: int) -> datetime:
         if unit == "week":
             return base + timedelta(weeks=n)
@@ -255,6 +334,13 @@ class DateGrounder:
                             pass
         if session_date is None:
             return None
+        # Relative-before/after-anchor: "the Sunday before 25 May 2023" etc.
+        # Compute the actual denoted date (used by LoCoMo/LongMemEval temporal
+        # gold phrasing). Try this BEFORE the generic relative resolver so an
+        # explicit anchor wins over a session-relative reading.
+        _rel_anchor = self.resolve_relative_to_anchor(text, session_date)
+        if _rel_anchor is not None:
+            return _rel_anchor
         return self.resolve_relative(text, session_date)
 
     # ── interval math ───────────────────────────────────────────────────────

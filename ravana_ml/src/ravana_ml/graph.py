@@ -1046,10 +1046,12 @@ class GeometryHistory:
 
 class ConceptGraph:
     def __init__(self, dim: int = 64, max_nodes: int = 10000,
+                 max_edges: int = 60000,
                  anchor_relation_vectors: bool = True,
                  adaptive_downscale: bool = True):
         self.dim = dim
         self.max_nodes = max_nodes
+        self.max_edges = max_edges
         self._anchor_relation_vectors = anchor_relation_vectors
         self._adaptive_downscale = adaptive_downscale
         self.nodes: Dict[int, ConceptNode] = {}
@@ -1550,6 +1552,12 @@ class ConceptGraph:
             # Maintain relation-type bucket index for scalable contrastive sampling
             self._edges_by_relation_type[relation_type].append((key, edge))
             self._adj_dirty = True
+            # Edge-cap guard (tolerates graphs restored from a snapshot saved
+            # before max_edges existed — unpickling skips __init__, so the
+            # attribute may be absent; default keeps the cap active).
+            _max_edges = getattr(self, "max_edges", 60000)
+            if len(self.edges) > _max_edges:
+                self._prune_weakest_edges()
             self.version = getattr(self, "version", 0) + 1
             return edge
 
@@ -2130,6 +2138,28 @@ class ConceptGraph:
     def _prune_oldest(self):
         oldest = min(self.nodes.values(), key=lambda n: n.timestamp)
         self.remove_node(oldest.id)
+
+    def _prune_weakest_edges(self) -> None:
+        """Evict the weakest edges to bring the count back under max_edges.
+
+        Called from add_edge when the uncapped edge dict would otherwise grow
+        without bound (see the edge-cap guard there). Preferentially drops
+        low-weight edges so structurally important (high-weight) associations
+        survive; ties broken by oldest-first via the relation buckets' order.
+        """
+        if len(self.edges) <= self.max_edges:
+            return
+        # Snapshot-safe: a graph restored from a pre-max_edges snapshot may
+        # lack the attribute; fall back to the same default as add_edge.
+        _max_edges = getattr(self, "max_edges", 60000)
+        # Snapshot weak edges sorted by weight ascending; drop the bottom
+        # ~10% over the cap to avoid pruning on every single add.
+        over = len(self.edges) - _max_edges
+        to_drop = max(over, int(_max_edges * 0.1))
+        ranked = sorted(self.edges.items(), key=lambda kv: (kv[1].weight, kv[1].timestamp
+                       if hasattr(kv[1], "timestamp") else 0))
+        for i in range(min(to_drop, len(ranked))):
+            self.remove_edge(*ranked[i][0])
 
     # ── topology-aware structural importance ──
 

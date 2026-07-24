@@ -842,7 +842,6 @@ def _init_benchmarks():
     
     # Eager-load all real benchmarks so they're available
     for key, loader in _BENCHMARK_LOADERS.items():
-        cases = loader()
         name_map = {
             "reasoning": "Reasoning (LogiQA)",
             "temporal": "Temporal (TimeDial)",
@@ -859,12 +858,28 @@ def _init_benchmarks():
             "adversarial": "520 harmful-behavior refusal tests from AdvBench",
             "memory_consistency": "MemFail: coexisting facts, conditional facts, long-hop, persona retention",
         }
+        # LAZY registration: store the loader but DO NOT eagerly load the
+        # cases. Eager-loading ALL benchmarks at startup (1,450+ cases across
+        # MemFail/TimeDial/LoCoMo/LongMemEval) pushed the baseline RSS to
+        # ~2 GB BEFORE any case ran, and the priming of a single long haystack
+        # then tipped the process over the RAM ceiling and got SIGKILL-killed
+        # mid-run with no traceback. Loading only the SELECTED benchmark's
+        # cases in main() (see below) keeps the baseline low enough to finish.
         BENCHMARKS[key] = {
             "name": name_map.get(key, key),
             "description": desc_map.get(key, "Loaded from real benchmark data"),
-            "cases": cases,
+            "loader": loader,
+            "cases": None,  # populated lazily in main()
         }
-        print(f"  Registered benchmark '{key}': {len(cases)} cases")
+
+
+def _ensure_cases_loaded(key: str) -> None:
+    """Lazily load a benchmark's cases on first use (selected benchmarks only)."""
+    b = BENCHMARKS.get(key)
+    if b is None or b.get("cases") is not None:
+        return
+    b["cases"] = b["loader"]()
+    print(f"  Registered benchmark '{key}': {len(b['cases'])} cases")
 
 
 # Called from main() after CLI args are parsed
@@ -1187,7 +1202,11 @@ def main():
         if key not in BENCHMARKS:
             print(f"\n  ⚠ Unknown benchmark: '{key}' (skipping)")
             continue
-        
+
+        # Lazily load ONLY this benchmark's cases (avoids the ~2 GB baseline
+        # that eager-loading all benchmarks caused). Memory is freed below.
+        _ensure_cases_loaded(key)
+
         # Fresh engine from snapshot for EVERY benchmark
         bench_engine = _apply_best_perf(restore_from_snapshot())
         
