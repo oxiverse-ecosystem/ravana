@@ -227,6 +227,32 @@ class DateGrounder:
         abs_dt = self._regex_absolute(text)
         if abs_dt is not None and re.search(r"\b(19|20)\d{2}\b", text):
             return GroundedDate(abs_dt, "day", text)
+        # Month + day WITHOUT a year ("on January 16th"): resolve against the
+        # session's year. Previously this fell through to relative resolution,
+        # where a stray weekday word ("the SUNDAY mass ... on january 16th")
+        # bound the fact to the nearest weekday instead of the stated date —
+        # measured on LongMemEval oracle case 6 (computed 4 days, gold 30).
+        if session_date is not None:
+            tl = text.lower()
+            _mon = None
+            for _name, _num in _MONTHS.items():
+                if re.search(rf"\b{_name}\b", tl):
+                    _mon = _num
+                    break
+            if _mon is not None:
+                _md = re.search(
+                    rf"\b(?:{'|'.join(_MONTHS)})\s+(\d{{1,2}})(?:st|nd|rd|th)?\b"
+                    rf"|\b(\d{{1,2}})(?:st|nd|rd|th)?\s+(?:of\s+)?"
+                    rf"(?:{'|'.join(_MONTHS)})\b", tl)
+                if _md:
+                    _d = int(_md.group(1) or _md.group(2))
+                    if 1 <= _d <= 31:
+                        try:
+                            return GroundedDate(
+                                datetime(session_date.year, _mon, _d),
+                                "day", text)
+                        except ValueError:
+                            pass
         if session_date is None:
             return None
         return self.resolve_relative(text, session_date)

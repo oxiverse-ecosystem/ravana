@@ -1605,6 +1605,24 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # first sentence of a 5-sentence bio survived.
             _sents = [s.strip() for s in re.split(
                 r"(?<=[.!?])\s+", user_input.strip()) if len(s.strip()) >= 12]
+            # Re-merge fragments split after abbreviations ("St. Mary's",
+            # "Dr. Smith", "Mr. Jones"): the naive split cut "sunday mass at
+            # St. | Mary's Church on january 2nd", detaching the DATE from
+            # the event — temporal arithmetic then used the session date and
+            # was off by weeks (measured on LongMemEval oracle case 6:
+            # 4 days computed vs gold 30).
+            _abbrev = re.compile(
+                r"\b(st|dr|mr|mrs|ms|prof|rev|jr|sr|vs|etc|eg|ie|no)\.$",
+                re.IGNORECASE)
+            _merged, _i = [], 0
+            while _i < len(_sents):
+                _cur = _sents[_i]
+                while _i + 1 < len(_sents) and _abbrev.search(_cur):
+                    _cur = _cur + " " + _sents[_i + 1]
+                    _i += 1
+                _merged.append(_cur)
+                _i += 1
+            _sents = _merged
             if len(_sents) > 1:
                 for _sent in _sents:
                     self._ingest_episodic(_sent, subject)
@@ -1760,7 +1778,8 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         _ql_gate = _s.lower()
         if not re.search(r"\boptions?\s*:", _ql_gate) and (
                 re.match(r"^\s*(when|what year|what date|how long)\b", _ql_gate)
-                or "how long" in _ql_gate):
+                or "how long" in _ql_gate
+                or re.search(r"how many (day|week|month|year)s?\b", _ql_gate)):
             return None
         # Collect the raw fact texts currently in the buffer (deduped,
         # insertion-ordered). FactTriple.object holds the original utterance.
@@ -2495,7 +2514,19 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         _self_pref_q = bool(re.search(
             r"\bwhat(?:'s| is)\s+(my|your)\s+favorite\b|\bwhat\s+do\s+you\s+(like|love|prefer)\b|\bwhat\s+are\s+you\s+(interested in|into)\b",
             (user_input or "").lower()))
-        if not _self_pref_q:
+        # Temporal-recall/interval questions are episodic-memory tasks, not
+        # affordance queries: "how many days between the Sunday mass and the
+        # Ash Wednesday service" contains time-words ('sunday') + physical
+        # nouns ('mass') and tripped the gate into the category-error
+        # metaphor instead of date arithmetic (measured on LongMemEval
+        # oracle case 6). PFC task-set recognition must win over the
+        # feasibility gate for these.
+        _temporal_task_q = bool(
+            re.match(r"^\s*(when|what year|what date|how long)\b",
+                     (user_input or "").strip().lower())
+            or re.search(r"\bhow (many|much)\s+(day|week|month|year|hour|"
+                         r"minute)s?\b", (user_input or "").lower()))
+        if not _self_pref_q and not _temporal_task_q:
             try:
                 _cat_prop = self._is_category_error(user_input)
                 if _cat_prop is not None:
@@ -2972,19 +3003,15 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 r"was|were|had|has|have|will|would|could|can)\b",
                 user_input.strip().lower()))
             if _is_question and subject:
-                # ── Phase 3: multi-hop relational question (chains/comparatives)
-                _mh = self._try_multi_hop(user_input)
-                if _mh:
-                    self._last_strategy = "multi_hop"
-                    self._last_responses.append(_mh)
-                    if len(self._last_responses) > 10:
-                        self._last_responses = self._last_responses[-10:]
-                    self.notify_user_idle()
-                    return _mh
                 _ql = user_input.strip().lower()
-                # ── Phase 1: temporal question ("when did X ...", "how long ...")
+                # ── Phase 1: temporal question ("when did X ...", "how long ...",
+                # "how many days between/before ..."). Checked BEFORE multi-hop:
+                # "how many days between A and B" mentions two entities and
+                # multi-hop grabbed it, echoing a fact instead of doing date
+                # arithmetic (measured on LongMemEval oracle case 6).
                 _is_when = bool(re.match(r"^\s*(when|what year|what date|how long)\b", _ql)) \
-                    or "how long" in _ql
+                    or "how long" in _ql \
+                    or bool(re.search(r"how many (day|week|month|year)s?\b", _ql))
                 if _is_when:
                     _dresp = self._answer_temporal_recall(user_input, subject)
                     if _dresp:
@@ -2994,6 +3021,15 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                             self._last_responses = self._last_responses[-10:]
                         self.notify_user_idle()
                         return _dresp
+                # ── Phase 3: multi-hop relational question (chains/comparatives)
+                _mh = self._try_multi_hop(user_input)
+                if _mh:
+                    self._last_strategy = "multi_hop"
+                    self._last_responses.append(_mh)
+                    if len(self._last_responses) > 10:
+                        self._last_responses = self._last_responses[-10:]
+                    self.notify_user_idle()
+                    return _mh
                 _mem = self._try_hippocampal_retrieval(
                     type("Ctx", (), {"subject": subject})(), user_input)
                 if _mem:

@@ -18,7 +18,16 @@ for c in cases:
         eng.hippocampal_buffer.facts.clear()
     except Exception:
         pass
-    for t in c.get("primer", []):
+    _prim = c.get("primer", [])
+    # Mirror evaluate_ravana.py: scale buffer to the fed content (per-sentence
+    # pattern separation stores ~one fact per sentence; under-scaling trims
+    # early sessions — measured on LoCoMo dlg0).
+    import re as _re
+    _n_sent = sum(max(1, len(_re.split(r"(?<=[.!?])\s+", t))) for t in _prim)
+    cfg = eng.hippocampal_buffer.config
+    cfg.max_facts = max(cfg.max_facts, 2 * _n_sent)
+    cfg.decay_turns = max(cfg.decay_turns, 4 * _n_sent)
+    for t in _prim:
         eng.process_turn(t)
     r = eng.process_turn(c["question"])
     s = c["grader"](r)

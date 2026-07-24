@@ -548,15 +548,25 @@ def _load_longmemeval_oracle(max_cases: int = 100) -> list:
         answer = item["answer"]
         qtype = item["question_type"]
         
-        # Build primer from haystack sessions
+        # Build primer from haystack sessions. Prepend each session's date
+        # marker (haystack_dates aligns 1:1 with haystack_sessions) so the
+        # DateGrounder can bind facts to session dates — temporal-reasoning
+        # questions are ungradable without it (same fix as the LoCoMo
+        # loader / eval_longmem.py). Prefix the role so speaker attribution
+        # binds 'I' to the user, mirroring the adapter that verified recall.
         primer_turns = []
-        for session in item.get("haystack_sessions", []):
+        _sessions = item.get("haystack_sessions", [])
+        _dates = item.get("haystack_dates", [])
+        for _si, session in enumerate(_sessions):
+            if _si < len(_dates) and _dates[_si]:
+                primer_turns.append(f"(Session {_si + 1}, dated {_dates[_si]})")
             for turn in session:
                 if isinstance(turn, dict):
                     role = turn.get("role", "user")
                     content = turn.get("content", "")
                     if content:
-                        primer_turns.append(content)
+                        primer_turns.append(
+                            f"{role}: {content}" if role else content)
         
         # Abstention questions end with _abs
         is_abstention = item.get("question_id", "").endswith("_abs")
@@ -577,8 +587,22 @@ def _load_longmemeval_oracle(max_cases: int = 100) -> list:
                 # Knowledge update: prioritizes latest value
                 if qt == "knowledge-update":
                     return 1.0 if ans.strip().lower() in rl else 0.0
-                # Temporal reasoning: check for date patterns
+                # Temporal reasoning: gold often lists MULTIPLE acceptable
+                # variants ("30 days. 31 days (including the last day) is
+                # also acceptable") — the old 20-char-prefix substring test
+                # could never match any single correct answer. Accept a
+                # response that contains any acceptable "<number> <unit>"
+                # variant, or the prefix for date-shaped golds.
                 if qt == "temporal-reasoning":
+                    import re as _re
+                    _variants = _re.findall(
+                        r"\b(\d+)\s+(day|week|month|year|hour|minute)s?\b",
+                        ans.lower())
+                    if _variants:
+                        for _n, _u in _variants:
+                            if _re.search(rf"\b{_n}\s+{_u}s?\b", rl):
+                                return 1.0
+                        return 0.0
                     return 1.0 if ans[:20].lower() in rl else 0.0
                 # Default: substring match
                 return 1.0 if ans[:50].lower() in rl else 0.0
