@@ -749,6 +749,31 @@ class ReasoningMixin:
             facts = self.hippocampal_buffer.retrieve(ctx.subject)
         except Exception:
             return None
+        # Broaden the candidate pool: buffer keys are the content words of
+        # each ingested sentence, so the fact "researching adoption
+        # agencies" is keyed under 'researching' — which retrieve('research')
+        # misses whenever the direct key 'research' is itself non-empty (the
+        # fuzzy pass only runs on a direct miss), and retrieve_any misses
+        # because its top-5 confidence cap drowns in same-confidence entity
+        # matches. Pull facts keyed under each question token AND under any
+        # key sharing the token's stem prefix; the attribute ranking below
+        # picks the right trace (measured on LoCoMo dlg0).
+        try:
+            _have = {id(f) for f in (facts or [])}
+            facts = list(facts or [])
+            _q_stems = set()
+            for w in re.findall(r"[a-zA-Z']+", (user_input or "").lower()):
+                if len(w) >= 4:
+                    _q_stems.add(w.rstrip("s").rstrip("e").rstrip("ing")[:6])
+            for _key, _kfacts in self.hippocampal_buffer.facts.items():
+                _ks = _key.rstrip("s").rstrip("e").rstrip("ing")[:6]
+                if _ks in _q_stems:
+                    for f in _kfacts:
+                        if id(f) not in _have:
+                            _have.add(id(f))
+                            facts.append(f)
+        except Exception:
+            pass
         if not facts:
             return None
 
@@ -765,28 +790,100 @@ class ReasoningMixin:
             "this", "it", "was", "been", "being", "am", "tell", "told", "say",
             "said", "get", "got", "go", "went", "there", "here",
         }
-        # Use ALL content words of the question (entity + attribute). The shared
-        # entity word ("caroline") scores equally across every same-entity fact,
-        # so the DISCRIMINATING attribute word ("research") breaks the tie and
-        # selects the right fact. Also fold in subject tokens in case the parser
-        # absorbed an attribute into a multi-word subject ("caroline research").
+        # Attribute cues = content words of the question, EXCLUDING the entity
+        # tokens that scoped this pool (the subject already filtered the
+        # candidate facts to the entity). Counting entity tokens as cues let
+        # "caroline" (present in ~40% of an entity's facts) double-vote and
+        # outrank the real attribute fact — a low-content filler "off to go
+        # do some research" beat "researching adoption agencies" on LoCoMo
+        # dlg0. Distribution-driven ubiquitous suppression alone was
+        # insufficient (40% < the >50% cutoff), so the entity is removed
+        # outright here and remaining over-broad cues are pruned below.
         attr_words = set()
-        for w in re.findall(r"[a-zA-Z']+",
-                            f"{user_input or ''} {subj}".lower()):
-            if len(w) >= 3 and w not in stop:
-                attr_words.add(w)
+        subj_toks = {w for w in re.findall(r"[a-zA-Z']+", subj)}
+        subj_toks |= {t.split("'")[0] for t in subj_toks}
+        subj_stems = {t.rstrip("s").rstrip("e").rstrip("ing")[:6] for t in subj_toks}
+        for w in re.findall(r"[a-zA-Z']+", (user_input or "").lower()):
+            # Normalize possessives: "caroline's" must be recognized as the
+            # entity token 'caroline' (its stem 'caroli' slipped past the
+            # exclusion and re-introduced the entity as a cue — measured on
+            # "What is Caroline's identity?").
+            _w_base = w.split("'")[0]
+            if len(_w_base) >= 3 and _w_base not in stop \
+                    and _w_base not in subj_toks \
+                    and _w_base.rstrip("s").rstrip("e").rstrip("ing")[:6] \
+                        not in subj_stems:
+                attr_words.add(_w_base)
                 # crude stem so "research"~"researching"~"researched"
-                attr_words.add(w.rstrip("s").rstrip("e").rstrip("ing")[:6])
+                attr_words.add(_w_base.rstrip("s").rstrip("e").rstrip("ing")[:6])
+        # Drop a cue if its own stem surface is ALSO a cue (avoid double
+        # counting "research" + "resear" for the same concept).
+        _stem6 = lambda t: t.rstrip("s").rstrip("e").rstrip("ing")[:6]
+        attr_words = {_stem6(w) for w in attr_words}
+        if not attr_words:
+            for w in subj_toks:
+                if len(w) >= 3 and w not in stop:
+                    attr_words.add(w)
+                    attr_words.add(w.rstrip("s").rstrip("e").rstrip("ing")[:6])
+
+        # Ubiquitous-cue suppression (same lesson as fact_reasoning's
+        # ubiquitous_words): a cue word occurring in a large fraction of the
+        # candidate facts (the entity name, greeting words) recruits
+        # arbitrary traces — ack echoes like "glad you agree, caroline."
+        # beat the real attribute fact. Distribution-driven: a word is
+        # ubiquitous relative to THIS fact pool, no fixed vocabulary.
+        _fact_tok_sets = []
+        for f in facts:
+            _ot = set(re.findall(r"[a-zA-Z']+", (f.object or "").lower()))
+            _ot |= {t.rstrip("s").rstrip("e").rstrip("ing")[:6] for t in _ot}
+            _fact_tok_sets.append(_ot)
+        _n = len(_fact_tok_sets)
+        if _n >= 4:
+            _ubiq = set()
+            for w in list(attr_words):
+                df = sum(1 for ts in _fact_tok_sets if w in ts)
+                if df > _n // 2:
+                    _ubiq.add(w)
+            if attr_words - _ubiq:
+                attr_words -= _ubiq
 
         def score(f):
             obj = (f.object or "").lower()
             objtok = set(re.findall(r"[a-zA-Z']+", obj))
+            # The trace's SUBJECT binding is part of the memory (hippocampal
+            # source attribution): "researching adoption agencies" stored
+            # under subject 'caroline' IS about caroline even though her
+            # name isn't in the sentence. Without this, a filler that
+            # happens to repeat the entity name in-text beat the real
+            # attribute fact whenever the extracted subject was multi-word
+            # ("caroline research") — measured on LoCoMo dlg0.
+            objtok |= set(re.findall(r"[a-zA-Z']+",
+                                     (getattr(f, "subject", "") or "").lower()))
             objstem = {t.rstrip("s").rstrip("e").rstrip("ing")[:6] for t in objtok}
-            overlap = len(attr_words & objtok) + 0.5 * len(attr_words & objstem)
+            # Lexeme-level matching: an attribute cue matches whether it
+            # appears as surface form OR inflectional variant — "research"
+            # must match "researching" at FULL weight. The old
+            # surface=1.0/stem=0.5 weighting made the filler turn "off to go
+            # do some research" (surface hit) outrank the contentful
+            # "researching adoption agencies" (stem hit) — measured on
+            # LoCoMo dlg0.
+            matched = 0
+            for w in attr_words:
+                if len(w) < 3:
+                    continue
+                ws = w.rstrip("s").rstrip("e").rstrip("ing")[:6]
+                if w in objtok or ws in objstem:
+                    matched += 1
+            # Informativeness tie-break: among equally-cued facts prefer the
+            # one carrying MORE novel content beyond the question's own
+            # words — answers contain new information; fillers don't
+            # (hippocampal retrieval favours high-content traces).
+            novel = len({t for t in objtok if len(t) >= 4}
+                        - attr_words - subj_toks)
             # Phase 4: superseded facts (an updated/retracted earlier value) sort
             # BELOW active ones so recency-wins for knowledge updates.
             active = 0 if getattr(f, "superseded", False) else 1
-            return (active, overlap, f.confidence, f.turn_number)
+            return (active, matched, novel, f.confidence, f.turn_number)
 
         # If we have attribute words, prefer the best lexically-overlapping fact
         # (this is what fixes "what did Caroline *research*" selecting the research
@@ -848,6 +945,23 @@ class ReasoningMixin:
             facts = self.hippocampal_buffer.retrieve_dated(subject)
         except Exception:
             facts = None
+        # Subject extraction upstream is noisy ("support group" vs
+        # "caroline"): ALSO gather dated facts keyed under every content
+        # word of the question and merge. The question-overlap ranking
+        # below picks the right trace; relying on the single extracted
+        # subject missed the correctly-dated fact (live-engine 6-July vs
+        # clean-ingest 7-May divergence on LoCoMo dlg0).
+        try:
+            _qtoks = [w.strip(".,!?;:'\"").lower() for w in user_input.split()]
+            _qtoks = [w for w in _qtoks if len(w) >= 3]
+            _extra = self.hippocampal_buffer.retrieve_any(_qtoks) or []
+            _have = {(id(f)) for f in (facts or [])}
+            facts = list(facts or [])
+            for f in _extra:
+                if id(f) not in _have and getattr(f, "absolute_date", None):
+                    facts.append(f)
+        except Exception:
+            pass
         if not facts:
             return None
         ql = user_input.lower()

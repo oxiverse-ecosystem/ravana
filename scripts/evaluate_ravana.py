@@ -679,6 +679,11 @@ def _load_locoMo(max_cases: int = 100) -> list:
                 # keeps one engine per benchmark, so the accumulated history
                 # persists across that dialogue's remaining QA cases.
                 "primer": primer_turns if first_case_of_dialogue else [],
+                # Followers carry NO primer; the runner clears the buffer per
+                # case unless keep_memory — without this flag every follower
+                # case ran against an EMPTY buffer and scored 0 (measured:
+                # smoke case 1 passed, cases 2-8 all abstained).
+                "keep_memory": not first_case_of_dialogue,
                 "grader": make_grader(),
                 "category": category,
             })
@@ -967,11 +972,19 @@ def run_benchmark_category(engine, category_key: str, category: dict) -> dict:
             # turns, and with the default the trimmer/decay would delete
             # everything but the tail before the questions arrive — measuring
             # capacity misconfiguration, not memory ability. Derived from the
-            # data scale (2x/4x the fed history), not a hand-picked constant.
+            # data scale: per-sentence pattern separation stores ~one fact per
+            # SENTENCE, so size on the sentence count of the fed history
+            # (turn count under-scaled ~3x and _trim_oldest deleted the early
+            # sessions — measured on LoCoMo dlg0: every temporal answer echoed
+            # late-October dates because May facts were trimmed).
             try:
+                import re as _re
+                _n_sent = sum(
+                    max(1, len(_re.split(r"(?<=[.!?])\s+", t)))
+                    for t in primer_turns)
                 cfg = engine.hippocampal_buffer.config
-                cfg.max_facts = max(cfg.max_facts, 2 * len(primer_turns))
-                cfg.decay_turns = max(cfg.decay_turns, 4 * len(primer_turns))
+                cfg.max_facts = max(cfg.max_facts, 2 * _n_sent)
+                cfg.decay_turns = max(cfg.decay_turns, 4 * _n_sent)
             except Exception:
                 pass
         for turn in primer_turns:

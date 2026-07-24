@@ -1663,24 +1663,47 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # "started at", "currently"), mark any earlier stored fact for that
             # subject as superseded so recency-weighted retrieval returns the
             # newest value by default (LongMemEval knowledge-update resolution).
-            _update_cue = any(c in user_input.lower() for c in (
-                " now ", "now ", " quit ", "quit ", " left ", "left ",
-                " sold ", "sold ", " started at ", "changed ", " no longer ",
-                " used to ", " i currently ", " i now ", "actually "))
+            # Phase 4: knowledge updates — when a new statement about a subject
+            # contains an update/retraction cue ("now", "quit", "left", "sold",
+            # "started at", "currently"), mark the earlier stored fact FOR THE
+            # SAME ATTRIBUTE as superseded so recency-weighted retrieval returns
+            # the newest value by default (LongMemEval knowledge-update
+            # resolution). Word-boundary matched: substring cues fired on
+            # "known"/"nowhere"-style words.
+            _update_cue = re.search(
+                r"\b(?:now|quit|left|sold|no longer|used to|currently|"
+                r"changed|started at|actually)\b", user_input.lower())
             if _update_cue:
                 try:
-                    # Scan facts under the subject AND every content-word alias
-                    # so an update phrased with a different head noun ("I sold my
-                    # phone and now ... iPhone") still supersedes the earlier
-                    # value keyed under "phone".
+                    # Only supersede a previous fact when it shares attribute
+                    # content with the NEW statement beyond the entity name.
+                    # The old blanket loop superseded EVERY fact under the
+                    # subject and every alias — on LoCoMo, conversational
+                    # "now"/"actually" turns marked an entity's ENTIRE history
+                    # superseded (measured: all 612 caroline facts, so recall
+                    # returned ack fillers). An update replaces the OLD VALUE
+                    # OF THE SAME ATTRIBUTE, not the person's whole past.
+                    _new_words = {w for w in content_words
+                                  if len(w) >= 4 and w != subj}
                     _seen_ids = set()
                     for _key in [subj] + aliases:
                         for _prev in (self.hippocampal_buffer.retrieve(_key) or []):
                             if id(_prev) in _seen_ids:
                                 continue
                             _seen_ids.add(id(_prev))
-                            if (not _prev.superseded
-                                    and _prev.object != user_input[:300]):
+                            if _prev.superseded or _prev.object == user_input[:300]:
+                                continue
+                            _prev_words = {
+                                w.strip(".,!?;:") for w in
+                                (_prev.object or "").lower().split()
+                                if len(w.strip(".,!?;:")) >= 4}
+                            _shared = _prev_words & _new_words
+                            # Require MEANINGFUL attribute overlap (2+ shared
+                            # content words, or 1 when the new statement is
+                            # short/specific) before declaring the old fact
+                            # stale.
+                            if len(_shared) >= 2 or (
+                                    len(_shared) == 1 and len(_new_words) <= 4):
                                 _prev.superseded = True
                 except Exception:
                     pass
@@ -1724,6 +1747,20 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                      r"are|was|were|would|will|could|can|should)\b",
                      _s.lower()))
         if not _is_q:
+            return None
+        # Temporal questions ("when did X", "how long ago") are answered by
+        # _answer_temporal_recall downstream from DATED facts. The raw-text
+        # handlers here have no date access — letting entity_fact_answer
+        # echo an undated fact text shadowed the correct dated answer
+        # (measured on LoCoMo dlg0: sunrise question returned prose instead
+        # of '8 May 2022'). EXCEPTION: multiple-choice input ('Options:')
+        # is a selection task regardless of its leading word — 'When I
+        # write poetry, what do I end up doing? Options: ...' must still
+        # reach select_option (measured regression on MemFail longhop).
+        _ql_gate = _s.lower()
+        if not re.search(r"\boptions?\s*:", _ql_gate) and (
+                re.match(r"^\s*(when|what year|what date|how long)\b", _ql_gate)
+                or "how long" in _ql_gate):
             return None
         # Collect the raw fact texts currently in the buffer (deduped,
         # insertion-ordered). FactTriple.object holds the original utterance.
@@ -1775,7 +1812,41 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 or _frz.enumerate_matching(
                     user_input, _texts,
                     isa_parents=_isa_parents if _isa_map else None)
+                or self._entity_recall_via_buffer(user_input)
                 or _frz.entity_fact_answer(user_input, _texts))
+
+    def _entity_recall_via_buffer(self, user_input: str) -> Optional[str]:
+        """Known-entity attribute recall through the SUBJECT-BOUND buffer.
+
+        The raw-text handler (fact_reasoning.entity_fact_answer) sees only
+        fact texts and loses the trace's subject binding, so a low-content
+        filler mentioning the cue word could outrank the entity's real
+        attribute fact. _try_hippocampal_retrieval keys on the stored
+        subject and ranks by attribute overlap — measured on LoCoMo dlg0 it
+        returns 'researching adoption agencies' where the raw-text path
+        echoed 'off to go do some research'. Runs for single known names
+        (dialog speakers) found in the buffer keys.
+        """
+        try:
+            # Temporal questions are handled by _answer_temporal_recall
+            # downstream (dated-fact ranking); answering them here with a
+            # non-dated echo would shadow the correct dated answer.
+            _ql = (user_input or "").strip().lower()
+            if re.match(r"^\s*(when|what year|what date|how long)\b", _ql) \
+                    or "how long" in _ql:
+                return None
+            _names = re.findall(r"\b[A-Z][a-z]{2,}\b", user_input or "")
+            for _nm in _names:
+                _key = _nm.lower()
+                if _key in getattr(self.hippocampal_buffer, "facts", {}):
+                    _mem = self._try_hippocampal_retrieval(
+                        type("Ctx", (), {"subject": _key})(), user_input)
+                    if _mem:
+                        return self._phrase_recalled_fact(
+                            user_input, _key, _mem)
+        except Exception:
+            pass
+        return None
 
     def process_turn(self, user_input: str) -> str:
         """Process input and generate a response, auto-learning when needed."""
@@ -1833,6 +1904,25 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         return _resp
             except Exception:
                 pass
+
+        # ── Transcript ingestion fast path (dialog primer turns) ────────────
+        # A speaker-prefixed line ("Caroline: I went to X yesterday") is
+        # third-party transcript being fed for MEMORY, not conversation
+        # addressed to the agent. Ingest it (speaker attribution + date
+        # grounding happen inside _ingest_episodic) and acknowledge without
+        # running the generative pipeline — whose reply-echo side effects
+        # polluted the episodic store (measured on LoCoMo: temporal recall
+        # returned 6 July instead of the correct 7 May present in the buffer
+        # when the same turns were ingested cleanly).
+        _tr_m = re.match(r"^\s*[A-Z][a-z]{2,15}\s*:\s+\S", user_input or "")
+        if _tr_m and not user_input.strip().endswith("?"):
+            try:
+                self._ingest_episodic(user_input)
+                self.hippocampal_buffer.advance_turn()
+            except Exception:
+                pass
+            self._last_strategy = "transcript_ingest"
+            return "(noted)"
 
         # ── Unconditional episodic ingestion (hippocampal auto-encoding) ────
         # Every ASSERTION is written to the hippocampal buffer here, at the

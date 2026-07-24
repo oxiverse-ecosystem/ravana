@@ -356,6 +356,23 @@ def _person_names(text: str) -> List[Tuple[str, str]]:
     return out
 
 
+def _single_names(text: str, fact_texts: Sequence[str]) -> List[str]:
+    """Single capitalized first names KNOWN to the fact store.
+
+    LoCoMo/LongMemEval questions reference people by first name only
+    ("What did Caroline research?") — the First-Last pair detector never
+    fires, so entity cued recall was skipped entirely for them (measured:
+    all attribute questions fell through to generic paths). A capitalized
+    survivor counts only when it actually occurs in the stored facts —
+    the store itself is the name gazetteer, no external list."""
+    toks = re.findall(r"\b[A-Z][a-z]{2,}\b", text or "")
+    kept = [w for w in toks if w not in _NAME_STOP]
+    if not kept:
+        return []
+    joined = " ".join(fact_texts).lower()
+    return [w for w in kept if w.lower() in joined]
+
+
 def entity_fact_answer(question: str,
                        fact_texts: Sequence[str]) -> Optional[str]:
     """Named-entity cued recall ("What should I bring when taking Yuki
@@ -367,30 +384,47 @@ def entity_fact_answer(question: str,
         return None
     q = question or ""
     names = _person_names(q)
-    if not names:
-        return None
-    joined = " ".join(fact_texts).lower()
     known = [n for n in names
-             if n[0].lower() in joined or n[1].lower() in joined]
+             if n[0].lower() in " ".join(fact_texts).lower()
+             or n[1].lower() in " ".join(fact_texts).lower()]
+    namewords: Set[str] = {w.lower() for n in known for w in n}
     if not known:
-        return None
+        # First-name-only reference (LoCoMo/LongMemEval dialog QA):
+        # fall back to single known names present in the store.
+        singles = _single_names(q, fact_texts)
+        if not singles:
+            return None
+        namewords = {w.lower() for w in singles}
     # Cue = question words minus the entity name itself.
-    namewords = {w.lower() for n in known for w in n}
     cue = content_words(q) - namewords
     if not cue:
         return None
     scored = []
     for t in fact_texts:
-        ov = len(content_words(t) & cue)
+        tw = content_words(t)
+        ov = len(tw & cue)
         if ov > 0:
-            scored.append((ov, t))
+            # Entity binding: prefer facts that mention the asked-about
+            # entity; a cue-word hit in an unrelated speaker's turn should
+            # not outrank the entity's own statement.
+            ent = 1 if (tw & namewords) else 0
+            # Attribute precision: prefer the fact whose cue-overlap is most
+            # concentrated in the question's attribute words relative to its
+            # own length — a concise "researching adoption agencies" fact
+            # should beat a verbose "started playing acoustic guitar..."
+            # one that merely happens to share the entity + a tangential
+            # word (measured on LoCoMo dlg0 attribute questions).
+            ratio = (ov / max(1, len(tw))) if ov else 0
+            scored.append(((ent, ratio, ov), t))
     if not scored:
         return None
-    scored.sort(key=lambda x: -x[0])
-    best_ov = scored[0][0]
-    # Keep every fact within 1 overlap of the best (multi-fact answers:
-    # equipment lists span sentences).
-    keep = [t for ov, t in scored if ov >= max(1, best_ov - 1)][:4]
+    scored.sort(key=lambda x: x[0], reverse=True)
+    best_key = scored[0][0]
+    # Keep facts in the same entity-binding tier within 1 cue-overlap of the
+    # best (multi-fact answers: equipment lists span sentences). Overlap is
+    # x[0][2]; x[0][1] is the density ratio used only for ordering.
+    keep = [t for k, t in scored
+            if k[0] == best_key[0] and k[2] >= max(1, best_key[2] - 1)][:4]
     return "from what i know: " + " ".join(keep)
 
 
