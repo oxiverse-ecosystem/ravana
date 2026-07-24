@@ -708,6 +708,16 @@ def _load_locoMo(max_cases: int = 100) -> list:
                 # case ran against an EMPTY buffer and scored 0 (measured:
                 # smoke case 1 passed, cases 2-8 all abstained).
                 "keep_memory": not first_case_of_dialogue,
+                # CRITICAL: the FIRST case of each NEW dialogue must RESET
+                # episodic state, not just keep it. The runner reuses one
+                # engine across all dialogues, so without a reset dlg0's
+                # (Caroline, 600 turns) facts contaminate dlg1 (Melanie) and
+                # beyond — measured: "When did Melanie go camping in June?"
+                # returned Caroline's "20 July 2022" (0/600 temporal). The
+                # reset wipes the prior dialogue's entity index + buffer so
+                # each dialogue starts clean (the engine is still the SAME
+                # trained model; only volatile per-session memory clears).
+                "reset_memory": first_case_of_dialogue and (conv is not conversations[0]),
                 "grader": make_grader(),
                 "category": category,
             })
@@ -985,11 +995,25 @@ def run_benchmark_category(engine, category_key: str, category: dict) -> dict:
             # keep_memory=True on followers). Without this, facts from
             # case N-1's persona leak into case N and cued recall answers
             # from the WRONG entity's facts.
-            if not case.get("keep_memory", False):
+            # Also reset when the case explicitly requests it (the FIRST
+            # case of each NEW LoCoMo dialogue) — the runner reuses one
+            # engine across all dialogues, so the previous dialogue's facts
+            # must be wiped before priming the next (measured: dlg0's
+            # Caroline dates contaminated dlg1's Melanie answers).
+            if case.get("reset_memory", False) or not case.get("keep_memory", False):
+                # Reset ALL per-case episodic stores (entity index,
+                # user_model per-session accumulators, hippocampal buffer),
+                # not just the hippocampal facts dict — otherwise the engine
+                # accumulates an unbounded in-memory store across hundreds of
+                # cases and is OOM-killed mid-run (measured). See
+                # CognitiveChatEngine.reset_episodic_state.
                 try:
-                    engine.hippocampal_buffer.facts.clear()
+                    engine.reset_episodic_state()
                 except Exception:
-                    pass
+                    try:
+                        engine.hippocampal_buffer.facts.clear()
+                    except Exception:
+                        pass
             # Scale the hippocampal buffer to the history being fed. The
             # engine's default (max_facts=50, decay_turns=50) is calibrated
             # for interactive chat; multi-session benchmarks feed 400-1300

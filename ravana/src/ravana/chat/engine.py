@@ -1867,6 +1867,60 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             pass
         return None
 
+    def reset_episodic_state(self) -> None:
+        """Clear all PER-CASE episodic/persona stores so the next benchmark
+        case starts from a clean slate. Called by the evaluation harness when
+        a case opts OUT of keep_memory (and SHOULD be called between
+        independent sessions in production).
+
+        Without this the engine accumulates an UNBOUNDED in-memory store across
+        cases: _episodic_index (entity attribute index, written by
+        engine_memory on every statement) and user_model per-session
+        accumulators (query_concepts, edge_reactivations, interaction_history,
+        preferences) grow without limit over hundreds of primed bios. The
+        hippocampal buffer is already cleared by the harness, but these other
+        stores are not — measured: a 200-case MemFail run started at ~2 GB RSS
+        and was OOM-killed mid-priming (no traceback, SIGKILL) because the
+        entity index never capped.
+
+        SAFE: this does NOT touch learned weights, the associative graph, or
+        the snapshot — only volatile per-session memory. A fresh engine would
+        have these empty anyway.
+        """
+        try:
+            self._episodic_index = {}
+        except Exception:
+            pass
+        try:
+            self._episodic_transcript = []
+        except Exception:
+            pass
+        try:
+            self._epistemic_new_tags = {}
+        except Exception:
+            pass
+        try:
+            um = self.user_model
+            um.query_concepts = set()
+            um.edge_reactivations = {}
+            um.interaction_history = []
+            # Preserve durable cross-session preferences (likes/interests) but
+            # drop the volatile per-case facts that leaked in. Note: MemFail
+            # persona cases deliberately prime a NEW persona each case, so we
+            # clear here; production would keep preferences across sessions.
+            if hasattr(um, "preferences") and isinstance(um.preferences, dict):
+                um.preferences = {}
+        except Exception:
+            pass
+        # Hippocampal buffer is cleared by the caller; ensure the flat list
+        # and recent-retrieval set are also wiped for good measure.
+        try:
+            self.hippocampal_buffer.facts.clear()
+            self.hippocampal_buffer._all_facts.clear()
+            self.hippocampal_buffer._recent_retrievals.clear()
+        except Exception:
+            pass
+
     def process_turn(self, user_input: str) -> str:
         """Process input and generate a response, auto-learning when needed."""
         # Guard: reject pure letter-salad so it is not treated as a concept and
