@@ -1855,9 +1855,19 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     or "how long" in _ql:
                 return None
             _names = re.findall(r"\b[A-Z][a-z]{2,}\b", user_input or "")
-            for _nm in _names:
+            # Skip interrogative words: "What is Caroline's identity?" matches
+            # BOTH "What" and "Caroline" — the capitalized question word must
+            # not shadow the real entity. Only treat a token as the recall
+            # subject if it is NOT a known interrogative and (preferably) is a
+            # key actually present in the buffer as a PERSON entity (i.e. it is
+            # one of the dialogue speakers), not a content word like "What".
+            _INTERR = {"What", "Who", "When", "Where", "Which", "Why", "How",
+                       "Whom", "Whose", "The", "She", "He", "They", "We", "I"}
+            _cand = [n for n in _names if n not in _INTERR]
+            _facts = getattr(self.hippocampal_buffer, "facts", {})
+            for _nm in _cand:
                 _key = _nm.lower()
-                if _key in getattr(self.hippocampal_buffer, "facts", {}):
+                if _key in _facts:
                     _mem = self._try_hippocampal_retrieval(
                         type("Ctx", (), {"subject": _key})(), user_input)
                     if _mem:

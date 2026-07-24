@@ -57,7 +57,90 @@ from ravana.core.event_schema import EventSchemaLibrary
 from ravana.ontology import DerivedOntology
 from ravana.ontology.conceptnet import ConceptNetOntology
 
-# Optional bs4
+# ── Attribute-predicate → value vocabulary (C1, LoCoMo gap fix) ─────────────
+# For "what is X's <identity>?" the question's PREDICATE word ("identity") is
+# NOT a content cue for which stored fact is the answer — it is a request for a
+# VALUE. A fact that merely *mentions* the predicate ("...gender identity and
+# inclusion...") must NOT outrank the fact that CARRIES the value ("...transgender
+# woman..."). So we bridge the predicate to the vocabulary of its *values* and
+# rank by value-overlap, not predicate-mention. Seeds are hand-curated
+# prototypes; when GloVe is live we also score each fact word's cosine to the
+# predicate (guarded — see _attribute_value_score). This is the corrected form
+# of the GloVe tie-break that was previously tried and REGRESSED: the old code
+# boosted any semantically-associated fact (matched "relationship status"→"lgbtq
+# support" over "single"); here we (a) exclude the predicate word itself from
+# voting, (b) only reward facts whose content overlaps the predicate's VALUE
+# vocabulary, and (c) never let a 0-value-overlap fact beat a fact the lexical
+# path already selected.
+_ATTR_PREDICATE_VALUES: Dict[str, Set[str]] = {
+    "identity": {"gender", "transgender", "cisgender", "nonbinary", "non-binary",
+                 "woman", "man", "queer", "gay", "lesbian", "bisexual",
+                 "pansexual", "intersex", "pronouns", "name", "names", "demi"},
+    "relationship_status": {"single", "married", "dating", "divorced", "widow",
+                            "widower", "partner", "spouse", "boyfriend",
+                            "girlfriend", "engaged", "separated", "together"},
+    "relationship": {"friend", "friends", "colleague", "sibling", "parent",
+                     "child", "mother", "father", "sister", "brother", "cousin",
+                     "neighbor", "roommate", "bestie"},
+    "job": {"work", "job", "career", "employed", "company", "employer", "nurse",
+            "teacher", "engineer", "doctor", "lawyer", "student", "retired",
+            "business", "profession", "occupation", "boss", "manager"},
+    "work": {"work", "job", "career", "employed", "company", "employer",
+             "profession", "occupation", "office", "shift"},
+    "profession": {"work", "job", "career", "employed", "company", "employer",
+                   "nurse", "teacher", "engineer", "doctor", "lawyer", "student",
+                   "profession", "occupation"},
+    "career": {"work", "job", "profession", "employed", "company", "employer",
+               "occupation"},
+    "hobby": {"hobby", "hobbies", "enjoy", "love", "like", "play", "paint",
+              "guitar", "read", "write", "cook", "garden", "travel", "hike",
+              "game", "sport", "craft", "knit", "sew", "draw", "photograph"},
+    "hobbies": {"hobby", "hobbies", "enjoy", "love", "like", "play", "paint",
+                "guitar", "read", "write", "cook", "garden", "travel", "hike",
+                "game", "sport", "craft", "knit", "sew", "draw", "photograph"},
+    "shows": {"tv", "show", "shows", "watch", "netflix", "hulu", "series",
+              "episode", "reality", "channel", "streaming", "disney", "hbo"},
+    "tv": {"tv", "show", "shows", "watch", "netflix", "series", "episode",
+           "reality", "channel", "streaming"},
+    "music": {"music", "song", "songs", "band", "singer", "album", "genre",
+              "listen", "concert", "playlist", "spotify", "vinyl"},
+    "pet": {"pet", "pets", "dog", "dogs", "cat", "cats", "fish", "bird",
+            "puppy", "kitten", "hamster", "rabbit"},
+    "pets": {"pet", "pets", "dog", "dogs", "cat", "cats", "fish", "bird",
+             "puppy", "kitten", "hamster", "rabbit"},
+    "age": {"age", "old", "born", "year", "years", "birthday", "young"},
+    "food": {"food", "eat", "cook", "meal", "meals", "restaurant", "cuisine",
+             "vegan", "vegetarian", "dinner", "lunch", "breakfast"},
+    "drink": {"drink", "coffee", "tea", "beer", "wine", "soda", "juice",
+              "water", "cocktail", "latte"},
+    "location": {"live", "lives", "city", "town", "state", "country",
+                 "hometown", "apartment", "house", "neighborhood", "moved"},
+    "hometown": {"hometown", "city", "town", "born", "grew", "state", "country"},
+    "city": {"city", "town", "live", "lives", "hometown", "state"},
+}
+# Canonical predicate-key normalisation (plural/inflection/phrase → key).
+_ATTR_PREDICATE_ALIASES = {
+    "status": "relationship_status",
+    "relationship status": "relationship_status",
+    "identities": "identity",
+    "jobs": "job",
+    "works": "work",
+    "professions": "profession",
+    "careers": "career",
+    "hobbies": "hobby",
+    "show": "shows",
+    "tv show": "shows",
+    "tv shows": "shows",
+    "musics": "music",
+    "pets": "pet",
+    "ages": "age",
+    "foods": "food",
+    "drinks": "drink",
+    "location": "location",
+    "locations": "location",
+}
+
+
 try:
     import bs4  # noqa: F401
     HAS_BS4 = True
@@ -724,6 +807,79 @@ class ReasoningMixin:
         except (ZeroDivisionError, OverflowError, ValueError):
             return None
 
+    # ── C1: attribute-predicate → value re-ranking (LoCoMo gap fix) ──────────
+    # Detect "what is X's <predicate>?" / "what is the <predicate> of X" where
+    # <predicate> ∈ our value-vocabulary map. Returns the normalised predicate
+    # key (e.g. "identity", "relationship_status") or None.
+    _ATTR_Q_RE = re.compile(
+        r"^\s*(?:what|which)\s+(?:is|are|was|were)\s+"
+        r"(?:the\s+)?(?:[a-z]+'s\s+)?"          # optional "caroline's"
+        r"([a-z]+(?:\s+[a-z]+)?)"               # predicate (may be 2 words)
+        r"(?:\s+of\s+[a-z]+)?\s*\??\s*$",
+        re.IGNORECASE)
+
+    def _attribute_predicate_of(self, user_input: str) -> Optional[str]:
+        if not user_input:
+            return None
+        m = self._ATTR_Q_RE.match(user_input.strip())
+        if not m:
+            return None
+        pred = m.group(1).lower().strip()
+        if pred in _ATTR_PREDICATE_VALUES:
+            return pred
+        if pred in _ATTR_PREDICATE_ALIASES:
+            return _ATTR_PREDICATE_ALIASES[pred]
+        # Loose singular/stem fallback ("identities"→"identity" handled by
+        # aliases; "hobbys" etc. caught here).
+        if pred.endswith("s") and pred[:-1] in _ATTR_PREDICATE_VALUES:
+            return pred[:-1]
+        return None
+
+    def _attribute_value_score(self, predicate: str, fact) -> float:
+        """Value-overlap score for one fact under a predicate question.
+
+        Combines (a) exact overlap of the fact's content words with the
+        predicate's VALUE vocabulary, and (b) a guarded GloVe bonus: the max
+        cosine between the predicate and any fact content word above 0.40. The
+        Guard: GloVe is ONLY a *bonus on top of* lexical value-overlap, never a
+        standalone signal — this is what prevents the old regression where
+        "relationship status" boosted the semantically-near "lgbtq support"
+        fact over the fact actually containing "single".
+        """
+        obj = (getattr(fact, "object", "") or "").lower()
+        if not obj:
+            return 0.0
+        ftoks = {t for t in re.findall(r"[a-z']+", obj)
+                 if len(t) >= 3}
+        vals = _ATTR_PREDICATE_VALUES.get(predicate, set())
+        if not vals:
+            return 0.0
+        # Exact value-word hits (strong, deterministic).
+        hit = len(ftoks & vals)
+        if hit == 0:
+            return 0.0  # never guess when no value word is present
+        score = float(hit)
+        # Guarded GloVe bonus: only strengthens an already-matching fact.
+        gv = getattr(self, "_glove_vector", None)
+        if callable(gv):
+            try:
+                pv = gv(predicate)
+                if pv is not None:
+                    best = 0.0
+                    for w in ftoks:
+                        wv = gv(w)
+                        if wv is None:
+                            continue
+                        sim = float(np.dot(pv, wv) /
+                                    (np.linalg.norm(pv) * np.linalg.norm(wv) + 1e-9))
+                        if sim > best:
+                            best = sim
+                    if best > 0.40:
+                        score += best
+            except Exception:
+                pass
+        return score
+
     def _try_hippocampal_retrieval(self, ctx, user_input: str = "") -> Optional[str]:
         """Try to retrieve a fact the user stated earlier this conversation.
 
@@ -749,6 +905,40 @@ class ReasoningMixin:
             facts = self.hippocampal_buffer.retrieve(ctx.subject)
         except Exception:
             return None
+        # C3: broaden the candidate pool by SUBJECT ATTRIBUTE, not just by key.
+        # Ingestion keys each fact under the FIRST CONTENT WORD of the utterance
+        # (the speaker-fallback path in engine.py), while the fact's `subject`
+        # attribute correctly carries the SPEAKER ("caroline"). So the salient
+        # fact "caroline's transgender journey..." is stored under key 'talked'
+        # with subject='caroline' — retrieve('caroline') misses it entirely,
+        # and the stem-broadening below only catches keys whose 6-char stem
+        # matches a question token. Result: attribute questions about a known
+        # entity could never reach the entity's own salient facts (measured:
+        # "what is caroline's identity?" retrieved 0 facts carrying a value
+        # word, though 104 such facts existed with subject='caroline'). We now
+        # sweep the flat _all_facts list for any fact whose subject attribute
+        # equals the entity, adding it to the pool. Bounded by config.max_facts
+        # scale so it stays O(pool), and deduped by id.
+        try:
+            _have = {id(f) for f in (facts or [])}
+            facts = list(facts or [])
+            _subj_attr = (ctx.subject or "").lower().strip()
+            if _subj_attr:
+                # Scan the FULL keyed store, NOT _all_facts: the latter is the
+                # decay-managed list clamped to config.max_facts (often 50), so
+                # it loses most traces during multi-session priming while the
+                # keyed `facts` dict retains everything. Subject-attribute
+                # matching is the only way to reach the entity's own salient
+                # facts when they're keyed under their first content word.
+                for _kfacts in getattr(self.hippocampal_buffer, "facts", {}).values():
+                    for _f in _kfacts:
+                        if id(_f) in _have:
+                            continue
+                        if (getattr(_f, "subject", "") or "").lower() == _subj_attr:
+                            _have.add(id(_f))
+                            facts.append(_f)
+        except Exception:
+            pass
         # Broaden the candidate pool: buffer keys are the content words of
         # each ingested sentence, so the fact "researching adoption
         # agencies" is keyed under 'researching' — which retrieve('research')
@@ -820,11 +1010,30 @@ class ReasoningMixin:
         # counting "research" + "resear" for the same concept).
         _stem6 = lambda t: t.rstrip("s").rstrip("e").rstrip("ing")[:6]
         attr_words = {_stem6(w) for w in attr_words}
+        # C1: if this is an attribute-predicate question ("what is X's
+        # identity?"), the predicate word itself ("identity") is NOT a content
+        # cue for WHICH fact — it is a request for a value. Remove its
+        # surface/stem from the cue set so a fact that merely *mentions* the
+        # predicate ("...gender identity and inclusion...") cannot outrank the
+        # fact that CARRIES the value ("...transgender woman..."). The value
+        # re-ranking below then selects the value-bearing fact.
+        attr_pred = self._attribute_predicate_of(user_input) if user_input else None
+        if attr_pred:
+            _pred_stems = {attr_pred}
+            _pred_stems |= {attr_pred.rstrip("s").rstrip("e").rstrip("ing")[:6],
+                            attr_pred.split(" ")[0]}
+            attr_words -= _pred_stems
         if not attr_words:
-            for w in subj_toks:
-                if len(w) >= 3 and w not in stop:
-                    attr_words.add(w)
-                    attr_words.add(w.rstrip("s").rstrip("e").rstrip("ing")[:6])
+            if attr_pred:
+                # Predicate-only question: rely entirely on value re-ranking
+                # below (do NOT fall back to entity tokens, which would just
+                # resurface an arbitrary same-entity filler).
+                attr_words = set()
+            else:
+                for w in subj_toks:
+                    if len(w) >= 3 and w not in stop:
+                        attr_words.add(w)
+                        attr_words.add(w.rstrip("s").rstrip("e").rstrip("ing")[:6])
 
         # Ubiquitous-cue suppression (same lesson as fact_reasoning's
         # ubiquitous_words): a cue word occurring in a large fraction of the
@@ -886,19 +1095,45 @@ class ReasoningMixin:
             return (active, matched, novel, f.confidence, f.turn_number)
 
         # If we have attribute words, prefer the best lexically-overlapping fact
-        # (this is what fixes "what did Caroline *research*" selecting the research
-        # fact instead of an arbitrary same-entity fact). When no fact shares a
-        # keyword with the question, fall back to the highest-confidence fact
-        # rather than refusing to answer — returning the best available memory
-        # beats returning nothing, and for single-fact subjects it is always
-        # correct. (A GloVe semantic tie-break was tried and REGRESSED: it matched
-        # "relationship status" to "lgbtq support" over "single", so we keep the
-        # deterministic lexical path.)
+        # If we have attribute words, prefer the best lexically-overlapping fact
+        # (this is what fixes "what did Caroline *research*"...).
         if attr_words:
             ranked = sorted(facts, key=score, reverse=True)
             best = ranked[0]
             if score(best)[1] > 0:
-                return best.object
+                lex_ok = True
+                lex_fact = best
+            else:
+                lex_ok = False
+                lex_fact = None
+        else:
+            lex_ok = False
+            lex_fact = None
+
+        # C1: attribute-predicate value re-ranking. When the question is an
+        # attribute query ("what is X's identity/status/job/..."), lexical
+        # overlap on the predicate word is actively misleading (it prefers a
+        # fact that *mentions* the predicate over the fact that *carries the
+        # value*). Re-rank by value-vocabulary overlap instead. This overrides
+        # the lexical pick ONLY when a fact actually contains a value word for
+        # this predicate — never a blind guess. (This is the corrected, guarded
+        # form of the GloVe tie-break that previously REGRESSED: here GloVe is
+        # only a bonus on top of lexical value-overlap, and we require a value
+        # word to be present at all.)
+        if attr_pred:
+            _vscored = []
+            for f in facts:
+                _vs = self._attribute_value_score(attr_pred, f)
+                if _vs > 0:
+                    _vscored.append((_vs, f))
+            if _vscored:
+                _vscored.sort(key=lambda x: -x[0])
+                return _vscored[0][1].object
+            # No fact carries a value word for this predicate: fail open to the
+            # lexical fallback below (do NOT confabulate).
+        elif lex_ok:
+            return lex_fact.object
+
         # Fallback: ONLY when the subject has a single stored fact (where it
         # is by construction the right one). With multiple same-subject facts
         # and ZERO lexical overlap, returning max-confidence produced
