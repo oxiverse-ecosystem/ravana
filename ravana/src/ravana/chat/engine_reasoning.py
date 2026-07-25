@@ -1159,14 +1159,52 @@ class ReasoningMixin:
                 if f_emb is not None:
                     dense_sim = float(np.dot(f_emb, _q_emb))
             entity_binding = 1.0 if (getattr(f, "subject", "") or "").lower() == subj else 0.0
+            # Phase-2 GloVe novelty-weight: a fact that is merely
+            # semantically related to the question but carries little
+            # SPECIFIC content of its own (low novel / short object) tends
+            # to win on raw dense_sim (e.g. "bronchitis" vs "persistent
+            # cough"). Down-weight such related-but-generic facts so the
+            # specific fact (higher novel/token ratio) wins within the
+            # tied group. Net effect: dense_sim_eff scales with how much
+            # UNIQUE content the fact contributes beyond the question.
+            _ftok_n = max(len(fact_toks), 1)
+            dense_sim_eff = dense_sim * (1.0 + 0.5 * novel / _ftok_n)
+            # Phase 0: baseline primary sort key = (active, matched, novel,
+            # confidence, turn_number). Lexical/active primacy is preserved.
+            # The auxiliary scores (density, dense_sim, entity_binding) are
+            # stashed in the same tuple (positions 5-7) SOLELY for the
+            # Phase-1 within-group reranker — they do NOT enter the primary
+            # order, so inter-group ranking is identical to the clean baseline.
             _score_tuples.append(
-                (active, matched, density, novel, dense_sim,
-                 entity_binding, f.confidence, f.turn_number))
+                (active, matched, novel, f.confidence, f.turn_number,
+                 density, dense_sim_eff, entity_binding))
 
         if attr_words:
             ranked_idx = sorted(range(len(facts)),
                                 key=lambda i: _score_tuples[i],
                                 reverse=True)
+            # ── Phase 1: additive within-group reranker (zero regression) ──
+            # Group the baseline-sorted facts by their (matched, novel) tie
+            # key. Within each group of >=2 equally-cued facts, re-rank by
+            # (density, dense_sim, entity_binding, confidence, turn_number)
+            # so a concise specific fact beats a short generic one. Inter-group
+            # order is NEVER changed -> cannot regress vs the clean baseline.
+            _groups = {}
+            for i in ranked_idx:
+                _mk = (_score_tuples[i][1], _score_tuples[i][2])  # matched, novel
+                _groups.setdefault(_mk, []).append(i)
+            _new_order = []
+            for _mk, _grp in _groups.items():
+                if len(_grp) >= 2:
+                    _grp.sort(key=lambda i: (
+                        _score_tuples[i][5],   # density
+                        _score_tuples[i][6],   # dense_sim
+                        _score_tuples[i][7],   # entity_binding
+                        _score_tuples[i][3],   # confidence
+                        _score_tuples[i][4]),  # turn_number
+                        reverse=True)
+                _new_order.extend(_grp)
+            ranked_idx = _new_order
             best = facts[ranked_idx[0]]
             if _score_tuples[ranked_idx[0]][1] > 0:
                 lex_ok = True
@@ -1326,7 +1364,7 @@ class ReasoningMixin:
                         r"\b(january|february|march|april|may|june|july|"
                         r"august|september|october|november|december)\b"
                         r"|\b\d{1,2}(st|nd|rd|th)\b", re.IGNORECASE)
-                    best, bkey = None, (0, 0, 0.0)
+                    best, bkey = None, (0, 0)
                     for f in _all_dated:
                         tw = {w.strip(".,!?;:'\"")
                               for w in (f.object or "").lower().split()}
@@ -1334,13 +1372,11 @@ class ReasoningMixin:
                         if ov == 0:
                             continue
                         _explicit = 1 if _month_pat.search(f.object or "") else 0
-                        # GloVe tiebreaker among same-overlap facts
-                        _dense = 0.0
-                        if _q_emb is not None:
-                            f_emb = self._fact_embedding(f)
-                            if f_emb is not None:
-                                _dense = float(np.dot(f_emb, _q_emb))
-                        key = (ov, _explicit, _dense)
+                        # Phase 0: _explicit has absolute priority over any
+                        # dense embedding value. Date-retrieval fidelity
+                        # requires the event that EXPLICITLY names the month
+                        # to win even if a related fact has higher GloVe sim.
+                        key = (ov, _explicit)
                         if key > bkey:
                             best, bkey = f, key
                     return best.absolute_date if best else None
