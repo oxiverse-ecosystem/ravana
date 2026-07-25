@@ -2147,11 +2147,11 @@ class ConceptGraph:
         low-weight edges so structurally important (high-weight) associations
         survive; ties broken by oldest-first via the relation buckets' order.
         """
-        if len(self.edges) <= self.max_edges:
+        _max_edges = getattr(self, "max_edges", 60000)
+        if len(self.edges) <= _max_edges:
             return
         # Snapshot-safe: a graph restored from a pre-max_edges snapshot may
         # lack the attribute; fall back to the same default as add_edge.
-        _max_edges = getattr(self, "max_edges", 60000)
         # Snapshot weak edges sorted by weight ascending; drop the bottom
         # ~10% over the cap to avoid pruning on every single add.
         over = len(self.edges) - _max_edges
