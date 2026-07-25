@@ -61,9 +61,44 @@ The score deltas above are the load-bearing signal; CE readouts are not.
 3. Consider splitting the recall fix so LoCoMo improvements don't regress
    LongMemEval (and vice-versa).
 
+## FIX APPLIED — Tier-1 #1: max_edges crash (VERIFIED)
+**Bug (confirmed by code read + re-run):** `_prune_weakest_edges` in
+`ravana_ml/src/ravana_ml/graph.py` used bare `self.max_edges` on its early-return
+check (line 2150). A pre-`max_edges` snapshot graph (restore skips `__init__`)
+lacks that attribute. `add_edge` already guards with `getattr`, but once edge
+count crosses the 60000 cap during multi-session haystack priming, `add_edge`
+calls `_prune_weakest_edges`, whose first line does `len(self.edges) <=
+self.max_edges` → AttributeError → caught by the runner → `[error: ...]` →
+score 0. This killed exactly the 181 largest-haystack LongMemEval cases.
+
+**Fix (commit 2b87973):** moved `_max_edges = getattr(self, "max_edges", 60000)`
+to the top of `_prune_weakest_edges` and used it in the early return. 2-line change.
+
+**Measured impact (re-run, rc=0, 500/500, 14727s):**
+| Run | LongMemEval | crash/error cases |
+|-----|-------------|-------------------|
+| before fix (data/eval_longmem_fresh.json) | 0.0960 | 181 |
+| after fix  (data/eval_longmem_fix1.json)  | **0.1340** | **0** |
+
+Delta +0.038 (+40% relative). The 181 crash cases now run; ~38 of them score,
+lifting the benchmark. 122 graph/edge/prune pytest still pass.
+
+**Corrected root-cause read:** the 0.126→0.096 drop reported above was NOT a
+regression from commit ab59806. It was the `max_edges` AttributeError crashing
+36% of LongMemEval cases on the current snapshot. The "stale 0.126" baseline was
+produced by a different engine snapshot that never hit the cap. After the fix,
+current code = 0.134. The ab59806 regression hypothesis is now DISPROVEN for
+LongMemEval — the drop was the crash, not a routing change.
+
+Remaining LongMemEval failures (452→271 zero-score) are the non-crash class:
+wrong-fact retrieval (lexical overlap picking a filler fact), temporal-interval
+mismatches, and multi-session ordering — covered by Tiers 1.2+ (not yet done).
+
 ## Files
 - Fresh run outputs: `data/eval_memfail_fresh.json`, `data/eval_timedial_fresh.json`,
   `data/eval_longmem_fresh.json`
+- Fix-1 output: `data/eval_longmem_fix1.json` (+ `_fix1.log`)
 - Logs: `data/eval_*_fresh.log`
 - Already-complete (post-fix): `benchmark_results/locomo_full_freshengine.json`
   (overall 0.0604, n=1986)
+- Fix commit: `2b87973` (ravana_ml/src/ravana_ml/graph.py)
