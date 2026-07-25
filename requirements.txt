@@ -29,6 +29,13 @@ sentence-transformers>=2.2
 transformers>=4.30
 tiktoken>=0.5
 
+# ── Temporal grounding (session-date parsing for LongMemEval/LoCoMo) ──
+# Preferred robust date parser. temporal_grounding.py falls back to a regex
+# parser when this is absent, but WITHOUT it numeric YYYY/MM/DD session dates
+# were silently mis-parsed (all collapsed to 2023-01-05), corrupting every
+# multi-session temporal/ordering benchmark. Keep it installed.
+python-dateutil>=2.8
+
 # ── Analysis / plotting ──
 pandas>=1.5
 matplotlib>=3.6
