@@ -98,6 +98,28 @@ class DateGrounder:
 
     def _regex_absolute(self, s: str) -> Optional[datetime]:
         sl = s.lower()
+        # Numeric ISO-ish forms FIRST: YYYY/MM/DD or YYYY-MM-DD (and the
+        # HH:MM tail LongMemEval/LoCoMo session markers carry). Without this,
+        # the fragment-assembly below reads "2023/05/28" as year=2023,
+        # month=None->1, day=first-1-2-digit-number ("05") -> 2023-01-05,
+        # silently corrupting EVERY session date when python-dateutil is not
+        # installed (the dateutil path is preferred but optional). Measured on
+        # LongMemEval: all session dates collapsed to 2023-01-05/2023-01-03.
+        _iso = re.search(
+            r"\b(19|20)(\d{2})[/-](\d{1,2})[/-](\d{1,2})\b", s)
+        if _iso:
+            try:
+                yr = int(_iso.group(1) + _iso.group(2))
+                mo = int(_iso.group(3))
+                dy = int(_iso.group(4))
+                _hm = re.search(r"\b(\d{1,2}):(\d{2})\b", s)
+                if 1 <= mo <= 12 and 1 <= dy <= 31:
+                    if _hm:
+                        return datetime(yr, mo, dy,
+                                        int(_hm.group(1)), int(_hm.group(2)))
+                    return datetime(yr, mo, dy)
+            except ValueError:
+                pass
         year = None
         my = re.search(r"\b(19|20)\d{2}\b", sl)
         if my:
