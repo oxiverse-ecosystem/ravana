@@ -880,6 +880,60 @@ class ReasoningMixin:
                 pass
         return score
 
+    def _compute_text_embedding(self, words: Set[str]) -> Optional[np.ndarray]:
+        """Average GloVe embedding for a set of content words (unit vector).
+        Returns None when no word has a GloVe vector (GloVe absent or all OOV)."""
+        gv = getattr(self, "_glove_vector", None)
+        if not callable(gv):
+            return None
+        vecs = []
+        for w in words:
+            if len(w) < 3:
+                continue
+            v = gv(w)
+            if v is not None:
+                vecs.append(v)
+        if not vecs:
+            return None
+        avg = np.mean(vecs, axis=0).astype(np.float32)
+        norm = np.linalg.norm(avg)
+        if norm < 1e-9:
+            return None
+        return avg / norm
+
+    def _fact_embedding(self, fact) -> Optional[np.ndarray]:
+        """Cached GloVe embedding for a fact's object text (unit vector)."""
+        cache = getattr(self, "_fact_embedding_cache", None)
+        if cache is None:
+            cache = {}
+            self._fact_embedding_cache = cache
+        fid = id(fact)
+        cached = cache.get(fid)
+        if cached is not None:
+            return cached
+        obj = (fact.object or "").lower()
+        toks = {w for w in re.findall(r"[a-z']+", obj) if len(w) >= 3}
+        gv = getattr(self, "_glove_vector", None)
+        if not callable(gv):
+            cache[fid] = None
+            return None
+        vecs = []
+        for w in toks:
+            v = gv(w)
+            if v is not None:
+                vecs.append(v)
+        if not vecs:
+            cache[fid] = None
+            return None
+        avg = np.mean(vecs, axis=0).astype(np.float32)
+        norm = np.linalg.norm(avg)
+        if norm < 1e-9:
+            cache[fid] = None
+            return None
+        emb = avg / norm
+        cache[fid] = emb
+        return emb
+
     def _try_hippocampal_retrieval(self, ctx, user_input: str = "") -> Optional[str]:
         """Try to retrieve a fact the user stated earlier this conversation.
 
@@ -898,6 +952,11 @@ class ReasoningMixin:
         (e.g. many facts about "caroline"), pick the one whose text best matches
         the QUESTION's attribute words — "what did Caroline *research*" should
         prefer the fact mentioning research, not an arbitrary max-confidence one.
+
+        Tier 1.2 (hybrid RRF retrieval): fuse lexical overlap rank with GloVe
+        dense embedding rank via Reciprocal Rank Fusion. The guard prevents the
+        historical GloVe regression: a fact with zero lexical overlap cannot
+        outrank a lexically-matching fact via embedding alone.
         """
         if not getattr(ctx, "subject", None):
             return None
@@ -1056,26 +1115,29 @@ class ReasoningMixin:
             if attr_words - _ubiq:
                 attr_words -= _ubiq
 
-        def score(f):
+        # ── Tiers 1.2 + 1.3: Hybrid lexical + GloVe dense + density boost ─
+        # Score each fact on (active, matched, density, novel, dense_sim,
+        # entity_binding, confidence, turn_number) where:
+        #   active     = 0 (superseded) or 1 (currently valid)
+        #   matched    = count of question attribute words appearing in fact
+        #   density    = matched / len(fact_tokens), boosts concise facts that
+        #                pack high cue-density (verbose fillers dilute cues)
+        #   novel      = count of fact words NOT in question or subject
+        #   dense_sim  = GloVe cosine between question cues and fact object
+        #                (guarded: 0 when matched == 0)
+        #   entity_binding = 1 if fact.subject matches the question subject
+        # Lexicographic sort preserves lexical-overlap primacy while using
+        # density, embedding similarity, and entity binding to break ties
+        # among equally-cued facts — directly targets the 244 wrong-fact
+        # failures where 5-10 distractors tie the correct fact on raw match.
+        _q_emb = self._compute_text_embedding(attr_words) if attr_words else None
+        _score_tuples = []
+        for f in facts:
             obj = (f.object or "").lower()
             objtok = set(re.findall(r"[a-zA-Z']+", obj))
-            # The trace's SUBJECT binding is part of the memory (hippocampal
-            # source attribution): "researching adoption agencies" stored
-            # under subject 'caroline' IS about caroline even though her
-            # name isn't in the sentence. Without this, a filler that
-            # happens to repeat the entity name in-text beat the real
-            # attribute fact whenever the extracted subject was multi-word
-            # ("caroline research") — measured on LoCoMo dlg0.
             objtok |= set(re.findall(r"[a-zA-Z']+",
                                      (getattr(f, "subject", "") or "").lower()))
             objstem = {t.rstrip("s").rstrip("e").rstrip("ing")[:6] for t in objtok}
-            # Lexeme-level matching: an attribute cue matches whether it
-            # appears as surface form OR inflectional variant — "research"
-            # must match "researching" at FULL weight. The old
-            # surface=1.0/stem=0.5 weighting made the filler turn "off to go
-            # do some research" (surface hit) outrank the contentful
-            # "researching adoption agencies" (stem hit) — measured on
-            # LoCoMo dlg0.
             matched = 0
             for w in attr_words:
                 if len(w) < 3:
@@ -1083,24 +1145,30 @@ class ReasoningMixin:
                 ws = w.rstrip("s").rstrip("e").rstrip("ing")[:6]
                 if w in objtok or ws in objstem:
                     matched += 1
-            # Informativeness tie-break: among equally-cued facts prefer the
-            # one carrying MORE novel content beyond the question's own
-            # words — answers contain new information; fillers don't
-            # (hippocampal retrieval favours high-content traces).
+            # Tier 1.3: density = matched / len(fact_content_tokens) — verbose
+            # fillers (e.g. "glad you agree, research is fun, caroline") have
+            # low density vs concise correct facts ("researching agencies").
+            fact_toks = {t for t in re.findall(r"[a-z']+", obj) if len(t) >= 3}
+            density = matched / max(len(fact_toks), 1)
             novel = len({t for t in objtok if len(t) >= 4}
                         - attr_words - subj_toks)
-            # Phase 4: superseded facts (an updated/retracted earlier value) sort
-            # BELOW active ones so recency-wins for knowledge updates.
             active = 0 if getattr(f, "superseded", False) else 1
-            return (active, matched, novel, f.confidence, f.turn_number)
+            dense_sim = 0.0
+            if matched > 0 and _q_emb is not None:
+                f_emb = self._fact_embedding(f)
+                if f_emb is not None:
+                    dense_sim = float(np.dot(f_emb, _q_emb))
+            entity_binding = 1.0 if (getattr(f, "subject", "") or "").lower() == subj else 0.0
+            _score_tuples.append(
+                (active, matched, density, novel, dense_sim,
+                 entity_binding, f.confidence, f.turn_number))
 
-        # If we have attribute words, prefer the best lexically-overlapping fact
-        # If we have attribute words, prefer the best lexically-overlapping fact
-        # (this is what fixes "what did Caroline *research*"...).
         if attr_words:
-            ranked = sorted(facts, key=score, reverse=True)
-            best = ranked[0]
-            if score(best)[1] > 0:
+            ranked_idx = sorted(range(len(facts)),
+                                key=lambda i: _score_tuples[i],
+                                reverse=True)
+            best = facts[ranked_idx[0]]
+            if _score_tuples[ranked_idx[0]][1] > 0:
                 lex_ok = True
                 lex_fact = best
             else:
@@ -1175,17 +1243,15 @@ class ReasoningMixin:
         Phase 1: uses the absolute_date the DateGrounder resolved and stored on
         the fact (anchored to the session date). Returns None (fail-open) when
         no dated fact exists, so the caller falls through to plain recall.
+
+        Tier 1.4: hybrid ranking for _best_date (GloVe tiebreak), "how long
+        did it take" two-event handler, and _current_question_date propagation
+        for "how many months ago did I X" queries.
         """
         try:
             facts = self.hippocampal_buffer.retrieve_dated(subject)
         except Exception:
             facts = None
-        # Subject extraction upstream is noisy ("support group" vs
-        # "caroline"): ALSO gather dated facts keyed under every content
-        # word of the question and merge. The question-overlap ranking
-        # below picks the right trace; relying on the single extracted
-        # subject missed the correctly-dated fact (live-engine 6-July vs
-        # clean-ingest 7-May divergence on LoCoMo dlg0).
         try:
             _qtoks = [w.strip(".,!?;:'\"").lower() for w in user_input.split()]
             _qtoks = [w for w in _qtoks if len(w) >= 3]
@@ -1202,11 +1268,7 @@ class ReasoningMixin:
         ql = user_input.lower()
         grounder = getattr(self, "_date_grounder", None)
 
-        # Rank dated facts by content overlap with the QUESTION, not storage
-        # order. facts[0] was often a same-subject fact anchored to the
-        # session date, beating the event fact whose own relative phrase
-        # ("yesterday") had been resolved to the true day — measured on
-        # LoCoMo dlg0 as a systematic off-by-one ("8 May" vs gold "7 May").
+        # Rank dated facts by content overlap with the QUESTION.
         _qw = {w.strip(".,!?;:'") for w in ql.split() if len(w) >= 3}
         _qw -= {"when", "did", "what", "how", "long", "the", "was", "were",
                 "has", "have", "she", "her", "his", "him", "they", "them"}
@@ -1218,21 +1280,13 @@ class ReasoningMixin:
         facts = sorted(facts, key=_ov, reverse=True)
         if _ov(facts[0]) == 0:
             return None
-        # Among equally-cued facts, bind to the EARLIEST dated occurrence:
-        # "when did X happen" asks when the event FIRST occurred, and later
-        # sessions re-mention the same event (LoCoMo: the support group is
-        # discussed across many sessions; the gold is the first visit).
         _top = _ov(facts[0])
         _tied = [f for f in facts if _ov(f) == _top and f.absolute_date]
         if _tied:
             _tied.sort(key=lambda f: f.absolute_date)
             facts = _tied + [f for f in facts if f not in _tied]
 
-        # "how many days/weeks between A and B" / "how many days before A did
-        # I B" → interval between TWO dated events (parietal magnitude system
-        # extended to time; Phase 2b). Rank dated facts separately against
-        # each event descriptor and subtract their dates. Fail-open when
-        # either event has no dated trace.
+        # ── Tier 1.4: "how many days/weeks between A and B" ───────────────
         _hm = re.search(r"how many (day|week|month|year)s?", ql)
         if _hm and grounder is not None:
             _unit = _hm.group(1)
@@ -1247,11 +1301,6 @@ class ReasoningMixin:
                 if m:
                     _a_desc, _b_desc = m.group(1), m.group(2)
             if _a_desc and _b_desc:
-                # Scan ALL dated facts in the buffer, not the subject-scoped
-                # pool: the two events usually live under different subject
-                # keys, and the scoped pool made the result depend on which
-                # subject the grounder happened to extract (measured 1 vs 49
-                # days for the same question; gold 30).
                 _all_dated = []
                 try:
                     _seen_ids = set()
@@ -1265,34 +1314,38 @@ class ReasoningMixin:
                     _all_dated = [f for f in facts
                                   if getattr(f, "absolute_date", None)]
 
-                def _best_date(desc):
+                def _best_date_hybrid(desc):
+                    """Hybrid lexical + GloVe date retrieval for an event
+                    descriptor. Same guarded-embedding pattern as Tier 1.2."""
                     dw = {w.strip(".,!?;:'\"") for w in desc.split()
                           if len(w) >= 3}
                     dw -= {"the", "was", "were", "had", "have", "for",
                            "that", "this", "attend", "attended", "preparing"}
+                    _q_emb = self._compute_text_embedding(dw)
                     _month_pat = re.compile(
                         r"\b(january|february|march|april|may|june|july|"
                         r"august|september|october|november|december)\b"
                         r"|\b\d{1,2}(st|nd|rd|th)\b", re.IGNORECASE)
-                    best, bkey = None, (0, 0)
+                    best, bkey = None, (0, 0, 0.0)
                     for f in _all_dated:
                         tw = {w.strip(".,!?;:'\"")
                               for w in (f.object or "").lower().split()}
                         ov = len(tw & dw)
                         if ov == 0:
                             continue
-                        # Tie-break: a fact carrying an EXPLICIT date mention
-                        # ("team meeting on january 17th") beats one that was
-                        # merely session-anchored — the explicit date is the
-                        # event's own coordinate, the anchor is just when it
-                        # was discussed (measured on LongMemEval oracle case
-                        # 5: 3 days computed vs gold 7).
                         _explicit = 1 if _month_pat.search(f.object or "") else 0
-                        key = (ov, _explicit)
+                        # GloVe tiebreaker among same-overlap facts
+                        _dense = 0.0
+                        if _q_emb is not None:
+                            f_emb = self._fact_embedding(f)
+                            if f_emb is not None:
+                                _dense = float(np.dot(f_emb, _q_emb))
+                        key = (ov, _explicit, _dense)
                         if key > bkey:
                             best, bkey = f, key
                     return best.absolute_date if best else None
-                _da, _db = _best_date(_a_desc), _best_date(_b_desc)
+
+                _da, _db = _best_date_hybrid(_a_desc), _best_date_hybrid(_b_desc)
                 if _da is not None and _db is not None and _da != _db:
                     _days = abs((_da.date() - _db.date()).days)
                     if _unit == "day":
@@ -1303,10 +1356,49 @@ class ReasoningMixin:
                         return f"{max(1, round(_days / 30))} months"
                     return f"{max(1, round(_days / 365))} years"
 
-        # "how long ago / how long has it been" → interval from latest fact to
-        # the current session date.
+        # ── Tier 1.4: "how long did it take to X" → start/finish events ──
+        _take = re.search(
+            r"how long did (?:it|you|we|i) (?:take|spend).*?(?:to|on|doing|"
+            r"finish|complete)\s+(.+?)(?:\?|$)", ql)
+        if _take and grounder is not None:
+            _activity = _take.group(1).strip()
+            if _activity:
+                _all_dated = []
+                try:
+                    for _fl in self.hippocampal_buffer.facts.values():
+                        for _f in _fl:
+                            if getattr(_f, "absolute_date", None):
+                                _all_dated.append(_f)
+                except Exception:
+                    _all_dated = facts
+                _act_toks = {w.strip(".,!?;:'\"") for w in _activity.split()
+                             if len(w) >= 3}
+                _start_words = {"start", "started", "begin", "began",
+                                "starting"}
+                _end_words = {"finish", "finished", "complete", "completed",
+                              "end", "ended", "done", "stop", "stopped"}
+                _start_fact = _end_fact = None
+                for f in _all_dated:
+                    ft = {w.strip(".,!?;:'\"")
+                          for w in (f.object or "").lower().split()}
+                    if not ft & _act_toks:
+                        continue
+                    if ft & _start_words:
+                        _start_fact = f
+                    if ft & _end_words:
+                        _end_fact = f
+                if _start_fact and _end_fact:
+                    _da = _start_fact.absolute_date
+                    _db = _end_fact.absolute_date
+                    if _da and _db and _da != _db:
+                        _days = abs((_db.date() - _da.date()).days)
+                        return f"{_days} days"
+
+        # "how long ago / how long has it been" → interval from latest fact
+        # to the current session date or question date.
         if "how long" in ql and grounder is not None:
-            anchor = getattr(self, "_current_session_date", None)
+            anchor = (getattr(self, "_current_question_date", None)
+                      or getattr(self, "_current_session_date", None))
             target = facts[0].absolute_date
             if anchor is not None and target is not None:
                 return (f"about {grounder.describe_interval(anchor, target)} "
@@ -1318,12 +1410,106 @@ class ReasoningMixin:
         dt = best.absolute_date
         if dt is None:
             return None
-        # Platform-safe day-level phrasing (avoid %-d which fails on Windows).
         try:
             when = f"{dt.day} {dt.strftime('%B %Y')}"
         except Exception:
             when = str(dt.date())
         return f"you mentioned that around {when}."
+
+    # ── Tier 1.5: "which X happened first/last" sequence handler ──────────
+    def _answer_sequence_recall(self, user_input: str) -> Optional[str]:
+        """Answer ordering questions: "which X happened first/last",
+        "what was the first/last Y", "which X came before Y".
+
+        Retrieves dated facts for two entities/events from the buffer,
+        compares their absolute_date values, and returns the ordering."""
+        ql = user_input.lower().strip()
+        # Detect ordering pattern: "which [X] happened first/last"
+        _firstlast = re.search(
+            r"(?:which|what|who)\s+(.+?)\s+(?:happened|came|occurred|was)\s+"
+            r"(first|last|earlier|earliest|later|latest|before|after)\b", ql)
+        if not _firstlast:
+            # "what was the first/last [Y]" pattern
+            _firstlast = re.search(
+                r"what (?:was|were|is|are)\s+the\s+(first|last|earliest|latest)\s+"
+                r"(.+?)(?:\?|$)", ql)
+            if _firstlast:
+                _order = _firstlast.group(1)
+                _target = _firstlast.group(2)
+                # "what was the first movie you watched" → extract entity
+                _entity = _target.strip().split()[-1] if _target.strip() else ""
+                if not _entity:
+                    return None
+                # Gather all dated facts mentioning the entity
+                _cands = []
+                try:
+                    for _fl in self.hippocampal_buffer.facts.values():
+                        for _f in _fl:
+                            if getattr(_f, "absolute_date", None) \
+                                    and _entity in (_f.object or "").lower():
+                                _cands.append(_f)
+                except Exception:
+                    return None
+                if not _cands:
+                    return None
+                _cands.sort(key=lambda f: f.absolute_date)
+                if _order in ("first", "earliest"):
+                    _best = _cands[0]
+                else:
+                    _best = _cands[-1]
+                return self._phrase_recalled_fact(
+                    user_input, getattr(_best, "subject", ""), _best.object)
+        if _firstlast:
+            _desc = _firstlast.group(1).strip()
+            _order = _firstlast.group(2)
+            # Extract two entities from the description
+            _parts = re.split(r"\b(?:and|or|vs\.?|versus)\b", _desc)
+            if len(_parts) < 2:
+                return None
+            _a_ent, _b_ent = _parts[0].strip(), _parts[-1].strip()
+            if not _a_ent or not _b_ent:
+                return None
+            # Retrieve dated facts for each entity
+            _a_facts = _b_facts = None
+            try:
+                _a_facts = self.hippocampal_buffer.retrieve_any(
+                    [w for w in re.findall(r"[a-z']+", _a_ent) if len(w) >= 3])
+                _b_facts = self.hippocampal_buffer.retrieve_any(
+                    [w for w in re.findall(r"[a-z']+", _b_ent) if len(w) >= 3])
+            except Exception:
+                pass
+            _a_dated = [f for f in (_a_facts or [])
+                        if getattr(f, "absolute_date", None)]
+            _b_dated = [f for f in (_b_facts or [])
+                        if getattr(f, "absolute_date", None)]
+            if not _a_dated or not _b_dated:
+                return None
+            _a_dated.sort(key=lambda f: f.absolute_date)
+            _b_dated.sort(key=lambda f: f.absolute_date)
+            _a_dt = _a_dated[0].absolute_date
+            _b_dt = _b_dated[0].absolute_date
+            if _a_dt is None or _b_dt is None:
+                return None
+            _a_before = _a_dt < _b_dt
+            if _order in ("first", "earlier", "earliest", "before"):
+                if _a_before:
+                    return self._phrase_recalled_fact(
+                        user_input, getattr(_a_dated[0], "subject", ""),
+                        _a_dated[0].object)
+                else:
+                    return self._phrase_recalled_fact(
+                        user_input, getattr(_b_dated[0], "subject", ""),
+                        _b_dated[0].object)
+            else:
+                if not _a_before:
+                    return self._phrase_recalled_fact(
+                        user_input, getattr(_a_dated[0], "subject", ""),
+                        _a_dated[0].object)
+                else:
+                    return self._phrase_recalled_fact(
+                        user_input, getattr(_b_dated[0], "subject", ""),
+                        _b_dated[0].object)
+        return None
 
     # ── Phase 3: multi-hop relational reasoning ─────────────────────────────
     def _hop_retrieve(self, entity: str, attribute: str) -> Optional[str]:

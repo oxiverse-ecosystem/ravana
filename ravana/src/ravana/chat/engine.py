@@ -3085,6 +3085,15 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                             self._last_responses = self._last_responses[-10:]
                         self.notify_user_idle()
                         return _dresp
+                # ── Tier 1.5: sequence ordering ("which X happened first") ─
+                _sresp = self._answer_sequence_recall(user_input)
+                if _sresp:
+                    self._last_strategy = "sequence_recall"
+                    self._last_responses.append(_sresp)
+                    if len(self._last_responses) > 10:
+                        self._last_responses = self._last_responses[-10:]
+                    self.notify_user_idle()
+                    return _sresp
                 # ── Phase 3: multi-hop relational question (chains/comparatives)
                 _mh = self._try_multi_hop(user_input)
                 if _mh:
@@ -3104,6 +3113,22 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         self._last_responses = self._last_responses[-10:]
                     self.notify_user_idle()
                     return _resp
+                # ── Tier 1.6: decoder fallback — max-confidence echo ──────
+                try:
+                    _all = self.hippocampal_buffer.retrieve(subject)
+                    if _all:
+                        _best = max(_all, key=lambda f: f.confidence * f.rehearsal_count)
+                        if _best.confidence > 0.7:
+                            _echo = self._phrase_recalled_fact(
+                                user_input, subject, _best.object)
+                            self._last_strategy = "hippocampal_echo"
+                            self._last_responses.append(_echo)
+                            if len(self._last_responses) > 10:
+                                self._last_responses = self._last_responses[-10:]
+                            self.notify_user_idle()
+                            return _echo
+                except Exception:
+                    pass
         except Exception:
             pass
 
