@@ -55,25 +55,49 @@ slice from 0.1167 to 0.0833:
 ## Phase 3 (Tier 1.5 sequence recall) — ATTEMPTED, REVERTED
 
 Ordering questions ("which X did I ... first, the A or the B?") remain
-unsolved. Three implementations all failed:
+unsolved. Three retrieval-layer implementations all failed, and a runtime
+buffer probe (scripts/_dbg_ordering.py, since removed) proved the blocker is
+architectural — upstream of retrieval:
 
 1. Original regex required `happened|came|occurred|was` between entity and
    order word — real LongMemEval phrasings use arbitrary verbs
    ("take care of first", "attend first"), so it fired **0/120**.
-2. Broadened regex + `retrieve_any()` probe: still 0/120 fires (facts lack
-   `absolute_date` for these entities), AND regressed the slice 0.1167→0.1083
-   because `retrieve_any()` has a **side-effect** (retrieval practice:
-   `fact.confidence += 0.05`) that reinforced the losing candidate and
-   corrupted the downstream hippocampal echo (case #33 flipped).
+2. Broadened regex + `retrieve_any()` probe: still 0/120 fires, AND regressed
+   the slice 0.1167→0.1083 because `retrieve_any()` has a **side-effect**
+   (retrieval practice: `fact.confidence += 0.05`) that reinforced the losing
+   candidate and corrupted the downstream hippocampal echo (case #33 flipped).
 3. Read-only buffer scan (no side-effect): still 0/120 fires, still regressed
    to 0.10 (cases #32, #33 via echo path).
 
-**Conclusion:** the blocker is upstream in fact ingestion — episodic facts
-are not stored with `absolute_date` for the ordering entities, so any
-date-comparison ordering handler is structurally impossible. Fixing this
-belongs in the ingestion/date-grounding path, NOT the retrieval reranker.
-`_answer_sequence_recall` was reverted to its original HEAD implementation
-(commit 60e111a leaves it untouched).
+### Runtime probe — why it is architecturally blocked
+Ingested one ordering case's primer (qid gpt4_2487a7cb, "Effective Time
+Management workshop vs Data Analysis webinar") and inspected the buffer:
+
+- **Facts DO carry absolute_date** (2931/2931) — my earlier "facts lack dates"
+  read was WRONG. The real problems are three, each independently fatal:
+- **Token matching is unusably noisy.** The workshop candidate matched 264
+  facts, the webinar candidate 286, with massive overlap — common tokens
+  ("time", "using", "analysis", "social", "app") pull in most of the buffer.
+  Picking `[0]` after date-sort is meaningless.
+- **Ordering signal is destroyed at extraction.** All matched facts collapsed
+  to a single date/turn (day-granularity date, session-feed turn_number). The
+  two events were discussed in two sessions dated `2023/05/28 21:04` and
+  `2023/05/28 07:17` — the **same calendar day**, 14 h apart. The fact model
+  stores dates at DAY granularity (`00:00:00`), so the time component that
+  distinguishes them is discarded. Session ordering also isn't preserved
+  per-fact.
+- **DateGrounder mis-parses the haystack format.** `(Session N, dated
+  2023/05/28 (Sun) 21:04)` fed through `dateutil.parse(fuzzy=True,
+  default=2000-01-01)` produced scrambled month/day (probe showed 2023-01-05).
+
+**Conclusion:** answering ordering questions requires (a) correct parsing of
+the `YYYY/MM/DD (Day) HH:MM` haystack format, (b) storing datetime at TIME
+granularity (not day), and (c) event-level fact segmentation so a candidate
+resolves to its own mention date, not the shared session date. That is a
+DateGrounder + fact-extraction rework with real regression risk to the
+temporal benchmarks (TimeDial 0.4738 currently passing) — out of scope for the
+additive, zero-regression recovery. `_answer_sequence_recall` was reverted to
+its original HEAD implementation.
 
 Commit 435dae2 additionally removed the Tier 1.6 decoder-echo fallback (a
 verified no-op: removing it left the 120-subset score unchanged).
