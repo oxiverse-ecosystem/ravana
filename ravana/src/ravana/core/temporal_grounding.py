@@ -302,10 +302,21 @@ class DateGrounder:
         it. Tries an explicit absolute date first, then relative phrases."""
         if not text:
             return None
-        # explicit absolute date embedded in the utterance
-        abs_dt = self._regex_absolute(text)
-        if abs_dt is not None and re.search(r"\b(19|20)\d{2}\b", text):
-            return GroundedDate(abs_dt, "day", text)
+        # explicit absolute date embedded in the utterance. Require BOTH a
+        # 4-digit year AND a month name before trusting an assembled date —
+        # otherwise _regex_absolute stitches a bogus date out of scattered
+        # fragments (e.g. "5 tips to manage your time in 2023" -> 2023-01-05),
+        # which then SHADOWS the correct session-date anchor on the fact.
+        # Measured on LongMemEval: conversational turns mentioning a bare year
+        # plus any small number were all mis-dated, collapsing multi-session
+        # ordering/temporal signal. A bare-year utterance must fall through to
+        # the session-date default below.
+        _has_year = re.search(r"\b(19|20)\d{2}\b", text)
+        _has_month = any(re.search(rf"\b{_n}\b", text.lower()) for _n in _MONTHS)
+        if _has_year and _has_month:
+            abs_dt = self._regex_absolute(text)
+            if abs_dt is not None:
+                return GroundedDate(abs_dt, "day", text)
         # Month + day WITHOUT a year ("on January 16th"): resolve against the
         # session's year. Previously this fell through to relative resolution,
         # where a stray weekday word ("the SUNDAY mass ... on january 16th")
