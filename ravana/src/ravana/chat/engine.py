@@ -2020,6 +2020,31 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         except Exception:
             pass
 
+        # ── Tier 1.5 (ordering) PRE-EMPTS fact_reasoning echo ───────────────
+        # "Which X did I ... first/last, the A or the B?" is a temporal-ordering
+        # question. _try_fact_reasoning below (and the episodic echo) would
+        # answer with a raw related fact ("you told me earlier: ...") and never
+        # reach the date-comparison ordering handler. Measured: with the handler
+        # only at its lower slot, ALL quoted-option ordering cases were answered
+        # by the echo. Route ordering questions to the handler FIRST. Tightly
+        # gated (order word AND binary " or " choice) and fail-open (None ->
+        # normal pipeline) so non-ordering queries are completely unaffected.
+        _ql_ord = (user_input or "").lower()
+        if (" or " in _ql_ord and re.search(
+                r"\b(first|last|earliest|latest|earlier|later|before|after)\b",
+                _ql_ord)):
+            try:
+                _sord = self._answer_sequence_recall(user_input)
+            except Exception:
+                _sord = None
+            if _sord:
+                self._last_strategy = "sequence_recall"
+                self._last_responses.append(_sord)
+                if len(self._last_responses) > 10:
+                    self._last_responses = self._last_responses[-10:]
+                self.notify_user_idle()
+                return _sord
+
         # ── Fact-reasoning gate (episodic memory QA) ─────────────────────────
         # Runs question-shaped inputs against the hippocampal buffer's stored
         # fact TEXTS via pure lexical-closure reasoning (chain walking,
