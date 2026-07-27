@@ -2603,6 +2603,23 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             self.notify_user_idle()
             return resp
 
+        # Abstract-meaning questions ("meaning/purpose/nature of X") must route
+        # to reflective handling, never the dictionary definition of the bare
+        # subject word. The prior fix guarded only _consult_internal_knowledge,
+        # but the actual dump path is the direct _definitions lookup
+        # (interface.py / chain_walker.py / response_gen.py), which stayed
+        # unguarded — so the guard was structurally bypassed and "what's the
+        # meaning of life" still dumped the biology entry. Intercept here, at
+        # the top of the turn, so no downstream definition path can fire.
+        if self._is_abstract_meaning_query(user_input):
+            self._last_strategy = "abstract_reflection"
+            resp = self._reflect_on_abstract(user_input)
+            self._last_responses.append(resp)
+            if len(self._last_responses) > 10:
+                self._last_responses = self._last_responses[-10:]
+            self.notify_user_idle()
+            return resp
+
         # ── Human-Likeness Plan (A2): classic counterfactual pre-pass ──────
         # "if a tree falls in a forest and no one hears it, does it make a
         # sound" is a CONDITIONAL query, but the frontopolar category-error gate

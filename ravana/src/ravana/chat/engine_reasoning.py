@@ -327,6 +327,82 @@ class ReasoningMixin:
 
         return False
 
+    def _is_abstract_meaning_query(self, text: str) -> bool:
+        """Detect abstract-meaning questions ("meaning/purpose/nature of X").
+
+        These must be answered with a reflective reply, NOT a dictionary
+        definition of the bare subject word — that is the definitional
+        literalness defect behind test_meaning_of_life_not_dict_dump ("what's
+        the meaning of life" -> raw "life" encyclopedia entry).
+
+        Non-hardcoding: the abstraction signal is the QUERY SHAPE — seeking
+        meaning/nature/purpose/point/essence/significance/value OF/IN/BEHIND/TO
+        X. The regex lists the abstract-sense words the plan targets (no frozen
+        list of whole questions); any query matching the shape is abstract by
+        construction (e.g. "purpose of art", "nature of consciousness",
+        "meaning of life" all match; "what is gravity" — no abstract-sense
+        word — does not, so genuine definitional queries stay definitional).
+        """
+        t = text.lower().strip(" ?!.")
+        return bool(re.search(
+            r"\b(meaning|nature|purpose|point|essence|value|significance)\b"
+            r".*\b(of|in|behind|to)\b", t))
+
+    def _reflect_on_abstract(self, text: str) -> str:
+        """Genuine reflective answer for an abstract-meaning question.
+
+        Reuses the existing shape-driven reflective generator
+        (_reflective_response) — no new canned-answer dictionary. We extract the
+        grounded concept X from the query, run the SAME spread-activation the
+        ventral reflective path uses to collect associations, and feed them to
+        _reflective_response so the reply names the concept (e.g. "life") and
+        turns it back to the user. Fail-closed: if anything is missing we still
+        return an honest reflective line that names the concept.
+        """
+        t = text.lower().strip(" ?!.")
+        m = re.search(
+            r"\b(?:meaning|nature|purpose|point|essence|value|significance)\b"
+            r"\s+(?:of|in|behind|to)\s+(?:the\s+|a\s+|an\s+)?([a-z']+)", t)
+        concept = m.group(1) if m else "that"
+        # Collect noun associations via the engine's spread activation (mirrors
+        # interface.py's ventral reflective path).
+        associations = []
+        nids = getattr(self, "_concept_keywords", {}).get(concept, [])
+        if nids:
+            try:
+                associations = self._spread_and_collect(list(nids),
+                                                         primary_ids=set(nids))
+            except Exception:
+                associations = []
+        filtered = []
+        for label, score in associations:
+            ll = label.lower()
+            if getattr(self, "_is_function_word", lambda x: False)(ll):
+                continue
+            if getattr(self, "_concept_pos", {}).get(ll, "noun") != "noun":
+                continue
+            filtered.append((label, score))
+        # Make the question's own concept its strongest association so the
+        # reflective generator leads with it (a question about life IS most
+        # associated with life) — this keeps the reply genuinely *about* the
+        # concept without a hardcoded lead-in sentence.
+        if concept not in {l.lower() for l, _ in filtered}:
+            filtered.insert(0, (concept, 1.0))
+
+        ctx = CognitiveResponseContext(
+            subject=concept, raw_input=text,
+            associated_concepts=filtered[:6])
+
+        try:
+            resp, _ = self._reflective_response(ctx)
+            if resp:
+                return resp
+        except Exception:
+            pass
+        return (f"i don't think there's one clean answer to what {concept} really "
+                f"means — it's something each of us kind of arrives at. what does "
+                f"it mean to you?")
+
     def _snippet_topic_max_coherence(self, topic: str, snippet: str) -> float:
         """Max single-word GloVe cosine between `topic` and any content word in
         `snippet`. Stricter than mean-centroid coherence: a snippet only passes
