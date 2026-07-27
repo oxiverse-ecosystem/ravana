@@ -73,6 +73,7 @@ from ravana.core.in_prompt_reasoner import (
 )
 from ravana.ontology import DerivedOntology
 from ravana.ontology.conceptnet import ConceptNetOntology
+from ravana.core.frequency_model import FrequencyModel
 
 # Optional bs4
 try:
@@ -979,6 +980,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # equals the old `x >= fixed` comparison exactly.
         self._adaptive_baselines: Dict[str, Dict[str, float]] = {
             "recall_gist":      {"mu": 0.6,  "sigma": 0.15, "n": 0},
+            "recall_cos":       {"mu": 0.55, "sigma": 0.15, "n": 0},
             "episodic_cos":     {"mu": 0.5,  "sigma": 0.15, "n": 0},
             "episodic_rel":     {"mu": 0.55, "sigma": 0.15, "n": 0},
             "selfq_sim":        {"mu": 0.45, "sigma": 0.15, "n": 0},
@@ -986,6 +988,21 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             "schema_cos_lo":    {"mu": 0.4,  "sigma": 0.15, "n": 0},
             "schema_cos_hi":    {"mu": 0.6,  "sigma": 0.15, "n": 0},
             "phrase_sim":       {"mu": 0.75, "sigma": 0.1,  "n": 0},
+        }
+
+        # Learned word-frequency models (brain-honest replacement for the hand
+        # word lists _GENERIC_NOUNS / TOPIC_SKIP_WORDS / _SUBJECT_CONTEXT_WORDS).
+        # Each is seeded with the current class attribute so day-one behavior is
+        # identical; observed conversation/corpus frequency then extends the
+        # high-frequency tail from exposure (mental-lexicon frequency effect,
+        # Zipf). Persisted in save/load so the learned band survives sessions.
+        self._freq_models: Dict[str, FrequencyModel] = {
+            "generic_nouns": FrequencyModel(seed_words=self._GENERIC_NOUNS,
+                                            min_obs=200, percentile=0.8),
+            "topic_skip":    FrequencyModel(seed_words=self.TOPIC_SKIP_WORDS,
+                                            min_obs=200, percentile=0.9),
+            "subject_glue":  FrequencyModel(seed_words=self._SUBJECT_CONTEXT_WORDS,
+                                            min_obs=200, percentile=0.9),
         }
 
         # New cognitive modules (Phase 2-5)
@@ -1527,6 +1544,28 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         b["n"] += 1
         return passed
 
+    # ── Learned word-frequency helpers (Plan B) ──────────────────
+    # Membership checks route through the seeded+learned FrequencyModel so the
+    # high-frequency tail is discovered from exposure, not authored. Day-one the
+    # seed (the original hand list) is the only thing known, so behavior is
+    # identical until enough tokens are observed.
+    def _is_generic_noun(self, word: str) -> bool:
+        m = self._freq_models.get("generic_nouns")
+        return m.is_generic_noun(word) if m else (word in self._GENERIC_NOUNS)
+
+    def _in_topic_skip(self, word: str) -> bool:
+        m = self._freq_models.get("topic_skip")
+        return m.is_topic_skip(word) if m else (word in self.TOPIC_SKIP_WORDS)
+
+    def _is_subject_glue(self, word: str) -> bool:
+        m = self._freq_models.get("subject_glue")
+        return m.is_subject_glue(word) if m else (word in self._SUBJECT_CONTEXT_WORDS)
+
+    def _observe_language(self, text: str) -> None:
+        """Fold observed conversation text into the frequency models."""
+        for m in self._freq_models.values():
+            m.observe(text)
+
     # ── Closed-class delegation (P1-H) ───────────────────────────
     # Single data-driven source for the 6 consolidated closed-class
     # lists. Prefers the fit file (data/functional_lexicon.json, loaded
@@ -2008,7 +2047,10 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 self._last_responses = self._last_responses[-10:]
             return resp
 
-        # ── Phase 1: session-date capture ───────────────────────────────────
+        # Fold observed user language into the learned frequency models (Plan B)
+        # so the high-frequency lexicon tail is discovered from exposure. Placed
+        # after the gibberism guard so junk tokens are not counted.
+        self._observe_language(user_input)
         # A context turn like "(Session 3, dated 2:15 pm on 8 May, 2023)" sets
         # the anchor date used to resolve relative time phrases in subsequent
         # utterances. Also picks up a bare leading date line. Acknowledge and
@@ -4380,6 +4422,15 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 'user_last_topic': self._user_last_topic,
                 'concept_sources': _concept_sources,
                 'explored_contradictions': _explored_contradictions,
+                # Adaptive gating baselines (EMA mu/sigma/n per gate). Persisted
+                # so the distribution-driven gates keep adapting ACROSS sessions
+                # instead of resetting to seed every boot (the audit's
+                # saved-but-never-loaded class of bug — without this, the
+                # adaptive gates never actually learn from history).
+                'adaptive_baselines': {k: dict(v) for k, v in self._adaptive_baselines.items()},
+                # Learned word-frequency models (Plan B): seed + observed counts
+                # so the high-frequency lexicon tail survives reloads.
+                'freq_models': {k: v.to_dict() for k, v in self._freq_models.items()},
                 # Dual stores
                 'episodic_edges': _episodic_edges,
                 'semantic_edges': _semantic_edges,
@@ -4796,6 +4847,20 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 for (s, t), e in self._semantic_edges.items():
                     self._semantic_by_src.setdefault(s, []).append((t, e))
 
+            # Restore adaptive gating baselines (EMA mu/sigma/n). __init__
+            # already seeded every gate to its day-one constant; overlay the
+            # persisted per-gate distribution so gates resume adapting from the
+            # last session instead of restarting (mirrors the VAD baseline).
+            _ab = state.get('adaptive_baselines')
+            if _ab:
+                for _k, _v in _ab.items():
+                    if _k in self._adaptive_baselines:
+                        self._adaptive_baselines[_k] = {
+                            "mu": float(_v.get("mu", self._adaptive_baselines[_k]["mu"])),
+                            "sigma": float(_v.get("sigma", self._adaptive_baselines[_k]["sigma"])),
+                            "n": int(_v.get("n", 0)),
+                        }
+
             # Restore Phase 10-17 state
             self._sentence_schema = state.get('sentence_schema', {})
             self._mean_sentence_pe = state.get('mean_sentence_pe', 0.0)
@@ -4808,6 +4873,15 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             cng_state = state.get('cerebellar_ngram_state', {})
             if cng_state and hasattr(self, 'cerebellar_ngram'):
                 self.cerebellar_ngram.set_state(cng_state)
+
+            # Restore learned word-frequency models (Plan B). __init__ already
+            # seeded each model from the class attribute; overlay the persisted
+            # observed counts so frequency learning resumes from last session.
+            _fm = state.get('freq_models')
+            if _fm:
+                for _k, _fd in _fm.items():
+                    if _k in self._freq_models:
+                        self._freq_models[_k] = FrequencyModel.from_dict(_fd)
 
             self._visited_concepts = set(state.get('visited_concepts', []))
             self._activation_fatigue = state.get('activation_fatigue', {})

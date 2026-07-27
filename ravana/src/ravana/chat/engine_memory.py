@@ -1098,7 +1098,7 @@ class MemoryMixin:
                 continue
             for seed, sv in self._recall_seed_vecs.items():
                 sim = float(np.dot(wv, sv))
-                if sim >= self._RECALL_DETECTION_THRESHOLD:
+                if self._adaptive_gate("recall_cos", sim):
                     is_recall = True
                     break
             if is_recall:
