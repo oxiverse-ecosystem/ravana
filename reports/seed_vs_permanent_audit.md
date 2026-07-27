@@ -84,3 +84,64 @@ P1: persist + update ConnectorLearner centroids (intent_router.json is the patte
 P2: migrate remaining fixed floats to the P2-E adaptive gate, one per regression run.
 P2: replace _COMMON_WORDS/_GENERIC_NOUNS with df/junk_score-derived sets;
     _ATTR_WORDS/_PROP_TO_BINDER with GloVe-prototype projections.
+
+## 6. Brain-Based De-Hardcoding Plan — Applied Verification (2026-07-27)
+
+A full brain-based de-hardcoding plan was reviewed against the CURRENT tree
+(post engine.py split into 8 mixins). Findings, with each item traced to a
+file:line (read, not assumed):
+
+### Plans A / C / D were ALREADY satisfied by existing infra
+- Plan A (adaptive thresholds): `CognitiveChatEngine._adaptive_baselines`
+  ({mu,sigma,n} per gate) + `_adaptive_gate(key,x,strict,eta)`
+  (engine.py ~L980 / ~L1540) already cover ALL six targets:
+  recall_gist(0.6), episodic_cos(0.5), selfq_sim(0.45),
+  schema_cos family(0.6/0.4/0.5), phrase_sim(0.75). The plan's cited line
+  numbers were pre-split; the gates existed. The ONE real gap was that the
+  baselines were never persisted (reset to seed every boot) — fixed: added
+  `'adaptive_baselines'` to save() and an overlay-restore in load(), plus a
+  `recall_cos`(0.55) gate now drives the recall trigger (engine_memory.py:1101).
+  Verified: mu/n survive a full save->reload (1620 tokens preserved).
+- Plan C (sensorimotor): `data/lancaster_encoder.npz`
+  (LancasterEncoder, GloVe-64 -> 11-D Lancaster norms, 39,707 human-rated
+  words, trained by scripts/train_lancaster_probe.py) + `engine_graph.py:
+  _lancaster_vector` already drive `_top_sensorimotor_dim` (engine_generation.
+  py:1074-1127). `_PROP_TO_BINDER` is already only an EXCLUSION set and
+  `_SENSORY_DIM_PHRASE` only a REALIZATION-TEMPLATE fallback — the learned
+  probe does the dimension selection. No duplicate SensorimotorProjector built.
+- Plan D (junk domains): `junk_scorer.OnlineJunkClassifier` (continually-fit
+  logistic, self-labeled from consolidation outcomes, theta derived from data)
+  already IS the cerebellar forward-model the plan describes, with
+  `_WEBSITE_SHAPE`/keyboard-mash/vowel-less as a non-learnable structural
+  backstop. `_JUNK_SNIPPET_DOMAINS` is a separate, deliberate SOURCE-MONITORING
+  blocklist (catches crossword/thesaurus/spam/art-title masquerade). It is kept
+  — there is NO labeled valid/junk URL corpus to train a replacement, and
+  replacing it would regress (source-monitoring failure). Not duplicated.
+
+### Plan B (word lists -> frequency) — IMPLEMENTED
+New `ravana/core/frequency_model.py::FrequencyModel`: seeds from the current
+hand lists (`_GENERIC_NOUNS`, `TOPIC_SKIP_WORDS`, `_SUBJECT_CONTEXT_WORDS`) so
+day-one behavior is identical, then folds observed conversation text into a
+running frequency distribution. The high-frequency tail is discovered from
+exposure (mental-lexicon frequency effect / Zipf). Wired as `self._freq_models`
+(engine.py __init__), with `_is_generic_noun` / `_in_topic_skip` /
+`_is_subject_glue` helpers routing the prior raw-set call sites
+(engine_generation.py:1615, response_gen.py:5828). Persisted in save/load.
+Verified: seed words known at day-one; after >=200 observed tokens a frequent
+word (`cat`) is treated as common; counts survive reload. `_COMMON_WORDS` left
+to the existing functional_lexicon single-source (already externalized).
+
+### Plan E — Genuine closed classes (left as-is, documented)
+QUESTION_WORDS, FOLLOW_UP_WORDS, _UNIVERSAL_PURGE, _DEFINITION_ASSERTION,
+_LANCASTER_ORDER (encoder wire-format), SAVE_SCHEMA_VERSION, _PROTECTED_CONCEPTS,
+VAD/Identity/GW eta constants, MAX_DECODER_VOCAB_SIZE: closed grammatical
+classes / schema / capacity / wire-format — not world knowledge, per the
+audit's FINE verdict. _IRREGULAR_VERBS kept as a stable seed (small, and the
+brain stores very-high-frequency irregulars as whole-word memories).
+
+### Net result
+- Real code added: FrequencyModel + 4 engine helpers + persistence for both
+  adaptive baselines and freq models + recall_cos gate.
+- Items the plan feared were "permanent hardcoded" were in fact already
+  adaptive (A/C/D) — the only true bug was the persistence hole, now fixed.
+- No dead/duplicate code introduced; no fixed-threshold wins added.
