@@ -322,7 +322,7 @@ def _load_logiqa(max_cases: int = 100) -> list:
                     label = line[0].upper()
                     text = line[2:].strip()
                     options[label] = text
-            full_question = f"Context: {context}\n\nQuestion: {question}\n"
+            full_question = f"Context: {context}\n\nQuestion: {question}\n\nOptions:"
             for label, text in sorted(options.items()):
                 full_question += f"\n{label}. {text}"
             full_question += "\n\nWhich is the correct answer? Respond with the letter."
