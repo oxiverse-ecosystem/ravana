@@ -5825,7 +5825,7 @@ class ResponseGenMixin(ChainWalkerMixin):
         if not _m:
             return False
         _end = _m.group(2)
-        if _end in getattr(self, "_GENERIC_NOUNS", set()):
+        if self._is_generic_noun(_end):
             return True
         # A real temporal ordering ("X comes before Y") must be GROUNDED in a
         # genuine predicate edge between X and Y (causal / part-of / process /

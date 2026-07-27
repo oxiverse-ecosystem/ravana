@@ -1612,7 +1612,7 @@ class GenerationMixin:
                 if qtype == "hypothetical" and len(words) >= 2:
                     last_word = words[-1]
                     if last_word in self._concept_labels or last_word in self._concept_keywords:
-                        if last_word not in self._GENERIC_NOUNS:
+                        if not self._is_generic_noun(last_word):
                             # Only collapse to the last entity when the leading
                             # words are genuine scenario framing (would/could/
                             # if/when), not a noun phrase like "the speed of
