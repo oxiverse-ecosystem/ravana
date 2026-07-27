@@ -64,3 +64,39 @@ def test_same_turn_personal_fact_and_opinion(tmpdir):
     e4.load()
     h = e4.user_model.personal_facts.get('i', 'cat')
     assert h is not None and h.value == 'pixel'
+
+
+def test_correction_loop_and_world_graph_isolation(tmpdir):
+    """Investigation fixes (reports/user_model_investigation.md):
+
+    Gap 1 - a LIVE corrective turn ("no, my cat is milo") supersedes the old
+            value through the wired contradict() path (no manual store call).
+    Gap 2 - user self-disclosures are withheld from the world-graph drain
+            (user_facts_withheld) while genuine world facts still graduate,
+            and the personal_facts channel is unaffected.
+    """
+    e = _make(tmpdir, '_fx')
+    e.process_turn("my cat is pixel")
+    e.process_turn("i live in berlin")
+
+    # Gap 2: sleep must NOT graduate user disclosures into the world graph.
+    res = e._sleep_consolidate()
+    assert res.get('user_facts_withheld', 0) >= 2, res
+    assert res.get('buffer_facts_graduated', 99) == 0, res
+    assert res.get('personal_facts_graduated', 0) >= 2, res
+
+    # ...but a genuine world fact still graduates.
+    e.hippocampal_buffer.store("paris", "is_capital_of", "france",
+                               confidence=0.95)
+    e.hippocampal_buffer.store("paris", "is_capital_of", "france",
+                               confidence=0.95)
+    res2 = e._sleep_consolidate()
+    assert res2.get('buffer_facts_graduated', 0) >= 1, res2
+
+    # Gap 1: live correction supersedes via the wired loop.
+    e.process_turn("no, my cat is milo")
+    ans = e.process_turn("what is my cat's name?")
+    assert 'milo' in (ans or '').lower(), ans
+    old = [v for (s, a, v), f in e.user_model.personal_facts.facts.items()
+           if a == 'cat' and f.superseded]
+    assert 'pixel' in old, old
