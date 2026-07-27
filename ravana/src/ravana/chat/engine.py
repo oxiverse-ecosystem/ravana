@@ -2268,8 +2268,25 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # polluted the episodic store (measured on LoCoMo: temporal recall
         # returned 6 July instead of the correct 7 May present in the buffer
         # when the same turns were ingested cleanly).
-        _tr_m = re.match(r"^\s*[A-Z][a-z]{2,15}\s*:\s+\S", user_input or "")
-        if _tr_m and not user_input.strip().endswith("?"):
+        # A speaker-attributed third-party line ("Caroline: I went to X")
+        # is transcript being fed for MEMORY, not a question to answer. But the
+        # leading "[A-Z][a-z]{2,15}:" pattern also matches document-structure
+        # markers used by benchmark question formats ("Context:", "Question:",
+        # "Passage:", "Facts:"), which must NOT be swallowed as transcript
+        # (they are the question itself). Exclude those structural markers so
+        # genuine speaker attributions still ingest but benchmark questions are
+        # answered. Fail-open: if the leading word is a known non-speaker
+        # marker, fall through to the normal pipeline.
+        _TR_MARKERS = {
+            "context", "question", "questions", "passage", "passages",
+            "dialogue", "document", "transcript", "text", "answer", "answers",
+            "option", "options", "choice", "choices", "stem", "background",
+            "scenario", "excerpt", "article", "paragraph", "sentence",
+            "story", "conversation", "interview", "fact", "facts",
+        }
+        _tr_m = re.match(r"^\s*([A-Z][a-z]{2,15})\s*:\s+\S", user_input or "")
+        if (_tr_m and _tr_m.group(1).lower() not in _TR_MARKERS
+                and not user_input.strip().endswith("?")):
             try:
                 self._ingest_episodic(user_input)
                 self.hippocampal_buffer.advance_turn()
@@ -4991,6 +5008,18 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 }
                 loaded_user_model.belief_state = {}
                 loaded_user_model.interaction_history = []
+            # Ensure learned personal-fact / opinion stores exist. These were
+            # added after the earlier UserModel schema; old snapshots pickle a
+            # UserModel WITHOUT them, and any query touching user_model.
+            # personal_facts / user_model.opinions then raises AttributeError
+            # (seen as a hard crash on the adversarial benchmark when the engine
+            # is restored from snapshot per category). Fail-closed: attach a
+            # fresh store so the attribute always exists post-load.
+            from .personal_fact_store import PersonalFactStore, UserStanceStore
+            if not hasattr(loaded_user_model, 'personal_facts'):
+                loaded_user_model.personal_facts = PersonalFactStore()
+            if not hasattr(loaded_user_model, 'opinions'):
+                loaded_user_model.opinions = UserStanceStore()
             self.user_model = loaded_user_model
             # A reask/correction is only meaningful within a single session.
             # The previous query is persisted in the saved state, which would
