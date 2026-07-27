@@ -2,6 +2,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional, Tuple, Set
 from .models import CorrectionType
+from .personal_fact_store import PersonalFactStore, UserStanceStore
 
 
 # Correction detection patterns — ACC conflict detection (Error-Related Negativity)
@@ -34,6 +35,15 @@ class UserModel:
     user_location: str = ""      # "I live in X" / "I am from X"
     user_background: str = ""     # free biographical note (e.g. "born in Paris")
     preferences: Dict[str, Any] = field(default_factory=dict)
+    # Learned personal-fact store (brain-faithful: confidence x recency x decay,
+    # improves over time via confirm/contradict). Seeded from the high-precision
+    # regex below AND from any _mine_episodic_facts hit, so "my cat is Pixel"
+    # becomes a gradeable, correctable fact rather than a frozen field.
+    personal_facts: PersonalFactStore = field(default_factory=PersonalFactStore)
+    # Learned opinion store (C): the user's value judgments (for/against a
+    # topic), kept SEPARATE from biographical facts. Opinions decay faster than
+    # facts (malleable attitudes), per OFC/vmPFC vs hippocampal circuit split.
+    opinions: UserStanceStore = field(default_factory=UserStanceStore)
 
     knowledge_model: Dict[str, float] = field(default_factory=dict)
     learning_goals: Dict[str, int] = field(default_factory=dict)
@@ -79,6 +89,84 @@ class UserModel:
                 self.query_concepts.add(to_label.lower())
                 self.knowledge_model[from_label.lower()] = min(1.0, self.knowledge_model.get(from_label.lower(), 0.0) + 0.1)
                 self.learning_goals[to_label.lower()] = self.learning_goals.get(to_label.lower(), 0) + 1
+
+    def mine_personal_facts(self, text: str) -> None:
+        """High-precision personal-fact miner (B3 / A5). Seeded from explicit
+        "my X is Y" / "I have a X named Y" / name / location patterns into the
+        learned PersonalFactStore. Called both from observe_user_query (full
+        ToM pass) and directly by the identity gate for same-turn capture, so
+        it must take ONLY raw text (no subject / valence dependency).
+
+        Facts seeded here are gradeable + correctable; they are NOT frozen
+        regex buckets — the store learns the rest from confirm/contradict.
+        """
+        q_clean = re.sub(r"\s+", " ", text).strip()
+        m_name = re.search(
+            r"\b(?:my\s+name\s+is|i\s+am\s+called|call\s+me)\s+"
+            r"([^.,!?]+)",
+            q_clean, re.IGNORECASE)
+        if not m_name:
+            m_name = re.search(r"\b(?:do\s+you\s+know\s+my\s+name|know\s+my\s+name|is\s+my\s+name)\s+is\s+(.+)", q_clean, re.IGNORECASE)
+        m_loc = re.search(
+            r"\bi\s+(?:live|lives|am|was|were|grew\s+up)\s+(?:in|near|at|from)\s+"
+            r"([A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z][A-Za-z'\-]*){0,4})",
+            q_clean, re.IGNORECASE)
+        if m_loc:
+            _loc = m_loc.group(1).strip().strip(" .,!")
+            _loc = re.split(r"\s+(?:and|but|,|\.)\s*", _loc)[0].strip()
+            if _loc and len(_loc.split()) <= 5:
+                self.user_location = _loc
+                self.personal_facts.assert_fact("i", "location", _loc,
+                                                confidence=0.6, source="seed_regex")
+        if m_name:
+            name_cand = m_name.group(1).strip()
+            name_cand = re.split(r"\s+(?:and|but|,|\.)\s*", name_cand)[0].strip()
+            name_words = name_cand.split()
+            if name_words and name_words[0].lower() in ("is", "are", "was", "were"):
+                name_words = name_words[1:]
+            name_cand = " ".join(name_words)
+            if name_cand and name_cand.lower() not in ("happy", "sad", "tired", "busy", "fine", "good", "what", "who", "why", "how"):
+                name_cap = " ".join(w.capitalize() for w in name_cand.split())
+                self.user_name = name_cap
+                self.personal_facts.assert_fact("i", "name", name_cap,
+                                                confidence=0.6, source="seed_regex")
+        for _pat in (
+            r"\bmy\s+([\w'-]+)\s+(?:is|are)\s+([\w'-]+)",
+            r"\bi\s+have\s+(?:a|an|the)\s+([\w'-]+)\s+(?:named|called)\s+([\w'-]+)",
+            r"\bmy\s+([\w'-]+)\s+(?:named|called)\s+([\w'-]+)",
+        ):
+            for _m in re.finditer(_pat, q_clean, re.IGNORECASE):
+                _attr, _val = _m.group(1).strip().lower(), _m.group(2).strip()
+                if _attr and _val and _attr not in ("name", "location"):
+                    self.personal_facts.assert_fact(
+                        "i", _attr, _val, confidence=0.6, source="seed_regex")
+
+        # Opinion mining (C2): capture the user's value judgments alongside
+        # facts. Runs in the miner (not only observe_user_query) so opinions are
+        # captured even when process_turn early-returns before Step 5b (e.g. a
+        # bare "i really like cats" hits a preference handler). Polarity from
+        # explicit cues + VAD signal already inferred for this turn.
+        _vad = self._infer_user_emotion(text)
+        _v, _a, _d = _vad
+        for _pat, _pol, _conf in (
+            (r"\bi\s+(?:really\s+)?(?:like|love|enjoy|prefer|care\s+for)\s+([\w'-]+)", 0.8, 0.6),
+            (r"\bi\s+(?:really\s+)?(?:hate|dislike|detest|can't\s+stand)\s+([\w'-]+)", -0.8, 0.6),
+            (r"\bi\s+think\s+([\w'-]+)\s+(?:is|are)\s+(?:good|great|awesome|nice|wonderful|amazing)", 0.8, 0.5),
+            (r"\bi\s+think\s+([\w'-]+)\s+(?:is|are)\s+(?:bad|terrible|awful|overrated|horrible|poor)", -0.8, 0.5),
+            (r"\b([\w'-]+)\s+is\s+my\s+favorite\b", 1.0, 0.7),
+            (r"\bi\s+believe\s+([\w'-]+)\s+beats\s+([\w'-]+)", 0.7, 0.4),
+        ):
+            for _m in re.finditer(_pat, q_clean, re.IGNORECASE):
+                _topic = _m.group(_m.lastindex).strip().lower()
+                if not _topic:
+                    continue
+                _p = _pol
+                if _v < -0.2:
+                    _p = min(-0.3, _p - 0.2)
+                elif _v > 0.2:
+                    _p = max(0.3, _p + 0.2)
+                self.opinions.express_stance(_topic, polarity=_p, confidence=_conf,
+                                            valence=_v, arousal=_a)
 
     def observe_user_query(self, query: str, subject: str, valence: float):
         subject_lower = subject.lower()
@@ -127,28 +215,10 @@ class UserModel:
         # Biographical location / origin: "I live in X" / "I am from X" /
         # "I was born in X". Captured into user_location / user_background
         # so a later "where do I live?" / "where are you from?" recalls it.
-        m_loc = re.search(
-            r"\bi\s+(?:live|lives|am|was|were|grew\s+up)\s+(?:in|near|at|from)\s+"
-            r"([A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z][A-Za-z'\-]*){0,4})",
-            q_clean, re.IGNORECASE)
-        if m_loc:
-            _loc = m_loc.group(1).strip().strip(" .,!")
-            # Drop a trailing clause tail ("and I work" -> stop at "and").
-            _loc = re.split(r"\s+(?:and|but|,|\.)\s*", _loc)[0].strip()
-            if _loc and len(_loc.split()) <= 5:
-                self.user_location = _loc
-        if m_name:
-            name_cand = m_name.group(1).strip()
-            # Drop a trailing clause tail the lazy match may have included.
-            name_cand = re.split(r"\s+(?:and|but|,|\.)\s*", name_cand)[0].strip()
-            # Filter out helper verbs or particles from the captured name
-            name_words = name_cand.split()
-            if name_words and name_words[0].lower() in ("is", "are", "was", "were"):
-                name_words = name_words[1:]
-            name_cand = " ".join(name_words)
-            if name_cand and name_cand.lower() not in ("happy", "sad", "tired", "busy", "fine", "good", "what", "who", "why", "how"):
-                name_cap = " ".join(w.capitalize() for w in name_cand.split())
-                self.user_name = name_cap
+        # Mine biographical + general personal facts into the learned store.
+        # Extracted so the same-turn identity gate can call it with only the
+        # raw text (subject isn't assigned yet in process_turn there).
+        self.mine_personal_facts(query)
 
         self._update_cognitive_style(query)
         if subject_lower != self.last_topic and self.last_topic:
@@ -166,6 +236,8 @@ class UserModel:
         self.engagement_level = min(1.0, 0.3 + 0.7 * (total_followups / max(1, total_interactions)))
 
         self.interaction_count += 1
+        self.personal_facts.advance_turn()
+        self.opinions.advance_turn()
         self.relationship_depth = min(1.0, self.interaction_count / 20.0)
 
         inferred = self.infer_user_goal(query)
@@ -386,6 +458,8 @@ class UserModel:
             'user_location': self.user_location,
             'user_background': self.user_background,
             'preferences': self.preferences,
+            'personal_facts': self.personal_facts.get_state(),
+            'opinions': self.opinions.get_state(),
             'emotional_state': self.emotional_state,
             'belief_state': self.belief_state,
             'interaction_history': self.interaction_history,
@@ -412,6 +486,12 @@ class UserModel:
         self.user_location = state.get('user_location', '')
         self.user_background = state.get('user_background', '')
         self.preferences = state.get('preferences', {})
+        _pf = state.get('personal_facts')
+        if _pf:
+            self.personal_facts.set_state(_pf)
+        _op = state.get('opinions')
+        if _op:
+            self.opinions.set_state(_op)
         self.emotional_state = state.get('emotional_state',
             {'valence': 0.0, 'arousal': 0.3, 'dominance': 0.5})
         self.belief_state = state.get('belief_state', {})

@@ -2132,6 +2132,58 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # so the high-frequency lexicon tail is discovered from exposure. Placed
         # after the gibberism guard so junk tokens are not counted.
         self._observe_language(user_input)
+        # Mine personal facts + opinions from this turn's text immediately, so
+        # the learned profile/opinion stores capture them even if process_turn
+        # early-returns later (e.g. a bare "i really like cats" hitting a
+        # preference handler). The same-turn recall block below reads these.
+        self.user_model.mine_personal_facts(user_input)
+
+        # ── Same-turn user-profile / opinion recall (A5 / C3) ────────────────
+        # MUST fire before ANY recall/combine handler below (the combined-fact
+        # query, _phrase_recalled_fact, _try_memory_query's episodic echo, etc.
+        # would otherwise swallow "what do you know about what i think of dogs?"
+        # with a raw transcript dump). The fact/opinion was mined on the turn it
+        # was stated (mine_personal_facts runs later for normal turns), so the
+        # store already holds it. Placed at the very top so it preempts all.
+        _pf_q = re.search(
+            r"\bwhat(?:'s| is| was| did i say)?\s+my\s+([\w'-]+)"
+            r"(?:'s)?\s*(?:name|is|was|called|nickname)?\b",
+            user_input, re.IGNORECASE)
+        if _pf_q:
+            _attr = _pf_q.group(1).strip().lower()
+            _hit = self.user_model.personal_facts.get("i", _attr)
+            if _hit is not None:
+                _val = _hit.value
+                _conf = _hit.confidence
+                _ans = (f"your name is {_val}" if _attr == "name"
+                        else f"your {_attr} is {_val}")
+                _ans += f" (i'm {_conf*100:.0f}% sure)."
+                self._last_strategy = "user_profile_recall"
+                return _ans
+        _us_q = re.search(
+            r"(?:what\s+do\s+you\s+know\s+(?:about\s+)?)?"
+            r"what'?s?\s+(?:do\s+you\s+think\s+)?"
+            r"(?:i\s+think\s+(?:of|about)|my\s+opinion\s+on|i\s+feel\s+about)\s+"
+            r"([\w'-]+)",
+            user_input, re.IGNORECASE)
+        if _us_q:
+            _topic = _us_q.group(1).strip().lower()
+            _s = self.user_model.opinions.query_stance(_topic)
+            if _s is not None:
+                if _s.polarity >= 0.3:
+                    _word = "like" if _s.polarity >= 0.6 else "lean positive on"
+                elif _s.polarity <= -0.3:
+                    _word = "dislike" if _s.polarity <= -0.6 else "lean negative on"
+                else:
+                    _word = "feel neutral about"
+                _ans = (f"from what you've shared, you {_word} {_topic} "
+                        f"(i'm {_s.confidence*100:.0f}% sure of that).")
+            else:
+                _ans = (f"i don't have a read on what you think about {_topic} "
+                        f"yet — want to tell me?")
+            self._last_strategy = "user_opinion_recall"
+            return _ans
+
         # A context turn like "(Session 3, dated 2:15 pm on 8 May, 2023)" sets
         # the anchor date used to resolve relative time phrases in subsequent
         # utterances. Also picks up a bare leading date line. Acknowledge and
@@ -2930,6 +2982,14 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         m_agent_interests = bool(re.search(
             r"\bwhat\s+are\s+you\s+(interested in|into)\b|\bwhat\s+do\s+you\s+want\s+to\s+(learn|know)\b",
             clean_input, re.IGNORECASE))
+        # Same-turn user-profile capture (A5): mine personal facts / preferences
+        # from THIS turn's input BEFORE the identity/likes/favorites gates
+
+        # is visible to them. Mining only needs user_input (subject isn't
+        # assigned until later in process_turn), so we call the lightweight
+        # miner rather than the full observe_user_query (which also does ToM /
+        # correction side-effects and runs later with the real subject).
+        self.user_model.mine_personal_facts(user_input)
 
         if is_identity_query or is_likes_query or is_interests_query or m_fav_q or m_agent_fav or m_agent_likes or m_agent_likes_yesno or m_agent_stance or m_agent_interests:
             response = ""
@@ -2950,14 +3010,14 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                                     connected.append(label.lower())
                             if connected:
                                 details = "connected to " + " and ".join(connected)
-                    
+
                     if details:
                         response = f"your name is {name}. from what i know, you are {details}."
                     else:
                         response = f"your name is {name}! we've been chatting for a bit."
                 else:
                     response = "i don't know your name yet! what is your name?"
-            
+
             elif is_likes_query:
                 prefs = getattr(self.user_model, 'preferences', {})
                 likes = prefs.get("likes", [])
@@ -3512,7 +3572,11 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 self.emotion.state.dominance,
             )
 
-        # Step 5b: Update UserModel / Theory of Mind with this query
+        # Step 5b: Update UserModel / Theory of Mind with this query. Runs here
+        # (after subject is assigned) so opinion mining + full ToM + correction
+        # detection have the real subject/valence. (mine_personal_facts runs
+        # earlier at the identity gate for SAME-turn fact capture; this full
+        # observe also seeds opinions, which the gate miner does not.)
         self.user_model.observe_user_query(user_input, subject, self.emotion.state.valence)
 
         # Step 5c: P1 Theory of Mind — post-spread deep ToM update (roadmap §7)

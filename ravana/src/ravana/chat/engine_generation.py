@@ -1281,6 +1281,55 @@ class GenerationMixin:
         except Exception as e:
             if getattr(self, '_trace_enabled', False):
                 print(f"  [trace] buffer->graph consolidation error: {e}")
+        # Phase 3b2: drain the learned personal-fact store into the graph
+        # (B5). Confident + rehearsed user-profile facts ("my cat is Pixel")
+        # graduate to durable edges tagged source="personal_fact" so they
+        # become stable semantic memory rather than only living in the
+        # per-session user_model. Same CLS design as the hippocampal drain.
+        try:
+            _pf = getattr(self, 'user_model', None)
+            _pf_store = getattr(_pf, 'personal_facts', None) if _pf else None
+            _pf_grad = 0
+            if _pf_store is not None:
+                for _ft in _pf_store.get_consolidation_candidates():
+                    try:
+                        self._ensure_relation(
+                            _ft.subject, _ft.value,
+                            _ft.attribute,
+                            weight=float(getattr(_ft, 'confidence', 0.7)))
+                        _pf_grad += 1
+                    except Exception:
+                        continue
+            result['personal_facts_graduated'] = _pf_grad
+            if getattr(self, '_trace_enabled', False) and _pf_grad:
+                print(f"  [sleep] graduated {_pf_grad} personal facts to graph")
+        except Exception as e:
+            if getattr(self, '_trace_enabled', False):
+                print(f"  [trace] personal-fact drain error: {e}")
+        # Phase 3b3: drain the learned opinion store into OPINION edges (C4).
+        # Stances become graph edges tagged relation_type="opinion" with weight
+        # = polarity * confidence, so the graph treats "user thinks X is great"
+        # as a subjective stance, never as a semantic fact about X.
+        try:
+            _op = getattr(self, 'user_model', None)
+            _op_store = getattr(_op, 'opinions', None) if _op else None
+            _op_grad = 0
+            if _op_store is not None:
+                for _st in _op_store.get_consolidation_candidates():
+                    try:
+                        self._ensure_relation(
+                            "user", _st.topic,
+                            "opinion",
+                            weight=float(_st.polarity * _st.confidence))
+                        _op_grad += 1
+                    except Exception:
+                        continue
+            result['opinions_graduated'] = _op_grad
+            if getattr(self, '_trace_enabled', False) and _op_grad:
+                print(f"  [sleep] graduated {_op_grad} opinion stances to graph")
+        except Exception as e:
+            if getattr(self, '_trace_enabled', False):
+                print(f"  [trace] opinion drain error: {e}")
         # Phase 3c: Hebbian reinforcement of the ConnectorLearner (Item 3, P1).
         # Re-affirm each confirmed connector->relation association from the
         # learner's own discovered set, nudging prototype centroids toward the
