@@ -63,7 +63,7 @@ rebuild it with `python scripts/gather_teen_seeds.py`.
 
 | Path | What |
 |------|------|
-| `ravana/src/ravana/` | Chat engine: `CognitiveChatEngine`, brain-repair prepasses, language generation, web learning. |
+| `ravana/src/ravana/` | Chat engine: `CognitiveChatEngine` (composes 8 mixins in `chat/engine_*.py`), brain-repair prepasses, language generation, web learning, safety/consistency/abstention monitors. |
 | `ravana_ml/src/ravana_ml/` | CPU-native ML substrate: tensors, `ConceptGraph`, `RLM`/`RLMv2`, neural decoder, embedders. |
 | `ravana-v2/src/ravana_grace/` | GRACE 20-phase cognitive governor (A–P). |
 | `scripts/` | Runnable entry points (chat, train, learn, benchmarks). |

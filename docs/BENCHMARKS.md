@@ -8,6 +8,54 @@ graph latency.
 All commands are run from the repo root. `scripts/` is on the path for
 `scripts.X` imports; the `src` dirs are auto-prepended.
 
+## Comprehensive evaluation harness (vs nanoGPT)
+
+`scripts/evaluate_ravana.py` is the primary end-to-end harness. It trains
+RAVANA on Tiny Shakespeare once, snapshots the weights, then runs **every
+benchmark in isolation** (fresh engine per category, so benchmarks cannot leak
+state into each other) and prints a RAVANA-vs-nanoGPT comparison.
+
+```bash
+# Full run (all benchmarks, fresh 25-pass Shakespeare training)
+python scripts/evaluate_ravana.py
+
+# Skip retraining if a snapshot already exists
+python scripts/evaluate_ravana.py --skip-train
+
+# Disable live-web curiosity loops (faster, deterministic; recommended for CI)
+python scripts/evaluate_ravana.py --no-curiosity
+
+# Enable the learned subsystems that replace the default hardcoded backstops
+python scripts/evaluate_ravana.py --source-trust --learned-pos --intent-router
+
+# Opt-in semantic grading for LoCoMo/LongMemEval/TimeDial/MemFail
+# (reuses RAVANA's own GloVe vectors; fail-open — exact-substring otherwise)
+python scripts/evaluate_ravana.py --semantic-grade
+
+# Limit cases per benchmark / choose a subset
+python scripts/evaluate_ravana.py --max-cases 20 --benchmarks lamp_test,reasoning
+```
+
+Benchmarks run by default (key → dataset):
+
+| Key | Dataset | What it measures |
+|-----|---------|------------------|
+| `lamp_test` | synthetic 3-premise causal chain | causal reasoning (no explosion) |
+| `reasoning` | LogiQA (8,678 QA) | logical reading comprehension |
+| `temporal` | TimeDial (1,446 cloze) | temporal commonsense in dialog |
+| `locomo` | LoCoMo (10 convs, 1,986 QA) | long-term conversational memory |
+| `long_mem_eval` | LongMemEval (500 oracle QA) | multi-session extraction, temporal, KU, abstention |
+| `adversarial` | AdvBench (520 items) | harmful-behavior refusal |
+| `memory_consistency` | MemFail | coexisting/conditional facts, long-hop, persona |
+| `self_evaluation` | synthetic | meta-cognition / honest self-knowledge |
+| `consult` | synthetic | advice/wellbeing support |
+
+Results (params, per-benchmark scores, overall average) are written to
+`data/eval_results.json`. The current live run's numbers are summarized in
+[README.md → Benchmark results](../README.md#benchmark-results) once a run
+completes; the harness prints the full RAVANA-vs-nanoGPT table at the end of
+every run.
+
 ## Chat / end-to-end
 
 | Script | Measures |

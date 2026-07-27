@@ -38,20 +38,24 @@ flowchart TB
 
     subgraph CHAT["ravana — Chat Engine"]
         BR["chat/brain_regions.py<br/>SelfModel, EpisodicIndex<br/>CauseClassifier, Empathy"]
-        EN["chat/engine.py<br/>CognitiveChatEngine<br/>process_turn(), save(), load()"]
-        CW["chat/chain_walker.py<br/>ChainWalkerMixin<br/>_seed_concepts, _spread_and_collect"]
-        RG["chat/response_gen.py<br/>ResponseGenMixin<br/>Neural decoder, templates"]
-        WL["chat/web_learning.py<br/>WebLearningMixin<br/>Web search → graph edges"]
+        EN["chat/engine.py<br/>CognitiveChatEngine<br/>(8 mixins below)"]
+        CW["chat/engine_graph.py<br/>GraphMixin<br/>_seed_concepts, _spread_and_collect"]
+        RG["chat/engine_generation.py<br/>GenerationMixin<br/>Neural decoder, templates"]
+        WL["chat/engine_web_search.py<br/>WebSearchMixin<br/>Web search → graph edges"]
         CG["chat/coherence_gate.py<br/>CoherenceGate<br/>Junk/Salad detection"]
         IR["chat/intent_router.py<br/>IntentRouter<br/>6-class routing"]
         SR["chat/self_model_router.py<br/>SelfAddressRouter"]
+        HIG["chat/harm_intent_gate.py<br/>HarmIntentGate<br/>pre-generation safety"]
+        SUP["chat/support_router.py<br/>SupportRouter<br/>advice/wellbeing"]
+        CM["chat/consistency_monitor.py<br/>cross-turn consistency"]
+        PFS["chat/personal_fact_store.py<br/>learned user-profile facts"]
         LG["language/<br/>SurfaceRealizer, VerbLexicon<br/>SyntacticAssembly, PFC"]
 
         WEB["web/<br/>SearchEngine, WebLearner<br/>OpenIE, WebToGraph"]
         DEC["decoder/<br/>DecoderEngine<br/>PredictiveCodingGenerator"]
         GRA["graph/<br/>GraphEngine"]
 
-        COR["core/<br/>VADEmotion, Identity, Meaning<br/>WorkingMemory, PredictiveCoding<br/>VSAManager, HRRReasoner<br/>System1/System2"]
+        COR["core/<br/>VADEmotion, Identity, Meaning<br/>WorkingMemory, PredictiveCoding<br/>VSAManager, HRRReasoner<br/>System1/System2<br/>fact_reasoning, temporal_*<br/>multi_hop, in_prompt_reasoner<br/>frequency_model, situation_model"]
         BOOT["bootstrap/<br/>BootstrapManager, PMISeeder"]
         LEARN["learn/<br/>CuriosityEngine, HippocampalReplay"]
         ONT["ontology/<br/>DerivedOntology, ConceptNet<br/>LingGenConditioner"]
@@ -139,10 +143,17 @@ user text
    │
    ▼
 [2] engine.py :: CognitiveChatEngine.process_turn
+      (engine.py composes 8 mixins: GenerationMixin, GraphMixin,
+       ReasoningMixin, MemoryMixin, WebSearchMixin, SelfQueryMixin,
+       PersistenceMixin, MonitorMixin)
+      • harm_intent_gate         (pre-generation safety classifier; blocks
+                                  harmful-intent user messages before routing)
       • intent_router          (chitchat / factual / hypothetical / identity / OOD)
+      • support_router         (advice/wellbeing → web learner)
       • monitor_gate           (abstention / free-energy check)
       • coherence_gate         (GloVe-cosine coherence floor)
       • junk_scorer            (word-salad / degenerate-text rejection)
+      • consistency_monitor    (cross-turn self-consistency of own claims)
    │
    ├─ if unknown / low-confidence ─► honest abstention ("I don't know")
    │
