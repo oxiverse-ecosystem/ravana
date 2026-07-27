@@ -522,3 +522,65 @@ class ConnectorLearner:
                         best_rel = rt
                 return best_rel
         return "semantic"
+
+    # ── Persistence (Item 3, P1) ───────────────────────────────────
+    # The learner is instantiated from seed prototypes at boot but was never
+    # saved/loaded, so connector->relation mappings reset every session and
+    # never accumulated from observed discourse. Serialize the learned state.
+    def to_dict(self) -> dict:
+        import numpy as np
+        return {
+            "prototype_vecs": {k: (v.tolist() if hasattr(v, "tolist") else v)
+                               for k, v in self._prototype_vecs.items()},
+            "learned_probs": {k: [(w, float(s)) for w, s in v]
+                              for k, v in self._learned_probs.items()},
+            "connector_set": sorted(self._connector_set),
+            "connector_to_rel": dict(self._connector_to_rel),
+            "is_initialized": self._is_initialized,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict, glove_fn=None) -> "ConnectorLearner":
+        import numpy as np
+        obj = cls(glove_fn=glove_fn)
+        obj._is_initialized = bool(d.get("is_initialized", False))
+        for k, v in d.get("prototype_vecs", {}).items():
+            try:
+                obj._prototype_vecs[k] = np.asarray(v, dtype=float)
+            except Exception:
+                pass
+        for k, v in d.get("learned_probs", {}).items():
+            obj._learned_probs[k] = [(w, float(s)) for w, s in v]
+        obj._connector_set = set(d.get("connector_set", []))
+        obj._connector_to_rel = dict(d.get("connector_to_rel", {}))
+        return obj
+
+    def hebbian_update(self, connector: str, rel_type: str,
+                       vec=None, learning_rate: float = 0.1) -> None:
+        """Strengthen a connector->relation association from an observed parse.
+
+        Brain basis: synaptic dynamics of connector->relation mappings are
+        learned from co-occurrence (Hebbian plasticity). Confirmed
+        (connector, relation) pairs move the prototype centroid toward the
+        connector's vector, so future retrievals generalize to the observed
+        lexical neighborhood rather than only the seed list. No-op when
+        glove_fn is unavailable (keeps seed behavior).
+        """
+        if not connector or not rel_type:
+            return
+        self._connector_to_rel[connector] = rel_type
+        self._connector_set.add(connector)
+        if vec is not None and self._glove_fn is not None and rel_type in self._prototype_vecs:
+            import numpy as np
+            v = np.asarray(vec, dtype=float)
+            n = np.linalg.norm(v)
+            if n > 0:
+                vn = v / n
+                proto = self._prototype_vecs[rel_type]
+                pn = np.linalg.norm(proto)
+                if pn > 0:
+                    proto = proto + learning_rate * (vn - proto)
+                    self._prototype_vecs[rel_type] = proto / np.linalg.norm(proto)
+        _cur = self._learned_probs.setdefault(rel_type, [])
+        if not any(w == connector for w, _ in _cur):
+            _cur.append((connector, 1.0))

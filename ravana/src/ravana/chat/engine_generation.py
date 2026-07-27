@@ -983,10 +983,36 @@ class GenerationMixin:
             except Exception:
                 enc = None
         gvec = self._glove_vector(subj) if hasattr(self, "_glove_vector") else None
+    def _prop_binder_exclude(self, prop: str) -> set:
+        """Exclusion set of binder dims for a property (Plan: learned, Item 6).
+
+        Starts from the hand-authored ``_PROP_TO_BINDER`` map (the stable seed)
+        and extends it with the DOMINANT Lancaster sensorimotor dimension of the
+        property, projected from its GloVe vector via the trained
+        LancasterEncoder (data/lancaster_encoder.npz). For any property word the
+        probe's top 11-D dim IS the binder — so the exclusion generalizes beyond
+        the ~11 hand-authored properties. Falls back to the hand map alone when
+        the probe is unavailable (day-one behavior preserved).
+        """
+        _excl = set(self._PROP_TO_BINDER.get((prop or "").lower(), ()))
+        try:
+            from ravana.ontology.attribute_encoder import LANCASTER_TO_BINDER
+            _lv = self._lancaster_vector(prop) if hasattr(self, "_lancaster_vector") else None
+            if _lv is not None and len(_lv) == len(self._LANCASTER_ORDER):
+                import numpy as np
+                _i = int(np.argmax(_lv))
+                _ldim = self._LANCASTER_ORDER[_i]
+                for _bdim in LANCASTER_TO_BINDER.get(_ldim, []):
+                    _excl.add(_bdim)
+        except Exception:
+            pass
+        return _excl
+
+
         # G3 (Lancaster): prefer the HUMAN Lancaster 11-D norms for the
         # cross-modal dimension — they discriminate strongly (hand Hand_arm=4.4
         # vs trust=0.45) where the merged 65-D probe is variance-compressed.
-        exclude = set(self._PROP_TO_BINDER.get(prop.lower(), ()))
+        exclude = self._prop_binder_exclude(prop)
         tdim = self._top_sensorimotor_dim(subj)
         if tdim is not None and tdim[0] not in exclude:
             top_dim, _val, phrase, sense = tdim
@@ -1230,6 +1256,45 @@ class GenerationMixin:
         except Exception as e:
             if getattr(self, '_trace_enabled', False):
                 print(f"  [trace] Hippocampal replay error: {e}")
+        # Phase 3b: drain hippocampal buffer facts into the neocortical graph.
+        # get_consolidation_candidates() (hippocampal_buffer.py:292) was never
+        # called anywhere in the engine — buffer facts stayed raw forever
+        # (Item 2, P1). Here, after replay, high-confidence rehearsed facts
+        # graduate to durable graph edges (complementary learning systems:
+        # hippocampal -> neocortex during sleep) and are marked consolidated so
+        # they are not re-drained next cycle.
+        try:
+            _cands = self.hippocampal_buffer.get_consolidation_candidates()
+            _graduated = 0
+            for _ft in _cands:
+                try:
+                    self._ensure_relation(_ft.subject, _ft.object,
+                                          _ft.predicate,
+                                          weight=float(getattr(_ft, 'confidence', 0.8)))
+                    self.hippocampal_buffer.mark_consolidated(_ft)
+                    _graduated += 1
+                except Exception:
+                    continue
+            result['buffer_facts_graduated'] = _graduated
+            if getattr(self, '_trace_enabled', False) and _graduated:
+                print(f"  [sleep] graduated {_graduated} hippocampal facts to graph")
+        except Exception as e:
+            if getattr(self, '_trace_enabled', False):
+                print(f"  [trace] buffer->graph consolidation error: {e}")
+        # Phase 3c: Hebbian reinforcement of the ConnectorLearner (Item 3, P1).
+        # Re-affirm each confirmed connector->relation association from the
+        # learner's own discovered set, nudging prototype centroids toward the
+        # connectors' vectors so retrieval generalizes to the observed lexical
+        # neighborhood. Runs during sleep (offline, per consolidation cycle).
+        try:
+            _cl = getattr(self, '_connector_learner', None)
+            if _cl is not None and _cl._is_initialized:
+                for _w, _rt in list(_cl._connector_to_rel.items()):
+                    _v = self._glove_vector(_w) if hasattr(self, '_glove_vector') else None
+                    _cl.hebbian_update(_w, _rt, vec=_v, learning_rate=0.05)
+        except Exception as e:
+            if getattr(self, '_trace_enabled', False):
+                print(f"  [trace] connector hebbian error: {e}")
         # Phase 5: Consolidate corrections from the correction log
         try:
             correction_metrics = self._consolidate_corrections_in_sleep()
