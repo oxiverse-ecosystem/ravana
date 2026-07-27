@@ -1081,7 +1081,7 @@ class MemoryMixin:
         # Pre-compute GloVe vectors for recall seeds (lazy cache)
         if not hasattr(self, '_recall_seed_vecs'):
             seed_vecs = {}
-            for seed in self._RECALL_SEED_CONCEPTS:
+            for seed in self._recall_seed_concepts():
                 v = self._glove_vector(seed)
                 if v is not None:
                     seed_vecs[seed] = v
