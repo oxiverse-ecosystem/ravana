@@ -195,6 +195,11 @@ class PersistenceMixin:
         while value-level bit-rot is caught by pickle load failing outright
         (reconsolidation robustness: tolerate benign variation, flag structural
         damage). The ``state_checksum`` key itself is always excluded.
+        The ``graph`` key is also excluded: it is independently ACID-persisted
+        via SQLite (with its own off-dim integrity scan on load) and is
+        serialized to a string form that legitimately differs in representation
+        between the in-memory object at save time and the reloaded form, which
+        would otherwise trip a spurious every-reload mismatch (Item 9).
         """
         import hashlib
 
@@ -214,7 +219,7 @@ class PersistenceMixin:
         fingerprint = sorted(
             (k,) + _fingerprint(v)
             for k, v in state.items()
-            if k != 'state_checksum'
+            if k != 'state_checksum' and k != 'graph'
         )
         blob = repr(fingerprint).encode("utf-8")
         return hashlib.sha256(blob).hexdigest()[:16]

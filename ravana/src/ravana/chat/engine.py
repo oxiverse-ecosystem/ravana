@@ -336,16 +336,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         "texture": ("Texture", "Touch"), "temperature": ("Temperature",),
         "brightness": ("Bright", "Dark"),
     }
-    _CONDITIONAL_FRAME = {
-        "if", "suppose", "supposing", "assume", "assuming", "what", "would",
-        "could", "can", "happen", "happens", "happened", "occur", "occurs",
-        "occurred", "suddenly", "sudden", "instantly", "immediately", "one",
-        "second", "seconds", "minute", "minutes", "day", "days", "moment",
-        "were", "was", "is", "are", "be", "being", "turned", "turns", "turn",
-        "switched", "switch", "gone", "vanished", "disappeared", "disappears",
-        "removed", "removed", "stopped", "stops", "ceased", "shut", "off",
-        "the", "a", "an", "of", "to", "on", "for", "and", "or", "but", "then",
-    }
     _PREFERRED_SNIPPET_SOURCES = (
         "wikipedia", "britannica", "nasa", "nih", "nature", "science",
         "merriam-webster", "dictionary", "cambridge", "oxford", "britannica",
@@ -484,12 +474,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         "spoilt": "spoil", "told": "tell", "dealt": "deal", "meant": "mean",
     }
     _FUNCTION_POS_TAGS = frozenset({"prep", "pron", "det", "conj", "aux"})
-    _ATTR_WORDS = (
-        "capital", "population", "author", "director", "president", "ceo",
-        "founder", "inventor", "creator", "currency", "language", "religion",
-        "area", "height", "length", "width", "depth", "weight", "mass",
-        "age", "birthday", "meaning", "symbol", "color", "colour",
-    )
     _SNIPPET_PLAUSIBILITY_FLOOR = 0.38
     _SNIPPET_PLAUSIBILITY_DEGENERATE = 0.12
     _ANSWER_PE_VETO = 0.6
@@ -1004,6 +988,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             "subject_glue":  FrequencyModel(seed_words=self._SUBJECT_CONTEXT_WORDS,
                                             min_obs=200, percentile=0.9),
         }
+        # Learned lemma store (Item 5, P2): the 80-item _IRREGULAR_VERBS map is a
+        # stable seed (high-freq irregulars stored as whole-word memories). This
+        # dict extends it with novel past->base mappings discovered from chat
+        # (single-mechanism connectionist model: novel past tense is derived
+        # phonologically, not memorized). Persisted across sessions.
+        self._learned_lemmas: Dict[str, str] = {}
 
         # New cognitive modules (Phase 2-5)
         self.hippocampal_buffer = HippocampalBuffer(HippocampalConfig(max_facts=50, decay_turns=50))
@@ -1565,8 +1555,99 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         """Fold observed conversation text into the frequency models."""
         for m in self._freq_models.values():
             m.observe(text)
+        # Item 5 (P2): lightweight novel-lemma discovery. When a regular
+        # past-tense form (-ed) and its candidate base both appear in the same
+        # utterance, record the mapping so _base_form generalizes beyond the
+        # authored irregular list (phonological single-mechanism learning).
+        try:
+            _words = [w for w in text.lower().split() if w.isalpha()]
+            _seen = set(_words)
+            for _w in _words:
+                if len(_w) >= 5 and _w.endswith("ed"):
+                    _stem = _w[:-2]
+                    if len(_stem) >= 3 and _stem[-1] == _stem[-2]:
+                        _base = _stem[:-1]
+                    elif _w.endswith("ied"):
+                        _base = _w[:-3] + "y"
+                    else:
+                        _base = _stem
+                    if _base in _seen and _base != _w:
+                        self._learn_lemma(_w, _base)
+        except Exception:
+            pass
 
-    # ── Closed-class delegation (P1-H) ───────────────────────────
+    # ── Recall-seed concepts (Plan: graph-derived extension, Item 4) ──
+    # _RECALL_SEED_CONCEPTS is the curated anchor list. To make recall
+    # detection generalize beyond the authored words (brain: recall is cued by
+    # a whole semantic neighborhood, not 13 fixed tokens), extend it with the
+    # graph's concepts that sit near the seed anchors (GloVe cosine >= 0.7).
+    # Computed lazily, cached, and refreshed only when the graph grows a lot.
+    def _recall_seed_concepts(self) -> List[str]:
+        _cache = getattr(self, "_recall_seed_cache", None)
+        _cached_n = getattr(self, "_recall_seed_n", -1)
+        _graph = getattr(self, "graph", None)
+        _n_nodes = len(getattr(_graph, "nodes", {})) if _graph else 0
+        # Recompute if the cache is missing or the graph grew materially
+        # (so newly learned concepts can join the recall-neighborhood).
+        if _cache is not None and _n_nodes <= int(_cached_n * 1.1) + 5:
+            return _cache
+        _seeds = list(self._RECALL_SEED_CONCEPTS)
+        try:
+            _gv = self._glove_vector
+            _seed_vecs = [v for w in _seeds if (v := _gv(w)) is not None]
+            _nodes = getattr(_graph, "nodes", None)
+            if _seed_vecs and _nodes:
+                import numpy as np
+                for _n in _nodes.values():
+                    _lbl = getattr(_n, "label", None)
+                    if not _lbl or _lbl in _seeds:
+                        continue
+                    _nv = _gv(_lbl)
+                    if _nv is None:
+                        continue
+                    if any(float(np.dot(_nv, sv)) >= 0.7 for sv in _seed_vecs):
+                        _seeds.append(_lbl)
+        except Exception:
+            pass
+        self._recall_seed_cache = _seeds
+        self._recall_seed_n = _n_nodes
+        return _seeds
+
+    # ── Learned lemma store (Item 5, P2) ──────────────────────────
+    # High-frequency irregulars are stored whole-word (_IRREGULAR_VERBS seed).
+    # Novel past-tense forms are derived phonologically (single-mechanism
+    # connectionist model, McClelland & Patterson 2002) and cached here as they
+    # are observed, so the engine generalizes beyond the authored 80.
+    def _base_form(self, word: str) -> str:
+        """Return the base (infinitive) form of a possibly-inflected word."""
+        w = (word or "").lower()
+        if not w:
+            return w
+        if w in CognitiveChatEngine._IRREGULAR_VERBS:
+            return CognitiveChatEngine._IRREGULAR_VERBS[w]
+        if w in self._learned_lemmas:
+            return self._learned_lemmas[w]
+        # Phonological fallback: CVC reduplication (stop->stopped) and the
+        # -ied/-ed regular rules. Cheap, rule-based, no parser needed.
+        if len(w) >= 5 and w.endswith("ed"):
+            _stem = w[:-2]
+            if len(_stem) >= 3 and _stem[-1] == _stem[-2] and _stem[-1].isalpha():
+                return _stem[:-1]            # stopped -> stop, wugged -> wug
+            if w.endswith("ied"):
+                return w[:-3] + "y"          # tried -> try
+            return _stem                      # walked -> walk
+        return w
+
+    def _learn_lemma(self, past: str, base: str) -> None:
+        """Record a novel past->base mapping (lowercased, dedup)."""
+        p, b = past.lower(), base.lower()
+        if not p or not b or p == b:
+            return
+        if p in CognitiveChatEngine._IRREGULAR_VERBS:
+            return
+        self._learned_lemmas[p] = b
+
+
     # Single data-driven source for the 6 consolidated closed-class
     # lists. Prefers the fit file (data/functional_lexicon.json, loaded
     # into self._func_lex); falls back to the original hand set
@@ -4431,9 +4512,18 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 # Learned word-frequency models (Plan B): seed + observed counts
                 # so the high-frequency lexicon tail survives reloads.
                 'freq_models': {k: v.to_dict() for k, v in self._freq_models.items()},
-                # Dual stores
+                # Learned lemma store (Item 5, P2) — novel past->base mappings.
+                'learned_lemmas': dict(self._learned_lemmas),
+                # Reflective monitoring
                 'episodic_edges': _episodic_edges,
                 'semantic_edges': _semantic_edges,
+                # ConnectorLearner state (Item 3, P1): persist the learned
+                # connector->relation mappings + prototype centroids so they
+                # survive reloads and accumulate across sessions (previously
+                # never saved -> reset to seed every boot).
+                'connector_learner': (self._connector_learner.to_dict()
+                                      if getattr(self._connector_learner, 'to_dict', None)
+                                      else None),
                 # Phase 10-17 state
                 'sentence_schema': _sentence_schema,
                 'mean_sentence_pe': self._mean_sentence_pe,
@@ -4882,6 +4972,39 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 for _k, _fd in _fm.items():
                     if _k in self._freq_models:
                         self._freq_models[_k] = FrequencyModel.from_dict(_fd)
+
+            # Restore learned lemma store (Item 5, P2).
+            _ll = state.get('learned_lemmas')
+            if _ll:
+                self._learned_lemmas = dict(_ll)
+
+            # Restore source-trust accumulator (Item 1, P0). Saved at save()
+            # time but previously never reloaded -> the prefrontal credibility
+            # learner reset to {} every boot and never accumulated across
+            # sessions. Overlay the persisted dict so domains keep the trust
+            # they earned.
+            _st = state.get('source_trust')
+            if _st:
+                self._source_trust = dict(_st)
+
+            # Restore ConnectorLearner state (Item 3, P1). __init__ rebuilt it
+            # from seed prototypes; overlay the persisted learned mappings so
+            # connector->relation associations resume from last session.
+            _cl = state.get('connector_learner')
+            if _cl and getattr(self, '_connector_learner', None) is not None:
+                try:
+                    from .synaptic_dynamics import ConnectorLearner
+                    _restored = ConnectorLearner.from_dict(
+                        _cl, glove_fn=self._glove_vector)
+                    # Preserve identity of the live object reference used
+                    # elsewhere; copy restored state onto it.
+                    self._connector_learner._prototype_vecs = _restored._prototype_vecs
+                    self._connector_learner._learned_probs = _restored._learned_probs
+                    self._connector_learner._connector_set = _restored._connector_set
+                    self._connector_learner._connector_to_rel = _restored._connector_to_rel
+                    self._connector_learner._is_initialized = _restored._is_initialized
+                except Exception:
+                    pass
 
             self._visited_concepts = set(state.get('visited_concepts', []))
             self._activation_fatigue = state.get('activation_fatigue', {})

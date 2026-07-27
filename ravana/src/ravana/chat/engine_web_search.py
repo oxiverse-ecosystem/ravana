@@ -329,6 +329,13 @@ class WebSearchMixin:
         self._last_web_source = self._source_type_label(best[5])
         self._last_web_plausibility = best[3]
         self._last_web_trust = best[4]
+        # Item 1 (P0): record a POSITIVE outcome for the accepted snippet's
+        # domain so the prefrontal credibility learner accumulates trust from
+        # real acceptances (previously this method had zero callers).
+        try:
+            self._record_source_outcome(best[5], accepted=True)
+        except Exception:
+            pass
         return best[0], best[1], attempted
 
     def _web_direct_answer(self, ctx: CognitiveResponseContext) -> Optional[Tuple[str, str]]:
@@ -665,6 +672,13 @@ class WebSearchMixin:
             # a heuristic domain blocklist, NOT a fact table.
             _dom = self._domain_of(r.get("url", "") or "")
             if any(j in _dom for j in self._JUNK_SNIPPET_DOMAINS):
+                # Source-monitoring failure: a domain structurally incapable of
+                # answering. Record a NEGATIVE outcome so the prefrontal
+                # credibility learner down-weights it (Item 1, P0).
+                try:
+                    self._record_source_outcome(r.get("url"), accepted=False)
+                except Exception:
+                    pass
                 continue
             # Skip results that are mostly HTML / CSS fragments (whole-result
             # junk). Photo-credit words like "getty" are handled at the
