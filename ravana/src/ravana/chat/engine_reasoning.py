@@ -1395,9 +1395,25 @@ class ReasoningMixin:
         if _ov(facts[0]) == 0:
             return None
         _top = _ov(facts[0])
+        # Keep the HIGHEST-content-overlap fact as the date source. Do NOT
+        # reshuffle ties by earliest absolute_date — that bound the wrong
+        # session date to the correct event (e.g. "when did Melanie run a
+        # charity race?" returned an earlier session's date). Ties broken by
+        # GloVe similarity to the question so the event that best matches the
+        # query supplies its own date.
         _tied = [f for f in facts if _ov(f) == _top and f.absolute_date]
-        if _tied:
-            _tied.sort(key=lambda f: f.absolute_date)
+        if _tied and len(_tied) > 1:
+            try:
+                _q_emb = self._compute_text_embedding(_qw)
+                def _gsim(f):
+                    return self._cosine(
+                        _q_emb,
+                        self._compute_text_embedding(
+                            {w.strip(".,!?;:'\"")
+                             for w in (f.object or "").lower().split()}))
+                _tied.sort(key=_gsim, reverse=True)
+            except Exception:
+                pass
             facts = _tied + [f for f in facts if f not in _tied]
 
         # ── Tier 1.4: "how many days/weeks between A and B" ───────────────
