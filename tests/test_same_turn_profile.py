@@ -67,7 +67,7 @@ def test_same_turn_personal_fact_and_opinion(tmpdir):
 
 
 def test_correction_loop_and_world_graph_isolation(tmpdir):
-    """Investigation fixes (reports/user_model_investigation.md):
+    """Investigation fixes (reports/user_model_investigation.md, since removed):
 
     Gap 1 - a LIVE corrective turn ("no, my cat is milo") supersedes the old
             value through the wired contradict() path (no manual store call).
