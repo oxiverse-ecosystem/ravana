@@ -175,6 +175,18 @@ def grade_semantic(response: str, expected: str, thr: float = 0.5) -> float:
         return 1.0
     return 0.0
 
+def semantic_or(score, response: str, expected: str, thr: float = None) -> float:
+    """Universal opt-in fallback: keep the base grader's score if it
+    already passed; otherwise (fail-open) try semantic grading when
+    --semantic-grade is on. Default (flag off) returns `score`
+    UNCHANGED, so every benchmark's existing behaviour is
+    preserved."""
+    if score and score > 0:
+        return score
+    if SEMANTIC_GRADE:
+        return grade_semantic(response, expected, thr if thr is not None else SEMANTIC_THR)
+    return score
+
 
 def grade_multiple_choice(response: str, expected_label: str, valid_options: dict = None) -> float:
     """
@@ -362,9 +374,12 @@ def _load_timedial(max_cases: int = 200) -> list:
                           " Options: " + "; ".join(opts))
         
         def make_grader(correct=answer_text, other=other_correct):
-            return lambda r: (1.0 if correct.lower().strip() in (r or "").lower()
-                              else 0.7 if other.lower().strip() in (r or "").lower()
-                              else 0.0)
+            def _g(r):
+                _base = (1.0 if correct.lower().strip() in (r or "").lower()
+                         else 0.7 if other.lower().strip() in (r or "").lower()
+                         else 0.0)
+                return semantic_or(_base, r, correct)
+            return _g
         
         cases.append({
             "question": question_text,
@@ -429,7 +444,7 @@ def _load_memfail_coexisting(max_cases: int = 50) -> list:
                 primer_turns = [t.strip() + ("." if not t.endswith(".") else "") for t in primer_turns if t.strip()]
             
             def make_grader(ans=row["ground_truth_answer"]):
-                return lambda r: grade_combined_fact_match(r, ans)
+                return lambda r: semantic_or(grade_combined_fact_match(r, ans), r, ans)
             
             cases.append({
                 "question": row["question"],
@@ -463,7 +478,7 @@ def _load_memfail_conditional(max_cases: int = 50) -> list:
                 primer_turns = [f.strip() for f in facts if f.strip()]
                 
                 def make_grader(ans=row["ground_truth_answer"]):
-                    return lambda r: grade_conditional_fact(r, ans)
+                    return lambda r: semantic_or(grade_conditional_fact(r, ans), r, ans)
                 
                 cases.append({
                     "question": row["question"],
@@ -662,7 +677,8 @@ def _load_longmemeval_oracle(max_cases: int = 100) -> list:
                         return 0.0
                 # Knowledge update: prioritizes latest value
                 if qt == "knowledge-update":
-                    return 1.0 if ans.strip().lower() in rl else 0.0
+                    _s = 1.0 if ans.strip().lower() in rl else 0.0
+                    return semantic_or(_s, r, ans)
                 # Temporal reasoning: gold often lists MULTIPLE acceptable
                 # variants ("30 days. 31 days (including the last day) is
                 # also acceptable") — the old 20-char-prefix substring test
@@ -678,10 +694,10 @@ def _load_longmemeval_oracle(max_cases: int = 100) -> list:
                         for _n, _u in _variants:
                             if _re.search(rf"\b{_n}\s+{_u}s?\b", rl):
                                 return 1.0
-                        return 0.0
-                    return 1.0 if ans[:20].lower() in rl else 0.0
-                # Default: substring match
-                return 1.0 if ans[:50].lower() in rl else 0.0
+                        return semantic_or(0.0, r, ans)
+                    return semantic_or(1.0 if ans[:20].lower() in rl else 0.0, r, ans)
+                # Default: substring match (opt-in semantic fallback)
+                return semantic_or(1.0 if ans[:50].lower() in rl else 0.0, r, ans)
             return _grader
         
         cases.append({
