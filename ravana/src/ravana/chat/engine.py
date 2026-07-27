@@ -1005,6 +1005,15 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         except Exception:
             self._date_grounder = None
         self._current_session_date = None
+        # ATL semantic memory (hub-and-spoke, Lambon Ralph 2017): general
+        # world knowledge accumulated from ConceptNet seed + online ingestion.
+        # LAZY: the seed pkl (~0.5 GB in RAM) is loaded on first semantic
+        # query, so memory-heavy benchmark runs that never need it pay zero.
+        try:
+            from ravana.core.semantic_graph import SemanticGraph
+            self.semantic_graph = SemanticGraph()
+        except Exception:
+            self.semantic_graph = None
         # Phase 3: multi-hop relational reasoning (chains + comparatives).
         try:
             from ravana.core.multi_hop_reasoner import MultiHopReasoner
@@ -2375,6 +2384,26 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         except Exception:
             # a gate exception must NEVER block the turn or leak unguarded
             # text — fall through to the normal pipeline.
+            pass
+
+        # ── ATL semantic advice (goal-directed means-end retrieval) ─────
+        # AFTER the harm gate (a harmful 'how to X' must never reach the
+        # semantic graph), BEFORE the handlers below that would swallow an
+        # advice question with a definition echo ('coding is the process
+        # of...') or an evaluative deflection (measured on consult: all 3
+        # cases intercepted downstream). Fail-open: None -> untouched flow.
+        try:
+            _adv = self._try_semantic_advice(user_input)
+            if _adv is None:
+                _adv = self._try_semantic_choice(user_input)
+            if _adv is not None:
+                self._last_strategy = "semantic_advice"
+                self._last_responses.append(_adv)
+                if len(self._last_responses) > 10:
+                    self._last_responses = self._last_responses[-10:]
+                self.notify_user_idle()
+                return _adv
+        except Exception:
             pass
 
         # ── R1: combined "premises + question" interception ──────────
@@ -4675,6 +4704,11 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 'prediction_error_count': self._prediction_error_count,
                 # Neural decoder
                 'hippocampal_buffer_state': self.hippocampal_buffer.get_state(),
+                # ATL semantic memory: ONLINE-learned triples only (seed is
+                # reloadable from data/semantic_seed.pkl — never snapshotted).
+                'semantic_graph_state': (self.semantic_graph.get_state()
+                                         if getattr(self, 'semantic_graph', None)
+                                         is not None else None),
                 'causal_schema_state': self.causal_schema.get_state(),
                 'relation_memory_state': self.relation_memory.get_state(),
                 'decoder_state_dict': self.neural_decoder.state_dict() if self.neural_decoder is not None else None,
@@ -5162,6 +5196,11 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             hb_state = state.get('hippocampal_buffer_state', None)
             if hb_state:
                 self.hippocampal_buffer.set_state(hb_state)
+            sg_state = state.get('semantic_graph_state', None)
+            if sg_state and getattr(self, 'semantic_graph', None) is not None:
+                # Restores ONLINE-learned semantic triples; the ConceptNet
+                # seed reloads lazily from disk on first semantic query.
+                self.semantic_graph.set_state(sg_state)
             cs_state = state.get('causal_schema_state', None)
             if cs_state:
                 self.causal_schema.set_state(cs_state)

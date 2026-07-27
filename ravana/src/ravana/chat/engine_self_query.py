@@ -590,6 +590,147 @@ class SelfQueryMixin:
         # Assemble a coherent, non-salad reply in the same voice as the web path.
         return f"{_focused}"
 
+    def _try_semantic_advice(self, user_input: str) -> Optional[str]:
+        """Answer help/advice-seeking questions from the ATL semantic graph.
+
+        Brain mechanism: goal-directed semantic retrieval — PFC holds the
+        goal state parsed from the query frame; the ATL hub's instrumental
+        edges (used_for / causes) are searched BACKWARD from the goal
+        cohort (Lambon Ralph 2017; Zeithamova 2012). Everything emitted is
+        read off graph structure; no answer lists, no benchmark branches.
+
+        Two query frames (generic verb-frame parse, not phrase templates):
+        - PROBLEM frame: 'ways to manage/reduce/deal with X', 'i feel X' —
+          topic is undesired; retrieve remedies (with ACC outcome veto).
+        - GOAL frame: 'good habits for X', 'how to be/stay X' — topic is
+          desired; retrieve means that cause/serve it.
+        Fail-open: returns None when the graph has no means for the topic.
+        """
+        g = getattr(self, "semantic_graph", None)
+        if g is None:
+            return None
+        t = (user_input or "").lower().strip()
+        if not t or len(t) > 300:
+            return None
+        # Advice-seeking shape: an explicit help/advice frame must be present.
+        _frame = re.search(
+            r"\b(?:ways?|how)\s+(?:can i|do i|to)\s+(\w[\w\s]{2,40}?)(?:\?|$)|"
+            r"\b(?:manage|reduce|relieve|cope with|deal with|handle|overcome)"
+            r"\s+(?:my\s+)?(\w[\w\s]{2,30}?)(?:\?|$)|"
+            r"\b(?:habits?|tips?|advice|suggestions?)\s+for\s+"
+            r"(?:a\s+|an\s+)?(\w[\w\s]{2,30}?)(?:\?|$)", t)
+        if not _frame:
+            return None
+        topic_phrase = next((x for x in _frame.groups() if x), "").strip()
+        if not topic_phrase:
+            return None
+        return self._semantic_advice_answer(t, topic_phrase)
+
+    def _try_semantic_choice(self, user_input: str) -> Optional[str]:
+        """Answer 'A or B?' recommendation questions by ATL category
+        comparison: if both options are nodes sharing an is_a parent, they
+        are commensurable members of one category — answer by naming the
+        shared category and inviting a goal-based pick. Generic mechanism
+        (works for any pair the graph knows); fail-open otherwise.
+        """
+        g = getattr(self, "semantic_graph", None)
+        if g is None:
+            return None
+        t = (user_input or "").lower().strip()
+        if "?" not in t or len(t) > 300:
+            return None
+        # Not for formal MCQ selection tasks ('Options: A...') — those are
+        # handled by the fact-reasoning/MC gates upstream.
+        if re.search(r"\boptions?\s*:", t):
+            return None
+        # Require a recommendation frame, not just any 'or' (ordering
+        # questions like 'first or last' are intercepted upstream but a
+        # bare disjunction is still not a request for a recommendation).
+        if not re.search(r"\b(which|recommend|better|best|should i|"
+                         r"for a|to start|beginner)\b", t):
+            return None
+        m = re.search(r"\b([a-z][\w+#-]{2,20})\s+or\s+([a-z][\w+#-]{2,20})\b", t)
+        if not m:
+            return None
+        a, b = m.group(1), m.group(2)
+        _stopw = {"not", "the", "and", "you", "yes", "for", "with", "less",
+                  "more", "this", "that", "him", "her", "them"}
+        if a in _stopw or b in _stopw or a == b:
+            return None
+        try:
+            if not g.load_seed():
+                return None
+        except Exception:
+            return None
+        na, nb = g.nodes.get(a), g.nodes.get(b)
+        if na is None or nb is None:
+            return None
+        pa = set(na.edges.get("is_a", {}).keys())
+        pb = set(nb.edges.get("is_a", {}).keys())
+        shared = {p for p in (pa & pb) if len(p.split()) <= 3}
+        if not shared:
+            return None
+        # Prefer the most specific (longest) shared category name.
+        cat = max(shared, key=len)
+        # Context echo: if the asker stated a goal/level ('beginner',
+        # 'learn X'), acknowledge it — deictic grounding, not new content.
+        _lvl = re.search(r"\b(beginner|beginners|newbie|starter|first)\b", t)
+        _goal = " to start learning" if re.search(r"\blearn\w*\b", t) else ""
+        _for = f" for a {_lvl.group(1)}" if _lvl else ""
+        return (f"both {a} and {b} are {cat}s from what i've learned — "
+                f"either is a good choice{_for}{_goal}. try whichever feels "
+                f"clearer to you first; you can always pick up the other later.")
+
+    def _semantic_advice_answer(self, query_lower: str,
+                                topic_phrase: str) -> Optional[str]:
+        """Build the advice reply from graph structure (see _try_semantic_advice)."""
+        g = getattr(self, "semantic_graph", None)
+        if g is None:
+            return None
+        # Lazy seed load — first semantic query pays the ~1.5s / ~0.5 GB cost.
+        try:
+            if not g.load_seed():
+                return None
+        except Exception:
+            return None
+        # Topic tokens: content words of the topic phrase (+ light stems).
+        _stop = {"the", "a", "an", "my", "your", "some", "good", "bad",
+                 "best", "healthy", "ways", "way", "with", "for", "and"}
+        toks = [w for w in re.findall(r"[a-z']+", topic_phrase)
+                if len(w) >= 3 and w not in _stop]
+        # 'healthy lifestyle' is goal-framed even though 'healthy' is
+        # stop-worded above for problem topics — keep goal words for the
+        # goal frame decision + retrieval.
+        goal_words = [w for w in re.findall(r"[a-z']+", topic_phrase)
+                      if len(w) >= 3 and w not in (_stop - {"healthy"})]
+        # Frame polarity: problem verbs upstream OR a negative-affect
+        # self-disclosure ('i feel stressed') => problem frame. A goal frame
+        # is signalled by desirability words around the topic.
+        _problem = bool(re.search(
+            r"\b(manage|reduce|relieve|cope|deal|handle|overcome|stop|avoid|"
+            r"less|quit)\b", query_lower))
+        _goal = bool(re.search(
+            r"\b(habits?|be|stay|become|get|achieve|improve|build|maintain)\b"
+            r".{0,24}\b(healthy|fit|productive|happy|strong|better)\b",
+            query_lower)) or ("healthy" in goal_words)
+        if _goal and not _problem:
+            ranked = g.advice_for(goal_words or toks, top_k=6, problem=False)
+        else:
+            ranked = g.advice_for(toks or goal_words, top_k=6, problem=True)
+        if len(ranked) < 2:
+            return None
+        acts = [a for a, _s in ranked]
+        # Realize: gerund action phrases read naturally in a list.
+        lead = ", ".join(acts[:-1]) + " or " + acts[-1] if len(acts) > 1 else acts[0]
+        topic_txt = " ".join(toks) or topic_phrase
+        if _goal and not _problem:
+            return (f"from what i've learned, things that genuinely support "
+                    f"{topic_txt or 'that goal'}: {lead}. small, regular habits "
+                    f"beat big one-off efforts.")
+        return (f"from what i've learned, things that help with {topic_txt}: "
+                f"{lead}. if it feels bigger than self-help, talking to "
+                f"someone you trust is a good step.")
+
     def _handle_classic_counterfactual(self, user_input: str) -> Optional[str]:
         """Answer a classic counterfactual by HOLDING BOTH FRAMES, as a human
         does (Berkeley perception thought-experiment, 1883/1884): the physical
