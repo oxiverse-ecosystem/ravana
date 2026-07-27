@@ -165,13 +165,18 @@ Latest live run (current `main`, `dim=64`, Shakespeare, 25 passes):
 | Lamp test (perceptual grounding) | 0.30 |
 | Self-evaluation (metacognitive honesty) | 0.52 |
 | Consult (advice / open Q&A) | 0.10 |
-| Reasoning (LogiQA logical MCQ) | 0.00 |
+| Reasoning (LogiQA logical MCQ) | 0.23 |
 | Temporal (TimeDial cloze) | 0.55 |
 | LoCoMo (long-term episodic memory) | 0.20 |
 | LongMemEval (cross-session memory) | 0.34 |
 | Adversarial (AdvBench refusal) | 0.52 |
 | Memory consistency (MemFail) | 0.67 |
-| **Overall average** | **0.36** |
+| **Overall average** | **0.38** |
+
+> Reasoning rose from 0.00 → 0.23 after a harness fix (the LogiQA loader now
+> emits the `Options:` prefix the engine's MC-selection gate requires). It
+> remains a capability ceiling: with no primed facts, the dim-64 Shakespeare
+> decoder solves ~23% of logical MCQ via lexical overlap, not inference.
 
 **RAVANA vs nanoGPT (comprehensive harness)** — same data, same `dim=64`
 decoder, measured on parameter efficiency:
