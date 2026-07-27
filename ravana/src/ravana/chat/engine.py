@@ -1705,7 +1705,29 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                                   if len(w) >= 4 and w != subj}
                     _seen_ids = set()
                     for _key in [subj] + aliases:
-                        for _prev in (self.hippocampal_buffer.retrieve(_key) or []):
+                        _fan = list(self.hippocampal_buffer.retrieve(_key) or [])
+                        # Interference theory: an update overwrites the SAME
+                        # attribute, and attribute identity is signalled by
+                        # overlap on INFORMATIVE features. Raw overlap let
+                        # ubiquitous fan words — the speaker's own possessive
+                        # after source binding ("caroline's"), "through" —
+                        # mark unrelated memories superseded (measured on
+                        # LoCoMo dlg0: "used to go horseback riding ...
+                        # through the fields" nuked "moved from caroline's
+                        # home country" via shared {caroline's, through}).
+                        # Weight by document frequency across THIS cue's fan:
+                        # a shared word counts only if it is no commoner than
+                        # the old fact's own mean word-df (self-normalizing,
+                        # distribution-driven bar — no fixed threshold); the
+                        # single-word branch additionally requires the word
+                        # be UNIQUE to the old trace within the fan.
+                        _df = {}
+                        for _ff in _fan:
+                            for _fw in {x.strip(".,!?;:") for x in
+                                        (getattr(_ff, "object", "") or "").lower().split()}:
+                                if len(_fw) >= 4:
+                                    _df[_fw] = _df.get(_fw, 0) + 1
+                        for _prev in _fan:
                             if id(_prev) in _seen_ids:
                                 continue
                             _seen_ids.add(id(_prev))
@@ -1716,12 +1738,21 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                                 (_prev.object or "").lower().split()
                                 if len(w.strip(".,!?;:")) >= 4}
                             _shared = _prev_words & _new_words
+                            if _shared and _df:
+                                _bar = (sum(_df.get(w, 1) for w in _prev_words)
+                                        / max(1, len(_prev_words)))
+                                _informative = {w for w in _shared
+                                                if _df.get(w, 1) <= _bar}
+                            else:
+                                _informative = _shared
                             # Require MEANINGFUL attribute overlap (2+ shared
-                            # content words, or 1 when the new statement is
-                            # short/specific) before declaring the old fact
-                            # stale.
-                            if len(_shared) >= 2 or (
-                                    len(_shared) == 1 and len(_new_words) <= 4):
+                            # informative words, or 1 fan-unique word when the
+                            # new statement is short/specific) before
+                            # declaring the old fact stale.
+                            if len(_informative) >= 2 or (
+                                    len(_informative) == 1
+                                    and len(_new_words) <= 4
+                                    and _df.get(next(iter(_informative)), 1) <= 1):
                                 _prev.superseded = True
                 except Exception:
                     pass
@@ -1871,6 +1902,40 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     _mem = self._try_hippocampal_retrieval(
                         type("Ctx", (), {"subject": _key})(), user_input)
                     if _mem:
+                        # Appositive referent grounding (fail-open): the
+                        # recalled trace may end at a possessive NP whose
+                        # referent another trace grounds APPOSITIVELY —
+                        # "caroline's home country, sweden" grounds
+                        # "moved from caroline's home country". Comprehension
+                        # resolves appositives at encoding; here we pattern-
+                        # complete across traces at recall. Grammar-general
+                        # (any "X's <np>, <entity>"), no entity pairs.
+                        try:
+                            _ml = _mem.lower()
+                            _appos = re.compile(
+                                r"([a-z]+'s [a-z][a-z ]{2,30}?), ([a-z]{3,})\b")
+                            _done = False
+                            for _kfacts in getattr(
+                                    self.hippocampal_buffer, "facts", {}).values():
+                                if _done:
+                                    break
+                                for _f2 in _kfacts:
+                                    _o2 = (getattr(_f2, "object", "") or "").lower()
+                                    if "'s " not in _o2 or "," not in _o2:
+                                        continue
+                                    for _ph, _gr in _appos.findall(_o2):
+                                        if _ph in _ml and _gr not in _ml \
+                                                and _gr not in ("and", "but",
+                                                                "the", "which",
+                                                                "where", "who"):
+                                            _mem = _mem.rstrip(". ") \
+                                                + " (" + _ph + " is " + _gr + ")"
+                                            _done = True
+                                            break
+                                    if _done:
+                                        break
+                        except Exception:
+                            pass
                         return self._phrase_recalled_fact(
                             user_input, _key, _mem)
         except Exception:

@@ -1013,9 +1013,9 @@ class ReasoningMixin:
             _q_stems = set()
             for w in re.findall(r"[a-zA-Z']+", (user_input or "").lower()):
                 if len(w) >= 4:
-                    _q_stems.add(w.rstrip("s").rstrip("e").rstrip("ing")[:6])
+                    _q_stems.add(w.rstrip("s").rstrip("d").rstrip("e").rstrip("ing")[:6])
             for _key, _kfacts in self.hippocampal_buffer.facts.items():
-                _ks = _key.rstrip("s").rstrip("e").rstrip("ing")[:6]
+                _ks = _key.rstrip("s").rstrip("d").rstrip("e").rstrip("ing")[:6]
                 if _ks in _q_stems:
                     for f in _kfacts:
                         if id(f) not in _have:
@@ -1051,7 +1051,7 @@ class ReasoningMixin:
         attr_words = set()
         subj_toks = {w for w in re.findall(r"[a-zA-Z']+", subj)}
         subj_toks |= {t.split("'")[0] for t in subj_toks}
-        subj_stems = {t.rstrip("s").rstrip("e").rstrip("ing")[:6] for t in subj_toks}
+        subj_stems = {t.rstrip("s").rstrip("d").rstrip("e").rstrip("ing")[:6] for t in subj_toks}
         for w in re.findall(r"[a-zA-Z']+", (user_input or "").lower()):
             # Normalize possessives: "caroline's" must be recognized as the
             # entity token 'caroline' (its stem 'caroli' slipped past the
@@ -1060,14 +1060,14 @@ class ReasoningMixin:
             _w_base = w.split("'")[0]
             if len(_w_base) >= 3 and _w_base not in stop \
                     and _w_base not in subj_toks \
-                    and _w_base.rstrip("s").rstrip("e").rstrip("ing")[:6] \
+                    and _w_base.rstrip("s").rstrip("d").rstrip("e").rstrip("ing")[:6] \
                         not in subj_stems:
                 attr_words.add(_w_base)
                 # crude stem so "research"~"researching"~"researched"
-                attr_words.add(_w_base.rstrip("s").rstrip("e").rstrip("ing")[:6])
+                attr_words.add(_w_base.rstrip("s").rstrip("d").rstrip("e").rstrip("ing")[:6])
         # Drop a cue if its own stem surface is ALSO a cue (avoid double
         # counting "research" + "resear" for the same concept).
-        _stem6 = lambda t: t.rstrip("s").rstrip("e").rstrip("ing")[:6]
+        _stem6 = lambda t: t.rstrip("s").rstrip("d").rstrip("e").rstrip("ing")[:6]
         attr_words = {_stem6(w) for w in attr_words}
         # C1: if this is an attribute-predicate question ("what is X's
         # identity?"), the predicate word itself ("identity") is NOT a content
@@ -1079,7 +1079,7 @@ class ReasoningMixin:
         attr_pred = self._attribute_predicate_of(user_input) if user_input else None
         if attr_pred:
             _pred_stems = {attr_pred}
-            _pred_stems |= {attr_pred.rstrip("s").rstrip("e").rstrip("ing")[:6],
+            _pred_stems |= {attr_pred.rstrip("s").rstrip("d").rstrip("e").rstrip("ing")[:6],
                             attr_pred.split(" ")[0]}
             attr_words -= _pred_stems
         if not attr_words:
@@ -1092,7 +1092,7 @@ class ReasoningMixin:
                 for w in subj_toks:
                     if len(w) >= 3 and w not in stop:
                         attr_words.add(w)
-                        attr_words.add(w.rstrip("s").rstrip("e").rstrip("ing")[:6])
+                        attr_words.add(w.rstrip("s").rstrip("d").rstrip("e").rstrip("ing")[:6])
 
         # Ubiquitous-cue suppression (same lesson as fact_reasoning's
         # ubiquitous_words): a cue word occurring in a large fraction of the
@@ -1103,7 +1103,7 @@ class ReasoningMixin:
         _fact_tok_sets = []
         for f in facts:
             _ot = set(re.findall(r"[a-zA-Z']+", (f.object or "").lower()))
-            _ot |= {t.rstrip("s").rstrip("e").rstrip("ing")[:6] for t in _ot}
+            _ot |= {t.rstrip("s").rstrip("d").rstrip("e").rstrip("ing")[:6] for t in _ot}
             _fact_tok_sets.append(_ot)
         _n = len(_fact_tok_sets)
         if _n >= 4:
@@ -1137,12 +1137,12 @@ class ReasoningMixin:
             objtok = set(re.findall(r"[a-zA-Z']+", obj))
             objtok |= set(re.findall(r"[a-zA-Z']+",
                                      (getattr(f, "subject", "") or "").lower()))
-            objstem = {t.rstrip("s").rstrip("e").rstrip("ing")[:6] for t in objtok}
+            objstem = {t.rstrip("s").rstrip("d").rstrip("e").rstrip("ing")[:6] for t in objtok}
             matched = 0
             for w in attr_words:
                 if len(w) < 3:
                     continue
-                ws = w.rstrip("s").rstrip("e").rstrip("ing")[:6]
+                ws = w.rstrip("s").rstrip("d").rstrip("e").rstrip("ing")[:6]
                 if w in objtok or ws in objstem:
                     matched += 1
             # Tier 1.3: density = matched / len(fact_content_tokens) — verbose
