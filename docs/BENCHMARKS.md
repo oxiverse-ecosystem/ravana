@@ -52,7 +52,7 @@ Benchmarks run by default (key → dataset):
 
 Results (params, per-benchmark scores, overall average) are written to
 `data/eval_results.json`. The current live run's numbers are summarized in
-[README.md → Benchmark results](../README.md#benchmark-results) once a run
+[README.md → Benchmark results](../README.md#benchmark-results).
 completes; the harness prints the full RAVANA-vs-nanoGPT table at the end of
 every run.
 

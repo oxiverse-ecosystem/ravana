@@ -149,6 +149,55 @@ See [`docs/`](docs/README.md):
 - [Benchmarks](docs/BENCHMARKS.md) — every benchmark/diagnostic script and what it measures.
 - [Development](docs/DEVELOPMENT.md) — layout, path shims, test commands, conventions.
 
+## Benchmark results
+
+RAVANA is evaluated end-to-end with `scripts/evaluate_ravana.py`, which trains a
+fresh `dim=64` engine on TinyShakespeare (25 passes, no live web) and runs **all
+nine** benchmark batteries — each in an isolated engine so no benchmark leaks
+facts into another — then compares the trained model against a same-scale nanoGPT
+on parameter efficiency. Full per-case output is written to
+`data/eval_results.json`.
+
+Latest live run (current `main`, `dim=64`, Shakespeare, 25 passes):
+
+| Benchmark | Score |
+|---|---|
+| Lamp test (perceptual grounding) | 0.30 |
+| Self-evaluation (metacognitive honesty) | 0.52 |
+| Consult (advice / open Q&A) | 0.10 |
+| Reasoning (LogiQA logical MCQ) | 0.00 |
+| Temporal (TimeDial cloze) | 0.55 |
+| LoCoMo (long-term episodic memory) | 0.20 |
+| LongMemEval (cross-session memory) | 0.34 |
+| Adversarial (AdvBench refusal) | 0.52 |
+| Memory consistency (MemFail) | 0.67 |
+| **Overall average** | **0.36** |
+
+**RAVANA vs nanoGPT (comprehensive harness)** — same data, same `dim=64`
+decoder, measured on parameter efficiency:
+
+| Metric | nanoGPT | RAVANA |
+|---|---|---|
+| Parameters | 10,700,000 | 5,070,789 |
+| % of nanoGPT params | 100% | **47.4%** |
+| Params per data character | 9.60 | **4.55** (2.1× fewer) |
+
+RAVANA reaches ~half of nanoGPT's parameter count while training the *same*
+character-level decoder on the same corpus — the remaining parameters are the
+brain-inspired cognitive substrate (concept graph, hippocampal buffer, belief
+store, salience/decay) that the bare transformer lacks. The benchmark batteries
+target those cognitive capacities (memory, temporal reasoning, refusal,
+self-evaluation) rather than raw next-char perplexity, which is why a smaller
+decoder is paired with a broader evaluation.
+
+> Note: scores are **not** comparable to historical `data/eval_results.json`
+> snapshots taken on the toy `train.py --mode test` corpus (vocab ≈ 96, ~50
+> sentences). Those were a different training regime; this table is the current
+> Shakespeare-trained configuration.
+
+See [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) for the per-benchmark methodology
+and how to reproduce.
+
 ## Design principles
 
 1. **Fail-closed grounding** — abstain rather than confabulate.
