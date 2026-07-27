@@ -126,9 +126,14 @@ class HippocampalBuffer:
             existing.turn_number = self._turn_counter
             existing.timestamp = time.time()
             existing.user_fact = existing.user_fact or user_fact
-            if session_date is not None:
+            # Encoding specificity (Tulving): the episodic trace keeps the
+            # date of FIRST encoding. A later-session rehearsal must never
+            # retroactively shift the event onto the rehearsal's session
+            # date — that was the LoCoMo 'when did X' leak. Later info only
+            # FILLS a gap (fact stored before its date was known).
+            if session_date is not None and existing.session_date is None:
                 existing.session_date = session_date
-            if absolute_date is not None:
+            if absolute_date is not None and existing.absolute_date is None:
                 existing.absolute_date = absolute_date
             # Ensure it's indexed under all keys
             for key in all_keys:

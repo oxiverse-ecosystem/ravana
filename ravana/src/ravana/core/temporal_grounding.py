@@ -155,6 +155,16 @@ class DateGrounder:
             return GroundedDate(session_date - timedelta(days=1), "day", phrase)
         if "tomorrow" in p:
             return GroundedDate(session_date + timedelta(days=1), "day", phrase)
+        # weekend references: "over the weekend", "last weekend", "this past
+        # weekend" → the most recent Saturday strictly before the session
+        # date (the weekend the speaker just lived through).
+        if re.search(r"\b(?:over|last|this past|during)\s+(?:the\s+)?weekend\b"
+                     r"|\bweekend\b.{0,12}\b(?:was|got|went|did)\b", p):
+            _wd = session_date.weekday()  # Mon=0..Sun=6; Sat=5
+            _back = (_wd - 5) % 7
+            _back = _back or 7
+            return GroundedDate(session_date - timedelta(days=_back),
+                                "day", phrase)
 
         # "N <unit> ago"  /  "N <unit> from now" / "in N <unit>"
         m = re.search(

@@ -272,6 +272,11 @@ class ReasoningMixin:
         - Impossible scenarios: "can you prove you exist"
         """
         t = text.lower().strip(" ?!.")
+        # Use/mention distinction: quoted spans are MENTIONED (titles,
+        # reported speech), not asserted — N400 incongruity applies to the
+        # speaker's own proposition, never to a quoted title ('when did I
+        # read "nothing is impossible"?' is episodic recall, not paradox).
+        t = re.sub(r'["\u201c\u201d`].{2,80}?["\u201c\u201d`]', " ", t)
         
         # Theological/omni-paradoxes (the classic "can god create a stone...")
         if re.search(r"\b(can|could)\s+(god|you|one|a\s+being)\s+(create|make|find)\s+(a|an)\s+(.+?)\s+(so|that|which)\s+(heavy|powerful|big|strong|large|hot|cold)", t):
@@ -1382,6 +1387,33 @@ class ReasoningMixin:
         ql = user_input.lower()
         grounder = getattr(self, "_date_grounder", None)
 
+        # ── Temporal scope filter (mental time travel is SCOPED): an
+        # explicit month or year in the QUESTION is a retrieval cue that
+        # constrains the episodic search set ("when did X go camping in
+        # June?" must not answer with a July 2022 trace). Fail-open: if no
+        # dated fact falls inside the named scope, keep the full set.
+        _MN = {"january": 1, "february": 2, "march": 3, "april": 4,
+               "may": 5, "june": 6, "july": 7, "august": 8,
+               "september": 9, "october": 10, "november": 11,
+               "december": 12}
+        _q_mon = re.search(
+            r"\b(?:in|during|of)\s+(january|february|march|april|may|june|"
+            r"july|august|september|october|november|december)\b", ql)
+        _q_yr = re.search(r"\b((?:19|20)\d{2})\b", ql)
+        if _q_mon or _q_yr:
+            def _in_scope(f):
+                d = getattr(f, "absolute_date", None)
+                if d is None:
+                    return False
+                if _q_mon and d.month != _MN[_q_mon.group(1)]:
+                    return False
+                if _q_yr and d.year != int(_q_yr.group(1)):
+                    return False
+                return True
+            _scoped = [f for f in facts if _in_scope(f)]
+            if _scoped:
+                facts = _scoped
+
         # Rank dated facts by content overlap with the QUESTION.
         _qw = {w.strip(".,!?;:'") for w in ql.split() if len(w) >= 3}
         _qw -= {"when", "did", "what", "how", "long", "the", "was", "were",
@@ -1411,7 +1443,17 @@ class ReasoningMixin:
                         self._compute_text_embedding(
                             {w.strip(".,!?;:'\"")
                              for w in (f.object or "").lower().split()}))
-                _tied.sort(key=_gsim, reverse=True)
+                # Source specificity: a trace whose absolute date was
+                # EXPLICITLY grounded from its own text (differs from the
+                # session anchor) carries more temporal information than a
+                # trace defaulted to the session date — prefer it, then
+                # break remaining ties by GloVe similarity to the question.
+                def _explicit(f):
+                    sd = getattr(f, "session_date", None)
+                    return 1 if (sd is not None and f.absolute_date is not None
+                                 and f.absolute_date != sd) else 0
+                _tied.sort(key=lambda f: (_explicit(f), _gsim(f)),
+                           reverse=True)
             except Exception:
                 pass
             facts = _tied + [f for f in facts if f not in _tied]
@@ -1542,6 +1584,32 @@ class ReasoningMixin:
             when = f"{dt.day} {dt.strftime('%B %Y')}"
         except Exception:
             when = str(dt.date())
+        # Episodic anchoring: humans date a recalled event RELATIVE to the
+        # conversational anchor it was encoded against ("the week before
+        # that session"), not only absolutely (Tulving's mental time
+        # travel is anchor-relative). When the event date was resolved
+        # from a relative phrase (absolute != session date), report both.
+        sdt = getattr(best, "session_date", None)
+        if sdt is not None and dt is not None:
+            try:
+                _delta = (sdt.date() - dt.date()).days
+                sess_str = f"{sdt.day} {sdt.strftime('%B %Y')}"
+                if 1 <= _delta <= 6:
+                    if dt.weekday() >= 5:
+                        # Sat/Sun: the natural anchor phrase is the weekend.
+                        return (f"you mentioned that around {when} — "
+                                f"the weekend before {sess_str}.")
+                    _wd = dt.strftime('%A').lower()
+                    return (f"you mentioned that around {when} — "
+                            f"the {_wd} before {sess_str}.")
+                if 7 <= _delta <= 10:
+                    return (f"you mentioned that around {when} — "
+                            f"the week before {sess_str}.")
+                if 11 <= _delta <= 17:
+                    return (f"you mentioned that around {when} — "
+                            f"two weeks before {sess_str}.")
+            except Exception:
+                pass
         return f"you mentioned that around {when}."
 
     # ── Tier 1.5: "which X happened first/last" sequence handler ──────────
