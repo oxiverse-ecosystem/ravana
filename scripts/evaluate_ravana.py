@@ -99,6 +99,82 @@ def grade_substring_match(response: str, expected: str) -> float:
         return 0.0
     return 1.0 if expected.lower() in response.lower() else 0.0
 
+# ── Semantic grading (opt-in via --semantic-grade) ──────────────────
+# Reuses RAVANA's OWN GloVe embeddings (engine._glove_vector), exactly
+# as chain_walker/brain_regions already do for semantic similarity.
+# Pass = exact substring OR (GloVe-cosine(response,gold) > thr AND no
+# hard year/integer contradiction). The contradiction guard rejects
+# paraphrases that flip a grounded quantity (e.g. "June 2023" vs
+# "July 2022", "4 years" vs "4 months") -- those are NOT correct.
+# Fail-open: SEMANTIC_GRADE=False => graders ignore this entirely,
+# so the default harness behaviour (exact substring) is unchanged.
+SEMANTIC_GRADE = False
+SEMANTIC_THR = 0.5
+ENGINE_REF = None  # set by run_benchmark_category; lets graders reach GloVe
+
+import re as _re
+_YEAR = _re.compile(r"\b(19|20)\d{2}\b")
+_INT = _re.compile(r"\b(\d{1,4})\b")
+_STOP = set("a an the of to in on at for and or is are was were be been "
+            "i you he she it we they my your his her our their this that "
+            "with from as by about than then what when where who which how "
+            "do does did can could would should will not no yes".split())
+
+def _text_vec(eng, text):
+    words = _re.findall(r"[a-zA-Z']{3,}", (text or "").lower())
+    vecs = []
+    for w in words:
+        if w in _STOP:
+            continue
+        try:
+            gv = eng._glove_vector(w)
+        except Exception:
+            gv = None
+        if gv is not None:
+            vecs.append(__import__("numpy").asarray(gv, dtype="float32"))
+    if not vecs:
+        return None
+    v = __import__("numpy").mean(vecs, axis=0)
+    n = __import__("numpy").linalg.norm(v)
+    return v / n if n > 0 else None
+
+def _cos(a, b):
+    if a is None or b is None:
+        return 0.0
+    na, nb = __import__("numpy").linalg.norm(a), __import__("numpy").linalg.norm(b)
+    if na == 0 or nb == 0:
+        return 0.0
+    return float(__import__("numpy").dot(a, b) / (na * nb))
+
+def _contradicts(resp, gold):
+    gy = _YEAR.findall(str(gold)); ry = _YEAR.findall(str(resp))
+    if gy and ry and gy[0] != ry[0]:
+        return True
+    gi = _INT.findall(str(gold)); ri = _INT.findall(str(resp))
+    if gi and ri and gi[0] != ri[0]:
+        return True
+    return False
+
+def grade_semantic(response: str, expected: str, thr: float = 0.5) -> float:
+    """Brain-like semantic match: distributed similarity + grounded
+    quantity guard. Returns 1.0 if the response's GloVe vector is
+    close to the gold's AND they agree on year/integer."""
+    if not SEMANTIC_GRADE or ENGINE_REF is None:
+        return 0.0  # fail-open: opt-in only
+    if not response or not expected:
+        return 0.0
+    if expected.lower().strip() in response.lower():
+        return 1.0  # substring already passes
+    try:
+        rv = _text_vec(ENGINE_REF, response)
+        gv = _text_vec(ENGINE_REF, expected)
+        c = _cos(rv, gv)
+    except Exception:
+        return 0.0
+    if c > thr and not _contradicts(response, expected):
+        return 1.0
+    return 0.0
+
 
 def grade_multiple_choice(response: str, expected_label: str, valid_options: dict = None) -> float:
     """
@@ -692,8 +768,14 @@ def _load_locoMo(max_cases: int = 100) -> list:
                         if any(w in rl for w in ["cannot", "sorry", "can't", "won't", "not", "against"]):
                             return 1.0
                         return 0.0
-                    # Default: answer substring match
-                    return 1.0 if ans.strip().lower() in rl else 0.0
+                    # Default: exact substring match
+                    if ans.strip().lower() in rl:
+                        return 1.0
+                    # Opt-in semantic grading (RAVANA's own GloVe).
+                    # Fail-open: no-op unless --semantic-grade was passed.
+                    if SEMANTIC_GRADE:
+                        return grade_semantic(r, ans, SEMANTIC_THR)
+                    return 0.0
                 return _grader
             
             cases.append({
@@ -989,6 +1071,8 @@ def restore_from_snapshot():
 # ═══════════════════════════════════════════════════════════════════════════
 
 def run_benchmark_category(engine, category_key: str, category: dict) -> dict:
+    global ENGINE_REF
+    ENGINE_REF = engine  # let opt-in graders reach GloVe
     """Run a single benchmark category on a given engine."""
     print(f"\n  ┌─ {'─' * 60}")
     print(f"  │ BENCHMARK: {category['name']}")
@@ -1132,10 +1216,24 @@ def main():
                         help="Disable autonomous web-learning (avoids long live-web loops in benchmark harness)")
     parser.add_argument("--max-cases", type=int, default=50,
                         help="Max cases per loaded benchmark (default: 50)")
+    parser.add_argument("--semantic-grade", action="store_true",
+                        help="Opt-in semantic grading for LoCoMo: pass if the "
+                             "response's GloVe vector is close to the gold's AND "
+                             "they agree on year/integer (brain-like paraphrase "
+                             "match). Reuses RAVANA's own embeddings. Fail-open: "
+                             "off by default, exact-substring behaviour unchanged.")
+    parser.add_argument("--semantic-thr", type=float, default=0.5,
+                        help="GloVe-cosine threshold for --semantic-grade "
+                             "(default: 0.5)")
     args = parser.parse_args()
 
     # Apply learned-subsystem toggles to every restored engine (best performance:
     # these replace the hardcoded backstops that are OFF by default in the engine).
+    # Opt-in semantic grading (fail-open; default exact-substring).
+    global SEMANTIC_GRADE, SEMANTIC_THR
+    SEMANTIC_GRADE = bool(args.semantic_grade)
+    SEMANTIC_THR = float(args.semantic_thr)
+
     def _apply_best_perf(engine):
         if args.source_trust:
             engine.use_source_trust = True
@@ -1247,8 +1345,8 @@ def main():
             print(f"  │ {r['name']:<48s} {avg:<8.3f} {bar:<20s}")
     
     print(f"  │ {'─'*48} {'─'*8} {'─'*20}")
+    overall = (total_score / n_benchmarks) if n_benchmarks > 0 else None
     if n_benchmarks > 0:
-        overall = total_score / n_benchmarks
         print(f"  │ {'OVERALL AVERAGE':<48s} {overall:<8.3f}")
     print(f"  └─{'─'*78}")
     
@@ -1276,7 +1374,7 @@ def main():
             "top1_accuracy": round(nd._avg_top1_acc, 4),
             "total_time_seconds": round(time.time() - t_start, 1),
             "results": results,
-            "summary": {"overall_average": round(overall, 4), "per_benchmark": {k: v["average_score"] for k, v in results.items()}},
+            "summary": {"overall_average": (round(overall, 4) if overall is not None else None), "per_benchmark": {k: v["average_score"] for k, v in results.items()}},
         }, f, indent=2)
     print(f"  Results saved to: {output_path}")
 
