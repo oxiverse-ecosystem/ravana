@@ -1266,8 +1266,18 @@ class GenerationMixin:
         try:
             _cands = self.hippocampal_buffer.get_consolidation_candidates()
             _graduated = 0
+            _user_skipped = 0
             for _ft in _cands:
                 try:
+                    # Source monitoring (investigation Gap 2): user self-
+                    # disclosures must NOT become entity-keyed world edges
+                    # ("my cat is pixel" -> edge about cats-in-general). They
+                    # already graduate through the personal_facts drain below.
+                    # Mark consolidated so they stop appearing as candidates.
+                    if getattr(_ft, 'user_fact', False):
+                        self.hippocampal_buffer.mark_consolidated(_ft)
+                        _user_skipped += 1
+                        continue
                     self._ensure_relation(_ft.subject, _ft.object,
                                           _ft.predicate,
                                           weight=float(getattr(_ft, 'confidence', 0.8)))
@@ -1276,6 +1286,7 @@ class GenerationMixin:
                 except Exception:
                     continue
             result['buffer_facts_graduated'] = _graduated
+            result['user_facts_withheld'] = _user_skipped
             if getattr(self, '_trace_enabled', False) and _graduated:
                 print(f"  [sleep] graduated {_graduated} hippocampal facts to graph")
         except Exception as e:

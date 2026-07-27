@@ -101,6 +101,27 @@ class UserModel:
         regex buckets — the store learns the rest from confirm/contradict.
         """
         q_clean = re.sub(r"\s+", " ", text).strip()
+        # Correction cue (B4 wiring, investigation Gap 1): when the user is
+        # correcting us ("no, my cat is milo", "actually i live in paris"),
+        # a mined fact whose attribute already holds a DIFFERENT active value
+        # must supersede it via contradict() — the user is ground truth for
+        # their own profile. Without this the correction loop is dead: the
+        # store has contradict() but nothing ever called it.
+        _corrective = bool(re.search(
+            r"^\s*no\b|\bactually\b|\bthat'?s\s+(?:wrong|not\s+right|incorrect)\b"
+            r"|\bi\s+(?:said|told\s+you)\b|\bnot\s+[\w'-]+\s*,?\s*(?:it'?s|it\s+is)\b",
+            q_clean, re.IGNORECASE))
+
+        def _put_fact(attr: str, val: str, conf: float) -> None:
+            existing = self.personal_facts.get("i", attr)
+            if (_corrective and existing is not None
+                    and existing.value.lower() != val.lower()):
+                self.personal_facts.contradict("i", attr, val)
+            else:
+                self.personal_facts.assert_fact("i", attr, val,
+                                                confidence=conf,
+                                                source="seed_regex")
+
         m_name = re.search(
             r"\b(?:my\s+name\s+is|i\s+am\s+called|call\s+me)\s+"
             r"([^.,!?]+)",
@@ -116,8 +137,7 @@ class UserModel:
             _loc = re.split(r"\s+(?:and|but|,|\.)\s*", _loc)[0].strip()
             if _loc and len(_loc.split()) <= 5:
                 self.user_location = _loc
-                self.personal_facts.assert_fact("i", "location", _loc,
-                                                confidence=0.6, source="seed_regex")
+                _put_fact("location", _loc, 0.6)
         if m_name:
             name_cand = m_name.group(1).strip()
             name_cand = re.split(r"\s+(?:and|but|,|\.)\s*", name_cand)[0].strip()
@@ -128,8 +148,7 @@ class UserModel:
             if name_cand and name_cand.lower() not in ("happy", "sad", "tired", "busy", "fine", "good", "what", "who", "why", "how"):
                 name_cap = " ".join(w.capitalize() for w in name_cand.split())
                 self.user_name = name_cap
-                self.personal_facts.assert_fact("i", "name", name_cap,
-                                                confidence=0.6, source="seed_regex")
+                _put_fact("name", name_cap, 0.6)
         for _pat in (
             r"\bmy\s+([\w'-]+)\s+(?:is|are)\s+([\w'-]+)",
             r"\bi\s+have\s+(?:a|an|the)\s+([\w'-]+)\s+(?:named|called)\s+([\w'-]+)",
@@ -138,8 +157,7 @@ class UserModel:
             for _m in re.finditer(_pat, q_clean, re.IGNORECASE):
                 _attr, _val = _m.group(1).strip().lower(), _m.group(2).strip()
                 if _attr and _val and _attr not in ("name", "location"):
-                    self.personal_facts.assert_fact(
-                        "i", _attr, _val, confidence=0.6, source="seed_regex")
+                    _put_fact(_attr, _val, 0.6)
 
         # Opinion mining (C2): capture the user's value judgments alongside
         # facts. Runs in the miner (not only observe_user_query) so opinions are

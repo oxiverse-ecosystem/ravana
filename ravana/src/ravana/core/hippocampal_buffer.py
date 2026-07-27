@@ -42,6 +42,12 @@ class FactTriple:
     # Knowledge-update bookkeeping (Phase 4): superseded facts are kept for
     # "you said X before but now Y" queries; the active one is returned first.
     superseded: bool = False
+    # Source monitoring: True when the fact is a USER self-disclosure ("my cat
+    # is pixel"). User facts stay in the buffer for episodic recall but are
+    # NEVER drained into the neocortical world graph — the entity-keyed edge
+    # would conflate "this user's cat" with "cats in general". They graduate
+    # through UserModel.personal_facts instead.
+    user_fact: bool = False
 
 
 @dataclass
@@ -74,7 +80,8 @@ class HippocampalBuffer:
     def store(self, subject: str, predicate: str, object: str,
               confidence: float = 0.8, aliases: Optional[List[str]] = None,
               session_date: Optional["datetime"] = None,
-              absolute_date: Optional["datetime"] = None):
+              absolute_date: Optional["datetime"] = None,
+              user_fact: bool = False):
         """Store a factual assertion in the hippocampal buffer.
 
         If the same (subject, predicate, object) triple already exists,
@@ -118,6 +125,7 @@ class HippocampalBuffer:
             existing.rehearsal_count += 1
             existing.turn_number = self._turn_counter
             existing.timestamp = time.time()
+            existing.user_fact = existing.user_fact or user_fact
             if session_date is not None:
                 existing.session_date = session_date
             if absolute_date is not None:
@@ -136,6 +144,7 @@ class HippocampalBuffer:
                 confidence=confidence,
                 session_date=session_date,
                 absolute_date=absolute_date,
+                user_fact=user_fact,
             )
             # Index under all keys for multi-alias lookup
             for key in all_keys:
@@ -352,6 +361,7 @@ class HippocampalBuffer:
                     'absolute_date': (f.absolute_date.isoformat()
                                       if f.absolute_date else None),
                     'superseded': f.superseded,
+                    'user_fact': f.user_fact,
                 }
                 for f in self._all_facts
             ],
@@ -375,6 +385,7 @@ class HippocampalBuffer:
                 session_date=self._parse_iso(fd.get('session_date')),
                 absolute_date=self._parse_iso(fd.get('absolute_date')),
                 superseded=fd.get('superseded', False),
+                user_fact=fd.get('user_fact', False),
             )
             self._all_facts.append(fact)
             self.facts[fact.subject].append(fact)

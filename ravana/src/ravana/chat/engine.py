@@ -1876,6 +1876,15 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                                 _prev.superseded = True
                 except Exception:
                     pass
+            # Source monitoring: a first/second-person self-disclosure ("my cat
+            # is pixel", "i live in berlin") is a USER fact, not world
+            # knowledge. Keep it in the buffer for episodic recall, but flag it
+            # so sleep consolidation never drains it into the world graph as an
+            # entity-keyed edge (it graduates via UserModel.personal_facts).
+            _is_user_fact = bool(re.search(
+                r"\b(?:my|our)\s+[a-z]|\bi\s+(?:am|'m|was|live|work|have|had|"
+                r"like|love|hate|enjoy|prefer|think|believe|went|moved|got)\b",
+                user_input.lower()))
             self.hippocampal_buffer.store(
                 subject=subj,
                 predicate="is_about",
@@ -1884,6 +1893,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 aliases=aliases[:12],
                 session_date=_sess_date,
                 absolute_date=_abs_date,
+                user_fact=_is_user_fact,
             )
         except Exception:
             pass
@@ -2132,6 +2142,21 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # so the high-frequency lexicon tail is discovered from exposure. Placed
         # after the gibberism guard so junk tokens are not counted.
         self._observe_language(user_input)
+        # Confirmation wiring (B4): if our LAST reply answered from the
+        # personal-fact store and the user now affirms ("yes" / "that's
+        # right"), boost that fact via confirm() — closing the learning loop
+        # (prediction-error confirmation). Checked before mining so a bare
+        # "yes" never enters the miners.
+        _pf_pending = getattr(self, "_last_pf_recall", None)
+        if _pf_pending is not None:
+            if re.match(r"^\s*(?:yes|yep|yeah|right|correct|exactly|"
+                        r"that'?s\s+(?:right|correct|it))\b[\s.!]*$",
+                        user_input, re.IGNORECASE):
+                try:
+                    self.user_model.personal_facts.confirm(*_pf_pending)
+                except Exception:
+                    pass
+            self._last_pf_recall = None
         # Mine personal facts + opinions from this turn's text immediately, so
         # the learned profile/opinion stores capture them even if process_turn
         # early-returns later (e.g. a bare "i really like cats" hitting a
@@ -2151,6 +2176,9 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             user_input, re.IGNORECASE)
         if _pf_q:
             _attr = _pf_q.group(1).strip().lower()
+            # "[\w'-]+" greedily eats the possessive: "my cat's name" captures
+            # "cat's" — normalize to the bare attribute so the store lookup hits.
+            _attr = re.sub(r"'s$", "", _attr)
             _hit = self.user_model.personal_facts.get("i", _attr)
             if _hit is not None:
                 _val = _hit.value
@@ -2159,6 +2187,9 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         else f"your {_attr} is {_val}")
                 _ans += f" (i'm {_conf*100:.0f}% sure)."
                 self._last_strategy = "user_profile_recall"
+                # Remember what we answered so a follow-up "yes / that's
+                # right" can confirm() it (B4 confirmation wiring above).
+                self._last_pf_recall = ("i", _attr, _val)
                 return _ans
         _us_q = re.search(
             r"(?:what\s+do\s+you\s+know\s+(?:about\s+)?)?"
