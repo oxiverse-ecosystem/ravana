@@ -145,3 +145,61 @@ brain stores very-high-frequency irregulars as whole-word memories).
 - Items the plan feared were "permanent hardcoded" were in fact already
   adaptive (A/C/D) — the only true bug was the persistence hole, now fixed.
 - No dead/duplicate code introduced; no fixed-threshold wins added.
+
+---
+
+## 9. Remaining Items — closed (2026-07-27 follow-up)
+
+The user traced every remaining static item against the tree (post Plan A/B
+commits) and assigned priorities. All were addressed and verified by real
+execution (save to reload round-trip + targeted drains), not by inspection
+alone. Commits d266373, eef69eb, 80921a9.
+
+### Category 1 - SEED-STUCK (broken learning loops, infra existed)
+1. Source-trust loop (P0, Item 1). source_trust was saved but never reloaded
+   (state.get('source_trust') absent from load) -> reset to {} every boot;
+   _record_source_outcome had 0 callers. FIX: restore in load; wire accept at
+   the chosen-snippet return (engine_web_search.py) and reject at the junk-domain
+   blocklist continue. VERIFIED: trust dict {spam:0.3, wiki:0.6} survives a full
+   save->reload.
+2. Hippocampal buffer -> graph (P1, Item 2). get_consolidation_candidates() /
+   mark_consolidated() existed but were never called. FIX: drain in
+   _sleep_consolidate after replay via _ensure_relation + mark_consolidated.
+   VERIFIED: injected "paris is_capital_of france" graduated to a real graph edge
+   <Edge 262->263 w=1.0 conf=0.9 is_capital_of>.
+3. ConnectorLearner (P1, Item 3). Instantiated from seeds, never saved/loaded.
+   FIX: to_dict/from_dict + hebbian_update; persisted in save/load; per-sleep
+   Hebbian reinforcement. VERIFIED: round-trip preserves connector->relation map
+   and re-affirmation runs without error.
+
+### Category 2 - PERMANENT-HARDCODE (brain-inspired replacement)
+4. _RECALL_SEED_CONCEPTS (P2, Item 4). Now _recall_seed_concepts() extends the
+   hand anchors with graph concepts near the seeds (GloVe cos >= 0.7), cached and
+   refreshed as the graph grows. Used by the recall trigger (engine_memory.py).
+5. _IRREGULAR_VERBS (P2, Item 5). Added _learned_lemmas + _base_form() (irregular
+   map -> learned map -> phonological CVC/-ied/-ed fallback) + _learn_lemma()
+   co-occurrence hook in _observe_language. Persisted. VERIFIED:
+   base_form('stopped')->'stop', 'wugged'->'wug'.
+6. _PROP_TO_BINDER (P2, Item 6). _prop_binder_exclude() augments the hand map
+   with the dominant Lancaster dimension of the property (trained probe
+   data/lancaster_encoder.npz) so the binder exclusion generalizes beyond the
+   ~11 hand-authored properties. Hand map retained as fallback (day-one stable).
+
+### Category 3 - dead code removed
+7. _CONDITIONAL_FRAME (Item 7). No runtime callers -> deleted.
+8. _ATTR_WORDS (Item 8). No runtime callers -> deleted (ConceptNet attribute
+   probe is the learned replacement).
+
+### Category 4 - pre-existing bug
+9. state_checksum mismatch every reload (P0). Root cause: the graph is
+   independently ACID-persisted via SQLite and serializes to a string form that
+   legitimately differs from the in-memory object. FIX: exclude graph from the
+   checksum fingerprint (engine_persistence.py). VERIFIED: no checksum-mismatch
+   warning on a full save->reload.
+
+### Regression
+tests/test_dehardcode_plan.py: 21 passed, 1 failed. The single failure
+(test_meaning_of_life_not_dict_dump) is PRE-EXISTING - it fails identically on
+the clean baseline (confirmed via git stash). No new regressions introduced by
+these changes.
+
