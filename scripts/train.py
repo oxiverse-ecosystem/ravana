@@ -71,7 +71,7 @@ EVAL_QUESTIONS = [
 # ─── Shared ───
 
 def load_engine(args, reset=False):
-    save_path = os.path.join(_proj_root, "data", "ravana_weights.pkl")
+    save_path = os.path.join(_proj_root, "weights", "ravana_weights.pkl")
     if reset and os.path.exists(save_path):
         os.remove(save_path)
         print(f"  [Reset] Deleted saved weights, starting fresh!")

@@ -1063,7 +1063,7 @@ def restore_from_snapshot():
     import uuid
     # Unique suffix per benchmark to prevent cross-contamination
     uid = uuid.uuid4().hex[:8]
-    save_path = os.path.join(_proj_root, "data", f"ravana_weights_eval_{uid}.pkl")
+    save_path = os.path.join(_proj_root, "weights", f"ravana_weights_eval_{uid}.pkl")
     # Populate save path BEFORE engine init so __init__ hits the load path,
     # skipping the expensive cold-start KB seeding (233 Wikipedia lookups).
     if not os.path.exists(save_path):

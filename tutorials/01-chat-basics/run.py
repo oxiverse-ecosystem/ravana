@@ -43,7 +43,7 @@ def main() -> None:
 
     # 3. Save — Tutorial 02 will load this state
     engine.save()
-    print("\n[OK] State saved to data/ravana_weights.pkl")
+    print("\n[OK] State saved to weights/ravana_weights.pkl")
     print("  Ready for Tutorial 02: python tutorials/02-decoder-training/run.py")
 
 

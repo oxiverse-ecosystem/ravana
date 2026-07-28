@@ -186,7 +186,7 @@ def main():
 
     # Handle --reset
     reset_suffix = args.user or ""
-    save_path = os.path.join(_proj_root, "data", f"ravana_weights{reset_suffix}.pkl")
+    save_path = os.path.join(_proj_root, "weights", f"ravana_weights{reset_suffix}.pkl")
     if args.reset:
         if os.path.exists(save_path):
             os.remove(save_path)

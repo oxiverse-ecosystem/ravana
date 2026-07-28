@@ -154,9 +154,11 @@ class ChatInterface:
             self._save_path = os.path.join(self.config.data_dir, f"ravana_weights{self.config.user_suffix}.pkl")
             self._glove_cache_path = os.path.join(self.config.data_dir, "ravana_glove_cache.npz")
         else:
+            # Weights go in <repo>/weights/ (separate from curated datasets in
+            # data/); the GloVe projection cache is a derived artifact in data/.
+            os.makedirs(os.path.join(self._proj_root, "weights"), exist_ok=True)
             os.makedirs(os.path.join(self._proj_root, "data"), exist_ok=True)
-            self._save_path = os.path.join(self._proj_root, "data", f"ravana_weights{self.config.user_suffix}.pkl")
-            os.makedirs(os.path.join(self._proj_root, "data"), exist_ok=True)
+            self._save_path = os.path.join(self._proj_root, "weights", f"ravana_weights{self.config.user_suffix}.pkl")
             self._glove_cache_path = os.path.join(self._proj_root, "data", "ravana_glove_cache.npz")
 
         # Initialize components

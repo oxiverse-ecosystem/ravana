@@ -1,8 +1,19 @@
+import os
 import re
+import pickle
 from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional, Tuple, Set
 from .models import CorrectionType
 from .personal_fact_store import PersonalFactStore, UserStanceStore
+
+# ── Dedicated user-model store ───────────────────────────────────────────────
+# The per-user model used to be pickled *inside* the engine weight snapshot,
+# which coupled it to the cognitive-graph lifecycle. It now lives in its own
+# <repo>/user_models/ directory so user profiles are independent of (and
+# outlive) any single weight checkpoint.
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
+USER_MODELS_DIR = os.path.join(_REPO_ROOT, "user_models")
 
 
 # Correction detection patterns — ACC conflict detection (Error-Related Negativity)
@@ -514,3 +525,32 @@ class UserModel:
             {'valence': 0.0, 'arousal': 0.3, 'dominance': 0.5})
         self.belief_state = state.get('belief_state', {})
         self.interaction_history = state.get('interaction_history', [])
+
+
+# ── Module-level persistence helpers ───────────────────────────────────────────
+def _user_model_path(user_suffix: str = "") -> str:
+    """Path for a per-user-model store file under <repo>/user_models/."""
+    os.makedirs(USER_MODELS_DIR, exist_ok=True)
+    return os.path.join(USER_MODELS_DIR, f"ravana_usermodel{user_suffix}.pkl")
+
+
+def save_user_model(user_model: "UserModel", user_suffix: str = "") -> str:
+    """Persist a UserModel to its own dedicated file. Returns the path."""
+    path = _user_model_path(user_suffix)
+    with open(path, "wb") as f:
+        pickle.dump(user_model, f)
+    return path
+
+
+def load_user_model(user_suffix: str = "") -> "UserModel":
+    """Load a UserModel from its dedicated file, or return a fresh one."""
+    path = _user_model_path(user_suffix)
+    if not os.path.exists(path):
+        return UserModel()
+    with open(path, "rb") as f:
+        um = pickle.load(f)
+    if not hasattr(um, "personal_facts"):
+        from .personal_fact_store import PersonalFactStore, UserStanceStore
+        um.personal_facts = PersonalFactStore()
+        um.opinions = UserStanceStore()
+    return um

@@ -21,7 +21,7 @@ from ravana.chat.engine import CognitiveChatEngine
 def main() -> None:
     # 1. Load engine — uses the state saved by Tutorial 01
     import os.path as _path
-    save_path = os.path.join(ROOT, "data", "ravana_weights.pkl")
+    save_path = os.path.join(ROOT, "weights", "ravana_weights.pkl")
     if not _path.exists(save_path):
         print(f"  ❌ Save file not found at {save_path}")
         print("  Run Tutorial 01 first: python tutorials/01-chat-basics/run.py")

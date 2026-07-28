@@ -18,15 +18,21 @@ dist/
 
 # ── Runtime Data (auto-saved model weights, caches) ──
 data/
+weights/
+user_models/
 checkpoints/
 output/
 
 # ── Data Files ──
 *.db
+*.db-shm
+*.db-wal
 *.pickle
 *.pkl
+*.pkl.sha
 *.npz
 *.npy
+*.jsonl
 
 # ── Logs & Traces ──
 *.log

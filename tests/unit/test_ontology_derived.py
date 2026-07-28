@@ -110,7 +110,7 @@ def test_real_graph_now_has_typed_isa_attribute_edges():
     import sqlite3
     import os
     proj_root = os.path.join(os.path.dirname(__file__), "..", "..")
-    db_path = os.path.join(proj_root, "data", "ravana_weights.db")
+    db_path = os.path.join(proj_root, "weights", "ravana_weights.db")
     if not os.path.exists(db_path):
         pytest.skip("real graph DB not present")
     conn = sqlite3.connect(db_path)
@@ -193,7 +193,7 @@ def test_real_graph_inheritance_walk_reaches_color_ancestor():
     import tempfile
     import shutil
     proj_root = os.path.join(os.path.dirname(__file__), "..", "..")
-    db_path = os.path.join(proj_root, "data", "ravana_weights.db")
+    db_path = os.path.join(proj_root, "weights", "ravana_weights.db")
     pkl = os.path.join(proj_root, "data", "conceptnet", "ont.pkl")
     if not os.path.exists(db_path) or not os.path.exists(pkl):
         pytest.skip("real graph DB / ontology not present")

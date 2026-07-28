@@ -736,14 +736,19 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # Phase ES: Event Schema Library - procedural/process knowledge
         self.event_schema_lib = EventSchemaLibrary()
 
-        # Phase 5: Use data_dir if provided
+        # Phase 5: Use data_dir if provided. Otherwise keep datasets (data/)
+        # and generated weights in SEPARATE directories so the curated datasets
+        # are never polluted by thousands of ravana_weights*.pkl/.db dumps.
+        # Weights land in <repo>/weights/; the GloVe projection cache is a
+        # derived artifact that lives alongside the datasets in data/.
         if data_dir:
             os.makedirs(data_dir, exist_ok=True)
             self._save_path = os.path.join(data_dir, f"ravana_weights{user_suffix}.pkl")
             self._glove_cache_path = os.path.join(data_dir, "ravana_glove_cache.npz")
         else:
+            os.makedirs(os.path.join(_proj_root, "weights"), exist_ok=True)
             os.makedirs(os.path.join(_proj_root, "data"), exist_ok=True)
-            self._save_path = os.path.join(_proj_root, "data", f"ravana_weights{user_suffix}.pkl")
+            self._save_path = os.path.join(_proj_root, "weights", f"ravana_weights{user_suffix}.pkl")
             self._glove_cache_path = os.path.join(_proj_root, "data", "ravana_glove_cache.npz")
         self.sleep_cycles_completed = 0
         self._chain_traces: List[ChainTrace] = []
@@ -5020,6 +5025,19 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                                 _shaf.write(str(_sha))
                     except Exception:
                         pass
+                    # Persist the user model to its OWN dedicated directory
+                    # (user_models/) so it survives independently of the weight
+                    # snapshot. It is also kept inside `state` below for
+                    # backward-compat with pre-split checkpoints.
+                    try:
+                        from .user_model import save_user_model
+                        _um_path = save_user_model(self.user_model,
+                                                   getattr(self, 'user_suffix', ''))
+                        size_kb += 0  # user-model file tracked separately
+                    except Exception:
+                        _um_path = None
+                    if _um_path:
+                        return f"saved {size_kb:.0f}KB to {os.path.basename(self._save_path)} (user_model -> {os.path.basename(_um_path)})"
                     return f"saved {size_kb:.0f}KB to {os.path.basename(self._save_path)}"
                 return f"save failed: unpicklable state could not be sanitized"
             except Exception as e:
@@ -5299,6 +5317,17 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             if not hasattr(loaded_user_model, 'opinions'):
                 loaded_user_model.opinions = UserStanceStore()
             self.user_model = loaded_user_model
+            # Prefer the dedicated user_models/ store if it exists — it is the
+            # continuously-updated, authoritative profile and may be newer than
+            # the copy frozen inside this weight snapshot. Falls back to the
+            # embedded snapshot (above) for legacy checkpoints.
+            try:
+                from .user_model import load_user_model
+                _separate_um = load_user_model(getattr(self, 'user_suffix', ''))
+                if _separate_um is not None:
+                    self.user_model = _separate_um
+            except Exception:
+                pass
             # A reask/correction is only meaningful within a single session.
             # The previous query is persisted in the saved state, which would
             # otherwise make the very first message of a new session look like a
