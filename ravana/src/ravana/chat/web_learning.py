@@ -2525,7 +2525,31 @@ class WebLearningMixin(ResponseGenMixin):
                     return 0.0
                 node = self.graph.get_node(nid)
                 return float(getattr(node, "prediction_free_energy", 0.0) or 0.0)
-            ctrl = ActiveInferenceController(gap_fn=w2g.knowledge_gap, pfe_fn=_pfe)
+            # Triplet-inference epistemic signal (Phase 4): relational-
+            # structure uncertainty about a topic = mean epistemic value of
+            # the predicates observed in triples about it (predicates with
+            # little evidence -> high value -> curiosity drive). Rides the
+            # controller's third uncertainty slot; 0.0 when no data (purely
+            # additive, never swamps gap/pfe).
+            _t_op = getattr(self, "triplet_op", None)
+            def _rel_ev(t):
+                if _t_op is None:
+                    return 0.0
+                try:
+                    from ravana.core.triplet_inference import (
+                        InferenceCuriosityHook)
+                    hook = InferenceCuriosityHook(_t_op.memory)
+                    preds = {tr.predicate
+                             for tr in _t_op.memory.triples_about(t)}
+                    if not preds:
+                        return 0.0
+                    return sum(hook.epistemic_value(pr)
+                               for pr in preds) / len(preds)
+                except Exception:
+                    return 0.0
+            ctrl = ActiveInferenceController(
+                gap_fn=w2g.knowledge_gap, pfe_fn=_pfe,
+                contradiction_fn=_rel_ev)
             return ctrl.select_target(candidate_topics)
         except Exception:
             return candidate_topics[0]

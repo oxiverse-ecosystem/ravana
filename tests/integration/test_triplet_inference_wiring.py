@@ -72,3 +72,26 @@ def test_engine_save_load_round_trips_profiles(eng):
     assert prof is not None
     assert prof.transitivity_pos == pos_before
     assert prof.transitivity_lower() > 0.5  # gate still open after reload
+
+
+def test_curiosity_hook_ranks_scarce_predicates(eng):
+    """Phase 4 wiring point 4: relational-structure uncertainty signal."""
+    from ravana.core.triplet_inference import InferenceCuriosityHook
+    e, _ = eng
+    _teach_is(e.triplet_op)
+    e.triplet_op.ingest_triple(Triple("moon", "orbits", "earth"))
+    hook = InferenceCuriosityHook(e.triplet_op.memory)
+    assert hook.epistemic_value("orbits") > hook.epistemic_value("is")
+    # Order-robust: earlier tests in this module add other scarce
+    # predicates to the shared engine, so assert membership among the
+    # scarce set rather than exact top-1.
+    assert "orbits" in hook.curiosity_targets(top_k=5)
+    assert "is" not in hook.curiosity_targets(top_k=1)
+
+
+def test_curiosity_e_step_survives_triplet_signal(eng):
+    """curiosity_e_step must keep working with the added contradiction_fn
+    slot (additive: crash-free selection over a mixed candidate pool)."""
+    e, _ = eng
+    target = e.curiosity_e_step(["moon", "tx0", "unknown_topic_xyz"])
+    assert target in {"moon", "tx0", "unknown_topic_xyz"}
