@@ -1992,17 +1992,62 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 out |= set(_isa_map.get(p, set()))
             return out
 
-        return (_frz.select_option(user_input, _texts)
-                # Unknown-person abstention runs BEFORE the content handlers:
-                # a question about Noah Brooks must not be answered from
-                # Yuki Tanaka's facts (measured misfire on MemFail persona).
-                or _frz.missing_entity_abstention(user_input, _texts)
-                or _frz.conditional_answer(user_input, _texts)
-                or _frz.enumerate_matching(
-                    user_input, _texts,
-                    isa_parents=_isa_parents if _isa_map else None)
-                or self._entity_recall_via_buffer(user_input)
-                or _frz.entity_fact_answer(user_input, _texts))
+        _resp = (_frz.select_option(user_input, _texts)
+                 # Structured inference on the question's OWN premises
+                 # (HPC->PFC deliberation): conditional / categorical /
+                 # disjunctive frames mined from the presented text, unit
+                 # propagation, entailment test per option. Fail-closed.
+                 or self._graph_reasoner_answer(user_input)
+                 # Unknown-person abstention runs BEFORE the content handlers:
+                 # a question about Noah Brooks must not be answered from
+                 # Yuki Tanaka's facts (measured misfire on MemFail persona).
+                 or _frz.missing_entity_abstention(user_input, _texts)
+                 or _frz.conditional_answer(user_input, _texts))
+        if _resp is not None:
+            return _resp
+        _is_mc = bool(re.search(r"\boptions?\s*:", user_input.lower()))
+        if not _is_mc:
+            # Content-recall handlers: only for free-text questions.
+            _resp = (_frz.enumerate_matching(
+                         user_input, _texts,
+                         isa_parents=_isa_parents if _isa_map else None)
+                     or self._entity_recall_via_buffer(user_input)
+                     or _frz.entity_fact_answer(user_input, _texts))
+            return _resp
+        # MC input: recall handlers may still find the evidence, but a raw
+        # fact echo is not a letter answer (measured on LogiQA: 21/50
+        # echoes, all 0). READ OUT the echo against the options — if the
+        # retrieved evidence selects exactly one option, answer with that
+        # option (evidence-based); otherwise fall through to forced choice.
+        _echo = (self._entity_recall_via_buffer(user_input)
+                 or _frz.entity_fact_answer(user_input, _texts))
+        if _echo:
+            try:
+                _, _opts = _frz._split_options(user_input)
+                _ew = _frz.content_words(_echo)
+                _hits = [o for o in _opts
+                         if _frz.content_words(o) and
+                         _frz.content_words(o) <= _ew]
+                if len(_hits) == 1:
+                    return _hits[0]
+            except Exception:
+                pass
+        # Forced-choice fluency fallback (attribute substitution under
+        # forced choice, Kahneman 2002): ONLY for input that requires
+        # selecting an option, after every evidence-based handler
+        # abstained. Free-text questions never reach this branch.
+        return _frz.plausibility_choice(user_input, _texts)
+
+    def _graph_reasoner_answer(self, user_input: str) -> Optional[str]:
+        """Structured entailment over premises mined from the question text
+        (graph_reasoner.select_option_logic). Fail-closed: None unless a
+        single option is entailed. Only fires for MC input with logical
+        structure — a plain recall question has no rules to mine."""
+        try:
+            from ravana.core.graph_reasoner import select_option_logic
+            return select_option_logic(user_input)
+        except Exception:
+            return None
 
     def _entity_recall_via_buffer(self, user_input: str) -> Optional[str]:
         """Known-entity attribute recall through the SUBJECT-BOUND buffer.

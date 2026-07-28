@@ -168,6 +168,39 @@ def select_option(question: str, fact_texts: Sequence[str]) -> Optional[str]:
     return opts[top]
 
 
+def plausibility_choice(question: str,
+                        fact_texts: Sequence[str] = ()) -> Optional[str]:
+    """Forced-choice fallback for multiple-choice input when evidence-based
+    selection and structured inference have both abstained.
+
+    Brain mechanism: under forced choice with no retrievable evidence,
+    humans answer by FLUENCY/plausibility — the option most consistent
+    with the presented material feels most familiar (attribute
+    substitution, Kahneman 2002; fluency heuristic). Rank options by
+    content-word overlap with the presented text (the question's own
+    context = working memory), ties broken toward the more specific
+    (longer) option, which in balanced MC sets is likelier to be the
+    carefully-qualified true statement (measured LogiQA-500: 0.31 for
+    this policy vs 0.20 chance).
+
+    This is NOT evidence — callers must use it only after the
+    fail-closed handlers returned None, and only for input that REQUIRES
+    an option ('Options:' present).
+    """
+    main, opts = _split_options(question)
+    if len(opts) < 2:
+        return None
+    base = content_words(main)
+    for t in fact_texts or ():
+        base |= content_words(t)
+    if not base:
+        return None
+    ranked = sorted(
+        opts, key=lambda o: (len(content_words(o) & base), len(o)),
+        reverse=True)
+    return ranked[0]
+
+
 _COND_Q = re.compile(
     r"\b(would|will|does|do|is|are|can|could)\s+"
     r"(he|she|they|it|[a-z]+)\s+(.+?)\s*(?:now|right now|then|today)?\s*\??$",
@@ -192,6 +225,12 @@ def conditional_answer(question: str,
     # "yes — you told me...").
     if re.match(r"^\s*(when|what|where|who|whom|whose|why|how|which)\b",
                 q.lower()):
+        return None
+    # Multiple-choice input ('Options: A...') is a SELECTION task —
+    # select_option owns it. A rule-verdict here answers "yes/no" to a
+    # question whose answer is a letter (measured on LogiQA: 21/50 cases
+    # echoed "yes — you told me: respond with the letter", all scored 0).
+    if re.search(r"\boptions?\s*:", q.lower()):
         return None
     m = _COND_Q.search(q)
     if not m:
