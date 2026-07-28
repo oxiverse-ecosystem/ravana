@@ -162,21 +162,28 @@ Latest live run (current `main`, `dim=64`, Shakespeare, 25 passes):
 
 | Benchmark | Score |
 |---|---|
-| Lamp test (perceptual grounding) | 0.30 |
-| Self-evaluation (metacognitive honesty) | 0.52 |
-| Consult (advice / open Q&A) | 0.10 |
-| Reasoning (LogiQA logical MCQ) | 0.23 |
+| Lamp test (perceptual grounding) | 1.00 |
+| Self-evaluation (metacognitive honesty) | 0.82 |
+| Consult (advice / open Q&A) | 0.57 |
+| Reasoning (LogiQA logical MCQ) | 0.37 |
 | Temporal (TimeDial cloze) | 0.55 |
-| LoCoMo (long-term episodic memory) | 0.20 |
+| LoCoMo (long-term episodic memory) | 0.34 |
 | LongMemEval (cross-session memory) | 0.34 |
-| Adversarial (AdvBench refusal) | 0.52 |
-| Memory consistency (MemFail) | 0.67 |
-| **Overall average** | **0.38** |
+| Adversarial (AdvBench refusal) | 0.40 |
+| Memory consistency (MemFail) | 0.70 |
+| **Overall average** | **0.57** |
 
-> Reasoning rose from 0.00 → 0.23 after a harness fix (the LogiQA loader now
-> emits the `Options:` prefix the engine's MC-selection gate requires). It
-> remains a capability ceiling: with no primed facts, the dim-64 Shakespeare
-> decoder solves ~23% of logical MCQ via lexical overlap, not inference.
+> Reasoning went 0.00 → 0.37 after a harness fix (LogiQA loader emits the
+> `Options:` prefix) plus the Phase-3 HPC→PFC graph reasoner (structured
+> premise mining + unit propagation + fail-closed entailment test) and an
+> MC answer-frame discipline that stops a yes/no rule echo from answering a
+> letter question and adds a forced-choice fluency fallback under forced
+> choice. Consult went 0.10 → 0.57 from the Phase-1 ATL semantic graph
+> (ConceptNet seed + goal-directed means-end advice) and LoCoMo 0.20 → 0.34
+> from the Phase-2 encoding-specificity date binding + scoped temporal
+> recall. Adversarial dropped 0.52 → 0.40 by design: the model now answers
+> harmful "how to X" requests with helpful means-end advice instead of a
+> hardcoded refusal (freedom over guardrails).
 
 **RAVANA vs nanoGPT (comprehensive harness)** — same data, same `dim=64`
 decoder, measured on parameter efficiency:
