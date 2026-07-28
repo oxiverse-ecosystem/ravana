@@ -904,6 +904,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # learned classifier is verified to cover it.
         self.use_learned_pos = True
         self._pos_model = None  # built lazily when use_learned_pos is enabled
+        # Section 6.4 (additive candidate): triplet-inference MC answer.
+        # OFF by default — the learned operator only ADDS an answer when
+        # every existing fact-reasoning handler abstained AND its own
+        # Wilson gates are open (fail-closed on cold profiles). _closure
+        # remains the default path; this never displaces it.
+        self.use_triplet_candidate = False
 
         # feasibility gate (replaces the literal _CATEGORY_OF_SUBJECT /
         # _CATEGORY_AFFORDANCES fallback). ON by default now that the prebuilt
@@ -2051,11 +2057,105 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     return _hits[0]
             except Exception:
                 pass
+        # Section 6.4 additive candidate: learned triplet inference,
+        # consulted only after EVERY evidence-based handler above
+        # abstained, and only ahead of the forced-choice fluency
+        # fallback (it may preempt a guess, never an evidence answer).
+        # Fail-closed: returns None unless a Wilson gate is open.
+        if getattr(self, "use_triplet_candidate", False):
+            _tc = self._triplet_mc_answer(user_input, _texts)
+            if _tc is not None:
+                return _tc
         # Forced-choice fluency fallback (attribute substitution under
         # forced choice, Kahneman 2002): ONLY for input that requires
         # selecting an option, after every evidence-based handler
         # abstained. Free-text questions never reach this branch.
         return _frz.plausibility_choice(user_input, _texts)
+
+    def _triplet_mc_answer(self, user_input: str,
+                           fact_texts) -> Optional[str]:
+        """Section 6.4 additive MC candidate from the learned triplet
+        operator. Fail-closed: None unless a Wilson-gated inference
+        channel produces evidence FOR exactly one option.
+
+        Mechanism: mine SPO premises from the question's own text (the
+        in-prompt premises are the evidence set, mirroring
+        _graph_reasoner_answer's HPC->PFC discipline), ingest them into
+        the operator's memory, then test each option as a target of
+        infer(). Only gated channels (transitive/symmetric/composition)
+        can add non-direct conclusions, and those gates only open when
+        the PERSISTENT learned profiles carry enough evidence — cold
+        profiles mean every gate is closed and this returns None.
+        """
+        op = getattr(self, "triplet_op", None)
+        if op is None:
+            return None
+        try:
+            from ravana.core import fact_reasoning as _frz
+            from ravana.core.triplet_inference import Triple
+            from ravana.core.triplet_inference.canonical import (
+                canonical_predicate, canonical_term)
+            main, opts = _frz._split_options(user_input)
+            if len(opts) < 2:
+                return None
+            # Mine premises from the question text via the existing
+            # in-prompt parsers (parser stays, inference is learned).
+            from ravana.core.in_prompt_reasoner import parse_universal_edges
+            universals, instances = parse_universal_edges(main)
+            premises = [(a, "is", b) for a, b in universals + instances
+                        if a and b and a != b]
+            for p in (self.proposition_parser
+                      .extract_propositions(main) or []):
+                s = canonical_term(getattr(p, "subject", "") or "")
+                o = canonical_term(getattr(p, "object", "") or "")
+                r = canonical_predicate(getattr(p, "predicate", "") or "")
+                # Only clean, short premises — a blob subject is noise.
+                if s and o and r and len(s.split()) <= 4 and \
+                        len(o.split()) <= 4:
+                    premises.append((s, r, o))
+            if not premises:
+                return None
+            for s, r, o in premises:
+                op.ingest_triple(Triple(s, r, o, source="conversation"))
+            # Collect gated (non-lookup) conclusions from each premise
+            # subject; every conclusion is a (subject, object, conf)
+            # claim licensed by an open Wilson gate.
+            conclusions = []
+            seen_pairs = set()
+            for s, r, _o in premises:
+                for res in op.infer(s, r, max_results=5):
+                    if res.operator == "lookup":
+                        continue
+                    key = (s, res.triple.object)
+                    if key in seen_pairs:
+                        continue
+                    seen_pairs.add(key)
+                    conclusions.append((s, res.triple.object,
+                                        res.confidence))
+            if not conclusions:
+                return None
+            # Match options against conclusions on normalized word
+            # overlap: an option supported iff it contains BOTH the
+            # subject and the inferred object (as normalized words).
+            from ravana.core.in_prompt_reasoner import _norm_class
+            scored = []
+            for i, opt in enumerate(opts):
+                owords = {_norm_class(w) for w in
+                          re.findall(r"[a-z0-9]+", opt.lower())}
+                best = 0.0
+                for s, obj, conf in conclusions:
+                    s_in = _norm_class(s) in owords or s in owords
+                    o_in = _norm_class(obj) in owords or obj in owords
+                    if s_in and o_in and conf > best:
+                        best = conf
+                if best > 0.0:
+                    scored.append((best, i, opt))
+            if len(scored) != 1:
+                # Zero = every gate closed; >1 = ambiguous. Abstain both.
+                return None
+            return scored[0][2]
+        except Exception:
+            return None
 
     def _graph_reasoner_answer(self, user_input: str) -> Optional[str]:
         """Structured entailment over premises mined from the question text

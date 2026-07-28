@@ -1240,6 +1240,10 @@ def main():
                         help="Enable learned semantic prototype router (replaces hardcoded regex routes)")
     parser.add_argument("--no-curiosity", action="store_true",
                         help="Disable autonomous web-learning (avoids long live-web loops in benchmark harness)")
+    parser.add_argument("--triplet-candidate", action="store_true",
+                        help="Enable the section-6.4 additive triplet-inference MC "
+                             "candidate (fail-closed: only answers when its learned "
+                             "Wilson gates are open; never displaces _closure)")
     parser.add_argument("--max-cases", type=int, default=50,
                         help="Max cases per loaded benchmark (default: 50)")
     parser.add_argument("--semantic-grade", action="store_true",
@@ -1269,6 +1273,8 @@ def main():
             engine.use_intent_router = True
         if args.no_curiosity:
             engine._curiosity_drive_enabled = False
+        if args.triplet_candidate:
+            engine.use_triplet_candidate = True
         return engine
 
     print("=" * 70)
