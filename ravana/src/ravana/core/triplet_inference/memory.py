@@ -16,7 +16,7 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
-from .canonical import canonical_predicate
+from .canonical import canonical_predicate, canonical_term
 from .core import RelationProfile, RelationalSchema, Triple
 
 
@@ -53,9 +53,9 @@ class TripletMemory:
     def add(self, triple: Triple) -> Triple:
         """Index a triple (canonicalizing its predicate). Dedupes by key;
         a re-observation strengthens confidence instead of duplicating."""
-        s = triple.subject.strip().lower()
+        s = canonical_term(triple.subject)
         p = canonical_predicate(triple.predicate)
-        o = triple.object.strip().lower()
+        o = canonical_term(triple.object)
         if not s or not p or not o:
             return triple
         key = (s, p, o)
@@ -79,8 +79,8 @@ class TripletMemory:
         return t
 
     def supersede(self, subject: str, predicate: str, object: str) -> bool:
-        key = (subject.strip().lower(), canonical_predicate(predicate),
-               object.strip().lower())
+        key = (canonical_term(subject), canonical_predicate(predicate),
+               canonical_term(object))
         t = self._by_key.get(key)
         if t is None:
             return False
@@ -119,25 +119,25 @@ class TripletMemory:
 
     # ── lookups used by learning + operators ──────────────────────────
     def has_fact(self, subject: str, predicate: str, object: str) -> bool:
-        t = self._by_key.get((subject.strip().lower(),
+        t = self._by_key.get((canonical_term(subject),
                               canonical_predicate(predicate),
-                              object.strip().lower()))
+                              canonical_term(object)))
         return t is not None and not t.superseded
 
     def objects_of(self, subject: str, predicate: str) -> Set[str]:
         return set(self._by_sp.get(
-            (subject.strip().lower(), canonical_predicate(predicate)), ()))
+            (canonical_term(subject), canonical_predicate(predicate)), ()))
 
     def subjects_of(self, object: str, predicate: str) -> Set[str]:
         return set(self._by_op.get(
-            (object.strip().lower(), canonical_predicate(predicate)), ()))
+            (canonical_term(object), canonical_predicate(predicate)), ()))
 
     def find_mediators(self, a: str, predicate: str, c: str) -> Set[str]:
         """B such that (a, r, B) and (B, r, c) are both active facts."""
         return self.objects_of(a, predicate) & self.subjects_of(c, predicate)
 
     def triples_about(self, subject: str) -> List[Triple]:
-        return [t for t in self._by_subj.get(subject.strip().lower(), [])
+        return [t for t in self._by_subj.get(canonical_term(subject), [])
                 if not t.superseded]
 
     def active_triples(self) -> Iterable[Triple]:

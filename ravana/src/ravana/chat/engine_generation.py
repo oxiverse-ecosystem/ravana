@@ -1178,6 +1178,18 @@ class GenerationMixin:
             concept_vad=self._concept_vad if hasattr(self, '_concept_vad') else None,
         )
         self.sleep_cycles_completed += 1
+        # Triplet-inference sleep stage (Phase 4): NREM batch schema
+        # extraction folds replayed relational statistics into the profiles
+        # (0.7/0.3 slow integration) + bounded REM sabotage. Additive.
+        if getattr(self, "triplet_op", None) is not None:
+            try:
+                from ravana.core.triplet_inference import SleepSchemaExtractor
+                _tse = SleepSchemaExtractor()
+                result['triplet_schemas'] = _tse.extract_schemas(
+                    self.triplet_op.memory)
+                _tse.rem_sabotage(self.triplet_op.memory)
+            except Exception:
+                pass
         # Offline synaptic-homeostasis prune of orphan/noisy semantic edges
         # (whale->deer off-frame co-occurrence). Runs AFTER the standard
         # weight-based prune in run_cycle so the two are additive and the count

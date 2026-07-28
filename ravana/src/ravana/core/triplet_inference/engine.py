@@ -16,6 +16,7 @@ from typing import List, Optional
 from .abstention import AbstentionGate
 from .core import InferenceResult, Triple
 from .learning import ProfileLearner
+from .canonical import canonical_term
 from .memory import TripletMemory
 from .operators import (Composition, HierarchicalInference, InversePredicate,
                         SymmetricClosure, TransitiveChain)
@@ -87,7 +88,7 @@ class TripletInferenceOperator:
     def infer(self, subject: str, predicate: str,
               target: Optional[str] = None,
               max_results: int = 3) -> List[InferenceResult]:
-        s = subject.strip().lower()
+        s = canonical_term(subject)
         results: List[InferenceResult] = []
 
         def _emit(obj: str, conf: float, path: str, op: str):
@@ -146,7 +147,7 @@ class TripletInferenceOperator:
                 best[k] = r
         out = sorted(best.values(), key=lambda r: r.confidence, reverse=True)
         if target is not None:
-            tgt = target.strip().lower()
+            tgt = canonical_term(target)
             return [r for r in out if r.triple.object == tgt]
         return out[:max_results]
 

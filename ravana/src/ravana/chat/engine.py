@@ -1092,6 +1092,17 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         self.system1_attractor = System1Attractor(self.graph, threshold=0.4)
         self.system2_simulator = System2Simulator(self.graph, self.causal_schema)
 
+        # Triplet inference operator (core/triplet_inference): learned
+        # per-predicate relational statistics (transitivity/symmetry/inverse/
+        # composition), Wilson-bound gated. HRR is wired as a cross-signal.
+        # Guarded: failure leaves it None; every call site checks.
+        self.triplet_op = None
+        try:
+            from ravana.core.triplet_inference import TripletInferenceOperator
+            self.triplet_op = TripletInferenceOperator(hrr=self.hrr_reasoner)
+        except Exception:
+            self.triplet_op = None
+
         # Phase 3 Integrations
         self.curiosity_engine = CuriosityEngine(rng=self.rng)
         self.hippocampal_replay = HippocampalReplay(capacity=200)
@@ -2204,6 +2215,17 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # so the high-frequency lexicon tail is discovered from exposure. Placed
         # after the gibberism guard so junk tokens are not counted.
         self._observe_language(user_input)
+        # Triplet-inference capture (Phase 4): mine S-P-O propositions from the
+        # raw user input into the learned relational statistics. Additive and
+        # fail-safe; uses ONLY user_input (top-of-turn rule).
+        if getattr(self, "triplet_op", None) is not None:
+            try:
+                for _prop in self.proposition_parser.extract_propositions(
+                        user_input):
+                    if getattr(_prop, "object", ""):
+                        self.triplet_op.ingest_proposition(_prop)
+            except Exception:
+                pass
         # Confirmation wiring (B4): if our LAST reply answered from the
         # personal-fact store and the user now affirms ("yes" / "that's
         # right"), boost that fact via confirm() — closing the learning loop
@@ -4732,6 +4754,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 # saved-but-never-loaded class of bug — without this, the
                 # adaptive gates never actually learn from history).
                 'adaptive_baselines': {k: dict(v) for k, v in self._adaptive_baselines.items()},
+                # Triplet inference operator state (learned relation profiles,
+                # relational index, abstention gate). Written here AND restored
+                # in load() — a gate saved but never reloaded is dead.
+                'triplet_inference': (self.triplet_op.to_dict()
+                                      if getattr(self, 'triplet_op', None)
+                                      else None),
                 # Learned word-frequency models (Plan B): seed + observed counts
                 # so the high-frequency lexicon tail survives reloads.
                 'freq_models': {k: v.to_dict() for k, v in self._freq_models.items()},
@@ -5190,6 +5218,15 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                             "sigma": float(_v.get("sigma", self._adaptive_baselines[_k]["sigma"])),
                             "n": int(_v.get("n", 0)),
                         }
+
+            # Restore triplet inference operator state (profiles + gate) so
+            # learned relational statistics accumulate ACROSS sessions.
+            _ti = state.get('triplet_inference')
+            if _ti and getattr(self, 'triplet_op', None) is not None:
+                try:
+                    self.triplet_op.from_dict(_ti)
+                except Exception:
+                    pass
 
             # Restore Phase 10-17 state
             self._sentence_schema = state.get('sentence_schema', {})

@@ -11,6 +11,7 @@ from typing import Dict, List, Optional, Set, Tuple
 
 from .core import InferenceResult, Triple
 from .learning import DECISION_BOUNDARY
+from .canonical import canonical_term
 from .memory import TripletMemory
 
 
@@ -29,7 +30,7 @@ class TransitiveChain:
         gate = prof.transitivity_lower()
         if gate <= DECISION_BOUNDARY:
             return []
-        s = subject.strip().lower()
+        s = canonical_term(subject)
         direct = m.objects_of(s, predicate)
         results: List[Tuple[str, float, str]] = []
         # BFS out to max_hops; confidence decays by the learned score per hop.
@@ -66,7 +67,7 @@ class SymmetricClosure:
         prof = m.profiles.get(m.profile(predicate).predicate)
         if prof is None or prof.symmetry_lower() <= DECISION_BOUNDARY:
             return []
-        s = subject.strip().lower()
+        s = canonical_term(subject)
         out = []
         for a in m.subjects_of(s, predicate):
             if not m.has_fact(s, predicate, a):
@@ -93,7 +94,7 @@ class InversePredicate:
         # inverse evidence (distribution-relative, not a fixed count).
         if inv is None or share <= DECISION_BOUNDARY:
             return []
-        s = subject.strip().lower()
+        s = canonical_term(subject)
         out = []
         for x in m.subjects_of(s, inv):
             if not m.has_fact(s, predicate, x):
@@ -112,7 +113,7 @@ class Composition:
         """Answers (subject, predicate, ?) via learned compositions that
         RESULT in `predicate`: find (r1, r2) with composed==predicate."""
         m = self.memory
-        s = subject.strip().lower()
+        s = canonical_term(subject)
         out: List[Tuple[str, float, str]] = []
         target = m.profile(predicate).predicate
         for r1, prof1 in list(m.profiles.items()):
@@ -155,7 +156,7 @@ class HierarchicalInference:
 
     def inherit(self, subject: str, predicate: str) -> List[Tuple[str, float, str]]:
         m = self.memory
-        s = subject.strip().lower()
+        s = canonical_term(subject)
         out: List[Tuple[str, float, str]] = []
         for rh in self._hierarchy_predicates():
             if rh == m.profile(predicate).predicate:

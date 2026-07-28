@@ -25,6 +25,19 @@ _CAN = {"can", "could", "is able to", "are able to"}
 
 _WS = re.compile(r"\s+")
 _ARTICLE_TAIL = re.compile(r"\s+(a|an|the)$")
+_ARTICLE_HEAD = re.compile(r"^(a|an|the|my|your|our|their|his|her|its)\s+")
+_PUNCT_EDGE = re.compile(r"^[\s\.,;:!?'\"]+|[\s\.,;:!?'\"]+$")
+
+
+def canonical_term(term: str) -> str:
+    """Normalize a subject/object term: lowercase, strip edge punctuation
+    and leading determiners ('a man' -> 'man'). PropositionParser keeps
+    articles in the object slot; without this, (socrates, is, 'a man')
+    never matches a lookup for 'man'. Grammar-only — no semantics."""
+    t = (term or "").strip().lower()
+    t = _PUNCT_EDGE.sub("", t)
+    t = _ARTICLE_HEAD.sub("", t)
+    return _WS.sub(" ", t).strip()
 
 
 def canonical_predicate(predicate: str) -> str:

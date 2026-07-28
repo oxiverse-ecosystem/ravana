@@ -984,6 +984,15 @@ class WebLearningMixin(ResponseGenMixin):
                 w2g = self._get_web_to_graph()
                 if w2g is not None:
                     w2g.learn_text(text, source_url=source_url or topic)
+                    # Triplet-inference feed (Phase 4): the same OpenIE facts
+                    # also update the learned relational statistics
+                    # (transitivity/symmetry/inverse). Additive + fail-safe.
+                    if getattr(self, "triplet_op", None) is not None:
+                        try:
+                            for _f in w2g.openie.extract(text, max_facts=50):
+                                self.triplet_op.ingest_openie_fact(_f)
+                        except Exception:
+                            pass
         except Exception as _e:
             if getattr(self, "_trace_enabled", False):
                 print(f"  [C-lite] suppressed error: {_e}")
