@@ -1014,6 +1014,14 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             self.semantic_graph = SemanticGraph()
         except Exception:
             self.semantic_graph = None
+        # Systems consolidation (McClelland 1995): episodic buffer ->
+        # semantic graph schema promotion. Runs when the buffer has grown
+        # by >= growth_trigger facts since the last pass (see process_turn).
+        try:
+            from ravana.core.consolidation import Consolidator
+            self._consolidator = Consolidator(growth_trigger=50)
+        except Exception:
+            self._consolidator = None
         # Phase 3: multi-hop relational reasoning (chains + comparatives).
         try:
             from ravana.core.multi_hop_reasoner import MultiHopReasoner
@@ -2678,6 +2686,18 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # real multiple-of-25 of turns has elapsed (turn_count > 0).
             if self.turn_count > 0 and self.turn_count % 25 == 0:
                 self._last_sleep = self.pfc_workspace.sleep()
+        except Exception:
+            pass
+        # Systems consolidation trigger: promote recurring episodic
+        # structure into the semantic graph once the buffer has grown by
+        # >= growth_trigger facts since the last pass (offline schema
+        # extraction without a sleep cycle; McClelland 1995).
+        try:
+            if (self._consolidator is not None
+                    and self.semantic_graph is not None
+                    and self._consolidator.should_run(self.hippocampal_buffer)):
+                self._consolidator.consolidate(
+                    self.hippocampal_buffer, self.semantic_graph)
         except Exception:
             pass
         # Philosophical paradoxes and Zen koans are currently routed into the

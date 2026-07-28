@@ -1155,6 +1155,16 @@ def run_benchmark_category(engine, category_key: str, category: dict) -> dict:
                 engine.process_turn(turn)
             except Exception:
                 pass
+        # Offline consolidation before querying (plan 6.4): promote
+        # recurring episodic structure from the priming pass into the
+        # semantic graph — simulates a sleep cycle between study and test.
+        try:
+            if (getattr(engine, "_consolidator", None) is not None
+                    and getattr(engine, "semantic_graph", None) is not None):
+                engine._consolidator.consolidate(
+                    engine.hippocampal_buffer, engine.semantic_graph)
+        except Exception:
+            pass
         
         t0 = time.time()
         try:
