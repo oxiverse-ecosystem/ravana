@@ -70,6 +70,9 @@ _LOC_KEY = {
     "nextto": "loc:nextto", "beside": "loc:nextto",
     "inside": "loc:inside", "outside": "loc:outside",
     "ontop": "loc:ontop",
+    # diagonal (ordinal) directions — same closed-class grammar family
+    "northwest": "loc:northwestof", "northeast": "loc:northeastof",
+    "southwest": "loc:southwestof", "southeast": "loc:southeastof",
 }
 
 
@@ -314,8 +317,9 @@ _REL_PATTERNS = [
     (re.compile(
         r"^(.+?)\s+is\s+(?:to\s+the\s+|on\s+the\s+)?"
         r"(left|right|top|bottom|above|below|in\s*front|behind|"
-        r"next\s*to|beside|inside|outside|on\s*top)\b"
-        r"(?:\s+of|\s+to)?\s*(.+?)\.?$", re.IGNORECASE),
+        r"next\s*to|beside|inside|outside|on\s*top|"
+        r"northwest|northeast|southwest|southeast)\b"
+        r"(?:\s+of|s+to)?\s*(.+?)\.?$", re.IGNORECASE),
      lambda m: (_LOC_KEY.get(m.group(2).lower().replace(" ", ""),
                              "loc:" + re.sub(r"[^a-z]", "", m.group(2).lower()))
                  if _LOC_KEY.get(m.group(2).lower().replace(" ", ""))
@@ -323,10 +327,35 @@ _REL_PATTERNS = [
                  m.group(1), m.group(3), "general", False)),
     # copula: "A is B" / "A is a B"
     (re.compile(r"^(.+?)\s+is\s+(?:a|an|the)?\s*(.+?)\.?$", re.IGNORECASE),
-     lambda m: ("is", m.group(1), m.group(2), "general", False)),
+     lambda m: ("is", m.group(1), m.group(2), "general", False)
+                if not _is_noise_copula(m.group(1), m.group(2)) else None),
 ]
 
 _MAX_TOK = 5  # term length cap; above this it's a blob, drop it.
+
+# Broca's-style propositional filter: a copula "X is Y" is NOT a
+# relational premise when the subject is a verb (e.g. "researchers
+# hypothesized") or the object is a meta-noun that merely reifies the
+# clause ("result", "reason", "factor", "thing", "case", "way",
+# "situation", "fact"). Such frames are discarded, not treated as
+# facts — this is what stops hypothesis preambles from blobbing.
+_NOISE_OBJ = {
+    "result", "reason", "factor", "thing", "case", "way",
+    "situation", "fact", "example", "point", "issue", "matter",
+    "question", "problem", "claim", "statement",
+}
+_VERB_LIKE = ("hypothes", "claim", "state", "argue", "suggest",
+               "believe", "assume", "consider", "report", "note")
+
+
+def _is_noise_copula(s: str, o: str) -> bool:
+    if not s or not o:
+        return True
+    if o in _NOISE_OBJ:
+        return True
+    if s.lower().startswith(_VERB_LIKE):
+        return True
+    return False
 
 
 def _canon(t: str) -> str:
@@ -346,7 +375,19 @@ def parse_deductive_premises(text: str) -> List[DeductiveTriple]:
 
     Returns [] when nothing clean parses (fail-closed on noise). The
     first (most specific) relation pattern that matches wins per clause.
+
+    Lever-2 wiring: the primary path is the neuro-symbolic
+    DeductivePremiseExtractor (spaCy NP de-blobbing + the relation
+    patterns defined below, reused as the single source of truth).
+    If spaCy is unavailable it degrades to the regex path that
+    follows. THIS function's own patterns remain the fallback so the
+    channel still runs without the model.
     """
+    from ravana.core.deductive_extractor import DeductivePremiseExtractor
+    try:
+        return DeductivePremiseExtractor(use_spacy=True).extract(text)
+    except Exception:
+        pass  # fall through to the regex path below
     out: List[DeductiveTriple] = []
     if not text:
         return out
@@ -378,6 +419,9 @@ def parse_deductive_premises(text: str) -> List[DeductiveTriple]:
             if not m:
                 continue
             rel, s_raw, o_raw, rtype, _ = fn(m)
+            if rel is None:
+                # propositional-noise copula (e.g. "hypothesized is result")
+                continue
             s = _canon(s_raw)
             o = _canon(o_raw)
             if not s or not o or len(s.split()) > _MAX_TOK \
