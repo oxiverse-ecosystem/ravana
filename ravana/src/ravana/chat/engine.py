@@ -911,6 +911,17 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # remains the default path; this never displaces it.
         self.use_triplet_candidate = False
 
+        # Section 6.5 (brain-faithful relational reasoning): additive
+        # System-2 deductive candidate. OFF by default. Consulted only
+        # after EVERY evidence-based handler abstains AND the learned
+        # triplet candidate (6.4) abstains (or its flag is off). Fail-
+        # closed: returns an option iff EXACTLY one option is entailed
+        # by the question's own premises under the RoleMetaruleEngine.
+        # It does NOT consult self.triplet_op / RelationProfile — it
+        # builds a fresh ephemeral ProblemWorkingMemory per turn, so it
+        # has ZERO dependence on lifetime co-occurrence frequencies.
+        self.use_deductive_candidate = False
+
         # feasibility gate (replaces the literal _CATEGORY_OF_SUBJECT /
         # _CATEGORY_AFFORDANCES fallback). ON by default now that the prebuilt
         # ConceptNet ontology (data/conceptnet/ont.pkl) is wired and verified:
@@ -2066,6 +2077,16 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             _tc = self._triplet_mc_answer(user_input, _texts)
             if _tc is not None:
                 return _tc
+        # Section 6.5 additive candidate: brain-faithful relational
+        # reasoning (System-2 ProblemWorkingMemory + RoleMetaruleEngine).
+        # Consulted only after the learned triplet candidate abstained.
+        # Fail-closed: returns None unless exactly one option is
+        # entailed by the question's own premises. Zero dependence on
+        # lifetime RelationProfile counts.
+        if getattr(self, "use_deductive_candidate", False):
+            _dc = self._deductive_mc_answer(user_input, _texts)
+            if _dc is not None:
+                return _dc
         # Forced-choice fluency fallback (attribute substitution under
         # forced choice, Kahneman 2002): ONLY for input that requires
         # selecting an option, after every evidence-based handler
@@ -2154,6 +2175,28 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 # Zero = every gate closed; >1 = ambiguous. Abstain both.
                 return None
             return scored[0][2]
+        except Exception:
+            return None
+
+    def _deductive_mc_answer(self, user_input: str,
+                              fact_texts) -> Optional[str]:
+        """Section 6.5 additive MC candidate: brain-faithful relational
+        reasoning over the question's OWN premises (System-2 decoupling).
+
+        Fail-closed: None unless EXACTLY one option is entailed by the
+        problem's premises under the RoleMetaruleEngine. Never consults
+        self.triplet_op / RelationProfile — the working memory is built
+        fresh per turn from the text, so novel relations chain on first
+        exposure with zero lifetime-frequency dependence.
+
+        Contract mirrors _triplet_mc_answer: the engine wires this after
+        the evidence handlers AND the learned triplet candidate abstain,
+        so it can only ever PRE-EMPT a forced-choice guess, never an
+        evidence answer.
+        """
+        try:
+            from ravana.core.deductive_reasoning import deductive_mc_answer
+            return deductive_mc_answer(user_input)
         except Exception:
             return None
 
