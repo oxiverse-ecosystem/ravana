@@ -1,0 +1,126 @@
+{
+  "before": {
+    "is": {
+      "transitivity_score": 0.796,
+      "transitivity_pos": 814,
+      "transitivity_neg": 208,
+      "transitivity_lower": 0.771,
+      "symmetry_n": 798,
+      "depth_n": 800,
+      "composition_counts": {
+        "is": {
+          "is": 2
+        },
+        "has property": {
+          "has property": 19
+        },
+        "used for": {
+          "used for": 129
+        },
+        "capable of": {
+          "capable of": 53
+        }
+      }
+    },
+    "has property": {
+      "transitivity_score": 0.0,
+      "transitivity_pos": 0,
+      "transitivity_neg": 0,
+      "transitivity_lower": 0.0,
+      "symmetry_n": 39,
+      "depth_n": 39,
+      "composition_counts": {}
+    },
+    "used for": {
+      "transitivity_score": 0.0,
+      "transitivity_pos": 0,
+      "transitivity_neg": 8,
+      "transitivity_lower": 0.0,
+      "symmetry_n": 258,
+      "depth_n": 258,
+      "composition_counts": {}
+    },
+    "capable of": {
+      "transitivity_score": 0.0,
+      "transitivity_pos": 0,
+      "transitivity_neg": 0,
+      "transitivity_lower": 0.0,
+      "symmetry_n": 104,
+      "depth_n": 104,
+      "composition_counts": {}
+    },
+    "located in": {
+      "transitivity_score": 0.0,
+      "transitivity_pos": 0,
+      "transitivity_neg": 0,
+      "transitivity_lower": 0.0,
+      "symmetry_n": 1,
+      "depth_n": 1,
+      "composition_counts": {}
+    }
+  },
+  "after": {
+    "is": {
+      "transitivity_score": 0.796,
+      "transitivity_pos": 814,
+      "transitivity_neg": 208,
+      "transitivity_lower": 0.771,
+      "symmetry_n": 821,
+      "depth_n": 823,
+      "composition_counts": {
+        "is": {
+          "is": 2
+        },
+        "has property": {
+          "has property": 19
+        },
+        "used for": {
+          "used for": 129
+        },
+        "capable of": {
+          "capable of": 53
+        }
+      }
+    },
+    "has property": {
+      "transitivity_score": 0.0,
+      "transitivity_pos": 0,
+      "transitivity_neg": 0,
+      "transitivity_lower": 0.0,
+      "symmetry_n": 44,
+      "depth_n": 44,
+      "composition_counts": {}
+    },
+    "used for": {
+      "transitivity_score": 0.0,
+      "transitivity_pos": 0,
+      "transitivity_neg": 8,
+      "transitivity_lower": 0.0,
+      "symmetry_n": 258,
+      "depth_n": 258,
+      "composition_counts": {}
+    },
+    "capable of": {
+      "transitivity_score": 0.0,
+      "transitivity_pos": 0,
+      "transitivity_neg": 0,
+      "transitivity_lower": 0.0,
+      "symmetry_n": 104,
+      "depth_n": 104,
+      "composition_counts": {}
+    },
+    "located in": {
+      "transitivity_score": 0.0,
+      "transitivity_pos": 0,
+      "transitivity_neg": 0,
+      "transitivity_lower": 0.0,
+      "symmetry_n": 14,
+      "depth_n": 14,
+      "composition_counts": {}
+    }
+  },
+  "web_calls": {
+    "web_concepts": 10,
+    "errors": 0
+  }
+}
