@@ -1,0 +1,32 @@
+{
+  "harness": "system2_entailment_axis",
+  "note": "LogiQA is the wrong yardstick; this measures the built fail-closed candidates on entailment-shaped input with a 100% graded key.",
+  "results": [
+    {
+      "candidate": "6.5_ProblemWorkingMemory",
+      "n": 8,
+      "fires": 5,
+      "correct": 5,
+      "false_positives": 0,
+      "abstain": 3,
+      "accuracy_of_fires": 100.0,
+      "fail_closed": true
+    },
+    {
+      "candidate": "graph_reasoner.select_option_logic",
+      "n": 5,
+      "fires": 1,
+      "correct": 1,
+      "false_positives": 0,
+      "abstain": 4,
+      "accuracy_of_fires": 100.0,
+      "fail_closed": true
+    },
+    {
+      "candidate": "deductive_extractor.deblob",
+      "n": 13,
+      "cases_with_triples": 12,
+      "yield_pct": 92.3
+    }
+  ]
+}

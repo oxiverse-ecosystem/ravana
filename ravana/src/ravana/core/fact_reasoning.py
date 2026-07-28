@@ -77,9 +77,28 @@ def _split_options(question: str) -> Tuple[str, List[str]]:
         return question, []
     main = question[: m.start()]
     tail = question[m.end():]
-    parts = re.split(r"(?:^|\s|\n)[A-E][.)]\s*", tail)
-    opts = [p.strip().rstrip(".;,") for p in parts if p and p.strip()]
-    if len(opts) < 2:  # try newline/semicolon separated
+    # Split on SEQUENTIALLY-NUMBERED option markers (A., B., C., D., E.),
+    # recording each marker's (start, end). Option text = the slice from
+    # the end of one marker to the start of the next. This avoids the
+    # old bug where any "[A-E]." substring (e.g. "north of C.") was
+    # treated as a delimiter and truncated the option.
+    markers = []  # list of (start, end) of each "X." marker
+    pos = 0
+    for letter in "ABCDE":
+        mm = re.search(r"(?:^|\s)" + letter + r"[.)]\s*", tail[pos:])
+        if not mm:
+            break
+        markers.append((pos + mm.start(), pos + mm.end()))
+        pos = pos + mm.end()
+    if len(markers) >= 2:
+        opts = []
+        for i in range(len(markers)):
+            end_i = markers[i][1]
+            start_next = markers[i + 1][0] if i + 1 < len(markers) else len(tail)
+            text = tail[end_i:start_next]
+            if text.strip():
+                opts.append(text.strip().rstrip(".;,"))
+    else:  # fallback: try newline/semicolon separated
         opts = [p.strip().rstrip(".;,") for p in re.split(r"[;\n]", tail)
                 if p and p.strip()]
     return main, opts
