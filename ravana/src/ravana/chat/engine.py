@@ -610,7 +610,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         ],
     }
 
-    def __init__(self, dim: int = 64, seed: int = 42, baby_mode: bool = True, data_dir: Optional[str] = None, user_suffix: str = "", hrr_whiten: bool = True, hrr_sparse_k: int = 256, hrr_unitary_roles: bool = True, hrr_dim: int = 4096):
+    def __init__(self, dim: int = 64, seed: int = 42, baby_mode: bool = True, data_dir: Optional[str] = None, user_suffix: str = "", hrr_whiten: bool = True, hrr_sparse_k: int = 256, hrr_unitary_roles: bool = True, hrr_dim: int = 4096, use_deductive_candidate: bool = False):
         self.dim = dim
         self.rng = np.random.RandomState(seed)
 
@@ -920,7 +920,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # It does NOT consult self.triplet_op / RelationProfile — it
         # builds a fresh ephemeral ProblemWorkingMemory per turn, so it
         # has ZERO dependence on lifetime co-occurrence frequencies.
-        self.use_deductive_candidate = False
+        self.use_deductive_candidate = use_deductive_candidate
 
         # feasibility gate (replaces the literal _CATEGORY_OF_SUBJECT /
         # _CATEGORY_AFFORDANCES fallback). ON by default now that the prebuilt
@@ -5110,6 +5110,14 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                                 # drop the unrecoverable node by detaching it
                                 loaded_graph.nodes.pop(_n.id, None)
                     self.graph = loaded_graph
+                    # Re-attach the HRR populate hook + dual_code anchor to the
+                    # freshly-loaded graph (the init wiring targeted the OLD
+                    # graph object, now orphaned by this swap). Without
+                    # this, add_edge stops encoding into HRR and the store
+                    # stays empty despite hrr_reasoner being live.
+                    if self.hrr_reasoner is not None:
+                        self.graph._fact_encode_hook = self._hrr_encode_hook
+                        self.graph.dual_code = self.dual_code
             else:
                 # Corrupt graph (e.g. a str from an old sanitizer path) —
                 # rebuild fresh rather than aborting the WHOLE load (M5:
