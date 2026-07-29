@@ -217,7 +217,9 @@ is imported by `scripts/ravana_chat.py` and driven per turn.
 
 ## State & persistence
 
-Runtime artifacts (`data/`, `checkpoints/`, `output/`) are gitignored. The
-engine serializes weights to `data/ravana_weights.pkl` and a SQLite store
-(`data/ravana_weights.db`). A fresh clone needs the corpus present (or run
+Runtime artifacts (`checkpoints/`, `output/`) are gitignored. Curated datasets
+stay in `data/`; engine weights/cache artifacts are separated so dataset storage
+isn’t polluted by generated weight dumps: weights go in `weights/`, the GloVe
+projection cache stays alongside datasets in `data/`, and per-user profiles live
+under `user_models/`. A fresh clone needs the corpus present (or run
 `python scripts/gather_teen_seeds.py` to rebuild it).

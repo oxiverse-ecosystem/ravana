@@ -256,7 +256,7 @@ is a workaround for a known numpy race condition.
   └── GloVe cache hit — vectors were projected and saved on first run
 
   [Loaded] Remembered 635 words from before!
-  └── Previous save file found — engine restored from data/ravana_weights.pkl
+  └── Previous save file found — engine restored from weights/ravana_weights.pkl
 
 Q: what is trust
 A: a legal that creates a lien on some specific item of inventory
@@ -272,7 +272,7 @@ Q: what is memory
 A: Memory is a powerful yet seemingly imperfect brain...
   [nodes=635, edges=15219, sleep=43]
 
-[OK] State saved to data/ravana_weights.pkl
+[OK] State saved to weights/ravana_weights.pkl
   └── Ready for Tutorial 02
 ```
 

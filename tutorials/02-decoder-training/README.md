@@ -258,7 +258,7 @@ all training examples seen so far (including pre-load state).
 ## Expected output (annotated)
 
 ```
-Loading engine from data/ravana_weights.pkl ...
+Loading engine from weights/ravana_weights.pkl ...
   [GloVe] Loaded 400000 projected vectors from cache (100D -> 64D)
   └── GloVe is shared with the graph — no separate decoder embedding
 

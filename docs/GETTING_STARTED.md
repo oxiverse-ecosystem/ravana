@@ -43,14 +43,14 @@ python scripts/train.py --mode test
 ```
 
 This creates a `CognitiveChatEngine`, trains on 50 seed sentences, generates
-a few responses, and saves weights to `data/ravana_weights.pkl`.
+a few responses, and saves weights to `weights/ravana_weights.pkl`.
 
 Expected output (approximate):
 ```
   [PMI] Seeded 195 concepts, 137 connections (112 PMI-wired, 25 GloVe-wired)
   [Vocabulary] 96 words
   [train seed corpus] CE=4.21 top1=0.21 top5=0.43 — early stopped at 50 sentences
-  [save] Saved to data/ravana_weights.pkl
+  [save] Saved to weights/ravana_weights.pkl
 ```
 
 ---

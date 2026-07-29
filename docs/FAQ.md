@@ -54,7 +54,7 @@ This is expected. The first boot:
 3. Trains the attribute encoder
 4. Seeds the concept graph from PMI statistics
 
-Subsequent runs load from `data/ravana_weights.pkl` and are much faster.
+Subsequent runs load from `weights/ravana_weights.pkl` and are much faster.
 
 ### "The chatbot says 'I don't know' to everything"
 
