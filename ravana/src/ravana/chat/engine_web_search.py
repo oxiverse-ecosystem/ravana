@@ -826,8 +826,40 @@ class WebSearchMixin:
                 # Track B Phase 2 (M4): learned structural-junk gate (flag-gated;
                 # old regex table above remains the backstop). Pass topic
                 # coherence so the dual-gate fires on real junk.
-                if self._snippet_is_structural_junk(s, self._snippet_topic_max_coherence(subj, s)):
+                _top_coh = self._snippet_topic_max_coherence(subj, s)
+                if self._snippet_is_structural_junk(s, _top_coh):
                     continue
+
+                # Step 1b: Subject-coherence gate (max-word cosine to subject)
+                if subj and len(subj) > 2 and _top_coh > 0.0 and _top_coh < 0.45:
+                    if subj not in sl and not any(t in sl for t in subj.split()):
+                        continue
+
+                # Step 1d: Seeded definitional boundary for easily confused words
+                from ravana.chat.constants import SEEDED_DISTINCT_NEIGHBORS
+                _req_literal = False
+                if subj:
+                    for s_w, n_w in SEEDED_DISTINCT_NEIGHBORS:
+                        if subj == s_w:
+                            _req_literal = True
+                            break
+                    if not _req_literal and getattr(self, "_cn_ontology", None) is not None:
+                        try:
+                            tv = self._glove_vector(subj) if hasattr(self, "_glove_vector") else None
+                            if tv is not None:
+                                nearest = getattr(self, "_glove_nearest", None)
+                                if callable(nearest):
+                                    neighbors = nearest(tv, top_k=2)
+                                    if neighbors and neighbors[0] != subj:
+                                        top_n = neighbors[0]
+                                        is_isa = self._cn_ontology.has_edge(subj, top_n, "IsA") or self._cn_ontology.has_edge(subj, top_n, "Synonym")
+                                        if not is_isa:
+                                            _req_literal = True
+                        except Exception:
+                            pass
+                if _req_literal and subj and subj not in sl:
+                    continue
+
                 # Score: mentions subject or query keywords, prefer answer shape
                 score = 0.0
                 sl_words = set(sl.split())

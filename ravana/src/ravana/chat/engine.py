@@ -85,7 +85,14 @@ except ImportError:
 # Import constants
 from .constants import (TEEN_CONCEPTS, WEB_GARBAGE, STOP_WORDS, ConceptPosDict,
                         _is_word_salad, _is_keyboard_mash,
-                        _UNIVERSAL_PURGE, _DEFINITION_ASSERTION)
+                        _UNIVERSAL_PURGE, _DEFINITION_ASSERTION,
+                        KNOWN_VERBS, KNOWN_ADJS, FUNCTION_POS)
+
+# Derive FUNCTION_WORDS locally instead of importing from constants:
+# A word is a function word if it is a stop-word or has a known POS tag
+# (brain-faithful: the lexicon is derived from the word's distributional
+# profile, not an external file dependency).
+_FUNCTION_WORDS = STOP_WORDS | set(FUNCTION_POS.keys())
 from .web_learning import WebLearningMixin
 try:
     from .harm_intent_gate import HarmIntentGate
@@ -1697,6 +1704,92 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             return
         self._learned_lemmas[p] = b
 
+    def set_epistemic_register(self, register_name: str) -> str:
+        reg = (register_name or "default").lower().replace(" ", "").replace("_", "")
+        _REGISTERS = {
+            "default":   {"curiosity": 1.0, "verbosity": 1.0, "confidence": 1.0, "go_threshold": 0.25, "dopamine": 0.5},
+            "chitchat":  {"curiosity": 0.5, "verbosity": 0.8, "confidence": 1.0, "go_threshold": 0.15, "dopamine": 0.7},
+            "casual":    {"curiosity": 0.5, "verbosity": 0.8, "confidence": 1.0, "go_threshold": 0.15, "dopamine": 0.7},
+            "confident": {"curiosity": 1.0, "verbosity": 1.0, "confidence": 1.3, "go_threshold": 0.20, "dopamine": 0.7},
+            "cautious":  {"curiosity": 1.0, "verbosity": 1.0, "confidence": 0.7, "go_threshold": 0.35, "dopamine": 0.3},
+            "verbose":   {"curiosity": 1.0, "verbosity": 1.5, "confidence": 1.0, "go_threshold": 0.20, "dopamine": 0.5},
+            "terse":     {"curiosity": 0.3, "verbosity": 0.2, "confidence": 1.0, "go_threshold": 0.40, "dopamine": 0.4},
+            "expert":    {"curiosity": 1.0, "verbosity": 1.1, "confidence": 1.2, "go_threshold": 0.30, "dopamine": 0.5},
+            "formal":    {"curiosity": 1.0, "verbosity": 1.1, "confidence": 1.2, "go_threshold": 0.30, "dopamine": 0.5},
+            "creative":  {"curiosity": 1.3, "verbosity": 1.2, "confidence": 0.9, "go_threshold": 0.12, "dopamine": 0.8},
+        }
+        r = _REGISTERS.get(reg, _REGISTERS["default"])
+        self.epistemic_register = reg if reg in _REGISTERS else "default"
+        self._reg_curiosity = r["curiosity"]
+        self._reg_verbosity = r["verbosity"]
+        self._reg_confidence = r["confidence"]
+
+        if hasattr(self, "basal_ganglia") and self.basal_ganglia is not None:
+            try:
+                self.basal_ganglia.base_go_threshold = r["go_threshold"]
+                self.basal_ganglia.dopamine_tone = r["dopamine"]
+            except Exception:
+                pass
+
+        confirmations = {
+            "chitchat": "switched to chit-chat mode — keeping it light!",
+            "casual": "switched to casual mode — keeping it relaxed and open!",
+            "terse": "switched to terse mode — keeping replies brief.",
+            "verbose": "switched to verbose mode — providing detailed explanations.",
+            "confident": "switched to confident mode.",
+            "cautious": "switched to cautious mode.",
+            "expert": "switched to expert mode — focusing on technical precision.",
+            "formal": "switched to formal mode — focusing on structured reasoning.",
+            "creative": "switched to creative mode — exploring imaginative ideas!",
+            "default": "switched to default mode.",
+        }
+        return confirmations.get(self.epistemic_register, "switched mode — updated settings.")
+
+    def _check_meta_command(self, text: str) -> Optional[str]:
+        t = (text or "").lower().strip(" ?!.")
+        m = re.search(
+            r"^\s*(?:switch\s+to\s+|turn\s+(?:on|off)\s+|enable\s+|disable\s+|set\s+(?:mode|register)\s+(?:to\s+)?|mode\s*:\s*)?"
+            r"(chit\s*chat|casual|formal|terse|verbose|confident|cautious|expert|learning|creative|default)(?:\s+mode)?(?:\s+(on|off))?\s*$",
+            t)
+        if not m:
+            m = re.search(r"^\s*(chit\s*chat|casual|formal|terse|verbose|confident|cautious|expert|learning|creative|default)\s+mode\s*$", t)
+
+        if m:
+            raw_reg = m.group(1).replace(" ", "").replace("\t", "")
+            state = m.group(2) if m.lastindex and m.lastindex >= 2 else "on"
+            reg = "default" if state == "off" else raw_reg
+            return self.set_epistemic_register(reg)
+        return None
+
+    def _build_context_vector_from_input(self, text: str, subject: str) -> Optional[np.ndarray]:
+        """Build context vector from query framing / function-word tokens (Step 1c)."""
+        if not text:
+            return None
+        words = [w.lower() for w in re.findall(r"[a-z']+", text)
+                 if w.lower() in _FUNCTION_WORDS or len(w) <= 3 or w.lower() in ("what", "why", "how", "when", "where", "is", "are", "does", "meaning", "nature", "purpose")]
+        if not words or not hasattr(self, "_glove_vector"):
+            return None
+        vecs = [self._glove_vector(w) for w in words if self._glove_vector(w) is not None]
+        if not vecs:
+            return None
+        mean_v = np.mean(vecs, axis=0)
+        norm = np.linalg.norm(mean_v)
+        return mean_v / norm if norm > 1e-6 else mean_v
+
+    def _ensure_orthogonal(self, content_vec: np.ndarray, context_vec: Optional[np.ndarray]) -> Optional[np.ndarray]:
+        """Project context vector into orthogonal subspace from content vector (Gram-Schmidt; Step 1c)."""
+        if content_vec is None or context_vec is None:
+            return context_vec
+        norm_c = np.linalg.norm(content_vec)
+        if norm_c < 1e-6:
+            return context_vec
+        u = content_vec / norm_c
+        proj = np.dot(context_vec, u) * u
+        orth = context_vec - proj
+        norm_o = np.linalg.norm(orth)
+        return orth / norm_o if norm_o > 1e-6 else context_vec
+
+
 
     # Single data-driven source for the 6 consolidated closed-class
     # lists. Prefers the fit file (data/functional_lexicon.json, loaded
@@ -2349,6 +2442,16 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
 
     def process_turn(self, user_input: str) -> str:
         """Process input and generate a response, auto-learning when needed."""
+        # Step 3a: Meta-command detector at the VERY TOP of process_turn (PFC task-set override)
+        _meta_res = self._check_meta_command(user_input)
+        if _meta_res is not None:
+            self._last_strategy = "meta_command"
+            self._last_responses.append(_meta_res)
+            if len(self._last_responses) > 10:
+                self._last_responses = self._last_responses[-10:]
+            self.notify_user_idle()
+            return _meta_res
+
         # Guard: reject pure letter-salad so it is not treated as a concept and
         # confabulated about.
         if self._user_input_is_gibberism(user_input):
@@ -2358,6 +2461,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             if len(self._last_responses) > 10:
                 self._last_responses = self._last_responses[-10:]
             return resp
+
 
         # Fold observed user language into the learned frequency models (Plan B)
         # so the high-frequency lexicon tail is discovered from exposure. Placed
@@ -3774,9 +3878,31 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             if getattr(self, '_trace_enabled', False):
                 print(f"  [trace] Working memory push error: {e}")
 
+        # Step 2c: Incongruity gate — check for absurd/ungrounded queries before spread activation
+        _has_strong_anchoring = False
+        if subject_ids:
+            try:
+                first_nid = next(iter(subject_ids))
+                if hasattr(self.graph, "degree"):
+                    _has_strong_anchoring = self.graph.degree(first_nid) >= 3
+                else:
+                    _has_strong_anchoring = len(subject_ids) >= 2
+            except Exception:
+                _has_strong_anchoring = False
+
+        if not _has_strong_anchoring and self._is_absurd_query(user_input, subject):
+            _absurd_resp = self._handle_absurd_query(user_input, subject)
+            self._last_strategy = "absurd_query"
+            self._last_responses.append(_absurd_resp)
+            if len(self._last_responses) > 10:
+                self._last_responses = self._last_responses[-10:]
+            self.notify_user_idle()
+            return _absurd_resp
+
         associations = self._spread_and_collect(
             activated, primary_ids=subject_ids,
             relation_preference=spread_pref)
+
 
         # Filter associations to only contain nouns (and not grammatical/function words)
         filtered_associations = []

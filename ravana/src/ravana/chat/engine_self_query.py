@@ -479,7 +479,7 @@ class SelfQueryMixin:
             r"\b(joke|funny|laugh|tell me about yourself|who are you|"
             r"your (name|favorite)|do you (have|feel)|what can you)\b", t):
             return None
-        # First-person identity / preference RECALL queries ("what is my name",
+
         # "what's my favorite color", "what do i like", "who am i") are about
         # the USER's stored autobiographical facts, not encyclopedic knowledge
         # of the subject word. They must reach the identity/recall block below,
@@ -566,7 +566,7 @@ class SelfQueryMixin:
         ans = consult_internal(subj, self)
         if ans is None:
             return None
-        # Attribute-focused recall: "what is the capital of France" must return
+
         # the capital clause (Paris), not France's whole stored definition.
         _focused = self._focus_attribute_answer(user_input, subj, ans.text)
         # Defect A (coherence gate): the consulted internal fact may be a bare
@@ -588,7 +588,22 @@ class SelfQueryMixin:
             except Exception:
                 pass
         # Assemble a coherent, non-salad reply in the same voice as the web path.
-        return f"{_focused}"
+        ans_text = f"{_focused}"
+        print(f"  [internal_knowledge] subj={subj!r} text={ans_text[:120]!r}")
+        # Topical coherence gate (replaces the dominant-word-count heuristic):
+        # The stored answer must have at least one content word that is
+        # semantically coherent with the grounded subject. Uses the existing
+        # _snippet_topic_max_coherence method — a continuous, topic-agnostic
+        # check using GloVe cosine (no per-concept thresholds or word-frequency
+        # counts).
+        if subj and ans_text and hasattr(self, "_snippet_topic_max_coherence"):
+            _coherence = self._snippet_topic_max_coherence(subj, ans_text)
+            if _coherence < 0.25:
+                if getattr(self, "_trace_enabled", False):
+                    print(f"  [coherence] internal_knowledge off-topic "
+                          f"(coherence={_coherence:.2f}): {ans_text[:60]!r}")
+                return None
+        return ans_text
 
     def _try_semantic_advice(self, user_input: str) -> Optional[str]:
         """Answer help/advice-seeking questions from the ATL semantic graph.

@@ -253,3 +253,62 @@ def test_web_query_variants_no_bias_for_bare_subject():
     variants = eng._web_query_variants(
         "what is trust", "trust", is_conditional=False)
     assert not any("psychology" in v for v in variants), variants
+
+
+# ── Brain-Inspired Fixes Phase 2 Tests (Steps 1a-d, 2a-d, 3a-d) ─────────────
+
+def test_abstract_meaning_query_detects_love_and_life():
+    eng = _bare_engine()
+    assert eng._is_abstract_meaning_query("what is love") is True
+    assert eng._is_abstract_meaning_query("what is the meaning of life") is True
+    assert eng._is_abstract_meaning_query("what is gravity") is False
+
+
+def test_absurd_query_detector():
+    eng = _bare_engine()
+    eng._concept_keywords = {}
+    assert eng._is_absurd_query("moon cheese", "moon cheese") is True
+    assert eng._is_absurd_query("square circle", "square circle") is True
+    assert eng._is_absurd_query("what is a cat", "cat") is False
+
+
+def test_absurd_query_handler_reply():
+    eng = _bare_engine()
+    resp = eng._handle_absurd_query("moon cheese", "moon cheese")
+    assert "moon cheese" in resp.lower()
+    assert "fun image" in resp.lower() or "thought experiment" in resp.lower()
+
+
+def test_meta_command_register_switch():
+    from ravana.language.basal_ganglia import BasalGangliaGate
+    eng = _bare_engine()
+    eng.basal_ganglia = BasalGangliaGate()
+    
+    resp = eng._check_meta_command("chit chat mode on")
+    assert resp is not None
+    assert "chit-chat" in resp.lower()
+    assert eng.epistemic_register in ("chitchat", "casual")
+    assert eng.basal_ganglia.base_go_threshold == 0.15
+
+    resp2 = eng._check_meta_command("terse mode")
+    assert resp2 is not None
+    assert "terse" in resp2.lower()
+    assert eng.epistemic_register == "terse"
+    assert eng.basal_ganglia.base_go_threshold == 0.40
+
+    resp3 = eng._check_meta_command("switch to default mode")
+    assert resp3 is not None
+    assert "default" in resp3.lower()
+    assert eng.epistemic_register == "default"
+    assert eng.basal_ganglia.base_go_threshold == 0.25
+
+
+def test_orthogonal_context_subspace():
+    eng = _bare_engine()
+    v_content = np.array([1.0, 0.0, 0.0, 0.0])
+    v_context = np.array([1.0, 1.0, 0.0, 0.0])
+    orth = eng._ensure_orthogonal(v_content, v_context)
+    assert orth is not None
+    # Dot product with content vector must be 0 (orthogonal)
+    assert abs(np.dot(v_content, orth)) < 1e-6
+

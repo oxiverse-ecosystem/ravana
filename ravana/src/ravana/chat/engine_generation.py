@@ -1649,6 +1649,53 @@ class GenerationMixin:
             mean_vec /= norm
         return mean_vec
 
+    def _topic_set_gate(self, candidates: List[Tuple[str, float]],
+                         subject: str,
+                         min_coherence: float = 0.20) -> List[Tuple[str, float]]:
+        """PFC topic-set maintenance gate: admit only associations whose GloVe
+        cosine to the grounded subject is above a coherence threshold.
+
+        Brain basis: the PFC maintains an active topic representation and
+        inhibits associations that are not coherent with it (Miller & Cohen
+        2001; 'global workspace' gating in Dehaene 2011). This is the same
+        mechanism whether the downstream path is reflective, creative, or
+        definitional — a single reusable gate.
+
+        Fail-closed: if the subject has no embedding, use the syntactic head
+        noun; if that also fails, return the subject itself as the sole anchor.
+        """
+        if not candidates or not subject:
+            return candidates
+        _vec = self._glove_vector(subject) if hasattr(self, "_glove_vector") else None
+        if _vec is None:
+            _head = self._subject_head(subject, subject) if hasattr(self, "_subject_head") else ""
+            if _head:
+                _vec = self._glove_vector(_head) if hasattr(self, "_glove_vector") else None
+        if _vec is None:
+            # No embedding for subject — return candidates unfiltered;
+            # the downstream coherence gate will catch bad output.
+            return candidates
+        _norm = float(np.linalg.norm(_vec))
+        if _norm <= 0:
+            return candidates
+        _subj_tokens = set(re.findall(r"[a-z']+", subject.lower()))
+        filtered = []
+        for label, score in candidates:
+            ll = label.lower()
+            if ll in _subj_tokens:
+                continue
+            lv = self._glove_vector(ll) if hasattr(self, "_glove_vector") else None
+            if lv is None:
+                continue
+            _cos = float(np.dot(_vec, lv) / (_norm * float(np.linalg.norm(lv)) + 1e-9))
+            if _cos >= min_coherence:
+                filtered.append((label, score))
+        if not filtered:
+            # Self-anchor: return the subject as the sole association so the
+            # generator stays on-topic rather than emitting nothing.
+            return [(subject, 1.0)]
+        return filtered
+
     def _ground_query(self, text: str) -> Tuple[str, float, str]:
         """Multi-strategy query grounding. Returns (subject, confidence, method).
 
@@ -1658,16 +1705,20 @@ class GenerationMixin:
         c) Phrase embedding similarity — mean word vec → nearest concept (cosine > 0.75)
         d) Best single word fallback — last meaningful non-stop word
         """
+        print(f"  [ground_query] input={text!r}")
         # Normalize ELI5 / simplification tails BEFORE grounding so they don't
+
         # pollute the subject. "explain quantum entanglement like i am five"
         # must ground to "quantum entanglement", not "... like i am five".
         _text = self._strip_eli5_tail(text).lower()
         # Strategy A: Use PrefrontalWorkspace question type detection to parse semantic payload
         qtype = "general"
         query_phrase = ""
+        groups = []
         try:
             if hasattr(self, 'pfc_workspace'):
                 qtype, groups = self.pfc_workspace.detect_question_type(_text, self._concept_pos)
+                print(f"  [ground_query] pfc qtype={qtype!r} groups={groups!r}")
                 if groups:
                     # Compare queries carry BOTH concepts in groups[0]/groups[1].
                     # The generic 'what_is' pattern can swallow a "difference between
@@ -1679,7 +1730,8 @@ class GenerationMixin:
                         query_phrase = groups[0].strip()
                     else:
                         query_phrase = groups[0].strip()
-        except Exception:
+        except Exception as e:
+            print(f"  [ground_query] pfc failed: {e!r}")
             pass
 
         if not query_phrase:
@@ -1701,7 +1753,8 @@ class GenerationMixin:
         if phrase_clean in self._concept_keywords:
             return (phrase_clean, 0.90, "exact_keyword")
 
-        # Strategy C (moved before B): Compositional — score words by known/unknown ratio
+        # Strategy C (moved before B)
+
         # Split on clause connectors ("but"/"and"/"or"/...) FIRST so two fused
         # topics ("why is the sky blue but sunsets red") become SEPARATE
         # questions rather than one garbled subject (RST: "but"=contrast
@@ -1737,6 +1790,7 @@ class GenerationMixin:
                  and w.strip(".,!?") not in self.QUESTION_WORDS
                  and w.strip(".,!?") not in self.TOPIC_SKIP_WORDS
                  and w.strip(".,!?") not in STOP_WORDS]
+        print(f"  [ground_query] query_phrase={query_phrase!r} words={words!r}")
         if words:
             if len(words) >= 2:
                 # For scenario/hypothetical/causal queries (e.g. hypothetical, why, how),
@@ -1750,14 +1804,10 @@ class GenerationMixin:
                     last_word = words[-1]
                     if last_word in self._concept_labels or last_word in self._concept_keywords:
                         if not self._is_generic_noun(last_word):
-                            # Only collapse to the last entity when the leading
-                            # words are genuine scenario framing (would/could/
-                            # if/when), not a noun phrase like "the speed of
-                            # light" which the PFC can mislabel hypothetical.
                             _leading = " ".join(words[:-1])
                             if re.search(r"\b(would|could|will|might|if|when|suddenly|disappear|gone|removed|vanished)\b", _leading):
                                 return (last_word, 0.7, "scenario_last_entity")
-                # Use the first 2-3 content words as the search subject (e.g. "time machine")
+
                 clean_subj = " ".join(words[:3]) if len(words) >= 3 else " ".join(words)
                 clean_subj = self._clean_subject_phrase(clean_subj)
                 # Malformed-grounding guard (fixes "is it ever okay to break a
@@ -1783,30 +1833,19 @@ class GenerationMixin:
             unknown_words = [w for w in words if w not in known_words]
             if known_words:
                 if unknown_words:
-                    # If there's any unknown word in the multi-word query, keep the clean subject phrase
-                    # and return a low confidence to trigger web learning for the whole phrase
                     clean_subj = " ".join(words[:3]) if len(words) >= 3 else " ".join(words)
                     clean_subj = self._clean_subject_phrase(clean_subj)
                     return (clean_subj, 0.35, "partial_unknown")
                 ratio = len(known_words) / len(words)
-                # Prefer the FIRST known word over the last: in English the head
-                # noun typically trails last, but compositional grounding here
-                # keeps returning trailing generic nouns ("system", "process",
-                # "matter") that collapse the subject. Pick the earliest known
-                # word that isn't a generic/vague concept; fall back to the
-                # whole cleaned phrase if only generic nouns are known.
                 _generic = self._GENERIC_NOUNS
                 specific = [w for w in known_words if w not in _generic]
                 topic = specific[0] if specific else known_words[0]
-                # If the chosen topic is a generic noun but other words exist,
-                # keep the multi-word phrase so web grounding stays on-topic.
                 if topic in _generic and len(words) > 1:
                     clean_subj = " ".join(words[:3]) if len(words) >= 3 else " ".join(words)
                     clean_subj = self._clean_subject_phrase(clean_subj)
                     if clean_subj:
                         return (clean_subj, 0.4, "compositional_generic_topic")
                 return (topic, min(0.85, 0.5 + ratio * 0.4), f"compositional_{ratio:.2f}")
-            # All unknown — will trigger web learning for the full phrase
             if words:
                 clean_subj = " ".join(words[:3]) if len(words) >= 3 else " ".join(words)
                 clean_subj = self._clean_subject_phrase(clean_subj)
@@ -1842,6 +1881,7 @@ class GenerationMixin:
                 topic = close_matches[-1]
                 return (topic, 0.5, f"close_match_{topic}")
 
+        print(f"  [ground_query] no_match fallback")
         return ("", 0.0, "no_match")
 
     def _theme_role(self, clause: str) -> str:

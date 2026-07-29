@@ -11,7 +11,12 @@ Usage:
     python scripts/ravana_chat.py
 """
 
-import sys, os, time, random, json, re, argparse, pickle, threading, hashlib, io
+# Development-only: never write .pyc files — source changes take effect
+# immediately without stale-cache masking.
+import os
+os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
+
+import sys, time, random, json, re, argparse, pickle, threading, hashlib, io
 import urllib.request
 import socket
 socket.setdefaulttimeout(4.0)

@@ -2144,7 +2144,12 @@ class ResponseGenMixin(ChainWalkerMixin):
 
         g = getattr(self, "graph", None)
         if g is None or not hasattr(self, "_glove_vector"):
-            return None
+            # Humor keyword present but machinery unavailable: graceful abstention.
+            # Prevents fallthrough to _creative_shape / _handle_action_request.
+            return random.choice([
+                "i'm still learning how to be funny — ask me again later?",
+                "my joke circuits are still warming up. tell me one and i'll try to match it!",
+            ])
 
         # 1) SETUP: anchor X -- present, well-connected (high out-degree).
         #    Bias toward RECOGNIZABLE concepts (the seeded teen vocabulary) so
@@ -2189,7 +2194,10 @@ class ResponseGenMixin(ChainWalkerMixin):
             # cache: the teen subgraph is stable across the session
             self._humor_teen_pool = _humor_pool
         if not _humor_pool:
-            return None
+            return random.choice([
+                "i don't have a good joke right now — ask me again once i've learned more!",
+                "still working on my sense of humor. got any favorites you want to share?",
+            ])
         # Optional: if the user NAMED a topic ("a joke about cats"), prefer it
         # as X -- but ONLY when it is itself a recognizable concept (present in
         # the live graph with a vector). This seeds Z from the explicit request,
@@ -2206,7 +2214,22 @@ class ResponseGenMixin(ChainWalkerMixin):
         else:
             # rank by stable in-subgraph degree; recognizable anchors first
             _humor_pool.sort(key=lambda x: x[1], reverse=True)
-            X = random.choice([lbl for (lbl, _d) in _humor_pool[: max(3, len(_humor_pool) // 3)]])
+            # prefer concrete/settled concepts over abstract/affective/relational
+            # labels, so the setup lands as a real thing rather than a feeling
+            # or process. This is a small hardcoded bias over the stable pool.
+            _abstractish = {
+                "love", "happiness", "joy", "freedom", "truth", "death",
+                "faith", "hope", "peace", "beauty", "justice", "courage",
+                "dream", "memory", "pain", "fear", "anger", "stress",
+                "change", "time", "mind", "meaning", "value", "purpose",
+                "nature", "thought", "idea", "feeling", "emotion",
+                "relation", "relationship", "similarity", "difference",
+            }
+            _concrete = [lbl for (lbl, _d) in _humor_pool[: max(3, len(_humor_pool) // 3)] if lbl not in _abstractish]
+            if not _concrete:
+                _concrete = [lbl for (lbl, _d) in _humor_pool[: max(3, len(_humor_pool) // 3)]]
+            X = random.choice(_concrete)
+
         X_vec = self._glove_vector(X)
         if X_vec is None:
             return None
@@ -2649,6 +2672,13 @@ class ResponseGenMixin(ChainWalkerMixin):
                 pass
         assoc = [a for a in assoc if a and a.lower() != topic_l
                  and _junk_score(a) < _jtheta][:6]
+        # PFC topic-set gate: filter associations by GloVe coherence with the
+        # topic; creative generation uses a looser threshold (0.15) to allow
+        # divergent DMN-style associations.
+        if hasattr(self, "_topic_set_gate") and assoc:
+            _scored_assoc = [(a, 1.0) for a in assoc]
+            _gated = self._topic_set_gate(_scored_assoc, topic, min_coherence=0.15)
+            assoc = [a for a, _ in _gated if a.lower() != topic_l][:6]
         if not assoc:
             return None
         # Evocative connectors (abstract, never a factual claim about the world).
@@ -5300,6 +5330,16 @@ class ResponseGenMixin(ChainWalkerMixin):
                 and getattr(self, '_definition_quality', lambda t: 1.0)(defn) > 0.0):
             return None
 
+        # Step 1a: Top-down topic-prediction gate before returning definition
+        if not _is_curated and hasattr(self, "_snippet_topic_max_coherence"):
+            try:
+                _coh = self._snippet_topic_max_coherence(sl, defn)
+                if _coh > 0.0 and _coh < 0.45:
+                    return None
+            except Exception:
+                pass
+
+
         # If the stored definition ALREADY opens with the subject (e.g. "A cat
         # is...", "Music is..."), prepending "{subj_disp} is" would duplicate
         # it ("Cat is A cat is...") and trip the echo/tautology monitor into
@@ -5394,20 +5434,25 @@ class ResponseGenMixin(ChainWalkerMixin):
                 return False
             return getattr(self, '_concept_pos', {}).get(ll, 'noun') == 'noun'
 
+        # Apply PFC topic-set gate first (replaces raw cosine threshold + fallback).
+        _gated = self._topic_set_gate(
+            ctx.associated_concepts or [], subject, min_coherence=0.20)
         related = []
-        for label, _score in (ctx.associated_concepts or []):
+        for label, _score in _gated:
             ll = label.lower()
             if not _is_ok_assoc(ll):
                 continue
             v = self._glove_vector(label) if subj_vec is not None else None
             if subj_vec is not None and v is not None:
                 sim = float(np.dot(subj_vec, v))
+                # Still apply the secondary POS/function-word + cosine filter;
+                # _topic_set_gate is the primary coherence pass.
                 if sim >= 0.35:
                     related.append((label, sim))
         if not related:
-            # Fallback for multi-word/unknown subjects with no clean embedding:
-            # use the strongest activated associations by score.
-            related = [(label, score) for label, score in (ctx.associated_concepts or [])
+            # Fallback: use the topic-gate's self-anchor or the strongest activated
+            # associations by score.
+            related = [(label, score) for label, score in _gated
                        if _is_ok_assoc(label.lower())][:4]
         if not related:
             return None

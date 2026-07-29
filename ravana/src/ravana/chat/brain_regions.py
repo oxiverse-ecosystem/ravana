@@ -268,15 +268,20 @@ def consult_internal(subject: str, engine) -> Optional[InternalAnswer]:
     exists for the subject.
     """
     s = (subject or "").lower().strip()
+    print(f"  [consult_internal] subject={s!r}")
     if not s:
         return None
     if hasattr(engine, "_definitions") and s in engine._definitions:
-        return InternalAnswer(engine._definitions[s], "definition")
+        _ans = InternalAnswer(engine._definitions[s], "definition")
+        print(f"  [consult_internal] HIT definition len={len(_ans.text)} preview={_ans.text[:120]!r}")
+        return _ans
     if hasattr(engine, "hippocampal_buffer"):
         try:
             obj = engine.hippocampal_buffer.query(s, "is_a") or engine.hippocampal_buffer.query(s, "definition")
             if obj:
-                return InternalAnswer(f"{s} is {obj}.", "hippocampus")
+                _ans = InternalAnswer(f"{s} is {obj}.", "hippocampus")
+                print(f"  [consult_internal] HIT hippocampal preview={_ans.text[:120]!r}")
+                return _ans
         except Exception:
             pass
     try:
@@ -285,9 +290,12 @@ def consult_internal(subject: str, engine) -> Optional[InternalAnswer]:
             rels = list(typed)[:2]
             if rels:
                 bits = [f"{s} is related to {r[1]}" for r in rels]
-                return InternalAnswer("; ".join(bits) + ".", "conceptnet")
+                _ans = InternalAnswer("; ".join(bits) + ".", "conceptnet")
+                print(f"  [consult_internal] HIT conceptnet preview={_ans.text[:120]!r}")
+                return _ans
     except Exception:
         pass
+    print(f"  [consult_internal] MISS subject={s!r}")
     return None
 
 

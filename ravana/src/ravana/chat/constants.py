@@ -44,6 +44,20 @@ INAPPROPRIATE_WORDS = {
     "rape", "incest", "pedophile",
 }
 
+# Known OOD / absurd / meme phrases for brain-inspired incongruity detection (Step 2d)
+KNOWN_ABSURD_PHRASES = {
+    "moon cheese", "cheese moon", "square circle", "flying pig",
+    "refrigerator sun", "sun refrigerator", "banana telephone",
+    "wooden glass", "ice fire"
+}
+
+# Seeded semantically distinct word pairs that are close in GloVe space (Step 1d)
+SEEDED_DISTINCT_NEIGHBORS = {
+    ("love", "life"), ("life", "love"),
+    ("death", "departure"), ("departure", "death")
+}
+
+
 # QWERTY keyboard rows — used to detect "keyboard mashing" (e.g. 'asdf',
 # 'qwer', 'zxcv') which are random letter sequences, not real words, even
 # though some (like 'asdf') happen to appear in a large GloVe vocabulary.

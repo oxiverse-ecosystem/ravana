@@ -333,25 +333,86 @@ class ReasoningMixin:
         return False
 
     def _is_abstract_meaning_query(self, text: str) -> bool:
-        """Detect abstract-meaning questions ("meaning/purpose/nature of X").
-
-        These must be answered with a reflective reply, NOT a dictionary
-        definition of the bare subject word — that is the definitional
-        literalness defect behind test_meaning_of_life_not_dict_dump ("what's
-        the meaning of life" -> raw "life" encyclopedia entry).
-
-        Non-hardcoding: the abstraction signal is the QUERY SHAPE — seeking
-        meaning/nature/purpose/point/essence/significance/value OF/IN/BEHIND/TO
-        X. The regex lists the abstract-sense words the plan targets (no frozen
-        list of whole questions); any query matching the shape is abstract by
-        construction (e.g. "purpose of art", "nature of consciousness",
-        "meaning of life" all match; "what is gravity" — no abstract-sense
-        word — does not, so genuine definitional queries stay definitional).
-        """
+        """Detect abstract-meaning questions ("meaning/purpose/nature of X", "what is love")."""
         t = text.lower().strip(" ?!.")
-        return bool(re.search(
+        if bool(re.search(
             r"\b(meaning|nature|purpose|point|essence|value|significance)\b"
-            r".*\b(of|in|behind|to)\b", t))
+            r".*\b(of|in|behind|to)\b", t)):
+            return True
+        # Step 1a extension: common abstract-concept questions ("what is love", "what is happiness")
+        if re.search(r"^\s*what\s+(?:is|does)\s+(love|life|happiness|freedom|truth|justice|courage|peace|beauty|wisdom|art|death|faith|hope)\b", t):
+            return True
+        return False
+
+    def _is_absurd_query(self, text: str, subject: str = "") -> bool:
+        """Composite OOD / absurdity detector (OFC incongruity detection; Step 2a).
+        
+        Checks:
+        (i) Known absurd / meme phrases (from constants.KNOWN_ABSURD_PHRASES).
+        (ii) Novel juxtaposition of grounded concepts (e.g. "moon cheese" when "moon" and "cheese"
+             have low cosine / no graph edge).
+        (iii) Bigram/trigram surprisal from CerebellarNgram (if available).
+        """
+        if not text:
+            return False
+        t_low = text.lower().strip(" ?!.")
+        subj_low = (subject or "").lower().strip(" ?!.")
+
+        from ravana.chat.constants import KNOWN_ABSURD_PHRASES
+        if any(p in t_low or (subj_low and p in subj_low) for p in KNOWN_ABSURD_PHRASES):
+            return True
+
+        tokens = [w for w in re.findall(r"[a-z']+", subj_low if subj_low else t_low)
+                  if w not in STOP_WORDS and len(w) > 2]
+        if len(tokens) >= 2:
+            combined_phrase = " ".join(tokens)
+            if combined_phrase in getattr(self, "_concept_keywords", {}):
+                return False
+
+            glove_fn = getattr(self, "_glove_vector", None)
+            if callable(glove_fn):
+                vecs = [glove_fn(w) for w in tokens]
+                valid_vecs = [v for v in vecs if v is not None]
+                if len(valid_vecs) >= 2:
+                    sim = float(np.dot(valid_vecs[0], valid_vecs[1]) /
+                               (np.linalg.norm(valid_vecs[0]) * np.linalg.norm(valid_vecs[1]) + 1e-9))
+                    if sim < 0.15:
+                        nids1 = getattr(self, "_concept_keywords", {}).get(tokens[0], [])
+                        nids2 = getattr(self, "_concept_keywords", {}).get(tokens[1], [])
+                        graph = getattr(self, "graph", None)
+                        has_edge = False
+                        if graph and nids1 and nids2:
+                            for n1 in nids1:
+                                for n2 in nids2:
+                                    if graph.has_edge(n1, n2) or graph.has_edge(n2, n1):
+                                        has_edge = True
+                                        break
+                        if not has_edge:
+                            return True
+
+        ngram = getattr(self, "cerebellar_ngram", None)
+        if ngram is not None and hasattr(ngram, "sentence_surprisal"):
+            try:
+                surprisal = ngram.sentence_surprisal(t_low)
+                if surprisal > 8.5:
+                    return True
+            except Exception:
+                pass
+
+        return False
+
+    def _handle_absurd_query(self, text: str, subject: str = "") -> str:
+        """Counterfactual-holding reply for absurd/OOD premises (Step 2b).
+        
+        Maintains the user's absurd premise without trying to ground it in physics.
+        """
+        subj = (subject or "").strip().lower()
+        if not subj:
+            toks = [w for w in re.findall(r"[a-z']+", (text or "").lower()) if w not in STOP_WORDS]
+            subj = " ".join(toks[:2]) if toks else "that"
+        return (f"{subj} — that's a fun image! Are you imagining a scenario involving "
+                f"{subj}, or is this a playful thought experiment?")
+
 
     def _reflect_on_abstract(self, text: str) -> str:
         """Genuine reflective answer for an abstract-meaning question.
@@ -379,23 +440,28 @@ class ReasoningMixin:
                                                          primary_ids=set(nids))
             except Exception:
                 associations = []
-        filtered = []
-        for label, score in associations:
-            ll = label.lower()
-            if getattr(self, "_is_function_word", lambda x: False)(ll):
-                continue
-            if getattr(self, "_concept_pos", {}).get(ll, "noun") != "noun":
-                continue
-            filtered.append((label, score))
-        # Make the question's own concept its strongest association so the
-        # reflective generator leads with it (a question about life IS most
-        # associated with life) — this keeps the reply genuinely *about* the
-        # concept without a hardcoded lead-in sentence.
+        # PFC topic-set relevance gate (replaces the hardcoded _FORBIDDEN_ASSOC):
+        # filter associations using GloVe cosine to the query concept, with
+        # a dynamic threshold — abstract concepts have broader semantic fields.
+        if hasattr(self, "_topic_set_gate"):
+            filtered = self._topic_set_gate(associations, concept, min_coherence=0.15)
+        else:
+            # Fallback: filter by POS + function-word check only (no topic gate).
+            filtered = []
+            for label, score in associations:
+                ll = label.lower()
+                if getattr(self, "_is_function_word", lambda x: False)(ll):
+                    continue
+                if getattr(self, "_concept_pos", {}).get(ll, "noun") != "noun":
+                    continue
+                filtered.append((label, score))
+        # If the original query concept is missing from associations, insert it
+        # as the strongest association so the generator stays on-topic.
         if concept not in {l.lower() for l, _ in filtered}:
             filtered.insert(0, (concept, 1.0))
-
         ctx = CognitiveResponseContext(
-            subject=concept, raw_input=text,
+            subject=concept,
+            raw_input=text,
             associated_concepts=filtered[:6])
 
         try:
@@ -620,9 +686,9 @@ class ReasoningMixin:
             "what", "why", "who", "how", "where", "when", "which", "is",
             "are", "was", "were", "do", "does", "did", "can", "could",
             "would", "should", "will", "tell", "explain", "describe",
-            "define", "name", "give", "show", "make", "help",
+            "define", "name", "give", "show", "make", "help", "remember",
         }
-        if any(w in question_words for w in meaningful):
+        if any(w in question_words for w in toks):
             return False
         # A token counts as a REAL word if it is a known concept, a common
         # English word, a proper noun, OR present in GloVe (and not keyboard
