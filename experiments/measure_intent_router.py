@@ -18,7 +18,7 @@ import os
 import sys
 from typing import Dict, List, Optional, Tuple
 
-_PROJ = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_PROJ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(_PROJ, "ravana", "src"))
 sys.path.insert(0, os.path.join(_PROJ, "ravana_ml", "src"))
 
@@ -195,17 +195,18 @@ def main():
 
     # Promote routes whose fused min gap is clearly positive (beats backstop).
     # Conservative: require gap >= 0.02. Routes ACTUALLY WIRED into engine gates:
-    # definition_seeking, factual_yesno, conditional (boolean gates) and
+    # definition_seeking, factual_yesno, conditional (boolean gates),
     # self_disclosure (the residual first-person _self_pat regex, now retired as
-    # the operational router). self_directed separates cleanly on the reference
-    # axis (+0.044) but its agent-address handling is a *cluster* of regexes
-    # (favorite/likes/opinion) serving broader queries; wiring the router in
-    # caused an empty-response regression (no fragile promotion), so it stays
-    # on the regex backstop. The reference axis still PROVED the separation
-    # (ablation), and the router classifies self_directed correctly (no
-    # contradiction) — it is simply not promoted into a branch.
+    # the operational router) and self_directed.
+    #
+    # self_directed separates cleanly on the reference axis (+0.044). The earlier
+    # empty-response regression came from wiring it as a REPLACEMENT for the
+    # regex cluster; it is now wired as a PRE-ADMIT gate into _route_self_query
+    # (engine.py `_router_says("self_directed", ...)`) that falls through to the
+    # legacy regex path when the self-model block returns None, so promotion can
+    # only add admissions, never blank one out.
     _WIRED = ("definition_seeking", "factual_yesno", "conditional",
-              "self_disclosure")
+              "self_disclosure", "self_directed")
     promoted = [r for r in _WIRED if gaps.get(r, -1.0) >= 0.02]
     print(f"[ir] promotable_routes (wired/reference-resolvable, cleared): {promoted}")
 

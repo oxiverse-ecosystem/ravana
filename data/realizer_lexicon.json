@@ -1,0 +1,42 @@
+{
+  "pools": {
+    "user_leads": [
+      "got it \u2014 so you're {topic}.",
+      "ah, i see \u2014 you're {topic}.",
+      "nice, so you're {topic}.",
+      "makes sense. you're {topic}."
+    ],
+    "other_leads": [
+      "right, {topic}.",
+      "got it \u2014 {topic}.",
+      "ok, noted: {topic}.",
+      "yeah, {topic}."
+    ],
+    "user_leads_notopic": [
+      "got it.",
+      "ah, i see.",
+      "nice, noted.",
+      "makes sense."
+    ],
+    "other_leads_notopic": [
+      "right.",
+      "got it.",
+      "ok, noted.",
+      "yeah."
+    ],
+    "follows": [
+      "what made you think of that?",
+      "tell me more about it?",
+      "anything else on your mind?",
+      "what do you make of it?"
+    ],
+    "backchannels": [
+      "haha fair enough.",
+      "nice.",
+      "gotcha.",
+      "makes sense.",
+      "alright."
+    ]
+  },
+  "weights": {}
+}

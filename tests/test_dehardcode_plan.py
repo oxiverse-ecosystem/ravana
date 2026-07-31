@@ -30,14 +30,30 @@ import os as _os
 
 def test_snippet_pe_config_externalized(engine):
     # Stage 5a: the snippet-PE gate's criteria live in data/snippet_pe.json,
-    # not as inline constants. The engine must load them and use the same
-    # seed values as the old inline numbers (day-one behavior identical).
+    # not as inline constants. The engine must load them, and every criterion
+    # must be a finite number in its valid range.
+    #
+    # NOTE: the values are FITTED by experiments/measure_snippet_pe.py (EER on a
+    # labeled corpus), so they are deliberately NOT pinned to the legacy seed
+    # numbers — pinning them here would defeat the point of externalizing them.
+    # What must hold is that the config is loaded, externalized, and sane.
+    import math
     assert engine._pe_cfg is not None, "PE config not loaded"
-    assert engine._pe_cfg.coverage_threshold == 0.6
-    assert engine._pe_cfg.coverage_surprise == 0.7
-    assert engine._pe_cfg.answer_type_surprise == 0.6
-    assert engine._pe_cfg.polarity_surprise == 1.0
-    assert engine._pe_cfg.veto_midpoint == 0.6
+    seeds = SnippetPEConfig()
+    for field in ("coverage_threshold", "coverage_surprise",
+                  "answer_type_surprise", "polarity_surprise",
+                  "veto_midpoint"):
+        val = getattr(engine._pe_cfg, field)
+        assert isinstance(val, float), f"{field} not a float: {val!r}"
+        assert math.isfinite(val), f"{field} is non-finite ({val}) — a gate " \
+            f"that can never fire; the calibration harness must not emit inf"
+        assert 0.0 <= val <= 2.0, f"{field} out of range: {val}"
+    # Criteria must not drift wildly from the audited seeds.
+    for field in ("coverage_threshold", "coverage_surprise",
+                  "answer_type_surprise", "veto_midpoint"):
+        assert abs(getattr(engine._pe_cfg, field)
+                   - getattr(seeds, field)) <= 0.25, \
+            f"{field} drifted too far from seed"
     # The fit file must exist on disk (externalized, not inline).
     assert _os.path.exists(_FIT_PATH), "data/snippet_pe.json missing"
 

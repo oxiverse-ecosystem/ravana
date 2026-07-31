@@ -208,9 +208,15 @@ class WebToGraph:
                     "context": ctx_id,
                     "contexts": [ctx_id],
                 })
-            # gap tracking (both endpoints are now a bit more known)
+            # gap tracking (both endpoints are now a bit more known).
+            # Keys MUST be normalized: knowledge_gap() looks up by lowercased
+            # topic, so storing the raw-case surface form ("Water") made every
+            # learned topic invisible to the EFE gap and left curiosity blind.
             for t in (f.subject, f.obj):
-                self._topic_edges[t] = self._topic_edges.get(t, 0) + 1
+                tk = (t or "").lower().strip()
+                if not tk:
+                    continue
+                self._topic_edges[tk] = self._topic_edges.get(tk, 0) + 1
             self._fact_count += 1
             written += 1
         return written
@@ -227,6 +233,16 @@ class WebToGraph:
         """
         t = topic.lower().strip()
         known = self._topic_edges.get(t, 0)
+        # Provisional evidence counts too. Under the hippocampal consolidation
+        # gate (_promote_min_sources > 1) a topic read from a single source is
+        # held in _provisional_nodes and gets no graph node yet — but we have
+        # genuinely seen evidence about it, so it is strictly less uncertain
+        # than a topic never encountered. Without this, curiosity stays blind
+        # to everything learned from one source and keeps re-picking it.
+        _prov = getattr(self.ge, "_provisional_nodes", None) or {}
+        _seen = _prov.get(t)
+        if _seen:
+            known = max(known, len(_seen))
         # also count the node's real graph neighbourhood (edge degree)
         nid = self.ge._all_labels.get(t)
         if nid is not None:

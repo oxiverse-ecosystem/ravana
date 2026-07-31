@@ -1261,7 +1261,17 @@ class ChatInterface:
         rnd = Random(42)
 
         if not subject:
-            return ("...", "associative")
+            # Follow-up continuity: a bare continuation ("tell me more") carries
+            # no extractable subject of its own — reuse the last discourse topic
+            # so the turn stays on-topic instead of collapsing to an ellipsis.
+            topic_list = getattr(self, "_topic_list", None)
+            if topic_list:
+                subject = topic_list[-1]
+                ctx.subject = subject
+            else:
+                # Honest uncertainty, still a well-formed sentence.
+                return ("I am not sure what to say about that yet.",
+                        "associative")
 
         # Check for nested propositions (Issue #3)
         if hasattr(self, 'proposition_parser') and self.proposition_parser.has_nested_propositions(ctx.raw_input):

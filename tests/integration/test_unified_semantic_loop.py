@@ -85,13 +85,34 @@ def engine_agent():
 
 # ── Per-agent accessors (the two agents differ in attribute shape) ─────────
 
+def _learn_through_gate(graph_host, learn_fn, text, src):
+    """Ingest `text` enough times to clear the agent's consolidation gate.
+
+    ChatInterface sets `_promote_min_sources = 2`: a concept read from a SINGLE
+    source is parked in `_provisional_nodes` and never becomes a graph node, so
+    a one-shot `learn_text` writes zero edges there while the engine path (k=1)
+    writes them immediately. A soak test that reads a topic once therefore
+    measured the gate, not the loop. Replay the same text under `k` distinct
+    source URLs — the deployed multi-source reading pattern — so both agents
+    reach the same post-consolidation state.
+    """
+    k = max(1, int(getattr(graph_host, "_promote_min_sources", 1) or 1))
+    written = 0
+    for i in range(k):
+        written += learn_fn(text, f"{src}#src{i}" if k > 1 else src)
+    return written
+
+
 def _accessors(agent):
     """Return the loop's touch-points, abstracting over ChatInterface vs engine."""
     if hasattr(agent, "web_learner"):  # ChatInterface
         ge = agent.graph_engine
         edge_graph = agent.graph_engine.graph  # ConceptGraph (has get_edge)
         label_index = lambda: agent.graph_engine._all_labels
-        web_learn = lambda text, src: agent.web_learner._web_to_graph.learn_text(text, source_url=src)
+        web_learn = lambda text, src: _learn_through_gate(
+            agent.graph_engine,
+            lambda t, s: agent.web_learner._web_to_graph.learn_text(t, source_url=s),
+            text, src)
         curiosity = lambda cands: agent.web_learner.curiosity_e_step(candidate_topics=cands)
         gap = lambda t: agent.web_learner.knowledge_gap(t)
         last_fact = lambda: agent.web_learner.last_fact_count()
@@ -100,7 +121,10 @@ def _accessors(agent):
         edge_graph = agent.graph  # ConceptGraph (has get_edge)
         # label -> first nid (mirrors the shim / GraphEngine._all_labels)
         label_index = lambda: {lab: nids[0] for lab, nids in agent._concept_keywords.items() if nids}
-        web_learn = lambda text, src: agent._get_web_to_graph().learn_text(text, source_url=src)
+        web_learn = lambda text, src: _learn_through_gate(
+            agent,
+            lambda t, s: agent._get_web_to_graph().learn_text(t, source_url=s),
+            text, src)
         curiosity = lambda cands: agent.curiosity_e_step(candidate_topics=cands)
         gap = lambda t: agent.knowledge_gap(t)
         last_fact = lambda: agent._get_web_to_graph().fact_count()

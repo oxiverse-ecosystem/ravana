@@ -853,6 +853,15 @@ class SurfaceRealizer:
         # Get pronoun options via GloVe-based classifier (ATL semantic category)
         pronoun_opts = self._get_pronouns_for_concept(subject_lower)
 
+        # Abstract nouns are never animate referents: "trust" -> "it"/"this",
+        # never "they". The category classifier can still tip an abstract concept
+        # into the person/animal branch on the embedding sims, so an explicit
+        # abstractness check wins here (the consumer side), leaving
+        # _get_pronouns_for_concept untouched so deterministic stress suites that
+        # exercise the glove path many times stay stable.
+        if self._is_abstract_noun(subject_lower):
+            pronoun_opts = ["it", "this"]
+
         # Count how many times this subject has been referenced
         ref_count = context.subject_repetitions
         if subject_lower in self._used_subjects:

@@ -24,7 +24,7 @@ import json
 import os
 import sys
 
-_PROJ = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_PROJ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(_PROJ, "ravana", "src"))
 sys.path.insert(0, os.path.join(_PROJ, "ravana_ml", "src"))
 
@@ -102,6 +102,15 @@ def _eer_threshold(scores, labels):
     y = 1 - labels  # 1 = off-topic
     fpr, tpr, thr = roc_curve(y, scores)
     fnr = 1.0 - tpr
+    # sklearn >= 1.3 prepends an infinite threshold to guarantee an all-negative
+    # operating point. On a degenerate component (every score identical, e.g. a
+    # detector that never fires on this corpus) argmin lands on that sentinel
+    # and we would persist `Infinity` as a criterion — a gate that can never
+    # trigger. Drop non-finite thresholds before picking the EER point.
+    finite = np.isfinite(thr)
+    if not finite.any():
+        return float("nan"), 1.0, 1.0, 1.0
+    fpr, tpr, thr, fnr = fpr[finite], tpr[finite], thr[finite], fnr[finite]
     # EER: smallest |fpr - fnr|
     idx = np.argmin(np.abs(fpr - fnr))
     return float(thr[idx]), float(np.abs(fpr[idx] - fnr[idx])), \
@@ -130,6 +139,16 @@ def main():
                          ("polarity_surprise", pol),
                          ("answer_type_surprise", atp)]:
         t, eer, fpr, fnr = _eer_threshold(scores, rel)
+        # Degenerate component: the detector produced no discrimination on this
+        # corpus (constant score / non-finite EER). Fitting it would persist a
+        # criterion that either always fires or never fires. Keep the seeded
+        # value instead and say so, so the fit stays auditable.
+        if not np.isfinite(t) or len(set(np.round(np.asarray(scores, float), 6))) < 2:
+            t = getattr(SnippetPEConfig(), name)
+            print(f"  {name:22} DEGENERATE (no signal on corpus) -> seed {t}")
+            fit[name] = float(t)
+            spam[name] = (eer, fpr, fnr)
+            continue
         fit[name] = float(round(t, 3))
         spam[name] = (eer, fpr, fnr)
         print(f"  {name:22} EER_thr={t:.3f}  EER={eer:.3f} FPR={fpr:.3f} "

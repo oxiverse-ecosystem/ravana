@@ -17,7 +17,7 @@ import json
 import os
 import sys
 
-_PROJ = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_PROJ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(_PROJ, "ravana", "src"))
 sys.path.insert(0, os.path.join(_PROJ, "ravana_ml", "src"))
 

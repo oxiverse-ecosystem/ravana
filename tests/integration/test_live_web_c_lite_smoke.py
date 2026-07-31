@@ -63,6 +63,12 @@ def _typed_edge_count(graph) -> int:
 class TestLiveWebCLiteSmoke:
     def test_live_search_returns_results(self):
         """The live endpoint responds and returns parsed results."""
+        # Defensive runtime guard: the class-level skipif is evaluated at
+        # collection time, but under xdist the controller's view of the port
+        # can race with a worker. Re-check here so the test never fails when
+        # the local search engine is genuinely down (it is, in CI).
+        if not _search_engine_up():
+            pytest.skip("local search engine not up at localhost:4000")
         from ravana.chat.engine import CognitiveChatEngine
         eng = CognitiveChatEngine(dim=64, seed=42, baby_mode=True)
         results = eng.search_engine.search("water", max_results=3, local_only=True)
@@ -74,6 +80,8 @@ class TestLiveWebCLiteSmoke:
         """The REAL path: learn_from_web -> live search -> _learn_from_text
         -> C-lite writes typed edges into engine.graph."""
         from ravana.chat.engine import CognitiveChatEngine
+        if not _search_engine_up():
+            pytest.skip("local search engine not up at localhost:4000")
         eng = CognitiveChatEngine(dim=64, seed=42, baby_mode=True)
         # load glove so the run mirrors production (and N2 would work too)
         if os.path.exists(GLOVE_CACHE):

@@ -1,0 +1,8 @@
+{
+  "coverage_threshold": 0.6,
+  "coverage_surprise": 0.7,
+  "answer_type_surprise": 0.6,
+  "polarity_surprise": 1.0,
+  "veto_midpoint": 0.7,
+  "veto_slope": 8.0
+}

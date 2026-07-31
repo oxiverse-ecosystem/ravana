@@ -466,6 +466,17 @@ class ReasoningMixin:
 
         try:
             resp, _ = self._reflective_response(ctx)
+            # The reflective generator picks its own anchors from the
+            # association list and can drift entirely off the queried concept
+            # (e.g. "what's the meaning of life" -> a riff about years and
+            # time). An abstract-meaning answer that never names X is not an
+            # answer to "the meaning of X", so re-anchor it explicitly rather
+            # than letting the drift through.
+            if resp and concept != "that" and concept.lower() in resp.lower():
+                return resp
+            if resp and concept != "that":
+                lead = f"i don't think {concept} has one settled meaning."
+                return f"{lead} {resp[0].lower()}{resp[1:]}".strip()
             if resp:
                 return resp
         except Exception:
@@ -2134,10 +2145,13 @@ class ReasoningMixin:
         the only missing piece is the LIVE answer retrieval — fixed by folding
         this into the `_web_direct_answer` gate alongside `_is_conditional_query`.
         """
-        # Stage 3 (M-A) promoted route: router drives `factual_yesno` when
-        # promoted; falls through to the regex below.
-        if self._router_says("factual_yesno", text):
-            return True
+        # Stage 3 (M-A) promoted route: the fused prototype router may PROMOTE
+        # `factual_yesno`, but only for queries that are already shaped like a
+        # yes/no question (lead with an auxiliary/modal verb). It is a
+        # supplement that catches regex-missed factual phrasings, NOT an
+        # override that can rewrite a clearly non-yes/no question ("how do
+        # birds fly?") into a factual lookup — so we gate it behind the
+        # structural aux-lead check below, never before it.
         t = text.lower().strip(" ?!.")
 
         if not t.endswith("?") and not re.search(
@@ -2149,6 +2163,12 @@ class ReasoningMixin:
                 r"\b(is|are|was|were|can|could|do|does|did|should|"
                 r"would|may|might|must)\b", t):
             return False
+        # Now it is structurally a yes/no question. The promoted router may
+        # confirm/infer the `factual_yesno` route for phrasings the regex
+        # above would still let through (e.g. reorderings) — this cannot fire
+        # for "how ..." style queries because they fail the aux-lead check.
+        if self._router_says("factual_yesno", text):
+            return True
         # Exclude personal / opinion / open-philosophical / conditional frames —
         # those are not factual lookups (mirrors _is_informational_query's
         # reasoning_patterns exclusions). We block opinion verbs and second-

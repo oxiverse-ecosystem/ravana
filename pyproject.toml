@@ -50,6 +50,13 @@ dev = [
     "numpy>=1.23",
     "scipy>=1.9",
 ]
+# Test-runner accelerators: parallelism, per-test timeouts, CI sharding.
+test = [
+    "pytest>=7.0",
+    "pytest-xdist>=3.5",
+    "pytest-timeout>=2.2",
+    "pytest-split>=0.8",
+]
 
 [project.urls]
 Homepage = "https://github.com/ravana-project/ravana"
@@ -64,4 +71,6 @@ pythonpath = ["ravana_ml/src", "ravana/src", "ravana-v2/src", "."]
 addopts = "-ra"
 markers = [
     "ci: marks tests that run in the fast CI-critical job",
+    "integration: marks cross-module integration tests",
+    "slow: marks long-running tests",
 ]
