@@ -1663,7 +1663,7 @@ class WebSearchMixin:
         fusion could not separate from self_directed) stay on the regex
         backstop, so this can never regress a route the router hasn't cleared.
         """
-        if not self.use_intent_router:
+        if not getattr(self, "use_intent_router", False):
             return None
         self._ensure_intent_router()
         if self._intent_router is None:
@@ -1681,7 +1681,7 @@ class WebSearchMixin:
         `route`. Used as the FIRST check inside the legacy boolean gates so the
         router drives the decision for promoted routes and falls through to the
         regex otherwise. Safe: only promoted routes are ever returned."""
-        if not self.use_intent_router:
+        if not getattr(self, "use_intent_router", False):
             return False
         return self._route_intent(query) == route
 

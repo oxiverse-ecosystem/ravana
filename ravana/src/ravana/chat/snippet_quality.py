@@ -136,11 +136,17 @@ class SnippetStructureModel:
     """
 
     def __init__(self, order: int = 2, smoothing: float = 1.0,
-                 theta_sem: float = 0.15, margin: float = 0.5):
+                 theta_sem: float = 0.15, margin: float = 0.5,
+                 strong_junk_gap: float = 0.5):
         self.order = order
         self.smoothing = smoothing
         self.theta_sem = theta_sem
         self.margin = margin  # absolute bits added beyond the worst good snippet
+        # Contrastive gap ABOVE which a snippet is robustly boilerplate-shaped,
+        # rejected regardless of topic fit. The tiny seed corpora separate at
+        # -1.0 (good) / +1.0 (junk), while genuine *novel* definitions land near
+        # 0.0 — so only clearly-in-junk-territory gaps skip the coherence gate.
+        self.strong_junk_gap = strong_junk_gap
         # word stream: context tuple -> Counter(next token)
         self._w_ngrams: dict = defaultdict(Counter)
         self._w_vocab: set = set()
@@ -256,12 +262,24 @@ class SnippetStructureModel:
         # spine and fires regardless of topic (not a blocklist).
         if is_token_salad(snippet):
             return True
-        # Contrastive path (preferred): separate the classes on the gap.
+        # Contrastive path (preferred): separate the classes on the gap. A
+        # snippet is junk when it is structurally OOD from the good distribution
+        # (gap above threshold) AND off-topic for the subject — the dual gate
+        # documented above. A genuine-but-unusual definition whose gap only
+        # marginally crosses the threshold survives when it is on-topic (high
+        # coherence), because real novel snippets cluster at gap ~0 regardless
+        # of quality. Only a strongly-junk gap (> strong_junk_gap, robustly in
+        # boilerplate territory) overrides the coherence safeguard.
         if hasattr(self, "_good_model") and self._good_model is not None:
             gap = self.contrastive_gap(snippet)
             if gap is None:
                 return False
-            return gap > getattr(self, "_gap_theta", 0.0)
+            if gap > getattr(self, "_gap_theta", 0.0):
+                if gap > getattr(self, "strong_junk_gap", 0.5):
+                    return True
+                if coherence is None or coherence < self.theta_sem:
+                    return True
+            return False
         # Single-distribution fall-back (good-only seed).
         if self.theta_struct is None:
             return False

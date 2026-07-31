@@ -1175,6 +1175,13 @@ class MemoryMixin:
         t = (user_input or "").lower().strip(" ?!.")
         if not t:
             return None
+        # Questions about the USER's name/identity ("do you remember my name?",
+        # "what is my name?", "who am i?") belong to the identity block in
+        # process_turn (user_model.user_name), NOT episodic recall — otherwise
+        # "do you remember my name?" would be swallowed here as a generic
+        # self-recall (strategy=memory_recall) and never reach the stored name.
+        if re.search(r"\b(?:my name|who am i)\b", t):
+            return None
         # B1: self-knowledge recall. "what do you remember about me" / "what do
         # you know about me" / "what have i told you" are recalls of the USER's
         # own disclosed autobiographical facts (stored in the hippocampal entity

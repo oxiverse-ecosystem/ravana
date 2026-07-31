@@ -1683,9 +1683,28 @@ class ResponseGenMixin(ChainWalkerMixin):
             try:
                 # Build conditioning from situation vector + top concepts
                 cond_embs = []
-                
+
+                # Align engine-dim state/node vectors to the decoder's 75-D
+                # dual-code space ([GloVe-64 | Lancaster-11]). The situation
+                # vector and graph node vectors live at self.dim (64), while the
+                # decoder conditioning table is always _DECODER_DIM (75). Mixing
+                # the two shapes crashed np.stack (silent fall-through to the
+                # narrative path), so pad the shorter engine-dim vectors with a
+                # zero Lancaster tail.
+                _dec_dim = getattr(self, '_DECODER_DIM', 75)
+
+                def _align_to_decoder(v):
+                    v = np.asarray(v, dtype=np.float32).reshape(-1)
+                    if v.shape[0] == _dec_dim:
+                        return v
+                    if v.shape[0] < _dec_dim:
+                        out = np.zeros(_dec_dim, dtype=np.float32)
+                        out[:v.shape[0]] = v
+                        return out
+                    return v[:_dec_dim].astype(np.float32)
+
                 # Add situation vector as primary conditioning (tiled 3x for stability)
-                sv = situation_vec.astype(np.float32)
+                sv = _align_to_decoder(situation_vec.astype(np.float32))
                 if np.any(sv != 0):
                     cond_embs.extend([sv.copy()] * 3)
 
@@ -1699,7 +1718,7 @@ class ResponseGenMixin(ChainWalkerMixin):
                             if nids:
                                 node = self.graph.get_node(nids[0])
                                 if node and node.vector is not None:
-                                    cond_embs.append(node.vector.copy() * 0.5)
+                                    cond_embs.append(_align_to_decoder(node.vector) * 0.5)
 
                     # Add subject-specific embeddings
                     if ctx.subject:
@@ -1708,9 +1727,9 @@ class ResponseGenMixin(ChainWalkerMixin):
                         if nids:
                             node = self.graph.get_node(nids[0])
                             if node and node.vector is not None:
-                                cond_embs.append(node.vector.copy() * 0.8)
+                                cond_embs.append(_align_to_decoder(node.vector) * 0.8)
                         elif sl in self._decoder_word_to_embed:
-                            cond_embs.append(self._decoder_word_to_embed[sl].copy() * 0.8)
+                            cond_embs.append(_align_to_decoder(self._decoder_word_to_embed[sl]) * 0.8)
                 finally:
                     self._graph_lock.release()
 
@@ -5870,7 +5889,8 @@ class ResponseGenMixin(ChainWalkerMixin):
         if not _m:
             return False
         _end = _m.group(2)
-        if self._is_generic_noun(_end):
+        _ifn = getattr(self, "_is_generic_noun", None)
+        if _ifn is not None and _ifn(_end):
             return True
         # A real temporal ordering ("X comes before Y") must be GROUNDED in a
         # genuine predicate edge between X and Y (causal / part-of / process /

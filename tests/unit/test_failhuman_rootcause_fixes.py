@@ -40,6 +40,22 @@ def _eng():
     return CognitiveChatEngine(baby_mode=True)
 
 
+def _data_path(*parts):
+    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    return os.path.join(repo_root, *parts)
+
+
+def _require_conceptnet_ontology():
+    if not os.path.exists(_data_path("data", "conceptnet", "ont.pkl")):
+        pytest.skip("ConceptNet ontology pickle not available")
+
+
+def _require_combined_encoder():
+    if not (os.path.exists(_data_path("data", "attribute_encoder.npz"))
+            and os.path.exists(_data_path("data", "lancaster_encoder.npz"))):
+        pytest.skip("encoder artifacts not present")
+
+
 def _extract_grounding(reply: str):
     """Pull the '(from what i've read: ...)' clause, or '' if none."""
     m = re.search(r"\(from what i've read:\s*(.+?)\)\s*$", reply)
@@ -51,6 +67,7 @@ def test_metaphor_uses_subject_property_not_random_nodes():
     (Path 1 cross-modal) or its ConceptNet properties — NOT two random graph
     nodes. The reply must contain the subject and a sensory/property word, and
     must never be the old hardcoded 'flavor of a tuesday' brush-off."""
+    _require_conceptnet_ontology()
     e = _eng()
     # Force the gate's authoritative subject (mirrors process_turn wiring).
     e._is_category_error("what is the taste of a triangle")
@@ -74,6 +91,7 @@ def test_category_error_no_random_sample():
     random.sample of two unrelated graph nodes. When it fires, the reply frames
     the mismatch via a real property-bearer ('B has a PROP, SUBJ doesn't'),
     so it references the subject and the queried property explicitly."""
+    _require_conceptnet_ontology()
     e = _eng()
     # Use a subject whose probe is weak but ConceptNet gives a property bearer.
     e._is_category_error("what colour is a thought")
@@ -140,6 +158,8 @@ def test_metaphor_path1_fires_for_broad_subjects():
     to arbitrary pairs. The reply must carry the Path-1 signature
     ('more in terms of its <sensory phrase>'), proving the probe -- not a
     random draw -- generated it."""
+    _require_conceptnet_ontology()
+    _require_combined_encoder()
     e = _eng()
     subjects = ["triangle", "square", "circle", "cube", "line", "number",
                 "justice", "love", "time", "equation", "silence", "memory",
@@ -225,6 +245,8 @@ def test_engine_wires_combined_encoder_with_lancaster():
     wide-coverage Lancaster probe never drives Path 1 (the gate silently
     falls back to the Binder-only lazy-load). Assert the live engine exposes
     the COMBINED encoder (Lancaster primary + Binder fallback)."""
+    _require_conceptnet_ontology()
+    _require_combined_encoder()
     e = _eng()
     enc = e._cn_ontology.attribute_encoder
     from ravana.ontology.attribute_encoder import CombinedAttributeEncoder

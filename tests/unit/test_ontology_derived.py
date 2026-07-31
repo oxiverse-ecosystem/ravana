@@ -118,6 +118,9 @@ def test_real_graph_now_has_typed_isa_attribute_edges():
     tabs = [r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")]
     if "edges" not in tabs:
         conn.close(); pytest.skip("graph edges table absent")
+    total_edges = c.execute("SELECT COUNT(*) FROM edges").fetchone()[0]
+    if total_edges == 0:
+        conn.close(); pytest.skip("real graph DB never bootstrapped")
     rts = {rt: cnt for rt, cnt in
            c.execute("SELECT relation_type, COUNT(*) AS cnt FROM edges GROUP BY relation_type")}
     conn.close()

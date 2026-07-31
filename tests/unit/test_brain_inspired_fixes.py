@@ -12,6 +12,7 @@ import hashlib
 import re
 
 import numpy as np
+import pytest
 
 from ravana.chat.engine import CognitiveChatEngine
 from ravana_ml.graph import ConceptGraph, ConceptEdge

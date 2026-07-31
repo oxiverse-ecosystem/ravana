@@ -1195,6 +1195,7 @@ class GraphMixin:
             return trimmed.strip()
         return text
 
+    @staticmethod
     def _result_url(res) -> str:
         """Best-effort extraction of a source URL from a search-result payload."""
         if isinstance(res, dict):
@@ -1205,6 +1206,7 @@ class GraphMixin:
                     return _r.get("url", "")
         return ""
 
+    @staticmethod
     def _source_type_label(url: str) -> str:
         """Human source-type label for epistemic tagging (PROMPT 3 hedges)."""
         _u = (url or "").lower()
@@ -1220,6 +1222,7 @@ class GraphMixin:
             return "a web source"
         return "the web"
 
+    @classmethod
     def _clean_subject_phrase(cls, phrase: str) -> str:
         """Strip question/verb/role words so the real topic survives.
 

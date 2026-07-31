@@ -2,6 +2,7 @@
 
 import pytest
 import numpy as np
+import time
 from ravana_ml.embedder import LearnedEmbedder
 from ravana_ml.tensor import StateTensor, RawTensor, Parameter, tensor, zeros, ones
 from ravana_ml.tokenizer import (
@@ -162,6 +163,7 @@ class TestStateTensor:
 
     def test_decay(self):
         t = StateTensor(np.array([1.0, 2.0, 3.0]))
+        t.timestamp = time.time() - 5.0
         data_before = t.data.copy()
         t.decay()
         # Decay with rate 0.01 over age() — should change data slightly

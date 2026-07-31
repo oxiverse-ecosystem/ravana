@@ -35,6 +35,7 @@ class TestConceptNode:
         v = np.random.randn(8).astype(np.float32)
         node = ConceptNode(0, v)
         node.activation = 1.0
+        node.timestamp = time.time() - 1.0
         node.decay(rate=0.5)
         assert node.activation < 1.0
 
@@ -138,6 +139,7 @@ class TestConceptBinding:
 
     def test_decay(self):
         b = ConceptBinding(0, 1, confidence=0.9)
+        b.last_used = time.time() - 3600.0
         b.decay(rate=0.5)
         assert b.decay_score > 0
 

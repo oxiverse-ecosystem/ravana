@@ -619,6 +619,40 @@ class SurfaceRealizer:
                        "has", "have", "had", "will", "would", "can", "could",
                        "should", "may", "might"}
 
+    # Regular inflectional suffixes mapped to (cut, replacement) so any finite
+    # form of a known predicate stem is recognized, not just the bare root.
+    _PREDICATE_INFLECTIONS = (("ies", 3, "y"), ("ied", 3, "y"),
+                              ("es", 2, ""), ("es", 2, "e"),
+                              ("ed", 2, ""), ("ed", 2, "e"),
+                              ("ing", 3, ""), ("ing", 3, "e"),
+                              ("s", 1, ""))
+
+    @classmethod
+    def _predicate_stems(cls):
+        stems = getattr(cls, "_PREDICATE_STEMS_CACHE", None)
+        if stems is None:
+            stems = set(cls._COMPLETE_VERBS) | set(cls._COMPLETE_COPULA)
+            try:
+                from ravana.language.verb_lexicon import VerbLexicon
+                seeds = VerbLexicon.MORPHEMIC_SEEDS
+                stems.update(seeds.get("roots", []))
+                for cw in seeds.get("compound_roots", []):
+                    stems.update(w for w in cw.split())
+            except Exception:
+                pass
+            cls._PREDICATE_STEMS_CACHE = stems
+        return stems
+
+    @classmethod
+    def _is_predicate_token(cls, token: str) -> bool:
+        if token in cls._predicate_stems():
+            return True
+        for suffix, cut, repl in cls._PREDICATE_INFLECTIONS:
+            if token.endswith(suffix) and len(token) > len(suffix):
+                if token[:-cut] + repl in cls._predicate_stems():
+                    return True
+        return False
+
     def _utterance_complete(self, text: str) -> Tuple[bool, Optional[str]]:
         """Broca's forward-model completeness check (Defect A).
 
@@ -626,6 +660,11 @@ class SurfaceRealizer:
         copula. A bare noun phrase / glue-only / 1-2 token fragment with no
         predicate is incomplete -> (False, reason). Structural only — no topic
         lists — so it generalizes across all concepts.
+
+        Predicate detection covers the handcrafted verb/copula sets AND any
+        inflected finite form of the Hebbian VerbLexicon's morphemic roots
+        (feed->feeds, give->gives, flow->flows, ...), since those compose
+        dynamically and can never be enumerated exhaustively.
         """
         if not text or not text.strip():
             return False, "empty"
@@ -635,6 +674,8 @@ class SurfaceRealizer:
             return True, "has_verb"
         if any(w in self._COMPLETE_COPULA for w in toks):
             return True, "has_copula"
+        if any(self._is_predicate_token(w) for w in toks):
+            return True, "has_lexicon_verb"
         real = [w for w in toks if w not in (
             "the", "a", "an", "of", "in", "on", "for", "to", "and", "or",
             "but", "that", "this", "it", "its", "with", "from", "as", "by",

@@ -187,10 +187,19 @@ def get_store(rebuild: bool = False) -> CaseDistributionStore:
     if _STORE_CACHE is not None and not rebuild:
         return _STORE_CACHE
     if rebuild or not os.path.exists(_CASE_JSON):
-        store = CaseDistributionStore.build_from_subtlex()
+        try:
+            store = CaseDistributionStore.build_from_subtlex()
+        except (OSError, IOError):
+            # SUBTLEX corpus absent (offline/CI): fall back to the conservative
+            # empty store — every word keeps the OOV lowercase default, so
+            # casing degrades to the sentence-initial positional route only.
+            store = CaseDistributionStore()
     else:
         store = CaseDistributionStore.load()
-    store.save()  # materialize json so feedback writes have a target
+    try:
+        store.save()  # materialize json so feedback writes have a target
+    except (OSError, IOError):
+        pass
     _STORE_CACHE = store
     return store
 

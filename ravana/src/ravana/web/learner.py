@@ -203,6 +203,7 @@ class SearchEngine:
             # also slip through; the probe's own success/failure re-decides.
             if not self._api_half_open.get(api_name, False):
                 self._api_half_open[api_name] = True
+                self._api_failure_counts[api_name] = 0
                 return True
             # A half-open probe is already outstanding -> treat as still open
             # until that probe reports.

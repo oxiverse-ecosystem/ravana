@@ -293,7 +293,42 @@ FUNCTION_WORDS = {
     'whom', 'why', 'will', 'with', 'would', 'you', 'your',
 }
 
-FUNCTION_POS = {}
+# Explicit closed-class POS tags for the words in FUNCTION_WORDS so the
+# learned-POS path (use_learned_pos / classify_word_pos) tags them with a
+# function category instead of the 'adv' fallback. Only genuinely closed-class
+# words are listed; the legacy content-like entries in FUNCTION_WORDS keep the
+# 'adv' fallback so they are NOT treated as function words.
+FUNCTION_POS = {
+    # Determiners / quantifiers
+    "a": "det", "an": "det", "any": "det", "both": "det", "each": "det",
+    "every": "det", "few": "det", "more": "det", "most": "det", "no": "det",
+    "some": "det", "the": "det", "these": "det", "this": "det",
+    "those": "det",
+    # Prepositions / particles
+    "about": "prep", "after": "prep", "at": "prep", "before": "prep",
+    "between": "prep", "by": "prep", "during": "prep", "for": "prep",
+    "from": "prep", "into": "prep", "of": "prep", "on": "prep",
+    "over": "prep", "through": "prep", "to": "prep", "with": "prep",
+    # Pronouns
+    "all": "pron", "he": "pron", "her": "pron", "him": "pron", "his": "pron",
+    "i": "pron", "it": "pron", "its": "pron", "me": "pron", "my": "pron",
+    "myself": "pron", "our": "pron", "she": "pron", "their": "pron",
+    "them": "pron", "they": "pron", "we": "pron", "what": "pron",
+    "which": "pron", "who": "pron", "whom": "pron", "you": "pron",
+    "your": "pron",
+    # Conjunctions
+    "as": "conj", "because": "conj", "if": "conj", "nor": "conj",
+    "than": "conj", "that": "conj", "while": "conj",
+    # Auxiliary / modal verbs
+    "am": "aux", "are": "aux", "be": "aux", "been": "aux", "being": "aux",
+    "can": "aux", "could": "aux", "did": "aux", "do": "aux", "does": "aux",
+    "had": "aux", "has": "aux", "have": "aux", "is": "aux", "may": "aux",
+    "might": "aux", "shall": "aux", "should": "aux", "was": "aux",
+    "were": "aux", "will": "aux", "would": "aux",
+    # Adverbs / particles
+    "also": "adv", "how": "adv", "just": "adv", "so": "adv", "then": "adv",
+    "too": "adv", "very": "adv",
+}
 
 # INAPPROPRIATE_WORDS replaced with learned emotional valence detection.
 # The brain learns what's inappropriate through social feedback (OFC), not hardcoded lists.

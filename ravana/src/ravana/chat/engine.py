@@ -3507,7 +3507,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 else:
                     target = ""
                 stance, reason = self._agent_stance_on(target)
-                back = " what about you?" if target else " what do you think?"
+                back = " what about you?"
                 _reason = reason.rstrip()
                 if _reason and not _reason.endswith((".", "!", "?")):
                     _reason += "."
@@ -4879,6 +4879,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # produce correctly-cased text, and quality/scoring functions lowercase
         # internally where needed, so we return the response as-is.
         return response
+    @staticmethod
     def _norm_word(w: str) -> str:
         """Reduce a word to a comparable base: irregular-verb map, then strip
         common inflectional suffixes."""
@@ -4889,6 +4890,8 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             if w.endswith(suf) and len(w) - len(suf) >= 3:
                 return w[: -len(suf)]
         return w
+
+    @staticmethod
     def _tok_match(token: str, wordset) -> bool:
         """Does `token` (a subject/query word) appear in `wordset` allowing for
         verb inflection (sink↔sank, train↔trained, immune↔immunity, ...)?"""
