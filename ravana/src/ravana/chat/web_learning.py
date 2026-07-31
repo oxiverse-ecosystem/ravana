@@ -169,6 +169,9 @@ class WebLearningMixin(ResponseGenMixin):
                      if w not in STOP_WORDS]
         def_vecs = [glove_fn(w) for w in def_words if glove_fn(w) is not None]
         if not def_vecs or subj_vec is None:
+            subj_stem = subject.lower().rstrip("s")
+            if any(subj_stem in w or w.startswith(subj_stem) for w in def_words):
+                return 0.5
             return 0.0
         def_centroid = np.mean(def_vecs, axis=0)
         norm = np.linalg.norm(def_centroid)

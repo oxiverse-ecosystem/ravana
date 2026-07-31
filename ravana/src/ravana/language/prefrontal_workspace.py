@@ -813,7 +813,12 @@ class EmergentCategoryLearner:
         """
         vec = self._sentence_vector(text)
         if vec is None:
-            return ""
+            import hashlib
+            h = hashlib.sha256(text.encode("utf-8")).digest()
+            dim = getattr(self.vector_fn, "dim", 64) if self.vector_fn else 64
+            rng = np.random.RandomState(int.from_bytes(h[:4], "big"))
+            v = rng.randn(dim).astype(np.float32)
+            vec = v / np.linalg.norm(v)
         # merge into nearest existing candidate within radius
         best_id, best_sim = None, -1.0
         for cid, c in self._candidates.items():
@@ -896,7 +901,13 @@ class PrefrontalWorkspace:
         self._sac: Optional[SpeechActClassifier] = None
         self._qsc: Optional[QuestionSubtypeClassifier] = None
         self._gate: Optional[SurpriseGate] = None
-        self._n2: Optional[EmergentCategoryLearner] = None
+        try:
+            from ravana.core.hippocampal_buffer import HippocampalBuffer
+            hb = HippocampalBuffer()
+        except Exception:
+            hb = None
+        self._n2: Optional[EmergentCategoryLearner] = EmergentCategoryLearner(
+            vector_fn=self.vector_fn, hippocampal_buffer=hb)
 
     # ─── Question Type Detection ───
 

@@ -20,8 +20,17 @@ def engine():
     # processed in other test modules that share a module-scoped engine. The
     # De-Hardcoding plan tests assert specific single-turn routing outcomes.
     from ravana.chat.engine import CognitiveChatEngine
-    return CognitiveChatEngine(dim=64, seed=42, baby_mode=True,
+    eng = CognitiveChatEngine(dim=64, seed=42, baby_mode=True,
                                user_suffix="_dehardcode_plan")
+    _proj_root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+    glove_cache = _os.path.join(_proj_root, "data", "ravana_glove_cache.npz")
+    if _os.path.exists(glove_cache):
+        import numpy as np
+        d = np.load(glove_cache, allow_pickle=True)
+        eng._glove_vecs = {str(w).lower(): v for w, v in zip(d["words"].tolist(), d["vecs"])}
+        eng._glove_proj = d["proj"].astype(np.float32)
+        eng._glove_dim = int(d["proj"].shape[1])
+    return eng
 
 
 from ravana.chat.snippet_pe_config import SnippetPEConfig, default_config, _FIT_PATH

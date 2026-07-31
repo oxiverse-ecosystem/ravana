@@ -372,16 +372,25 @@ class IntentRouter:
               shape: Optional[np.ndarray],
               affect: Optional[np.ndarray] = None,
               reference: Optional[np.ndarray] = None) -> Optional[np.ndarray]:
-        if sem is None:
+        if sem is None and shape is None and affect is None and reference is None:
             return None
-        if shape is None:
-            parts = [self._alpha * sem]
-        else:
-            parts = [self._alpha * sem, self._beta * shape]
+        parts = []
+        if sem is not None:
+            parts.append(self._alpha * sem)
+        elif self._alpha != 0.0:
+            sem_dim = len(next(iter(self._sem.values()))) if self._sem else 64
+            parts.append(np.zeros(sem_dim, dtype=float))
+        if shape is not None:
+            parts.append(self._beta * shape)
+        elif self._beta != 0.0:
+            shape_dim = len(next(iter(self._shape.values()))) if self._shape else _SHAPE_DIMS
+            parts.append(np.zeros(shape_dim, dtype=float))
         if affect is not None and self._gamma != 0.0:
             parts.append(self._gamma * affect)
         if reference is not None and self._delta != 0.0:
             parts.append(self._delta * reference)
+        if not parts:
+            return None
         return np.concatenate(parts)
 
     def _route_vec(self, route: str) -> Optional[np.ndarray]:

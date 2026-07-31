@@ -37,7 +37,15 @@ SENSORY_WORDS = {
 
 def _eng():
     # baby_mode=True boots the engine; GloVe loads from cache (no network).
-    return CognitiveChatEngine(baby_mode=True)
+    e = CognitiveChatEngine(baby_mode=True)
+    glove_cache = _data_path("data", "ravana_glove_cache.npz")
+    if os.path.exists(glove_cache):
+        import numpy as np
+        d = np.load(glove_cache, allow_pickle=True)
+        e._glove_vecs = {str(w).lower(): v for w, v in zip(d["words"].tolist(), d["vecs"])}
+        e._glove_proj = d["proj"].astype(np.float32)
+        e._glove_dim = int(d["proj"].shape[1])
+    return e
 
 
 def _data_path(*parts):
