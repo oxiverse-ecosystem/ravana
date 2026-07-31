@@ -135,6 +135,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e .[dev,test]
       - name: Run AV soak (50x engine build + turns)
+        shell: bash
         run: |
           mkdir -p data output checkpoints
           python -m pytest tests/ci/test_av_soak.py -q --tb=short --timeout=900
