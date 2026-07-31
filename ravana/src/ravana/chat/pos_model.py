@@ -138,16 +138,13 @@ class PosModel:
 
 
 def _seed_from_constants():
-    """Pull the seed POS word lists from constants.json (the legacy source)."""
-    import json as _json
-    p = os.path.join(_DATA_DIR, "constants.json")
-    with open(p, encoding="utf-8") as f:
-        c = _json.load(f)
+    """Pull the seed POS word lists from ravana.chat.constants (the legacy seed)."""
+    from ravana.chat.constants import KNOWN_VERBS, KNOWN_ADJS, FUNCTION_WORDS
     return {
-        "verb": c.get("known_verbs", []),
-        "adj": c.get("known_adjs", []),
+        "verb": sorted(KNOWN_VERBS),
+        "adj": sorted(KNOWN_ADJS),
         # function_words carries mostly preps/determiners/conjunctions -> 'func'
-        "func": c.get("function_words", []),
+        "func": sorted(FUNCTION_WORDS),
         # 'noun' has no explicit seed list; the model defaults to 'noun' when
         # uncertain, and content nouns naturally sit far from verb/adj/func
         # centroids, so an empty noun seed is fine.

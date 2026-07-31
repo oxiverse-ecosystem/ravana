@@ -1,8 +1,9 @@
 """
 Shared constants for RAVANA cognitive architecture.
-Auto-extracted from scripts/ravana_chat.py via split_engine.py.
+Auto-extracted from scripts/ravana_chat.py via split_engine.py; the seed lists
+below were originally externalized to data/constants.json but are now inlined
+so importing this module never depends on a gitignored data file.
 """
-import json, os
 from typing import Optional
 
 # M6: one-time flag so the subject=None production-path warning fires
@@ -20,18 +21,279 @@ _SALAD_WARNED_NO_SUBJECT = False
 SALAD_DOC_THRESHOLD = 0.7
 SALAD_CLAUSE_THRESHOLD = 0.55
 
-_DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))), "data")
+# Seed data for the RAVANA chat engine (formerly data/constants.json, now
+# inlined: a gitignored data file hard-loaded at import time made every fresh
+# checkout / CI run crash). The learned models in data/ (pos_model.json under
+# --learned-pos, etc.) supersede these at runtime when enabled; these remain
+# the legacy structural seed.
+TEEN_CONCEPTS = [
+    ('hello', 'hi hey greeting sup'),
+    ('bye', 'goodbye farewell later'),
+    ('yes', 'okay yeah agree absolutely'),
+    ('no', 'nope negative disagree'),
+    ('please', 'polite request kindly'),
+    ('thanks', 'thank appreciate gratitude'),
+    ('sorry', 'apologize forgive regret'),
+    ('i', 'me myself my own'),
+    ('you', 'your yourself thou'),
+    ('we', 'us our together group'),
+    ('they', 'them their other people'),
+    ('friend', 'buddy pal companion ally'),
+    ('people', 'human society community crowd'),
+    ('person', 'individual human being someone'),
+    ('trust', 'rely faith confidence belief'),
+    ('justice', 'fairness equality right moral'),
+    ('hypocrisy', 'contradict inconsistent double standard fake'),
+    ('empathy', 'compassion understanding feeling care'),
+    ('respect', 'admire honor esteem regard'),
+    ('identity', 'self character personality who'),
+    ('culture', 'tradition society custom heritage'),
+    ('power', 'control influence authority strength'),
+    ('freedom', 'liberty choice independence right'),
+    ('responsibility', 'duty obligation accountability burden'),
+    ('truth', 'real fact honest genuine accurate'),
+    ('belief', 'faith opinion conviction view'),
+    ('knowledge', 'wisdom understanding awareness learning'),
+    ('meaning', 'purpose significance essence point'),
+    ('pattern', 'structure repetition system cycle'),
+    ('system', 'network framework structure organization'),
+    ('perspective', 'viewpoint angle lens outlook'),
+    ('context', 'situation background setting circumstance'),
+    ('paradox', 'contradiction puzzle ironic dilemma'),
+    ('principle', 'rule value standard moral axiom'),
+    ('theory', 'hypothesis idea framework explanation'),
+    ('evidence', 'proof data fact support clue'),
+    ('analysis', 'examination study breakdown evaluation'),
+    ('conclusion', 'result inference deduction summation'),
+    ('logic', 'reason rational sense coherence'),
+    ('intuition', 'instinct gut feeling hunch'),
+    ('wisdom', 'insight knowledge judgment prudence'),
+    ('complex', 'complicated intricate sophisticated layered'),
+    ('significant', 'important meaningful major notable'),
+    ('fundamental', 'basic essential core foundation'),
+    ('inevitable', 'unavoidable certain destined fated'),
+    ('possible', 'maybe potential feasible plausible'),
+    ('obvious', 'clear apparent evident obvious'),
+    ('subtle', 'nuanced delicate faint indirect'),
+    ('profound', 'deep meaningful significant thoughtful'),
+    ('ignorance', 'unawareness blindness obliviousness inexperience'),
+    ('injustice', 'unfairness inequality oppression bias'),
+    ('oppression', 'tyranny suppression persecution subjugation'),
+    ('want', 'wish desire need crave'),
+    ('like', 'enjoy love prefer appreciate'),
+    ('go', 'move leave walk proceed'),
+    ('come', 'arrive approach appear'),
+    ('see', 'look watch observe perceive'),
+    ('hear', 'listen sound overhear'),
+    ('eat', 'food meal consume devour'),
+    ('drink', 'water thirsty sip beverage'),
+    ('sleep', 'rest nap bed unconscious'),
+    ('play', 'fun game toy recreation'),
+    ('help', 'assist aid support serve'),
+    ('make', 'create build produce cause'),
+    ('get', 'receive obtain acquire understand'),
+    ('know', 'understand aware learn recognize'),
+    ('think', 'believe consider wonder reason'),
+    ('say', 'tell speak talk express'),
+    ('feel', 'sense emotion touch experience'),
+    ('love', 'care affection adore cherish'),
+    ('give', 'share present offer donate'),
+    ('take', 'grab seize accept choose'),
+    ('analyze', 'examine study evaluate break down'),
+    ('conclude', 'decide infer deduce determine'),
+    ('reflect', 'ponder contemplate meditate consider'),
+    ('question', 'challenge doubt inquire interrogate'),
+    ('explore', 'discover investigate venture search'),
+    ('understand', 'comprehend grasp realize fathom'),
+    ('compare', 'contrast relate match evaluate'),
+    ('criticize', 'judge critique evaluate assess'),
+    ('assume', 'presume suppose guess speculate'),
+    ('imagine', 'envision dream visualize conceive'),
+    ('connect', 'relate associate link bridge'),
+    ('influence', 'affect shape impact sway'),
+    ('struggle', 'fight conflict strive contend'),
+    ('challenge', 'dare confront test oppose'),
+    ('water', 'drink wet rain liquid'),
+    ('food', 'eat meal snack nutrition'),
+    ('home', 'house room family shelter'),
+    ('sun', 'light warm day star'),
+    ('moon', 'night star dark lunar'),
+    ('tree', 'plant leaf flower forest'),
+    ('bird', 'fly animal feather wing'),
+    ('dog', 'pet puppy bark canine'),
+    ('cat', 'kitten meow pet feline'),
+    ('book', 'read story page novel'),
+    ('song', 'music sing melody rhythm'),
+    ('world', 'earth globe planet universe'),
+    ('nature', 'environment wild natural earth'),
+    ('time', 'clock moment age duration'),
+    ('life', 'living existence being survive'),
+    ('death', 'die end mortality passing'),
+    ('mind', 'brain thought consciousness psyche'),
+    ('heart', 'organ emotion core center'),
+    ('science', 'study research knowledge method'),
+    ('history', 'past story legacy record'),
+    ('art', 'creative expression beauty culture'),
+    ('cause', 'produce create generate result'),
+    ('change', 'transform shift modify evolve'),
+    ('grow', 'develop expand mature increase'),
+    ('learn', 'study discover understand master'),
+    ('teach', 'educate instruct explain mentor'),
+    ('create', 'make invent produce generate'),
+    ('destroy', 'ruin break eliminate devastate'),
+    ('protect', 'defend guard shield secure'),
+    ('accept', 'embrace welcome acknowledge agree'),
+    ('reject', 'refuse deny dismiss decline'),
+    ('good', 'nice great fine positive'),
+    ('bad', 'wrong negative evil harmful'),
+    ('big', 'large huge giant massive'),
+    ('small', 'tiny little mini slight'),
+    ('hot', 'warm burn fire heated'),
+    ('cold', 'cool freeze ice chilly'),
+    ('happy', 'joy glad smile content'),
+    ('sad', 'cry unhappy upset sorrow'),
+    ('scared', 'afraid fear frighten anxious'),
+    ('angry', 'furious mad frustrated rage'),
+    ('tired', 'sleepy exhausted fatigue drained'),
+    ('excited', 'eager enthusiastic thrilled pumped'),
+    ('curious', 'interested inquisitive nosy wonder'),
+    ('confused', 'lost puzzled baffled uncertain'),
+    ('bored', 'uninterested dull tired weary'),
+    ('proud', 'accomplished satisfied dignified confident'),
+    ('lonely', 'isolated alone abandoned disconnected'),
+    ('grateful', 'thankful appreciative indebted blessed'),
+    ('anxiety', 'worry nervous tension stress'),
+    ('excitement', 'thrill enthusiasm anticipation energy'),
+    ('frustration', 'annoyance irritation aggravation anger'),
+    ('hope', 'optimism aspiration wish dream'),
+    ('fear', 'terror dread panic horror'),
+    ('joy', 'delight happiness bliss pleasure'),
+    ('grief', 'sorrow loss mourning lament'),
+    ('sadness', 'sorrow unhappiness melancholy grief'),
+    ('surprise', 'shock amazement astonishment wonder'),
+    ('guilt', 'remorse regret shame blame'),
+    ('disappointment', 'letdown regret dissatisfaction dismay'),
+    ('hate', 'detest loathe despise abhor'),
+    ('despair', 'hopelessness misery anguish desolation'),
+    ('distrust', 'suspicion doubt mistrust wariness'),
+    ('motivation', 'drive inspiration ambition determination'),
+    ('future', 'tomorrow ahead later coming'),
+    ('past', 'history ago previous yesterday'),
+    ('machine', 'device engine mechanism robot'),
+    ('invention', 'creation innovation discovery breakthrough'),
+    ('invent', 'create design devise pioneer'),
+    ('possibility', 'potential chance opportunity likelihood'),
+    ('imagination', 'creativity fantasy vision dream'),
+    ('impossible', 'unlikely hopeless absurd ridiculous'),
+    ('journey', 'travel adventure voyage quest'),
+    ('secret', 'hidden mystery private unknown'),
+    ('experiment', 'trial test attempt investigation'),
+    ('and', 'also plus together'),
+    ('so', 'therefore thus hence'),
+    ('then', 'next after afterwards'),
+    ('link', 'connect join bond tie'),
+    ('why', 'reason because explanation cause'),
+    ('how', 'method way process means'),
+    ('what', 'which thing object identity'),
+    ('if', 'suppose whether maybe perhaps'),
+    ('but', 'however yet although though'),
+    ('because', 'since due cause reason'),
+    ('maybe', 'perhaps possibly probably could'),
+    ('always', 'forever constant perpetual eternal'),
+    ('never', 'not once zero none'),
+    ('up', 'above high sky rise'),
+    ('down', 'below low ground fall'),
+    ('in', 'inside within interior'),
+    ('out', 'outside exit exterior'),
+    ('here', 'this place near present'),
+    ('there', 'that place far distant'),
+    ('now', 'today present moment current'),
+    ('later', 'soon future after eventual'),
+    ('more', 'extra additional plus further'),
+    ('all', 'every everything whole total'),
+    ('some', 'few several part partial'),
+    ('one', 'single first unique individual'),
+    ('two', 'second pair both double'),
+    ('many', 'multiple numerous several abundant'),
+]
 
-with open(os.path.join(_DATA_DIR, "constants.json"), encoding="utf-8") as _f:
-    _CONSTANTS = json.load(_f)
+WEB_GARBAGE = {
+    'align', 'analytics', 'angular', 'api', 'apr', 'array', 'article', 'aside',
+    'async', 'aug', 'await', 'aws', 'azure', 'background', 'bitbucket', 'block',
+    'body', 'boolean', 'bootstrap', 'border', 'br', 'callback', 'campaign',
+    'class', 'clear', 'click', 'color', 'com', 'console', 'const', 'constructor',
+    'content', 'conversion', 'cookie', 'css', 'debug', 'dec', 'display', 'div',
+    'docker', 'domain', 'drupal', 'edu', 'event', 'export', 'false', 'feb',
+    'flex', 'float', 'font', 'footer', 'fri', 'func', 'function', 'gaq', 'gcp',
+    'gform', 'github', 'gitlab', 'gov', 'grid', 'gtag', 'handler', 'head',
+    'header', 'height', 'heroku', 'hr', 'href', 'html', 'http', 'https', 'img',
+    'import', 'impression', 'index', 'inline', 'instanceof', 'io', 'jan',
+    'joomla', 'jquery', 'js', 'json', 'jul', 'jun', 'justify', 'kubernetes',
+    'length', 'less', 'let', 'link', 'listener', 'log', 'main', 'mar', 'margin',
+    'meta', 'module', 'mon', 'nav', 'net', 'netlify', 'nov', 'null', 'number',
+    'oauth', 'object', 'oct', 'org', 'overflow', 'padding', 'params', 'pixel',
+    'position', 'promise', 'prototype', 'query', 'react', 'require', 'return',
+    'sass', 'sat', 'script', 'section', 'sep', 'shopify', 'span', 'squarespace',
+    'src', 'string', 'style', 'sun', 'svelte', 'tailwind', 'thu', 'token',
+    'tracking', 'true', 'tue', 'typeof', 'undefined', 'uri', 'url', 'utm',
+    'value', 'var', 'vercel', 'vite', 'vue', 'webflow', 'webpack', 'wed',
+    'width', 'wix', 'wordpress', 'www', 'xml',
+}
 
-TEEN_CONCEPTS = [(label, " ".join(kws)) for label, kws in _CONSTANTS["teen_concepts"]]
-WEB_GARBAGE = set(_CONSTANTS["web_garbage"])
-STOP_WORDS = set(_CONSTANTS["stop_words"])
-KNOWN_VERBS = set(_CONSTANTS.get("known_verbs", []))
-KNOWN_ADJS = set(_CONSTANTS.get("known_adjs", []))
-FUNCTION_WORDS = set(_CONSTANTS.get("function_words", []))
-FUNCTION_POS = dict(_CONSTANTS.get("function_pos", {}))
+STOP_WORDS = {
+    'a', 'about', 'across', 'after', 'all', 'along', 'also', 'am', 'among',
+    'an', 'and', 'any', 'are', 'around', 'as', 'ask', 'at', 'be', 'because',
+    'become', 'been', 'before', 'begin', 'beneath', 'between', 'beyond', 'both',
+    'but', 'by', 'call', 'can', 'change', 'come', 'could', 'despite', 'did',
+    'do', 'does', 'during', 'each', 'end', 'every', 'except', 'feel', 'few',
+    'find', 'for', 'from', 'get', 'give', 'go', 'had', 'has', 'have', 'he',
+    'hear', 'help', 'her', 'him', 'his', 'how', 'if', 'in', 'inside', 'into',
+    'is', 'it', 'its', 'just', 'keep', 'know', 'let', 'like', 'listen', 'look',
+    'love', 'make', 'may', 'mean', 'might', 'more', 'most', 'move', 'near',
+    'need', 'new', 'no', 'nor', 'not', 'of', 'on', 'once', 'one', 'or',
+    'other', 'our', 'over', 'play', 'put', 'run', 'same', 'say', 'see', 'seem',
+    'set', 'shall', 'she', 'should', 'show', 'since', 'so', 'some', 'start',
+    'stop', 'such', 'take', 'talk', 'tell', 'than', 'that', 'the', 'their',
+    'them', 'then', 'these', 'they', 'think', 'this', 'those', 'through', 'til',
+    'till', 'to', 'too', 'toward', 'towards', 'try', 'turn', 'twice',
+    'underneath', 'until', 'upon', 'use', 'versus', 'very', 'via', 'walk',
+    'want', 'was', 'we', 'were', 'what', 'when', 'where', 'whether', 'which',
+    'while', 'who', 'whom', 'why', 'will', 'with', 'within', 'without', 'work',
+    'would', 'you', 'your',
+}
+
+KNOWN_VERBS = {
+    'accept', 'analyze', 'assume', 'cause', 'challenge', 'change', 'come',
+    'compare', 'conclude', 'connect', 'create', 'criticize', 'destroy',
+    'drink', 'eat', 'explore', 'feel', 'get', 'give', 'go', 'grow', 'hear',
+    'help', 'imagine', 'influence', 'invent', 'know', 'learn', 'like', 'love',
+    'make', 'need', 'play', 'protect', 'question', 'reflect', 'reject', 'say',
+    'see', 'sleep', 'struggle', 'take', 'teach', 'think', 'understand', 'want',
+}
+
+KNOWN_ADJS = {
+    'angry', 'bad', 'big', 'bored', 'cold', 'complex', 'confused', 'curious',
+    'excited', 'fundamental', 'good', 'grateful', 'happy', 'hot', 'inevitable',
+    'lonely', 'obvious', 'possible', 'profound', 'proud', 'sad', 'scared',
+    'significant', 'small', 'subtle', 'tired',
+}
+
+FUNCTION_WORDS = {
+    'a', 'about', 'after', 'all', 'also', 'am', 'an', 'any', 'are', 'as', 'at',
+    'be', 'because', 'been', 'before', 'being', 'between', 'both', 'by', 'can',
+    'concept', 'concepts', 'connect', 'connects', 'could', 'did', 'do', 'does',
+    'during', 'each', 'every', 'few', 'for', 'from', 'had', 'has', 'have', 'he',
+    'her', 'him', 'his', 'how', 'i', 'idea', 'ideas', 'if', 'important', 'into',
+    'is', 'it', 'its', 'just', 'lead', 'leads', 'link', 'links', 'may', 'me',
+    'mean', 'means', 'might', 'more', 'most', 'my', 'myself', 'no', 'nor',
+    'not', 'of', 'on', 'our', 'over', 'related', 'shall', 'she', 'should',
+    'so', 'some', 'talk', 'than', 'that', 'the', 'their', 'them', 'then',
+    'these', 'they', 'think', 'this', 'those', 'through', 'to', 'too', 'very',
+    'was', 'we', 'were', 'what', 'when', 'where', 'which', 'while', 'who',
+    'whom', 'why', 'will', 'with', 'would', 'you', 'your',
+}
+
+FUNCTION_POS = {}
 
 # INAPPROPRIATE_WORDS replaced with learned emotional valence detection.
 # The brain learns what's inappropriate through social feedback (OFC), not hardcoded lists.
@@ -80,7 +342,7 @@ def _is_keyboard_mash(text: str) -> bool:
 
 
 def classify_word_pos(word: str) -> str:
-    """Dynamically classify the POS tag of a word using constants.json rules."""
+    """Dynamically classify the POS tag of a word using the seed POS lists."""
     ll = word.lower()
     
     is_verb = ll in KNOWN_VERBS

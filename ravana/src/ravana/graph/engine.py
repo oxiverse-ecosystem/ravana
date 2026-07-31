@@ -10,7 +10,7 @@ import re
 import os
 import hashlib
 
-# Function-word set shared with the chat engine (constants.json). Used by
+# Function-word set shared with the chat engine. Used by
 # `_is_function_word` so callers (interface.py) can filter grammatical words
 # out of association lists without depending on CognitiveChatEngine.
 try:
