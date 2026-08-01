@@ -251,11 +251,21 @@ class GraphMixin:
         Phase 2.3: Warm-start — tries to load pre-computed projected vectors
         from 'ravana_glove_cache.npz' first. Falls back to reading the raw
         GloVe file and caching the result for next time.
+
+        Search order for the cache:
+        1. self._glove_cache_path (may be data_dir-specific, e.g. a temp dir)
+        2. _proj_root/data/ravana_glove_cache.npz (repo-level, committed via LFS)
         """
-        # Phase 2.3: Try warm-start cache first
-        if os.path.exists(self._glove_cache_path):
+        # Phase 2.3: Try warm-start cache first.
+        # Check the instance path first, then fall back to the repo-level cache
+        # (important when data_dir is a temp dir, as in tests).
+        _repo_cache = os.path.join(_proj_root, "data", "ravana_glove_cache.npz")
+        _cache_path = self._glove_cache_path
+        if not os.path.exists(_cache_path) and os.path.exists(_repo_cache):
+            _cache_path = _repo_cache
+        if os.path.exists(_cache_path):
             try:
-                data = np.load(self._glove_cache_path, allow_pickle=True)
+                data = np.load(_cache_path, allow_pickle=True)
                 words = data['words'].tolist()
                 vecs = data['vecs']  # shape (n_words, glove_dim) - RAW vectors
                 proj = data['proj']
