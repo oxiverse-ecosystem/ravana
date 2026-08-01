@@ -748,10 +748,24 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # are never polluted by thousands of ravana_weights*.pkl/.db dumps.
         # Weights land in <repo>/weights/; the GloVe projection cache is a
         # derived artifact that lives alongside the datasets in data/.
+        #
+        # CI isolation: under pytest-xdist, many worker processes boot engines
+        # with the default data_dir. They all share <repo>/weights/, and the
+        # SQLite DB there serializes writers -> "database is locked" errors.
+        # When no explicit data_dir was passed AND we're under xdist, isolate
+        # the weights dir per worker (e.g. weights/_xdist_gw0) so parallel
+        # workers never contend on the same SQLite file. The repo GloVe cache
+        # is still read from <repo>/data (read-only, safe to share).
+        _xdist_worker = os.environ.get("PYTEST_XDIST_WORKER")
         if data_dir:
             os.makedirs(data_dir, exist_ok=True)
             self._save_path = os.path.join(data_dir, f"ravana_weights{user_suffix}.pkl")
             self._glove_cache_path = os.path.join(data_dir, "ravana_glove_cache.npz")
+        elif _xdist_worker:
+            _iso_dir = os.path.join(_proj_root, "weights", f"_xdist_{_xdist_worker}")
+            os.makedirs(_iso_dir, exist_ok=True)
+            self._save_path = os.path.join(_iso_dir, f"ravana_weights{user_suffix}.pkl")
+            self._glove_cache_path = os.path.join(_proj_root, "data", "ravana_glove_cache.npz")
         else:
             os.makedirs(os.path.join(_proj_root, "weights"), exist_ok=True)
             os.makedirs(os.path.join(_proj_root, "data"), exist_ok=True)

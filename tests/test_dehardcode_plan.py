@@ -19,8 +19,15 @@ def engine():
     # assertions about one query's routing are not contaminated by turns
     # processed in other test modules that share a module-scoped engine. The
     # De-Hardcoding plan tests assert specific single-turn routing outcomes.
+    #
+    # Use an isolated data_dir (temp) so parallel pytest-xdist workers don't
+    # contend on the same SQLite DB file (database-is-locked errors). The repo
+    # GloVe cache is injected manually below regardless of data_dir.
+    import tempfile
+    _data_dir = tempfile.mkdtemp(prefix="ravana_dhp_")
     from ravana.chat.engine import CognitiveChatEngine
     eng = CognitiveChatEngine(dim=64, seed=42, baby_mode=True,
+                               data_dir=_data_dir,
                                user_suffix="_dehardcode_plan")
     _proj_root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
     glove_cache = _os.path.join(_proj_root, "data", "ravana_glove_cache.npz")
