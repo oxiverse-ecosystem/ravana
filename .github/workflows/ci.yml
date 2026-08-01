@@ -31,6 +31,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -45,7 +47,7 @@ jobs:
           mkdir -p data output checkpoints
           python -m pytest tests/ci/ -q --tb=short -x --ci \
             -k "not soak" \
-            -n auto --dist worksteal --timeout=300
+            -n auto --dist worksteal --timeout=120
 
   # ── Unit Tests (sharded across runners, each shard uses xdist) ──
   unit-tests:
@@ -57,6 +59,8 @@ jobs:
         shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -72,7 +76,7 @@ jobs:
           python -m pytest tests/unit/ -q --tb=short \
             --splits 4 --group ${{ matrix.shard }} \
             --splitting-algorithm least_duration \
-            -n auto --dist worksteal --timeout=300
+            -n auto --dist worksteal --timeout=180
 
   # ── Integration Tests (cross-module, slower) ──
   integration-tests:
@@ -80,6 +84,8 @@ jobs:
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -93,7 +99,7 @@ jobs:
         run: |
           mkdir -p data output checkpoints
           python -m pytest tests/integration/ -q --tb=short \
-            -n auto --dist worksteal --timeout=600
+            -n auto --dist worksteal --timeout=240
 
   # ── Root-level suites not covered by the dirs above ──
   misc-tests:
@@ -101,6 +107,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -115,7 +123,7 @@ jobs:
           mkdir -p data output checkpoints
           python -m pytest tests/ -q --tb=short \
             --ignore=tests/unit --ignore=tests/integration --ignore=tests/ci \
-            -n auto --dist worksteal --timeout=300
+            -n auto --dist worksteal --timeout=120
 
   # ── AV BLAS soak (M0): 50 engine builds + hundreds of turns, Windows-only.
   # This is the thread-race stress test; it is intentionally gated to the
@@ -125,6 +133,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}

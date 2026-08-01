@@ -330,65 +330,83 @@ class GraphMixin:
             print(f"  [GloVe] Warning: could not save cache: {e}")
 
     def _download_glove(self, glove_dir: str) -> bool:
-        """Download GloVe 6B vectors from Stanford NLP.
-        
+        """Download GloVe 6B vectors from HuggingFace (Stanford host is down).
+
         Downloads glove.6B.zip (~822 MB), extracts glove.6B.100d.txt and glove.6B.50d.txt.
         Uses streaming download with progress indicator.
-        
+
         Returns True on success, False on failure.
         """
         import zipfile
-        import io
-        
-        glove_url = "http://nlp.stanford.edu/data/glove.6B.zip"
+
+        # Stanford NLP host frequently returns 503/404; use the HuggingFace
+        # mirror as primary (reliable CDN) with Stanford as fallback.
+        glove_urls = [
+            "https://huggingface.co/stanfordnlp/glove/resolve/main/glove.6B.zip",
+            "https://nlp.stanford.edu/data/glove.6B.zip",
+        ]
         zip_path = os.path.join(glove_dir, "glove.6B.zip")
-        
+
         try:
             os.makedirs(glove_dir, exist_ok=True)
-            
-            print(f"  [GloVe] Downloading from {glove_url}...")
-            req = urllib.request.Request(glove_url, headers={
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) RAVANA/1.0'
-            })
-            
+
             # Stream download with progress
-            with urllib.request.urlopen(req, timeout=300) as resp:
-                total_size = int(resp.headers.get('Content-Length', 0))
-                downloaded = 0
-                chunk_size = 8192
-                
-                with open(zip_path, 'wb') as f:
-                    while True:
-                        chunk = resp.read(chunk_size)
-                        if not chunk:
-                            break
-                        f.write(chunk)
-                        downloaded += len(chunk)
-                        if total_size > 0 and downloaded % (50 * 1024 * 1024) < chunk_size:
+            for glove_url in glove_urls:
+                try:
+                    print(f"  [GloVe] Downloading from {glove_url}...")
+                    req = urllib.request.Request(glove_url, headers={
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) RAVANA/1.0'
+                    })
+
+                    with urllib.request.urlopen(req, timeout=60) as resp:
+                        total_size = int(resp.headers.get('Content-Length', 0))
+                        downloaded = 0
+                        chunk_size = 8192
+
+                        with open(zip_path, 'wb') as f:
+                            while True:
+                                chunk = resp.read(chunk_size)
+                                if not chunk:
+                                    break
+                                f.write(chunk)
+                                downloaded += len(chunk)
+                                if total_size > 0 and downloaded % (50 * 1024 * 1024) < chunk_size:
+                                    pct = downloaded / total_size * 100
+                                    print(f"  [GloVe] Download progress: {pct:.1f}% ({downloaded / 1024 / 1024:.0f} MB)")
+
+                        if total_size > 0:
                             pct = downloaded / total_size * 100
-                            print(f"  [GloVe] Download progress: {pct:.1f}% ({downloaded / 1024 / 1024:.0f} MB)")
-                
-                if total_size > 0:
-                    pct = downloaded / total_size * 100
-                    print(f"  [GloVe] Download complete: {pct:.1f}% ({downloaded / 1024 / 1024:.0f} MB)")
-            
-            # Extract the needed files
-            print("  [GloVe] Extracting glove.6B.100d.txt and glove.6B.50d.txt...")
-            with zipfile.ZipFile(zip_path, 'r') as zf:
-                for target in ['glove.6B.100d.txt', 'glove.6B.50d.txt']:
-                    if target in zf.namelist():
-                        zf.extract(target, glove_dir)
-                        print(f"  [GloVe] Extracted {target}")
-            
-            # Clean up zip file to save space
-            try:
-                os.remove(zip_path)
-                print("  [GloVe] Cleaned up zip archive")
-            except Exception:
-                pass
-            
-            return True
-            
+                            print(f"  [GloVe] Download complete: {pct:.1f}% ({downloaded / 1024 / 1024:.0f} MB)")
+
+                    # Extract the needed files
+                    print("  [GloVe] Extracting glove.6B.100d.txt and glove.6B.50d.txt...")
+                    with zipfile.ZipFile(zip_path, 'r') as zf:
+                        for target in ['glove.6B.100d.txt', 'glove.6B.50d.txt']:
+                            if target in zf.namelist():
+                                zf.extract(target, glove_dir)
+                                print(f"  [GloVe] Extracted {target}")
+
+                    # Clean up zip file to save space
+                    try:
+                        os.remove(zip_path)
+                        print("  [GloVe] Cleaned up zip archive")
+                    except Exception:
+                        pass
+
+                    return True
+                except Exception as e:
+                    print(f"  [GloVe] Download from {glove_url} failed: {e}")
+                    # Clean up partial download
+                    try:
+                        if os.path.exists(zip_path):
+                            os.remove(zip_path)
+                    except Exception:
+                        pass
+                    continue
+
+            # All mirrors failed
+            print("  [GloVe] All download mirrors exhausted.")
+            return False
         except Exception as e:
             print(f"  [GloVe] Download failed: {e}")
             # Clean up partial download

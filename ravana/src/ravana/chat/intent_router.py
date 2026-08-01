@@ -416,6 +416,13 @@ class IntentRouter:
         person_anchor = getattr(self, "_person_anchor", None)
         command_anchor = getattr(self, "_command_anchor", None)
         q_sem = _mean_pool(toks, glove_fn) if callable(glove_fn) else None
+        # Fail-safe: if the router has semantic centroids but GloVe is
+        # unavailable (q_sem is None), the semantic component is zero while
+        # the centroids' semantic component is loaded — the cosine comparison
+        # would be meaningless and cause misroutes. Return None so the caller
+        # falls back to the legacy regex path.
+        if q_sem is None and any(v is not None for v in self._sem.values()):
+            return None
         q_shape = _shape_features(query, glove_fn, person_anchor, command_anchor)
         q_affect = _affect_features(query, self._detect_fn) if self._gamma != 0.0 else None
         q_ref = _reference_features(query)

@@ -17,7 +17,13 @@ dist/
 *.tar.gz
 
 # ── Runtime Data (auto-saved model weights, caches) ──
+# NOTE: data/ravana_glove_cache.npz is tracked via git-lfs (critical CI dep),
+# and data/*.json are committed config. Everything else under data/ is ignored.
 data/
+!data/
+!data/*.json
+!data/ravana_glove_cache.npz
+!data/common_facts.json
 weights/
 user_models/
 checkpoints/

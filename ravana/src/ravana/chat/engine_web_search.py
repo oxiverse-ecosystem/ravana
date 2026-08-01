@@ -1645,12 +1645,19 @@ class WebSearchMixin:
         if self._intent_router is not None or not _HAS_INTENT_ROUTER \
                 or IntentRouter is None:
             return
+        # The router's pre-computed centroids were built WITH GloVe. If GloVe is
+        # unavailable, classification would misroute (semantic component is zero).
+        # Fail-safe: leave the router as None so _route_intent returns None and
+        # the legacy regex path handles routing.
+        glove_fn = getattr(self, "_glove_vector", None)
+        if not callable(glove_fn):
+            self._intent_router = None
+            return
         try:
             _loaded = IntentRouter.load()
             if _loaded is not None and _loaded._sem:
                 self._intent_router = _loaded
             else:
-                glove_fn = getattr(self, "_glove_vector", None)
                 if callable(glove_fn):
                     self._intent_router = IntentRouter.from_seed(glove_fn)
         except Exception:
