@@ -62,13 +62,17 @@ _TURNS = [
 ]
 
 
-@pytest.mark.parametrize("round_i", range(50))
+@pytest.mark.parametrize("round_i", range(25))
 def test_av_soak_round(round_i):
-    """Build a fresh engine and run many BLAS-heavy turns — 50× in one process.
+    """Build a fresh engine and run many BLAS-heavy turns — 25× in one process.
 
     A surviving thread-race would raise a native access violation (not a Python
     exception) and abort the whole pytest session; reaching the assertion means
     the thread-pinning fix held for this round.
+
+    Reduced from 50 to 25 rounds to fit within the 20-minute CI job timeout
+    on Windows runners (each engine boot takes ~20s; 50 rounds took ~20 min,
+    leaving no margin for KB seeding overhead or CI variance).
     """
     data_dir = f"/tmp/ravana_av_soak_{round_i}"
     eng = CognitiveChatEngine(
