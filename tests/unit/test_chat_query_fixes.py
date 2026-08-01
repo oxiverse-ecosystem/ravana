@@ -33,6 +33,18 @@ from ravana.chat.engine import CognitiveChatEngine
 from ravana.chat.monitor_gate import _METAWORDS
 
 
+def _has_conceptnet_ontology():
+    """Check whether the prebuilt ConceptNet ontology pickle is available.
+
+    The humor generator (bisociation) needs typed edges from ConceptNet to
+    find cross-frame candidates. Without the ontology, it gracefully abstains
+    which makes the grammar-invariants test meaningless (it only exercises
+    fallback responses, not real jokes).
+    """
+    ont_path = os.path.join(_PROJ, "data", "conceptnet", "ont.pkl")
+    return os.path.exists(ont_path)
+
+
 @pytest.fixture(scope="module")
 def engine():
     d = tempfile.mkdtemp(prefix="ravana_qfix_")
@@ -236,6 +248,9 @@ def test_counterfactual_control_scope_gate():
 
 
 # ── Track A2 (M1): humor grammar (agreement + capitalization) ───────────────
+@pytest.mark.skipif(not _has_conceptnet_ontology(),
+                      reason="ConceptNet ontology (data/conceptnet/ont.pkl) not available; "
+                             "humor bisociation needs typed edges to find candidates")
 def test_humor_grammar_agreement():
     """Punchlines must be grammatically well-formed (Barlow & Ferguson
     agreement): past-participle after 'were', 1sg 'I relate to' (capital I),
