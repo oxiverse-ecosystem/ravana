@@ -9,11 +9,28 @@ B2  Web-learned definitions must not leak non-linguistic code/script
 B3  `_is_word_salad(subject=None)` must not over-suppress a genuine
     definitional sentence — over-monitoring / false-alarm lesion.
 """
+import os
 import pytest
 
 from ravana.chat.engine import CognitiveChatEngine
 from ravana.chat.constants import _is_word_salad
 from ravana.chat.web_learning import WebLearningMixin
+
+_PROJ = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+def _has_conceptnet_ontology():
+    """Check whether the prebuilt ConceptNet ontology pickle is available.
+
+    The humor generator (bisociation) needs typed edges from ConceptNet to find
+    cross-frame candidates. Without the ontology it gracefully abstains and only
+    ever emits fallbacks, so a test asserting that *real* jokes get produced is
+    measuring the absence of a build artifact rather than the generator. The
+    ontology is not committed (data/conceptnet/ is gitignored), so this is
+    always absent in CI. Mirrors the guard on
+    tests/unit/test_chat_query_fixes.py::test_humor_grammar_agreement.
+    """
+    return os.path.exists(os.path.join(_PROJ, "data", "conceptnet", "ont.pkl"))
 
 
 def _bare_engine():
@@ -285,6 +302,10 @@ def test_wellbeing_descriptor_not_robotic():
         assert any(x in res for x in ["i am functioning", "all systems are operational", "i am okay", "i'm doing alright, just a bit quiet today"])
 
 
+@pytest.mark.skipif(not _has_conceptnet_ontology(),
+                    reason="ConceptNet ontology (data/conceptnet/ont.pkl) not "
+                           "available; humor bisociation needs typed edges to "
+                           "produce non-fallback jokes")
 def test_humor_generator_blocks_meta_and_conjugates():
     # The brain-faithful humor generator (bisociation + resolution gate) must:
     #   * never return None for an explicit "tell me a joke" request;
