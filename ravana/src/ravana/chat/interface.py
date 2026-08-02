@@ -766,8 +766,10 @@ class ChatInterface:
             QUERY_PATTERNS = [
                 (r"(?:what\s+happens\s+(?:if|when))\s+(.+)", 1),
                 (r"(?:what|who)'?s?\s+(?:is\s+|are\s+)?(.+)", 1),
-                (r"(?:tell|show)\s+me\s+about\s+(.+)", 1),
-                (r"(?:explain|describe)\s+(.+)", 1),
+                (r"(?:tell|show)\s+me\s+(?:about\s+)?(.+)", 1),
+                (r"(?:can\s+you\s+|could\s+you\s+|please\s+)?(?:explain|describe|define|clarify|elucidate|outline|summarize|discuss|overview)\s+(?:of\s+|about\s+)?(.+)", 1),
+                (r"(?:give|provide)\s+(?:me\s+)?(?:a|an)?\s*(?:overview|summary|explanation|details?)\s+(?:of|about|on)\s+(.+)", 1),
+                (r"(?:search|look\s*up)\s+(?:for|about)?\s*(.+)", 1),
                 (r"(?:what|which)\s+(.+)\s+(?:is|are|mean)", 1),
                 (r"(?:do you know|have you heard of)\s+(.+)", 1),
             ]

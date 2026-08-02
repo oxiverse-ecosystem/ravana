@@ -249,7 +249,7 @@ STOP_WORDS = {
     'find', 'for', 'from', 'get', 'give', 'go', 'had', 'has', 'have', 'he',
     'hear', 'help', 'her', 'him', 'his', 'how', 'if', 'in', 'inside', 'into',
     'is', 'it', 'its', 'just', 'keep', 'know', 'let', 'like', 'listen', 'look',
-    'love', 'make', 'may', 'mean', 'might', 'more', 'most', 'move', 'near',
+    'make', 'may', 'mean', 'might', 'more', 'most', 'move', 'near',
     'need', 'new', 'no', 'nor', 'not', 'of', 'on', 'once', 'one', 'or',
     'other', 'our', 'over', 'play', 'put', 'run', 'same', 'say', 'see', 'seem',
     'set', 'shall', 'she', 'should', 'show', 'since', 'so', 'some', 'start',

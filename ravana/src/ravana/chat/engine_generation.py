@@ -1746,6 +1746,11 @@ class GenerationMixin:
         if not query_phrase:
             return ("", 0.0, "no_pattern")
 
+        # Normalize query_phrase by stripping performative/directive speech-act prefixes
+        query_phrase = re.sub(
+            r"^(?:can\s+you\s+|could\s+you\s+|please\s+)?(?:explain|describe|define|clarify|elucidate|outline|summarize|discuss|give\s+(?:an?\s+)?overview\s+(?:of|about)?|overview|search\s+(?:for)?|look\s*up|tell\s+me\s+about|tell\s+me)\s+(?:of\s+|about\s+)?",
+            "", query_phrase, flags=re.IGNORECASE).strip() or query_phrase
+
         # Strategy A2: Exact multi-word phrase match (domain concepts, seeded multi-word)
         phrase_clean = query_phrase.strip(".,!?")
         if phrase_clean in self._concept_labels:
@@ -2137,7 +2142,7 @@ class GenerationMixin:
         q = query.lower().strip(" ?!.")
 
         # 1. Statements are never informational queries
-        is_question = query.strip().endswith('?') or any(w in q for w in ["what", "who", "where", "when", "why", "how", "define", "explain", "describe", "tell me about"])
+        is_question = query.strip().endswith('?') or any(w in q for w in ["what", "who", "where", "when", "why", "how", "define", "explain", "describe", "tell me", "overview", "summarize"])
         if not is_question:
             return False
             
@@ -2150,7 +2155,7 @@ class GenerationMixin:
             r"\b(taller|shorter|heavier|lighter|older|younger|better|worse|biggest|tallest|heaviest|smartest)\b", # comparison/ordering
             r"\b(riddle|puzzle|logic|math|solve|calculation)\b", # logic/riddle
             r"\bis to\b", # analogy
-            r"\b(you|your|yourself|think|opinion|feel|friendship|meaning of life)\b", # personal, opinion, or open philosophical
+            r"\b(what do you think|your opinion|how do you feel|your name|who are you|are you a|tell me about yourself)\b", # personal self-model queries
         ]
         for pattern in reasoning_patterns:
             if re.search(pattern, q):
@@ -2162,7 +2167,11 @@ class GenerationMixin:
             r"^(what|who|where|when|which|how|why) \w+\b",  # "who won...", "where is...", "when was X built", "which city...", "how do X..."
             r"^define\b",
             r"^explain\b",
-            r"^tell me about\b",
+            r"^describe\b",
+            r"^summarize\b",
+            r"^give\s+(?:an?\s+)?overview\b",
+            r"^tell\s+(?:me\s+)?about\b",
+            r"^tell\s+me\b",
             r"^do you know\b",
             r"^what do you know about\b",
         ]
@@ -2361,15 +2370,8 @@ class GenerationMixin:
                     extract = data["description"]
                 clean = self._sanitize_definition_text(extract)
                 if clean:
-                    # Wikipedia summaries open with the title ("The Sun is the
-                    # star..."). Strip a leading "[The/A/An ]<title> is/are "
-                    # echo so the definition reads cleanly when the engine
-                    # later prefixes the subject itself ("Sun is the star...").
-                    _tc = title.lower().strip()
-                    clean = re.sub(
-                        r"^\s*(?:the |a |an )?" + re.escape(_tc)
-                        + r"\s+(is|are|was|were|refers to|means)\s+",
-                        "", clean, flags=re.IGNORECASE).strip()
+                    if not clean.endswith((".", "!", "?")):
+                        clean += "."
                     from ravana.chat.case_distribution import case_infer
                     clean = case_infer(clean) if clean else clean
                     return clean

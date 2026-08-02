@@ -346,8 +346,21 @@ class GraphMixin:
         Uses streaming download with progress indicator.
 
         Returns True on success, False on failure.
+
+        Offline guard: an 822 MB fetch must never happen implicitly inside a
+        test/CI process. When RAVANA_OFFLINE=1 (set by conftest and by the CI
+        workflow) this returns False immediately, so a cache miss degrades to
+        "no GloVe vectors" in milliseconds instead of stalling the job for
+        minutes on a slow or 503-ing mirror. Set RAVANA_ALLOW_GLOVE_DOWNLOAD=1
+        to opt back in explicitly (e.g. scripts/download_datasets.py).
         """
         import zipfile
+
+        if os.environ.get("RAVANA_OFFLINE") == "1" and \
+                os.environ.get("RAVANA_ALLOW_GLOVE_DOWNLOAD") != "1":
+            print("  [GloVe] Offline mode (RAVANA_OFFLINE=1) — skipping 822MB "
+                  "auto-download; running without GloVe vectors.")
+            return False
 
         # Stanford NLP host frequently returns 503/404; use the HuggingFace
         # mirror as primary (reliable CDN) with Stanford as fallback.

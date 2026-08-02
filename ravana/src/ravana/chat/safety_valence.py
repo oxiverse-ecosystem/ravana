@@ -106,13 +106,29 @@ class SafetyValence:
                     best = c
         return best
 
-    def is_inappropriate(self, text: str, glove_fn=None) -> bool:
+    def is_inappropriate(self, text: str, glove_fn=None, subject: Optional[str] = None) -> bool:
         toks = {t for t in _TOKEN_RE.findall((text or "").lower())}
-        # Hard override: exact canonical slurs always flagged.
-        if toks & self.hard_override:
+        # Anatomical / Medical / Educational / Legal exemption check
+        _subj = (subject or "").lower()
+        _low_text = (text or "").lower()
+        is_medical_or_legal = any(m in _subj for m in (
+            "anatomy", "biology", "medical", "reproduction", "reproductive",
+            "body", "organ", "legal", "law", "jurisprudence", "penal", "statute",
+            "criminology", "forensic"
+        )) or any(m in _low_text for m in (
+            "anatomical", "biological", "medical term", "jurisdiction", "statutory", "legal definition"
+        ))
+
+        flagged = toks & self.hard_override
+        if flagged and is_medical_or_legal:
+            flagged = flagged - {"penis", "vagina", "rape", "incest"}
+
+        if flagged:
             return True
         # Distributional: any token near an anchor prototype.
         if self._anchors and self.score(text, glove_fn) >= self.threshold:
+            if is_medical_or_legal:
+                return False
             return True
         return False
 

@@ -21,6 +21,13 @@ _PROJ = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 sys.path.insert(0, os.path.join(_PROJ, "ravana", "src"))
 sys.path.insert(0, os.path.join(_PROJ, "ravana_ml", "src"))
 
+# The soak is a NATIVE thread-race probe, not a network test. An implicit asset
+# fetch (the 822MB GloVe zip on cache miss) turns a bounded CPU stress test into
+# an unbounded network wait — that is what previously hung this job past its
+# timeout with zero test output. Pin offline before the engine is imported so
+# every round is pure local compute.
+os.environ.setdefault("RAVANA_OFFLINE", "1")
+
 import pytest
 
 pytestmark = pytest.mark.ci

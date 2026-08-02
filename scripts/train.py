@@ -83,16 +83,37 @@ def load_engine(args, reset=False):
     return engine, nd
 
 
-def load_corpus(engine):
-    corpus_path = os.path.join(_proj_root, "data", "corpora", "teen_seeds.txt")
-    with open(corpus_path, "r", encoding="utf-8") as f:
-        text = f.read()
-    engine._freeze_decoder_vocab = False
-    words_in_corpus = set(re.findall(r"[a-zA-Z\']{3,}", text.lower()))
-    new_for_vocab = [w for w in words_in_corpus if w not in engine._decoder_word_to_idx]
-    if new_for_vocab:
-        engine._expand_decoder_vocab(new_for_vocab)
+def load_corpus(engine, extra_corpora=None):
+    """Load one or more text corpora, expand decoder vocab, run LingGen
+    grounded pre-training (no-op until the harvest exists), freeze the vocab,
+    and return the combined sentence list.
+
+    `extra_corpora` is a list of additional file paths (e.g. tiny_shakespeare.txt)
+    concatenated AFTER the primary seed corpus. They contribute training
+    sentences and (before the vocab freeze) new vocabulary, so the decoder
+    trains on all available real-language data in data/corpora/. The primary
+    seed (teen_seeds.txt) remains the designated vocab anchor.
+    """
     nd = engine.neural_decoder
+    primary = os.path.join(_proj_root, "data", "corpora", "teen_seeds.txt")
+    files = [primary] + list(extra_corpora or [])
+    engine._freeze_decoder_vocab = False
+
+    corpus_texts = []
+    for path in files:
+        if not os.path.exists(path):
+            print(f"  [corpus] skip (missing): {os.path.relpath(path, _proj_root)}")
+            continue
+        with open(path, "r", encoding="utf-8") as f:
+            text = f.read()
+        corpus_texts.append(text)
+        words_in_corpus = set(re.findall(r"[a-zA-Z\']{3,}", text.lower()))
+        new_for_vocab = [w for w in words_in_corpus if w not in engine._decoder_word_to_idx]
+        if new_for_vocab:
+            engine._expand_decoder_vocab(new_for_vocab)
+        print(f"  [corpus] loaded {os.path.relpath(path, _proj_root)} "
+              f"({len(words_in_corpus)} word-types, +{len(new_for_vocab)} new vocab)")
+
     # LingGen P6: train the decoder on web-harvested grounded descriptions
     # (data/corpora/grounded_descriptions.txt) BEFORE freezing the vocab. This
     # fits W_sm (65->75) and trains the angular-gyrus binding. No-op if the
@@ -103,11 +124,15 @@ def load_corpus(engine):
     except Exception as _e:
         print(f"  [LingGen] grounded training skipped: {_e}")
     engine._freeze_decoder_vocab = True
-    all_sentences = nd.prepare_sentences(
-        text, engine._decoder_word_to_embed, engine._decoder_word_to_idx,
-        min_sentence_len=3,
-    )
-    return text, all_sentences, nd
+
+    all_sentences = []
+    for text in corpus_texts:
+        all_sentences.extend(nd.prepare_sentences(
+            text, engine._decoder_word_to_embed, engine._decoder_word_to_idx,
+            min_sentence_len=3))
+    print(f"  [corpus] {len(all_sentences)} total training sentences "
+          f"({len(engine._decoder_word_to_idx)} vocab words)")
+    return "\n".join(corpus_texts), all_sentences, nd
 
 
 def train_seed_corpus(engine, nd, all_sentences, n_passes=200, pp=2000, si=10, pe=20):
@@ -539,8 +564,12 @@ def _mode_phase2(args):
     print()
 
     # Phase 1: Heavy seed corpus training
+    extra_corpora = []
+    _shake = os.path.join(_proj_root, "data", "corpora", "tiny_shakespeare.txt")
+    if not args.no_shakespeare and os.path.exists(_shake):
+        extra_corpora.append(_shake)
     print("[Phase 1] Seed corpus training...")
-    text, all_sentences, nd = load_corpus(engine)
+    text, all_sentences, nd = load_corpus(engine, extra_corpora=extra_corpora)
     n_seed = train_seed_corpus(engine, nd, all_sentences, n_passes=200, pp=2000, si=10, pe=25)
     print(f"  {n_seed} seed sentences trained in {time.time()-t0:.0f}s")
     print(f"  CE={nd._avg_cross_entropy:.3f} t1={nd._avg_top1_acc:.3f} t5={nd._avg_top5_acc:.3f}")
@@ -682,7 +711,11 @@ def _mode_linggen(args):
 def _mode_test(args):
     """Quick diagnostic: verify decoder trains and generates."""
     engine, nd = load_engine(args)
-    text, all_sentences, nd = load_corpus(engine)
+    _extra = []
+    _shake = os.path.join(_proj_root, "data", "corpora", "tiny_shakespeare.txt")
+    if not args.no_shakespeare and os.path.exists(_shake):
+        _extra.append(_shake)
+    text, all_sentences, nd = load_corpus(engine, extra_corpora=_extra)
 
     print("Training on 50 sentences...")
     t0 = time.time()
@@ -717,6 +750,8 @@ def main():
 
     # Phase 2 / Full options
     parser.add_argument("--no-web", action="store_true", help="Skip web learning (offline mode)")
+    parser.add_argument("--no-shakespeare", action="store_true",
+                        help="Exclude data/corpora/tiny_shakespeare.txt from decoder training")
     parser.add_argument("--web-topics", type=int, default=5, help="Number of web topics to learn (default: 5)")
     parser.add_argument("--cycles", type=int, default=3, help="Training cycles for full mode (default: 3)")
 

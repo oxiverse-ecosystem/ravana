@@ -427,6 +427,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         "discover everything", "everything there is to know", "let me know if you",
         "let us know", "book now", "sign up", "subscribe to", "read more about",
         "find out more", "learn more about", "all you need to know", "click here",
+        "paid partners", "trusted paid partners", "things to do and more", "time out's",
         # Promo / sale / affiliate spam that leaks through the search API
         # (e.g. "This point in the year is perfect for 40% off 10,000+ programs.")
         "% off", "perfect for", "this point in the year", "limited time",
@@ -582,8 +583,10 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
     QUERY_PATTERNS = [
         (r"(?:what\s+happens\s+(?:if|when))\s+(.+)", 1),         # what happens if X (must be BEFORE generic what pattern)
         (r"(?:what|who)'?s?\s+(?:is\s+|are\s+)?(.+)", 1),       # what is X / who are X
-        (r"(?:tell|show)\s+me\s+about\s+(.+)", 1),              # tell me about X
-        (r"(?:explain|describe)\s+(.+)", 1),                     # explain X / describe X
+        (r"(?:tell|show)\s+me\s+(?:about\s+)?(.+)", 1),         # tell me about X
+        (r"(?:can\s+you\s+|could\s+you\s+|please\s+)?(?:explain|describe|define|clarify|elucidate|outline|summarize|discuss|overview)\s+(?:of\s+|about\s+)?(.+)", 1), # explain X / describe X
+        (r"(?:give|provide)\s+(?:me\s+)?(?:a|an)?\s*(?:overview|summary|explanation|details?)\s+(?:of|about|on)\s+(.+)", 1), # give an overview of X
+        (r"(?:search|look\s*up)\s+(?:for|about)?\s*(.+)", 1),    # search for X
         (r"(?:what|which)\s+(.+)\s+(?:is|are|mean)", 1),         # what X is / what X means
         (r"how\s+(?:do|does|did|can|to|would|should)\s+(.+)", 1), # how do X / how to X
         (r"(?:do you know|have you heard of)\s+(.+)", 1),        # do you know X
@@ -4117,7 +4120,8 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # dog") that name no canonical art noun still belong to the DMN
         # generator. Route them to _generate_creative BEFORE the action-request
         # handler can refuse them as tool actions.
-        if _creative_shape:
+        _is_info_tell = bool(re.search(r"\b(tell\s+(?:me\s+)?about|tell\s+me|explain|describe|give\s+(?:an?\s+)?overview|what\s+is|define)\b", user_input.lower()))
+        if _creative_shape and not _is_info_tell:
             resp = self._handle_action_request(user_input, _gen_verb or "write", subject)
             self._last_strategy = ("creative_generation"
                                    if getattr(self, "_last_creative", False)

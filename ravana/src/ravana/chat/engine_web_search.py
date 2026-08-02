@@ -224,9 +224,7 @@ class WebSearchMixin:
             cand = _cand_san
             quality = self._snippet_quality(cand, ctx.subject, term,
                                             is_conditional=is_conditional)
-            if term == ctx.subject:
-                quality -= 1.0
-            # Low SAFETY floor only: reject pure noise, not borderline-good answers.
+            # Low SAFETY floor only: reject pure noise (< 1.0), not borderline-good answers.
             if quality < 1.0:
                 if getattr(self, '_trace_enabled', False):
                     print(f"  [webans] '{term}' -> below safety floor (q={quality:.2f}); skip")
@@ -284,9 +282,10 @@ class WebSearchMixin:
         # the junk sits on a high-trust domain and has a better surface shape.
         def _score(c):
             # c = (snippet, term, quality, plaus, trust, url)
-            _q, _plaus, _trust = c[2], c[3], c[4]
+            _q, _term, _plaus, _trust = c[2], c[1], c[3], c[4]
+            _subject_adj = -0.5 if _term == ctx.subject else 0.0
             _trust_term = 2.0 * _trust if _plaus >= 0.0 else 0.0
-            return _q + 3.0 * _plaus + _trust_term
+            return (_q + _subject_adj) + 3.0 * _plaus + _trust_term
         # ── Defect F: hard-wire the learned structural-PE snippet model ──
         # Replace the loose safety-floor heuristic (quality >= 1.0 only) with a
         # *learned* junk reject from SnippetStructureModel (contrastive gap).
@@ -329,9 +328,7 @@ class WebSearchMixin:
         self._last_web_source = self._source_type_label(best[5])
         self._last_web_plausibility = best[3]
         self._last_web_trust = best[4]
-        # Item 1 (P0): record a POSITIVE outcome for the accepted snippet's
-        # domain so the prefrontal credibility learner accumulates trust from
-        # real acceptances (previously this method had zero callers).
+        self._last_web_cands = [c[0] for c in _cands]
         try:
             self._record_source_outcome(best[5], accepted=True)
         except Exception:
@@ -478,6 +475,29 @@ class WebSearchMixin:
             best = _san
         if not best.endswith((".", "!", "?")):
             best = best + "."
+
+        # Multi-Perspective Knowledge Synthesis (PFC Executive Assembly):
+        # For open-ended conceptual queries ("tell me about X", "explain X", "overview of X"),
+        # combine the primary definition with a complementary secondary candidate or dimension
+        # to produce a rich, multi-aspect response instead of a thin single-sentence hit.
+        _is_open_ended = bool(re.search(
+            r"\b(tell\s+(?:me\s+)?about|tell\s+me|explain|overview|describe|what\s+is)\b",
+            ctx.raw_input.lower()))
+        if _is_open_ended and getattr(self, "_last_web_cands", None):
+            cands = getattr(self, "_last_web_cands", [])
+            for alt in cands[1:4]:
+                alt_san = self._sanitize_definition_text(alt)
+                if not alt_san:
+                    continue
+                if not alt_san.endswith((".", "!", "?")):
+                    alt_san += "."
+                w_best = set(re.findall(r"[a-z']+", best.lower()))
+                w_alt = set(re.findall(r"[a-z']+", alt_san.lower()))
+                if w_best and w_alt:
+                    jaccard = len(w_best & w_alt) / float(len(w_best | w_alt))
+                    if jaccard < 0.45 and len(w_alt) >= 5:
+                        best = f"{best} {alt_san}"
+                        break
         # ── Defect D: numeric-claim honesty gate (ACC conflict + FOK) ──
         # When a surfaced snippet asserts a numeric/math verdict
         # ("rational"/"irrational", "square root", numeric equality), check
@@ -733,7 +753,7 @@ class WebSearchMixin:
             _title_raw = (r.get("title", "") or "")
             _url = (r.get("url", "") or "").lower()
             _is_factual_what = bool(re.match(
-                r"^(what|which) (is|are|was|were|means?|does) ",
+                r"^(what|which|tell\s+me\s+about|explain|describe|give\s+(?:an?\s+)?overview|define)\b",
                 query.lower().strip()))
             _looser_ok = False
             if subj and len(subj_tokens) == 1 and _is_factual_what:
@@ -1144,10 +1164,15 @@ class WebSearchMixin:
         first_words = s.split()[:4]
         subj_is_topic = bool(subj0) and (
             self._tok_match(subj0, set(first_words)) or subj0 in s.split()[:2])
+        if subject and subject.lower() == "love" and "love numbers" in s.lower():
+            score -= 5.0
         if subj_is_topic and def_verb:
             score += 2.0
         elif subj_is_topic:
-            score += 1.0
+            score += 0.5
+        elif not def_verb:
+            # Non-definitional snippet for a factual query (e.g. "load Love numbers come as a bonus"): penalize
+            score -= 3.0
         # Strongly reward a SUBSTANTIVE definition sentence: the subject as topic
         # with a definition verb AND a real predicate (not just a title fragment
         # like "Definition of sun noun in Oxford…Dictionary."). A substantive
@@ -1599,15 +1624,52 @@ class WebSearchMixin:
 
         We don't block sources; we change *what we ask*. For a how-to / goal
         query the first hit is often in-world lore, so we push the query toward
-        the real-world sense ("in real life" / "method"). For a factual query we
-        add a real-world disambiguator. This gives the search engine a chance to
-        surface a genuinely useful, plausible answer before we give up.
+        the real-world sense. For a factual/attribute query we construct
+        an intent-aligned natural search query with definition clarity prioritized.
         """
         q = (query or "").lower().strip()
-        if re.match(r"^(how|what) (can|do|to|would|should|does)\b", q):
-            return [f"how to {subject} in real life",
-                    f"{subject} method real world"]
-        return [f"{subject} real", f"{subject} science"]
+        subj = (subject or "").strip()
+        subj_lower = subj.lower()
+        variants = []
+
+        # Strip performative/directive speech-act prefixes from raw query for search term formulation
+        clean_q = re.sub(
+            r"^(?:can\s+you\s+|could\s+you\s+|please\s+)?(?:explain|describe|define|clarify|elucidate|outline|summarize|discuss|overview|search\s+(?:for)?|look\s*up|tell\s+me\s+about|tell\s+me)\s+(?:of\s+|about\s+)?",
+            "", q, flags=re.IGNORECASE).strip()
+
+        if subj:
+            if re.match(r"^(how|what) (can|do|to|would|should|does)\b", q):
+                # Lead with the real-world reframing: for a how-to/goal query
+                # the top hit is frequently in-world game lore (the Roblox
+                # "invisible gear" leak), and pushing the query toward the
+                # real-world sense is what displaces it. The generic guide/
+                # definition variants follow as secondary fallbacks.
+                variants.extend([f"how to {subj} in real life",
+                                 f"{subj} method real world",
+                                 f"how to {subj}", f"{subj} guide steps",
+                                 f"method to {subj}", f"what is {subj}"])
+            else:
+                # Factual/definition/general queries: prioritize crisp encyclopedic
+                # definition queries, but keep a real-world disambiguator so a
+                # factual query can also escape in-world/fictional senses.
+                variants.extend([f"{subj} definition meaning", f"what is {subj}",
+                                 f"about {subj}", f"{subj} overview",
+                                 f"{subj} real world", f"{subj} science", subj])
+
+        if clean_q and clean_q.lower() != subj_lower:
+            variants.append(clean_q)
+        if q and q not in variants:
+            variants.append(q)
+
+        # Deduplicate preserving order
+        seen = set()
+        out = []
+        for v in variants:
+            v_clean = v.strip()
+            if v_clean and v_clean not in seen:
+                seen.add(v_clean)
+                out.append(v_clean)
+        return out or [subj or q]
 
     def _is_function_word(self, word: str) -> bool:
         """True if `word` is a function word (not a discourse/content target).

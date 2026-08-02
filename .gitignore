@@ -19,8 +19,14 @@ dist/
 # ── Runtime Data (auto-saved model weights, caches) ──
 # NOTE: data/ravana_glove_cache.npz is tracked via git-lfs (critical CI dep),
 # and data/*.json are committed config. Everything else under data/ is ignored.
-data/
-!data/
+#
+# Use `data/*` (contents), NOT `data/` (the directory). Ignoring the directory
+# itself means git never descends into it, so the `!data/...` re-includes below
+# can never match — and the previous `data/` + `!data/` pair cancelled out
+# entirely, leaving ~1.3 GB of downloaded corpora (data/glove, data/conceptnet,
+# data/benchmarks, data/cache) showing as untracked and one `git add data/`
+# away from being committed.
+data/*
 !data/*.json
 !data/ravana_glove_cache.npz
 !data/common_facts.json

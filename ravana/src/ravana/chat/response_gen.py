@@ -2564,6 +2564,10 @@ class ResponseGenMixin(ChainWalkerMixin):
         t = text.lower().strip(" ?!.")
         if not t:
             return None
+        # Informational request guard: "tell me about X", "explain X", "describe X", "search for X", etc.
+        # are epistemic knowledge requests, NOT physical/system execution commands.
+        if re.search(r"\b(tell\s+(?:me\s+)?about|tell\s+me|explain|describe|give\s+(?:an?\s+)?overview|search\s+(?:for)?|look\s*up|what\s+is|define)\b", t):
+            return None
         words = t.split()
         first = words[0]
         # "can you / could you / would you / please / can ravana ..." + verb
@@ -5694,40 +5698,35 @@ class ResponseGenMixin(ChainWalkerMixin):
                 return _def_resp
 
         # Web-grounded direct answer for unknown factual queries.
-        # If the live search engine can back the claim with a real snippet,
-        # state it directly — this is fresher and more accurate than any stale
-        # or loosely-learned stored definition. (No LLM, no hardcoding — the
-        # answer is a cleaned, retrieved snippet.)
         web_ans = self._web_direct_answer(ctx)
-        if web_ans:
+        if web_ans and web_ans[1] != "web_unverified":
             return web_ans
 
-        # ── P1/P2: on-demand KB grounding (curiosity-gated retrieval, KB-first) ──
-        # If this is an informational query about a concrete, real concept we
-        # don't yet have a definition for, look it up in the knowledge bases
-        # (Wikipedia primary, ConceptNet composition fallback) BEFORE falling
-        # back to honest uncertainty. This is the "human looks it up" reflex:
-        # epistemic deficit -> targeted lookup -> assimilate -> answer. The
-        # fetched fact is stored in _definitions exactly like a web-learned
-        # fact, so the downstream definition path surfaces it. Fail-closed
-        # stays as the final fallback when both KB and web miss.
-        if ctx.subject and self._is_informational_query(getattr(ctx, 'raw_input', ''), ctx.subject):
+        # ── Fallback to stored _definitions or on-demand KB grounding ──
+        if ctx.subject:
             _sl = ctx.subject.lower().strip()
-            if _sl and _sl not in getattr(self, '_definitions', {}):
-                # P6: curiosity knob gates the on-demand lookup. A low-curiosity
-                # register (e.g. 'terse') suppresses the retrieval reflex so the
-                # reply falls straight to honest uncertainty.
-                if getattr(self, "_reg_curiosity", 1.0) >= 0.5:
-                    # M2-D: skip protected concepts — never overwrite an authored
-                    # project definition with a web/KB collision.
-                    if _sl not in getattr(self, "_PROTECTED_CONCEPTS", set()):
-                        try:
-                            _kb = self.kb_describe(_sl) or self.describe_from_cn(_sl)
-                            if _kb:
-                                self._definitions[_sl] = _kb
-                                self._metrics["kb_lookups"] = self._metrics.get("kb_lookups", 0) + 1
-                        except Exception:
-                            pass
+            if _sl:
+                # 1. Stored non-empty definition fallback
+                if getattr(self, "_definitions", {}).get(_sl):
+                    _def_resp = self._definition_response(ctx)
+                    if _def_resp:
+                        return _def_resp
+                    return (self._definitions[_sl], "definition_response")
+                # 2. On-demand KB lookup (Wikipedia summary / ConceptNet)
+                if self._is_informational_query(getattr(ctx, 'raw_input', ''), ctx.subject):
+                    if getattr(self, "_reg_curiosity", 1.0) >= 0.5:
+                        if _sl not in getattr(self, "_PROTECTED_CONCEPTS", set()):
+                            try:
+                                _kb = self.kb_describe(_sl) or self.describe_from_cn(_sl)
+                                if _kb:
+                                    self._definitions[_sl] = _kb
+                                    self._metrics["kb_lookups"] = self._metrics.get("kb_lookups", 0) + 1
+                                    _def_resp = self._definition_response(ctx)
+                                    if _def_resp:
+                                        return _def_resp
+                                    return (_kb, "kb_grounding")
+                            except Exception:
+                                pass
 
 
         # ── Question Decomposition Path (BA 10 / Rostral PFC analog) ──
@@ -5828,6 +5827,11 @@ class ResponseGenMixin(ChainWalkerMixin):
             has_clean_definition = bool(
                 subject and subject.lower() in getattr(self, '_definitions', {}))
             if not has_clean_definition:
+                if ctx.subject:
+                    _kb_try = self.kb_describe(ctx.subject) or self.describe_from_cn(ctx.subject)
+                    if _kb_try:
+                        self._definitions[ctx.subject.lower()] = _kb_try
+                        return (_kb_try, "kb_grounding")
                 refl = self._reflective_response(ctx)
                 if refl:
                     return refl

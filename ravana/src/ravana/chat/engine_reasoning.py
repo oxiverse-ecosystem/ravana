@@ -333,14 +333,29 @@ class ReasoningMixin:
         return False
 
     def _is_abstract_meaning_query(self, text: str) -> bool:
-        """Detect abstract-meaning questions ("meaning/purpose/nature of X", "what is love")."""
+        """Detect abstract-meaning questions ("meaning/purpose/nature of X",
+        "what is love").
+
+        Two routes, because the abstract register is triggered by two different
+        surface forms. The first is explicitly meta ("the *meaning* of life"):
+        an abstractness noun plus a relational preposition. The second is a
+        bare "what is <abstract noun>" — syntactically identical to the
+        concrete "what is gravity", so the abstractness has to come from the
+        noun itself rather than from the frame.
+        """
         t = text.lower().strip(" ?!.")
         if bool(re.search(
-            r"\b(meaning|nature|purpose|point|essence|value|significance)\b"
-            r".*\b(of|in|behind|to)\b", t)):
+                r"\b(meaning|nature|purpose|point|essence|value|significance)\b"
+                r".*\b(of|in|behind|to)\b", t)):
             return True
-        # Step 1a extension: common abstract-concept questions ("what is love", "what is happiness")
-        if re.search(r"^\s*what\s+(?:is|does)\s+(love|life|happiness|freedom|truth|justice|courage|peace|beauty|wisdom|art|death|faith|hope)\b", t):
+        # Bare "what is <abstract noun>". Kept as an explicit inventory of
+        # non-physical, value-laden concepts: these have no operational
+        # definition to retrieve, so they must route to the reflective path
+        # rather than the factual-lookup path that serves "what is gravity".
+        if re.search(
+                r"^\s*what\s+(?:is|does)\s+"
+                r"(love|life|happiness|freedom|truth|justice|courage|peace|"
+                r"beauty|wisdom|art|death|faith|hope)\b", t):
             return True
         return False
 
@@ -2427,47 +2442,69 @@ class ReasoningMixin:
         subj = subject.lower().strip()
         if not subj:
             return subject
+        _performative_verbs = {
+            "explain", "explains", "explaining", "describe", "describes", "describing",
+            "tell", "tells", "telling", "detail", "details", "detailing", "elucidate",
+            "clarify", "clarifies", "clarifying", "define", "defines", "defining",
+            "outline", "outlines", "summarize", "summarizes", "discuss", "discusses",
+            "overview", "search", "searches", "searching", "explore", "explores",
+            "give", "gives", "look", "looking", "elaborate", "elaborates"
+        }
+        _light_verbs = {"form", "forms", "formed", "do", "does", "did", "doing",
+                        "make", "makes", "made", "happen", "happens", "happened", "work",
+                        "works", "mean", "means", "meant", "is", "are", "was",
+                        "were", "be", "become", "use", "uses", "used", "exist",
+                        "exists", "occur", "occurs", "affect", "affects",
+                        "orbit", "orbits", "cause", "causes", "why"}
+        RELATIONAL = _light_verbs | _performative_verbs | {"why", "what", "when", "where", "who", "how", "can", "could", "you", "please", "about", "for", "me", "an", "a"}
+
         # If the raw query is conditional, prefer the cleaned scenario as subject.
         if self._is_conditional_query(raw_input):
+            # First check if the passed subject phrase already contains a clean multi-word concept
+            subj_parts = [w for w in subj.split()
+                          if w not in self._closed_class("conditional_frame")
+                          and w not in RELATIONAL
+                          and w not in ("possible", "happens", "happen", "would", "could")]
+            if len(subj_parts) >= 2:
+                return " ".join(subj_parts)
+
             words = [w.strip(".,!?") for w in raw_input.lower().split()
                      if w.strip(".,!?") not in self._closed_class("conditional_frame")
                      and w.strip(".,!?") not in STOP_WORDS
                      and len(w.strip(".,!?")) >= 2]
+            # Check if adjacent words in input form a multi-word concept (e.g. "time travel")
+            if len(words) >= 2:
+                for i in range(len(words) - 1):
+                    pair = f"{words[i]} {words[i+1]}"
+                    if pair in self._concept_labels or pair in self._concept_keywords:
+                        return pair
             # Prefer a known graph concept among the remaining words (e.g. 'sun',
             # 'gravity'); otherwise use the longest remaining content word.
-            known = [w for w in words if w in self._concept_keywords
-                      or w in self._concept_labels]
+            known = [w for w in words if (w in self._concept_keywords or w in self._concept_labels)
+                     and w not in RELATIONAL]
             if known:
                 # pick the most 'central' known concept: first that isn't a
                 # generic relation word
                 for w in words:
-                    if w in known and w not in ("happen", "what", "would"):
+                    if w in known and w not in RELATIONAL:
                         return w
                 return known[0]
             if words:
                 # drop trailing auxiliaries / light verbs, keep the head noun
                 for w in reversed(words):
-                    if w in ("happen", "would", "could", "do", "does"):
+                    if w in RELATIONAL:
                         continue
                     return w
                 return words[0]
-        # Non-conditional: still strip a trailing frame word if the whole subject
-        # is just 'sun disappeared' style junk. Also drop trailing light verbs /
-        # question-frame words so "black holes form", "trust means", "gravity
-        # works" reduce to their head concept "black holes" / "trust" / "gravity"
-        # (the web search + graph should target the concept, not the verb). Pure
-        # token filtering — never invents or hardcodes an answer.
-        _light_verbs = {"form", "forms", "formed", "do", "does", "did", "doing",
-                        "make", "makes", "made", "happen", "happens", "work",
-                        "works", "mean", "means", "meant", "is", "are", "was",
-                        "were", "be", "become", "use", "uses", "used", "exist",
-                        "exists", "occur", "occurs", "affect", "affects",
-                        "orbit", "orbits", "cause", "causes", "cause", "why"}
-        RELATIONAL = _light_verbs | {"why", "what", "when", "where", "who", "how"}
+
+        # Non-conditional: strip performative speech-act prefixes and trailing frame words
         parts = [w for w in subj.split()
-                 if w not in self._closed_class("conditional_frame") and w not in RELATIONAL]
+                 if w not in self._closed_class("conditional_frame")]
+        # Strip leading performative verbs & speech-act operators (e.g. "explain consciousness" -> "consciousness")
+        while len(parts) > 1 and parts[0] in RELATIONAL:
+            parts = parts[1:]
         # Strip trailing light verbs (keep the head noun concept).
-        while len(parts) > 1 and parts[-1] in _light_verbs:
+        while len(parts) > 1 and parts[-1] in RELATIONAL:
             parts = parts[:-1]
         if parts:
             return " ".join(parts)
