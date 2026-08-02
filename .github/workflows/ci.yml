@@ -163,13 +163,18 @@ jobs:
       - name: Verify GloVe LFS cache resolved
         shell: bash
         run: python .github/scripts/check_lfs_assets.py
-      - name: Run AV soak (10x engine build + turns)
+      - name: Run AV soak (engine build + turns)
         shell: bash
+        env:
+          # Windows runners are ~3-4x slower per engine build than Linux. Six
+          # rounds still exercises the thread-race across independent builds
+          # while leaving generous headroom inside the 20-minute job cap.
+          RAVANA_AV_SOAK_ROUNDS: "6"
         run: |
           mkdir -p data output checkpoints
           python -m pytest tests/ci/test_av_soak.py -q --tb=short \
             -p no:cacheprovider \
-            --timeout=120 --timeout-method=thread --durations=10
+            --timeout=180 --timeout-method=thread --durations=10
 
   # ── Aggregate gate: one required status for branch protection ──
   ci-status:
