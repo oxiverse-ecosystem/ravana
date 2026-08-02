@@ -2,15 +2,28 @@ import os
 import sys
 
 # Configure python paths globally for all tests in tests/
+#
+# Order matters. Inserting in a loop with insert(0, ...) REVERSES the list, so
+# a naive loop over [ml_src, ravana_src, v2_src, proj_root] leaves proj_root at
+# sys.path[0] — ahead of every real package source dir. That let the project
+# root shadow the installed packages: `ravana_ml` resolved to the bare
+# ./ravana_ml directory (no __init__.py, so an implicit *namespace* package)
+# instead of ./ravana_ml/src/ravana_ml, and `import ravana_ml.nn.rlm_v2` then
+# died with "No module named 'ravana_ml.nn.module'".
+#
+# Build the final order explicitly and prepend it as a block, so the real
+# package roots always precede the project root.
 _proj_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-for p in [
+_path_prefix = [
     os.path.join(_proj_root, "ravana_ml", "src"),
     os.path.join(_proj_root, "ravana", "src"),
     os.path.join(_proj_root, "ravana-v2", "src"),
     _proj_root,
-]:
-    if p not in sys.path:
-        sys.path.insert(0, p)
+]
+for p in reversed(_path_prefix):
+    if p in sys.path:
+        sys.path.remove(p)
+    sys.path.insert(0, p)
 
 # ── CI reliability: never let a test process trigger a bulk asset download ──
 # Engine boot falls back to auto-downloading glove.6B.zip (~822 MB) whenever the
