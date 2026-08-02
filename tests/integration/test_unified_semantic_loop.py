@@ -111,7 +111,7 @@ def _accessors(agent):
         label_index = lambda: agent.graph_engine._all_labels
         web_learn = lambda text, src: _learn_through_gate(
             agent.graph_engine,
-            lambda t, s: agent.web_learner._web_to_graph.learn_text(t, source_url=s),
+            lambda t, s: agent.web_learner.get_web_to_graph().learn_text(t, source_url=s),
             text, src)
         curiosity = lambda cands: agent.web_learner.curiosity_e_step(candidate_topics=cands)
         gap = lambda t: agent.web_learner.knowledge_gap(t)

@@ -965,6 +965,20 @@ class WebLearner:
             self._web_to_graph = WebToGraph(self.graph_engine)
         return self._web_to_graph.knowledge_gap(topic)
 
+    def get_web_to_graph(self):
+        """Return the WebToGraph writer, building it on first use.
+
+        `_web_to_graph` starts as None and is created lazily by whichever call
+        site touches it first, so reaching for the private attribute directly
+        yields None on a fresh learner. This is the public accessor that
+        guarantees an instance — mirrors CognitiveChatEngine._get_web_to_graph()
+        on the engine path, which already worked this way.
+        """
+        if self._web_to_graph is None:
+            from ravana.web.web_to_graph import WebToGraph
+            self._web_to_graph = WebToGraph(self.graph_engine)
+        return self._web_to_graph
+
     def last_fact_count(self) -> int:
         """Number of structured facts written by the C-lite pass (this session)."""
         return self._web_to_graph.fact_count() if self._web_to_graph else 0
