@@ -228,19 +228,51 @@ class SelfQueryMixin:
         return (pick, reason)
 
     def _agent_likes_guess(self) -> str:
-        """Gist of what the agent is 'drawn to', grounded in its current affect
-        (mood-colored phrasing, not a fixed list)."""
+        """Gist of what the agent is 'drawn to'.
+
+        De-hardcoding (audit t_6fd33ab9 V3): the old code returned THREE fixed
+        persona lines keyed only on valence bands ("things that feel calm and
+        alive…", "things with some edge…", "ideas that hang together…"). Those
+        are authored prose the agent can NEVER revise by experience — only a
+        human editing source could. The deciding test fails.
+
+        Fix: derive the gist from the agent's REAL accumulated stances — the
+        same ``_agent_preferences`` cache that ``_agent_stance_on`` populates as
+        it talks. If it has actually formed a stance toward something, surface
+        that real learned interest (weighted toward positively-valenced stances
+        when mood is high, so affect still colors but never fabricates). If it
+        has formed NO real stance yet, fail CLOSED to an honest grounded line
+        that invites the user to shape it — no fake poetic list.
+        """
         valence = 0.5
         if hasattr(self, "emotion") and hasattr(self.emotion, "state"):
             try:
                 valence = float(getattr(self.emotion.state, "valence", 0.5))
             except Exception:
                 valence = 0.5
-        if valence >= 0.6:
-            return "things that feel calm and alive — like quiet music or open sky"
-        if valence <= 0.4:
-            return "things with some edge to them — a sharp idea or a difficult question"
-        return "ideas that hang together, and the kind of honesty that's calm"
+        _cache = getattr(self, "_agent_preferences", None) or {}
+        # Real stances this agent has actually formed (keyed "stance:<topic>")
+        # — the same store _agent_stance_on populates as it talks. Cache value
+        # shape is (stance_sentence, reason); the topic is the cache KEY.
+        _real_topics = [k.split(":", 1)[1] for k, v in _cache.items()
+                        if k.startswith("stance:") and isinstance(v, tuple) and v]
+        if _real_topics:
+            # Prefer a positively-valenced stance when mood is high (so affect
+            # still colors the pick but never fabricates one); else first real
+            # topic. Returns a NOUN PHRASE — the caller wraps it as
+            # "things like {gist}", which reads naturally for a topic.
+            if valence >= 0.6:
+                _pos = next((t for t in _real_topics
+                             if any(w in _cache[f"stance:{t}"][0]
+                                    for w in ("drawn", "warm", "curious")))
+                            , _real_topics[0])
+            else:
+                _pos = _real_topics[0]
+            return _pos
+        # No real stance yet: return a neutral noun-phrase placeholder; the
+        # caller's no-stance branch replaces the "things like…" frame with an
+        # honest grounded line (no fake poetic list, no fabricated affect).
+        return "still figuring that out"
 
     def _agent_stance_on(self, target: str) -> Tuple[str, str]:
         """vmPFC value resolver: compute a stance + affect-reason over an
@@ -277,8 +309,14 @@ class SelfQueryMixin:
         # A target-less call (e.g. "what do you like" with no object) falls back
         # to the gist guess rather than inventing a concept.
         if not target:
-            gist = self._agent_likes_guess()
-            return ("i'm drawn to", f"things like {gist} — they sit well with how i'm wired right now")
+            _gist = self._agent_likes_guess()
+            if _gist == "still figuring that out":
+                return ("i'm drawn to", "still figuring that out — what are you into? "
+                        "i'll tell you how i'm leaning once we've talked some")
+            return ("i'm drawn to", f"things like {_gist} — they sit well with how i'm wired right now")
+        # A target was given (e.g. "do you like music") — compute a REAL stance
+        # from valence + GloVe transitivity below; do NOT delegate to the gist
+        # guess (that would skip the actual value computation).
         # Session stability: a self-attribute must return the SAME stance within
         # a session (D'Argembeau 2013; Berkman 2020 — stable self-attributes,
         # momentarily colored by affect). Cache keyed by target concept.
