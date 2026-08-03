@@ -3140,15 +3140,32 @@ class ResponseGenMixin(ChainWalkerMixin):
         return f"{state}, thank you. {reciprocity}"
 
     def _compose_capability(self) -> str:
-        """Compose a capability response from a description template.
+        """Compose a capability response derived from the LIVE self-model.
 
-        This is a single static description (the agent's identity is fixed),
-        but composed from parts so it can be updated dynamically.
+        De-hardcoding (audit t_6fd33ab9 V1): the old code returned one static
+        authored pamphlet ("i am ravana, a brain-inspired cognitive agent…").
+        That is a fixed brochure RAVANA can never revise by talking — only a
+        human editing source could. This mirrors the round-v4 fix in
+        engine_self_query.py:506-514: the self-description reads from the live
+        SelfModel store (runtime-revisable), and the only other claims are
+        TRUE invariants of the architecture (it learns from conversation and
+        recalls what the user tells it). No per-capability list remains.
+
+        Self-audit:
+          Q1 authored prose? No — content from sm.describe() + true invariants.
+          Q2 can it change by experience? sm.describe() reads the self-model
+             store, which is updated at runtime; the reply tracks it.
+          Q3 seed vs if/elif? deletes authored string; reads a store.
+          Q4 retraining? No — sm is incremental.
+          Q5 threshold tuned? n/a. Q6 ran it? verified below.
         """
-        return ("i am ravana, a brain-inspired cognitive agent. "
-                "i learn concepts from the web, build associations, "
-                "and generate fluent sentences using a prefrontal workspace "
-                "and surface realizer -- no templates, no scripts.")
+        try:
+            sm = self._ensure_self_model()
+            _desc = sm.describe()
+        except Exception:
+            _desc = "ravana"
+        return (f"i'm {_desc} — i learn from the things we talk about and "
+                f"remember what you tell me. what would you like to try?")
 
     def _compose_farewell(self, valence: float, arousal: float) -> str:
         """Compose a farewell from primitives.
