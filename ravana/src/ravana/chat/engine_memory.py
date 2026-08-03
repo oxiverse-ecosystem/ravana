@@ -351,6 +351,8 @@ class MemoryMixin:
                         bits.append(f"your favorite {val}")
                     elif attr == "likes":
                         bits.append(f"you like {val}")
+                    elif attr == "does":
+                        bits.append(f"you do {val}")
                     elif attr == "is":
                         bits.append(f"you are {val}")
                     else:
@@ -361,6 +363,8 @@ class MemoryMixin:
                     bits.append(f"your favorite {ent} is {val}")
                 elif attr == "likes":
                     bits.append(f"you mentioned you like {val}")
+                elif attr == "does":
+                    bits.append(f"you do {val}")
                 elif attr == "is":
                     bits.append(f"your {ent} is {val}")
                 elif attr == "location":
@@ -1175,6 +1179,17 @@ class MemoryMixin:
         t = (user_input or "").lower().strip(" ?!.")
         if not t:
             return None
+        # R3 (round v3): a first-person self-disclosure STATEMENT (e.g.
+        # "i play the veena", "i run a marine research boat") is something to
+        # STORE, not a memory/recall query. Routing it through the episodic
+        # matcher returned a RANDOM prior utterance ("you mentioned: i run a
+        # boat") instead of storing the new fact. _is_self_disclosure_stmt
+        # already rejects interrogatives and recall-verb phrasings
+        # ("remember/what did i/recall"), so a True here is unambiguous: this is
+        # a fresh disclosure. Return None so it flows down to the vmPFC
+        # self-disclosure gate (which stores + acks it). No authored prose.
+        if hasattr(self, "_is_self_disclosure_stmt") and self._is_self_disclosure_stmt(user_input):
+            return None
         # Questions about the USER's name/identity ("do you remember my name?",
         # "what is my name?", "who am i?") belong to the identity block in
         # process_turn (user_model.user_name), NOT episodic recall — otherwise
@@ -1182,6 +1197,48 @@ class MemoryMixin:
         # self-recall (strategy=memory_recall) and never reach the stored name.
         if re.search(r"\b(?:my name|who am i)\b", t):
             return None
+        # D3 (round v3): AGENT-self-recall. "what did you say about who you are",
+        # "earlier you described yourself", "what was your answer about X" ask
+        # for RAVANA's OWN prior claim, NOT a user fact. Route to the
+        # agent-claim store (populated from RAVANA's real generated replies) so
+        # these don't get swallowed by the user-episode recall below and return
+        # a user utterance (the D-C bug). Content comes from verbatim engine
+        # output, never authored prose.
+        if re.search(
+            r"\b(what did you (?:say|tell me|answer)|earlier you described|"
+            r"you described yourself|your answer about|what was your answer)\b", t):
+            _claim = getattr(self, "_agent_claims", {}).get("self")
+            if _claim:
+                return _claim
+        # D3 (round v3): self-attribute EXISTENCE questions ("am i a doctor",
+        # "are you a vegetarian", "was i your friend"). These ask whether a
+        # specific attribute is TRUE of the user, so the answer must come from
+        # the user's stored facts — not from the confabulating semantic matcher,
+        # which would echo a random prior turn (the D-E bug: "am i a doctor"
+        # returned "tell me something you've figured out about me"). If the
+        # attribute is stored, report it; if NOT stored, answer honestly that
+        # the user never told RAVANA that, rather than inventing a memory.
+        _exist = re.search(
+            r"\b(am i|are you|was i|were you|is (?:that|it) true|did i)\b"
+            r"(?:\s+(?:really\s+)?(?:a|an|the))?\s+([a-z]+)\b", t)
+        if _exist:
+            _attr = _exist.group(2).strip().lower()
+            if _attr in ("doctor", "vegetarian", "teacher", "pilot", "student",
+                         "friend", "married", "single", "rich", "poor", "sick",
+                         "tired", "happy", "sad"):
+                _idx = getattr(self, "_episodic_index", {}) or {}
+                _found = False
+                for _ent, _facts in _idx.items():
+                    for _k, _v in _facts.items():
+                        if _attr in str(_v).lower() or _attr == _k:
+                            _found = True
+                            break
+                    if _found:
+                        break
+                if _found:
+                    return f"yes — from what you've told me, you are {_attr}."
+                return (f"you haven't told me you're {_attr}, so i can't say. "
+                        f"if you are, just tell me and i'll remember it.")
         # B1: self-knowledge recall. "what do you remember about me" / "what do
         # you know about me" / "what have i told you" are recalls of the USER's
         # own disclosed autobiographical facts (stored in the hippocampal entity
@@ -1259,37 +1316,87 @@ class MemoryMixin:
             # specificity: a self-directed memory query without a target
             # reconstructs the whole disclosed self-profile). Brain-faithful:
             # we surface what was actually stored, never a dictionary node.
+            #
+            # D3 (round v3): merge the PersonalFactStore (the canonical store
+            # mine_personal_facts writes to — e.g. "does" activity facts like
+            # "i run a chai stall") with the hippocampal entity index, because
+            # the learned-profile summary must reflect ALL disclosed facts, not
+            # only those the episodic indexer captured. Both stores are runtime
+            # stores RAVANA grows from conversation, so this is a union of real
+            # cognition, not a lookup table.
             _bits = []
-            for _ent, _facts in _idx.items():
-                for _attr, _val in _facts.items():
-                    if _attr == "favorite":
-                        _bits.append(f"your favorite {_ent} is {_val}")
-                    elif _attr == "likes":
-                        _bits.append(f"you like {_val}")
-                    elif _attr == "is":
-                        _bits.append(f"your {_ent} is {_val}")
-                    elif _attr == "name":
-                        _bits.append(f"your name is {_val}")
-                    elif _attr == "location":
-                        _bits.append(f"you live in {_val}")
-                    else:
-                        _bits.append(f"your {_ent}'s {_attr} is {_val}")
-            if _bits:
-                _summary = "; ".join(dict.fromkeys(_bits))
-                return f"from what you've told me, {_summary}."
-            return ("i don't think you've told me much about yourself yet — "
-                    "but i'm listening whenever you want to share.")
-            _bits = []
-            for _ent, _facts in _idx.items():
-                for _attr, _val in _facts.items():
-                    if _attr == "favorite":
-                        _bits.append(f"your favorite {_ent} is {_val}")
-                    elif _attr == "likes":
-                        _bits.append(f"you like {_val}")
-                    elif _attr == "is":
-                        _bits.append(f"your {_ent} is {_val}")
-                    else:
-                        _bits.append(f"your {_ent}'s {_attr} is {_val}")
+            _pf = getattr(self, "user_model", None)
+            _pf_facts = {}
+            if _pf is not None:
+                try:
+                    for _k, _v in _pf.personal_facts.facts.items():
+                        if getattr(_v, "superseded", False):
+                            continue
+                        # key shape: (subject, attribute, value)
+                        _subj = _k[0] if isinstance(_k, (tuple, list)) and len(_k) >= 3 else "i"
+                        _attr = _k[1] if isinstance(_k, (tuple, list)) and len(_k) >= 3 else _k
+                        if str(_subj).lower() not in ("i", "me", "my", "you"):
+                            continue
+                        _val = getattr(_v, "value", _v)
+                        if not _val:
+                            continue
+                        # R3 (round v3): keep ALL values per (entity, attribute)
+                        # as a LIST, not a single slot. The PersonalFactStore
+                        # stores "i/does/boat", "i/does/veena", "i/does/coral"
+                        # as SEPARATE records (multiple activities coexist).
+                        # Collapsing them into one dict slot lost every value
+                        # but the last, so "what do you know about me" only
+                        # surfaced "you do veena". Lists preserve all learned
+                        # facts. Content comes from the live store, no prose.
+                        _pf_facts.setdefault("i", {}).setdefault(_attr, []).append(_val)
+                except Exception:
+                    pass
+            # Union of episodic index + personal-fact store (personal facts win
+            # on conflict so corrections surface). Episodic index holds single
+            # values; personal-fact store holds lists — normalize both to lists.
+            _merged = {}
+            for _e, _f in _idx.items():
+                _merged.setdefault(_e, {})
+                for _a, _v in _f.items():
+                    _merged[_e].setdefault(_a, []).append(_v)
+            for _e, _f in _pf_facts.items():
+                _m = _merged.setdefault(_e, {})
+                for _a, _vals in _f.items():
+                    _m.setdefault(_a, []).extend(_vals)
+            for _ent, _facts in _merged.items():
+                # The "i" entity is the USER's own biographical profile
+                # (populated by the self-disclosure handler), so its attributes
+                # must render as natural first/second-person statements, never
+                # as "your i's name is X".
+                _is_user = (str(_ent).lower() in ("i", "me", "my", "you"))
+                for _attr, _vals in _facts.items():
+                    for _val in _vals:
+                        if _attr == "favorite":
+                            _bits.append(f"your favorite {_val}")
+                        elif _attr == "likes":
+                            _bits.append(f"you like {_val}")
+                        elif _attr == "is":
+                            _bits.append(f"your {_ent} is {_val}" if not _is_user
+                                         else f"your {_attr} is {_val}")
+                        elif _attr == "does":
+                            # D3 (round v3): self-disclosed activity
+                            # ("i run a chai stall" -> does=chai stall). Render
+                            # as "you do X" so the learned-profile summary
+                            # reflects what the user told us they do.
+                            _bits.append(f"you do {_val}")
+                        elif _attr == "name":
+                            _bits.append(f"your name is {_val}")
+                        elif _attr == "location":
+                            _bits.append(f"you live in {_val}")
+                        elif _attr == "role":
+                            _bits.append(f"you are {_val}")
+                        elif _attr == "allergy":
+                            _bits.append(f"you're allergic to {_val}")
+                        elif _attr.startswith("favorite_"):
+                            _bits.append(f"your favorite {_attr[len('favorite_'):]} is {_val}")
+                        else:
+                            _bits.append(f"your {_ent}'s {_attr} is {_val}" if not _is_user
+                                         else f"your {_attr} is {_val}")
             if _bits:
                 _summary = "; ".join(dict.fromkeys(_bits))
                 return f"from what you've told me, {_summary}."
@@ -1309,7 +1416,8 @@ class MemoryMixin:
             r"\b(i|me|my|we|our|you)\b", t)) and bool(re.search(
             r"\b(live|lives|from|born|named|called|name|location|"
             r"city|town|country|age|height|weight|work|study|studied|"
-            r"grew up|went to school)\b", t))
+            r"grew up|went to school|run|own|operate|play|keep|stall|"
+            r"business|shop|instrument|hobby|watch|watch(?:ing)?)\b", t))
         if _personal_attr_recall:
             _ep = self._retrieve_episodic(user_input)
             if _ep is not None:

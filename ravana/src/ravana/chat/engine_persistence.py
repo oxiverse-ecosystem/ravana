@@ -432,6 +432,20 @@ If a concept has been corrected 3+ times, mark for priority web learning.
         if correction.corrected_fact:
             fact_subj, fact_rel, fact_val = correction.corrected_fact
             self.belief_store.assert_belief(fact_subj, fact_rel, fact_val, confidence=0.9)
+            # D3 (round v3): also write the corrected fact into the user's
+            # personal-fact store when the subject is the user ("i"), so a later
+            # "what's my X" / self-recall summary reflects the CORRECTION, not
+            # the stale value. The recall summary (engine_memory._try_memory_query)
+            # reads from user_model.personal_facts; without this, a corrected
+            # sister-name stays wrong in recall even though the belief store is
+            # updated. The user is ground truth for their own profile.
+            if fact_subj.lower() in ("i", "me", "my") and fact_rel:
+                try:
+                    self.user_model.personal_facts.assert_fact(
+                        "i", fact_rel, fact_val, confidence=0.9,
+                        source="correction")
+                except Exception:
+                    pass
             # Add graph edge for corrected fact
             fact_nids = self._concept_keywords.get(fact_subj.lower(), [])
             val_nids = self._concept_keywords.get(fact_val.lower(), [])
@@ -484,14 +498,29 @@ If a concept has been corrected 3+ times, mark for priority web learning.
         correction.resolved = False
 
         # Generate acknowledgment response
-        # If user provided corrected fact, acknowledge it specifically
+        # If user provided corrected fact, acknowledge it specifically — render
+        # the REAL (subject, relation, value) from the detected correction, with
+        # natural phrasing for the relation key (matches the fact-render mapping
+        # used elsewhere). No raw keys ("i sister priya") and no per-correction
+        # authored sentence.
         if correction.corrected_fact:
             fact_subj, fact_rel, fact_val = correction.corrected_fact
-            ack = f"thanks for correcting me. i'll remember that {fact_subj} {fact_rel} {fact_val}."
+            _rel_phrase = {
+                "name": f"your {fact_rel} is {fact_val}",
+                "is": f"you are {fact_val}",
+                "does": f"you do {fact_val}",
+                "likes": f"you like {fact_val}",
+                "location": f"you live in {fact_val}",
+                "favorite": f"your favorite {fact_val}",
+            }.get(fact_rel, f"your {fact_rel} is {fact_val}")
+            ack = f"thanks for correcting me — i'll remember {_rel_phrase}."
         elif severity > 0.6:
             ack = "thanks for the correction. i'm still learning and appreciate your feedback."
         else:
-            ack = "got it, thanks for the feedback. i'll keep that in mind."
+            # No specific fact extracted but the user signalled a correction.
+            # Honest, non-degenerate ack — we acknowledge without pretending to
+            # know what was wrong (no hollow "got it, thanks for the feedback").
+            ack = "thanks — i'll be more careful there. what should i have said?"
 
         # Reset user model correction flags for next turn
         self.user_model.reset_correction_flags()
