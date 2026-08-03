@@ -660,40 +660,27 @@ class ReasoningMixin:
                 except Exception:
                     continue
 
-        # Zen koans: invitation to sit with the unanswerable.
-        if "one hand" in t or "hand clapping" in t or "sound of" in t:
-            return ("that's a koan — it's not really asking for a sound. it points "
-                    "at the gap between words and what's actually experienced. sitting "
-                    "with the silence is kind of the point.") + _ground
-        # Omnipotence / theological paradoxes.
-        if "god" in t and ("rock" in t or "stone" in t or "create" in t or "heavy" in t):
-            return ("the catch is in the setup: 'all-powerful' breaks the moment you "
-                    "ask it to make something it can't lift — you've defined a contradiction "
-                    "and called it a thing. most readings treat it as showing the limit "
-                    "is in the question, not in god.") + _ground
-        if "unstoppable" in t or "immovable" in t:
-            return ("if both exist, they can't meet without cancelling each other, and if "
-                    "either fails, it wasn't truly unstoppable/immovable. so the paradox "
-                    "is really about whether 'absolute' predicates are even coherent.") + _ground
-        # Self-reference / liar family.
-        if "statement" in t and ("false" in t or "true" in t):
-            return ("that one ties language in a knot: if it's true it's false, if it's "
-                    "false it's true. it's why logicians split 'use' and 'mention' — the "
-                    "sentence talks about itself, and self-reference is where tidy systems leak.") + _ground
-        # Simulation / reality-doubt family.
-        if "simulation" in t or "reality real" in t or "know anything" in t:
-            return ("i can't step outside my own experience to check, and neither can you — "
-                    "so 'is this real' might be the wrong kind of question. what we can do "
-                    "is reason about which assumptions hold up. want to dig into one?") + _ground
-        # Specific scholastic paradox.
-        if "pinhead" in t or "angels" in t:
-            return ("that one's a classic: the point was never the number but whether "
-                    "angels, as pure spirits, take up space at all. it was a way to argue "
-                    "about the nature of immaterial beings.") + _ground
-        # Generic paradox fallback.
+        # De-hardcoding (audit t_6fd33ab9 V2): the branches below used to be
+        # keyword-matched CANNED essays — one hand-written paragraph returned
+        # verbatim for each paradox ("god rock", "unstoppable", "liar", ...).
+        # Those strings are fixed content RAVANA can NEVER revise by experience;
+        # only a human editing source could. The retrieval above (_ground) was
+        # real (Wikipedia REST + gated web) but got merely APPENDED, so the
+        # authored text was always the actual answer.
+        #
+        # Fix: route the reply through the RETRIEVED, real text. If retrieval
+        # produced a grounded sentence, surface it with a short honest framing
+        # (the framing is system tone, not propositional content). If retrieval
+        # missed, fail CLOSED to the honest-uncertainty line — no authored
+        # essay about a specific paradox. The reply content now comes from
+        # knowledge RAVANA actually fetched, and adapts as its web learning
+        # improves. Verified by run (see commit).
+        if _ground:
+            return (f"that's a real puzzle. {_ground.strip()} "
+                    f"what angle of it interests you?")
         return ("that's a paradox — the interesting part isn't a single answer but the "
-                "tension it exposes. i'd rather think it through with you than give you "
-                "a dictionary line. which angle interests you?") + _ground
+                "tension it exposes. i'd rather think it through with you than guess at "
+                "one. which angle interests you?")
 
     def _user_input_is_gibberism(self, text: str) -> bool:
         """Detect user input that contains no real words at all (random
