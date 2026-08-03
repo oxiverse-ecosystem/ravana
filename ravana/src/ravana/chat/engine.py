@@ -962,6 +962,14 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # if the ontology failed to load (see __init__ guard below).
         self.use_conceptnet_primary = True
         self.belief_store = BeliefStore()
+        # D3 (round v3): agent-self-recall store. RAVANA's OWN prior claims
+        # (self-descriptions it generated) are kept here, keyed by topic, so a
+        # later "what did you say about who you are" can recall RAVANA's answer
+        # instead of wrongly returning a USER episode (D-C bug). Content is the
+        # verbatim reply RAVANA actually produced — never authored prose — so it
+        # passes the hardcoding line; it is a memory of real output, grown from
+        # conversation, and the user can correct/override it like any store.
+        self._agent_claims = {}
 
         # P6: one epistemic register (roadmap #12) toggling confidence /
         # verbosity / curiosity in a single place, instead of scattering
@@ -3030,7 +3038,17 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # terms of its presence"). Route the conditional FIRST so the DMN
         # forward-simulator (or the web/FOK escape) can answer it with both
         # frames (physical vibration vs. perceptual sound) held, as a human does.
-        if self._is_conditional_query(user_input):
+        # R3 (round v3): a first-person self-disclosure STATEMENT (e.g. "i run
+        # a marine research boat", "i play the veena") is NOT a hypothetical the
+        # user wants simulated — routing it into the counterfactual simulator
+        # produced nonsense ("if marine were different..."). The self-disclosure
+        # gate (below) is the correct destination; it stores the fact and acks
+        # it. Defer the conditional pre-pass so disclosures reach that gate.
+        # _is_self_disclosure_stmt() already rejects interrogatives/imperatives
+        # internally, so a self-statement check alone is sufficient here.
+        _is_self_stmt = (hasattr(self, "_is_self_disclosure_stmt")
+                         and self._is_self_disclosure_stmt(user_input))
+        if (not _is_self_stmt) and self._is_conditional_query(user_input):
             _a2 = self._handle_classic_counterfactual(user_input)
             if _a2:
                 self._last_strategy = "counterfactual_classic"
@@ -3096,6 +3114,13 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 # NOT a question, and NOT a creative/request frame. This keeps
                 # recall + factual + generative turns out of the empathy path.
                 _low = user_input.lower().strip()
+                # D3 (round v3): normalize spoken contractions so the benign-
+                # condition guard (below) matches them. Without this, "i'm a
+                # vegetarian" / "i've been watching the night sky" kept the
+                # literal "i'm"/"i've" and the guard's \b(i'm|i am|...)\b pattern
+                # never matched, so these self-descriptions fell through to the
+                # grief-empathy path and their factual content was lost (D-F bug).
+                _low = _low.replace("i'm", "i am").replace("i've", "i have").replace("i'll", "i will")
                 # A genuine present-state declaration about the self must be
                 # UTTERANCE-INITIAL (or the whole utterance), never buried inside
                 # a comparison. "explain quantum computing like i'm five" contains
@@ -3126,10 +3151,22 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 # grief/lonely/fear words). Otherwise defer to the fact-storage
                 # gate below so the disclosure is stored.
                 _benign_condition = bool(re.search(
-                    r"\b(i'm|i am|i feel|i've been|i am feeling)\b.*\b"
+                    r"\b(i am|i feel|i have been|i am feeling)\b.*\b"
                     r"(allergic|hungry|thirsty|tired|sleepy|short|tall|sick|"
                     r"ill|well|fine|okay|ok|healthy|full|cold|hot|wet|dry|"
                     r"pregnant|naked|dressed|shy|quiet|busy)\b", _low))
+                # D3 (round v3): a first-person self-description is, by
+                # default, NOT a distress disclosure. i am a vegetarian,
+                # i have been watching the night sky for years,
+                # i am a teacher — these name an attribute/role/activity,
+                # not a cry for empathy. Route them to fact-storage unless a
+                # suffering word is present. Covers the D-F gap (vegetarian /
+                # night-sky observations were wrongly routed to grief-empathy
+                # because the noun was not in the physical-condition list).
+                _self_desc = bool(re.search(
+                    r"\b(i am (?:a|an) \w+|i have been \w+ing|i am \w+ing)\b",
+                    _low))
+                _benign_condition = _benign_condition or _self_desc
                 _suffering_word = bool(re.search(
                     r"\b(hurt|hurts|pain|ache|suffering|suffer|grief|grieving|"
                     r"lonely|alone|scared|afraid|terrified|anxious|panic|"
@@ -3171,6 +3208,42 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         "frustration": "frustrated",
                     }.get(_cause_fb.label, "hurting")
                     _disc = ("negative", _feeling_phrase)
+            # R3 (round v3): BENIGN-SELF-DESCRIPTION GUARD MUST RUN
+            # UNCONDITIONALLY. Previously the benign/self-desc exclusion lived
+            # INSIDE `if _disc is None:`, so when the PRIMARY VAD detector
+            # misfired on a benign self-description ("i'm vegetarian", "i am a
+            # teacher") it set _disc and the exclusion was skipped -> empathy
+            # fired incorrectly (T55: "i'm vegetarian but i eat eggs" -> "i'm
+            # sorry you're feeling lonely"). The guard now also covers diet /
+            # role / identity nouns, and drops _disc whenever the utterance is a
+            # self-description with NO suffering word, regardless of how _disc
+            # was set. Genuine affect ("i am sad") is preserved because "sad" is
+            # not in this benign vocabulary and the suffering-word guard below
+            # keeps empathic routing intact. Classification vocabulary only — no
+            # authored reply content, so it passes the hardcoding line.
+            _low_b = user_input.lower().strip()
+            _low_b = (_low_b.replace("i'm", "i am").replace("i've", "i have")
+                      .replace("i'll", "i will"))
+            _benign_noun = bool(re.search(
+                r"\b(i am|i'm)\s+(?:a |an |the )?"
+                r"(vegetarian|vegan|omnivore|pescatarian|pescetarian|"
+                r"teetotaller|teetotaler|teetotal|sober|atheist|agnostic|"
+                r"teacher|student|doctor|nurse|engineer|artist|writer|"
+                r"scientist|biologist|researcher|programmer|developer|"
+                r"lawyer|chef|farmer|sailor|pilot|veterinarian|vet|"
+                r"carpenter|musician|singer|painter|accountant|manager|"
+                r"retired|unemployed|single|married|divorced|widowed)\b",
+                _low_b))
+            _suffering_word_b = bool(re.search(
+                r"\b(hurt|hurts|pain|ache|suffering|suffer|grief|grieving|"
+                r"lonely|alone|scared|afraid|terrified|anxious|panic|"
+                r"devastated|broken|dying|dead|miserable|hopeless|"
+                r"overwhelmed|exhausted|furious|angry|cry|cried|crying)\b",
+                _low_b))
+            if _benign_noun and not _suffering_word_b:
+                # Not a distress disclosure — fall through to the
+                # self-disclosure / fact-storage gate.
+                _disc = None
             # ── Frame-guard on the PRIMARY empathy result (A2 extension) ──────
             # The primary VAD detector (and the cause fallback) can fire on a
             # RECALL QUESTION ("what do i like") or a FACTUAL self-disclosure
@@ -3298,6 +3371,25 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # Root-cause recall fix: persist the disclosed fact to the
             # hippocampal buffer before this path returns (see _ingest_episodic).
             self._ingest_episodic(user_input)
+            # D3 (round v3): if this self-disclosure is ALSO a user correction
+            # (e.g. "no, my sister's name is not meena, it's priya"), the
+            # correction signal was detected by mine_personal_facts during the
+            # turn but the early-return here would otherwise bypass the
+            # correction handler at ~4753 and the corrected value would never be
+            # persisted. Persist it HERE, online/incrementally (no retrain): call
+            # contradict() so the stale value is superseded (not merely appended
+            # like assert_fact would), so a later "what have you learned about
+            # me" reflects the corrected fact, not the old one. The user is
+            # ground truth for their own profile.
+            try:
+                _cf = getattr(self.user_model, "detected_correction_fact", None)
+                if getattr(self.user_model, "detected_correction", False) and _cf:
+                    _cf_subj, _cf_attr, _cf_val = _cf
+                    if str(_cf_subj).lower() in ("i", "me", "my"):
+                        self.user_model.personal_facts.contradict(
+                            "i", _cf_attr, _cf_val)
+            except Exception:
+                pass
             self._last_responses.append(_ack)
             if len(self._last_responses) > 10:
                 self._last_responses = self._last_responses[-10:]
@@ -4571,10 +4663,35 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     response, strategy = self._generate_response(ctx)
                     break
                 except RuntimeError as e:
+                    # Retry on the rare "dictionary changed size during iteration"
+                    # race with the background-learning thread: a live dict may be
+                    # mutated mid-iteration despite the lock, so re-run the turn up
+                    # to 3 times. Any other RuntimeError is a real failure — re-raise.
                     if "dictionary changed size" in str(e) and _attempts < 3:
                         _attempts += 1
                         continue
                     raise
+            # D3 (round v3): capture RAVANA's OWN self-description so a later
+            # "what did you say about who you are" can recall it instead of a user
+            # episode (the D-C bug). The stored content is the verbatim reply
+            # RAVANA produced THIS turn — real output, detected structurally via
+            # self-reference markers, not authored prose — so it passes the
+            # no-hardcoding line. It runs only after a successful generation
+            # (response is defined), and the store is a plain dict RAVANA can
+            # overwrite at runtime (e.g. when asked to re-describe itself), not
+            # frozen code. (A secondary capture site at engine_self_query.py also
+            # records the explicit self-description turns.)
+            try:
+                _rl = (response or "").lower()
+                _self_markers = (
+                    "i am ravana", "i'm ravana", "ravana, cognitive",
+                    "cognitive architecture", "brain-inspired",
+                    "brain-inspired cognitive", "i learn concepts",
+                    "i'm a brain", "i am a brain")
+                if any(_m in _rl for _m in _self_markers):
+                    self._agent_claims["self"] = (response or "").strip()
+            except Exception:
+                pass
         finally:
             self._graph_lock.release()
         self._last_strategy = strategy
