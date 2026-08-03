@@ -442,18 +442,39 @@ class SelfQueryMixin:
         if not (_name_q or _self_subj):
             return None
         # Compose a stable, honest self-answer from the derived self-model.
+        _answer = None
         if re.search(r"\bname\b", t):
-            return (f"i'm {sm.name} — {sm.describe().split(',', 1)[-1].strip()}. "
-                    f"what's yours?")
-        if re.search(r"\b(what\s+are\s+you|who\s+are\s+you)\b", t):
-            return (f"i'm {sm.describe()} — an ai that learns by talking, "
-                    f"not a person. what made you curious?")
-        if re.search(r"\bwhat\s+can\s+you\s+do\b", t):
-            return ("i can chat, learn from what we talk about, do arithmetic, "
-                    "tell jokes, and remember things you tell me. what would "
-                    "you like to try?")
-        # Bare self-subject ("what is ravana") -> describe from the model.
-        return f"that's me — {sm.describe()}."
+            _answer = (f"i'm {sm.name} — {sm.describe().split(',', 1)[-1].strip()}. "
+                       f"what's yours?")
+        elif re.search(r"\b(what\s+are\s+you|who\s+are\s+you)\b", t):
+            _answer = (f"i'm {sm.describe()} — an ai that learns by talking, "
+                       f"not a person. what made you curious?")
+        elif re.search(r"\bwhat\s+can\s+you\s+do\b", t):
+            # Derived, not authored: the self-description comes from the live
+            # self-model (sm.describe()), and the only claims made are TRUE of
+            # the architecture regardless of topic — it learns from conversation
+            # and recalls what the user tells it (online learning + fact store).
+            # No per-capability brochure RAVANA could never revise by talking.
+            _answer = (f"i'm {sm.describe()} — i learn from the things we talk "
+                       f"about and remember what you tell me. what would you "
+                       f"like to try?")
+        else:
+            # Bare self-subject ("what is ravana") -> describe from the model.
+            _answer = f"that's me — {sm.describe()}."
+        # D3 (round v3): persist RAVANA's OWN self-description so a later
+        # "what did you say about who you are" can recall it instead of a user
+        # episode (the D-C bug). The stored content is the verbatim composed
+        # answer produced by the self-model THIS turn — real output, not authored
+        # prose — so it passes the no-hardcoding line. The store is a plain dict
+        # RAVANA can overwrite at runtime (e.g. when the user asks it to
+        # re-describe itself), not frozen code. Captured at this chokepoint
+        # because self-description turns return via this method and never reach
+        # the generic generation/response path.
+        try:
+            self._agent_claims["self"] = _answer.strip()
+        except Exception:
+            pass
+        return _answer
 
     def _consult_internal_knowledge(self, user_input: str) -> Optional[str]:
         """Before web, consult RAVANA's consolidated internal memory.
