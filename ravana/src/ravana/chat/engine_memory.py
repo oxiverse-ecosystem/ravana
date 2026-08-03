@@ -1422,6 +1422,57 @@ class MemoryMixin:
             _ep = self._retrieve_episodic(user_input)
             if _ep is not None:
                 return _ep
+            # B1/d3-fix: when the episodic retriever misses because the query
+            # cued a self-activity/attribute fact that lives in the
+            # PersonalFactStore (e.g. "where do i run my stall" -> does=chai
+            # stall near) but never entered the episodic index (the
+            # entity-indexing only maps LOCATION/name words to the "i"
+            # profile), answer from the REAL personal-fact store. The store is
+            # a runtime store RAVANA grows from conversation, so this is a
+            # union of genuine cognition, not a lookup table. Fail-closed: if
+            # nothing matches, return None and let the pipeline fall through to
+            # honest uncertainty instead of a web definition of the word.
+            _pf = getattr(self, "user_model", None)
+            if _pf is not None:
+                try:
+                    _pf_facts = _pf.personal_facts.facts
+                    _q_tokens = {t.strip(".,!?\"'()[]{}*:;").lower()
+                                 for t in re.findall(r"[a-z']+", (user_input or "").lower())}
+                    _q_tokens.discard("")
+                    _matched = []  # (attr, value)
+                    for _k, _v in _pf_facts.items():
+                        if getattr(_v, "superseded", False):
+                            continue
+                        _subj = _k[0] if isinstance(_k, (tuple, list)) and len(_k) >= 3 else "i"
+                        if str(_subj).lower() not in ("i", "me", "my", "you"):
+                            continue
+                        _val = str(getattr(_v, "value", _v) or "").lower()
+                        _attr = (_k[1] if isinstance(_k, (tuple, list)) and len(_k) >= 3 else _k) or ""
+                        # Match on a value token OR the cued attribute word.
+                        _val_tokens = {t for t in re.findall(r"[a-z']+", _val)}
+                        if _val_tokens & _q_tokens or _attr.lower() in _q_tokens:
+                            _matched.append((_attr, getattr(_v, "value", _v)))
+                    if _matched:
+                        _bits = []
+                        for _attr, _val in _matched:
+                            if _attr == "does":
+                                _bits.append(f"you do {_val}")
+                            elif _attr == "name":
+                                _bits.append(f"your name is {_val}")
+                            elif _attr == "is":
+                                _bits.append(f"you are {_val}")
+                            elif _attr == "location":
+                                _bits.append(f"you live in {_val}")
+                            elif _attr == "likes":
+                                _bits.append(f"you like {_val}")
+                            elif _attr == "allergy":
+                                _bits.append(f"you're allergic to {_val}")
+                            else:
+                                _bits.append(f"your {_attr} is {_val}")
+                        if _bits:
+                            return "you told me " + "; ".join(dict.fromkeys(_bits)) + "."
+                except Exception:
+                    pass
         # First/second-person + a recall/speech verb, referring to a prior turn.
         # Require an explicit conversational-memory phrasing to stay narrow.
         _patterns = [
