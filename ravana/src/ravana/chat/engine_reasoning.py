@@ -2004,7 +2004,12 @@ class ReasoningMixin:
                 # like/love
                 ml = re.search(r"\bi\s+(like|love|hate)\s+(.+)", q, re.IGNORECASE)
                 if ml:
-                    parsed = ("like", None, ml.group(2).strip(" .!?"))
+                    # D3 (round v2): carry the ACTUAL verb so the
+                    # acknowledgment preserves polarity ("i hate X" must be
+                    # acked as "you hate X", never "you like X"). The old code
+                    # hardcoded 'love' if 'love' in q else 'like', discarding
+                    # 'hate' and defaulting negatives to 'like'.
+                    parsed = ("like", ml.group(1).lower(), ml.group(2).strip(" .!?"))
 
         # Persist via the existing UserModel store (single source of truth).
         try:
@@ -2057,15 +2062,16 @@ class ReasoningMixin:
             ack = f"nice to meet you, {parsed[2]}! i'll remember that."
         elif parsed[0] == "like":
             _obj = parsed[2]
+            _verb = parsed[1]  # actual verb: like/love/hate (D3)
             # §7 deictic resolution: "i love you" -> the user's 1st-person
-            # declaration is addressed to the agent, so the agent reciprocates
+            # declaration is addressed to the AGENT, so the agent reciprocates
             # ("i love you too"), never echoes it back as "you love you". This
             # is a structural I<->user, you<->agent map, not content.
             if _obj.strip() in ("you", "u", "ur", "your"):
-                _verb = "love" if "love" in q else "like"
+                _verb = "love" if _verb == "love" else "like"
                 ack = f"aw, i {_verb} you too."
             else:
-                ack = f"good to know — you {'love' if 'love' in q else 'like'} {_obj}. i'll keep that in mind."
+                ack = f"good to know — you {_verb} {_obj}. i'll keep that in mind."
         else:
             ack = "got it — thanks for telling me."
 

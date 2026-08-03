@@ -3114,6 +3114,27 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 # surface for congruent topics (vmPFC value integration).
                 if _state_disclosure:
                     self._emotional_channel_active = True
+                # D4 (round v2): a first-person PRESENT-STATE declaration that
+                # merely names a physical condition/attribute is NOT a distress
+                # disclosure — "i am allergic to peanuts", "i am tired",
+                # "i am hungry", "i am short" are self-descriptions, not calls
+                # for empathy. The cause classifier is noisy and maps words like
+                # "allergic" to 'other_suffering'; without an explicit exclusion
+                # these were routed to grief empathy and their factual content
+                # lost. Only treat a benign-looking physical/preference statement
+                # as affective when it expresses clear suffering (pain/hurt/
+                # grief/lonely/fear words). Otherwise defer to the fact-storage
+                # gate below so the disclosure is stored.
+                _benign_condition = bool(re.search(
+                    r"\b(i'm|i am|i feel|i've been|i am feeling)\b.*\b"
+                    r"(allergic|hungry|thirsty|tired|sleepy|short|tall|sick|"
+                    r"ill|well|fine|okay|ok|healthy|full|cold|hot|wet|dry|"
+                    r"pregnant|naked|dressed|shy|quiet|busy)\b", _low))
+                _suffering_word = bool(re.search(
+                    r"\b(hurt|hurts|pain|ache|suffering|suffer|grief|grieving|"
+                    r"lonely|alone|scared|afraid|terrified|anxious|panic|"
+                    r"devastated|broken|dying|dead|miserable|hopeless|"
+                    r"overwhelmed|exhausted|furious|angry|cry|cried|crying)\b", _low))
                 # ELI5 / simile self-reference ("like i'm five", "as if i'm ...")
                 # is a request framing, not a state disclosure.
                 _eli5_simile = bool(re.search(
@@ -3128,7 +3149,11 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                                    r"tale|letter)\s+(about|of|for)\b", _low))
                 _humor_req = bool(re.search(r"\b(joke|jokes|funny|laugh|"
                                             r"laughing|humor|humour)\b", _low))
-                if (_state_disclosure and not _eli5_simile and not _recall_frame
+                if _benign_condition and not _suffering_word:
+                    # Not a distress disclosure — let it fall through to the
+                    # self-disclosure / fact-storage gate.
+                    _disc = None
+                elif (_state_disclosure and not _eli5_simile and not _recall_frame
                         and not _is_question
                         and not _request_frame and not _humor_req
                         and _cause_fb.label in

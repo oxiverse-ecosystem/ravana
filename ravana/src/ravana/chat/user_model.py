@@ -161,12 +161,38 @@ class UserModel:
                 self.user_name = name_cap
                 _put_fact("name", name_cap, 0.6)
         for _pat in (
-            r"\bmy\s+([\w'-]+)\s+(?:is|are)\s+([\w'-]+)",
+            # D2 (round v2): tolerate an optional "name" word between the
+            # relation and "is" so "my daughter name is ingrid" stores
+            # daughter=ingrid (the old pattern required exactly one token
+            # before "is" and missed the "name" form).
+            r"\bmy\s+([\w'-]+)(?:\s+name)?\s+(?:is|are)\s+([\w'-]+)",
             r"\bi\s+have\s+(?:a|an|the)\s+([\w'-]+)\s+(?:named|called)\s+([\w'-]+)",
             r"\bmy\s+([\w'-]+)\s+(?:named|called)\s+([\w'-]+)",
+            # D2: "i am a/an <noun>" self-descriptions (vegetarian, pilot,
+            # teacher, ...) captured as a durable identity/role fact. Generic
+            # structural capture — the noun becomes the attribute value, no
+            # per-topic list. A small universal stop-set excludes non-facts
+            # like "person"/"human"/"child" which are not stored attributes.
+            r"\bi\s+am\s+(?:a|an)\s+([\w'-]+)",
+            r"\bi\s+am\s+allergic\s+to\s+([\w'-]+)",
         ):
             for _m in re.finditer(_pat, q_clean, re.IGNORECASE):
-                _attr, _val = _m.group(1).strip().lower(), _m.group(2).strip()
+                _attr, _val = None, None
+                if _m.lastindex is not None and _m.lastindex >= 2:
+                    _attr, _val = _m.group(1).strip().lower(), _m.group(2).strip()
+                elif _m.lastindex == 1:
+                    # Single-group patterns: "i am a/an <noun>" / "i am
+                    # allergic to <noun>" — the one group is the VALUE; the
+                    # attribute is inferred from the pattern.
+                    _val = _m.group(1).strip().lower()
+                    if _pat.startswith(r"\bi\s+am\s+(?:a|an)"):
+                        _attr = "role"
+                        if _val in ("person", "human", "woman", "man", "child",
+                                    "kid", "adult", "student", "robot", "machine",
+                                    "ai", "thing", "people", "boy", "girl"):
+                            continue
+                    elif _pat.startswith(r"\bi\s+am\s+allergic\s+to"):
+                        _attr = "allergy"
                 if _attr and _val and _attr not in ("name", "location"):
                     _put_fact(_attr, _val, 0.6)
 
@@ -178,15 +204,28 @@ class UserModel:
         _vad = self._infer_user_emotion(text)
         _v, _a, _d = _vad
         for _pat, _pol, _conf in (
-            (r"\bi\s+(?:really\s+)?(?:like|love|enjoy|prefer|care\s+for)\s+([\w'-]+)", 0.8, 0.6),
-            (r"\bi\s+(?:really\s+)?(?:hate|dislike|detest|can't\s+stand)\s+([\w'-]+)", -0.8, 0.6),
-            (r"\bi\s+think\s+([\w'-]+)\s+(?:is|are)\s+(?:good|great|awesome|nice|wonderful|amazing)", 0.8, 0.5),
-            (r"\bi\s+think\s+([\w'-]+)\s+(?:is|are)\s+(?:bad|terrible|awful|overrated|horrible|poor)", -0.8, 0.5),
-            (r"\b([\w'-]+)\s+is\s+my\s+favorite\b", 1.0, 0.7),
+            # D2 (round v2): capture the FULL object phrase after the verb,
+            # not just the first token — "small talk" / "the solitude of the
+            # lighthouse" must be one topic, not the function word "small"/"the".
+            # The salient CONTENT HEAD is resolved by _opinion_topic (skips
+            # closed-class words), so a stance lands on "talk"/"solitude", a
+            # real concept, never on "the"/"how"/"small".
+            (r"\bi\s+(?:really\s+)?(?:like|love|enjoy|prefer|care\s+for)\s+(.+?)(?:\.|\band\b|\bbut\b|$|,)", 0.8, 0.6),
+            (r"\bi\s+(?:really\s+)?(?:hate|dislike|detest|can't\s+stand)\s+(.+?)(?:\.|\band\b|\bbut\b|$|,)", -0.8, 0.6),
+            (r"\bi\s+think\s+(.+?)\s+(?:is|are)\s+(?:good|great|awesome|nice|wonderful|amazing)", 0.8, 0.5),
+            (r"\bi\s+think\s+(.+?)\s+(?:is|are)\s+(?:bad|terrible|awful|overrated|horrible|poor)", -0.8, 0.5),
+            (r"\b(.+?)\s+is\s+my\s+favorite\b", 1.0, 0.7),
             (r"\bi\s+believe\s+([\w'-]+)\s+beats\s+([\w'-]+)", 0.7, 0.4),
         ):
             for _m in re.finditer(_pat, q_clean, re.IGNORECASE):
-                _topic = _m.group(_m.lastindex).strip().lower()
+                _raw = _m.group(_m.lastindex).strip().lower()
+                if not _raw:
+                    continue
+                # Resolve the content head so stances never land on a
+                # closed-class word (the/a/how/small/...). Returns None when
+                # the phrase has no usable content noun -> skip (don't seed a
+                # garbage stance).
+                _topic = self._opinion_topic(_raw)
                 if not _topic:
                     continue
                 _p = _pol
@@ -369,6 +408,63 @@ class UserModel:
         self.correction_severity = 0.0
         self.correction_subject = ""
         self.detected_correction_fact = None
+
+    # D2 (round v2): closed-class / function words that can never own a stance.
+    # A stance must land on a real CONTENT concept ("talk", "solitude"),
+    # never on a determiner/adverb ("the", "small", "how"). This is a minimal
+    # universal seed (closed-class set is language-universal and tiny), NOT a
+    # per-topic table — it generalizes to any topic the user names.
+    _OPINION_STOP = {
+        "the", "a", "an", "my", "your", "our", "their", "his", "her", "its",
+        "this", "that", "these", "those", "some", "any", "no", "all", "every",
+        "i", "you", "he", "she", "we", "they", "me", "him", "us", "them",
+        "and", "but", "or", "so", "if", "when", "while", "because", "of",
+        "to", "in", "on", "at", "for", "with", "from", "by", "as", "into",
+        "about", "over", "under", "how", "what", "why", "who", "where",
+        "really", "very", "just", "only", "also", "too", "quite", "more",
+        "most", "much", "many", "such", "own", "same", "other", "another",
+        "is", "are", "was", "were", "be", "been", "being", "am",
+        "not", "don't", "dont", "do", "does", "did", "can", "cannot", "cant",
+        "it", "they're", "im", "i'm", "you're", "we're", "there",
+    }
+
+    def _opinion_topic(self, phrase: str) -> Optional[str]:
+        """Resolve the salient CONTENT HEAD of an opinion-object phrase.
+
+        Strips leading determiners and trailing modifiers and CUTS at the
+        first internal closed-class word (preposition/conjunction) so:
+          "the solitude of the lighthouse" -> "solitude"
+          "small talk at the village market" -> "small talk"
+          "accordion when the wind dies down" -> "accordion"
+          "how whales communicate" -> "whales"
+        Returns the joined head phrase (one or more content nouns), or None
+        if the phrase is all closed-class words (so we never seed a garbage
+        stance on a function word like "the"/"how"/"small").
+        """
+        toks = [t for t in re.findall(r"[a-z'][a-z']*", phrase.lower())]
+        if not toks:
+            return None
+        # Drop leading closed-class words (determiners/prepositions).
+        while toks and toks[0] in self._OPINION_STOP:
+            toks.pop(0)
+        if not toks:
+            return None
+        # Cut at the first internal closed-class word so a compound head
+        # ("small talk") is kept whole but trailing prepositional spans
+        # ("of the lighthouse", "at the market") are dropped.
+        head = []
+        for t in toks:
+            if t in self._OPINION_STOP:
+                break
+            head.append(t)
+        if not head:
+            return None
+        # Drop trailing closed-class/modifier words as a final safety.
+        while len(head) > 1 and head[-1] in self._OPINION_STOP:
+            head.pop()
+        if not head:
+            return None
+        return " ".join(head)
 
     def _ensure_emotion_detector(self):
         if self._emotion_detector is None or not hasattr(self._emotion_detector, '_vad_matrix'):

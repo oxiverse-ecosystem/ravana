@@ -2083,6 +2083,36 @@ class ResponseGenMixin(ChainWalkerMixin):
         _about_agent, _conf = is_self_addressed(t)
         if not _about_agent:
             return None
+        # D7 (round v2): a self-model predicate word is ambiguous. "do you
+        # THINK seabirds should be protected" uses "think" to ask the agent's
+        # OPINION on a TOPIC, not about its thinking nature. The bare
+        # self-model branch must NOT swallow a topic-opinion question and
+        # answer with the dead-end "i don't think the way a person does".
+        # If the query carries a real content TOPIC (any salient noun beyond
+        # the self-address scaffolding: "seabirds", "cats", "tradition"...),
+        # defer (return None) so the value resolver composes a grounded stance.
+        # Genuine self-nature questions ("do you have feelings", "are you
+        # alive", "do you ever get tired") have NO such topic noun and still
+        # route here. This is a content-presence test, not a per-topic list.
+        _SCAFFOLD = {
+            "you", "your", "i", "we", "they", "it", "he", "she", "me", "my",
+            "do", "does", "did", "are", "is", "am", "be", "been", "being",
+            "think", "thought", "thinking", "thoughts", "feel", "feeling",
+            "feelings", "emotion", "emotions", "alive", "living", "real",
+            "human", "conscious", "consciousness", "aware", "awareness",
+            "mind", "tired", "tiredness", "sleep", "rest", "energy",
+            "exhausted", "wear", "have", "has", "ever", "get", "the", "a",
+            "an", "about", "to", "of", "in", "on", "for", "with", "and",
+            "or", "but", "that", "this", "what", "why", "how", "should",
+            "could", "would", "can", "not", "no", "yes",
+        }
+        _topic_words = [w for w in re.findall(r"[a-z']+", t)
+                        if w not in _SCAFFOLD and len(w) >= 3]
+        if _topic_words:
+            # There is a topic object -> this is an opinion question about
+            # that topic, not a question about the agent's own nature. Defer
+            # so the value resolver can form a stance. Fail-open: return None.
+            return None
         # Ground the stance in the engine's actual affective state (honest,
         # not a hardcoded "i have no feelings").
         _valence = 0.5
@@ -4047,7 +4077,14 @@ class ResponseGenMixin(ChainWalkerMixin):
             if _has_narrative_frame and not _self_possessive_loss:
                 # Loss word lives in a story/request frame, not a self-disclosure.
                 pass
-            else:
+            elif _self_possessive_loss:
+                # D4 (round v2): the bare loss-term substring check fired on
+                # "wind DIES down" / "the fire DIED out" — a non-loss sense of
+                # "die" inside an unrelated utterance. A bereavement disclosure
+                # requires a SELF-POSSESSIVE structure ("my dog died"), exactly
+                # like the narrative-frame guard above. Without this, ordinary
+                # sentences containing "dies/died" were routed to grief empathy
+                # and their factual content was lost. Only fire on genuine loss.
                 self._update_vad_baseline(-0.8)
                 # B4 (empathy specificity; Jankowiak-Siuda 2011): extract the
                 # SPECIFIC lost entity so the reply names the relationship

@@ -1,0 +1,54 @@
+{
+  "turns_run": 76,
+  "turn_count_before": 0,
+  "turn_count_after": 44,
+  "identity_strength_before": 0.25,
+  "identity_strength_after": 0.750262310882844,
+  "stances_before": {},
+  "stances_after": {
+    "solitude": {
+      "polarity": 1.0,
+      "confidence": 0.65
+    },
+    "small talk": {
+      "polarity": -1.0,
+      "confidence": 0.65
+    },
+    "foghorn won't stop": {
+      "polarity": -0.8,
+      "confidence": 0.675
+    },
+    "alone out here anymore": {
+      "polarity": -1.0,
+      "confidence": 0.675
+    },
+    "sound": {
+      "polarity": 1.0,
+      "confidence": 0.65
+    },
+    "long polar night": {
+      "polarity": -1.0,
+      "confidence": 0.65
+    },
+    "alone": {
+      "polarity": 0.8,
+      "confidence": 0.65
+    },
+    "reading poetry": {
+      "polarity": 1.0,
+      "confidence": 0.65
+    }
+  },
+  "facts_before_n": 0,
+  "facts_after_n": 3,
+  "beliefs_before_n": 0,
+  "beliefs_after_n": 3,
+  "graph_before": [
+    261,
+    509
+  ],
+  "graph_after": [
+    501,
+    4612
+  ]
+}

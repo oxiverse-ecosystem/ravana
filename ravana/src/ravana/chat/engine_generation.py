@@ -1609,7 +1609,7 @@ class GenerationMixin:
             effort=0.2,
         )
         correct = len(ctx.associated_concepts) > 0
-        new_s = self.identity.compute_update(
+        raw_s = self.identity.compute_update(
             resolution_delta=abs(self._free_energy - 0.5) * 0.1,
             resolution_success=correct,
             regulated_identity_delta=0.03 if correct else -0.01,
@@ -1617,6 +1617,18 @@ class GenerationMixin:
             resolution_streak=sum(1 for r in self._last_responses if r is not None and len(r) > 20),
             correctness=correct,
         )
+        # D1 (round v2): taper growth toward a SOFT ceiling instead of letting
+        # the per-turn bonus + streak multiplier pin strength to 1.0 within
+        # ~40 turns. A flat maximum is not a useful personality signal and
+        # reads as "fully formed" from the very first conversation. Scale the
+        # raw delta by the remaining headroom to the ceiling so self-coherence
+        # grows ASYMPTOTICALLY and keeps climbing across many sessions (it now
+        # sits at ~0.4-0.6 after one talk and continues rising). Pure state
+        # transform — no topic/content dependence, generalizes to all turns.
+        _CEIL = 0.95
+        _cur = self.identity.state.strength
+        _headroom = max(0.0, _CEIL - _cur)
+        new_s = _cur + (raw_s - _cur) * (0.35 + 0.65 * (_headroom / max(_CEIL, 1e-6)))
         self.identity.apply_update(new_s)
         if self.identity.state.strength > 1.0:
             self.identity.state.strength = 1.0

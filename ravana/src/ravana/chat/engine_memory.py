@@ -1204,7 +1204,7 @@ class MemoryMixin:
         # brain-faithful (Tulving autonoetic recollection is past-displaced;
         # source-monitoring tags a retrieved memory vs a present feeling).
         _self_recall_struct = bool(re.search(
-            r"\b(?:what|anything|tell me)\b.*\b(?:do )?you\b.*\b(?:remember|know|recall|told|tell)\b"
+            r"\b(?:what|anything|tell me)\b.*\b(?:do )?you\b.*\b(?:remember|know|recall|told|tell|learned?|found out|discovered|figured out)\b"
             r".*\b(?:about me|me|my|myself)\b", t)) or \
             bool(re.search(r"\b(?:remember|recall)\b.*\b(?:what i|what i told|me)\b", t)) or \
             bool(re.search(
@@ -1221,19 +1221,64 @@ class MemoryMixin:
             except Exception:
                 _self_recall_intent = False
         if _self_recall_struct or _self_recall_intent:
-            _ep = self._retrieve_episodic(user_input)
-            if _ep is not None:
-                return _ep
-            # Generic self-recall ("what do you remember about me" / "what do
-            # you know about me") carries NO specific entity cue, so the
-            # entity-indexed _retrieve_episodic returns None. Reconstruct a gist
-            # from ALL disclosed user facts held in the hippocampal entity index
-            # (Tulving encoding specificity: a self-directed memory query without
-            # a target reconstructs the whole disclosed self-profile). Brain-
-            # faithful: we surface what was actually stored, never a dictionary
-            # node. Fail-closed: if the index is genuinely empty, fall through to
-            # the honest "you haven't told me much" uncertainty path.
+            # D5 (round v2): decide whether this is a SPECIFIC cued recall
+            # ("what did you tell me about my cat") or a GENERIC self-recall
+            # ("what have you learned about me" / "what do you know about me").
+            # A generic self-recall carries NO entity/attribute cue, so routing
+            # it through _retrieve_episodic's loose semantic matcher returns a
+            # RANDOM prior utterance (confabulation) instead of the honest
+            # self-profile summary. We only call the cued retriever when the
+            # query actually names a stored entity or a biographical attribute
+            # (location/name); otherwise we build the profile summary directly
+            # from the hippocampal entity index. Fail-closed: if the index is
+            # empty, the summary path returns the honest "you haven't told me
+            # much" line. This keeps "what have you learned about me" honest.
             _idx = getattr(self, "_episodic_index", None) or {}
+            _LOC_WORDS = ("live", "lives", "from", "city", "town", "country",
+                          "born", "grew", "located", "location", "origin")
+            _cue = False
+            for _tok in re.findall(r"[a-z']+", (user_input or "").lower()):
+                _t = _tok[:-2] if _tok.endswith("'s") else _tok
+                # A SPECIFIC cued entity (a stored entity name, or a
+                # biographical attribute word) — not the bare self-reference
+                # pronouns, which carry no specific retrieval target and were
+                # wrongly sending generic recalls into the confabulating
+                # semantic matcher.
+                if _t in _idx and _t not in ("i", "you", "my", "your"):
+                    _cue = True
+                    break
+                if _t in _LOC_WORDS or _t == "name":
+                    _cue = True
+                    break
+            if _cue:
+                _ep = self._retrieve_episodic(user_input)
+                if _ep is not None:
+                    return _ep
+            # Generic self-recall: reconstruct a gist from ALL disclosed user
+            # facts held in the hippocampal entity index (Tulving encoding
+            # specificity: a self-directed memory query without a target
+            # reconstructs the whole disclosed self-profile). Brain-faithful:
+            # we surface what was actually stored, never a dictionary node.
+            _bits = []
+            for _ent, _facts in _idx.items():
+                for _attr, _val in _facts.items():
+                    if _attr == "favorite":
+                        _bits.append(f"your favorite {_ent} is {_val}")
+                    elif _attr == "likes":
+                        _bits.append(f"you like {_val}")
+                    elif _attr == "is":
+                        _bits.append(f"your {_ent} is {_val}")
+                    elif _attr == "name":
+                        _bits.append(f"your name is {_val}")
+                    elif _attr == "location":
+                        _bits.append(f"you live in {_val}")
+                    else:
+                        _bits.append(f"your {_ent}'s {_attr} is {_val}")
+            if _bits:
+                _summary = "; ".join(dict.fromkeys(_bits))
+                return f"from what you've told me, {_summary}."
+            return ("i don't think you've told me much about yourself yet — "
+                    "but i'm listening whenever you want to share.")
             _bits = []
             for _ent, _facts in _idx.items():
                 for _attr, _val in _facts.items():
