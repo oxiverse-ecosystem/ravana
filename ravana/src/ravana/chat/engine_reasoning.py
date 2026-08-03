@@ -676,8 +676,8 @@ class ReasoningMixin:
         # knowledge RAVANA actually fetched, and adapts as its web learning
         # improves. Verified by run (see commit).
         if _ground:
-            return (f"that's a real puzzle. {_ground.strip()} "
-                    f"what angle of it interests you?")
+            return (f"that's a real puzzle — what angle of it interests you? "
+                    f"{_ground.strip()}")
         return ("that's a paradox — the interesting part isn't a single answer but the "
                 "tension it exposes. i'd rather think it through with you than guess at "
                 "one. which angle interests you?")
