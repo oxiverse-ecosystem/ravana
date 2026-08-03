@@ -37,6 +37,15 @@ _CORRECTION_FACT_PATTERNS = [
     r"([\w\s]+?)\s+are\s+(\w+)[,.]*\s+not\s+(\w+)",
 ]
 
+# D3 (round v3): explicit correction shape "X's name is not Y, it's Z" /
+# "X is not Y, it's Z" where the CORRECTED value is the token after "it's"
+# (never the negation word). Handled separately because its group order is
+# (subject_attr, correct_value) which the generic 2-group branch would misread.
+_CORRECTION_NAME_FACT_PATTERN = (
+    r"(?:my\s+)?([\w'-]+?)(?:'s)?\s+(?:name\s+)?is\s+not\s+[\w'-]+"
+    r"[,.]*\s+it'?s\s+([\w'-]+)"
+)
+
 
 @dataclass
 class UserModel:
@@ -101,7 +110,8 @@ class UserModel:
                 self.knowledge_model[from_label.lower()] = min(1.0, self.knowledge_model.get(from_label.lower(), 0.0) + 0.1)
                 self.learning_goals[to_label.lower()] = self.learning_goals.get(to_label.lower(), 0) + 1
 
-    def mine_personal_facts(self, text: str) -> None:
+    def mine_personal_facts(self, text: str,
+                             run_correction: bool = True) -> None:
         """High-precision personal-fact miner (B3 / A5). Seeded from explicit
         "my X is Y" / "I have a X named Y" / name / location patterns into the
         learned PersonalFactStore. Called both from observe_user_query (full
@@ -123,13 +133,51 @@ class UserModel:
             r"|\bi\s+(?:said|told\s+you)\b|\bnot\s+[\w'-]+\s*,?\s*(?:it'?s|it\s+is)\b",
             q_clean, re.IGNORECASE))
 
+
+        _NEG_WORDS = {"not", "no", "never", "none", "nil", "n't", "dont",
+                       "don't", "false", "wrong", "incorrect"}
+        _VALUE_STOP = _NEG_WORDS | {
+            "the", "a", "an", "and", "or", "but", "is", "are", "was", "were",
+            "am", "be", "been", "being", "to", "of", "in", "on", "at", "for",
+            "with", "my", "your", "i", "you", "it", "this", "that", "me"}
+
+        # D3 (round v4): name-correction detection MUST run here, not only in
+        # UserModel._extract_correction_fact (which observe_user_query calls at
+        # engine.py:4193 — AFTER the self-disclosure early-return at :3392). A
+        # correction phrased as a disclosure ("my sister's name is not meena,
+        # it's priya") returns at :3392 before late detection ever sets the
+        # flag, so the contradict() block at :3408 saw None and the correction
+        # was silently lost. mine_personal_facts runs at :2549 (pre-early-return),
+        # so detecting here lets the engine persist the corrected fact online.
+        # Seeds the same flags the full circuit uses; the :3408 block does the
+        # actual contradict() (no retrain, no authored text). _VALUE_STOP is
+        # defined above, so the negation guard can reject junk values.
+        _nm = re.search(_CORRECTION_NAME_FACT_PATTERN, q_clean, re.IGNORECASE)
+        if _nm:
+            _subj_attr = _nm.group(1).strip().removesuffix("'s")
+            _correct_val = _nm.group(2).strip()
+            if _correct_val and _correct_val not in _VALUE_STOP:
+                self.detected_correction = True
+                self.detected_correction_fact = ("i", _subj_attr, _correct_val)
+                self.detected_correction_type = CorrectionType.CORRECTION_WITH_FACT
+                self.correction_severity = max(self.correction_severity, 0.8)
+
         def _put_fact(attr: str, val: str, conf: float) -> None:
+            # D3 (round v3): never store a closed-class / negation token as a
+            # fact value. The old miner matched "my sister's name is not meena,
+            # it's priya" and stored value="not" (the word after "is"). Values
+            # that are not real content are rejected so they can't pollute the
+            # personal-fact store; the real corrected value arrives via the
+            # correction circuit (detected_correction_fact) instead.
+            _val = (val or "").strip().strip(" .,!?;:'\"").lower()
+            if not _val or _val in _VALUE_STOP:
+                return
             existing = self.personal_facts.get("i", attr)
             if (_corrective and existing is not None
-                    and existing.value.lower() != val.lower()):
-                self.personal_facts.contradict("i", attr, val)
+                    and existing.value.lower() != _val):
+                self.personal_facts.contradict("i", attr, _val)
             else:
-                self.personal_facts.assert_fact("i", attr, val,
+                self.personal_facts.assert_fact("i", attr, _val,
                                                 confidence=conf,
                                                 source="seed_regex")
 
@@ -196,6 +244,45 @@ class UserModel:
                 if _attr and _val and _attr not in ("name", "location"):
                     _put_fact(_attr, _val, 0.6)
 
+        # D3 (round v3): capture self-disclosed ACTIVITIES / possessions that the
+        # existing "my X is Y" / "i am a role" miners miss — e.g. "i run a chai
+        # stall near the mysore palace", "i play the tabla when the stall is
+        # closed", "i've been watching the night sky for twelve years". These are
+        # first-person disclosures of what the user DOES / has, and must land in
+        # the personal-fact store so a later "what have you learned about me"
+        # summary and cued recall can surface them (D-D bug: only 'likes' was
+        # recalled because activity facts were never mined). Structural: a small
+        # closed VERB set (not a per-topic list) + the resolved content HEAD of
+        # the object phrase (via _opinion_topic, which drops closed-class words),
+        # so the stored value is a real concept ("chai stall", "tabla", "night
+        # sky"), never a function word. This is seed structure RAVANA expands from
+        # experience — it adds to the same PersonalFactStore the user can correct.
+        for _verb in ("run", "own", "operate", "keep", "play", "teach", "study",
+                       "work", "manage", "drive", "build", "make", "sell",
+                       "restore", "grow", "watch", "raise", "tend", "brew",
+                       "bake", "write", "read", "learn", "practice", "collect",
+                       "fix", "paint", "code", "design", "craft", "volunteer",
+                       "cook", "fish", "hike", "garden", "farm", "lead", "organize"):
+            _m = re.search(
+                r"\bi\s+(?:also\s+|really\s+|even\s+|just\s+|now\s+|still\s+"
+                r"|often\s+|sometimes\s+|usually\s+)?"
+                r"(?:have\s+been\s+)?(?:been\s+)?" + _verb +
+                r"\s+(?:a|an|the\s+)?(.+?)(?:\bfor\b|\bwhen\b|\bbut\b|"
+                r"\bbecause\b|\band\b|\.|\!|\?|$|,)",
+                q_clean, re.IGNORECASE)
+            if _m:
+                _obj = self._opinion_topic(_m.group(1).strip().lower())
+                if _obj and len(_obj.split()) <= 5:
+                    _put_fact("does", _obj, 0.55)
+        # "i've been <verb>-ing <object> for <duration>" (ongoing activity)
+        _cont = re.search(
+            r"\bi(?:'ve| have)\s+been\s+(\w+ing)\s+(.+?)(?:\bfor\b|\bsince\b|\.|\!|\?|$|,)",
+            q_clean, re.IGNORECASE)
+        if _cont:
+            _obj = self._opinion_topic(_cont.group(2).strip().lower())
+            if _obj and len(_obj.split()) <= 5:
+                _put_fact("does", _obj, 0.55)
+
         # Opinion mining (C2): capture the user's value judgments alongside
         # facts. Runs in the miner (not only observe_user_query) so opinions are
         # captured even when process_turn early-returns before Step 5b (e.g. a
@@ -212,8 +299,13 @@ class UserModel:
             # real concept, never on "the"/"how"/"small".
             (r"\bi\s+(?:really\s+)?(?:like|love|enjoy|prefer|care\s+for)\s+(.+?)(?:\.|\band\b|\bbut\b|$|,)", 0.8, 0.6),
             (r"\bi\s+(?:really\s+)?(?:hate|dislike|detest|can't\s+stand)\s+(.+?)(?:\.|\band\b|\bbut\b|$|,)", -0.8, 0.6),
-            (r"\bi\s+think\s+(.+?)\s+(?:is|are)\s+(?:good|great|awesome|nice|wonderful|amazing)", 0.8, 0.5),
-            (r"\bi\s+think\s+(.+?)\s+(?:is|are)\s+(?:bad|terrible|awful|overrated|horrible|poor)", -0.8, 0.5),
+            (r"\bi\s+think\s+(.+?)\s+(?:is|are)\s+(?:good|great|awesome|nice|wonderful|amazing|the\s+future|essential|important|right|crucial|vital)", 0.8, 0.5),
+            (r"\bi\s+think\s+(.+?)\s+(?:is|are)\s+(?:bad|terrible|awful|overrated|horrible|poor|a\s+mistake|harmful|wrong|useless)", -0.8, 0.5),
+            (r"\bi\s+believe\s+(.+?)\s+(?:is|are)\s+(?:good|great|awesome|nice|wonderful|amazing|the\s+future|essential|important|right|crucial|vital)", 0.8, 0.5),
+            (r"\bi\s+believe\s+(.+?)\s+(?:is|are)\s+(?:bad|terrible|awful|overrated|horrible|poor|a\s+mistake|harmful|wrong|useless)", -0.8, 0.5),
+            # "i believe we must/should protect/save/ban <X>" -> positive stance on X.
+            (r"\bi\s+believe\s+we\s+(?:must|should)\s+(?:protect|save|preserve|defend|fund|support)\s+(.+?)(?:\.|\band\b|\bbut\b|$|,)", 0.8, 0.55),
+            (r"\bi\s+believe\s+we\s+(?:must|should)\s+(?:ban|cut|end|stop|reduce)\s+(.+?)(?:\.|\band\b|\bbut\b|$|,)", -0.8, 0.55),
             (r"\b(.+?)\s+is\s+my\s+favorite\b", 1.0, 0.7),
             (r"\bi\s+believe\s+([\w'-]+)\s+beats\s+([\w'-]+)", 0.7, 0.4),
         ):
@@ -364,9 +456,13 @@ class UserModel:
                     self.detected_correction_type = CorrectionType.INDIRECT_REASK
                 self.correction_severity = max(self.correction_severity, 0.3)
 
-        # Extract corrected fact if user provides one
-        if self.detected_correction:
-            self._extract_correction_fact(query, subject)
+        # Extract corrected fact if user provides one. D3 (round v4): run
+        # unconditionally, not only after a direct/sentiment/reask signal.
+        # A name/value correction ("my sister's name is not meena, it's priya")
+        # has NO direct-correction cue word, so gating on detected_correction
+        # made the name extractor dead — the fact was never extracted. The
+        # extractor self-signals via the name pattern, so let it set the flag.
+        self._extract_correction_fact(query, subject)
 
         self._previous_user_query = q_clean
 
@@ -375,6 +471,44 @@ class UserModel:
         E.g. \"2+2 is 4, not 5\" → (\"2+2\", \"is\", \"4\")
         """
         q_clean = query.lower().strip()
+        # D3 (round v3): "X's name is not Y, it's Z" / "X is not Y, it's Z".
+        # The corrected value is the token after "it's" (group 2); the subject
+        # attribute is group 1 (e.g. "sister's"). The negation word "not" is
+        # NEVER stored as a value — that was the D-A bug (corrected value was
+        # "not"). Handled before the generic loop because its group order
+        # differs.
+        # D3 (round v4): "X is not Y, it is/it's Z" — the NEGATION-FIRST shape
+        # ("my dog is not max, it is rocky"). The corrected value is the token
+        # after "it is"/"it's" (last group); the subject attribute is the noun
+        # before "is not". The existing _CORRECTION_FACT_PATTERNS only handle
+        # "X is Y, not Z" (negation LAST), so this dominant natural shape was
+        # never extracted — corrections about pets/things/places were lost.
+        # The negation word is NEVER stored as a value. Handled before the
+        # generic loop because its group order (attr, correct_val) differs.
+        _notfirst = re.search(
+            r"(?:my|the|a|an)?\s*([\w'-]+?)'\s*is\s+not\s+[\w'-]+"
+            r"[,.]*\s+(?:it'?s|it\s+is)\s+([\w'-]+)", q_clean, re.IGNORECASE)
+        if _notfirst is None:
+            _notfirst = re.search(
+                r"([\w'-]+)\s+is\s+not\s+[\w'-]+[,.]*\s+"
+                r"(?:it'?s|it\s+is)\s+([\w'-]+)", q_clean, re.IGNORECASE)
+        if _notfirst:
+            _subj_attr = _notfirst.group(1).strip().removesuffix("'s")
+            _correct_val = _notfirst.group(2).strip()
+            if _correct_val:
+                self.detected_correction = True
+                self.detected_correction_fact = ("i", _subj_attr, _correct_val)
+                self.detected_correction_type = CorrectionType.CORRECTION_WITH_FACT
+                self.correction_severity = max(self.correction_severity, 0.8)
+                return
+        _nm = re.search(_CORRECTION_NAME_FACT_PATTERN, q_clean, re.IGNORECASE)
+        if _nm:
+            _subj_attr = _nm.group(1).strip()
+            _correct_val = _nm.group(2).strip()
+            self.detected_correction_fact = ("i", _subj_attr, _correct_val)
+            self.detected_correction_type = CorrectionType.CORRECTION_WITH_FACT
+            self.correction_severity = max(self.correction_severity, 0.8)
+            return
         for pattern in _CORRECTION_FACT_PATTERNS:
             m = re.search(pattern, q_clean, re.IGNORECASE)
             if m:

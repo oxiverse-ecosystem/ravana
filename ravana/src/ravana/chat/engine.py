@@ -194,6 +194,7 @@ from ravana.language.verb_lexicon import VerbLexicon
 from .models import FailedQuery, ChainHop, ChainTrace, CognitiveResponseContext, Correction, CorrectionType
 
 from .user_model import UserModel
+from .user_model import _CORRECTION_NAME_FACT_PATTERN
 from .belief_store import BeliefStore
 from ravana.nn.rlm import Plasticity
 
@@ -2095,6 +2096,30 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                      _s.lower()))
         if not _is_q:
             return None
+        # R3 (round v3): SELF-RECALL QUESTIONS must NOT be answered from the
+        # generic hippocampal fact-text buffer. "what do you know about me",
+        # "what matters most to me", "tell me something about myself" are
+        # questions about the USER's own disclosed profile, NOT world facts —
+        # answering them from the buffer returns RAVANA's own (simulated) opinion
+        # utterances instead of the user's stored facts (observed: T49 returned
+        # "i love the smell of wet earth..." which is RAVANA's echoed stance, not
+        # the user's). They are handled correctly downstream by
+        # _try_memory_query's self-recall path (which reads the PersonalFactStore
+        # + episodic index). The cue set is structural (first/second person +
+        # self-reference + recall verb), matching the self-recall detector in
+        # engine_memory.py, so no per-topic table. Fail-open: a genuine world
+        # question is unaffected.
+        _self_recall_q = bool(re.search(
+            r"\b(?:what|anything|tell me|something)\b.*\b(?:do )?you\b.*"
+            r"\b(?:know|remember|recall|learned?|figured out|care|think)\b"
+            r".*\b(?:about me|me|my|myself)\b", _s.lower())) or \
+            bool(re.search(
+                r"\bwhat (?:do|does) you know about me\b", _s.lower())) or \
+            bool(re.search(
+                r"\bwhat matters (?:most|to me)|tell me (?:one )?thing you.*me\b",
+                _s.lower()))
+        if _self_recall_q:
+            return None
         # Temporal questions ("when did X", "how long ago") are answered by
         # _answer_temporal_recall downstream from DATED facts. The raw-text
         # handlers here have no date access — letting entity_fact_answer
@@ -3244,6 +3269,26 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 # Not a distress disclosure — fall through to the
                 # self-disclosure / fact-storage gate.
                 _disc = None
+            # D3 (round v4): a CORRECTION is categorically NOT an affective
+            # distress disclosure. "my dog is not max, it is rocky" / "actually
+            # my name is priya" / "no, the capital is X" carry a correction
+            # structure ("not ... it's", "actually", "no, <x> is") and must
+            # fall through to the fact-storage / correction circuit, never to
+            # grief empathy (the support-router misfire class: bare "not"/"died"
+            # matched the empathy path even when the user was correcting a fact,
+            # not reporting self-distress). This is structural (matches the
+            # correction shape), not a per-topic list, so it generalizes.
+            _correction_shape = bool(re.search(
+                r"(^|\b)(no[,.]?\s+|actually[,.]?\s+|not\s+really[,.]?\s+"
+                r"|i\s+take\s+back[,.]?\s+|i\s+was\s+wrong[,.]?\s+"
+                r"|i\s+changed\s+my\s+mind[,.]?\s+|correction[,.]?\s+)"
+                r"|\bis\s+not\s+\w+[,.]?\s+(it'?s|it\s+is)\b"
+                r"|\bnot\s+[a-z']+[,.]?\s+(but|it'?s|it\s+is)\b"
+                r"|\bcorrection\b", (user_input or "").lower())) or \
+                bool(re.search(_CORRECTION_NAME_FACT_PATTERN,
+                               (user_input or "").lower(), re.IGNORECASE))
+            if _correction_shape:
+                _disc = None
             # ── Frame-guard on the PRIMARY empathy result (A2 extension) ──────
             # The primary VAD detector (and the cause fallback) can fire on a
             # RECALL QUESTION ("what do i like") or a FACTUAL self-disclosure
@@ -3388,6 +3433,21 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     if str(_cf_subj).lower() in ("i", "me", "my"):
                         self.user_model.personal_facts.contradict(
                             "i", _cf_attr, _cf_val)
+                        # Render a grounded correction ack from the REAL fact
+                        # (content from the store, no authored prose). Phrasing
+                        # mirrors the correction ack mapping in engine_persis-
+                        # tence; covers the common relation keys. This beats the
+                        # generic "got it — thanks for telling me." hollow ack.
+                        _rel_phrase = {
+                            "name": f"your {_cf_attr} is {_cf_val}",
+                            "is": f"you are {_cf_val}",
+                            "does": f"you do {_cf_val}",
+                            "likes": f"you like {_cf_val}",
+                            "location": f"you live in {_cf_val}",
+                            "favorite": f"your favorite {_cf_val}",
+                        }.get(_cf_attr, f"your {_cf_attr} is {_cf_val}")
+                        _ack = (f"thanks for correcting me — i'll remember "
+                                f"{_rel_phrase}.")
             except Exception:
                 pass
             self._last_responses.append(_ack)

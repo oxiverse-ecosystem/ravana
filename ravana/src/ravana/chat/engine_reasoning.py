@@ -231,6 +231,7 @@ from ravana.language.verb_lexicon import VerbLexicon
 from .models import FailedQuery, ChainHop, ChainTrace, CognitiveResponseContext, Correction, CorrectionType
 
 from .user_model import UserModel
+from .user_model import _CORRECTION_NAME_FACT_PATTERN
 from .belief_store import BeliefStore
 from ravana.nn.rlm import Plasticity
 
@@ -399,7 +400,8 @@ class ReasoningMixin:
                         if graph and nids1 and nids2:
                             for n1 in nids1:
                                 for n2 in nids2:
-                                    if graph.has_edge(n1, n2) or graph.has_edge(n2, n1):
+                                    if graph.get_edge(n1, n2) is not None or \
+                                            graph.get_edge(n2, n1) is not None:
                                         has_edge = True
                                         break
                         if not has_edge:
@@ -1907,6 +1909,19 @@ class ReasoningMixin:
         q = (user_input or "").lower().strip()
         if not q:
             return False
+        # R3 (round v3): normalize spoken first-person contractions BEFORE the
+        # self-pattern checks so that "i've been tracking..." / "i'm a teacher"
+        # match the same anchors as "i have been..." / "i am...". Without this,
+        # the `i\s+(?:have\s+been|am)` anchors missed the no-space "i've"/"i'm"
+        # forms and the disclosure leaked into the reflective generator (e.g.
+        # "i've been tracking coral bleaching" -> weird reflective output). The
+        # contraction forms carry NO semantic difference here — they are the
+        # same first-person present/habitual disclosure. (Mirrors the empathy
+        # guard normalization in engine.py process_turn.)
+        q = (q.replace("i'm", "i am").replace("i've", "i have")
+              .replace("i'll", "i will").replace("i'd", "i would"))
+        if not q:
+            return False
         # Exclude request/creative frames (the TPJ gate, A2) — a self-disclosure
         # is never embedded in an imperative "tell/write/imagine me a ..." frame.
         if re.search(
@@ -1946,7 +1961,46 @@ class ReasoningMixin:
         _self_pat = re.compile(
             r"\b(my\s+(favorite\s+)?\w+|i\s+am|i'm|i\s+love|i\s+like|i\s+hate|"
             r"i\s+have|call\s+me|my\s+name\s+is)\b")
-        if not _self_pat.search(q):
+        # R3 (round v3): first-person ACTIVITY / HABIT disclosures
+        # ("i run a marine research boat", "i play the veena", "i restore old
+        # sailing ships", "i've been tracking coral bleaching for years"). These
+        # name what the user DOES, not a property/feeling, and the seed
+        # self-disclosure recognizer only matched my/i-am/i-love/i-like/i-hate.
+        # Unrecognized, they leaked past the vmPFC self-disclosure gate into the
+        # counterfactual simulator ("i run a boat" -> "if marine were
+        # different..."), the generic reflective generator ("i've been
+        # tracking..."), and the episodic matcher ("i play the veena" -> a RANDOM
+        # prior utterance). None of those store the fact. Treating them as
+        # disclosures routes them to the single self-disclosure gate, where
+        # mine_personal_facts already writes a 'does' fact into the
+        # PersonalFactStore. GENERAL form: any first-person present-tense
+        # "i <verb> <object>" where <verb> is NOT a stative/non-activity verb
+        # (am/feel/love/like/hate/think/believe/know/want/need/have/...) — this
+        # covers every activity verb without a frozen whitelist that would miss
+        # "restore" etc. and lets the store grow from experience (the mined
+        # verb set in UserModel.mine_personal_facts is the seed; this
+        # recognizer is classification vocabulary only, no authored prose).
+        _STATIVE_VERBS = (
+            "am", "are", "is", "was", "were", "be", "been", "being",
+            "feel", "feels", "love", "like", "hate", "dislike", "prefer",
+            "think", "believe", "know", "understand", "want", "need", "wish",
+            "hope", "guess", "suppose", "mean", "wonder", "agree", "disagree",
+            "have", "has", "had", "own", "doubt", "fear", "regret", "suspect",
+        )
+        _act_pat = re.compile(
+            r"\b(i\s+(?:am|'m)\s+(?:a|an)\s+\w+"            # i am a teacher
+            r"|i\s+(?:have\s+been|'ve\s+been|been)\s+\w+ing"  # i've been tracking
+            r"|i\s+(?:" + "|".join(_STATIVE_VERBS) + r")\b"  # excluded stative
+            r")", re.IGNORECASE)
+        # An "i <verb> <object>" statement is an activity disclosure UNLESS the
+        # verb is one of the stative verbs above (those are handled by the
+        # affect/opinion/benign paths). Require a following content word so
+        # bare "i run" still counts.
+        _gen_act = re.compile(
+            r"\bi\s+([a-z']+)(?:\s+[a-z']+)+\b", re.IGNORECASE)
+        _m = _gen_act.search(q)
+        _is_activity = bool(_m) and _m.group(1).lower() not in _STATIVE_VERBS
+        if not (_self_pat.search(q) or _is_activity):
             return False
         # Reject interrogatives AND imperatives — both are the USER directing
         # the AGENT (asking or commanding), not reporting a self-fact to store.
@@ -2052,33 +2106,135 @@ class ReasoningMixin:
             if _bg:
                 _me["background"] = _bg
 
-        # Compose a gist-based acknowledgment (no templates: derived from the
-        # parsed fact so it reads as a person who just heard you).
-        if parsed is None:
-            ack = "got it — thanks for telling me."
-        elif parsed[0] == "favorite":
-            ack = f"noted! i'll remember your favorite {parsed[1]} is {parsed[2]}."
-        elif parsed[0] == "name":
-            ack = f"nice to meet you, {parsed[2]}! i'll remember that."
-        elif parsed[0] == "like":
-            _obj = parsed[2]
-            _verb = parsed[1]  # actual verb: like/love/hate (D3)
-            # §7 deictic resolution: "i love you" -> the user's 1st-person
-            # declaration is addressed to the AGENT, so the agent reciprocates
-            # ("i love you too"), never echoes it back as "you love you". This
-            # is a structural I<->user, you<->agent map, not content.
-            if _obj.strip() in ("you", "u", "ur", "your"):
-                _verb = "love" if _verb == "love" else "like"
-                ack = f"aw, i {_verb} you too."
-            else:
-                ack = f"good to know — you {_verb} {_obj}. i'll keep that in mind."
+        # D3 (round v4): a self-disclosure that is ALSO a name-correction
+        # ("my sister's name is not meena, it's priya") must persist the
+        # corrected value here, not rely on the late correction circuit
+        # (observe_user_query -> _detect_correction, which runs at engine.py
+        # ~4208, AFTER this early-return path). Re-detecting locally is
+        # deterministic and self-contained: we call contradict() (no retrain,
+        # no authored text) so the stale value is superseded, and return a
+        # grounded correction ack rendered from the REAL fact. This fixes the
+        # correction-lost-on-disclosure defect where the prior flag-based
+        # handoff between mine_personal_facts and this block did not survive
+        # the early return.
+        _nm = re.search(_CORRECTION_NAME_FACT_PATTERN,
+                        (user_input or "").lower(), re.IGNORECASE)
+        if _nm:
+            _c_attr = _nm.group(1).strip().removesuffix("'s")
+            _c_val = _nm.group(2).strip()
+            try:
+                self.user_model.personal_facts.contradict("i", _c_attr, _c_val)
+                _rel_phrase = {
+                    "name": f"your {_c_attr} is {_c_val}",
+                    "is": f"you are {_c_val}",
+                    "does": f"you do {_c_val}",
+                    "likes": f"you like {_c_val}",
+                    "location": f"you live in {_c_val}",
+                    "favorite": f"your favorite {_c_val}",
+                }.get(_c_attr, f"your {_c_attr} is {_c_val}")
+                ack = f"thanks for correcting me — i'll remember {_rel_phrase}."
+            except Exception:
+                pass
         else:
-            ack = "got it — thanks for telling me."
+            # Compose a gist-based acknowledgment (no templates: derived
+            # from the parsed fact so it reads as a person who just heard
+            # you).
+            if parsed is None:
+                # The disclosure didn't match the like/love/name/favorite
+                # parser, but it may still have stored a fact via
+                # mine_personal_facts (activity verbs like "i run a chai
+                # stall", or a correction like "my sister's name is priya").
+                # PULL THE REAL STORED FACT BACK and ack it — the content
+                # comes from the PersonalFactStore, not an authored string.
+                # This is the anti-degeneracy fix: a bare "got it — thanks
+                # for telling me." would be a template reply that ignores
+                # what was actually learned (the D-E hollow-ack bug).
+                _ack_fact = self._derive_ack_from_store(_subj)
+                if _ack_fact is not None:
+                    # _derive_ack_from_store returns a rendered relation
+                    # phrase (e.g. "you do chai stall"), NOT a (attr, val)
+                    # tuple — wrap it once. Content comes from the
+                    # PersonalFactStore, not authored.
+                    ack = f"noted — i'll remember {_ack_fact}."
+                else:
+                    ack = "got it — thanks for telling me."
+            elif parsed[0] == "favorite":
+                ack = f"noted! i'll remember your favorite {parsed[1]} is {parsed[2]}."
+            elif parsed[0] == "name":
+                ack = f"nice to meet you, {parsed[2]}! i'll remember that."
+            elif parsed[0] == "like":
+                _obj = parsed[2]
+                _verb = parsed[1]
+                if _obj.strip() in ("you", "u", "ur", "your"):
+                    _verb = "love" if _verb == "love" else "like"
+                    ack = f"aw, i {_verb} you too."
+                else:
+                    ack = f"good to know — you {_verb} {_obj}. i'll keep that in mind."
+            else:
+                ack = "got it — thanks for telling me."
+
 
         # Episodic transcript already captured this turn in _record_episode;
         # mark it stored so the fail-closed path doesn't double-fire a web lookup.
         self._episodic_miss = False
         return ack
+
+    def _derive_ack_from_store(self, subject: str):
+        """Pull the most recent real fact RAVANA stored for `subject` this turn.
+
+        Used by the self-disclosure ack composer when the like/love/name/favorite
+        parser didn't match but a fact was still stored via mine_personal_facts
+        (activity verbs, corrections). Returns a short natural ack string rendered
+        from the REAL stored (attribute, value), or None. The content comes from
+        the PersonalFactStore, never an authored sentence. Attribute keys are
+        mapped to natural phrasing (does -> "you do", name -> "your name is",
+        etc.) so the ack reads like a person who just heard you, matching the
+        existing fact-render mapping used by the recall path.
+        """
+        store = getattr(self.user_model, "personal_facts", None)
+        if store is None or not hasattr(store, "facts"):
+            return None
+        try:
+            _subj = (subject or "").lower().strip()
+            # User self-facts are stored under subject "i". The gate may pass
+            # "self" (when parsed is None) or a topic; always include "i" so we
+            # find what was actually learned this turn.
+            _subjects = [s for s in (_subj, "i") if s]
+            cands = [f for (s, a, v), f in store.facts.items()
+                     if not f.superseded and s in _subjects]
+            if not cands:
+                return None
+            # D3 (round v4): the ack must report the fact STORED THIS TURN,
+            # not the highest-confidence stale fact. The old key
+            # (confidence / (1 + age*0.1)) surfaced "community garden" (the
+            # first-seeded fact, high confidence) for EVERY later activity
+            # disclosure ("i keep bees" -> "you do community garden"), which
+            # both acked the wrong fact AND corrupted the learned profile seen
+            # in recall. Recency must dominate: sort by turn_number desc, then
+            # confidence desc, so the just-stored fact wins. Content still
+            # comes from the store, not authored.
+            best = max(cands, key=lambda f: (
+                getattr(f, "turn_number", 0),
+                getattr(f, "confidence", 0.0)))
+            attr, val = best.attribute, best.value
+            # Natural phrasing for the common relation keys (mirrors
+            # engine_memory._reconstruct_entity so acks and recall agree).
+            _phrase = {
+                "name": f"your name is {val}",
+                "location": f"you live in {val}",
+                "background": f"{val}",
+                "favorite": f"your favorite {val}",
+                "likes": f"you like {val}",
+                "does": f"you do {val}",
+                "is": f"you are {val}",
+            }.get(attr, f"your {attr} is {val}")
+            # Return the rendered relation phrase only (e.g. "you do chai
+            # stall"); the caller wraps it in the "noted — i'll remember ..."
+            # frame. Returning a ready-made ack string here caused a tuple-
+            # unpack crash at the call site (it expected (attr, val)).
+            return _phrase
+        except Exception:
+            return None
 
     def _ensure_self_model(self) -> "SelfModel":
         """Lazily derive the self-model from the seeded graph (vmPFC content)."""

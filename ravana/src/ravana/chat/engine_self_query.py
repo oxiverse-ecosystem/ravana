@@ -422,6 +422,59 @@ class SelfQueryMixin:
                 "we talk about and from the web, so there's plenty i'm still "
                 "unsure about, and i'd rather say 'i don't know' than guess. "
                 "what would you like to explore together?")
+        # 0.5) R3 (round v3): AGENT-OPINION / value questions. A question that
+        #     addresses the AGENT's own stance/feelings ("do you think we should
+        #     protect mangroves", "do you have feelings", "what do you feel
+        #     about X") must be answered from the agent's own value system
+        #     (the vmPFC resolver), NOT by echoing a random prior USER episode
+        #     via hippocampal recall. Previously these slipped past
+        #     _route_self_query (it only matched identity/name/can-you-do) and
+        #     the multi-hop/hippocampal blocks returned "you told me earlier:
+        #     <user utterance>" — a self/other boundary violation. The target
+        #     concept is extracted structurally and handed to the EXISTING
+        #     state-driven resolver _agent_stance_on (no authored prose, no
+        #     per-topic table), so the reply content still comes from RAVANA's
+        #     cognition. Fail-open: if no target is found, fall through so a
+        #     genuine world query is still answered normally.
+        _agent_opinion = re.search(
+            r"\b(do\s+you\s+(think|feel|believe|have|care)\b"
+            r"|what\s+do\s+you\s+(think|feel|believe)\s+about\b"
+            r"|how\s+do\s+you\s+(feel|think)\s+about\b"
+            r"|your\s+(opinion|thoughts|take|view|stance)\s+on\b"
+            r"|what's\s+your\s+(opinion|take|view|stance)\s+on\b"
+            r"|what\s+is\s+your\s+(opinion|take|view|stance)\s+on\b)",
+            t)
+        if _agent_opinion:
+            _tail = t[_agent_opinion.end():]
+            # Take the LAST meaningful content noun as the stance target. The
+            # cue ("do you think we should protect mangroves") leaves topic
+            # words AFTER the scaffolding ("we/should/protect"), so the final
+            # content token is the real target (mangroves), not the verb
+            # scaffolding (protect). Strip closed-class words.
+            _toks = [w for w in re.findall(r"[a-z']+", _tail)
+                     if w not in ("about", "on", "the", "a", "an", "of", "for",
+                                  "with", "to", "we", "should", "could", "would",
+                                  "is", "are", "do", "does", "you", "i", "it",
+                                  "that", "this", "and", "or")]
+            _target = _toks[-1] if _toks else ""
+            _stance, _reason = self._agent_stance_on(_target)
+            _reason = (_reason or "").rstrip()
+            if _reason and not _reason.endswith((".", "!", "?")):
+                _reason += "."
+            _answer = f"{_stance} {_reason}".strip()
+            if not _answer.endswith(("?", ".", "!")):
+                _answer += "."
+            # Do NOT overwrite the canonical self-description (`who are you`)
+            # with a transient value opinion. The agent-claim store is the
+            # source for "what did you say about who you are"; clobbering it
+            # here made that recall return a mangroves opinion instead of the
+            # real identity. Only store opinion answers under a SEPARATE key.
+            try:
+                self._agent_claims.setdefault("self", None)
+                self._agent_claims["opinion"] = _answer.strip()
+            except Exception:
+                pass
+            return _answer
         # 1) Explicit self-identity questions. NOTE: "my name" is the USER's
         #    autobiographical fact, NOT the agent's self-model — only "your
         #    name"/"who are you"/etc. are about the AGENT. Matching "my name"
@@ -429,7 +482,8 @@ class SelfQueryMixin:
         _name_q = bool(re.search(
             r"\b(what(?:'s| is)\s+your\s+name|who\s+are\s+you|"
             r"what\s+are\s+you|tell\s+me\s+about\s+yourself|"
-            r"what\s+can\s+you\s+do|your\s+name)\b", t))
+            r"what\s+can\s+you\s+(?:actually\s+|really\s+|even\s+)?do|"
+            r"your\s+name)\b", t))
         # 2) A query whose grounded subject is the self node (e.g. bare 'ravana'
         #    asked as 'what is ravana').
         _self_subj = False
@@ -449,7 +503,7 @@ class SelfQueryMixin:
         elif re.search(r"\b(what\s+are\s+you|who\s+are\s+you)\b", t):
             _answer = (f"i'm {sm.describe()} — an ai that learns by talking, "
                        f"not a person. what made you curious?")
-        elif re.search(r"\bwhat\s+can\s+you\s+do\b", t):
+        elif re.search(r"\bwhat\s+can\s+you\s+(?:actually\s+|really\s+|even\s+)?do\b", t):
             # Derived, not authored: the self-description comes from the live
             # self-model (sm.describe()), and the only claims made are TRUE of
             # the architecture regardless of topic — it learns from conversation
