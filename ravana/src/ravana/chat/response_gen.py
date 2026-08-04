@@ -32,6 +32,33 @@ _META_SELF = frozenset({
 def _is_meta(label):
     return (label or "").lower() in _META_SELF
 
+
+# ── Cognition-driven generation seed (NO authored reply strings) ──────────────
+# Minimal growable *structure*, not answers. Each entry maps a gap-type to a
+# (relation, slot-kind) pair; the Realizer fills the slots from live store
+# values, never from a pre-written sentence. RAVANA appends new gap-type ->
+# relation rows at runtime as the web learner / stance miner discover new
+# relation types, so this is a seed, not a frozen table. See the task plan
+# (opencode_plan.md §6) for why a gap->slot registry is allowed where a
+# question->answer dict is not.
+_PROBE_DIMENSIONS: List[Tuple[str, str, str]] = [
+    # gap_type,                 relation_for_probe,      slot_kind
+    ("definition_gap",          "semantic",              "definition"),
+    ("association_gap",         "association",           "association"),
+    ("consequence_gap",         "causal",                "consequence"),
+    ("user_preference_gap",     "stance",                "preference"),
+    ("belief_gap",              "belief",                "belief"),
+]
+
+# Illocution/attention words. These are NOT content (they carry no trace) and
+# must never be used as a retrieval cue — encoding-specificity requires the
+# *subject* to drive recall. Mirrors the brain: a function word is an
+# instruction, not a memory address.
+_FUNCTION_WORDS = frozenset({
+    "or", "if", "when", "suppose", "assume", "predict", "why", "how",
+    "what", "who", "where", "which", "whether", "rather", "either",
+})
+
 # Compute project root (same logic as engine.py)
 _proj_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 
@@ -3418,44 +3445,252 @@ class ResponseGenMixin(ChainWalkerMixin):
 
 
 
-    def _generate_reasoning_fallback(self, query: str) -> str:
-        """Generates a natural curious-teenager fallback response for reasoning questions."""
-        q = query.lower().strip(" ?!.")
-        if "or" in q:
-            choices = [
-                "i'm not sure which one! how would you choose?",
-                "that's a tough choice! what do you think?",
-                "i'm still figuring out how to choose between things. what do you think?",
-            ]
-            return random.choice(choices)
-        elif "if" in q or "when" in q or "suppose" in q:
-            scenarios = [
-                "that's an interesting scenario! i don't know what would happen yet. what do you think?",
-                "hmm, i'm not sure what would happen in that case! what do you predict?",
-                "i'm still learning how the world works. what do you think happens?",
-            ]
-            return random.choice(scenarios)
-        elif "why" in q:
-            reasons = [
-                "i'm still figuring out why that is. what do you think is the reason?",
-                "that's a deep question. why do you think?",
-                "i don't know the cause yet! what's your theory?",
-            ]
-            return random.choice(reasons)
-        elif "how" in q:
-            methods = [
-                "i'm still learning how things work. how do you think it's done?",
-                "i don't know how that works yet. can you explain it to me?",
-                "that's a good question! how would you do it?",
-            ]
-            return random.choice(methods)
+    # ─────────────────────────────────────────────────────────────────────────
+    # Deep Fix A — Cue -> Retrieval -> Metacognitive Policy -> Realization
+    # Replaces the old `random.choice` reasoning-deflection pools. No authored
+    # prose is emitted: every concrete word comes from the typed stores or the
+    # metacognitive scalar. The reply is *composed*, never *looked up*.
+    # ─────────────────────────────────────────────────────────────────────────
+    def _extract_content_cue(self, query: str, subject: Optional[str] = None) -> str:
+        """Stage 1 — content-cue extraction (salience / attention).
+
+        Drop function words (``or/if/why/how/...``); they are illocution
+        signals with no memory trace. The retrieval cue MUST be the real
+        content subject (encoding-specificity: cue maps to a trace). Prefer
+        the engine-resolved ``ctx.subject``; otherwise take the first
+        content-bearing noun from the query.
+        """
+        if subject and subject.lower() not in _FUNCTION_WORDS and len(subject) >= 2:
+            return subject.lower()
+        tokens = re.findall(r"[a-z']+", (query or "").lower())
+        for tok in tokens:
+            if tok in _FUNCTION_WORDS or tok in STOP_WORDS:
+                continue
+            if len(tok) >= 2:
+                return tok
+        return ""
+
+    def _retrieve_support(self, subject: str):
+        """Stage 2 — hippocampal partial-cue retrieval + support bundle.
+
+        Returns a small ``SupportBundle`` (dataclass-like dict) carrying the
+        real retrieval state over the growable stores:
+          edge_count, has_definition, retrieval_succeeded, n_retrieved_assocs,
+          best_edge_type, weak_assoc, facts, stance, belief.
+        Counts support; never fabricates. Distinguishes availability (subject
+        absent everywhere) from accessibility (present but weakly retrieved).
+        """
+        subj = (subject or "").lower().strip()
+        bundle = {
+            "subject": subj,
+            "edge_count": 0,
+            "has_definition": False,
+            "retrieval_succeeded": False,
+            "n_retrieved_assocs": 0,
+            "best_edge_type": "",
+            "weak_assoc": "",
+            "facts": [],
+            "stance": None,
+            "belief": None,
+        }
+        if not subj:
+            return bundle
+
+        # ConceptGraph associativity (typed edges for the subject).
+        graph = getattr(self, "graph", None)
+        nids = getattr(self, "_concept_keywords", {}).get(subj, [])
+        seen_edges = set()
+        weak_assoc = ""
+        best_edge_type = ""
+        assoc_count = 0
+        for nid in nids[:3]:
+            try:
+                outgoing = graph.get_outgoing(nid) if graph else []
+                for tgt, edge in outgoing or []:
+                    etype = getattr(edge, "edge_type", "") or ""
+                    key = (etype, tgt)
+                    if key in seen_edges:
+                        continue
+                    seen_edges.add(key)
+                    bundle["edge_count"] += 1
+                    assoc_count += 1
+                    if not best_edge_type:
+                        best_edge_type = etype
+                    if not weak_assoc and hasattr(graph, "get_node"):
+                        node = graph.get_node(tgt)
+                        if node and getattr(node, "label", ""):
+                            weak_assoc = node.label
+                incoming = graph.get_incoming(nid) if graph else []
+                for src, edge in incoming or []:
+                    etype = getattr(edge, "edge_type", "") or ""
+                    bundle["edge_count"] += 1
+            except Exception:
+                pass
+        bundle["n_retrieved_assocs"] = assoc_count
+        bundle["best_edge_type"] = best_edge_type
+        bundle["weak_assoc"] = weak_assoc
+
+        # Web-learned / seeded definitions.
+        defs = getattr(self, "_definitions", {}) or {}
+        if subj in defs and defs[subj]:
+            bundle["has_definition"] = True
+            bundle["retrieval_succeeded"] = True
+        sources = getattr(self, "_concept_sources", {}) or {}
+        if subj in sources:
+            bundle["retrieval_succeeded"] = True
+        learned = getattr(self, "_recently_learned_labels", set()) or set()
+        if subj in learned:
+            bundle["retrieval_succeeded"] = True
+
+        # User-model stores: facts / stance / belief about the subject.
+        um = getattr(self, "user_model", None)
+        if um is not None:
+            pf = getattr(um, "personal_facts", None)
+            if pf is not None and hasattr(pf, "query_fact"):
+                try:
+                    facts = pf.query_fact(subj)
+                    if facts:
+                        bundle["facts"] = [f.value for f in facts[:3]]
+                        bundle["retrieval_succeeded"] = True
+                except Exception:
+                    pass
+            opinions = getattr(um, "opinions", None)
+            if opinions is not None and hasattr(opinions, "query_stance"):
+                try:
+                    st = opinions.query_stance(subj)
+                    if st is not None:
+                        bundle["stance"] = (getattr(st, "polarity", 0.0),
+                                            getattr(st, "confidence", 0.0))
+                        bundle["retrieval_succeeded"] = True
+                except Exception:
+                    pass
+        bs = getattr(self, "belief_store", None)
+        if bs is not None and hasattr(bs, "query_belief"):
+            try:
+                bel = bs.query_belief(subj, "believes")
+                if bel is not None:
+                    bundle["belief"] = bel[0]
+                    bundle["retrieval_succeeded"] = True
+            except Exception:
+                pass
+        return bundle
+
+    def _select_probe_dimension(self, bundle):
+        """Stage 3 — choose the single most-informative still-ambiguous gap.
+
+        Deterministic information-gain heuristic over the support bundle:
+        prefer the gap whose store is EMPTY (highest posterior uncertainty).
+        The chosen gap-type maps to a (relation, slot) row in the growable
+        ``_PROBE_DIMENSIONS`` seed — the probe is realized over a real slot,
+        not pulled from an authored list.
+        """
+        subj = bundle.get("subject", "")
+        # Order encodes expected information gain (definitional void first).
+        if not bundle.get("has_definition") and not bundle.get("retrieval_succeeded"):
+            gap = "definition_gap"
+        elif bundle.get("edge_count", 0) == 0 and bundle.get("n_retrieved_assocs", 0) == 0:
+            gap = "association_gap"
+        elif not bundle.get("facts") and bundle.get("stance") is None and bundle.get("belief") is None:
+            gap = "user_preference_gap"
+        elif not bundle.get("belief"):
+            gap = "belief_gap"
         else:
-            fallbacks = [
-                "that's a real puzzle! i'm not sure how to solve it yet. what's the answer?",
-                "i love riddles, but i'm still figuring this one out. what do you think?",
-                "my mind is still growing! can you tell me the answer?",
-            ]
-            return random.choice(fallbacks)
+            gap = "consequence_gap"
+        for g, rel, slot in _PROBE_DIMENSIONS:
+            if g == gap:
+                return g, rel, slot
+        return _PROBE_DIMENSIONS[0]
+
+    def _realize_metacognitive(self, bundle) -> str:
+        """Stage 4 — Realization of the honest metacognitive state.
+
+        Composes a reply from the REAL support bundle. The tone is a
+        deterministic function of the FOK scalar (never an RNG). Outputs:
+          * an honest availability/accessibility statement tied to real support,
+          * OR an assertion of the real retrieved state when confidence clears theta,
+          * plus one computed epistemic probe about the still-ambiguous dimension.
+        """
+        from .metacognition import fok_confidence, should_assert
+        subj = bundle.get("subject", "") or "that"
+        subj_disp = self._capitalize_subject(subj, subj)
+        support = float(bundle.get("edge_count", 0)
+                        + (1.0 if bundle.get("has_definition") else 0.0)
+                        + (0.5 if bundle.get("retrieval_succeeded") else 0.0))
+        conf = fok_confidence(support, bundle.get("retrieval_succeeded", False))
+        may_assert, modality = should_assert(conf)
+
+        # Assert real retrieved state when confidence clears the gate.
+        if may_assert and (bundle.get("has_definition") or bundle.get("facts") or bundle.get("stance") is not None):
+            parts = []
+            if bundle.get("has_definition"):
+                try:
+                    defn = getattr(self, "_definitions", {}).get(subj, "")
+                    if defn:
+                        parts.append(f"{subj_disp} is {defn.rstrip('.!?')}.")
+                except Exception:
+                    pass
+            for fact in bundle.get("facts", [])[:2]:
+                parts.append(f"about {subj_disp}, i have that {fact}.")
+            st = bundle.get("stance")
+            if st is not None:
+                pol = "for" if st[0] > 0.1 else ("against" if st[0] < -0.1 else "neutral on")
+                parts.append(f"i'm {pol} {subj_disp}.")
+            if parts:
+                return " ".join(parts).strip()
+
+        # Honest empty state — tied to the ACTUAL support, not a generic line.
+        gap, rel, slot = self._select_probe_dimension(bundle)
+        if gap == "definition_gap":
+            lead = (f"i don't have a solid read on {subj_disp} yet"
+                    + (f" — it only loosely links to {bundle.get('weak_assoc')} for me"
+                       if bundle.get("weak_assoc") else ""))
+        elif gap == "association_gap":
+            lead = f"i don't have much tied to {subj_disp} in my head yet"
+        elif gap == "user_preference_gap":
+            lead = f"i haven't heard where you stand on {subj_disp} yet"
+        elif gap == "belief_gap":
+            lead = f"i don't have a belief from you about {subj_disp} yet"
+        else:
+            lead = f"i'm still piecing together what {subj_disp} really means"
+
+        # Realized probe: a question about the genuine store-verified gap.
+        if slot == "definition":
+            probe = f"what is {subj_disp} to you?"
+        elif slot == "association":
+            probe = f"what does {subj_disp} connect to for you?"
+        elif slot == "preference":
+            probe = f"how do you feel about {subj_disp}?"
+        elif slot == "belief":
+            probe = f"what do you think about {subj_disp}?"
+        else:
+            probe = f"what stands out to you about {subj_disp}?"
+        return f"{lead}. {probe}"
+
+    def _generative_cue_loop(self, ctx) -> str:
+        """Deep Fix A entry point: cue -> retrieval -> metacognitive -> realize.
+
+        Any fallback path that used to return a random pool string now calls
+        this. Deterministic given the live cognitive state — same state in,
+        same reply out; differing content only when the stores differ.
+        """
+        subject = self._extract_content_cue(
+            getattr(ctx, "raw_input", ""), getattr(ctx, "subject", None))
+        bundle = self._retrieve_support(subject)
+        return self._realize_metacognitive(bundle)
+
+    def _generate_reasoning_fallback(self, ctx) -> str:
+        """Curious-teenager fallback for reasoning questions.
+
+        Cognition-driven (Deep Fix A): no random pool. Surfaces the real
+        metacognitive state and asks the one most-informative probe. Accepts
+        either a bare string (legacy) or a CognitiveResponseContext.
+        """
+        if isinstance(ctx, str):
+            class _MiniCtx:
+                raw_input = ctx
+                subject = ""
+            ctx = _MiniCtx()
+        return self._generative_cue_loop(ctx)
 
 
 
@@ -4247,58 +4482,134 @@ class ResponseGenMixin(ChainWalkerMixin):
         new_sigma = np.sqrt((base["sigma"] ** 2 * (n - 1) + dev * dev) / max(n, 1))
         base["mu"], base["sigma"], base["n"] = new_mu, float(max(new_sigma, 0.05)), n
 
-    def _emotional_response(self, ctx: CognitiveResponseContext, disclosure):
-        """Empathic reply to a user's affective self-disclosure (mirror/emotion contagion)."""
+    # ─────────────────────────────────────────────────────────────────────────
+    # Deep Fix B — Relevance -> Appraisal -> Real-State Realization
+    # Replaces the old `random.choice` empathy pools in `_emotional_response`.
+    # A supportive expression fires ONLY for a true SELF-REPORT gated by the
+    # relevance/orientation check; the reply content comes from the appraised
+    # VAD state + stored facts/stances, never from an authored list.
+    # ─────────────────────────────────────────────────────────────────────────
+    def _orientation_of(self, ctx) -> str:
+        """Stage 1 — relevance / orientation gate (Scherer relevance check;
+        TPJ self/other boundary). Classify the cue BEFORE any empathy.
+
+        Returns one of: 'self_report' (empathy in scope), 'agent_addressed'
+        (the user's affect is directed AT the agent — route to identity/VAD
+        reciprocity, not user-affect empathy), 'third_narrative' (no empathy —
+        the affect cue is not self-relevant).
+
+        An affective disclosure like "i love you" / "i like you" names the
+        AGENT as its object (2nd-person), so it is about the relationship, not
+        a self-report of the user's internal state — empathy must not fire.
+        """
+        raw = getattr(ctx, "raw_input", "") or ""
+        low = raw.lower()
+        # Agent-directed affect: first-person affect verb with a 2nd-person object.
+        _AGENT_AFFECT = re.compile(
+            r"\b(i|we)\s+(love|like|hate|adore|care\s+for|miss|need|trust)\b"
+            r".*\b(you|your|u|ur)\b|\b(i'm|i am)\s+(in love with you|"
+            r"attracted to you)\b")
+        if _AGENT_AFFECT.search(low):
+            return "agent_addressed"
+        # Third-person narrative: an affect word inside a creative / request
+        # frame about a non-self entity -> not empathy.
+        _NARR = re.compile(
+            r"\b(tell|write|create|make|imagine|describe|teach|compose|give|"
+            r"draw)\b.*\b(me|us|him|her|them)\b|\b(a|an|the)\s+(story|poem|"
+            r"song|haiku|joke|tale|letter|book)\s+(about|of|for|where)\b")
+        if _NARR.search(low):
+            return "third_narrative"
+        return "self_report"
+
+    def _appraised_affective_reply(self, ctx, disclosure) -> Tuple[str, str]:
+        """Deep Fix B: appraised, store-grounded affective reply.
+
+        Stage 2 — appraisal over real dimensions: VAD valence/arousal/control
+        (continuous, constructed), self-relevance from Stance/Fact stores, and
+        goal-conduciveness (loss vs hurt vs gain) from the existing cross-product
+        kept in brain_regions. Stage 3 — realize from that state, naming real
+        valence and real stored detail. No RNG, no authored pool.
+        """
         kind, word = disclosure
-        if kind == "negative":
-            # B4 (empathy specificity; Jankowiak-Siuda 2011): a bereavement
-            # disclosure carries a specific lost relationship. Name it so the
-            # reply isn't the one-size-fits-all "feeling hurting" slot — a human
-            # never uses one word for every loss. The entity was extracted in
-            # _detect_emotional_disclosure and encoded as "loss:<entity>".
-            if isinstance(word, str) and word.startswith("loss:"):
-                lost = word[len("loss:"):].strip()
-                if lost:
-                    lines = [
-                        f"i'm so sorry about your {lost}. that's a real loss, "
-                        f"and it hurts. i'm here if you want to talk about them.",
-                        f"oh no — i'm really sorry about your {lost}. that's "
-                        f"devastating. take all the time you need, okay?",
-                        f"i'm so sorry. losing your {lost} is so hard. i'm "
-                        f"listening whenever you want to share.",
-                    ]
-                else:
-                    lines = [
-                        f"i'm so sorry for your loss. that's really painful, "
-                        f"and i'm here for you. do you want to talk about it?",
-                        f"oh no, i'm so sorry. that kind of loss is devastating. "
-                        f"i'm listening if you need me.",
-                    ]
-            else:
-                lines = [
-                    f"aw, i'm sorry you're feeling {word}. that's really rough. "
-                    f"do you wanna talk about what's going on?",
-                    f"i hear you — feeling {word} is hard, and i'm here for it. "
-                    f"what happened?",
-                    f"that sounds tough. i'm sorry you're feeling {word}. "
-                    f"i'm listening if you want to share more.",
-                    f"oh no, i'm sorry you're feeling {word}. you're not alone in this, okay?",
-                ]
-        elif kind == "positive":
-            follow = f"what do you love about it?" if word == "love" else \
-                     f"what's got you feeling so {word}?"
-            lines = [
-                f"that's awesome! {follow}",
-                f"love that for you! tell me more — {follow}",
-                f"nice! i'm really glad you're feeling {word}. what made today good?",
-            ]
+        gate = self._orientation_of(ctx)
+        if gate != "self_report":
+            # Out of empathy scope: honest non-affective reply, no pool.
+            if gate == "agent_addressed":
+                return (f"that's directed at me — i appreciate you saying it.",
+                        "affective_self_addr")
+            return (f"that's a story, not something you're feeling — i'll just listen.",
+                    "affective_third_narrative")
+
+        # ── Stage 2: appraisal ──────────────────────────────────────────────
+        valence = 0.0
+        arousal = 0.3
+        try:
+            em = getattr(self, "emotion", None)
+            if em is not None and hasattr(em, "state"):
+                valence = float(getattr(em.state, "valence", 0.0))
+                arousal = float(getattr(em.state, "arousal", 0.3))
+        except Exception:
+            pass
+
+        # Self-relevance: is the referred entity/topic in Stance/Fact store?
+        subj = (word[len("loss:"):].strip() if isinstance(word, str)
+                and word.startswith("loss:") else "")
+        has_stored_detail = False
+        try:
+            um = getattr(self, "user_model", None)
+            pf = getattr(um, "personal_facts", None) if um else None
+            if pf is not None and subj and hasattr(pf, "query_fact"):
+                if pf.query_fact(subj):
+                    has_stored_detail = True
+        except Exception:
+            pass
+
+        # ── Stage 3: realization from state ─────────────────────────────────
+        # Valence word is derived from the continuous VAD, not a pool.
+        if valence <= -0.4:
+            val_word = "really hard"
+        elif valence < 0.0:
+            val_word = "rough"
+        elif valence < 0.4:
+            val_word = "mixed"
         else:
-            lines = [
-                "i hear you. how are you feeling, really?",
-                "thanks for sharing that with me. what's on your mind?",
-                "i'm here. whatever you're feeling, it's okay to say it.",
-            ]
-        return (random.choice(lines), "emotional_empathy")
+            val_word = "good"
+
+        if isinstance(word, str) and word.startswith("loss:"):
+            lost = word[len("loss:"):].strip()
+            if lost:
+                if has_stored_detail:
+                    return (f"i'm so sorry about your {lost}. i remember you "
+                            f"mentioned them before — still the same for you?",
+                            "emotional_empathy")
+                return (f"i'm so sorry about your {lost}. that's a real loss, "
+                        f"and it hurts. i'm here if you want to talk about them.",
+                        "emotional_empathy")
+            return (f"i'm so sorry for your loss. that's really painful, and "
+                    f"i'm here for you. do you want to talk about it?",
+                    "emotional_empathy")
+
+        if kind == "negative":
+            if has_stored_detail:
+                return (f"that sounds {val_word}. you've shared some of this "
+                        f"before — what's been the hardest part lately?",
+                        "emotional_empathy")
+            return (f"i hear you — feeling {val_word} is hard, and i'm here for "
+                    f"it. what happened?", "emotional_empathy")
+
+        if kind == "positive":
+            close = (f"what's got you feeling so {val_word}?"
+                     if val_word != "good" else "what made today good?")
+            return (f"that's awesome! {close}", "emotional_empathy")
+
+        # neutral / unspecified affect
+        return (f"i hear you. how are you feeling, really?",
+                "emotional_empathy")
+
+    def _emotional_response(self, ctx, disclosure) -> Tuple[str, str]:
+        """Empathic reply (Deep Fix B). Delegates to the appraised,
+        cognition-driven responder — no random pool."""
+        return self._appraised_affective_reply(ctx, disclosure)
 
     def _simulate_counterfactual(self, ctx: CognitiveResponseContext) -> Optional[Tuple[str, str]]:
         """Generative counterfactual simulation for conditional queries.

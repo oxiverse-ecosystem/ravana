@@ -248,16 +248,21 @@ class SurfaceRealizer:
                                    subject: str) -> str:
         """Generate epistemic stance frame from confidence, not templates.
 
-        Replaces old PERSON_FRAMES hardcoded list.
-        Frames are composed from:
-        - Epistemic verb (think/believe/suspect) gated by confidence
-        - First-person pronoun (I/we)
-        - Optional uncertainty adverb
+        Replaces old PERSON_FRAMES hardcoded list AND its random.choice.
+        Frame selection is DETERMINISTIC: gated by the real free-energy /
+        confidence magnitude (already computed upstream) plus a stable hash of
+        the referent's content so the choice is consistent per topic and never
+        an RNG draw. High confidence -> empty frame (direct statement); low
+        confidence -> a single tentatively-chosen hedge frame.
         """
         frames = self.EPISTEMIC_FRAMES.get(confidence_level, [""])
         if not frames:
             return ""
-        frame = random.choice(frames)
+        # Deterministic pick: stable per (level, subject-content) so the same
+        # concept yields the same frame every time -> reproducible realization,
+        # no random variation. Variety across topics falls out of the hash.
+        idx = (len(subject) + sum(ord(c) for c in subject)) % len(frames)
+        frame = frames[idx]
         if frame:
             return frame + " "
         return ""
@@ -495,7 +500,10 @@ class SurfaceRealizer:
 
             # Only prepend epistemic frame for the first sentence
             # For non-SVO variants, epistemic frame goes before the entire structure
-            if si == 0 or random.random() < 0.15:
+            # Prepend an epistemic frame on the first sentence always, and on
+            # later sentences only when confidence is genuinely low (high FE)
+            # — deterministic, driven by the real uncertainty signal, not RNG.
+            if si == 0 or free_energy >= 0.6:
                 epistemic_frame = self._generate_epistemic_frame(confidence_level, sl)
                 if epistemic_frame and variant_name == 'svo':
                     core = f"{epistemic_frame}{core[0].lower()}{core[1:]}"
