@@ -2641,11 +2641,17 @@ class ResponseGenMixin(ChainWalkerMixin):
                 if len(words) >= 2 and words[1] not in _DETS:
                     return None
                 return first
-            # Genuine verb-led imperative (e.g. "send the email",
-            # "build me a scraper"): the first word IS the action verb, so
-            # return it directly. Only auxiliary-led utterances need the
-            # interrogative disambiguation above; a real imperative verb
-            # ("send", "build", "write" ...) is unambiguous.
+            # Syntactic clause role detection (Broca's area / SyntacticCellAssembly):
+            # A genuine imperative command (e.g. "open the file", "build me a scraper")
+            # is a Verb-Phrase (VP) predicate without a subject noun.
+            # If the utterance contains a finite main/copula verb ("is", "are", "was", "were",
+            # "means", "enables", "matters", "causes") in positions 2..5 following the initial phrase
+            # (e.g., "[NP Open source] [V is] [Pred garbage]"), the initial phrase is a Subject NP,
+            # making the utterance a declarative SVO/SVC clause, NOT an imperative action command.
+            _FINITE_VERBS = {"is", "are", "was", "were", "means", "enables", "matters", "causes", "creates", "helps", "belongs", "represents"}
+            for w in words[1:5]:
+                if w in _FINITE_VERBS:
+                    return None
             return first
         return None
 
