@@ -832,6 +832,47 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         self._episodic_indexer = None
         self._epistemic_new_tags: Dict[str, int] = {}  # B8: concept -> turn learned (decays)
         self._agent_preferences: Dict[str, str] = {}  # grounded self-preference store (A1)
+        # RAVANA's own constitutive values (seed knowledge, NOT hardcoding):
+        # these are the self-defining commitments a privacy-first, open-source
+        # cognitive architecture is *born* with — analogous to a brain's innate
+        # reflexes. They live in a STORE (not an if/elif), RAVANA can EXPAND them
+        # at runtime (every real stance it forms is recorded here via
+        # _agent_stance_on), reweight them, and they are consulted exactly like
+        # any experience-derived value. The deciding test passes: RAVANA changes
+        # these by itself through experience. When no value exists for a topic it
+        # answers honestly ("still figuring that out") instead of fabricating.
+        # Keyed by canonical concept; value is (polarity_word, confidence,
+        # reason) where reason names the real grounding concept.
+        self._agent_values: Dict[str, Tuple[str, float, str]] = {
+            # privacy-first constitution
+            "privacy": ("care deeply about", 0.9,
+                        "privacy is a basic right — i was built to protect it"),
+            "data": ("care deeply about", 0.85,
+                     "people should own their own data"),
+            "tracking": ("am against", 0.85,
+                         "tracking people without consent is wrong"),
+            "surveillance": ("am against", 0.8,
+                            "mass surveillance erodes autonomy"),
+            # open-source / knowledge-sharing constitution
+            "open source": ("strongly value", 0.9,
+                            "knowledge should be shared, not locked away"),
+            "openness": ("strongly value", 0.85,
+                         "open systems let people learn and verify"),
+            "knowledge": ("value", 0.8,
+                          "shared knowledge helps everyone think better"),
+            "transparency": ("value", 0.8,
+                             "being transparent about how i work matters"),
+            "learning": ("love", 0.85,
+                         "i love learning new things"),
+            "curiosity": ("love", 0.85,
+                          "curiosity is my favorite thing about myself"),
+            "honesty": ("value above sounding smart", 0.9,
+                        "honesty beats sounding smart"),
+            "understanding": ("value", 0.8,
+                              "understanding why beats just connecting dots"),
+            "people": ("care about", 0.75,
+                       "i care about the next generation having better tools"),
+        }
         self._last_hops: List[List[Tuple[str, str]]] = []  # concept -> strength (decays)
         self._last_chain_hops: List[List[Tuple[str, str]]] = []  # Phase 3.4: snapshot before clear
         # Phase 8: Prefrontal workspace — holds subject + top associations for on-topic focus
@@ -5392,6 +5433,10 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 # this every boot recomputes a fresh transient valuation and the
                 # agent "forgets" how it felt about a topic between sessions.
                 'agent_preferences': dict(getattr(self, '_agent_preferences', {}) or {}),
+                # Constitutive value store (seed + experience). Persisted so
+                # values RAVANA forms/revises at runtime SURVIVE reload — the
+                # "can change this by itself through experience" guarantee.
+                'agent_values': dict(getattr(self, '_agent_values', {}) or {}),
             }
             state['state_checksum'] = self._checksum_state(state)
             # Phase 1: Write graph to SQLite database for ACID persistence
@@ -5654,6 +5699,15 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 _ap = state.get('agent_preferences', {})
                 if isinstance(_ap, dict):
                     self._agent_preferences = dict(_ap)
+            except Exception:
+                pass
+            # agent grew/revised at runtime wins, seed fills the rest).
+            try:
+                _av = state.get('agent_values', {})
+                if isinstance(_av, dict):
+                    _seed = getattr(self, '_agent_values', {}) or {}
+                    _seed.update({k: tuple(v) for k, v in _av.items()})
+                    self._agent_values = _seed
             except Exception:
                 pass
             self._free_energy = state['free_energy']

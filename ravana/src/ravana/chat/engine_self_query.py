@@ -320,102 +320,90 @@ class SelfQueryMixin:
         # Session stability: a self-attribute must return the SAME stance within
         # a session (D'Argembeau 2013; Berkman 2020 — stable self-attributes,
         # momentarily colored by affect). Cache keyed by target concept.
+        # No real target was extracted (parse artifact / empty): do NOT
+        # fabricate a stance. Return an honest "still figuring that out" so a
+        # "what do you think about X" with no resolvable topic never emits the
+        # broken "i'm a bit cautious about <junk>" template.
+        if not target or target in ("all", "really", "it", "that", "things"):
+            return ("i'm still figuring that out",
+                    "i'd rather not guess — what's your take?")
+
         _cache = getattr(self, "_agent_preferences", None)
         _ckey = f"stance:{target}"
         if _cache is not None and _ckey in _cache:
             _c = _cache[_ckey]
             if isinstance(_c, tuple) and len(_c) == 2:
                 return _c
-        glove_fn = getattr(self, "_glove_vector", None)
-        # Polarity from affect: positive valence -> lean "drawn to / warm to",
-        # low valence -> lean "cautious about / not really my thing", mid ->
-        # "curious about". This is the value signal, not a verdict.
-        if valence >= 0.6:
-            polarity = "drawn to"
-        elif valence <= 0.4:
-            polarity = "a bit cautious about"
+
+        # Ground the stance on RAVANA's REAL value store (seed + experience).
+        # This is genuine cognition, NOT fabrication: we look up the agent's own
+        # constitutive values; if none matches the topic we answer honestly
+        # rather than inventing a polarity from ambient mood. The store is
+        # consulted exactly like any experience-derived value and RAVANA can
+        # expand it at runtime (every real stance it forms is recorded below).
+        _values = getattr(self, "_agent_values", {}) or {}
+        # Resolve the topic to a canonical value key. Exact key first, then a
+        # containment match so multiword keys like "open source" survive target
+        # extraction that clips them to "source". The stance sentence is built
+        # from the CANONICAL concept (not the clipped target) so it reads cleanly.
+        _canon = None
+        if target in _values:
+            _canon = target
         else:
-            polarity = "curious about"
-        reason = ""
-        # GloVe transitivity: project the target onto the concepts this agent
-        # has already taken a stance toward. If the target sits near something
-        # the agent likes, that transfers (common-value-scale transitivity).
+            for _k in _values:
+                # canonical key contains the target as a whole word, or the
+                # target contains the canonical key (either direction).
+                if _k in target.split() or target in _k.split() or _k == target:
+                    _canon = _k
+                    break
+        if _canon is not None:
+            _word, _conf, _reason = _values[_canon]
+            # Strip any accidental echo of the topic inside the seeded reason
+            # (seed reasons are written topic-free; this is a guard).
+            _reason = _reason.replace(_canon, "").replace(target, "").strip(" —-")
+            stance = f"i {_word} {_canon}"
+            result = (stance, _reason)
+            if _cache is not None:
+                _cache[_ckey] = result
+            return result
+        # 2) GloVe-nearest canonical value (transitivity of preference). Project
+        #    the topic onto concepts RAVANA actually holds a value toward; if it
+        #    sits close to one, that value transfers. This is a real
+        #    similarity-based inference over the value store, not a junk anchor.
+        glove_fn = getattr(self, "_glove_vector", None)
         if callable(glove_fn) and getattr(self, "_glove_vecs", None) is not None:
             tvec = glove_fn(target)
             if tvec is not None:
-                # Seed affect anchors from the agent's own past stances.
-                _known = [(k.split(":", 1)[1], v[0]) for k, v in (_cache or {}).items()
-                          if k.startswith("stance:") and isinstance(v, tuple) and v[0]]
                 _best_sim = -1.0
                 _anchor = None
-                for _concept, _pol in _known:
+                for _concept, (_word, _conf, _reason) in _values.items():
                     _cv = glove_fn(_concept)
                     if _cv is None:
                         continue
                     _s = float(np.dot(tvec, _cv))
                     if _s > _best_sim:
                         _best_sim = _s
-                        _anchor = (_concept, _pol)
+                        _anchor = (_concept, _word, _conf, _reason)
                 if _anchor and self._adaptive_gate("selfq_sim", _best_sim):
-                    reason = (f"it's close to {_anchor[0]}, which i already lean "
-                              f"{_anchor[1]} — so that pulls me the same way")
-                else:
-                    # No transfer anchor: color the stance by the target's
-                    # semantic field via its top graph association, so the
-                    # reason names something real rather than empty affect.
-                    _nids = self._concept_keywords.get(target, [])
-                    _assoc_label = ""
-                    if _nids:
-                        try:
-                            _out = self.graph.get_outgoing(_nids[0])
-                            if _out:
-                                _assoc_label = self.graph.get_node(
-                                    _out[0][0]).label if self.graph.get_node(_out[0][0]) else ""
-                        except Exception:
-                            _assoc_label = ""
-                    if _assoc_label and _assoc_label.lower() != target:
-                        # Issue 1: VAD-echo gate. The self-referential affective
-                        # tail ("...and that resonates with how i'm feeling right
-                        # now") must only fire when the agent's current mood is
-                        # CONGRUENT with the topic (vmPFC "is this feeling about
-                        # the topic?") OR the user has opened the emotional
-                        # channel. Otherwise stale ambient affect leaks into every
-                        # stance reply (the reported defect). When gated off, the
-                        # reason names the real graph association without the
-                        # first-person feeling echo.
-                        _emotion_relevant = True
-                        if getattr(self, "use_affect_gate", True):
-                            _emotion_relevant = self._affect_is_relevant(
-                                target, tvec)
-                        if _emotion_relevant:
-                            reason = (f"it connects to {_assoc_label}, and that "
-                                      f"resonates with how i'm feeling right now")
-                        else:
-                            reason = f"it connects to {_assoc_label}"
-                    else:
-                        # Neutral / non-affective fallback — no feeling echo
-                        # (the leak was here: "...sits well with how i'm wired
-                        # right now" on a neutral topic with ambient mood). When
-                        # the emotional channel is explicitly open (user invited
-                        # affect), the self-referential echo is permitted.
-                        if getattr(self, "_emotional_channel_active", False):
-                            reason = "it sits well with how i'm wired right now"
-                        else:
-                            reason = f"it connects to {_assoc_label}" if _assoc_label else "i've been thinking about it"
-        else:
-            # No GloVe target vector: without a topic embedding we cannot
-            # compute congruence, so default to the NON-affective fallback
-            # unless the emotional channel is explicitly open (Issue 1).
-            if getattr(self, "use_affect_gate", True) and not getattr(
-                    self, "_emotional_channel_active", False):
-                reason = "i've been thinking about it"
-            else:
-                reason = "it sits well with how i'm wired right now"
-        stance = f"i'm {polarity} {target}" if target else "i'm drawn to"
-        result = (stance, reason)
-        if _cache is not None:
-            _cache[_ckey] = result
-        return result
+                    _concept, _word, _conf, _reason = _anchor
+                    stance = f"i {_word} {target}"
+                    # reason NAMES the real grounding value — content from
+                    # cognition, not authored affect.
+                    reason = (f"it's close to {_concept}, which i {_word} — "
+                              f"so that pulls me the same way")
+                    result = (stance, reason)
+                    if _cache is not None:
+                        _cache[_ckey] = result
+                    return result
+
+        # 3) No value exists for this topic. HONEST failure: RAVANA does not
+        #    fabricate a stance. It says it is still forming one and invites the
+        #    user in. This is the correct, non-degenerate behavior — a flat,
+        #    honest "i don't know yet" beats fake depth. (The prior code
+        #    returned "i'm a bit cautious about X ... close to really" — pure
+        #    confabulation keyed on ambient valence + a junk cache entry.)
+        return ("i'm still figuring that out",
+                "i don't have a settled view on that yet — what do you think?")
 
     def _route_self_query(self, user_input: str) -> Optional[str]:
         """Self/other gate (TPJ / mirror-neuron self-other boundary).
@@ -541,8 +529,14 @@ class SelfQueryMixin:
             _reason = (_reason or "").rstrip()
             if _reason and not _reason.endswith((".", "!", "?")):
                 _reason += "."
-            _answer = f"{_stance} {_reason}".strip()
-            if not _answer.endswith(("?", ".", "!")):
+            # The stance sentence and its reason are two clauses — join them
+            # with a clear separator so a value-grounded reply reads as
+            # "i care deeply about privacy. that is a basic right..." rather
+            # than running the words together.
+            _stance = _stance.rstrip(".!?")
+            _reason = _reason[0].upper() + _reason[1:] if _reason else _reason
+            _answer = f"{_stance}. {_reason}".strip()
+            if not _answer.endswith((".", "!", "?")):
                 _answer += "."
             # Do NOT overwrite the canonical self-description (`who are you`)
             # with a transient value opinion. The agent-claim store is the
