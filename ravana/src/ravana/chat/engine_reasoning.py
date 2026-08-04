@@ -1160,6 +1160,30 @@ class ReasoningMixin:
                             facts.append(_f)
         except Exception:
             pass
+        # B-fix (round v-aug04): the query subject is often a FACT VALUE, not a
+        # stored fact SUBJECT. "do you still think i like kimchi" has
+        # subject="kimchi", but the only stored memory is likes=kimchi (kimchi
+        # is the OBJECT, never a subject). retrieve("kimchi") + subject-attr
+        # match both miss it, so the ranking falls back to the highest-confidence
+        # unrelated fact (e.g. the open-source quote) -> wrong-episode recall.
+        # Fix: when no subject-keyed fact exists, also pool facts whose OBJECT
+        # contains the query subject (value match). This is still RAVANA's own
+        # stored cognition, just indexed by content rather than by speaker.
+        try:
+            _have = {id(f) for f in (facts or [])}
+            facts = list(facts or [])
+            _subj_attr = (ctx.subject or "").lower().strip()
+            if _subj_attr and not _have:
+                for _kfacts in getattr(self.hippocampal_buffer, "facts", {}).values():
+                    for _f in _kfacts:
+                        if id(_f) in _have:
+                            continue
+                        _obj = (getattr(_f, "object", "") or "").lower()
+                        if _subj_attr in _obj:
+                            _have.add(id(_f))
+                            facts.append(_f)
+        except Exception:
+            pass
         # Broaden the candidate pool: buffer keys are the content words of
         # each ingested sentence, so the fact "researching adoption
         # agencies" is keyed under 'researching' — which retrieve('research')
@@ -1255,6 +1279,21 @@ class ReasoningMixin:
                     if len(w) >= 3 and w not in stop:
                         attr_words.add(w)
                         attr_words.add(w.rstrip("s").rstrip("d").rstrip("e").rstrip("ing")[:6])
+        # B-fix (round v-aug04): the subject of a recall query ("do you still
+        # think i like kimchi" -> subject "kimchi") is itself the PRIMARY cue for
+        # which fact the user means. The earlier code stripped it as an
+        # "entity token" so it could not vote, leaving only generic question
+        # verbs (think/still/like) as cues — which coincidentally overlap an
+        # UNRELATED fact ("i now think some software should stay closed"
+        # contains "think") and win the ranking, returning the wrong episode.
+        # Re-add the subject (and its stem) as a cue. Ubiquitous-cue suppression
+        # below still demotes an over-common subject (e.g. an entity name
+        # appearing in most facts), so the old entity double-vote problem does
+        # not return. A specific subject (kimchi) now correctly cues its fact.
+        for _sw in subj_toks:
+            if len(_sw) >= 3 and _sw not in stop:
+                attr_words.add(_sw)
+                attr_words.add(_sw.rstrip("s").rstrip("d").rstrip("e").rstrip("ing")[:6])
 
         # Ubiquitous-cue suppression (same lesson as fact_reasoning's
         # ubiquitous_words): a cue word occurring in a large fraction of the

@@ -423,6 +423,49 @@ class MemoryMixin:
                 _bits = _reconstruct_entity(_ent_hit, _facts)
                 if _bits:
                     return "you told me " + "; ".join(dict.fromkeys(_bits)) + "."
+        # (a0) LITERAL-CONTENT CUE PASS (B-fix, round v-aug04). The previous
+        # semantic cosine matcher returned the highest-scoring UNRELATED
+        # episode because GloVe similarity is loosely positive across many
+        # turns ("what did i say about open source" returned "what's my
+        # favorite color?"). Root cause: recall was bound to activation, not to
+        # the episode that actually contained the cue. Fix: extract the query's
+        # content cue (drop recall-scaffold + question-structure words), then
+        # return the episode whose STORED TEXT verbatim contains that cue. This
+        # is content-addressable recall — exactly the episode the user is asking
+        # about — and it cannot return a wrong turn. Fail-open to the semantic
+        # pass below only when no episode literally contains the cue.
+        _CUE_STOP = {
+            "remember", "recall", "told", "said", "say", "tell", "telling",
+            "mention", "mentioned", "ask", "asked", "what", "earlier", "before",
+            "about", "thing", "things", "did", "do", "you", "your", "i", "my",
+            "we", "our", "the", "a", "an", "that", "this", "me", "name",
+            "say", "said", "saying", "tell", "told", "think", "thought",
+            "like", "likes", "liked", "love", "hate", "still", "feel",
+            "feeling", "believe", "mention", "mentioned", "talk",
+            "talking", "know", "recall", "what", "did",
+            "do", "you", "your", "i", "my", "we", "our", "me", "about",
+            "on", "of", "the", "a", "an", "that", "this", "is", "are",
+            "was", "were", "have", "has", "had", "name", "color", "colour",
+        }
+        _cue_tokens = [w.strip(".,!?") for w in re.findall(r"[a-z']+", q.lower())
+                       if len(w) >= 3 and w not in _CUE_STOP]
+        if _cue_tokens:
+            _best_cue = None
+            _best_cue_score = 0
+            for rec in store:
+                _t = rec.get("text", "").lower()
+                if re.search(r"\b(remember|recall|what did i|what was i)\b.*\b(told|said|ask|mention|tell)\b", _t):
+                    continue  # skip prior recall queries (no content)
+                # count how many cue tokens appear verbatim in this episode
+                _hit = sum(1 for _c in _cue_tokens if _c in _t)
+                # weight by fraction of cue tokens present (a focused match
+                # beats a scattered one)
+                _frac = _hit / len(_cue_tokens)
+                if _hit > 0 and _frac >= 0.34 and _hit > _best_cue_score:
+                    _best_cue_score = _hit
+                    _best_cue = rec
+            if _best_cue is not None:
+                return self._reconstruct_gist(_best_cue)
         # (a) fact-slot cue match — highest precision.
         for rec in store:
             facts = rec.get("facts", {})
@@ -486,8 +529,17 @@ class MemoryMixin:
                 best = rec
         # Adaptive bar: require a non-trivial match (distribution-driven, not a
         # fixed threshold — but we must avoid firing on an empty/weak cue).
+        # B-fix (round v-aug04): additionally require the winning episode to
+        # contain at least one query cue token VERBATIM. Loose GloVe cosine can
+        # still rank an unrelated episode highest (the original defect), so a
+        # pure cosine win is no longer accepted — fail CLOSED (None) instead of
+        # returning a wrong turn. This is the RAVANA bar: never confabulate a
+        # memory that wasn't there.
         if best is not None and self._adaptive_gate("recall_gist", best_score):
-            return self._reconstruct_gist(best)
+            _best_text = (best.get("text", "") or "").lower()
+            _verbatim = any(c in _best_text for c in qwords)
+            if _verbatim:
+                return self._reconstruct_gist(best)
         return None
 
     # ════════════════════════════════════════════════════════════════
@@ -1538,10 +1590,33 @@ class MemoryMixin:
                             f"conversation — {_rec}")
 
         # "what did i just tell you [i like / my favorite ...]" — reconstruct
-        # the GIST of the immediately-preceding turn (Tulving encoding
+        # the GIST of the relevant prior turn (Tulving encoding
         # specificity), not the verbatim question. The miner already extracted
         # the self-disclosed facts, so surface those.
         if re.search(r"\bwhat did i (?:just )?(?:tell|say|mention)\b", t):
+            # B-fix (round v-aug04): a TOPIC-CUED variant ("what did i say
+            # about open source", "what did i tell you about my cats") asks
+            # about a SPECIFIC subject, not the literally-previous turn. The old
+            # code always echoed the last turn, so "what did i say about open
+            # source" returned "what's my favorite color?" — wrong episode.
+            # Now: extract the cue after "about/that", search the transcript for
+            # the episode whose TEXT contains that cue, and return its gist.
+            # Only when there is NO cue do we default to the immediately-preceding
+            # turn (genuine "what did i just say?").
+            _cue = ""
+            _m = re.search(r"\b(?:about|that|regarding|on)\s+([a-z']+)", t)
+            if _m:
+                _cue = _m.group(1).lower().strip(".,!?")
+            if _cue and len(_cue) >= 3:
+                _cued = None
+                for _r in reversed(self._episodic_transcript):
+                    if _cue in (_r.get("text", "") or "").lower():
+                        _cued = _r
+                        break
+                if _cued is not None:
+                    _cg = self._reconstruct_gist(_cued)
+                    if _cg:
+                        return _cg
             last_turn = prior[-1].strip()
             # Pull the matching transcript record (highest turn_index = prev).
             matching = [r for r in self._episodic_transcript
@@ -1556,6 +1631,8 @@ class MemoryMixin:
                         bits.append(f"your favorite {slot[len('favorite_'):]} is {val}")
                     elif slot == "likes":
                         bits.append(f"you like {val}")
+                    elif "pet_name" in slot or slot.startswith("pet_name"):
+                        bits.append(f"your pet's name is {val}")
                     elif "_" in slot:
                         ent, _, attr = slot.partition("_")
                         bits.append(f"your {ent}'s {attr} is {val}")
