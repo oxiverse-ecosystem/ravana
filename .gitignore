@@ -96,3 +96,18 @@ nul
 
 .poolside/
 temp/
+# ── Local QA / agent scratch (DO NOT COMMIT) ──
+# Briefs, plans, audit logs, and throwaway debug scripts live here.
+# This directory is git-ignored on purpose — it holds per-round working files
+# (opencode briefs/plans, auditor notes, patch files, one-off debug runs).
+# Never 'git add' anything under .hermes-qa/ — it is local scratch.
+.hermes-qa/
+
+# Local throwaway directory for debug scripts, patch files, and experiments.
+# Git-ignored by design. Put ad-hoc probes / scratch fixes here, NOT in scripts/.
+tmp/
+
+# ── Runtime-generated state (NOT committed) ──
+# RAVANA rewrites this at runtime (factual-bias store). It is generated state,
+# not hand-authored config, so ignore it to keep the tree clean.
+data/case_dist.json
