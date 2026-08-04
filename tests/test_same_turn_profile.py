@@ -37,11 +37,22 @@ def test_same_turn_personal_fact_and_opinion(tmpdir):
     ans = e.process_turn("what's my cat's name?")
     assert 'pixel' in (ans or '').lower(), ans
 
+    # B: persistence across save/reload.
+    e.save()
+    e4 = _make(tmpdir, '_a')
+    e4.load()
+    h = e4.user_model.personal_facts.get('i', 'cat')
+    assert h is not None and h.value == 'pixel'
+
+
+def test_same_turn_name_recall(tmpdir):
     e2 = _make(tmpdir, '_b')
     e2.process_turn("my name is alex")
     ans2 = e2.process_turn("what is my name?")
     assert 'alex' in (ans2 or '').lower(), ans2
 
+
+def test_correction_supersedes_prior_value(tmpdir):
     # B: correction supersedes the old value.
     e3 = _make(tmpdir, '_c')
     e3.process_turn("my dog is rex")
@@ -49,6 +60,8 @@ def test_same_turn_personal_fact_and_opinion(tmpdir):
     hit = e3.user_model.personal_facts.get('i', 'dog')
     assert hit is not None and hit.value == 'max'
 
+
+def test_opinions_captured_and_recalled(tmpdir):
     # C: opinions captured + recalled, separate from facts.
     e5 = _make(tmpdir, '_d')
     e5.process_turn("i really like cats")
@@ -58,12 +71,17 @@ def test_same_turn_personal_fact_and_opinion(tmpdir):
     dogs = e5.process_turn("what do you know about what i think of dogs?")
     assert 'dislike' in (dogs or '').lower(), dogs
 
-    # B: persistence across save/reload.
-    e.save()
-    e4 = _make(tmpdir, '_a')
-    e4.load()
-    h = e4.user_model.personal_facts.get('i', 'cat')
-    assert h is not None and h.value == 'pixel'
+
+def test_distinct_species_coexist(tmpdir):
+    """A pet slot keeps its SPECIES, so a cat and a dog do not collide and a
+    cued recall resolves to the animal actually asked about."""
+    e = _make(tmpdir, '_sp')
+    e.process_turn("my cat is pixel")
+    e.process_turn("my dog is rex")
+    assert e.user_model.personal_facts.get('i', 'cat').value == 'pixel'
+    assert e.user_model.personal_facts.get('i', 'dog').value == 'rex'
+    ans = e.process_turn("what is my dog's name?")
+    assert 'rex' in (ans or '').lower(), ans
 
 
 def test_correction_loop_and_world_graph_isolation(tmpdir):

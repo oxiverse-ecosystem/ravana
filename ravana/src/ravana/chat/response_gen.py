@@ -4589,13 +4589,37 @@ class ResponseGenMixin(ChainWalkerMixin):
                     f"i'm here for you. do you want to talk about it?",
                     "emotional_empathy")
 
+        # Control/agency appraisal (VAD dominance) selects the PROBE: a
+        # low-control state invites "what happened" (the cause is external and
+        # unnamed), a higher-control state invites "what set it off" (the user
+        # can locate the trigger). Lazarus secondary appraisal — the same
+        # dimension the emotion model already computes.
+        try:
+            dominance = float(getattr(getattr(self, "emotion", None).state,
+                                      "dominance", 0.4))
+        except Exception:
+            dominance = 0.4
+        probe = "what set it off?" if dominance >= 0.38 else "what happened?"
+        # Name the affect term the appraisal actually extracted from THIS
+        # utterance (via the growable affect lexicon), not just the coarse
+        # valence band. Root cause of the identical-reply defect: appraisal
+        # computes valence x arousal x dominance and the realizer consumed
+        # only valence, so every negative disclosure collapsed to one string.
+        affect_term = (word or "").strip() if isinstance(word, str) else ""
+        if affect_term.startswith("loss:") or len(affect_term.split()) != 1:
+            # Only a single lexical affect term names a felt state; a phrase
+            # ("going through something hard") is a cause description and would
+            # read as broken grammar in the "feeling X" frame.
+            affect_term = ""
+        felt = f"feeling {affect_term}" if affect_term else f"feeling {val_word}"
+
         if kind == "negative":
             if has_stored_detail:
                 return (f"that sounds {val_word}. you've shared some of this "
                         f"before — what's been the hardest part lately?",
                         "emotional_empathy")
-            return (f"i hear you — feeling {val_word} is hard, and i'm here for "
-                    f"it. what happened?", "emotional_empathy")
+            return (f"i hear you — {felt} is hard, and i'm here for "
+                    f"it. {probe}", "emotional_empathy")
 
         if kind == "positive":
             close = (f"what's got you feeling so {val_word}?"

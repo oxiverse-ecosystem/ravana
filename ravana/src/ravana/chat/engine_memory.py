@@ -69,6 +69,7 @@ from .constants import (TEEN_CONCEPTS, WEB_GARBAGE, STOP_WORDS, ConceptPosDict,
                         _is_word_salad, _is_keyboard_mash,
                         _UNIVERSAL_PURGE, _DEFINITION_ASSERTION)
 from .web_learning import WebLearningMixin
+from . import pet_slots as _pet_slots
 # Defect F: learned structural-PE snippet model (contrastive gap). Imported
 # lazily-safe so a missing module degrades gracefully (the gate stays None and
 # the old heuristic floor remains the backstop, never weakened).
@@ -348,26 +349,31 @@ class MemoryMixin:
             for slot, val in rec.get("facts", {}).items():
                 ent, attr = _slot_to_ent_attr(slot)
                 _entity_idx.setdefault(ent, {})[attr] = val
-        # C-fix (round v-aug04): pets are stored in the PersonalFactStore under
-        # subject "i", attr "pet_name_N" (e.g. ('i','pet_name_1','biscuit')). The
+        # Pets live in the PersonalFactStore under a species-keyed slot
+        # ('cat', 'cat_2', 'dog') written by the miner via pet_slots. The
         # transcript/episodic-index miner does NOT capture them, so the entity
-        # index built above has no "pet_name" entry and a cued recall
-        # ("what are my cats called") falls through to a wrong episode. Fold the
-        # PersonalFactStore pet facts into the pet_name entity so the entity
-        # scan resolves them. This is the SAME pet_name slot the miner and the
-        # recall renderers already agree on.
+        # index built above has no entry for them and a cued recall ("what are
+        # my cats called") would fall through to a wrong episode. Fold the
+        # store's pet facts in under their canonical species entity, so the
+        # entity scan below resolves the user's own animal word to them.
         try:
             _pf = getattr(self, "user_model", None)
             if _pf is not None:
                 _pfs = getattr(_pf, "personal_facts", None)
                 if _pfs is not None:
                     for _key, _fact in getattr(_pfs, "facts", {}).items():
-                        _subj = _key[0] if isinstance(_key, (tuple, list)) else _key
+                        # A superseded value is a RETIRED memory (the user
+                        # corrected it); folding it in would let the retired
+                        # value collide with the active one. Corrections win.
+                        if getattr(_fact, "superseded", False):
+                            continue
                         _attr = _key[1] if isinstance(_key, (tuple, list)) and len(_key) > 1 else None
                         _val = getattr(_fact, "value", _fact)
-                        if str(_attr or "").startswith("pet_name"):
-                            _idxnum = str(_attr).split("_")[-1] or "1"
-                            _entity_idx.setdefault("pet_name", {})[_idxnum] = _val
+                        if _attr and _pet_slots.is_pet_attribute(_attr):
+                            _sp = _pet_slots.base_species(_attr)
+                            _m_idx = re.search(r"_(\d+)$", str(_attr))
+                            _idxnum = _m_idx.group(1) if _m_idx else "1"
+                            _entity_idx.setdefault(_sp, {})[_idxnum] = _val
         except Exception:
             pass
 
@@ -409,11 +415,14 @@ class MemoryMixin:
                     bits.append(f"you live in {val}")
                 elif attr == "background":
                     bits.append(f"{val}")
-                # C-fix (round v-aug04): pets are stored under pet_name_N slots
-                # (entity "pet_name", attr "N"). Render as a natural pet-name
-                # list rather than "your pet_name's 1 is biscuit".
-                elif ent == "pet_name" or str(attr).startswith("pet_name"):
-                    bits.append(f"your pet's name is {val}")
+                # Pets are stored under a species-keyed slot (entity "cat",
+                # attr "1"/"2"). Render as a natural clause rather than
+                # "your cat's 1 is pixel".
+                elif _pet_slots.species_of(ent) is not None or \
+                        _pet_slots.is_pet_attribute(attr):
+                    _sp = ent if _pet_slots.species_of(ent) else \
+                        _pet_slots.base_species(attr)
+                    bits.append(f"your {_sp} is {val}")
                 else:
                     bits.append(f"your {ent}'s {attr} is {val}")
             return bits
@@ -423,38 +432,39 @@ class MemoryMixin:
         # ALSO map first/second-person + location/origin question
         # words to the "i" biographical entity so "where do I live" /
         # "what city are you from" recall the user's stored location.
-        # C-fix (round v-aug04): map pet-query words to the canonical
-        # "pet_name" entity so "what are my cats called" / "what did i name my
-        # dog" resolve to the stored pet_name_N facts. The miner stores pets
-        # under pet_name_N (a stable base, not the bare animal plural), so the
-        # recall side must map the user's animal word back to that entity.
-        _PET_SYN = {
-            "cat": "pet_name", "cats": "pet_name", "dog": "pet_name",
-            "dogs": "pet_name", "pet": "pet_name", "pets": "pet_name",
-            "bird": "pet_name", "birds": "pet_name", "fish": "pet_name",
-            "rabbit": "pet_name", "rabbits": "pet_name",
-            "hamster": "pet_name", "hamsters": "pet_name",
-            "horse": "pet_name", "horses": "pet_name",
-            "kitten": "pet_name", "puppy": "pet_name",
-        }
+        # Map the user's spoken animal word to the canonical species entity so
+        # "what are my cats called" / "what did i name my dog" resolve to the
+        # slots the miner wrote. Both sides go through pet_slots, so they agree
+        # on the key by construction instead of via a duplicated synonym table.
         _ent_hit = None
         _LOC_WORDS = ("live", "lives", "from", "city", "town", "country",
                       "born", "grew", "located", "location", "origin")
+        # Specific-entity cues must be resolved BEFORE the generic self-profile
+        # fallback. Root cause of the wrong-episode defect ("what is my cat's
+        # name?" -> "you told me you live in berlin"): the scan was a single
+        # left-to-right pass, so the bare pronoun "my" (which carries NO
+        # retrieval target) matched at position 2 and short-circuited the loop
+        # before reaching the real cue "cat". A cued recall is specific by
+        # construction — the generic self-profile is only correct when the
+        # query names no entity at all.
+        _generic_self = False
         for tok in re.findall(r"[a-z']+", q):
             _tok = tok[:-2] if tok.endswith("'s") else tok
-            if _tok in _entity_idx:
+            if _tok in _entity_idx and _tok not in ("i", "you", "my", "your"):
                 _ent_hit = _tok
                 break
-            # synonym map (e.g. "cats" -> "pet_name" entity)
-            if _tok in _PET_SYN and _PET_SYN[_tok] in _entity_idx:
-                _ent_hit = _PET_SYN[_tok]
+            # species map (e.g. "cats" -> "cat" entity)
+            _sp = _pet_slots.species_of(_tok)
+            if _sp is not None and _sp in _entity_idx:
+                _ent_hit = _sp
                 break
             if _tok in ("i", "you", "my", "your") and "i" in _entity_idx:
                 # only treat as a cued recall when the query also
                 # asks about a biographical attribute
                 if any(w in q for w in _LOC_WORDS) or "name" in q:
-                    _ent_hit = "i"
-                    break
+                    _generic_self = True
+        if _ent_hit is None and _generic_self:
+            _ent_hit = "i"
         if _ent_hit is not None:
             _facts = _entity_idx[_ent_hit]
             if _facts:
@@ -1083,8 +1093,11 @@ class MemoryMixin:
                         # C-fix (round v-aug04): pets stored under pet_name_N
                         # (entity "pet_name", attr index "N") must render as
                         # "your pet's name is X", not "your pet_name's 1 is X".
-                        if ent == "pet_name" or attr.startswith("pet_name"):
-                            bits.append(f"your pet's name is {val}")
+                        if _pet_slots.species_of(ent) is not None or \
+                                _pet_slots.is_pet_attribute(attr):
+                            _sp = ent if _pet_slots.species_of(ent) else \
+                                _pet_slots.base_species(attr)
+                            bits.append(f"your {_sp} is {val}")
                         else:
                             bits.append(f"your {ent}'s {attr} is {val}")
             if bits:
@@ -1513,9 +1526,12 @@ class MemoryMixin:
                             _bits.append(f"you're allergic to {_val}")
                         elif _attr.startswith("favorite_"):
                             _bits.append(f"your favorite {_attr[len('favorite_'):]} is {_val}")
-                        # C-fix (round v-aug04): pets stored under pet_name_N.
-                        elif str(_attr).startswith("pet_name") or str(_ent) == "pet_name":
-                            _bits.append(f"your pet's name is {_val}")
+                        # Pets stored under a species-keyed slot.
+                        elif _pet_slots.is_pet_attribute(_attr) or \
+                                _pet_slots.species_of(str(_ent)) is not None:
+                            _sp = (str(_ent) if _pet_slots.species_of(str(_ent))
+                                   else _pet_slots.base_species(_attr))
+                            _bits.append(f"your {_sp} is {_val}")
                         else:
                             _bits.append(f"your {_ent}'s {_attr} is {_val}" if not _is_user
                                          else f"your {_attr} is {_val}")
@@ -1669,8 +1685,8 @@ class MemoryMixin:
                         bits.append(f"your favorite {slot[len('favorite_'):]} is {val}")
                     elif slot == "likes":
                         bits.append(f"you like {val}")
-                    elif "pet_name" in slot or slot.startswith("pet_name"):
-                        bits.append(f"your pet's name is {val}")
+                    elif _pet_slots.is_pet_attribute(slot):
+                        bits.append(_pet_slots.render(slot, val))
                     elif "_" in slot:
                         ent, _, attr = slot.partition("_")
                         bits.append(f"your {ent}'s {attr} is {val}")

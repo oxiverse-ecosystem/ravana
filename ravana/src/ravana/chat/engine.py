@@ -2626,11 +2626,19 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 # right" can confirm() it (B4 confirmation wiring above).
                 self._last_pf_recall = ("i", _attr, _val)
                 return _ans
+        # An opinion query may appear as a MATRIX-EMBEDDED clause ("what do you
+        # know about what i think of dogs?", "do you remember how i feel about
+        # X?"). The attitude question is the SUBORDINATE clause; the matrix
+        # verb (know/remember/recall) only asks whether the stance is held.
+        # Matching only the root form sent these to episodic recall, which
+        # echoed a raw prior turn instead of reading the stance store. Allow an
+        # optional matrix prefix and an optional auxiliary before the embedded
+        # clause — a grammatical generalization, not a phrase list.
         _us_q = re.search(
             r"(?:"
-            r"what\s+do\s+i\s+think\s+(?:about|of)\s+"
-            r"|how\s+do\s+i\s+feel\s+about\s+"
-            r"|what\s+do\s+i\s+feel\s+about\s+"
+            r"what\s+(?:do\s+)?i\s+think\s+(?:about|of)\s+"
+            r"|how\s+(?:do\s+)?i\s+feel\s+about\s+"
+            r"|what\s+(?:do\s+)?i\s+feel\s+about\s+"
             r"|what'?s?\s+my\s+(?:opinion|stance)\s+(?:on|about|of)\s+"
             r"|what\s+is\s+my\s+(?:opinion|stance)\s+(?:on|about|of)\s+"
             r"|my\s+opinion\s+(?:on|of)\s+"

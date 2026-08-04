@@ -152,6 +152,7 @@ from .constants import (TEEN_CONCEPTS, WEB_GARBAGE, STOP_WORDS, ConceptPosDict,
                         _is_word_salad, _is_keyboard_mash,
                         _UNIVERSAL_PURGE, _DEFINITION_ASSERTION)
 from .web_learning import WebLearningMixin
+from . import pet_slots as _pet_slots
 # Defect F: learned structural-PE snippet model (contrastive gap). Imported
 # lazily-safe so a missing module degrades gracefully (the gate stays None and
 # the old heuristic floor remains the backstop, never weakened).
@@ -2274,11 +2275,11 @@ class ReasoningMixin:
                 "does": f"you do {val}",
                 "is": f"you are {val}",
             }.get(attr, None)
-            # C-fix (round v-aug04): pet possessions are stored under
-            # pet_name_N slots (pet_name_1=biscuit). Render naturally instead
-            # of echoing the raw slot key ("your pet_name_1 is biscuit").
-            if _phrase is None and attr.startswith("pet_name"):
-                _phrase = f"your pet's name is {val}"
+            # Pet possessions are stored under a species-keyed slot
+            # ("cat", "cat_2"). Render naturally instead of echoing the raw
+            # slot key ("your cat_2 is gravy").
+            if _phrase is None and _pet_slots.is_pet_attribute(attr):
+                _phrase = _pet_slots.render(attr, val)
             if _phrase is None:
                 _phrase = f"your {attr} is {val}"
             # Return the rendered relation phrase only (e.g. "you do chai

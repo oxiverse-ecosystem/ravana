@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional, Tuple, Set
 from .models import CorrectionType
 from .personal_fact_store import PersonalFactStore, UserStanceStore
+from . import pet_slots as _pet_slots
 
 # ── Dedicated user-model store ───────────────────────────────────────────────
 # The per-user model used to be pickled *inside* the engine weight snapshot,
@@ -271,22 +272,29 @@ class UserModel:
                     elif _pat.startswith(r"\bi\s+am\s+allergic\s+to"):
                         _attr = "allergy"
                 if _attr and _val and _attr not in ("name", "location"):
-                    # C-fix (round v-aug04): a possession disclosure may name
-                    # several entities ("i have two cats named biscuit and
-                    # gravy"). Split the value on "and"/"," into individual
-                    # names and store EACH under a pet_name_N slot
-                    # (pet_name_1=biscuit, pet_name_2=gravy). A stable
-                    # 'pet_name' base (not the bare animal plural 'cats') lets
-                    # BOTH the ack composer and the recall path render these as
-                    # "your pet's name is biscuit" / "your pet's name is gravy"
-                    # via one shared rule, instead of dropping names or echoing
-                    # the raw slot key.
+                    # A possession disclosure may name several animals ("i have
+                    # two cats named biscuit and gravy"). Split the value on
+                    # "and"/"," and store EACH name in its own slot. The slot
+                    # KEEPS the species (cat, cat_2, dog) via pet_slots so a
+                    # user can own more than one kind of animal, a cued recall
+                    # can ask about one species, and a correction ("no, my cat
+                    # is milo") finds the prior value under the same key the
+                    # user's own word resolves to.
                     _names = re.split(r"\s+(?:and|,|&)\s*", _val)
-                    if _attr in ("cat", "cats", "dog", "dogs", "pet", "pets",
-                                 "bird", "birds", "fish", "rabbit", "rabbits",
-                                 "hamster", "hamsters", "horse", "horses"):
-                        _attr = "pet_name"
-                    if len(_names) > 1:
+                    _species = _pet_slots.species_of(_attr)
+                    if _species is None and len(_names) >= 1 and _attr.isalpha():
+                        # An unknown animal word in a "named/called" possession
+                        # frame is a species RAVANA has not met yet — learn it
+                        # so later recalls address the same slot.
+                        if re.search(r"\b(?:named|called)\b", _m.group(0), re.IGNORECASE):
+                            _species = _pet_slots.learn_species(_attr)
+                    if _species is not None:
+                        for _i, _nm in enumerate(_names, 1):
+                            _nm = _nm.strip().strip(".,!?")
+                            if _nm:
+                                _put_fact(_pet_slots.slot_for(_species, _i),
+                                          _nm, 0.6)
+                    elif len(_names) > 1:
                         for _i, _nm in enumerate(_names, 1):
                             _nm = _nm.strip().strip(".,!?")
                             if _nm:
