@@ -1861,6 +1861,11 @@ class MemoryMixin:
         "pain": -1, "painful": -1, "lost": -1, "fail": -1, "failed": -1,
         "fear": -1, "panic": -1, "cry": -1, "crying": -1, "cried": -1,
         "wrecked": -1, "crushed": -1, "down": -1, "low": -1,
+        # explicit dislike / aversion (common in user disclosures)
+        "hate": -1, "hates": -1, "hating": -1, "despise": -1, "detest": -1,
+        "loathe": -1, "dislike": -1, "dislikes": -1, "gross": -1,
+        "annoyed": -1, "irritated": -1, "bitter": -1, "resent": -1,
+        "enraged": -1, "livid": -1, "mad": -1, "hated": -1,
     }
 
     def _update_emotion(self, text: str):

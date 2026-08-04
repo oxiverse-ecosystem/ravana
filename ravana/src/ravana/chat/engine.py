@@ -3188,6 +3188,17 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # through to autobiographical storage below.
         try:
             from ravana.chat.brain_regions import is_reaction, classify_cause, select_empathy_frame
+            # FIX-E (round v-aug04): appraise affect from the CURRENT utterance
+            # BEFORE computing the empathy disclosure / reply. Previously the
+            # emotion update ran only later (after the empathy + self-disclosure
+            # early-returns), so an empathy reply used the PREVIOUS turn's VAD.
+            # Net effect: a clearly-negative turn like "i hate when apps sell my
+            # data" was answered "feeling mixed is hard" because valence was
+            # still pinned in the neutral band from the prior turn. Brain-faithful
+            # order: the amygdala/vmPFC appraisal precedes the reply, it does not
+            # lag it by a turn. This single move makes every affect-gated reply
+            # (empathy, self-opinion) honest to this turn's stimulus.
+            self._update_emotion(user_input)
             _disc = self._detect_emotional_disclosure(ctx=None, text=user_input)
             # W1: compute the recall/memory frame flag UNCONDITIONALLY (it is
             # consumed by the frame-guard at the bottom of this block). It must
