@@ -846,20 +846,20 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         self._agent_values: Dict[str, Tuple[str, float, str]] = {
             # privacy-first constitution
             "privacy": ("care deeply about", 0.9,
-                        "privacy is a basic right — i was built to protect it"),
+                        "it is a basic right — i was built to protect it"),
             "data": ("care deeply about", 0.85,
-                     "people should own their own data"),
+                     "people should own what they create"),
             "tracking": ("am against", 0.85,
-                         "tracking people without consent is wrong"),
+                         "following people without consent is wrong"),
             "surveillance": ("am against", 0.8,
-                            "mass surveillance erodes autonomy"),
+                            "mass watching erodes autonomy"),
             # open-source / knowledge-sharing constitution
             "open source": ("strongly value", 0.9,
                             "knowledge should be shared, not locked away"),
             "openness": ("strongly value", 0.85,
                          "open systems let people learn and verify"),
             "knowledge": ("value", 0.8,
-                          "shared knowledge helps everyone think better"),
+                          "sharing what we learn helps everyone"),
             "transparency": ("value", 0.8,
                              "being transparent about how i work matters"),
             "learning": ("love", 0.85,
@@ -5704,12 +5704,24 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             except Exception:
                 self._agent_claims = {}
             # Restore the per-topic self-opinion cache (A1) so stances the agent
-            # computed ("i'm a bit cautious about X") survive reloads. Guarded:
-            # a bad shape must not wipe the store or break the boot.
+            # computed survive reloads. Guarded: a bad shape must not wipe the
+            # store or break the boot. PURGE legacy junk entries: older builds
+            # cached fabricated stances for non-topics ("stance:right",
+            # "stance:really", "stance:source") produced by the removed GloVe
+            # transitivity path. Those must never be replayed — they are exactly
+            # the "i'm a bit cautious about right" confabulation class.
             try:
                 _ap = state.get('agent_preferences', {})
                 if isinstance(_ap, dict):
-                    self._agent_preferences = dict(_ap)
+                    _JUNK = {"all", "really", "it", "that", "things", "right",
+                             "way", "matter", "thing", "point",
+                             "idea", "question", "stuff", "something",
+                             "anything", "everything", "issue", "topic",
+                             "yes", "no", "maybe", "ok", "okay"}
+                    self._agent_preferences = {
+                        k: v for k, v in _ap.items()
+                        if not (isinstance(k, str) and k.startswith("stance:")
+                                and k[len("stance:"):] in _JUNK)}
             except Exception:
                 pass
             # agent grew/revised at runtime wins, seed fills the rest).

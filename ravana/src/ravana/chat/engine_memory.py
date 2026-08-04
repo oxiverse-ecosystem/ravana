@@ -307,7 +307,23 @@ class MemoryMixin:
         """
         store = transcript if transcript is not None else self._episodic_transcript
         if not store:
-            return None
+            # Post-load: the transcript is NOT persisted, so after a reload it
+            # is empty and cued recall would silently no-op. Rebuild a working
+            # store from the durable hippocampal indexer (which IS persisted) so
+            # "what are my cats called" / "what did i say about X" still resolve
+            # to the right episode. B-fix (round v-aug04).
+            try:
+                _idxr = getattr(self, "_episodic_indexer", None)
+                if _idxr is not None:
+                    store = [{"text": getattr(ep, "text", ""),
+                              "facts": getattr(ep, "facts", {}) or {}}
+                             for ep in _idxr.all()]
+            except Exception:
+                pass
+        # NOTE: we do NOT bail on an empty `store` here. The entity-indexed
+        # pattern-completion path (below) answers from self._episodic_index +
+        # the PersonalFactStore (both persisted), which is sufficient for cued
+        # recall even when the gist transcript is unavailable post-load.
         q = (query or "").lower().strip()
         # (a0) HIPPOCAMPAL ENTITY INDEX — highest precision pattern completion
         # (A3: Yassa & Stark 2011). Extract the cued entity and attribute from
@@ -332,6 +348,28 @@ class MemoryMixin:
             for slot, val in rec.get("facts", {}).items():
                 ent, attr = _slot_to_ent_attr(slot)
                 _entity_idx.setdefault(ent, {})[attr] = val
+        # C-fix (round v-aug04): pets are stored in the PersonalFactStore under
+        # subject "i", attr "pet_name_N" (e.g. ('i','pet_name_1','biscuit')). The
+        # transcript/episodic-index miner does NOT capture them, so the entity
+        # index built above has no "pet_name" entry and a cued recall
+        # ("what are my cats called") falls through to a wrong episode. Fold the
+        # PersonalFactStore pet facts into the pet_name entity so the entity
+        # scan resolves them. This is the SAME pet_name slot the miner and the
+        # recall renderers already agree on.
+        try:
+            _pf = getattr(self, "user_model", None)
+            if _pf is not None:
+                _pfs = getattr(_pf, "personal_facts", None)
+                if _pfs is not None:
+                    for _key, _fact in getattr(_pfs, "facts", {}).items():
+                        _subj = _key[0] if isinstance(_key, (tuple, list)) else _key
+                        _attr = _key[1] if isinstance(_key, (tuple, list)) and len(_key) > 1 else None
+                        _val = getattr(_fact, "value", _fact)
+                        if str(_attr or "").startswith("pet_name"):
+                            _idxnum = str(_attr).split("_")[-1] or "1"
+                            _entity_idx.setdefault("pet_name", {})[_idxnum] = _val
+        except Exception:
+            pass
 
         def _reconstruct_entity(ent, facts):
             bits = []

@@ -324,7 +324,12 @@ class SelfQueryMixin:
         # fabricate a stance. Return an honest "still figuring that out" so a
         # "what do you think about X" with no resolvable topic never emits the
         # broken "i'm a bit cautious about <junk>" template.
-        if not target or target in ("all", "really", "it", "that", "things"):
+        if not target or target in ("all", "really", "it", "that", "things",
+                                      "right", "way", "matter", "thing",
+                                      "point", "idea", "question", "stuff",
+                                      "something", "anything", "everything",
+                                      "issue", "topic", "yes", "no", "maybe",
+                                      "ok", "okay"):
             return ("i'm still figuring that out",
                     "i'd rather not guess — what's your take?")
 
@@ -366,42 +371,17 @@ class SelfQueryMixin:
             if _cache is not None:
                 _cache[_ckey] = result
             return result
-        # 2) GloVe-nearest canonical value (transitivity of preference). Project
-        #    the topic onto concepts RAVANA actually holds a value toward; if it
-        #    sits close to one, that value transfers. This is a real
-        #    similarity-based inference over the value store, not a junk anchor.
-        glove_fn = getattr(self, "_glove_vector", None)
-        if callable(glove_fn) and getattr(self, "_glove_vecs", None) is not None:
-            tvec = glove_fn(target)
-            if tvec is not None:
-                _best_sim = -1.0
-                _anchor = None
-                for _concept, (_word, _conf, _reason) in _values.items():
-                    _cv = glove_fn(_concept)
-                    if _cv is None:
-                        continue
-                    _s = float(np.dot(tvec, _cv))
-                    if _s > _best_sim:
-                        _best_sim = _s
-                        _anchor = (_concept, _word, _conf, _reason)
-                if _anchor and self._adaptive_gate("selfq_sim", _best_sim):
-                    _concept, _word, _conf, _reason = _anchor
-                    stance = f"i {_word} {target}"
-                    # reason NAMES the real grounding value — content from
-                    # cognition, not authored affect.
-                    reason = (f"it's close to {_concept}, which i {_word} — "
-                              f"so that pulls me the same way")
-                    result = (stance, reason)
-                    if _cache is not None:
-                        _cache[_ckey] = result
-                    return result
-
-        # 3) No value exists for this topic. HONEST failure: RAVANA does not
+        # 2) No value exists for this topic. HONEST failure: RAVANA does not
         #    fabricate a stance. It says it is still forming one and invites the
         #    user in. This is the correct, non-degenerate behavior — a flat,
         #    honest "i don't know yet" beats fake depth. (The prior code
         #    returned "i'm a bit cautious about X ... close to really" — pure
-        #    confabulation keyed on ambient valence + a junk cache entry.)
+        #    confabulation keyed on ambient valence + a junk cache entry. We
+        #    deliberately do NOT use GloVe transitivity to a value here: that
+        #    path fabricated plausible-but-unearned stances for arbitrary words
+        #    like "right"/"source" by anchoring them to a cached junk target.
+        #    Stances are grounded ONLY in the durable value store (above) or in
+        #    real user-stated stances — never inferred from similarity.)
         return ("i'm still figuring that out",
                 "i don't have a settled view on that yet — what do you think?")
 
@@ -534,7 +514,12 @@ class SelfQueryMixin:
             # "i care deeply about privacy. that is a basic right..." rather
             # than running the words together.
             _stance = _stance.rstrip(".!?")
-            _reason = _reason[0].upper() + _reason[1:] if _reason else _reason
+            # The reason is a CONTINUATION of the stance sentence (joined after
+            # ". "), so it must NOT be force-capitalized — doing so produced
+            # "i care deeply about privacy. Is a basic right" (the seed reason
+            # "privacy is a basic right..." was stripped of its topic word,
+            # leaving "is a basic right", then wrongly capitalized to "Is").
+            # Keep the reason's natural (lower-case-continuation) case.
             _answer = f"{_stance}. {_reason}".strip()
             if not _answer.endswith((".", "!", "?")):
                 _answer += "."
