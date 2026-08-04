@@ -111,3 +111,6 @@ tmp/
 # RAVANA rewrites this at runtime (factual-bias store). It is generated state,
 # not hand-authored config, so ignore it to keep the tree clean.
 data/case_dist.json
+
+# ── Local QA scratch (per-round, gitignored) ──
+tmp/

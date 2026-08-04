@@ -3406,6 +3406,20 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # leak unguarded text; fall through to the normal pipeline.
             pass
 
+        # ── Affect update BEFORE response generation (root-cause fix) ──
+        # The empathy block (3390-3402) and the self-disclosure gate
+        # (3449-3493) both RETURN before the old Step-5 emotion update at
+        # 4252. So on those turns RAVANA emitted an affect-dependent reply
+        # (empathy "feeling mixed" / self-opinion "a bit cautious about X")
+        # using the PREVIOUS turn's valence, then discarded this turn's
+        # stimulus. Net effect: valence stayed pinned in the neutral band for
+        # the whole conversation and every affect-gated reply was wrong.
+        # Brain-faithful order: appraise the affective stimulus (VAD) from the
+        # user's utterance BEFORE producing the response (the amygdala/vmPFC
+        # appraisal precedes the reply, it does not lag it by a turn). This
+        # single move makes the existing valence-driven gates honest.
+        self._update_emotion(user_input)
+
         # ── R1b: Support / advice router (consultation) ──────────
         # Issue 2 (confirmed): advice/support questions ("I feel
         # stressed, healthy ways?") ground to low-confidence
@@ -4248,8 +4262,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
 
 
 
-        # Step 5: Emotional modulation (with concept-specific tagging)
-        self._update_emotion(user_input)
+        # Step 5: Emotional modulation. NOTE: self._update_emotion(user_input)
+        # now runs EARLIER in process_turn (before the empathy / self-disclosure
+        # early-returns) so affect-dependent replies see the current turn's
+        # valence. We do NOT call it again here — doing so would double-apply
+        # decay + stimulus. Conceptual-tagging of activated concepts still uses
+        # the (already-updated) emotion state below.
         for nid in activated:
             self._concept_vad[nid] = (
                 self.emotion.state.valence,

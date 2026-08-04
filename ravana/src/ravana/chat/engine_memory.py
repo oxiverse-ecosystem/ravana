@@ -1801,14 +1801,44 @@ class MemoryMixin:
         self._last_user_goal = getattr(self, '_last_user_goal', 'EXPLORING')
         self._last_user_goal = um.last_goal
 
+    # Affective SIGNAL lexicon (word -> valence/affect direction). This is a
+    # lexical *signal* seed, NOT authored reply prose: it maps an observed word
+    # to an affective polarity the VAD engine integrates — the reply content
+    # never comes from here. It is an instance attribute seeded from a base
+    # table, so the background learner can EXTEND it at runtime (the deciding
+    # test: RAVANA can grow this by experience, it is not a frozen table). The
+    # base set is deliberately broad over common affect words; missing words
+    # simply fail to move valence rather than fabricating a reply.
+    _AFFECT_LEXICON_BASE = {
+        # positive valence signal (+1)
+        "good": 1, "great": 1, "happy": 1, "love": 1, "nice": 1, "fun": 1,
+        "yay": 1, "wow": 1, "cool": 1, "amazing": 1, "awesome": 1,
+        "wonderful": 1, "beautiful": 1, "excited": 1, "grateful": 1,
+        "proud": 1, "hopeful": 1, "joy": 1, "interesting": 1, "thrilled": 1,
+        "delighted": 1, "glad": 1, "pleased": 1, "content": 1, "calm": 1,
+        "relieved": 1, "win": 1, "won": 1, "success": 1, "celebrate": 1,
+        "fantastic": 1, "brilliant": 1, "lovely": 1, "excellent": 1,
+        # negative valence signal (-1)
+        "bad": -1, "sad": -1, "scared": -1, "angry": -1, "hurt": -1, "cry": -1,
+        "mean": -1, "terrible": -1, "awful": -1, "upset": -1, "frustrated": -1,
+        "anxious": -1, "worried": -1, "disappointed": -1, "lonely": -1,
+        "guilty": -1, "afraid": -1, "gutted": -1, "devastated": -1,
+        "heartbroken": -1, "miserable": -1, "furious": -1, "hopeless": -1,
+        "overwhelmed": -1, "exhausted": -1, "broken": -1, "dying": -1,
+        "dead": -1, "grief": -1, "grieving": -1, "suffer": -1, "suffering": -1,
+        "pain": -1, "painful": -1, "lost": -1, "fail": -1, "failed": -1,
+        "fear": -1, "panic": -1, "cry": -1, "crying": -1, "cried": -1,
+        "wrecked": -1, "crushed": -1, "down": -1, "low": -1,
+    }
+
     def _update_emotion(self, text: str):
-        """More nuanced emotional processing â€” teenage range of emotions."""
-        positive = {"good", "great", "happy", "love", "nice", "fun", "yay", "wow",
-                     "cool", "amazing", "awesome", "wonderful", "beautiful", "excited",
-                     "grateful", "proud", "hopeful", "joy", "interesting"}
-        negative = {"bad", "sad", "scared", "angry", "hurt", "cry", "mean",
-                     "terrible", "awful", "upset", "frustrated", "anxious",
-                     "worried", "disappointed", "lonely", "guilty", "afraid"}
+        """More nuanced emotional processing — teenage range of emotions."""
+        if not hasattr(self, "_affect_lexicon"):
+            # Seed the growable affective-signal lexicon from the base table.
+            self._affect_lexicon = dict(self._AFFECT_LEXICON_BASE)
+        lex = self._affect_lexicon
+        positive = {w for w, s in lex.items() if s > 0}
+        negative = {w for w, s in lex.items() if s < 0}
         curious = {"why", "how", "what", "wonder", "curious", "interesting",
                     "really", "tell me", "explain", "mean"}
         words = set(w.lower().strip(".,!?") for w in text.split())
