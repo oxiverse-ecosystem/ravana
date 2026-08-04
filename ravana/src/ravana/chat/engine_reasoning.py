@@ -2234,7 +2234,14 @@ class ReasoningMixin:
                 "likes": f"you like {val}",
                 "does": f"you do {val}",
                 "is": f"you are {val}",
-            }.get(attr, f"your {attr} is {val}")
+            }.get(attr, None)
+            # C-fix (round v-aug04): pet possessions are stored under
+            # pet_name_N slots (pet_name_1=biscuit). Render naturally instead
+            # of echoing the raw slot key ("your pet_name_1 is biscuit").
+            if _phrase is None and attr.startswith("pet_name"):
+                _phrase = f"your pet's name is {val}"
+            if _phrase is None:
+                _phrase = f"your {attr} is {val}"
             # Return the rendered relation phrase only (e.g. "you do chai
             # stall"); the caller wraps it in the "noted — i'll remember ..."
             # frame. Returning a ready-made ack string here caused a tuple-

@@ -371,6 +371,11 @@ class MemoryMixin:
                     bits.append(f"you live in {val}")
                 elif attr == "background":
                     bits.append(f"{val}")
+                # C-fix (round v-aug04): pets are stored under pet_name_N slots
+                # (entity "pet_name", attr "N"). Render as a natural pet-name
+                # list rather than "your pet_name's 1 is biscuit".
+                elif ent == "pet_name" or str(attr).startswith("pet_name"):
+                    bits.append(f"your pet's name is {val}")
                 else:
                     bits.append(f"your {ent}'s {attr} is {val}")
             return bits
@@ -380,6 +385,20 @@ class MemoryMixin:
         # ALSO map first/second-person + location/origin question
         # words to the "i" biographical entity so "where do I live" /
         # "what city are you from" recall the user's stored location.
+        # C-fix (round v-aug04): map pet-query words to the canonical
+        # "pet_name" entity so "what are my cats called" / "what did i name my
+        # dog" resolve to the stored pet_name_N facts. The miner stores pets
+        # under pet_name_N (a stable base, not the bare animal plural), so the
+        # recall side must map the user's animal word back to that entity.
+        _PET_SYN = {
+            "cat": "pet_name", "cats": "pet_name", "dog": "pet_name",
+            "dogs": "pet_name", "pet": "pet_name", "pets": "pet_name",
+            "bird": "pet_name", "birds": "pet_name", "fish": "pet_name",
+            "rabbit": "pet_name", "rabbits": "pet_name",
+            "hamster": "pet_name", "hamsters": "pet_name",
+            "horse": "pet_name", "horses": "pet_name",
+            "kitten": "pet_name", "puppy": "pet_name",
+        }
         _ent_hit = None
         _LOC_WORDS = ("live", "lives", "from", "city", "town", "country",
                       "born", "grew", "located", "location", "origin")
@@ -387,6 +406,10 @@ class MemoryMixin:
             _tok = tok[:-2] if tok.endswith("'s") else tok
             if _tok in _entity_idx:
                 _ent_hit = _tok
+                break
+            # synonym map (e.g. "cats" -> "pet_name" entity)
+            if _tok in _PET_SYN and _PET_SYN[_tok] in _entity_idx:
+                _ent_hit = _PET_SYN[_tok]
                 break
             if _tok in ("i", "you", "my", "your") and "i" in _entity_idx:
                 # only treat as a cued recall when the query also
@@ -967,7 +990,13 @@ class MemoryMixin:
                         # wrong-episode contamination bug where bare recall echoed
                         # an unrelated prior turn's text.
                         ent, _, attr = slot.partition("_")
-                        bits.append(f"your {ent}'s {attr} is {val}")
+                        # C-fix (round v-aug04): pets stored under pet_name_N
+                        # (entity "pet_name", attr index "N") must render as
+                        # "your pet's name is X", not "your pet_name's 1 is X".
+                        if ent == "pet_name" or attr.startswith("pet_name"):
+                            bits.append(f"your pet's name is {val}")
+                        else:
+                            bits.append(f"your {ent}'s {attr} is {val}")
             if bits:
                 return "you told me " + "; ".join(dict.fromkeys(bits)) + "."
         # Specific-cue retrieval (fact slot or semantic gist) for cued recalls
@@ -1394,6 +1423,9 @@ class MemoryMixin:
                             _bits.append(f"you're allergic to {_val}")
                         elif _attr.startswith("favorite_"):
                             _bits.append(f"your favorite {_attr[len('favorite_'):]} is {_val}")
+                        # C-fix (round v-aug04): pets stored under pet_name_N.
+                        elif str(_attr).startswith("pet_name") or str(_ent) == "pet_name":
+                            _bits.append(f"your pet's name is {_val}")
                         else:
                             _bits.append(f"your {_ent}'s {_attr} is {_val}" if not _is_user
                                          else f"your {_attr} is {_val}")

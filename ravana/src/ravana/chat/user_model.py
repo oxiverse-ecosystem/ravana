@@ -233,6 +233,17 @@ class UserModel:
             # before "is" and missed the "name" form).
             r"\bmy\s+([\w'-]+)(?:\s+name)?\s+(?:is|are)\s+([\w'-]+)",
             r"\bi\s+have\s+(?:a|an|the)\s+([\w'-]+)\s+(?:named|called)\s+([\w'-]+)",
+            # C-fix (round v-aug04): quantified / multi-name possessions
+            # ("i have two cats named biscuit and gravy", "i have 3 dogs
+            # called rex, spot and max"). The old first pattern required a
+            # single article + one name, so "two cats named biscuit and gravy"
+            # never matched and the pets were lost. This matches an optional
+            # number/quantifier word then a noun, then one or more names joined
+            # by "and"/commas, and stores EACH name under its own entity slot
+            # so a later "what are my cats called" recall finds them.
+            r"\bi\s+have\s+(?:\d+\s+|(?:a|an|the|some|several|two|three|four|five|six|seven|eight|nine|ten)\s+)?"
+            r"([\w'-]+)\s+(?:named|called|named\s+called)\s+"
+            r"([\w'-]+(?:\s+(?:and|,|&)\s*[\w'-]+)*)",
             r"\bmy\s+([\w'-]+)\s+(?:named|called)\s+([\w'-]+)",
             # D2: "i am a/an <noun>" self-descriptions (vegetarian, pilot,
             # teacher, ...) captured as a durable identity/role fact. Generic
@@ -260,7 +271,28 @@ class UserModel:
                     elif _pat.startswith(r"\bi\s+am\s+allergic\s+to"):
                         _attr = "allergy"
                 if _attr and _val and _attr not in ("name", "location"):
-                    _put_fact(_attr, _val, 0.6)
+                    # C-fix (round v-aug04): a possession disclosure may name
+                    # several entities ("i have two cats named biscuit and
+                    # gravy"). Split the value on "and"/"," into individual
+                    # names and store EACH under a pet_name_N slot
+                    # (pet_name_1=biscuit, pet_name_2=gravy). A stable
+                    # 'pet_name' base (not the bare animal plural 'cats') lets
+                    # BOTH the ack composer and the recall path render these as
+                    # "your pet's name is biscuit" / "your pet's name is gravy"
+                    # via one shared rule, instead of dropping names or echoing
+                    # the raw slot key.
+                    _names = re.split(r"\s+(?:and|,|&)\s*", _val)
+                    if _attr in ("cat", "cats", "dog", "dogs", "pet", "pets",
+                                 "bird", "birds", "fish", "rabbit", "rabbits",
+                                 "hamster", "hamsters", "horse", "horses"):
+                        _attr = "pet_name"
+                    if len(_names) > 1:
+                        for _i, _nm in enumerate(_names, 1):
+                            _nm = _nm.strip().strip(".,!?")
+                            if _nm:
+                                _put_fact(f"{_attr}_{_i}", _nm, 0.6)
+                    else:
+                        _put_fact(_attr, _val, 0.6)
 
         # D3 (round v3): capture self-disclosed ACTIVITIES / possessions that the
         # existing "my X is Y" / "i am a role" miners miss — e.g. "i run a chai
