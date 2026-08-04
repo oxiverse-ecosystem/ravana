@@ -25,6 +25,7 @@ silently overwriting it.
 """
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
+import re
 
 
 @dataclass
@@ -253,6 +254,17 @@ class UserStanceStore:
         self.stances: Dict[str, Stance] = {}
         self.turn_num: int = 0
         self._decay_turns = decay_turns
+        # Transient record of the most recent stance REVERSAL this turn, so the
+        # engine can acknowledge a retraction LINKED to the prior stance (it is
+        # consumed by the ack composer and cleared, never serialized as truth).
+        # topic -> (old_polarity, new_polarity)
+        self.last_reversal: Optional[Tuple[str, float, float]] = None
+        # turn-guard keyed by topic so repeated mining of the same utterance
+        # cannot double-flip a stance (idempotent reversal within a turn).
+        self._reversed_this_turn: Dict[str, int] = {}
+
+    def clear_last_reversal(self):
+        self.last_reversal = None
 
     def advance_turn(self):
         self.turn_num += 1
@@ -286,6 +298,35 @@ class UserStanceStore:
     def query_stance(self, topic: str) -> Optional[Stance]:
         return self.stances.get(topic.lower().strip())
 
+    def resolve_topic(self, phrase: str) -> Optional[str]:
+        """Link a mention/topic phrase to the single most likely stored stance.
+
+        The spoken phrase rarely reproduces the stored stance key verbatim
+        ("plastic bans" vs the phrase "plastic bans"). Match stored topics by
+        exact key, substring, then content-word overlap, returning the strongest
+        link. Returns None when no stored stance plausibly matches — so recall
+        and reversal never fabricate a read on a topic the user has no stance on.
+        """
+        stances = self.stances
+        if not stances:
+            return None
+        head = (phrase or "").lower().strip()
+        if head in stances:
+            return head
+        for k in stances:
+            if head and (head in k or k in head):
+                return k
+        hw = set(re.findall(r"[a-z']+", head))
+        best, best_j = None, 0.0
+        for k in stances:
+            kw = set(re.findall(r"[a-z']+", k))
+            if not hw or not kw:
+                continue
+            j = len(hw & kw) / len(hw | kw)
+            if j > best_j:
+                best, best_j = k, j
+        return best if best_j >= 0.4 else None
+
     def reinforce(self, topic: str) -> None:
         s = self.stances.get(topic.lower().strip())
         if s is None:
@@ -293,6 +334,43 @@ class UserStanceStore:
         s.confidence = min(1.0, s.confidence + 0.1)
         s.rehearsal_count += 1
         s.turn_number = self.turn_num
+
+    def reverse_stance(self, topic: str, reversal_strength: float = 0.85) -> Optional[Stance]:
+        """Flip the user's stance on `topic` (e.g. "i take back X").
+
+        A retraction is an attitude CHANGE recoding, not a fresh merge: the
+        subjective value the user expressed on the topic is recalibrated to the
+        OPPOSITE pole, and confidence drops (the brain's valuation of the topic
+        becomes uncertain after reversal — vmPFC re-evaluation). The link to the
+        PRIOR stance is preserved so the ack can reference what was reversed.
+
+        Returns the PRIOR stance (so callers can render a linked acknowledgment),
+        or None if the user had no stance on this topic (a benign "take back"
+        with nothing to reverse — never fabricates a stance).
+
+        Idempotent within a turn: repeated mining of the same utterance cannot
+        flip the stance more than once.
+        """
+        key = topic.lower().strip()
+        existing = self.stances.get(key)
+        if existing is None:
+            return None
+        # Already reversed this turn (repeated mining of the same utterance).
+        if self._reversed_this_turn.get(key) == self.turn_num:
+            return existing
+        old_polarity = existing.polarity
+        old_confidence = existing.confidence
+        # Reversal toward the opposite pole; blended with the held strength so a
+        # rigidly-held stance flips decisively while a weak one becomes neutral.
+        pivot = -old_polarity
+        existing.polarity = old_polarity * (1.0 - reversal_strength) + pivot * reversal_strength
+        # Attitude change injects uncertainty: drop confidence toward the pivot.
+        existing.confidence = max(0.1, existing.confidence * (1.0 - reversal_strength * 0.6))
+        existing.rehearsal_count += 1
+        existing.turn_number = self.turn_num
+        self._reversed_this_turn[key] = self.turn_num
+        self.last_reversal = (existing.topic, old_polarity, existing.polarity)
+        return existing
 
     def _decay_score(self, s: Stance) -> float:
         recency = 1.0 / (1.0 + (self.turn_num - s.turn_number) * 0.25)

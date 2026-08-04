@@ -2136,15 +2136,35 @@ class ReasoningMixin:
                 # This is the anti-degeneracy fix: a bare "got it — thanks
                 # for telling me." would be a template reply that ignores
                 # what was actually learned (the D-E hollow-ack bug).
-                _ack_fact = self._derive_ack_from_store(_subj)
-                if _ack_fact is not None:
-                    # _derive_ack_from_store returns a rendered relation
-                    # phrase (e.g. "you do chai stall"), NOT a (attr, val)
-                    # tuple — wrap it once. Content comes from the
-                    # PersonalFactStore, not authored.
-                    ack = f"noted — i'll remember {_ack_fact}."
+                # Stance-reversal first: if this utterance retracted a
+                # previously-held opinion, acknowledge it LINKED to the prior
+                # stance (the topic was just recoded by reverse_stance).
+                _rev = self.user_model.opinions.last_reversal
+                if _rev is not None:
+                    _rev_topic = _rev[0]
+                    _rev_old = _rev[1]
+                    # Grounded polarity direction of the OLD stance so the ack
+                    # reflects what was actually held (never authored prose).
+                    if _rev_old > 0.25:
+                        _prior = "you were for it before"
+                    elif _rev_old < -0.25:
+                        _prior = "you were against it before"
+                    else:
+                        _prior = "you weren't sure before"
+                    ack = (f"got it — you've changed your mind about "
+                           f"{_rev_topic}; i'll remember ({_prior}).")
+                    self.user_model.opinions.clear_last_reversal()
+                    ack = ack.lower()
                 else:
-                    ack = "got it — thanks for telling me."
+                    _ack_fact = self._derive_ack_from_store(_subj)
+                    if _ack_fact is not None:
+                        # _derive_ack_from_store returns a rendered relation
+                        # phrase (e.g. "you do chai stall"), NOT a (attr, val)
+                        # tuple — wrap it once. Content comes from the
+                        # PersonalFactStore, not authored.
+                        ack = f"noted — i'll remember {_ack_fact}."
+                    else:
+                        ack = "got it — thanks for telling me."
             elif parsed[0] == "favorite":
                 ack = f"noted! i'll remember your favorite {parsed[1]} is {parsed[2]}."
             elif parsed[0] == "name":

@@ -47,6 +47,24 @@ _CORRECTION_NAME_FACT_PATTERN = (
 )
 
 
+# Stance-reversal cues (C4): universal retraction phrasings that recode the
+# user's valuation of a topic to the opposite pole. These are STRUCTURAL
+# language seeds, same status as the correction/opinion cue lists above — a
+# small closed set of retraction verbs/idioms, NOT a per-topic table. Group
+# placement matters: the topic is the clause AFTER the cue ("i take back what
+# i said — plastic bans..."), so the match's .end() marks the topic span.
+_RETRACTION_CUES = (
+    r"\bi\s+take\s+(?:that\s+)?back",
+    r"\bi\s+retract",
+    r"\bi\s+(?:have|'ve)?\s*changed\s+my\s+mind",
+    r"\bi\s+(?:am|'m)?\s*changing\s+my\s+mind",
+    r"\bi\s+no\s+longer\s+(?:think|believe|feel|support|care)\b",
+    r"\bi\s+was\s+wrong\s+about\b",
+    r"\bi\s+stand\s+corrected\b",
+    r"\bscratch\s+that\b",
+)
+
+
 @dataclass
 class UserModel:
     edge_reactivations: Dict[Tuple[str, str], int] = field(default_factory=dict)
@@ -327,6 +345,53 @@ class UserModel:
                     _p = max(0.3, _p + 0.2)
                 self.opinions.express_stance(_topic, polarity=_p, confidence=_conf,
                                             valence=_v, arousal=_a)
+
+        # Stance-reversal mining: "i take back X" / "i changed my mind about X" /
+        # "i retract my stance on X" recodes the user's valuation of the topic to
+        # the opposite pole (vmPFC re-evaluation), LINKED to the PRIOR stance the
+        # store already holds — this is an attitude-change operator, not a fresh
+        # opinion. Runs last so it can see (and reverse) any stance just mined.
+        self.mine_stance_reversal(text)
+
+    def mine_stance_reversal(self, text: str) -> None:
+        """Detect a stance-reversal/retraction and recode the stored stance.
+
+        Attitude change is a valuation RECODE, not a fresh opinion merge: when
+        the user retracts a position ("i take back X", "i changed my mind about
+        X"), the previously-held stance is flipped toward the opposite pole.
+        Crucially this is LINKED to the stance the store already holds for that
+        topic — a benign acknowledgment with no store mutation would leave the
+        recorded opinion stale (the "take back not linked" gap).
+        """
+        q = re.sub(r"\s+", " ", (text or "").lower().strip())
+        if not q:
+            return
+        cue_end = None
+        for pat in _RETRACTION_CUES:
+            m = re.search(pat, q)
+            if m:
+                cue_end = m.end()
+                break
+        if cue_end is None:
+            return
+        # The topic lives in the clause after the retraction cue. Strip leading
+        # connectors/prepositional frames that carry no content.
+        tail = q[cue_end:].strip(" \t.,!?;:'\"\u2014-")
+        tail = re.sub(
+            r"^(?:what\s+i\s+(?:said|think|thought|meant)"
+            r"|my\s+(?:stance|opinion|view)\s+on"
+            r"|my\s+mind\s+(?:about|on)"
+            r"|about|on|regarding|of|to|my\s+opinion\s+on)\s+", "", tail)
+        topic = self._opinion_topic(tail)
+        if not topic:
+            return
+        target = self.opinions.resolve_topic(topic) or self.opinions.resolve_topic(tail)
+        if target is None:
+            return
+        try:
+            self.opinions.reverse_stance(target)
+        except Exception:
+            pass
 
     def observe_user_query(self, query: str, subject: str, valence: float):
         subject_lower = subject.lower()

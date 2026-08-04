@@ -1148,9 +1148,22 @@ class ConceptGraph:
         self._cached_norms: Optional[np.ndarray] = None
 
     def __getstate__(self):
-        """Exclude non-picklable / recreated-at-load state (the thread lock)."""
+        """Exclude non-picklable / recreated-at-load state.
+
+        The thread lock (`_lock`) and the live engine wiring that the chat engine
+        injects at boot (`_fact_encode_hook` — a bound method referencing the
+        engine object — and `dual_code`, a heavyweight DualCodeSpace) are runtime
+        only, never graph content. Pickling a bound method / live subsystem would
+        otherwise make the WHOLE ConceptGraph unpicklable, which the engine's
+        safe-pickle sanitizer turns into a string placeholder and the graph is
+        silently lost across reloads. These are re-wired after load (the engine
+        re-attaches them in _load), so they are dropped here and re-created by
+        __setstate__ defaults.
+        """
         state = self.__dict__.copy()
         state.pop('_lock', None)
+        state.pop('_fact_encode_hook', None)
+        state.pop('dual_code', None)
         return state
 
     def __setstate__(self, state):
@@ -1181,6 +1194,11 @@ class ConceptGraph:
             '_curvature_history': [],
             'max_step_delta': 0.01,
             'version': 0,
+            # Runtime engine wiring — never persisted (see __getstate__); the
+            # chat engine re-attaches both after restoring the graph so saved
+            # edges keep flowing into HRR / relation context.
+            '_fact_encode_hook': None,
+            'dual_code': None,
         }
         for attr, default in defaults.items():
             if not hasattr(self, attr):

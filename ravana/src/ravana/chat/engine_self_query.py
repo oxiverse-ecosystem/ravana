@@ -482,6 +482,48 @@ class SelfQueryMixin:
             r"|what's\s+your\s+(opinion|take|view|stance)\s+on\b"
             r"|what\s+is\s+your\s+(opinion|take|view|stance)\s+on\b)",
             t)
+        # Self-opinion RECALL: a follow-up that asks whether the agent STILL
+        # holds a stance it previously computed ("are you still cautious about
+        # X", "you said you were cautious about X", "weren't you cautious about
+        # X"). Detect the recall intent, then take the TOPIC as the content
+        # after the preposition ("about/on/toward") — that's the lookup key; the
+        # stance adjective is only recall context.
+        _recall_intent = re.search(
+            r"\bare\s+you\s+still\b|you\s+(?:said|told\s+me)\s+(?:that\s+)?you\s+(?:were|are)\s+[a-z-]+\s+(?:about|toward)|weren'?t\s+you\s+[a-z-]+\s+(?:about|toward)",
+            t)
+        if _recall_intent:
+            _tm = re.search(r"\b(?:about|toward|towards)\s+([a-z'-]+)", t)
+            if _tm:
+                _topic = _tm.group(1).strip()
+                _pref = getattr(self, "_agent_preferences", {}) or {}
+                _hit = _pref.get(f"stance:{_topic}")
+                if _hit is None:
+                    # Partial match: the topic may carry morphology ("sadnesses").
+                    for _k, _v in _pref.items():
+                        if _k.startswith("stance:") and _topic in _k:
+                            _hit = _v
+                            break
+                if _hit is not None:
+                    if isinstance(_hit, tuple) and len(_hit) == 2:
+                        _stance, _reason = _hit
+                    else:
+                        _stance, _reason = str(_hit), ""
+                    _reason = (_reason or "").rstrip()
+                    if _reason and not _reason.endswith((".", "!", "?")):
+                        _reason += "."
+                    _answer = f"yeah, i'm still {_stance}.".replace("i'm still i'm", "i'm")
+                    if _reason:
+                        _answer += f" {_reason}".strip()
+                    return _answer
+                # Recall intent with a topic, but no cached stance: be honest
+                # that the agent hasn't committed a value there, rather than
+                # falling through to a hippocampal echo of the user's own words
+                # (which would look like the agent "forgot" a stance it never
+                # held).
+                return (f"i don't think i've really settled a stance on "
+                        f"{_topic} yet — want me to think it through with you?")
+            # No cached stance for that topic — fall through and compute a fresh
+            # value (honest, no fabrication).
         if _agent_opinion:
             _tail = t[_agent_opinion.end():]
             # Take the LAST meaningful content noun as the stance target. The

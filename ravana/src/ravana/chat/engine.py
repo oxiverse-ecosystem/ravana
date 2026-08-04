@@ -2492,6 +2492,14 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
 
     def process_turn(self, user_input: str) -> str:
         """Process input and generate a response, auto-learning when needed."""
+        # Reset the prior turn's stance-reversal marker so a retraction recorded
+        # this turn is consumed/acked the SAME turn and cannot leak into the next
+        # turn's acknowledgment (attitude change is a within-turn valuation
+        # recode, surfaced in the reply that follows the retraction).
+        try:
+            self.user_model.opinions.clear_last_reversal()
+        except Exception:
+            pass
         # Step 3a: Meta-command detector at the VERY TOP of process_turn (PFC task-set override)
         _meta_res = self._check_meta_command(user_input)
         if _meta_res is not None:
@@ -2578,13 +2586,19 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 self._last_pf_recall = ("i", _attr, _val)
                 return _ans
         _us_q = re.search(
-            r"(?:what\s+do\s+you\s+know\s+(?:about\s+)?)?"
-            r"what'?s?\s+(?:do\s+you\s+think\s+)?"
-            r"(?:i\s+think\s+(?:of|about)|my\s+opinion\s+on|i\s+feel\s+about)\s+"
-            r"([\w'-]+)",
+            r"(?:"
+            r"what\s+do\s+i\s+think\s+(?:about|of)\s+"
+            r"|how\s+do\s+i\s+feel\s+about\s+"
+            r"|what\s+do\s+i\s+feel\s+about\s+"
+            r"|what'?s?\s+my\s+(?:opinion|stance)\s+(?:on|about|of)\s+"
+            r"|what\s+is\s+my\s+(?:opinion|stance)\s+(?:on|about|of)\s+"
+            r"|my\s+opinion\s+(?:on|of)\s+"
+            r"|my\s+stance\s+on\s+"
+            r")(.+?)\s*(?:\?|\.|now|right\s+now)?\s*$",
             user_input, re.IGNORECASE)
         if _us_q:
-            _topic = _us_q.group(1).strip().lower()
+            _phrase = (_us_q.group(1) or "").strip().strip(".'\"")
+            _topic = self.user_model.opinions.resolve_topic(_phrase) or _phrase.lower()
             _s = self.user_model.opinions.query_stance(_topic)
             if _s is not None:
                 if _s.polarity >= 0.3:
@@ -2726,6 +2740,28 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # abstention). Fail-open: any None result falls through to the normal
         # pipeline. Runs BEFORE the harm gate's generative fallbacks because
         # these are pure retrieval answers over user-provided content.
+        # SELF-OPINION RECALL first: "are you still cautious about X" is a
+        # question about the AGENT's own prior valuation, so the self/other
+        # boundary must beat the episodic echo — otherwise fact-reasoning would
+        # surface a random prior USER utterance ("yes — you told me: ...") as if
+        # it were the agent's remembered stance. Handled by _route_self_query
+        # (which returns None for genuinely non-self queries), keeping the flow
+        # fail-open.
+        try:
+            _selfceil = re.search(
+                r"\bare\s+you\s+still\b|you\s+(?:said|told\s+me)\s+(?:that\s+)?you\s+(?:were|are)\s+[a-z-]+\s+(?:about|toward)|weren'?t\s+you\s+[a-z-]+\s+(?:about|toward)",
+                user_input, re.IGNORECASE)
+            if _selfceil:
+                _sersp = self._route_self_query(user_input)
+                if _sersp is not None:
+                    self._last_strategy = "self_model"
+                    self._last_responses.append(_sersp)
+                    if len(self._last_responses) > 10:
+                        self._last_responses = self._last_responses[-10:]
+                    self.notify_user_idle()
+                    return _sersp
+        except Exception:
+            pass
         try:
             _fr_resp = self._try_fact_reasoning(user_input)
             if _fr_resp:
@@ -5325,6 +5361,19 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 # not silent wipe). Checksum is over the full state so any
                 # bit-rot / partial write is caught on load.
                 'schema_version': self.SAVE_SCHEMA_VERSION,
+                # Self-model claims ("i'm ravana", "i'm a bit cautious about
+                # bans") — the agent's OWN stated valuations, persisted so
+                # self-opinion recall ("are you still cautious about X") can
+                # reference what the agent previously said about itself instead
+                # of recomputing a fresh transient opinion every boot.
+                'agent_claims': dict(getattr(self, '_agent_claims', {}) or {}),
+                # Per-topic self-opinion cache (A1): stance:{target} -> the
+                # grounded stance+reason the agent computed for each concept it
+                # has been asked about. Persisted so self-opinion recall stays
+                # STABLE across sessions (personality continuity) — without
+                # this every boot recomputes a fresh transient valuation and the
+                # agent "forgets" how it felt about a topic between sessions.
+                'agent_preferences': dict(getattr(self, '_agent_preferences', {}) or {}),
             }
             state['state_checksum'] = self._checksum_state(state)
             # Phase 1: Write graph to SQLite database for ACID persistence
@@ -5477,6 +5526,18 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                                 # drop the unrecoverable node by detaching it
                                 loaded_graph.nodes.pop(_n.id, None)
                     self.graph = loaded_graph
+                    # Brain-aligned durable reconsolidation: if the restored
+                    # graph came back EMPTY (pickle lost it, e.g. a legacy
+                    # snapshot whose graph was sanitized to a placeholder), the
+                    # ACID SQLite mirror written on every save() still holds the
+                    # real graph. Rebuild from durable memory rather than
+                    # starting blank — the graph is the semantic memory that must
+                    # survive a reload even when the primary snapshot is damaged.
+                    if not loaded_graph.nodes:
+                        try:
+                            self.db.load_graph(self.graph)
+                        except Exception:
+                            pass
                     # Re-attach the HRR populate hook + dual_code anchor to the
                     # freshly-loaded graph (the init wiring targeted the OLD
                     # graph object, now orphaned by this swap). Without
@@ -5494,6 +5555,18 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                       f"rebuilding empty graph; other state restored")
                 self.graph = ConceptGraph(dim=self.dim,
                                       max_nodes=getattr(self, '_max_nodes', 20000))
+                # Durable reconsolidation: recover the real graph from the ACID
+                # SQLite mirror written on every save(), so a pickle-graph
+                # corruption does not silently wipe all learned knowledge.
+                try:
+                    self.db.load_graph(self.graph)
+                except Exception:
+                    pass
+                # Re-wire the HRR populate hook + dual_code anchor onto the
+                # rebuilt graph so add_edge keeps encoding into HRR.
+                if self.hrr_reasoner is not None:
+                    self.graph._fact_encode_hook = self._hrr_encode_hook
+                    self.graph.dual_code = self.dual_code
             self._concept_keywords = state['concept_keywords']
             self.turn_count = state['turn_count']
             # B3: a successful resume from a saved snapshot means a PRIOR session
@@ -5543,6 +5616,28 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             self._last_responses = [r for r in state['last_responses']
                                     if isinstance(r, str)]
             self._last_strategy = state['last_strategy']
+            # Self-model claims: restore the agent's OWN previously-stated
+            # valuations ("i'm ravana", "i'm a bit cautious about bans") so
+            # self-opinion recall across sessions references what the agent
+            # actually said about itself (personality continuity), instead of
+            # recomputing a fresh transient opinion each boot.
+            try:
+                _ac = state.get('agent_claims', {})
+                if isinstance(_ac, dict):
+                    self._agent_claims = dict(_ac)
+                else:
+                    self._agent_claims = {}
+            except Exception:
+                self._agent_claims = {}
+            # Restore the per-topic self-opinion cache (A1) so stances the agent
+            # computed ("i'm a bit cautious about X") survive reloads. Guarded:
+            # a bad shape must not wipe the store or break the boot.
+            try:
+                _ap = state.get('agent_preferences', {})
+                if isinstance(_ap, dict):
+                    self._agent_preferences = dict(_ap)
+            except Exception:
+                pass
             self._free_energy = state['free_energy']
             self._learning_count = state['learning_count']
             # LingGen P6: restore the learned promotion flag (not a runtime config
