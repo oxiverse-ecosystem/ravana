@@ -28,6 +28,9 @@ truth; every claim here was checked against `ravana/`, `ravana_ml/`, and
 ## Quick orientation
 
 - **Run the chatbot:** `python scripts/ravana_chat.py`
+- **What it actually does:** see [`../README.md`](../README.md) → *"What RAVANA does"*
+  for the user-facing capabilities (chat/identity, learning facts, stances,
+  self-correction, recall, honest abstention) observed against the live engine.
 - **First run:** see [GETTING_STARTED.md](GETTING_STARTED.md)
 - **Train / promote:** `python scripts/train.py --mode <phase2|full|test|linggen>`
 - **Autonomous learning:** `python scripts/ravana_learn.py`
