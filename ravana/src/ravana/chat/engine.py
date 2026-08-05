@@ -2811,6 +2811,32 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     return _sersp
         except Exception:
             pass
+
+        # ── Experiential self-model admission (CMS FIRST, before semantic) ─
+        # A "me"/introspective probe ("do you ever feel lonely", "what are you
+        # afraid of", "would you rather...") is answered from the SELF-MODEL +
+        # affect, and must fire BEFORE both:
+        #   (a) the fact-reasoning / episodic echo (engine#2814+), which would
+        #       otherwise misattribute a prior USER utterance to the agent
+        #       ("you told me earlier: ..." — a source-monitoring error), and
+        #   (b) the internal-knowledge / web consult (engine#2952+), which
+        #       would otherwise return the dictionary/Web definition of the
+        #       grounded subject ("something may refer to ...").
+        # Brain-faithful (Northoff 2006): self-referential processing is
+        # dissociated from and precedes semantic retrieval. Fail-open (None ->
+        # unchanged flow).
+        try:
+            _exp = self._route_self_experience(user_input)
+            if _exp is not None:
+                self._last_strategy = "self_experience"
+                self._last_responses.append(_exp)
+                if len(self._last_responses) > 10:
+                    self._last_responses = self._last_responses[-10:]
+                self.notify_user_idle()
+                return _exp
+        except Exception:
+            pass
+
         try:
             _fr_resp = self._try_fact_reasoning(user_input)
             if _fr_resp:
