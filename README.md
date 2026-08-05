@@ -27,6 +27,39 @@ experiment in the opposite direction: a small, inspectable system that
 **learns in the loop**, grounds every claim in its graph, and is honest about
 what it does not know.
 
+## What RAVANA does
+
+RAVANA is not a fixed feature list — its user-facing capabilities are **derived
+from its live self-model and memory stores**, and grow as it talks to you. The
+behaviors below were each observed in a real in-process probe (dim=64, offline)
+on this codebase:
+
+- **Chats and discloses what it is.** Asked *"who are you?"* it replies from its
+  identity model, not a script:
+  `i'm ravana, cognitive architecture — an ai that learns by talking, not a person. what made you curious?`
+- **Learns personal facts from conversation.** Told *"i live in berlin"* it
+  stores a fact and confirms: `noted — i'll remember you live in berlin.`
+  (persisted as `('i','location','berlin')`, confidence 0.7).
+- **Forms and recalls stances.** Told *"i love coffee"* it records a stance
+  (`coffee` polarity +1.0, confidence 0.65) and acknowledges:
+  `good to know — you love coffee. i'll keep that in mind.`
+- **Corrects itself.** A later *"no, my cat's name is rex"* supersedes the
+  earlier *"my cat's name is milo"* — both the old and new values are tracked in
+  the fact store, and recall reflects the correction:
+  `from what you've told me, you live in berlin; your cat is rex; …`
+- **Recalls what you told it.** *"what do you remember about me?"* surfaces the
+  learned facts/stances (location, pet, likes) drawn from the durable stores.
+- **Abstains when it has no settled view.** Asked *"what do you think about
+  coffee?"* before forming its own position, it returns an honest non-answer
+  rather than fabricating one:
+  `i'm still figuring that out. i don't have a settled view on that yet — what do you think?`
+
+These capabilities are backed by four durable stores — an **identity model**
+(`IdentityEngine`), **stances** (`UserStanceStore`), **personal facts**
+(`PersonalFactStore`), and **beliefs** (`BeliefStore`) — plus a **ConceptGraph**
+world-model. The README's benchmark and architecture sections describe the
+substrate; the stores above are what a user actually experiences.
+
 ## Install
 
 Requires Python 3.10+.
