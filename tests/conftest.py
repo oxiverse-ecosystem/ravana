@@ -25,6 +25,23 @@ for p in reversed(_path_prefix):
         sys.path.remove(p)
     sys.path.insert(0, p)
 
+# ── Pin the top-level `scripts` package to THIS repo's scripts/ directory ──
+# `scripts` is a very common top-level name. Under pytest-xdist the workers can
+# import it before the block above lands (or resolve it as an implicit namespace
+# package rooted somewhere else on sys.path), and `import scripts.ravana_chat`
+# then dies with ModuleNotFoundError on one worker while passing on the others —
+# a real, ordering-dependent CI failure (unit-tests shard 3, run 31002183041).
+# Binding __path__ explicitly makes submodule resolution deterministic.
+_scripts_dir = os.path.join(_proj_root, "scripts")
+if os.path.isdir(_scripts_dir):
+    try:
+        import scripts as _scripts_pkg
+
+        if _scripts_dir not in list(getattr(_scripts_pkg, "__path__", [])):
+            _scripts_pkg.__path__ = [_scripts_dir, *getattr(_scripts_pkg, "__path__", [])]
+    except Exception:
+        pass
+
 # ── CI reliability: never let a test process trigger a bulk asset download ──
 # Engine boot falls back to auto-downloading glove.6B.zip (~822 MB) whenever the
 # projected-vector cache is missing. In CI that turned a cache miss into either a

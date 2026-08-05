@@ -12,13 +12,19 @@ import sys
 import os
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "ravana", "src"))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "ravana_ml", "src"))
+_PROJ = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+for _p in (os.path.join(_PROJ, "ravana_ml", "src"), os.path.join(_PROJ, "ravana", "src")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 
 @pytest.fixture(scope="module")
 def engine():
-    from scripts.ravana_chat import CognitiveChatEngine
+    # Import from the library home, not scripts/ravana_chat.py — that module is a
+    # CLI entry point that merely re-exports this same class, and resolving the
+    # top-level `scripts` package depends on ambient sys.path, which is not stable
+    # across xdist workers (ModuleNotFoundError on one shard worker in CI).
+    from ravana.chat.engine import CognitiveChatEngine
     return CognitiveChatEngine(dim=64, seed=1, baby_mode=True)
 
 
