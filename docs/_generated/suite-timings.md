@@ -35,8 +35,13 @@ the `-n 4` substitution (CI uses `-n auto` on 4-vCPU GitHub runners with
 
 ## LFS gate
 
-`python scripts/check_lfs_assets.py` → passes (`data/ravana_glove_cache.npz`
+`python .github/scripts/check_lfs_assets.py` → passes (`data/ravana_glove_cache.npz`
 resolved, 143.5 MB).
+
+> NOTE: the round brief paraphrased this as `python scripts/check_lfs_assets.py`,
+> but that path does NOT exist in the repo. The real, CI-used path is
+> `.github/scripts/check_lfs_assets.py` (every CI job invokes it there). The
+> measurement above used the correct path.
 
 ## Findings (red / flaky on arrival)
 

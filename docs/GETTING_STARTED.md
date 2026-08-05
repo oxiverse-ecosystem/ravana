@@ -112,11 +112,12 @@ python scripts/ravana_learn.py --cycles 10 --delay 2
 ## Run the test suite
 
 ```bash
-# Fast CI-critical tests (~15 min)
-python -m pytest tests/ci/ -v
+# Fast CI-critical tests (excludes the slow soak; 10-min CI cap, measured ~2s locally)
+python -m pytest tests/ci/ -k "not soak" -q
 
-# Full unit tests (~2.5 min)
-python -m pytest tests/unit/ -q
+# Full unit tests on a single 4-CPU machine (-n 4): measured ~17 min locally.
+# CI shards these 4 ways, so each shard is a fraction of that.
+python -m pytest tests/unit/ -q -n 4 --timeout=180
 
 # Complete suite
 python -m pytest tests/ --tb=short
