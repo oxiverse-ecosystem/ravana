@@ -2247,22 +2247,27 @@ class ReasoningMixin:
             # "self" (when parsed is None) or a topic; always include "i" so we
             # find what was actually learned this turn.
             _subjects = [s for s in (_subj, "i") if s]
+            # D6 fix (round v-aug06): only acknowledge a fact STORED THIS TURN.
+            # The prior code returned the GLOBAL max-turn_number fact under
+            # subject "i", so an emotional disclosure that stored NO new fact
+            # (e.g. "i'm furious at my landlord") still echoed a stale fact from
+            # 30 turns earlier ("your dog is rex"). That is a content-addressing
+            # bug: the ack must report what was actually learned on THIS turn,
+            # not the most-recent fact in the whole store. Scope to facts whose
+            # turn_number equals the store's current clock; if nothing was stored
+            # this turn, return None and let the caller fall back to the generic
+            # "got it — thanks for telling me" (which is honest, not a fabricated
+            # recall). Generic (no per-topic table); brain-faithful: you don't
+            # acknowledge a fact you heard long ago as if just told.
+            _cur_turn = getattr(store, "turn_num", None)
             cands = [f for (s, a, v), f in store.facts.items()
-                     if not f.superseded and s in _subjects]
+                     if not f.superseded and s in _subjects
+                     and (_cur_turn is None or getattr(f, "turn_number", -1) == _cur_turn)]
             if not cands:
                 return None
-            # D3 (round v4): the ack must report the fact STORED THIS TURN,
-            # not the highest-confidence stale fact. The old key
-            # (confidence / (1 + age*0.1)) surfaced "community garden" (the
-            # first-seeded fact, high confidence) for EVERY later activity
-            # disclosure ("i keep bees" -> "you do community garden"), which
-            # both acked the wrong fact AND corrupted the learned profile seen
-            # in recall. Recency must dominate: sort by turn_number desc, then
-            # confidence desc, so the just-stored fact wins. Content still
-            # comes from the store, not authored.
-            best = max(cands, key=lambda f: (
-                getattr(f, "turn_number", 0),
-                getattr(f, "confidence", 0.0)))
+            # Among this-turn facts, highest confidence wins (recency already
+            # guaranteed by the scope above).
+            best = max(cands, key=lambda f: getattr(f, "confidence", 0.0))
             attr, val = best.attribute, best.value
             # Natural phrasing for the common relation keys (mirrors
             # engine_memory._reconstruct_entity so acks and recall agree).

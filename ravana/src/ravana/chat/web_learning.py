@@ -399,13 +399,21 @@ class WebLearningMixin(ResponseGenMixin):
         HTTP error), sets _network_available = False and falls back silently.
         No error messages leak to the user — just returns a short summary.
 
-        ``train_decoder`` controls whether the (expensive, ~10-60s) neural
-        decoder training pass runs inline. It is OFF by default so the
-        synchronous user turn is never blocked on unsupervised LM training —
-        the graph + definition learning (cheap, needed for the response) still
-        happens. The background learning thread passes train_decoder=True so
-        the decoder still gets enriched, just not on the critical path.
+        D1 fix (round v-aug06): under RAVANA_OFFLINE=1 we must not attempt any
+        web learning at all - not a real fetch, and not a phantom "learning"
+        that increments the counter while doing nothing. Return the offline
+        summary immediately so _learning_count stays 0 and the engine is fully
+        offline-reproducible (the run otherwise counted 11 phantom learnings).
+        No retraining, no new config surface.
         """
+        if os.environ.get("RAVANA_OFFLINE") == "1":
+            return "offline - web learning disabled", "offline"
+        # ``train_decoder`` controls whether the (expensive, ~10-60s) neural
+        # decoder training pass runs inline. It is OFF by default so the
+        # synchronous user turn is never blocked on unsupervised LM training -
+        # the graph + definition learning (cheap, needed for the response) still
+        # happens. The background learning thread passes train_decoder=True so
+        # the decoder still gets enriched, just not on the critical path.
         self._learned_this_turn = True
         self._learning_count += 1
 
