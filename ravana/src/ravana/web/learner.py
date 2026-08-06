@@ -136,6 +136,17 @@ class SearchEngine:
 
     def __init__(self, config: Optional[SearchConfig] = None):
         self.config = config or SearchConfig()
+        # D1 fix (round v-aug06): honor RAVANA_OFFLINE as a GLOBAL web gate.
+        # This is the single chokepoint all web paths funnel through
+        # (_web_snippet_search, web_learning, route_support fallback, and the
+        # literal-content recall lookups). When set, search() returns [] with no
+        # network call, so callers fall back to stored knowledge / honest
+        # uncertainty. This closes the gap that the engine-level _web_blocked()
+        # gate left: kb_describe / _web_direct_answer / route_support were gated
+        # but the actual SearchEngine calls beneath them still hit the live
+        # IntentForge / DuckDuckGo / oxiverse endpoints (the run showed 72 real
+        # web calls under RAVANA_OFFLINE=1). No retraining, no new config.
+        self._offline = (os.environ.get("RAVANA_OFFLINE") == "1")
         # Local search endpoint. Resolved from env so the same binary works
         # whether the local engine is SearXNG (127.0.0.1:8080, the
         # running instance in this environment) or IntentForge on
@@ -311,6 +322,13 @@ class SearchEngine:
         only the local search engine is consulted — remote APIs are skipped so
         a working local engine is never blocked by the offline circuit breaker.
         """
+        # D1 fix (round v-aug06): GLOBAL offline gate. Under RAVANA_OFFLINE=1 we
+        # must not touch the network at all — not IntentForge, not DDG, not
+        # oxiverse. Return the empty cache entry so the caller fails closed to
+        # stored knowledge / honest uncertainty. The per-session cache line
+        # below still short-circuits repeated identical queries within a turn.
+        if self._offline:
+            return []
         # Per-session cache: identical (term, local_only, max_results) requests
         # within a turn return the cached list instead of hitting the network.
         _cache_key = (query.strip().lower(), bool(local_only), int(max_results))

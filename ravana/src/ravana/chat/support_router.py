@@ -186,6 +186,13 @@ def route_support(engine, user_input: str) -> Optional[str]:
     router = getattr(engine, "_support_router", None)
     if router is None or not router.is_support(user_input):
         return None
+    # D1 fix (round v-aug06): respect RAVANA_OFFLINE. route_support performs a
+    # LIVE web lookup via _web_direct_answer; in offline/reproducible mode it
+    # must not hit the network (the flag is the documented CI/offline contract).
+    # Falling through returns None so the turn proceeds to honest uncertainty
+    # instead of emitting an unverified "from what i've read…" snippet.
+    if getattr(engine, "_web_blocked", lambda: False)():
+        return None
     query = router.build_query(user_input)
     try:
         # Prefer the engine's real web-direct path (source trust +

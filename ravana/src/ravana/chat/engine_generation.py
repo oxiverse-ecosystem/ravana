@@ -2355,6 +2355,13 @@ class GenerationMixin:
         the KB has nothing usable. This is retrieval, not authored prose."""
         if not concept or len(concept) < 2:
             return None
+        # D1 fix (round v-aug06): respect RAVANA_OFFLINE. kb_describe performs a
+        # LIVE Wikipedia REST lookup; in offline/reproducible mode it must not
+        # hit the network (the flag is the documented CI/offline contract).
+        # Returning None lets the caller fail-closed to honest uncertainty
+        # instead of emitting an unverified snippet. No retraining, no new flag.
+        if getattr(self, "_web_blocked", lambda: False)():
+            return None
         # Title candidates: exact, title-cased, and a de-pluralized singular.
         cands = [concept.strip()]
         tc = concept.strip().title()

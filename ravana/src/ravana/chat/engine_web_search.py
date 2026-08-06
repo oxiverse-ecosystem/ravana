@@ -342,6 +342,14 @@ class WebSearchMixin:
         """
         if not ctx.subject:
             return None
+        # D1 fix (round v-aug06): respect RAVANA_OFFLINE. This path performs
+        # LIVE web snippet search; in offline/reproducible mode it must not hit
+        # the network. Returning None lets the caller fail-closed to honest
+        # uncertainty ("i'll be honest rather than guess") instead of emitting
+        # an unverified "according to a web source" snippet. One gate with
+        # kb_describe / route_support / background learning.
+        if getattr(self, "_web_blocked", lambda: False)():
+            return None
         # NOTE: Do NOT bail out just because a stored definition exists — the
         # live web snippet is fresher and often more accurate than a loosely
         # learned stored definition (and _generate_response already prefers web

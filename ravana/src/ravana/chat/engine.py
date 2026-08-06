@@ -1369,6 +1369,17 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             except Exception:
                 self._consistency_monitor = None
 
+        # Offline mode flag (D1 fix, round v-aug06). The environment variable
+        # RAVANA_OFFLINE=1 was only read by engine_graph.py (to skip the 822MB
+        # GloVe download) — but the live web-answer paths (kb_describe /
+        # _web_direct_answer / route_support / background web-learning) never
+        # checked it, so they fired REAL network calls even in "offline" runs,
+        # returning unverified Wikipedia/web snippets and recording phantom
+        # web "learnings". We capture it once here and expose a single
+        # _web_blocked() gate every web path consults. No retraining, no new
+        # config surface — purely respects the existing documented flag.
+        self._offline = (os.environ.get("RAVANA_OFFLINE") == "1")
+
         self._proper_nouns = set()
         # Concepts bootstrapped with AUTHORED typed relations (the project's own
         # proper nouns: oxiverse / intentforge / ravana). These are the ONLY
@@ -6157,8 +6168,30 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         if len(plan.intents) > target_intents:
             plan.intents = plan.intents[:target_intents]
         return plan
+    def _web_blocked(self) -> bool:
+        """Single gate for all live-network paths.
+
+        D1 fix (round v-aug06): when RAVANA_OFFLINE=1 is set (the documented
+        reproducible/CI mode), no live Wikipedia kb_describe, _web_direct_answer,
+        support_router, or background web-learning may fire. Previously only the
+        GloVe download respected the flag; the answer paths did not, so an
+        "offline" run still emitted "according to a web source…" with real
+        network latency. Centralizing the check here means one source of truth
+        for what 'offline' means. Returns True when web must be suppressed.
+        """
+        return getattr(self, "_offline", False)
+
     def start_background_learning(self):
         """Start the background learning thread. Called once at engine creation or CLI start."""
+        # D1 fix (round v-aug06): in offline mode the background web-learner
+        # must not run — it performs live web searches and records phantom
+        # "learnings" (the run showed learned=3 with RAVANA_OFFLINE=1, which is
+        # contradictory). Skip the thread entirely so _learning_count stays 0
+        # and the engine is fully offline-reproducible.
+        if self._web_blocked():
+            if self._trace_enabled:
+                print('  [bg] offline mode — background web-learning disabled')
+            return
         if self._bg_learning_active and self._bg_learning_thread and self._bg_learning_thread.is_alive():
             return
         self._bg_learning_active = True
