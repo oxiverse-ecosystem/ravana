@@ -65,12 +65,46 @@ _RETRACTION_CUES = (
     r"\bi\s+(?:have|'ve)?\s*changed\s+my\s+mind",
     r"\bi\s+(?:am|'m)?\s*changing\s+my\s+mind",
     r"\bi\s+no\s+longer\s+(?:think|believe|feel|support|care)\b",
-    r"\bi\s+was\s+wrong\s+about\b",
-    r"\bi\s+stand\s+corrected\b",
+    r"\bi\s+was\s+wrong\s+(?:about|on|there)\b",
+    # allow an adverb before "wrong" (e.g. "i was completely wrong about X")
+    # or between "wrong" and the topic preposition. The common spoken form is
+    # "<adverb> wrong about", which the original "wrong\s+(about...)" missed,
+    # silently leaving the stale stance un-reversed.
+    r"\bi\s+was\s+(?:\w+\s+)?wrong\s+(?:about|on|there)\b",
+    r"\bi\s+was\s+wrong\s+\w+\s+(?:about|on|there)\b",
+    r"\bi\s+(?:was|am)\s+too\s+hasty\b",
+    r"\bi\s+(?:was|am|'m)\s+(?:mistaken|in\s+error)\b",
+    r"\b(?:they're|it's|that's|wasn't|isn't|not)\s+(?:not\s+that\s+bad|not\s+so\s+bad|fine|okay|ok|acceptable|good\s+after\s+all)\b",
+    r"\bi\s+take\s+(?:it|that|this|things|them|what\s+i\s+said|my\s+words)\s*back",
     r"\bscratch\s+that\b",
 )
 
+# Softening retraction cues: the user is walking a stance BACK toward neutral,
+# not flipping to the opposite conviction ("olives? not that bad, i was too
+# hasty"). These drive a PARTIAL reversal (relax toward neutral) instead of a
+# full 180°. Kept as a separate tuple so mine_stance_reversal can test
+# `cue is _SOFTENING_CUES` by object identity — it is a sub-set of
+# _RETRACTION_CUES. No topic is named here, so this is seed structure, not an
+# answer table; a hard recant lives in the rest of _RETRACTION_CUES.
+_SOFTENING_CUES = (
+    r"\bi\s+(?:was|am)\s+too\s+hasty\b",
+    r"\bi\s+(?:was|am|'m)\s+(?:mistaken|in\s+error)\b",
+    r"\b(?:they're|it's|that's|wasn't|isn't|not)\s+(?:not\s+that\s+bad|not\s+so\s+bad|fine|okay|ok|acceptable|good\s+after\s+all)\b",
+)
 
+# Conjoined multi-pet disclosure pattern: "i have a ferret named pim and a
+# parrot called coco". One regex captures the whole chain; the miner expands it
+# into per-animal "species named name" pairs (see possession-mining block below).
+# Defined ONCE at module scope so the miner identifies it by object identity,
+# not by a fragile `startswith` of its literal (a prior attempt compared a
+# different literal and the branch never fired). Escapes are plain articles
+# (a|an|the|some...), NOT \a/\t/\s — those are regex metachars that silently
+# fail to match the spoken words.
+_CONJOINED_PET_PAT = (
+    r"\bi\s+have\s+(?:\d+\s+|(?:a|an|the|some|several|two|three|four|five|six|seven|eight|nine|ten)\s+)?"
+    r"((?:(?:a|an|the|my|our|their|his|her)?\s*[\w\'-]+\s+(?:named|called)\s+[\w\'-]+"
+    r"\s*(?:,?\s*(?:and|&|,)\s*(?:a|an|the)?\s*)?)+)"
+)
 @dataclass
 class UserModel:
     edge_reactivations: Dict[Tuple[str, str], int] = field(default_factory=dict)
@@ -215,9 +249,39 @@ class UserModel:
             r"\bi\s+(?:live|lives|am|was|were|grew\s+up)\s+(?:in|near|at|from)\s+"
             r"([A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z][A-Za-z'\-]*){0,4})",
             q_clean, re.IGNORECASE)
-        if m_loc:
+        # FIX (round v-aug06b): when the location clause NAMES a place via
+        # "called/named" (e.g. "i live in a small town called hollow creek"),
+        # the real toponym is the named phrase, not the filler leading up to
+        # it. Extract the named toponym and prefer it over the raw capture so
+        # "hollow creek" is stored instead of "a small town called hollow".
+        _named_loc = re.search(
+            r"\b(?:in|near|at|from)\s+(?:a|an|the|my|our|their|his|her)?\s*"
+            r"(?:small\s+)?(?:town|city|village|settlement|place|hamlet|"
+            r"community|suburb|borough|region|area|country|state|province)\b"
+            r"(?:\s+(?:called|named|spelled))\s+"
+            r"([A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z][A-Za-z'\-]*){0,3})",
+            q_clean, re.IGNORECASE)
+        if _named_loc:
+            m_loc = type("_Loc", (), {"group": lambda self, n: _named_loc.group(1)})()
+            # store the named toponym directly (reuse m_loc handling below)
+            _loc = _named_loc.group(1).strip().strip(" .,!")
+            if _loc and len(_loc.split()) <= 4:
+                self.user_location = _loc
+                _put_fact("location", _loc, 0.6)
+        elif m_loc:
             _loc = m_loc.group(1).strip().strip(" .,!")
             _loc = re.split(r"\s+(?:and|but|,|\.)\s*", _loc)[0].strip()
+            # FIX (round v-aug06c): a location clause like "a small apartment
+            # near the river in porto" caps the 5-word capture at "a small
+            # apartment near the" and silently drops the real toponym "porto".
+            # A proper noun after a trailing "in/near/at <Place>" is the actual
+            # place the user lives — prefer it. Generic: matches any capitalized
+            # word led by a place preposition, no per-city table.
+            _trailing = re.search(
+                r"\b(?:in|near|at|from)\s+([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){0,2})\s*$",
+                m_loc.group(1))
+            if _trailing:
+                _loc = _trailing.group(1).strip()
             if _loc and len(_loc.split()) <= 5:
                 self.user_location = _loc
                 _put_fact("location", _loc, 0.6)
@@ -239,6 +303,17 @@ class UserModel:
             # before "is" and missed the "name" form).
             r"\bmy\s+([\w'-]+)(?:\s+name)?\s+(?:is|are)\s+([\w'-]+)",
             r"\bi\s+have\s+(?:a|an|the)\s+([\w'-]+)\s+(?:named|called)\s+([\w'-]+)",
+            # FIX (round v-aug06b): conjoined multi-pet disclosures
+            # ("i have a ferret named pim and a parrot called coco"). The single
+            # pattern above only captures the FIRST animal; the rest are lost.
+            # This captures each "a/an <species> named/called <name>" segment
+            # inside a "have ... and ..." chain so every pet is stored. Generic
+            # (matches any species word, no per-animal table). The pattern is the
+            # module-level _CONJOINED_PET_PAT constant; the miner identifies it by
+            # object identity (_pat is _CONJOINED_PET_PAT), not a fragile
+            # startswith of its literal (which previously never matched and left
+            # the second animal unstored).
+            _CONJOINED_PET_PAT,
             # C-fix (round v-aug04): quantified / multi-name possessions
             # ("i have two cats named biscuit and gravy", "i have 3 dogs
             # called rex, spot and max"). The old first pattern required a
@@ -261,6 +336,34 @@ class UserModel:
         ):
             for _m in re.finditer(_pat, q_clean, re.IGNORECASE):
                 _attr, _val = None, None
+                # FIX (round v-aug06b): the conjoined-pet pattern captures a
+                # chain like "ferret named pim and a parrot called coco".
+                # Expand it into individual "species named name" pairs and
+                # store each via the same slot logic below. Identified by object
+                # identity (_pat IS the module constant), which is exact — the
+                # previous startswith(guard) comparison against a DIFFERENT
+                # literal never matched, so the branch was dead and the second
+                # animal was silently dropped.
+                if _pat is _CONJOINED_PET_PAT:
+                    _segs = re.findall(
+                        r"([\w'-]+)\s+(?:named|called)\s+([\w'-]+)",
+                        _m.group(1), re.IGNORECASE)
+                    for _sp, _nm in _segs:
+                        _sp, _nm = _sp.strip().lower(), _nm.strip().strip(".,!?")
+                        if not _sp or not _nm:
+                            continue
+                        _species = _pet_slots.species_of(_sp)
+                        if _species is None and _sp.isalpha():
+                            _species = _pet_slots.learn_species(_sp)
+                        else:
+                            _species = _pet_slots.species_of(_sp) or _sp
+                        if _species is not None:
+                            # count existing slots for this species to append _2, _3
+                            _i = 1
+                            while _pet_slots.slot_for(_species, _i) in self.personal_facts.facts:
+                                _i += 1
+                            _put_fact(_pet_slots.slot_for(_species, _i), _nm, 0.6)
+                    continue
                 if _m.lastindex is not None and _m.lastindex >= 2:
                     _attr, _val = _m.group(1).strip().lower(), _m.group(2).strip()
                 elif _m.lastindex == 1:
@@ -360,12 +463,20 @@ class UserModel:
             # The salient CONTENT HEAD is resolved by _opinion_topic (skips
             # closed-class words), so a stance lands on "talk"/"solitude", a
             # real concept, never on "the"/"how"/"small".
-            (r"\bi\s+(?:really\s+)?(?:like|love|enjoy|prefer|care\s+for)\s+(.+?)(?:\.|\band\b|\bbut\b|$|,)", 0.8, 0.6),
+            (r"\bi\s+(?:really\s+)?(?:like|love|enjoy|prefer|adore|care\s+for)\s+(.+?)(?:\.|\band\b|\bbut\b|$|,)", 0.8, 0.6),
             (r"\bi\s+(?:really\s+)?(?:hate|dislike|detest|can't\s+stand)\s+(.+?)(?:\.|\band\b|\bbut\b|$|,)", -0.8, 0.6),
-            (r"\bi\s+think\s+(.+?)\s+(?:is|are)\s+(?:good|great|awesome|nice|wonderful|amazing|the\s+future|essential|important|right|crucial|vital)", 0.8, 0.5),
-            (r"\bi\s+think\s+(.+?)\s+(?:is|are)\s+(?:bad|terrible|awful|overrated|horrible|poor|a\s+mistake|harmful|wrong|useless)", -0.8, 0.5),
-            (r"\bi\s+believe\s+(.+?)\s+(?:is|are)\s+(?:good|great|awesome|nice|wonderful|amazing|the\s+future|essential|important|right|crucial|vital)", 0.8, 0.5),
-            (r"\bi\s+believe\s+(.+?)\s+(?:is|are)\s+(?:bad|terrible|awful|overrated|horrible|poor|a\s+mistake|harmful|wrong|useless)", -0.8, 0.5),
+            # FIX (round v-aug06b): word-boundary-guarded sentiment adjectives.
+            # Without \b, "bad" matched the prefix of "badly" ("is badly
+            # underrated" -> parsed as "is bad"), inverting a POSITIVE
+            # endorsement into a negative stance. "underrated" is a positive
+            # endorsement (deserves more recognition) and is now recognized as
+            # such; an optional \w+ly adverb slot ("seriously/truly/badly
+            # underrated") is tolerated so the adverb never blocks the adjective.
+            # Generic sentiment-lexicon expansion (no per-topic rule).
+            (r"\bi\s+think\s+(.+?)\s+(?:is|are)\s+(?:\w+ly\s+)?(?:good\b|great|awesome|nice|wonderful|amazing|the\s+future|essential|important|right\b|crucial|vital|underrated|under-rated|underappreciated|under-valued|undervalued)", 0.8, 0.5),
+            (r"\bi\s+think\s+(.+?)\s+(?:is|are)\s+(?:\w+ly\s+)?(?:bad\b|terrible|awful|overrated|over-rated|horrible|poor\b|a\s+mistake|harmful|wrong\b|useless)", -0.8, 0.5),
+            (r"\bi\s+believe\s+(.+?)\s+(?:is|are)\s+(?:\w+ly\s+)?(?:good\b|great|awesome|nice|wonderful|amazing|the\s+future|essential|important|right\b|crucial|vital|underrated|under-rated|underappreciated|under-valued|undervalued)", 0.8, 0.5),
+            (r"\bi\s+believe\s+(.+?)\s+(?:is|are)\s+(?:\w+ly\s+)?(?:bad\b|terrible|awful|overrated|over-rated|horrible|poor\b|a\s+mistake|harmful|wrong\b|useless)", -0.8, 0.5),
             # "i believe we must/should protect/save/ban <X>" -> positive stance on X.
             (r"\bi\s+believe\s+we\s+(?:must|should)\s+(?:protect|save|preserve|defend|fund|support)\s+(.+?)(?:\.|\band\b|\bbut\b|$|,)", 0.8, 0.55),
             (r"\bi\s+believe\s+we\s+(?:must|should)\s+(?:ban|cut|end|stop|reduce)\s+(.+?)(?:\.|\band\b|\bbut\b|$|,)", -0.8, 0.55),
@@ -429,13 +540,24 @@ class UserModel:
         if not q:
             return
         cue_end = None
+        _matched_cue = None
         for pat in _RETRACTION_CUES:
             m = re.search(pat, q)
             if m:
                 cue_end = m.end()
+                _matched_cue = pat
                 break
         if cue_end is None:
             return
+        # A retraction cue is either a HARD recant ("i was wrong about X",
+        # "i take it all back" — flip decisively) or a SOFTENING ("x isn't that
+        # bad, i was too hasty", "i came around a bit" — relax toward neutral,
+        # never invert). The softening cues are exactly the phrase set that
+        # resolves to a partial reversal; everything else is a hard recant.
+        # This drives reverse_stance's blend magnitude, so the same code path
+        # produces opposite-hemisphere vs near-neutral recodes from the
+        # utterance itself — no per-topic rule, no hardcoding of the topic.
+        _soft = _matched_cue in _SOFTENING_CUES
         # The topic lives in the clause after the retraction cue. Strip leading
         # connectors/prepositional frames that carry no content.
         tail = q[cue_end:].strip(" \t.,!?;:'\"\u2014-")
@@ -445,7 +567,30 @@ class UserModel:
             r"|my\s+mind\s+(?:about|on)"
             r"|about|on|regarding|of|to|my\s+opinion\s+on)\s+", "", tail)
         topic = self._opinion_topic(tail)
+        # FIX (round v-aug06b): end-anchored retraction idioms ("... olives
+        # ... they're not that bad, i was too hasty") leave an EMPTY tail, so
+        # the normal topic scan finds nothing. Before giving up, scan the
+        # whole utterance for a held stance whose key appears as a content
+        # word and reverse THAT. Generic: resolves against the live store,
+        # no per-topic table. Only when no topic is resolvable from the tail.
         if not topic:
+            _target = None
+            for _k in self.opinions.stances:
+                if _k and ((" " + _k + " ") in (" " + q + " ")
+                           or q.strip().endswith(_k) or q.strip().startswith(_k)):
+                    _target = _k
+                    break
+            if _target is None:
+                _whole = self._opinion_topic(q)
+                if _whole:
+                    _target = self.opinions.resolve_topic(_whole)
+            if _target is None:
+                return
+            try:
+                self.opinions._soft_reversal = _soft
+                self.opinions.reverse_stance(_target)
+            except Exception:
+                pass
             return
         # D4 fix (round v-aug06): the retraction's real topic is often buried
         # INSIDE a follow-on clause, not in the head of the tail. E.g.
@@ -471,9 +616,27 @@ class UserModel:
                 if _rev_topic:
                     topic = _rev_topic
         target = self.opinions.resolve_topic(topic) or self.opinions.resolve_topic(tail)
+        # FIX (round v-aug06b): some retraction idioms are END-anchored — the
+        # topic the user is recanting sits BEFORE the cue, not after it
+        # ("... olives ... they're not that bad, i was too hasty"). The tail
+        # after such a cue is empty, so the scan above finds nothing and the
+        # stale stance persists. Fallback: scan the whole utterance for the
+        # single held stance whose key appears as a content word, and reverse
+        # THAT. Generic — no per-topic table; resolves against the live store.
+        if target is None:
+            for _k in self.opinions.stances:
+                if _k and (" " + _k + " ") in (" " + q + " ") or q.strip().endswith(_k) or q.strip().startswith(_k):
+                    target = _k
+                    break
+            # also try resolving the whole-utterance content head
+            if target is None:
+                _whole = self._opinion_topic(q)
+                if _whole:
+                    target = self.opinions.resolve_topic(_whole)
         if target is None:
             return
         try:
+            self.opinions._soft_reversal = _soft
             self.opinions.reverse_stance(target)
         except Exception:
             pass
