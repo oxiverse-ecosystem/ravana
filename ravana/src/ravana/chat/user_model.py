@@ -247,17 +247,24 @@ class UserModel:
             m_name = re.search(r"\b(?:do\s+you\s+know\s+my\s+name|know\s+my\s+name|is\s+my\s+name)\s+is\s+(.+)", q_clean, re.IGNORECASE)
         m_loc = re.search(
             r"\bi\s+(?:live|lives|am|was|were|grew\s+up)\s+(?:in|near|at|from)\s+"
-            r"([A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z][A-Za-z'\-]*){0,4})",
+            r"([A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z][A-Za-z'\-]*){0,7})",
             q_clean, re.IGNORECASE)
         # FIX (round v-aug06b): when the location clause NAMES a place via
         # "called/named" (e.g. "i live in a small town called hollow creek"),
         # the real toponym is the named phrase, not the filler leading up to
         # it. Extract the named toponym and prefer it over the raw capture so
         # "hollow creek" is stored instead of "a small town called hollow".
+        # FIX (round v-aug06d): extended the lexicon to natural features
+        # (valley/dale/glen/cove/bay/fjord/island/peninsula/canyon/hollow) so
+        # "a converted mill in a valley called ashcombe" resolves to "ashcombe"
+        # (previously "valley" was absent and the greedy capture grabbed
+        # "a converted mill in a"). No per-toponym table.
         _named_loc = re.search(
             r"\b(?:in|near|at|from)\s+(?:a|an|the|my|our|their|his|her)?\s*"
             r"(?:small\s+)?(?:town|city|village|settlement|place|hamlet|"
-            r"community|suburb|borough|region|area|country|state|province)\b"
+            r"community|suburb|borough|region|area|country|state|province|"
+            r"valley|dale|glen|cove|bay|fjord|island|peninsula|canyon|hollow|"
+            r"estuary|inlet|harbor|harbour|beach|shore)\b"
             r"(?:\s+(?:called|named|spelled))\s+"
             r"([A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z][A-Za-z'\-]*){0,3})",
             q_clean, re.IGNORECASE)
@@ -277,9 +284,18 @@ class UserModel:
             # A proper noun after a trailing "in/near/at <Place>" is the actual
             # place the user lives — prefer it. Generic: matches any capitalized
             # word led by a place preposition, no per-city table.
+            # FIX (round v-aug06d): also catch a toponym introduced by
+            # "called/named" ANYWHERE in the clause (not only end-of-string),
+            # e.g. "a converted mill in a valley called ashcombe" where the
+            # named-toponym lexicon missed the feature word — prefer the proper
+            # noun after called/named over the filler leading up to it.
             _trailing = re.search(
-                r"\b(?:in|near|at|from)\s+([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){0,2})\s*$",
-                m_loc.group(1))
+                r"\b(?:in|near|at|from)\s+([A-Za-z][A-Za-z]+(?:\s+[A-Za-z][A-Za-z]+){0,2})\s*$",
+                m_loc.group(1), re.IGNORECASE)
+            if not _trailing:
+                _trailing = re.search(
+                    r"\b(?:called|named|spelled)\s+([A-Za-z][A-Za-z]+(?:\s+[A-Za-z][A-Za-z]+){0,3})",
+                    m_loc.group(1), re.IGNORECASE)
             if _trailing:
                 _loc = _trailing.group(1).strip()
             if _loc and len(_loc.split()) <= 5:
