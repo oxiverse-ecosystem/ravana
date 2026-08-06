@@ -339,14 +339,22 @@ class UserStanceStore:
         """Flip the user's stance on `topic` (e.g. "i take back X").
 
         A retraction is an attitude CHANGE recoding, not a fresh merge: the
-        subjective value the user expressed on the topic is recalibrated to the
-        OPPOSITE pole, and confidence drops (the brain's valuation of the topic
-        becomes uncertain after reversal — vmPFC re-evaluation). The link to the
-        PRIOR stance is preserved so the ack can reference what was reversed.
+        subjective value the user expressed on the topic is recalibrated toward
+        the OPPOSITE pole, and confidence drops (the brain's valuation of the
+        topic becomes uncertain after reversal — vmPFC re-evaluation). The link
+        to the PRIOR stance is preserved so the ack can reference what was
+        reversed.
 
-        Returns the PRIOR stance (so callers can render a linked acknowledgment),
-        or None if the user had no stance on this topic (a benign "take back"
-        with nothing to reverse — never fabricates a stance).
+        The recalibration strength is NOT fixed at the full 180°. A hard recant
+        ("i was wrong about X", "i take it all back") should land opposite;
+        a *softening* ("X isn't so bad, i was too hasty", "i came around a bit")
+        should relax the prior stance toward neutral, never invert it into the
+        opposite conviction. So the blend magnitude is driven by the utterance:
+        a soft cue halves the reversal strength, a hard cue keeps it. Callers
+        pass `soft=True` for softening idioms. Returns the PRIOR stance (so
+        callers can render a linked acknowledgment), or None if the user had no
+        stance on this topic (a benign "take back" with nothing to reverse —
+        never fabricates a stance).
 
         Idempotent within a turn: repeated mining of the same utterance cannot
         flip the stance more than once.
@@ -360,12 +368,14 @@ class UserStanceStore:
             return existing
         old_polarity = existing.polarity
         old_confidence = existing.confidence
-        # Reversal toward the opposite pole; blended with the held strength so a
-        # rigidly-held stance flips decisively while a weak one becomes neutral.
+        # Softening relaxes toward neutral; hard recant flips decisively. A
+        # partial reversal never crosses the pivot, so "olives aren't that bad"
+        # lands near neutral instead of converting the user into an olive-lover.
+        blend = min(reversal_strength, 0.5) if getattr(self, "_soft_reversal", False) else reversal_strength
         pivot = -old_polarity
-        existing.polarity = old_polarity * (1.0 - reversal_strength) + pivot * reversal_strength
+        existing.polarity = old_polarity * (1.0 - blend) + pivot * blend
         # Attitude change injects uncertainty: drop confidence toward the pivot.
-        existing.confidence = max(0.1, existing.confidence * (1.0 - reversal_strength * 0.6))
+        existing.confidence = max(0.1, existing.confidence * (1.0 - blend * 0.6))
         existing.rehearsal_count += 1
         existing.turn_number = self.turn_num
         self._reversed_this_turn[key] = self.turn_num
