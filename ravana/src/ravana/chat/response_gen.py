@@ -2543,6 +2543,16 @@ class ResponseGenMixin(ChainWalkerMixin):
         # was grounded; otherwise fall back to a light social acknowledgment.
         topic = (subject or "").strip().lower()
         is_about_user = bool(re.match(r"^(i|i'm|im|i am|we|we're|my|me)\b", t))
+        # FIX (round v-aug06b): a comparative/contrastive statement
+        # ("ceramics is more meditative than painting") resolves its CONTENT
+        # HEAD to a bare noun ("ceramics meditative painting") that no longer
+        # contains the markers "more/than", so the clean-topic test below
+        # misses it and the topic gets planted into "you're {topic}" as garble.
+        # Detect the comparative from the ORIGINAL utterance instead (the
+        # markers survive there) and force the topic-less acknowledgment.
+        _is_comparative = bool(re.search(
+            r"\b(more|most|less|better|worse|rather|instead|than|versus|vs\.?|"
+            r"compared to|compared with|prefer .* (to|over)|as .* as)\b", t, re.IGNORECASE))
 
         # Affective self-disclosure ("i am sad", "i'm tired") must reach the
         # empathic path, NOT be swallowed by the short-statement backchannel
@@ -2589,7 +2599,10 @@ class ResponseGenMixin(ChainWalkerMixin):
             r"\b(believe|think|feel|am|is|are|was|were|been|being|love|like|"
             r"hate|prefer|enjoy|dislike|mean|means|want|need|have|has|had|"
             r"made|makes|say|says|got|get|know|knew|seem|seems|become|"
-            r"seriously|really|overrated|underrated)\b", topic)
+            r"seriously|really|overrated|underrated|more|most|less|than|"
+            r"versus|vs\b|compared|rather|instead|better|worse)\b", topic)
+        if _is_comparative:
+            _has_clean_topic = False
         if is_about_user:
             _lead_pool = "user_leads" if _has_clean_topic else "user_leads_notopic"
         else:
