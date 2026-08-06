@@ -2811,7 +2811,27 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             _selfceil = re.search(
                 r"\bare\s+you\s+still\b|you\s+(?:said|told\s+me)\s+(?:that\s+)?you\s+(?:were|are)\s+[a-z-]+\s+(?:about|toward)|weren'?t\s+you\s+[a-z-]+\s+(?:about|toward)",
                 user_input, re.IGNORECASE)
-            if _selfceil:
+            # Self-OPINION gate (R3-style, broadened): any question that asks
+            # RAVANA's OWN stance/feelings ("what do you think about X", "your
+            # stance on X", "do you have a view on X") MUST route to the
+            # self-model resolver BEFORE the fact-reasoning path. Otherwise
+            # _try_fact_reasoning's enumerate_matching replays the USER's own
+            # stored belief texts as if they were RAVANA's answer ("based on
+            # what you've told me: i think cyanotype...") — a self/other
+            # boundary violation (RAVANA presents the user's opinions as its
+            # own). Routing here lets _route_self_query answer from RAVANA's
+            # value/stance store (grounded) or honestly abstain. Fail-open: if
+            # _route_self_query returns None the normal pipeline runs.
+            _selfopinion = re.search(
+                r"\b(do\s+you\s+(think|feel|believe|have|care)\b"
+                r"|what\s+do\s+you\s+(think|feel|believe)\s+about\b"
+                r"|how\s+do\s+you\s+(feel|think)\s+about\b"
+                r"|your\s+(opinion|thoughts|take|view|stance)\s+on\b"
+                r"|what's\s+your\s+(opinion|take|view|stance)\s+on\b"
+                r"|what\s+is\s+your\s+(opinion|take|view|stance)\s+on\b"
+                r"|do\s+you\s+have\s+a\s+(view|opinion|take)\s+on\b)",
+                user_input, re.IGNORECASE)
+            if _selfceil or _selfopinion:
                 _sersp = self._route_self_query(user_input)
                 if _sersp is not None:
                     self._last_strategy = "self_model"
