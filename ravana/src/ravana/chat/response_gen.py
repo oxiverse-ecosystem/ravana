@@ -4354,10 +4354,19 @@ class ResponseGenMixin(ChainWalkerMixin):
             r"\b(a|an|the)\s+(story|poem|song|haiku|joke|tale|letter|book)\s+"
             r"(about|of|for|where)\b")
         _has_narrative_frame = bool(_NARRATIVE_FRAME.search(text))
+        # Generalized self-possessive loss: ANY "my|our <noun> <loss-term>"
+        # (e.g. "my mentor died", "my friend passed", "my dog died") is a
+        # genuine bereavement, not just a curated relation list. The old
+        # curated list (dog/cat/grandma/.../friend) MISSED valid losses like
+        # "my mentor elspeth died" -> answered with generic "feeling mixed is
+        # hard" instead of grief empathy. A per-relation word list is exactly
+        # the kind of frozen vocabulary the architecture rejects: the brain
+        # treats any self-possessive death as loss. Keep the narrative-frame
+        # guard so "tell me about someone who died" (third-entity, not the
+        # user's own loss) does not fire. The noun is capped at 2 words so
+        # "my dear old dog" still resolves to the entity.
         _self_possessive_loss = bool(re.search(
-            r"\b(my|our)\s+\w*\s*(dog|cat|pet|grandma|grandpa|grandmother|"
-            r"grandfather|mom|mother|dad|father|sister|brother|friend|wife|"
-            r"husband|son|daughter|child|kid|baby|partner|bro|fam)\w*\s+"
+            r"\b(my|our)\s+\w*(?:\s+\w+)?\s+"
             r"(died|dies|death|dead|passed|lost|losing|grief|grieving|"
             r"mourn|mourning|suicide|funeral)\b", text))
         if any(t in text for t in _LOSS_TERMS):
