@@ -301,8 +301,21 @@ class UserModel:
             # relation and "is" so "my daughter name is ingrid" stores
             # daughter=ingrid (the old pattern required exactly one token
             # before "is" and missed the "name" form).
-            r"\bmy\s+([\w'-]+)(?:\s+name)?\s+(?:is|are)\s+([\w'-]+)",
-            r"\bi\s+have\s+(?:a|an|the)\s+([\w'-]+)\s+(?:named|called)\s+([\w'-]+)",
+            # FIX (round v-aug06d): generalize to a MULTI-WORD attribute so
+            # "my favorite color is ochre" stores attr="favorite color",
+            # val="ochre" (the old single-token attr grabbed attr="favorite",
+            # val="color" and lost the real value). Attribute capped at 4 words,
+            # value at 4 words; this is structural (no per-topic attribute
+            # list) — any "<attr phrase> is <value phrase>" is captured.
+            r"\bmy\s+([\w'-]+(?:\s+[\w'-]+){0,3})\s+(?:is|are)\s+([\w'-]+(?:\s+[\w'-]+){0,3})",
+            # FIX (round v-aug06d): "i work as a <role>" / "i work for
+            # <org>" self-descriptions are identity facts, not throwaway
+            # activities. The old activity miner only caught the verb "work"
+            # inside the generic activity loop and stored junk (does=s).
+            # Capture the role as a durable 'work' fact. Generic: any noun
+            # after "work as/for", no occupation list.
+            r"\bi\s+work\s+(?:as|for)\s+(?:a\s+|an\s+|the\s+)?([\w'-]+)",
+            r"\bi\s+(?:have|keep)\s+(?:a|an|the)\s+([\w'-]+)\s+(?:named|called)\s+([\w'-]+)",
             # FIX (round v-aug06b): conjoined multi-pet disclosures
             # ("i have a ferret named pim and a parrot called coco"). The single
             # pattern above only captures the FIRST animal; the rest are lost.
@@ -322,7 +335,7 @@ class UserModel:
             # number/quantifier word then a noun, then one or more names joined
             # by "and"/commas, and stores EACH name under its own entity slot
             # so a later "what are my cats called" recall finds them.
-            r"\bi\s+have\s+(?:\d+\s+|(?:a|an|the|some|several|two|three|four|five|six|seven|eight|nine|ten)\s+)?"
+            r"\bi\s+(?:have|keep)\s+(?:\d+\s+|(?:a|an|the|some|several|two|three|four|five|six|seven|eight|nine|ten)\s+)?"
             r"([\w'-]+)\s+(?:named|called|named\s+called)\s+"
             r"([\w'-]+(?:\s+(?:and|,|&)\s*[\w'-]+)*)",
             r"\bmy\s+([\w'-]+)\s+(?:named|called)\s+([\w'-]+)",
@@ -377,6 +390,8 @@ class UserModel:
                                     "kid", "adult", "student", "robot", "machine",
                                     "ai", "thing", "people", "boy", "girl"):
                             continue
+                    elif _pat.startswith(r"\bi\s+work\s+(?:as|for)"):
+                        _attr = "work"
                     elif _pat.startswith(r"\bi\s+am\s+allergic\s+to"):
                         _attr = "allergy"
                 if _attr and _val and _attr not in ("name", "location"):
@@ -423,8 +438,8 @@ class UserModel:
         # so the stored value is a real concept ("chai stall", "tabla", "night
         # sky"), never a function word. This is seed structure RAVANA expands from
         # experience — it adds to the same PersonalFactStore the user can correct.
-        for _verb in ("run", "own", "operate", "keep", "play", "teach", "study",
-                       "work", "manage", "drive", "build", "make", "sell",
+        for _verb in ("run", "own", "operate", "play", "teach", "study",
+                       "manage", "drive", "build", "make", "sell",
                        "restore", "grow", "watch", "raise", "tend", "brew",
                        "bake", "write", "read", "learn", "practice", "collect",
                        "fix", "paint", "code", "design", "craft", "volunteer",
