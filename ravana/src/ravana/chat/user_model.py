@@ -55,7 +55,12 @@ _CORRECTION_NAME_FACT_PATTERN = (
 # placement matters: the topic is the clause AFTER the cue ("i take back what
 # i said — plastic bans..."), so the match's .end() marks the topic span.
 _RETRACTION_CUES = (
-    r"\bi\s+take\s+(?:that\s+)?back",
+    # D4 fix (round v-aug06): allow an optional pronoun/adverb between "take"
+    # and "back" — "i take it back", "i take this back", "i take that back" are
+    # all the same retraction speech act. The prior pattern only allowed "that",
+    # so "i take it back" (the most common spoken form) failed to match and the
+    # contradiction was silently dropped, leaving the stale positive stance.
+    r"\bi\s+take\s+(?:it|this|that|things|them|what\s+i\s+said)?\s*back",
     r"\bi\s+retract",
     r"\bi\s+(?:have|'ve)?\s*changed\s+my\s+mind",
     r"\bi\s+(?:am|'m)?\s*changing\s+my\s+mind",
@@ -378,11 +383,28 @@ class UserModel:
                 _topic = self._opinion_topic(_raw)
                 if not _topic:
                     continue
-                _p = _pol
-                if _v < -0.2:
-                    _p = min(-0.3, _p - 0.2)
-                elif _v > 0.2:
-                    _p = max(0.3, _p + 0.2)
+                # Sign-PRESERVING affect blend (D3 fix, round v-aug06).
+                # Bug: the prior code used the RUNNING emotional buffer
+                # (_v = EMA of ALL prior turns) to modulate polarity via
+                # `max(0.3, _p + 0.2)` — so a clearly-negative lexical cue
+                # ("i can't stand cilantro", _pol=-0.8) spoken right after a
+                # happy stretch (_v>0.2) was flipped to +0.3, because the
+                # buffer leak beat the explicit attitude. That is backwards:
+                # the USER's stated verb is the ground-truth attitude signal;
+                # affect should only REINFORCE it, never reverse it.
+                # Fix: VAD now only strengthens the SAME signed pole (or
+                # widens a neutral cue), and can never cross the sign line.
+                # This matches vmPFC value integration: the lexical attitude
+                # is the delta-rule target; affect is a gain, not a sign.
+                _p = float(_pol)
+                if _p < -0.05 and _v < -0.1:
+                    _p = min(_p, _p - 0.15)          # more negative, same sign
+                elif _p > 0.05 and _v > 0.1:
+                    _p = max(_p, _p + 0.15)          # more positive, same sign
+                # neutral lexical cue (_p==0) may be steered by a strong signal
+                elif abs(_p) <= 0.05 and abs(_v) >= 0.3:
+                    _p = 0.6 if _v > 0 else -0.6
+                _p = max(-1.0, min(1.0, _p))
                 self.opinions.express_stance(_topic, polarity=_p, confidence=_conf,
                                             valence=_v, arousal=_a)
 
@@ -425,6 +447,29 @@ class UserModel:
         topic = self._opinion_topic(tail)
         if not topic:
             return
+        # D4 fix (round v-aug06): the retraction's real topic is often buried
+        # INSIDE a follow-on clause, not in the head of the tail. E.g.
+        # "i take it back — i've grown to hate running" → tail="i've grown to
+        # hate running", and _opinion_topic returns "i've grown" (a pronoun +
+        # auxiliary), which resolves to NO prior stance, so the contradiction
+        # is silently dropped and the stale positive stance persists. Fix:
+        # when the head is non-content (pronoun/auxiliary-led) but the tail
+        # contains an explicit attitude verb + object ("hate running", "like
+        # x"), extract the object of THAT verb as the topic. This reads the
+        # attitude actually being retracted, not the filler grammar. Generic,
+        # verb-driven (no per-topic table) — generalizes to any retracted
+        # attitude the user names.
+        if topic.split()[0] in ("ive", "i've", "i", "im", "i'm", "ive", "he",
+                                 "she", "they", "we", "you") or topic in (
+                "grown", "changed", "wrong", "back", "corrected"):
+            _rev_m = re.search(
+                r"\b(?:hate|dislike|detest|can't\s+stand|love|like|enjoy|"
+                r"prefer|care\s+for|believe|think)\b\s+(?:that\s+|to\s+)?"
+                r"(.+?)(?:\.|\band\b|\bbut\b|$|,)", tail)
+            if _rev_m:
+                _rev_topic = self._opinion_topic(_rev_m.group(1).strip())
+                if _rev_topic:
+                    topic = _rev_topic
         target = self.opinions.resolve_topic(topic) or self.opinions.resolve_topic(tail)
         if target is None:
             return
