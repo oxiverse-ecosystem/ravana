@@ -487,6 +487,20 @@ class UserModel:
         # explicit cues + VAD signal already inferred for this turn.
         _vad = self._infer_user_emotion(text)
         _v, _a, _d = _vad
+        # A first-person opinion can ONLY be mined from a DECLARATIVE
+        # self-report, never from a question ("do you think i love X?" is the
+        # user asking about RAVANA's stance, not stating their own). Mining a
+        # question creates garbage stances keyed on trailing clause fragments
+        # (e.g. "letterpress given" from "do you still think i love letterpress
+        # given the wrist thing?"). Structural guard: any interrogative is
+        # skipped before the stance loop.
+        _is_question = (q_clean.rstrip().endswith("?")
+                        or bool(re.match(
+                            r"^(what|who|when|where|why|how|which|is|are|do|"
+                            r"does|did|can|could|would|should|will|may|might|"
+                            r"am|have|has|had)\b", q_clean)))
+        if _is_question:
+            return
         for _pat, _pol, _conf in (
             # D2 (round v2): capture the FULL object phrase after the verb,
             # not just the first token — "small talk" / "the solitude of the
@@ -557,6 +571,43 @@ class UserModel:
         # opinion. Runs last so it can see (and reverse) any stance just mined.
         self.mine_stance_reversal(text)
 
+    def _stance_key_in_text(self, text: str):
+        """Return the held stance key whose TOPIC appears in `text`, else None.
+
+        Generic resolver for retraction/idiom fallbacks: instead of requiring
+        the FULL multiword key as a substring (which fails when the user names
+        only part of it, e.g. recants "letterpress" but the key is "letterpress
+        printing"), it matches when ANY whitespace-delimited token of the key
+        appears as a whole word in `text`. This is content-driven (resolves
+        against the live stance store) and generalizes to any topic — no
+        per-topic table. Prefers the LONGEST key match so a more specific
+        stance wins over a generic one.
+        """
+        if not text:
+            return None
+        _words = set(re.findall(r"[a-z']+", text.lower()))
+        if not _words:
+            return None
+        _best = None
+        _best_score = 0
+        for _k in self.opinions.stances:
+            if not _k:
+                continue
+            _ktoks = [t for t in re.findall(r"[a-z']+", _k.lower()) if t]
+            if not _ktoks:
+                continue
+            # A partial recant names only part of a multiword key (e.g.
+            # "letterpress" for the stored "letterpress printing"); match when
+            # ANY key token appears as a whole word, and prefer the key with
+            # the most tokens present (most specific match wins).
+            _matched = sum(1 for t in _ktoks if t in _words)
+            if _matched == 0:
+                continue
+            if _matched > _best_score:
+                _best_score = _matched
+                _best = _k
+        return _best
+
     def mine_stance_reversal(self, text: str) -> None:
         """Detect a stance-reversal/retraction and recode the stored stance.
 
@@ -604,13 +655,14 @@ class UserModel:
         # whole utterance for a held stance whose key appears as a content
         # word and reverse THAT. Generic: resolves against the live store,
         # no per-topic table. Only when no topic is resolvable from the tail.
+        # FIX (round v-aug06d): match by TOKEN CONTAINMENT, not whole-key
+        # substring. The user recants "letterpress" but the stored stance key
+        # is "letterpress printing"; the old " letterpress printing " in q
+        # check failed because the utterance only contains "letterpress". Now
+        # any token of the key appearing as a whole word in q resolves it
+        # (generic: works for any multiword stance key, no per-topic rule).
         if not topic:
-            _target = None
-            for _k in self.opinions.stances:
-                if _k and ((" " + _k + " ") in (" " + q + " ")
-                           or q.strip().endswith(_k) or q.strip().startswith(_k)):
-                    _target = _k
-                    break
+            _target = self._stance_key_in_text(q)
             if _target is None:
                 _whole = self._opinion_topic(q)
                 if _whole:
@@ -654,11 +706,10 @@ class UserModel:
         # stale stance persists. Fallback: scan the whole utterance for the
         # single held stance whose key appears as a content word, and reverse
         # THAT. Generic — no per-topic table; resolves against the live store.
+        # FIX (round v-aug06d): use token-containment matching (see above) so a
+        # recant of "letterpress" reverses the stored "letterpress printing".
         if target is None:
-            for _k in self.opinions.stances:
-                if _k and (" " + _k + " ") in (" " + q + " ") or q.strip().endswith(_k) or q.strip().startswith(_k):
-                    target = _k
-                    break
+            target = self._stance_key_in_text(q)
             # also try resolving the whole-utterance content head
             if target is None:
                 _whole = self._opinion_topic(q)
