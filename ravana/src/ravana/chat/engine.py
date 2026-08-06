@@ -3345,8 +3345,26 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 elif (_state_disclosure and not _eli5_simile and not _recall_frame
                         and not _is_question
                         and not _request_frame and not _humor_req
-                        and _cause_fb.label in
-                        ("other_suffering", "loss", "fear", "loneliness", "frustration")
+                        # Root-cause fix (round v-aug06d): the GloVe cause
+                        # classifier mis-fires "loneliness"/"frustration" on
+                        # BENIGN first-person self-descriptions (e.g. "my
+                        # favorite color is ochre" -> loneliness 0.65) because
+                        # the cause centroids drift over arbitrary text. When
+                        # the utterance contains NO suffering word AND is a
+                        # benign self-description, the fallback must NOT route
+                        # it to empathy — that steals the factual disclosure
+                        # ("i keep a quail named pip" answered "feeling lonely
+                        # is hard") and drops the stored fact. Only a genuine
+                        # suffering signal (a real affect/condition word, or a
+                        # loss/other_suffering cause which by construction
+                        # implies distress) justifies empathy here. Pure
+                        # loneliness/frustration cause-labels without a
+                        # suffering word are treated as the noisy classifier
+                        # and fall through to fact storage.
+                        and (("loss" in _cause_fb.label
+                              or "other_suffering" in _cause_fb.label
+                              or "fear" in _cause_fb.label)
+                             or _suffering_word)
                         and _cause_fb.confidence >= 0.22):
                     # Translate the cause label into a natural-feeling noun the
                     # existing empathy responder can slot in (it interpolates
