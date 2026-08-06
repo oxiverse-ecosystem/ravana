@@ -2574,11 +2574,27 @@ class ResponseGenMixin(ChainWalkerMixin):
         # identical; a learned fluency/coherence ranker can later bias the draw
         # without touching this code (seed-then-decay discipline).
         _rl = default_lexicon()
+        # D2 fix (round v-aug06): the 'you're {topic}' lead templates require a
+        # CLEAN NOUN PHRASE as the topic. But `subject` is often a whole clause
+        # ("believe nuclear energy", "jazz seriously overrated") when no single
+        # concept was grounded — plugging that into "ah, i see — you're {topic}"
+        # produces grammatically-broken garble ("you're believe nuclear energy").
+        # Brain-faithful: an acknowledgment reflects what was SAID; a clause
+        # subject carries no single reflectable noun, so we fall back to the
+        # topic-less lead ("got it." / "nice.") which needs no slot and can
+        # never garble. Only the clean-noun case uses the reflect-the-topic
+        # template. Generic: the clean-noun test is a small verb/copula set
+        # (closed-class, universal), not a per-topic table.
+        _has_clean_topic = bool(topic) and not re.search(
+            r"\b(believe|think|feel|am|is|are|was|were|been|being|love|like|"
+            r"hate|prefer|enjoy|dislike|mean|means|want|need|have|has|had|"
+            r"made|makes|say|says|got|get|know|knew|seem|seems|become|"
+            r"seriously|really|overrated|underrated)\b", topic)
         if is_about_user:
-            _lead_pool = "user_leads" if topic else "user_leads_notopic"
+            _lead_pool = "user_leads" if _has_clean_topic else "user_leads_notopic"
         else:
-            _lead_pool = "other_leads" if topic else "other_leads_notopic"
-        lead = _rl.realize(_lead_pool, topic=topic, rng=random)
+            _lead_pool = "other_leads" if _has_clean_topic else "other_leads_notopic"
+        lead = _rl.realize(_lead_pool, topic=topic if _has_clean_topic else "", rng=random)
         # Short, casual statements (backchannels like "nothing") stay brief.
         if len(t.split()) <= 3:
             return _rl.realize("backchannels", rng=random)
