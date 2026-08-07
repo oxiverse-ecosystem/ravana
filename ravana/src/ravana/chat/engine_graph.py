@@ -511,8 +511,21 @@ class GraphMixin:
     def _glove_vector(self, label: str) -> Optional[np.ndarray]:
         """Look up a label in GloVe, project to self.dim, return unit vector.
 
-        Phase 2.1: Results are cached so repeated lookups (e.g. auto-expansion
-        for every input word) avoid recomputing the projection.
+        The projection is computed FRESH on every call. The array-backed store
+        (``_glove_raw_vecs`` + ``_glove_word_index``) keeps the full vocabulary
+        as one ``(n_words, glove_dim)`` array instead of two 400k-entry dicts,
+        so a cold engine boots light (≈0 projected memory; the original eager
+        dicts cost ~330 MB/engine and multiplied by the pytest-xdist worker
+        count they OOM-killed workers on a memory-tight CI box).
+
+        We deliberately do NOT memoize the per-key projection. A memo seeded
+        during ``__init__`` (e.g. the decoder-vocab build calls _glove_vector
+        before/while glove state settles) would persist a vector projected with
+        a not-yet-final ``_glove_proj``/``_glove_raw_vecs`` and silently poison
+        later lookups (the intent router anchors flipped, regression in
+        test_self_directed_promoted_pre_admit_no_empty_regression). The
+        projection is a 64×100 matmul — microseconds — so computing it eagerly
+        per call is correct and cheap, and always reflects the live glove state.
 
         Defensive: a bare engine constructed via ``__new__`` (e.g. in unit
         tests that skip ``__init__``) has no GloVe state. Treat a missing glove
@@ -524,46 +537,26 @@ class GraphMixin:
         word_index = getattr(self, "_glove_word_index", None)
         if raw_vecs is not None and word_index is not None:
             w = label.lower().strip()
-            # Check per-key memo first (kept small: only queried words).
-            cache = getattr(self, "_glove_vector_cache", None)
-            if cache:
-                cached = cache.get(w)
-                if cached is not None:
-                    return cached
             idx = word_index.get(w)
             if idx is None and len(w) > 1:
                 idx = word_index.get(w.rstrip('s'))
             if idx is None and len(w) > 2:
                 idx = word_index.get(w[:-1])
             if idx is not None:
-                vec = raw_vecs[idx]
                 proj = getattr(self, "_glove_proj", None)
                 if proj is None:
                     return None
-                pv = proj @ vec
+                pv = proj @ raw_vecs[idx]
                 norm = np.linalg.norm(pv)
                 if norm > 0:
                     pv /= norm
-                result = pv.astype(np.float32)
-                if cache is not None:
-                    cache[w] = result
-                    if w.rstrip('s') != w:
-                        cache[w.rstrip('s')] = result
-                    if len(w) > 2 and w[:-1] != w:
-                        cache[w[:-1]] = result
-                return result
+                return pv.astype(np.float32)
             return None
         # Legacy / file-read fallback: self._glove_vecs is a dict.
         vecs = getattr(self, "_glove_vecs", None)
         if vecs is None:
             return None
         w = label.lower().strip()
-        # Check cache first (Phase 2.1)
-        cache = getattr(self, "_glove_vector_cache", None)
-        if cache:
-            cached = cache.get(w)
-            if cached is not None:
-                return cached
         vec = vecs.get(w)
         if vec is None and len(w) > 1:
             vec = vecs.get(w.rstrip('s'))
@@ -577,15 +570,7 @@ class GraphMixin:
             norm = np.linalg.norm(pv)
             if norm > 0:
                 pv /= norm
-            result = pv.astype(np.float32)
-            if cache is not None:
-                cache[w] = result
-                # Also cache variants for fast lookup
-                if w.rstrip('s') != w:
-                    cache[w.rstrip('s')] = result
-                if len(w) > 2 and w[:-1] != w:
-                    cache[w[:-1]] = result
-            return result
+            return pv.astype(np.float32)
         return None
 
     def _build_combined_encoder(self):
