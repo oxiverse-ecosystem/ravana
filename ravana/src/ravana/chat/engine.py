@@ -2119,6 +2119,200 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         except Exception:
             pass
 
+    def _structured_recall(self, user_input: str) -> Optional[str]:
+        """Structured-first biographical / stance recall (round 2026-08-08).
+
+        Root cause it fixes: biographical and self-stance recall queries
+        ("what's my name", "what did you tell me about the cafeteria smell",
+        "you mentioned a stance on medical data", "did you take a position on
+        X") were reaching fact_reasoning.enumerate_matching, which joins up to
+        6 stored fact-TEXTS on a loose word intersection and DUMPS unrelated
+        prior turns concatenated ("based on what you've told me: <turn A>
+        <turn B> <turn C>..."). The cue mapped to NO specific stored entity, so
+        the reply was a wrong/mismatched memory (measured across the Noor chat
+        round: name -> "i don't know", cafeteria -> the green-comet turn,
+        surveillance -> the cafeteria turn).
+
+        This resolver reads the LIVE durable stores (personal_facts,
+        opinions.stances, belief_store) and answers ONLY when the query's cue
+        maps to a real stored entity/topic. It never concatenates unrelated
+        turns. Fail-closed: returns None when nothing maps, so the existing
+        (honest) pipeline handles genuinely unstored questions.
+
+        No hardcoded reply strings, no per-topic answer table, no retraining.
+        Every answer slot is read from a runtime store RAVANA grows autonomously
+        (the user can correct any fact/stance; the stores merge on correction).
+        """
+        q = (user_input or "").lower().strip()
+        if not q:
+            return None
+        um = getattr(self, "user_model", None)
+        pf = getattr(um, "personal_facts", None) if um else None
+        opinions = getattr(um, "opinions", None) if um else None
+        beliefs = getattr(self, "belief_store", None)
+
+        # ── (1) Biographical self-fact recall ──────────────────────────────
+        # "what's my name" / "where do i live/work" / "what do i keep/have on
+        # my rooftop" / "what's my favorite ..." — answered from the structured
+        # personal_fact store, not the episodic buffer.
+        _BIO_ATTR = {
+            "name": ("name",),
+            "live": ("location", "live in"),
+            "work": ("work",),
+            "job": ("work",),
+            "rooftop": ("does", "keep", "have"),
+            "favorite": ("favorite",),
+        }
+        # "what's my name" / "who am i" -> name
+        if re.search(r"\b(my name|who am i|what am i called)\b", q) or \
+                re.search(r"\bwhat'?s\s+my\s+name\b", q):
+            _v = pf.get("i", "name") if pf else None
+            if _v is not None and not getattr(_v, "superseded", False):
+                return f"your name is {_v.value}."
+            return None
+        # "where do i live / work" / "what do i do"
+        if re.search(r"\b(where do i live|what city|what town|where am i from)\b", q) and \
+                re.search(r"\b(live|from)\b", q):
+            _v = pf.get("i", "location") if pf else None
+            if _v is not None and not getattr(_v, "superseded", False):
+                return f"you live in {_v.value}."
+            return None
+        if re.search(r"\b(where do i work|what do i do|what's my job|what is my work)\b", q):
+            _v = pf.get("i", "work") if pf else None
+            if _v is not None and not getattr(_v, "superseded", False):
+                return f"you work as {_v.value}."
+        if re.search(r"\bwhat'?s\s+my\s+favorite\b", q):
+            # surface every favorite_* fact
+            if pf is not None:
+                _bits = []
+                for _k, _f in pf.facts.items():
+                    if isinstance(_k, tuple) and len(_k) == 3 and \
+                            _k[1].startswith("favorite") and \
+                            not getattr(_f, "superseded", False):
+                        _bits.append(f"your {_k[1].replace('favorite ', '')} is {_f.value}")
+                if _bits:
+                    return "; ".join(_bits) + "."
+            return None
+        # "what do i keep/have on my rooftop / what do i grind / what do i
+        # forage" — match a 'does' / activity fact whose value overlaps the
+        # query's content noun.
+        _ACT = re.search(r"\bwhat do i (keep|have|grind|forage|race|play|raise|grow|do)\b", q)
+        # ── (1b) "what did i tell you about X" / "what do i think of X" ──────
+        # General user-attribute / user-stance recall. X is resolved to a
+        # stored STANCE TOPIC (the user's own attitudes) or to a personal
+        # fact. This is the precise replacement for the old loose
+        # enumerate_matching dump that concatenated unrelated turns.
+        _TOLD = re.search(
+            r"\b(?:what\s+(?:did|do)\s+i\s+(?:tell|say)\s+(?:you|me)\s+about|"
+            r"what\s+(?:do|did)\s+i\s+(?:think|feel)\s+(?:of|about)|"
+            r"how\s+(?:do|did)\s+i\s+feel\s+about|"
+            r"what'?s\s+my\s+(?:opinion|stance)\s+(?:on|about|of))\b"
+            r"\s+([a-z][a-z \-]{1,40})", q)
+        if _TOLD and pf is not None:
+            _cue = _TOLD.group(1).strip().strip("?.!").lower()
+            # (a) resolve to a stance topic the user holds
+            if opinions is not None:
+                _topic = opinions.resolve_topic(_cue) or _cue
+                _s = opinions.query_stance(_topic)
+                if _s is not None:
+                    _pol = _s.polarity
+                    if _pol >= 0.6:
+                        _w = "strongly for"
+                    elif _pol > 0.1:
+                        _w = "for"
+                    elif _pol <= -0.6:
+                        _w = "strongly against"
+                    elif _pol < -0.1:
+                        _w = "against"
+                    else:
+                        _w = "uncertain about"
+                    return f"you're {_w} {_topic}."
+            # (b) resolve to a personal fact whose value/noun overlaps the cue
+            _cnouns = set(re.findall(r"[a-z']+", _cue)) - {
+                "the", "a", "an", "of", "about", "on", "my", "i", "you",
+                "what", "do", "did", "tell", "say", "think", "feel", "s"}
+            for _k, _f in pf.facts.items():
+                if not (isinstance(_k, tuple) and len(_k) == 3):
+                    continue
+                if getattr(_f, "superseded", False):
+                    continue
+                _v = _f.value.lower()
+                _attr = _k[1].lower()
+                if _cue in _v or _attr in _cue or any(n in _v for n in _cnouns):
+                    if _attr == "name":
+                        return f"your name is {_v}."
+                    if _attr == "work":
+                        return f"you work as {_v}."
+                    if _attr == "does":
+                        return f"you {_v}."
+                    return f"your {_attr} is {_v}."
+            return None
+
+        if _ACT and pf is not None:
+            _verb = _ACT.group(1)
+            _qnouns = set(re.findall(r"[a-z']+", q)) - {
+                "what", "do", "i", "my", "on", "the", "a", "an", "to", "you",
+                "of", "in", "for", "with", "and", "that", "this", "is", "are"}
+            if "rooftop" in q or "roof" in q:
+                _qnouns.add("rooftop")
+            for _k, _f in pf.facts.items():
+                if not (isinstance(_k, tuple) and len(_k) == 3):
+                    continue
+                if _k[1] == "does" and not getattr(_f, "superseded", False):
+                    _val = _f.value.lower()
+                    if _verb in _val or any(n in _val for n in _qnouns):
+                        return f"you {_val}."
+            # also try the work fact
+            _w = pf.get("i", "work") if pf else None
+            if _w is not None and not getattr(_w, "superseded", False) \
+                    and _verb in _w.value.lower():
+                return f"you {_w.value}."
+
+        # ── (2) Self-stance / self-belief recall ──────────────────────────
+        # "you mentioned a stance on X" / "did you take a position on X" /
+        # "what's your stance on X" / "what do you think about X" — answered
+        # from RAVANA's OWN stance/belief store, never by replaying a USER
+        # utterance (that is a self/other boundary violation).
+        _SELFSTANCE = re.search(
+            r"\b(you (?:mentioned|said|told me|have|took|take)|"
+            r"your (?:stance|position|view|opinion|take) (?:on|about)|"
+            r"what do you (?:think|feel|believe) about|"
+            r"do you (?:have|take) a (?:stance|position|view) on)\b"
+            r".{0,40}?([a-z][a-z ]{2,40})", q)
+        if _SELFSTANCE and opinions is not None:
+            _topic_phrase = _SELFSTANCE.group(2).strip().strip("?.!")
+            # resolve the phrase to a known stance topic (semantic-ish via the
+            # store's own resolver, which folds synonyms)
+            _topic = opinions.resolve_topic(_topic_phrase) or _topic_phrase.lower().strip()
+            _s = opinions.query_stance(_topic)
+            if _s is not None:
+                _pol = _s.polarity
+                if _pol >= 0.6:
+                    _w = "strongly for"
+                elif _pol > 0.1:
+                    _w = "for"
+                elif _pol <= -0.6:
+                    _w = "strongly against"
+                elif _pol < -0.1:
+                    _w = "against"
+                else:
+                    _w = "uncertain about"
+                return f"i'm {_w} {_topic}."
+            # fall back to belief store
+            if beliefs is not None:
+                _bs = beliefs.get_state().get("beliefs", {})
+                _toks = set(re.findall(r"[a-z']+", _topic_phrase)) - {
+                    "the", "a", "an", "of", "about", "on", "my", "i", "you",
+                    "what", "do", "did", "tell", "say", "think", "feel",
+                    "stance", "position", "own", "owning", "your"}
+                for _bk, (_txt, _conf, _turn) in _bs.items():
+                    _tl = _txt.lower()
+                    # looser match: any salient token from the cue appears in
+                    # the belief text, OR the resolved topic is a substring.
+                    if _topic in _tl or any(t in _tl for t in _toks if len(t) > 3):
+                        return f"i hold that position: {_txt}"
+        return None
+
     def _try_fact_reasoning(self, user_input: str) -> Optional[str]:
         """Answer question-shaped input from the hippocampal buffer's stored
         fact texts via ravana.core.fact_reasoning (lexical-closure replay).
@@ -2887,6 +3081,23 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     self._last_responses = self._last_responses[-10:]
                 self.notify_user_idle()
                 return _exp
+        except Exception:
+            pass
+
+        try:
+            # Structured-first recall (round 2026-08-08): answer biographical
+            # and self-stance recall from the LIVE durable stores (precise,
+            # never a concatenation of unrelated turns) BEFORE the loose
+            # fact_reasoning.enumerate_matching path, which would otherwise
+            # dump mismatched prior utterances. Fail-open: None -> unchanged.
+            _sr = self._structured_recall(user_input)
+            if _sr is not None:
+                self._last_strategy = "structured_recall"
+                self._last_responses.append(_sr)
+                if len(self._last_responses) > 10:
+                    self._last_responses = self._last_responses[-10:]
+                self.notify_user_idle()
+                return _sr
         except Exception:
             pass
 

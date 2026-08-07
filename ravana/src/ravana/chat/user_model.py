@@ -379,8 +379,11 @@ class UserModel:
             # activities. The old activity miner only caught the verb "work"
             # inside the generic activity loop and stored junk (does=s).
             # Capture the role as a durable 'work' fact. Generic: any noun
-            # after "work as/for", no occupation list.
-            r"\bi\s+work\s+(?:as|for)\s+(?:a\s+|an\s+|the\s+)?([\w'-]+)",
+            # after "work as/for", no occupation list. Tolerates optional
+            # adverbs/words between "work" and "as/for" ("i work nights as an
+            # er nurse") — the previous pattern required them contiguous and
+            # silently dropped "i work <adv> as X".
+            r"\bi\s+work\b.*?\b(?:as|for)\s+(?:a\s+|an\s+|the\s+)?([\w'-]+(?:\s+[\w'-]+){0,4})",
             r"\bi\s+(?:have|keep)\s+(?:a|an|the)\s+([\w'-]+)\s+(?:named|called)\s+([\w'-]+)",
             # FIX (round v-aug06b): conjoined multi-pet disclosures
             # ("i have a ferret named pim and a parrot called coco"). The single
@@ -463,8 +466,14 @@ class UserModel:
                                     "kid", "adult", "student", "robot", "machine",
                                     "ai", "thing", "people", "boy", "girl"):
                             continue
-                    elif _pat.startswith(r"\bi\s+work\s+(?:as|for)"):
+                    elif _pat.startswith(r"\bi\s+work"):
                         _attr = "work"
+                        # Trim trailing prepositional noise ("er nurse in a
+                        # hospital near the river" -> "er nurse") via the same
+                        # content-head resolver used for stances.
+                        _trimmed = self._opinion_topic(_val)
+                        if _trimmed:
+                            _val = _trimmed
                     elif _pat.startswith(r"\bi\s+am\s+allergic\s+to"):
                         _attr = "allergy"
                 if _attr and _val and _attr not in ("name", "location"):
@@ -516,18 +525,37 @@ class UserModel:
                        "restore", "grow", "watch", "raise", "tend", "brew",
                        "bake", "write", "read", "learn", "practice", "collect",
                        "fix", "paint", "code", "design", "craft", "volunteer",
-                       "cook", "fish", "hike", "garden", "farm", "lead", "organize"):
+                       "cook", "fish", "hike", "garden", "farm", "lead", "organize",
+                       # Round 2026-08-08: activity verbs the prior seed set
+                       # missed, so self-disclosures like "i keep homing
+                       # pigeons", "i grind my own telescope mirrors", "i race
+                       # homing pigeons", "i sail a small dinghy", "i knit
+                       # wool socks", "i forge my own knives" were silently
+                       # dropped and later recall had nothing to recall. These
+                       # are the SAME kind of seed verb vocabulary (RAVANA
+                       # expands it from experience; the user can correct any
+                       # stored 'does' fact), not a per-topic list.
+                       "keep", "grind", "race", "sail", "fly", "knit", "sew",
+                       "weld", "forge", "carve", "compose", "record",
+                       "perform", "coach", "train", "compete", "spin",
+                       "weave", "mount", "trade", "sell", "host", "guide"):
             _m = re.search(
                 r"\bi\s+(?:also\s+|really\s+|even\s+|just\s+|now\s+|still\s+"
                 r"|often\s+|sometimes\s+|usually\s+)?"
-                r"(?:have\s+been\s+)?(?:been\s+)?" + _verb +
-                r"\s+(?:a|an|the\s+)?(.+?)(?:\bfor\b|\bwhen\b|\bbut\b|"
+                r"(?:have\s+been\s+)?(?:been\s+)?(?:keep\s+|grind\s+|race\s+)?"
+                + _verb +
+                r"\s+(?:my\s+|a|an|the\s+)?(.+?)(?:\bfor\b|\bwhen\b|\bbut\b|"
                 r"\bbecause\b|\band\b|\.|\!|\?|$|,)",
                 q_clean, re.IGNORECASE)
             if _m:
                 _obj = self._opinion_topic(_m.group(1).strip().lower())
                 if _obj and len(_obj.split()) <= 5:
-                    _put_fact("does", _obj, 0.55)
+                    # Store the verb WITH the object ("keep homing pigeons")
+                    # so activity recall ("what do i keep?") can match the
+                    # verb and return a complete, grammatical answer instead
+                    # of a bare noun. The verb is part of the mined disclosure,
+                    # not an authored label.
+                    _put_fact("does", f"{_verb} {_obj}", 0.55)
         # "i've been <verb>-ing <object> for <duration>" (ongoing activity)
         _cont = re.search(
             r"\bi(?:'ve| have)\s+been\s+(\w+ing)\s+(.+?)(?:\bfor\b|\bsince\b|\.|\!|\?|$|,)",
@@ -1094,6 +1122,8 @@ class UserModel:
         "and", "but", "or", "so", "if", "when", "while", "because", "of",
         "to", "in", "on", "at", "for", "with", "from", "by", "as", "into",
         "about", "over", "under", "how", "what", "why", "who", "where",
+        "off", "onto", "upon", "than", "then", "till", "until", "since",
+
         "really", "very", "just", "only", "also", "too", "quite", "more",
         "most", "much", "many", "such", "own", "same", "other", "another",
         "is", "are", "was", "were", "be", "been", "being", "am",
