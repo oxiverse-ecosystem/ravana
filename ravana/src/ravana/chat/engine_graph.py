@@ -309,18 +309,10 @@ class GraphMixin:
                 # actually queried, not with the whole vocabulary.
                 self._glove_words = words
                 self._glove_word_index = {w: i for i, w in enumerate(words)}
-                # Raw vectors kept once; the projected cache is now thin.
-                # NOTE: _glove_vecs is deliberately left as an EMPTY dict (not
-                # None) in the cache path. Many call sites
-                # (engine_graph.py:463/1195, engine_reasoning.py:728,
-                # engine_web_search.py:1256/1520, interface.py:2006,
-                # graph/engine.py:390) use `self._glove_vecs is None` to mean
-                # "GloVe absent" — so it must stay truthy when glove IS
-                # available. The empty dict costs ~0 bytes; the 169 MB we
-                # eliminated was the materialized 400k-entry raw-vector dict,
-                # which is now replaced by the array below. _glove_vector
-                # reads from _glove_raw_vecs/_glove_word_index (fast path) and
-                # never consults this empty placeholder.
+                # Raw vectors kept once; projection is deferred to lookup.
+                # `glove_ready` is the availability predicate — callers must
+                # not test `_glove_vecs` directly, so this stays an empty
+                # dict purely as the file-read fallback's own store.
                 self._glove_vecs = {}
                 self._glove_raw_vecs = vecs  # (n_words, glove_dim) float32
                 # Only the per-key memo from _glove_vector; not the full 400k map.
@@ -492,7 +484,7 @@ class GraphMixin:
         # replacing it with a GloVe projection when a matching word is
         # available. Safe to call repeatedly: it is a no-op when a node
         # already matches its GloVe vector.
-        if self._glove_vecs is None:
+        if not self.glove_ready:
             return 0
         updated = 0
         for nid, node in list(self.graph.nodes.items()):
@@ -1224,7 +1216,7 @@ class GraphMixin:
                 # method contract above). The assertion-based primary gate alone
                 # decides in that case.
                 _junk_by_coh = False
-                if callable(_coh_fn) and getattr(self, "_glove_vecs", None) is not None:
+                if callable(_coh_fn) and self.glove_ready:
                     _cohs = []
                     for _d in _items:
                         try:
