@@ -308,6 +308,16 @@ class UserModel:
             if name_words and name_words[0].lower() in ("is", "are", "was", "were"):
                 name_words = name_words[1:]
             name_cand = " ".join(name_words)
+            # A name is a proper noun, never an article-led description.
+            # "call me a hypocrite" / "call me the bee guy" / "call me an
+            # amateur" are self-descriptions, not names — reject candidates
+            # that begin with a determiner so descriptor phrases are never
+            # stored as the user's identity. Names are introduced bare
+            # ("call me tobias", "i am called aria"), so this never blocks a
+            # real name. Structural: a leading-determiner test, not a
+            # per-name list.
+            if name_cand.lower().startswith(("a ", "an ", "the ")):
+                name_cand = ""
             if name_cand and name_cand.lower() not in ("happy", "sad", "tired", "busy", "fine", "good", "what", "who", "why", "how"):
                 name_cap = " ".join(w.capitalize() for w in name_cand.split())
                 self.user_name = name_cap
@@ -629,6 +639,16 @@ class UserModel:
                 cue_end = m.end()
                 _matched_cue = pat
                 break
+        # A softening cue ANYWHERE in the utterance governs the whole retraction
+        # speech act. "i take it back — but it's not that bad" is a hedged,
+        # NON-inverting recant: the user relaxes the stance toward neutral, they
+        # do NOT flip to the opposite conviction. The first-match loop above can
+        # bind `_matched_cue` to a hard recant ("i take it back") while a
+        # softening phrase trails it; if both are present the softening intent
+        # wins. Generic: scans the whole utterance for any softening idiom, no
+        # per-topic rule.
+        _soft = _matched_cue in _SOFTENING_CUES or any(
+            re.search(p, q) for p in _SOFTENING_CUES)
         if cue_end is None:
             return
         # A retraction cue is either a HARD recant ("i was wrong about X",
@@ -639,7 +659,6 @@ class UserModel:
         # This drives reverse_stance's blend magnitude, so the same code path
         # produces opposite-hemisphere vs near-neutral recodes from the
         # utterance itself — no per-topic rule, no hardcoding of the topic.
-        _soft = _matched_cue in _SOFTENING_CUES
         # The topic lives in the clause after the retraction cue. Strip leading
         # connectors/prepositional frames that carry no content.
         tail = q[cue_end:].strip(" \t.,!?;:'\"\u2014-")
@@ -647,6 +666,7 @@ class UserModel:
             r"^(?:what\s+i\s+(?:said|think|thought|meant)"
             r"|my\s+(?:stance|opinion|view)\s+on"
             r"|my\s+mind\s+(?:about|on)"
+            r"|i\s+(?:think|thought|believe|felt|was|am)\s+(?:i\s+)?(?:was|were|am|wrong|right|too\s+hasty|mistaken|in\s+error)\s+(?:about|on|there)\s+"
             r"|about|on|regarding|of|to|my\s+opinion\s+on)\s+", "", tail)
         topic = self._opinion_topic(tail)
         # FIX (round v-aug06b): end-anchored retraction idioms ("... olives
@@ -698,16 +718,72 @@ class UserModel:
                 _rev_topic = self._opinion_topic(_rev_m.group(1).strip())
                 if _rev_topic:
                     topic = _rev_topic
-        target = self.opinions.resolve_topic(topic) or self.opinions.resolve_topic(tail)
-        # FIX (round v-aug06b): some retraction idioms are END-anchored — the
-        # topic the user is recanting sits BEFORE the cue, not after it
-        # ("... olives ... they're not that bad, i was too hasty"). The tail
-        # after such a cue is empty, so the scan above finds nothing and the
-        # stale stance persists. Fallback: scan the whole utterance for the
-        # single held stance whose key appears as a content word, and reverse
-        # THAT. Generic — no per-topic table; resolves against the live store.
-        # FIX (round v-aug06d): use token-containment matching (see above) so a
-        # recant of "letterpress" reverses the stored "letterpress printing".
+        # REVERSAL SCOPE GUARD. A recant like "i was wrong about acoustic-only"
+        # must only flip a stance when the recanted phrase RESOLVES to a held
+        # topic. The loose resolver below can link "acoustic-only" to the held
+        # "acoustic music" stance by substring, then invert a stance the user
+        # was NARROWING (they still liked acoustic, just not *only* acoustic).
+        # That is a scope-widening, not a reversal — flipping it corrupts the
+        # store. So require a TIGHT link: the recant's topic must share a
+        # content word with, or be closely contained by, a held stance key.
+        # Loose substring containment (a broader held topic merely containing
+        # a word of the recant) is rejected for reversals. This reads the live
+        # stance store — no per-topic table.
+        _target_candidates = []
+        _raw_topic_tokens = set(re.findall(r"[a-z']+", (topic or "").lower()))
+        # split hyphenated qualifiers ("acoustic-only" -> acoustic, only)
+        _raw_topic_tokens |= set(t for tok in _raw_topic_tokens
+                                 for t in tok.split("-") if t)
+        # scope markers ("only"/"just"...) are NOT topic content — they signal
+        # a NARROWING of an existing stance, not a reversal of it. Strip them
+        # before matching so "acoustic-ONLY" is read as "acoustic", whose
+        # remainder is a strict subset of the held "acoustic music" topic.
+        _scope_markers = {"only", "just", "really", "truly", "merely", "simply"}
+        _topic_tokens = _raw_topic_tokens - _scope_markers
+        for _k in self.opinions.stances:
+            _kt = set(re.findall(r"[a-z']+", _k.lower()))
+            if not _kt:
+                continue
+            # tight: every recant token present in the held key, OR strong
+            # jaccard overlap (>=0.5) between the two content-word sets.
+            if _topic_tokens and (_topic_tokens <= _kt
+                                  or len(_topic_tokens & _kt) / max(1, len(_topic_tokens)) >= 0.5):
+                # REJECT a narrowing recant: when the recant's meaningful
+                # content is a STRICT subset of the held topic, the user is
+                # restricting scope (still likes acoustic, just not *only*
+                # acoustic), not reversing their attitude. Flipping the held
+                # stance would corrupt the store. Scope-widening is not a
+                # reversal. Detected generically from token containment.
+                if _topic_tokens and _topic_tokens < _kt:
+                    continue
+                _target_candidates.append(_k)
+        # Only honor a loose substring match when it is NOT a broad-held-topic
+        # merely containing the recant word (that is the corruption case).
+        target = None
+        if _target_candidates:
+            # prefer the most specific (shortest) tight match
+            target = min(_target_candidates, key=len)
+        else:
+            _loose = self.opinions.resolve_topic(topic) or self.opinions.resolve_topic(tail)
+            if _loose is not None:
+                _loose_tokens = set(re.findall(r"[a-z']+", _loose.lower()))
+                # Accept the loose match only if the recant phrase is NOT a
+                # narrowing qualifier of a broader held stance. A narrowing
+                # recant ("i was wrong about acoustic-ONLY") keeps the held
+                # attitude and only restricts its scope, so flipping the held
+                # stance corrupts the store. Detect: the recant's content words
+                # (ignoring scope markers like "only"/"just"/"really") are a
+                # subset of the held topic's words, or a hyphenated qualifier
+                # whose head appears in the held topic. Such a match is
+                # scope-widening, not a reversal -> reject.
+                _scope_markers = {"only", "just", "really", "truly", "merely", "simply"}
+                _recant_meaningful = _topic_tokens - _scope_markers
+                _is_narrowing = (
+                    _recant_meaningful
+                    and _recant_meaningful <= _loose_tokens
+                    and _recant_meaningful != _loose_tokens)
+                if not _is_narrowing:
+                    target = _loose
         if target is None:
             target = self._stance_key_in_text(q)
             # also try resolving the whole-utterance content head
@@ -715,7 +791,19 @@ class UserModel:
                 _whole = self._opinion_topic(q)
                 if _whole:
                     target = self.opinions.resolve_topic(_whole)
-        if target is None:
+                if target is None:
+                    return
+        # SCOPE-WIDENING GUARD (final): never reverse a stance whose topic is a
+        # BROADER held stance that the recant merely narrows. "i was wrong about
+        # acoustic-ONLY" still likes acoustic; flipping "acoustic music" corrupts
+        # the store. Reject when the recant's extracted object content is a
+        # strict subset of the resolved target's content words (a narrowing, not
+        # a reversal). Reads the live stance store — no per-topic rule.
+        _tgt_tokens = set(re.findall(r"[a-z']+", target.lower()))
+        _recant_meaningful = set(re.findall(r"[a-z']+", (topic or "").lower()))
+        _recant_meaningful = {t for tok in _recant_meaningful
+                              for t in tok.split("-") if t} - _scope_markers
+        if _recant_meaningful and _recant_meaningful < _tgt_tokens:
             return
         try:
             self.opinions._soft_reversal = _soft
