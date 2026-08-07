@@ -4473,12 +4473,17 @@ class ResponseGenMixin(ChainWalkerMixin):
             # governor, tolerating intervening intensifiers/fillers
             # ("i am feeling REALLY sad", "i get so lonely"). If we hit a
             # non-feeling, non-filler word first, the affect word is a noun
-            # modifier ("empty lots"), not a self-report.
+            # modifier ("empty lots"), not a self-report. "with"/"of" also
+            # govern an emotion noun ("buzzing WITH joy", "full OF happiness")
+            # and count as a feeling frame — but only matter once the
+            # first-person gate above has already passed, so third-person
+            # "a bottle of joy" still abstains.
             _FILLERS = _det._intensifiers if hasattr(_det, "_intensifiers") \
                 else {}
             for j in range(i - 1, max(-1, i - 4), -1):
                 _t = tokens[j]
-                if _t in _FEEL_COPULA or _t in _FIRSTPERSON:
+                if _t in _FEEL_COPULA or _t in _FIRSTPERSON or \
+                        _t in ("with", "of"):
                     return True
                 if _t in _FILLERS or _t in ("so", "very", "quite", "just",
                                             "really", "that", "this"):
