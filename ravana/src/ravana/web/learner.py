@@ -60,19 +60,25 @@ STOP_WORDS: Set[str] = {
     'lived', 'believe', 'believed', 'hold', 'held', 'bring', 'brought',
 }
 
-# Optional BeautifulSoup
+# Optional BeautifulSoup (web scraping / HTML cleaning). Genuinely optional:
+# the web-learning path degrades to raw-text extraction without it.
 try:
     from bs4 import BeautifulSoup
     HAS_BS4 = True
 except ImportError:
     HAS_BS4 = False
+    from ravana._import_guard import report_missing
+    report_missing("bs4", "BeautifulSoup HTML parsing (web scraping)", kind="optional")
 
-# Optional trafilatura for structured web extraction (roadmap #11)
+# Optional trafilatura for structured web extraction (roadmap #11). Genuinely
+# optional: falls back to the lighter BeautifulSoup/raw path.
 try:
     import trafilatura
     HAS_TRAFILATURA = True
 except ImportError:
     HAS_TRAFILATURA = False
+    from ravana._import_guard import report_missing
+    report_missing("trafilatura", "structured web extraction", kind="optional")
 
 
 @dataclass

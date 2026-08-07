@@ -27,6 +27,8 @@ try:
     HAS_BS4 = True
 except ImportError:
     HAS_BS4 = False
+    from ravana._import_guard import report_missing
+    report_missing("bs4", "BeautifulSoup HTML parsing (web scraping)", kind="optional")
 
 
 def _proj_root_corpora() -> str:
