@@ -4454,11 +4454,47 @@ class ResponseGenMixin(ChainWalkerMixin):
         if not tokens:
             return None
 
+        # Brain-faithful gate (round 2026-08-08, defect E): an affect word
+        # counts as a SELF-DISCLOSURE only when it is PREDICATED of the
+        # speaker — immediately after a feeling-copula ("i feel/am empty") or
+        # as a first-person verb ("i love/loathe/hate you"). A affect word that
+        # merely MODIFIES a noun ("empty lots", "the lonely road") is NOT a
+        # feeling report and must not route to empathy. Without this gate
+        # "i forage from empty lots" was misread as a negative self-disclosure
+        # ("feeling empty is hard").
+        _FEEL_COPULA = {"feel", "feeling", "am", "'m", "felt", "get", "got",
+                        "been", "become", "became", "seem", "sound", "look"}
+        _FIRSTPERSON = {"i", "i'm", "im", "we", "we're", "we're"}
+
+        def _is_feeling_frame(i: int) -> bool:
+            if i == 0:
+                return False
+            # Scan back up to 3 tokens for a feeling-copula or first-person
+            # governor, tolerating intervening intensifiers/fillers
+            # ("i am feeling REALLY sad", "i get so lonely"). If we hit a
+            # non-feeling, non-filler word first, the affect word is a noun
+            # modifier ("empty lots"), not a self-report.
+            _FILLERS = _det._intensifiers if hasattr(_det, "_intensifiers") \
+                else {}
+            for j in range(i - 1, max(-1, i - 4), -1):
+                _t = tokens[j]
+                if _t in _FEEL_COPULA or _t in _FIRSTPERSON:
+                    return True
+                if _t in _FILLERS or _t in ("so", "very", "quite", "just",
+                                            "really", "that", "this"):
+                    continue
+                break
+            return False
+
         vals, weights = [], []
         strongest = None
         for i, w in enumerate(tokens):
             entry = _det._lookup_word(w)
             if entry is None:
+                continue
+            if not _is_feeling_frame(i):
+                # A noun-modifier affect word is not a self-report; skip it so
+                # it cannot flip the utterance's polarity or trigger empathy.
                 continue
             v, a, d = float(entry[0]), float(entry[1]), float(entry[2])
             if any(tokens[j] in _NEGATORS for j in range(max(0, i - 3), i)):
@@ -4475,6 +4511,17 @@ class ResponseGenMixin(ChainWalkerMixin):
             av = abs(v * wgt)
             if strongest is None or av > strongest[0]:
                 strongest = (av, w, 1 if v >= 0 else -1)
+            # Track the strongest contributor in each signed direction so a
+            # reversal ("used to love... now loathe") reports the NET affect,
+            # not the single highest-|V| token regardless of polarity.
+            if not hasattr(self, "_tmp_signed") or self._tmp_signed is None:
+                self._tmp_signed = {"pos": None, "neg": None}
+            if v >= 0:
+                if self._tmp_signed["pos"] is None or av > self._tmp_signed["pos"][0]:
+                    self._tmp_signed["pos"] = (av, w)
+            else:
+                if self._tmp_signed["neg"] is None or av > self._tmp_signed["neg"][0]:
+                    self._tmp_signed["neg"] = (av, w)
 
         if not vals:
             return None
@@ -4495,9 +4542,25 @@ class ResponseGenMixin(ChainWalkerMixin):
         # "love/hate" are caught despite sitting close in embedding space.
         LEXICAL_HARD = 0.6
         if strongest is not None and abs(strongest[0]) >= LEXICAL_HARD:
-            kind = "positive" if strongest[2] > 0 else "negative"
+            # Defect F (round 2026-08-08): derive KIND from the aggregate
+            # valence V_lex, NOT the single highest-|V| token. A reversal like
+            # "i used to love X, now i loathe it" contains both a strong
+            # positive and a strong negative word; reporting the net polarity
+            # ("negative") is brain-faithful, whereas the old code reported
+            # "positive" because 'love' happened to have the largest |V|.
+            kind = "positive" if V_lex > 0 else "negative"
+            # Word: the strongest affect term in the AGGREGATE's direction, so
+            # a negative reversal names 'loathe', not 'love'.
+            _signed = getattr(self, "_tmp_signed", None) or {}
+            if V_lex > 0 and _signed.get("pos"):
+                _word = _signed["pos"][1]
+            elif V_lex <= 0 and _signed.get("neg"):
+                _word = _signed["neg"][1]
+            else:
+                _word = strongest[1]
             self._update_vad_baseline(V_lex)
-            return (kind, strongest[1])
+            self._tmp_signed = None
+            return (kind, _word)
 
         base = getattr(self, "_vad_baseline", {"mu": 0.0, "sigma": 0.3, "n": 0})
         mu, sigma = base["mu"], max(base["sigma"], 1e-3)
@@ -4511,7 +4574,14 @@ class ResponseGenMixin(ChainWalkerMixin):
             return None
 
         kind = "positive" if V > 0 else "negative"
-        word = strongest[1] if strongest else None
+        _signed = getattr(self, "_tmp_signed", None) or {}
+        if V > 0 and _signed.get("pos"):
+            word = _signed["pos"][1]
+        elif V <= 0 and _signed.get("neg"):
+            word = _signed["neg"][1]
+        else:
+            word = strongest[1] if strongest else None
+        self._tmp_signed = None
         return (kind, word)
 
     def _epistemic_vad(self) -> Dict[str, float]:
