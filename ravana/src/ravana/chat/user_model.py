@@ -822,9 +822,18 @@ class UserModel:
         self.emotional_rapport[subject_lower] = current_rapport + 0.2 * (valence - current_rapport)
 
         q_clean = query.lower().strip(" ?!.")
-        m_like = re.search(r"\bi\s+(?:like|love)\s+(.+)", q_clean, re.IGNORECASE)
+        m_like = re.search(r"\bi\s+(?:like|love|prefer|enjoy)\s+(.+)", q_clean, re.IGNORECASE)
         if m_like:
-            thing = m_like.group(1).strip(" .!?")
+            # Capture only the REAL content head of what's liked, not the
+            # entire trailing clause. "i prefer acoustic music over anything
+            # produced on a laptop" must store "acoustic music", not the
+            # comparative tail "over anything produced on a laptop". Resolve
+            # via _opinion_topic so the value is a clean content concept, never
+            # a function-word run-on. Generic — no per-topic list.
+            raw = m_like.group(1).strip(" .!?")
+            thing = self._opinion_topic(raw)
+            if not thing:
+                thing = raw.split()[0] if raw else ""
             if thing and thing not in ("you", "it", "that", "this", "them", "him", "her", "me", "something", "everything", "anything"):
                 if "likes" not in self.preferences:
                     self.preferences["likes"] = []
