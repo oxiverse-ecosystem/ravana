@@ -2756,6 +2756,28 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             self.notify_user_idle()
             return _meta_res
 
+        # Structured biographical/stance recall — TOP guard (round 2026-08-08).
+        # Answers user-fact / user-stance queries ("what's my name", "where do
+        # i work", "what did i tell you about my favorite time of day", "you
+        # mentioned a stance on X") from the durable user stores BEFORE any
+        # self-model / fact-reasoning / color-pick handler can preempt them.
+        # This is the self/other boundary: a query about the USER's facts must
+        # not be answered from RAVANA's own self-model ("black — still and
+        # heavy" is RAVANA's mood, not the user's fact). _structured_recall
+        # returns None for genuinely self-directed queries, so this is
+        # fail-open and never masks a real self-answer.
+        try:
+            _sr_top = self._structured_recall(user_input)
+            if _sr_top is not None:
+                self._last_strategy = "structured_recall"
+                self._last_responses.append(_sr_top)
+                if len(self._last_responses) > 10:
+                    self._last_responses = self._last_responses[-10:]
+                self.notify_user_idle()
+                return _sr_top
+        except Exception:
+            pass
+
         # Guard: reject pure letter-salad so it is not treated as a concept and
         # confabulated about.
         if self._user_input_is_gibberism(user_input):
@@ -3297,6 +3319,26 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     self._last_responses = self._last_responses[-10:]
                 self.notify_user_idle()
                 return _self_ans
+        # ── Structured biographical/stance recall guard (round 2026-08-08) ──
+        # The unconditional _route_self_query below answers from RAVANA's OWN
+        # self-model. A query about the USER's facts/stances ("what did i tell
+        # you about MY favorite time of day", "what do i think of the smell")
+        # must be answered from the durable user stores, NOT RAVANA's self-
+        # model (that is a self/other boundary violation: "black — still and
+        # heavy" is RAVANA's mood, not the user's fact). _structured_recall
+        # returns None for genuinely self-directed queries, so this is
+        # fail-open.
+        try:
+            _sr_pre = self._structured_recall(user_input)
+            if _sr_pre is not None:
+                self._last_strategy = "structured_recall"
+                self._last_responses.append(_sr_pre)
+                if len(self._last_responses) > 10:
+                    self._last_responses = self._last_responses[-10:]
+                self.notify_user_idle()
+                return _sr_pre
+        except Exception:
+            pass
         _self_ans = self._route_self_query(user_input)
         if _self_ans is not None:
             self._last_strategy = "self_model"
