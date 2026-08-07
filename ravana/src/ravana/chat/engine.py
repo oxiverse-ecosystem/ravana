@@ -2832,6 +2832,28 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 r"|do\s+you\s+have\s+a\s+(view|opinion|take)\s+on\b)",
                 user_input, re.IGNORECASE)
             if _selfceil or _selfopinion:
+                # EXPERIENTIAL FIRST: the _selfopinion gate above matches the
+                # broad "do you (think|feel|have|...)" frame, which also covers
+                # experiential probes ("do you have any regrets?"). Those must be
+                # answered from the self-model + affect by _route_self_experience,
+                # not by the stance store, which has no stance for them and
+                # returns a generic "still figuring that out" hedge — that hedge
+                # is non-None, so it would win and mask the real answer.
+                # _route_self_experience is the MORE SPECIFIC matcher, so it gets
+                # first refusal; it returns None for non-experiential self-queries
+                # (e.g. "are you still cautious about X"), leaving those to
+                # _route_self_query below. Fail-open either way.
+                try:
+                    _exp_first = self._route_self_experience(user_input)
+                except Exception:
+                    _exp_first = None
+                if _exp_first is not None:
+                    self._last_strategy = "self_experience"
+                    self._last_responses.append(_exp_first)
+                    if len(self._last_responses) > 10:
+                        self._last_responses = self._last_responses[-10:]
+                    self.notify_user_idle()
+                    return _exp_first
                 _sersp = self._route_self_query(user_input)
                 if _sersp is not None:
                     self._last_strategy = "self_model"
