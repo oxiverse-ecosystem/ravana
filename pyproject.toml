@@ -23,6 +23,12 @@ classifiers = [
 dependencies = [
     "numpy>=1.23",
     "scipy>=1.9",
+    # Pins the OpenBLAS/MKL runtime thread pools (not just the env vars) that
+    # _numpy_threading.py relies on to prevent the Windows BLAS access-violation
+    # crash described in numpy #27989. The module degrades to env-vars-only when
+    # this is missing, so an undeclared install silently weakens the guard --
+    # declare it as a hard dep rather than leaving it to chance.
+    "threadpoolctl>=3.1",
 ]
 
 [project.optional-dependencies]

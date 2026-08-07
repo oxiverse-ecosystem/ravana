@@ -28,11 +28,19 @@ for _v in (
     "MKL_NUM_THREADS",
     "NUMEXPR_NUM_THREADS",
     "VECLIB_MAXIMUM_THREADS",
+    # GOTO_NUM_THREADS is the legacy GotoBLAS knob that OpenBLAS still honours;
+    # some Windows wheels read it in preference to OPENBLAS_NUM_THREADS, so a
+    # build that ignored the cap above is still pinned by this one.
+    "GOTO_NUM_THREADS",
 ):
     # setdefault: never override an explicit user override.
     os.environ.setdefault(_v, "1")
 os.environ.setdefault("KMP_INIT_AT_FORK", "FALSE")
 os.environ.setdefault("OMP_DYNAMIC", "FALSE")
+# Bind OpenMP threads to places so the runtime does not migrate/re-spawn them
+# during teardown -- the migration is part of the race that turns a worker exit
+# into an access violation.
+os.environ.setdefault("OMP_PROC_BIND", "FALSE")
 
 # Reinforce the env caps with threadpoolctl when available (it drives the
 # actual OpenBLAS/MKL runtime thread pools, not just the env vars). Best-effort:
