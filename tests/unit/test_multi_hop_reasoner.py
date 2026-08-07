@@ -9,8 +9,16 @@ from ravana.core.multi_hop_reasoner import MultiHopReasoner
 
 
 def _check(name, cond):
-    print(f"  {'PASS' if cond else 'FAIL'}: {name}")
-    return cond
+    """Assert ``cond``, reporting ``name`` on failure.
+
+    NOTE: this MUST assert rather than return. These tests are collected by
+    pytest, and a test function that *returns* a bool instead of asserting is
+    reported as PASSED regardless of the value (pytest only warns:
+    PytestReturnNotNoneWarning). Verified 2026-08-07 by hardcoding ``ok = False``
+    in test_possessive_chain: pytest still reported "6 passed". The whole module
+    was therefore decorative and could never have caught a regression.
+    """
+    assert cond, name
 
 
 # A tiny mock fact store: (entity, attribute) -> value
@@ -48,28 +56,28 @@ def test_possessive_chain():
     ans = r.answer("What is the name of the company where Alice's husband works?",
                    retriever)
     ok = ans is not None and "google" in ans.lower()
-    return _check("Alice's husband's company -> Google", ok)
+    _check("Alice's husband's company -> Google", ok)
 
 
 def test_comparative_salary():
     r = MultiHopReasoner()
     ans = r.answer("Who earns more, Alice or Bob?", retriever)
     ok = ans is not None and "bob" in ans.lower()
-    return _check("who earns more Alice/Bob -> Bob", ok)
+    _check("who earns more Alice/Bob -> Bob", ok)
 
 
 def test_comparative_age():
     r = MultiHopReasoner()
     ans = r.answer("Who is older, Alice or Bob?", retriever)
     ok = ans is not None and "bob" in ans.lower()
-    return _check("who is older Alice/Bob -> Bob", ok)
+    _check("who is older Alice/Bob -> Bob", ok)
 
 
 def test_comparative_younger():
     r = MultiHopReasoner()
     ans = r.answer("Who is younger, Alice or Bob?", retriever)
     ok = ans is not None and "alice" in ans.lower()
-    return _check("who is younger Alice/Bob -> Alice", ok)
+    _check("who is younger Alice/Bob -> Alice", ok)
 
 
 def test_failed_hop_returns_none():
@@ -77,14 +85,14 @@ def test_failed_hop_returns_none():
     ans = r.answer("What is the name of the company where Carol's husband works?",
                    retriever)
     ok = ans is None
-    return _check("unknown entity chain -> None (no confabulation)", ok)
+    _check("unknown entity chain -> None (no confabulation)", ok)
 
 
 def test_non_multihop_returns_none():
     r = MultiHopReasoner()
     ans = r.answer("What is the weather today?", retriever)
     ok = ans is None
-    return _check("non-multihop question -> None", ok)
+    _check("non-multihop question -> None", ok)
 
 
 if __name__ == "__main__":
@@ -94,9 +102,16 @@ if __name__ == "__main__":
         test_non_multihop_returns_none,
     ]
     print("Phase 3 — multi-hop reasoner tests")
-    results = [t() for t in tests]
-    passed = sum(results)
-    print(f"\n{passed}/{len(results)} passed")
-    if passed != len(results):
+    failed = []
+    for t in tests:
+        try:
+            t()
+        except AssertionError as exc:
+            failed.append(f"{t.__name__}: {exc}")
+            print(f"  FAIL: {t.__name__}: {exc}")
+        else:
+            print(f"  PASS: {t.__name__}")
+    print(f"\n{len(tests) - len(failed)}/{len(tests)} passed")
+    if failed:
         sys.exit(1)
     print("ALL PASS")

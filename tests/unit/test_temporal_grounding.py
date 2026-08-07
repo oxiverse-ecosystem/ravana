@@ -11,15 +11,22 @@ from ravana.core.hippocampal_buffer import HippocampalBuffer, HippocampalConfig
 
 
 def _check(name, cond):
-    print(f"  {'PASS' if cond else 'FAIL'}: {name}")
-    return cond
+    """Assert ``cond``, reporting ``name`` on failure.
+
+    NOTE: this MUST assert rather than return. pytest reports a test function
+    that *returns* a bool as PASSED regardless of the value (it only emits
+    PytestReturnNotNoneWarning). This module returned for 10 tests, 3 of which
+    were genuinely FAILING and invisible under pytest -- the relative-date
+    cases, dead because python-dateutil was an undeclared dependency.
+    """
+    assert cond, name
 
 
 def test_session_date_parsing():
     g = DateGrounder()
     d = g.parse_session_date("2:15 pm on 8 May, 2023")
     ok = d is not None and d.year == 2023 and d.month == 5 and d.day == 8
-    return _check("parse '2:15 pm on 8 May, 2023' -> 2023-05-08", ok)
+    _check("parse '2:15 pm on 8 May, 2023' -> 2023-05-08", ok)
 
 
 def test_relative_years_ago():
@@ -27,7 +34,7 @@ def test_relative_years_ago():
     sd = datetime(2023, 5, 8)
     r = g.resolve_relative("i moved here 4 years ago", sd)
     ok = r is not None and r.date.year == 2019
-    return _check("'4 years ago' from 2023 -> 2019", ok)
+    _check("'4 years ago' from 2023 -> 2019", ok)
 
 
 def test_relative_last_month():
@@ -35,7 +42,7 @@ def test_relative_last_month():
     sd = datetime(2023, 6, 15)
     r = g.resolve_relative("i saw her last month", sd)
     ok = r is not None and r.date.month == 5 and r.date.year == 2023
-    return _check("'last month' from 2023-06 -> 2023-05", ok)
+    _check("'last month' from 2023-06 -> 2023-05", ok)
 
 
 def test_relative_yesterday():
@@ -43,7 +50,7 @@ def test_relative_yesterday():
     sd = datetime(2023, 5, 8)
     r = g.resolve_relative("i went yesterday", sd)
     ok = r is not None and r.date.day == 7 and r.date.month == 5
-    return _check("'yesterday' from 2023-05-08 -> 2023-05-07", ok)
+    _check("'yesterday' from 2023-05-08 -> 2023-05-07", ok)
 
 
 def test_relative_last_weekday():
@@ -52,7 +59,7 @@ def test_relative_last_weekday():
     r = g.resolve_relative("last tuesday", sd)
     # last Tuesday before Wed 2023-05-10 is 2023-05-09
     ok = r is not None and r.date.weekday() == 1 and r.date.day == 9
-    return _check("'last tuesday' from Wed 2023-05-10 -> 2023-05-09", ok)
+    _check("'last tuesday' from Wed 2023-05-10 -> 2023-05-09", ok)
 
 
 def test_month_day_assumes_session_year():
@@ -60,13 +67,13 @@ def test_month_day_assumes_session_year():
     sd = datetime(2023, 7, 1)
     r = g.resolve_relative("on june 15th", sd)
     ok = r is not None and r.date.month == 6 and r.date.day == 15 and r.date.year == 2023
-    return _check("'june 15th' assumes session year 2023", ok)
+    _check("'june 15th' assumes session year 2023", ok)
 
 
 def test_interval_describe():
     g = DateGrounder()
     ok = g.describe_interval(datetime(2019, 1, 1), datetime(2023, 1, 1)) == "4 years"
-    return _check("interval 2019->2023 == '4 years'", ok)
+    _check("interval 2019->2023 == '4 years'", ok)
 
 
 def test_buffer_dated_retrieval():
@@ -79,7 +86,7 @@ def test_buffer_dated_retrieval():
              absolute_date=datetime(2023, 8, 1))
     dated = hb.retrieve_dated("paris")
     ok = dated is not None and len(dated) == 2 and dated[0].absolute_date < dated[1].absolute_date
-    return _check("retrieve_dated returns chronologically sorted", ok)
+    _check("retrieve_dated returns chronologically sorted", ok)
 
 
 def test_buffer_latest():
@@ -90,7 +97,7 @@ def test_buffer_latest():
              absolute_date=datetime(2023, 1, 1))
     latest = hb.retrieve_latest("job")
     ok = latest is not None and latest.object == "meta"
-    return _check("retrieve_latest returns most recent (meta)", ok)
+    _check("retrieve_latest returns most recent (meta)", ok)
 
 
 def test_state_roundtrip_with_dates():
@@ -103,7 +110,7 @@ def test_state_roundtrip_with_dates():
     hb2.set_state(st)
     f = hb2.retrieve("paris")
     ok = f is not None and f[0].absolute_date == datetime(2023, 5, 8)
-    return _check("get_state/set_state preserves dates", ok)
+    _check("get_state/set_state preserves dates", ok)
 
 
 if __name__ == "__main__":
@@ -115,10 +122,17 @@ if __name__ == "__main__":
         test_buffer_latest, test_state_roundtrip_with_dates,
     ]
     print("Phase 1 — temporal grounding tests")
-    results = [t() for t in tests]
-    passed = sum(results)
-    print(f"\n{passed}/{len(results)} passed")
-    if passed == len(results):
+    failed = []
+    for t in tests:
+        try:
+            t()
+        except AssertionError as exc:
+            failed.append(t.__name__)
+            print(f"  FAIL: {t.__name__}: {exc}")
+        else:
+            print(f"  PASS: {t.__name__}")
+    print(f"\n{len(tests) - len(failed)}/{len(tests)} passed")
+    if not failed:
         print("ALL PASS")
     else:
         sys.exit(1)

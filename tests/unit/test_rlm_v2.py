@@ -229,7 +229,13 @@ def test_cross_subject_causal():
     # This is a hard test — may not always pass
     hit = target_id in top10
     print(f"  {'✓' if hit else '✗'} test_cross_subject_causal (hit={hit})")
-    return hit
+    # Was `return hit` — pytest reports a returning test as PASSED regardless of
+    # the value, so this asserted nothing. It is a genuinely hard generalisation
+    # probe, so a miss is skipped (visible, not silently green) rather than
+    # failed; a hit is a real pass.
+    if not hit:
+        import pytest as _pytest
+        _pytest.skip(f"hard generalisation probe missed: {target_id} not in top10")
 
 
 def test_sleep_cycle():
@@ -328,10 +334,14 @@ def test_relation_vector_separation():
             np.linalg.norm(causal_centroid) * np.linalg.norm(semantic_centroid) + 1e-10)
         # Should be low or negative (different types)
         print(f"  ✓ test_relation_vector_separation (causal↔semantic cosine: {cos:.3f})")
-        return cos < 0.5  # Should be separated
+        # Was `return cos < 0.5` — a returning test is reported PASSED whatever
+        # the value, so the separation was never actually checked.
+        assert cos < 0.5, f"causal/semantic centroids not separated: cos={cos:.3f}"
     else:
         print(f"  ✗ test_relation_vector_separation (not enough typed edges: {type_counts})")
-        return False
+        # No typed edges is a missing precondition, not a separation failure.
+        import pytest as _pytest
+        _pytest.skip(f"not enough typed edges to compare: {type_counts}")
 
 
 if __name__ == "__main__":

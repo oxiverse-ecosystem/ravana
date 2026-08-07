@@ -29,6 +29,11 @@ dependencies = [
     # this is missing, so an undeclared install silently weakens the guard --
     # declare it as a hard dep rather than leaving it to chance.
     "threadpoolctl>=3.1",
+    # temporal_grounding.py gates ALL relative-date resolution ("4 years ago",
+    # "last month", ordinal date parsing) behind a try/except import of
+    # dateutil. Undeclared, it silently resolved every relative phrase to None
+    # -- the capability was dead in any env that did not happen to have it.
+    "python-dateutil>=2.8",
 ]
 
 [project.optional-dependencies]
