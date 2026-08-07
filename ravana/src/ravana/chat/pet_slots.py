@@ -106,3 +106,16 @@ def slot_for(species: str, index: int = 1) -> str:
 def render(attr: str, value: str) -> str:
     """Render a stored pet slot as a natural clause for a recall reply."""
     return f"your {base_species(attr)} is {value}"
+
+
+def render_pair(ent: str, attr: str, value: str) -> Optional[str]:
+    """Render a pet clause when EITHER side names the species, else None.
+
+    Pet facts reach the recall renderers in two shapes depending on which
+    store they came from: the entity index keys them as (species, index) and
+    the fact store as ("i", species_slot). One helper resolves both so the
+    three call sites stay a single ``elif`` instead of repeating the
+    entity-or-attribute dance.
+    """
+    sp = species_of(str(ent)) or (base_species(attr) if is_pet_attribute(attr) else None)
+    return f"your {sp} is {value}" if sp else None

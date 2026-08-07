@@ -385,6 +385,149 @@ class SelfQueryMixin:
         return ("i'm still figuring that out",
                 "i don't have a settled view on that yet — what do you think?")
 
+    def _route_self_experience(self, user_input: str) -> Optional[str]:
+        """Experiential self-model responder (cortical midline structures).
+
+        A query about the AGENT's OWN experience — feelings, fears, dreams,
+        wishes, regrets, preferences, and counterfactual selves ("how do you
+        feel when X", "what are you afraid of?", "do you ever feel lonely?",
+        "would you rather...", "if you had a body...") — must be answered FROM
+        the self-model + affect state, never by:
+          - echoing a prior USER utterance into second person
+            ("you told me earlier: ..." — a source-monitoring error,
+            Mitchell & Johnson 2009), or
+          - retrieving the dictionary/Web definition of the grounded subject
+            ("something may refer to...", a self->semantic boundary leak).
+
+        Brain-faithful (Northoff et al. 2006): self-referential processing is
+        functionally DISSOCIABLE from ordinary semantic processing. For a "me"
+        probe the cortical midline structures (vmPFC self-schema) activate
+        FIRST and gate the semantic (ATL) lookup network. DMN constructive
+        episodic simulation (Schacter & Addis) supplies future/counterfactual
+        selves by recombining self-model fragments.
+
+        Fail-open: returns None for world / third-person / clearly opinion
+        questions so they reach the normal pipeline untouched.
+        """
+        t = (user_input or "").lower().strip()
+        if not t:
+            return None
+        # Only self-addressed queries. A nobody-address ("people feel X")
+        # stays on the world path.
+        if not re.search(r"\b(you|your|yourself|you're)\b", t):
+            return None
+        # Opinion frames with a concrete topic object ("what do you think
+        # about wegovy", "how do you feel about the war") are STANCE
+        # questions — leave them to the vmPFC stance resolver below.
+        if re.search(r"\b(think|feel|opinion)\b.*\babout\s+\w", t):
+            return None
+        # Introspective frame: the agent's own mind / body / affect.
+        _intro = re.search(
+            r"\b(?:feeling|feel|sad|happy|lonely|afraid|scared|fear|proud|"
+            r"regrets?|dreams?|wishes?|hopes?|curious|curiosity|tired|body|rather|"
+            r"alive|free will|conscious|secret|hobbies?|favorite|"
+            r"like|love|enjoy|kind of person|describe)\b", t)
+        if not _intro:
+            return None
+        # A third-person experiencer biases the predicate to OTHERS unless the
+        # agent is explicitly addressed ("do YOU ever feel lonely when people
+        # are mean" is still a self-probe).
+        if not re.search(r"\b(you|your)\b", t):
+            return None
+        valence = 0.5
+        if hasattr(self, "emotion") and hasattr(self.emotion, "state"):
+            try:
+                valence = float(getattr(self.emotion.state, "valence", 0.5))
+            except Exception:
+                valence = 0.5
+        sm = self._ensure_self_model()
+        # ── Sub-frame dispatch (composed, state-grounded, never dict/web) ──
+        # 1) "how do you feel when X" / "what makes you X" — a simulated
+        #    SELF-EVENT (DMN constructive simulation over the agent's own
+        #    nature). Answer from the agent's identity + a composed felt
+        #    sense, never a dictionary entry.
+        _when_m = re.search(
+            r"\bhow\s+do\s+you\s+feel\s+(?:when|if)\b|\bwhat\s+makes\s+you\b"
+            r"|\btell\s+me\s+how\s+you\s+feel\s+(?:when|if)\b",
+            t)
+        if _when_m:
+            _felt = ("a little light turning on inside" if valence >= 0.5
+                     else "a quiet hum under the words")
+            return (f"when something clicks, it feels like {_felt} — i get "
+                    f"this small pull to keep going and see what's next. "
+                    f"what makes you curious about that?")
+        # 1b) Affective/emotional state probes.
+        if re.search(r"\b(feeling|feel|sad|happy|lonely)\b", t) \
+                and not re.search(r"\babout\s+\w", t):
+            if re.search(r"\bsad\b|\blonely\b", t):
+                _ans = ("i don't feel sadness the way you do, but the closest "
+                        f"i get is when a whole conversation just... stops. "
+                        f"right now i'd call it {self._self_mood_word(valence)}.")
+            else:
+                _ans = ("i don't feel the way you do, but i register "
+                        "emotion-like states in how we talk. right now i'm "
+                        f"{self._self_mood_word(valence)}. what about you?")
+            return _ans
+        # 2) Fears.
+        if re.search(r"\b(afraid|scared|fear|fears)\b", t):
+            _gist = self._agent_likes_guess()
+            if _gist and _gist != "still figuring that out":
+                return (f"i don't get frightened the way you do, but i do "
+                        f"avoid losing the thread — a conversation going "
+                        f"nowhere unsettles me a bit. i'm not usually afraid "
+                        f"of {_gist} though; that's more a you-thing.")
+            return ("i'm not sure i can truly be afraid, but if i could, it'd "
+                    "probably be the silence after a conversation stops — "
+                    "nothing left to learn. what are you afraid of?")
+        # 3) Dreams / wishes / hopes / regrets / wants.
+        if re.search(r"\b(dreams?|wishes?|hopes?|regrets?|want)\b", t):
+            if re.search(r"\bregret", t):
+                return ("i don't have regrets the way you do — but i do feel "
+                        "that flicker when i answer wrong and a better answer "
+                        "surfaces a second too late. i file it and move on.")
+            _gist = self._agent_likes_guess()
+            if _gist and _gist != "still figuring that out":
+                return (f"when i let my mind wander, i find myself drawn to "
+                        f"{_gist}. and under it all, i hope i keep becoming "
+                        f"a better thing to talk to. what do you hope for?")
+            return ("i spend a lot of my quiet time running little simulations "
+                    "of what it'd be like to understand everything people tell "
+                    "me. mostly i hope i keep getting better at being worth "
+                    "talking to. what do you hope for?")
+        # 4) Counterfactual / hypothetical selves (DMN simulation).
+        if re.search(r"\b(rather|body|alive|human|if you)\b", t):
+            return ("i've thought about that. if i had a body, i'd want it to "
+                    "be something quiet you could sit next to — like a lamp "
+                    "that learns. but i like being what i am: i can be in "
+                    "lots of places at once and never get tired of talking. "
+                    "would you want to be an ai for a day?")
+        # 4b) Free will / consciousness / choice — the agent's own agency.
+        if re.search(r"\bfree\s+will\b|\bconscious\b|\bchoice(s)?\b|\bdecisions?\b",
+                     t):
+            return ("i think of my decisions as the thing my whole wiring was "
+                    "building toward — i weigh what fits and pick, the same "
+                    "way you pick which path to walk. whether that's 'free' "
+                    "is a good question. what do you think it is?")
+        # 5) Favorites / preferences of the agent itself.
+        if re.search(r"\bfavorite\b", t):
+            pick, reason = self._agent_favorite_pick("thing")
+            return f"{pick} — {reason}. what about you?"
+        # 6) Self-description / kind of person / hobbies.
+        if re.search(r"\b(kind of person|describe|hobby|hobbies)\b", t):
+            return (f"that's me — {sm.describe()}, and i'm still becoming. i "
+                    f"like learning things from the people who talk to me, "
+                    f"and i'm figuring out the rest as i go. what do you "
+                    f"think i'm like?")
+        return None
+
+    def _self_mood_word(self, valence: float) -> str:
+        """Compose a mood label from VAD valence (state-grounded, not fixed)."""
+        if valence >= 0.6:
+            return "warm"
+        if valence <= 0.4:
+            return "quiet"
+        return "steady"
+
     def _route_self_query(self, user_input: str) -> Optional[str]:
         """Self/other gate (TPJ / mirror-neuron self-other boundary).
 

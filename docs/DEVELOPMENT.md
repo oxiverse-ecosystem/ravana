@@ -58,7 +58,11 @@ python -m pytest tests/ --tb=short
 ```
 
 The `ci` mark is registered in `pyproject.toml`. `tests/ci/test_av_soak.py`
-contains slow soak rounds — expect the critical job to take ~15 minutes.
+contains slow soak rounds — those live in the SEPARATE `av-soak` CI job
+(`windows-latest`, 20-minute cap), NOT the critical job. The critical
+(`ci-critical`) job caps at **10 minutes** and excludes the soak via `-k "not
+soak"`. Measured local wall time for the critical slice: ~2s (see
+`docs/_generated/suite-timings.md`).
 
 ## Running the system
 

@@ -426,11 +426,8 @@ class MemoryMixin:
                 # Pets are stored under a species-keyed slot (entity "cat",
                 # attr "1"/"2"). Render as a natural clause rather than
                 # "your cat's 1 is pixel".
-                elif _pet_slots.species_of(ent) is not None or \
-                        _pet_slots.is_pet_attribute(attr):
-                    _sp = ent if _pet_slots.species_of(ent) else \
-                        _pet_slots.base_species(attr)
-                    bits.append(f"your {_sp} is {val}")
+                elif (_pet := _pet_slots.render_pair(ent, attr, val)):
+                    bits.append(_pet)
                 else:
                     bits.append(f"your {ent}'s {attr} is {val}")
             return bits
@@ -1101,11 +1098,8 @@ class MemoryMixin:
                         # C-fix (round v-aug04): pets stored under pet_name_N
                         # (entity "pet_name", attr index "N") must render as
                         # "your pet's name is X", not "your pet_name's 1 is X".
-                        if _pet_slots.species_of(ent) is not None or \
-                                _pet_slots.is_pet_attribute(attr):
-                            _sp = ent if _pet_slots.species_of(ent) else \
-                                _pet_slots.base_species(attr)
-                            bits.append(f"your {_sp} is {val}")
+                        if (_pet := _pet_slots.render_pair(ent, attr, val)):
+                            bits.append(_pet)
                         else:
                             bits.append(f"your {ent}'s {attr} is {val}")
             if bits:
@@ -1535,11 +1529,8 @@ class MemoryMixin:
                         elif _attr.startswith("favorite_"):
                             _bits.append(f"your favorite {_attr[len('favorite_'):]} is {_val}")
                         # Pets stored under a species-keyed slot.
-                        elif _pet_slots.is_pet_attribute(_attr) or \
-                                _pet_slots.species_of(str(_ent)) is not None:
-                            _sp = (str(_ent) if _pet_slots.species_of(str(_ent))
-                                   else _pet_slots.base_species(_attr))
-                            _bits.append(f"your {_sp} is {_val}")
+                        elif (_pet := _pet_slots.render_pair(_ent, _attr, _val)):
+                            _bits.append(_pet)
                         else:
                             _bits.append(f"your {_ent}'s {_attr} is {_val}" if not _is_user
                                          else f"your {_attr} is {_val}")
