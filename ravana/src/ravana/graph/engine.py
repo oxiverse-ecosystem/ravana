@@ -385,6 +385,17 @@ class GraphEngine:
             return True
         return False
 
+    @property
+    def glove_ready(self) -> bool:
+        """True when GloVe lookups can return vectors.
+
+        GraphEngine only ever has the dict-backed store (callers construct it
+        with glove_vecs=None or a plain dict), but it exposes the same
+        predicate name as GraphMixin so shared callers can ask either object
+        without probing private attributes.
+        """
+        return self._glove_vecs is not None and self._glove_proj is not None
+
     def _glove_vector(self, label: str) -> Optional[np.ndarray]:
         """Look up a label in GloVe, project to self.dim, return unit vector."""
         if self._glove_vecs is None:

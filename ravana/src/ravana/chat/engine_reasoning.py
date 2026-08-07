@@ -725,7 +725,7 @@ class ReasoningMixin:
                     or w in getattr(self, "_proper_nouns", set())):
                 _real += 1
                 continue
-            if self._glove_vecs is not None and self._glove_vector(w) is not None:
+            if self.glove_ready and self._glove_vector(w) is not None:
                 _real += 1
         # Fewer than half the tokens are real words -> treat as gibberish.
         return _real * 2 < len(meaningful)

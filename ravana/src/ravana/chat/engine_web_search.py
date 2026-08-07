@@ -1253,7 +1253,7 @@ class WebSearchMixin:
         snippet carries no content beyond the subject (can't judge -> pass).
         """
         glove_fn = getattr(self, "_glove_vector", None)
-        if not callable(glove_fn) or getattr(self, "_glove_vecs", None) is None:
+        if not callable(glove_fn) or not self.glove_ready:
             return None
         subj_vec = glove_fn(subject)
         if subj_vec is None:
@@ -1517,7 +1517,7 @@ class WebSearchMixin:
         topics, and generalizes: any off-topic snippet for any subject fails.
         """
         glove_fn = getattr(self, "_glove_vector", None)
-        if not callable(glove_fn) or getattr(self, "_glove_vecs", None) is None:
+        if not callable(glove_fn) or not self.glove_ready:
             return 0.0
         head = self._subject_head(subject, query)
         if head is None:

@@ -174,6 +174,27 @@ from ravana.language.register import RegisterController
 class GraphMixin:
     """Graph & concept-vector mixin — GloVe loading, edge bootstrap, category error detection, definition purge, conceptnet ontology."""
 
+    @property
+    def glove_ready(self) -> bool:
+        """True when GloVe lookups can return vectors, via EITHER backing store.
+
+        Two stores exist. The cache path (`_init_glove` warm-start) keeps a
+        single (n_words, glove_dim) array in `_glove_raw_vecs` plus a
+        word->row map, projecting lazily per lookup. The file-read fallback
+        keeps a plain word->vector dict in `_glove_vecs`.
+
+        Callers must ask THIS, never `_glove_vecs is not None` — on the cache
+        path `_glove_vecs` is None by design, so that older test reads
+        "GloVe absent" while lookups actually work, silently degrading the
+        caller to its no-GloVe fallback instead of failing loudly.
+        """
+        if getattr(self, "_glove_proj", None) is None:
+            return False
+        if getattr(self, "_glove_raw_vecs", None) is not None \
+                and getattr(self, "_glove_word_index", None) is not None:
+            return True
+        return getattr(self, "_glove_vecs", None) is not None
+
     def _get_curiosity_scores(self, max_topics: int = 10) -> List[Tuple[str, float]]:
         """
         Compute curiosity scores for graph concepts using prediction free energy.
@@ -271,19 +292,41 @@ class GraphMixin:
                 proj = data['proj']
                 self._glove_dim = int(data['glove_dim'])
                 self._glove_proj = proj
-                
-                # Vectorized batch projection: (dim, glove_dim) @ (glove_dim, n_words) -> (dim, n_words)
-                projected = self._glove_proj @ vecs.T  # shape (dim, n_words)
-                # Normalize all projected vectors in batch
-                norms = np.linalg.norm(projected, axis=0)
-                norms[norms == 0] = 1.0  # avoid division by zero
-                projected = (projected / norms).astype(np.float32)  # shape (dim, n_words)
-                
-                # Populate dicts
-                self._glove_vecs = {words[i]: vecs[i] for i in range(len(words))}
-                self._glove_vector_cache = {words[i]: projected[:, i] for i in range(len(words))}
-                
-                print(f"  [GloVe] Loaded {len(self._glove_vecs)} projected vectors from cache ({self._glove_dim}D -> {self.dim}D)")
+
+                # Memory-efficient GloVe store: keep the raw vectors as a single
+                # (n_words, glove_dim) array plus a word->row index map. The
+                # old code ALSO materialized two 400k-entry dicts
+                # (_glove_vecs + _glove_vector_cache, one RAW-100D vector dict
+                # and one already-projected-64D dict) at BOOT — ~330 MB of pure
+                # dict/hash-table overhead per engine. Under pytest-xdist that
+                # per-engine footprint is multiplied by the worker count
+                # (CI runs -n auto = -n 4 on ubuntu), so 4 concurrent boots
+                # demanded ~1.3 GB and the OS killed workers ("node down: Not
+                # properly terminated", no Python traceback) when the box had
+                # <1.5 GB free. Projection is now deferred to first lookup and
+                # memoized per key in a SMALL cache (only touched words), so a
+                # cold engine boots light and memory scales with what was
+                # actually queried, not with the whole vocabulary.
+                self._glove_words = words
+                self._glove_word_index = {w: i for i, w in enumerate(words)}
+                # Raw vectors kept once; the projected cache is now thin.
+                # NOTE: _glove_vecs is deliberately left as an EMPTY dict (not
+                # None) in the cache path. Many call sites
+                # (engine_graph.py:463/1195, engine_reasoning.py:728,
+                # engine_web_search.py:1256/1520, interface.py:2006,
+                # graph/engine.py:390) use `self._glove_vecs is None` to mean
+                # "GloVe absent" — so it must stay truthy when glove IS
+                # available. The empty dict costs ~0 bytes; the 169 MB we
+                # eliminated was the materialized 400k-entry raw-vector dict,
+                # which is now replaced by the array below. _glove_vector
+                # reads from _glove_raw_vecs/_glove_word_index (fast path) and
+                # never consults this empty placeholder.
+                self._glove_vecs = {}
+                self._glove_raw_vecs = vecs  # (n_words, glove_dim) float32
+                # Only the per-key memo from _glove_vector; not the full 400k map.
+                self._glove_vector_cache = {}
+
+                print(f"  [GloVe] Loaded {len(self._glove_words)} projected vectors from cache ({self._glove_dim}D -> {self.dim}D)")
                 return
             except Exception as e:
                 print(f"  [GloVe] Cache load failed: {e}, re-reading from file...")
@@ -309,6 +352,10 @@ class GraphMixin:
                 print("  [GloVe] Auto-download failed. Running without GloVe vectors.")
                 return
         glove_path = os.path.join(glove_dir, f'glove.6B.{self._glove_dim}d.txt')
+        # File-read fallback: store raw vectors in a dict keyed by word (the
+        # raw .txt only yields a dict anyway), and keep the array-backed
+        # attributes aligned with the cache path so _glove_vector works
+        # uniformly. Memory use here is bounded by the vocab actually read.
         self._glove_vecs = {}
         with open(glove_path, 'r', encoding='utf-8') as f:
             for line in f:
@@ -480,6 +527,41 @@ class GraphMixin:
         table/projection exactly as "GloVe absent" and return None rather than
         raising AttributeError — callers already branch on a None result.
         """
+        # Fast path: array-backed store (the memory-efficient cache path).
+        raw_vecs = getattr(self, "_glove_raw_vecs", None)
+        word_index = getattr(self, "_glove_word_index", None)
+        if raw_vecs is not None and word_index is not None:
+            w = label.lower().strip()
+            # Check per-key memo first (kept small: only queried words).
+            cache = getattr(self, "_glove_vector_cache", None)
+            if cache:
+                cached = cache.get(w)
+                if cached is not None:
+                    return cached
+            idx = word_index.get(w)
+            if idx is None and len(w) > 1:
+                idx = word_index.get(w.rstrip('s'))
+            if idx is None and len(w) > 2:
+                idx = word_index.get(w[:-1])
+            if idx is not None:
+                vec = raw_vecs[idx]
+                proj = getattr(self, "_glove_proj", None)
+                if proj is None:
+                    return None
+                pv = proj @ vec
+                norm = np.linalg.norm(pv)
+                if norm > 0:
+                    pv /= norm
+                result = pv.astype(np.float32)
+                if cache is not None:
+                    cache[w] = result
+                    if w.rstrip('s') != w:
+                        cache[w.rstrip('s')] = result
+                    if len(w) > 2 and w[:-1] != w:
+                        cache[w[:-1]] = result
+                return result
+            return None
+        # Legacy / file-read fallback: self._glove_vecs is a dict.
         vecs = getattr(self, "_glove_vecs", None)
         if vecs is None:
             return None

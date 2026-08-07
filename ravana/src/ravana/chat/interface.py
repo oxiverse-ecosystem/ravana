@@ -2003,7 +2003,7 @@ def main():
             nid = node_data.get("id")
             label = node_data.get("label", "")
             if label:
-                vec = engine.graph_engine._glove_vector(label) if engine.graph_engine._glove_vecs is not None else None
+                vec = engine.graph_engine._glove_vector(label) if engine.graph_engine.glove_ready else None
                 g.add_node(vector=vec, label=label)
         for edge_data in data.get("edges", []):
             src = edge_data.get("source")
