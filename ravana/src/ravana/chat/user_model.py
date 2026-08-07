@@ -244,6 +244,29 @@ class UserModel:
             r"([^.,!?]+)",
             q_clean, re.IGNORECASE)
         if not m_name:
+            # Bare first-person self-naming ("i'm noor", "i am noor"): the
+            # contraction "i'm" / "i am" introduces a proper noun that is the
+            # speaker's name. The existing patterns only caught "my name is /
+            # i am called / call me", so a user opening with "i'm noor" (as
+            # every persona in the chat rounds does) was NEVER captured and a
+            # later "what's my name?" returned "i don't know your name yet".
+            # Structural: a capitalized bare proper noun after the
+            # first-person copula, not a common noun or a determiner-led
+            # phrase. Rejects "i'm a nurse" (common noun) and "i am the bee
+            # guy" (determiner) so descriptor phrases are never stored as a
+            # name. Generalizes across all personas (no per-name list).
+            m_name = re.search(
+                r"\b(?:i'?m|i\s+am)\s+"
+                r"([A-Za-z][A-Za-z']*(?:\s+[A-Za-z][A-Za-z']*){0,2})"
+                r"(?=[\s.,!?]|$)",
+                q_clean)
+            # NOTE: names are typed lowercase in chat ("i'm noor"), so we do
+            # NOT require capitalization here — instead we rely on the
+            # downstream guards (lines ~319-321 reject determiner-led phrases
+            # like "i am a/the ...", and the non-name stoplist rejects states
+            # / common nouns like "tired"/"hungry"/"nurse"). The bare form is
+            # accepted as a name ONLY when it survives those guards.
+        if not m_name:
             m_name = re.search(r"\b(?:do\s+you\s+know\s+my\s+name|know\s+my\s+name|is\s+my\s+name)\s+is\s+(.+)", q_clean, re.IGNORECASE)
         m_loc = re.search(
             r"\bi\s+(?:live|lives|am|was|were|grew\s+up)\s+(?:in|near|at|from)\s+"
@@ -318,7 +341,18 @@ class UserModel:
             # per-name list.
             if name_cand.lower().startswith(("a ", "an ", "the ")):
                 name_cand = ""
-            if name_cand and name_cand.lower() not in ("happy", "sad", "tired", "busy", "fine", "good", "what", "who", "why", "how"):
+            # Reject common states / descriptors / interrogatives so a bare
+            # self-description is never stored as the user's name. Seed
+            # stoplist of NON-name words, not a per-name allowlist.
+            _NON_NAME = ("happy", "sad", "tired", "busy", "fine", "good",
+                         "bad", "hungry", "thirsty", "angry", "mad", "glad",
+                         "ok", "okay", "sorry", "here", "there", "lost",
+                         "ready", "done", "sure", "right", "wrong", "well",
+                         "sick", "late", "early", "home", "awake", "asleep",
+                         "confused", "scared", "afraid", "excited",
+                         "nervous", "calm", "what", "who", "why", "how",
+                         "where", "when", "not", "no", "yes", "maybe")
+            if name_cand and name_cand.lower() not in _NON_NAME:
                 name_cap = " ".join(w.capitalize() for w in name_cand.split())
                 self.user_name = name_cap
                 _put_fact("name", name_cap, 0.6)
@@ -331,9 +365,15 @@ class UserModel:
             # "my favorite color is ochre" stores attr="favorite color",
             # val="ochre" (the old single-token attr grabbed attr="favorite",
             # val="color" and lost the real value). Attribute capped at 4 words,
-            # value at 4 words; this is structural (no per-topic attribute
-            # list) — any "<attr phrase> is <value phrase>" is captured.
-            r"\bmy\s+([\w'-]+(?:\s+[\w'-]+){0,3})\s+(?:is|are)\s+([\w'-]+(?:\s+[\w'-]+){0,3})",
+            # value at up to 8 words; this is structural (no per-topic
+            # attribute list) — any "<attr phrase> is <value phrase>" is
+            # captured. The cap was 4 words but real values are longer,
+            # e.g. "my favorite time of day is the blue hour just before the
+            # sun" was shredded to "the blue hour just" (the 4-word cap cut
+            # "before the sun"). Raised to 8 words so a genuine multi-word
+            # value is kept whole; a following sentence (".", "!", "?") is
+            # still trimmed downstream so only THIS clause is stored.
+            r"\bmy\s+([\w'-]+(?:\s+[\w'-]+){0,3})\s+(?:is|are)\s+([\w'-]+(?:\s+[\w'-]+){0,7})",
             # FIX (round v-aug06d): "i work as a <role>" / "i work for
             # <org>" self-descriptions are identity facts, not throwaway
             # activities. The old activity miner only caught the verb "work"
@@ -405,6 +445,13 @@ class UserModel:
                     continue
                 if _m.lastindex is not None and _m.lastindex >= 2:
                     _attr, _val = _m.group(1).strip().lower(), _m.group(2).strip()
+                    # Trim any FOLLOWING sentence so a value like "the blue
+                    # hour just before the sun. i also keep pigeons" stores
+                    # only the first clause, not the whole tail. Only a hard
+                    # sentence break (., !, ?) ends the value; internal
+                    # prepositions/conjunctions ("of the", "before the") are
+                    # kept so a genuine multi-word value stays whole.
+                    _val = re.split(r"(?<=[.!?])\s+|\s*[.!?]\s*$", _val)[0].strip()
                 elif _m.lastindex == 1:
                     # Single-group patterns: "i am a/an <noun>" / "i am
                     # allergic to <noun>" — the one group is the VALUE; the
