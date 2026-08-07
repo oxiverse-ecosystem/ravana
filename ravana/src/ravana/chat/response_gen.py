@@ -4400,6 +4400,35 @@ class ResponseGenMixin(ChainWalkerMixin):
                     if _lw:
                         _lost = _lw[-1]
                 return ("negative", f"loss:{_lost}" if _lost else "hurting")
+        # Non-death distress schema (brain-faithful). Grief need not name a
+        # death: "losing the hive broke me for months", "the breakup shattered
+        # me", "the rejection destroyed me" are unambiguous high-intensity
+        # NEGATIVE self-disclosures with no lexical loss-word, so the VAD scan
+        # below (which keys on affect adjectives) misses them and the turn
+        # fell through to counterfactual simulation. A first-person + distress
+        # verb + "me/myself" is a self-directed suffering report -> route to
+        # empathy. The verb set is a small seed list (not a per-topic table);
+        # the felt term is the verb itself, so the reply names the real affect
+        # the user expressed. Gated by first-person + self-possessive so
+        # third-entity uses ("the storm broke the fleet") abstain.
+        _DISTRESS_VERBS = (
+            "broke", "shattered", "destroyed", "crushed", "devastated",
+            "wrecked", "ruined", "broke", "shatter", "destroy", "crush",
+            "devastate", "wreck", "ruin", "tore", "tore apart", "tore me",
+            "gutted", "hollowed", "emptied", "broke down", "broke me")
+        if re.search(r"\b(i|me|my|myself|i'm|i am)\b", text):
+            _distress_m = re.search(
+                r"\b(?:i|me|my|myself|it|the\s+\w+)\s+(?:was|were|got|been|am|'m|feel|feels?|left me|made me)\s+"
+                r"(?:" + "|".join(re.escape(v) for v in _DISTRESS_VERBS) + r")\b",
+                text)
+            if not _distress_m:
+                # also: "<event> broke me", "<thing> destroyed me"
+                _distress_m = re.search(
+                    r"\b(?:broke|shattered|destroyed|crushed|devastated|wrecked|"
+                    r"ruined|tore|guttted|gutted|hollowed)\s+(?:me|myself)\b", text)
+            if _distress_m:
+                self._update_vad_baseline(-0.8)
+                return ("negative", "hurting")
         if not re.search(r"\b(i|i'm|i am|my|me|we|we're|we are)\b", text):
             return None
         if re.search(r"\blike (?:i am|i'm|i)\s+(?:a |an )?\w+\b", text) or \
@@ -4603,15 +4632,28 @@ class ResponseGenMixin(ChainWalkerMixin):
             pass
 
         # ── Stage 3: realization from state ─────────────────────────────────
-        # Valence word is derived from the continuous VAD, not a pool.
-        if valence <= -0.4:
-            val_word = "really hard"
-        elif valence < 0.0:
-            val_word = "rough"
-        elif valence < 0.4:
-            val_word = "mixed"
-        else:
+        # Valence word reflects the USER'S disclosed affect (the `kind` the
+        # detector already classified from the user's own words), NOT RAVANA's
+        # own emotion state. The old code derived val_word from
+        # em.state.valence (RAVANA's interoception, ~0.5 by default), so a
+        # clearly-positive user disclosure ("buzzing with joy") landed in the
+        # 0.0<=v<0.4 band and produced "what's got you feeling so MIXED?" — a
+        # wrong affect tag on a happy moment. The disclosure kind is the ground
+        # truth; RAVANA's own valence only fills in when kind is unspecified.
+        if kind == "positive":
             val_word = "good"
+        elif kind == "negative":
+            val_word = "rough"
+        else:
+            # neutral / unspecified: fall back to RAVANA's continuous valence
+            if valence <= -0.4:
+                val_word = "really hard"
+            elif valence < 0.0:
+                val_word = "rough"
+            elif valence < 0.4:
+                val_word = "mixed"
+            else:
+                val_word = "good"
 
         if isinstance(word, str) and word.startswith("loss:"):
             lost = word[len("loss:"):].strip()

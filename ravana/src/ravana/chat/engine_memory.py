@@ -272,12 +272,20 @@ class MemoryMixin:
                 ent, val = bm.group(1).strip(), bm.group(2).strip()
                 if ent and val and ent not in ("name",):
                     facts[ent] = val
-        # "i love/like X" (last such clause)
+        # "i love/like X" (last such clause). Cut the captured object at the
+        # first comparative/prepositional tail ("over", "except", "rather
+        # than", "but", "and", "because") so "i prefer acoustic music over
+        # anything produced on a laptop" stores "acoustic music", not the
+        # run-on comparative clause. Generic splitting, no per-topic list.
         for verb in ("love", "like", "enjoy", "prefer"):
-            mm = re.findall(r"\bi\s+" + verb + r"\s+([a-z0-9 \-]+?)(?:,|\.|!|\?| and | but | because |$)",
+            mm = re.findall(r"\bi\s+" + verb + r"\s+([a-z0-9 \-]+?)(?:,|!|\?| and | but | because | over | except | rather than |$)",
                             low)
             if mm:
-                facts.setdefault("likes", mm[-1].strip())
+                _cap = mm[-1].strip()
+                # keep only the leading content head (drop trailing modifiers)
+                _cap = re.split(r"\s+(?:over|except|rather than|but|and|because|to)\s", _cap)[0].strip()
+                if _cap:
+                    facts.setdefault("likes", _cap)
         # Index mined facts into the hippocampal entity store (pattern separation).
         for slot, val in facts.items():
             # entity = leading token before an underscore (cat_name -> cat) or
@@ -1536,7 +1544,19 @@ class MemoryMixin:
                             _bits.append(f"your {_ent}'s {_attr} is {_val}" if not _is_user
                                          else f"your {_attr} is {_val}")
             if _bits:
-                _summary = "; ".join(dict.fromkeys(_bits))
+                # Case-insensitive dedup: the same fact can surface from both
+                # the personal-fact store ("your name is a hypocrite") and the
+                # episodic index ("your name is A Hypocrite"); keep the first
+                # occurrence's original casing, drop the duplicate. Avoids the
+                # garbled "your name is a hypocrite; your name is A Hypocrite".
+                _seen = set()
+                _deduped = []
+                for _b in _bits:
+                    _k = _b.lower()
+                    if _k not in _seen:
+                        _seen.add(_k)
+                        _deduped.append(_b)
+                _summary = "; ".join(_deduped)
                 return f"from what you've told me, {_summary}."
             return ("i don't think you've told me much about yourself yet — "
                     "but i'm listening whenever you want to share.")
