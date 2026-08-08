@@ -435,6 +435,21 @@ class UserModel:
                     m_loc.group(1), re.IGNORECASE)
             if _trailing:
                 _loc = _trailing.group(1).strip()
+            # Round 2026-08-08f: a long location clause with a trailing
+            # measure/qualifier ("i live in a lighthouse on a rock about two
+            # kilometers offshore") over-grabs the qualifier, pushing the
+            # capture past the <=5-word gate so NO location fact is stored and
+            # the disclosure falls through to the hollow "got it" ack. Trim a
+            # trailing qualifier phrase led by a measure word ("about/around/
+            # roughly" or a number+unit like "two kilometers") so the real
+            # place head ("a lighthouse on a rock") is kept and stored.
+            # Structural: cuts at a closed-class qualifier, never invents a
+            # place; degrades gracefully if trimming leaves nothing.
+            else:
+                _loc = re.split(
+                    r"\s+(?:about|around|roughly|approximately|some)\s+"
+                    r"(?:\d+\s+\w+|\w+)\b", _loc)[0].strip()
+                _loc = re.split(r"\s+\d+\s+(?:kilometer|meter|mile|km|mi|minute|hour|year|month)s?\b", _loc)[0].strip()
             if _loc and len(_loc.split()) <= 5:
                 self.user_location = _loc
                 _put_fact("location", _loc, 0.6)
@@ -811,6 +826,64 @@ class UserModel:
              r"citizens?|communities?)?\s*(?:than|over|versus|vs\.?)\b", 0.7, 0.5),
             (r"\b(.+?)\s+(?:beats|outshines|trumps|wins\s+over|is\s+finer\s+than|"
              r"is\s+better\s+than)\s+(.+?)(?:[.!?]|\band\b|\bbut\b|$|,)", 0.7, 0.5),
+            # Round 2026-08-08f: broaden the comparative / superlative /
+            # dismissive opinion classes. The prior miner only caught the
+            # 'makes better people than' and 'beats' shapes; rich value
+            # judgments like 'the sea is a better teacher than any classroom',
+            # 'hand-built synths sound warmer than mass-produced', 'graveyards
+            # are the most honest libraries', 'the cold water is the only
+            # honest part of my day', 'most modern music is just wallpaper',
+            # 'the best knots are the ones you can untie in the dark' were NOT
+            # captured -> no stance -> no contradiction target -> dead hollow
+            # ack. Each class below is a GRAMMATICAL pattern (no per-topic
+            # list); the content head is resolved by _opinion_topic so the
+            # stance lands on the real concept (e.g. 'sea', 'hand-built
+            # synths', 'graveyards', 'cold water', 'modern music'). Polarity
+            # is lexical: comparatives/superlatives/dismissals are inherently
+            # valenced. RAVANA can still revise any stance by talking (the
+            # store merges on new input); nothing is frozen or retrained.
+            # (a) comparative copula 'X is a better/safer/finer/honest-er Y
+            #     than Z' -> positive stance on X. The leading 'i think/
+            #     i believe' frame is stripped so the captured subject is the
+            #     real content head (e.g. 'sea'), never 'i think the sea'.
+            (r"(?:\bi\s+(?:think|believe|feel|find|reckon)\s+)?"
+             r"\b(.+?)\s+(?:is|are)\s+(?:a|an)?\s*(?:better|safer|finer|kinder|"
+             r"wiser|healthier|stronger|truer|freer|calmer|cleaner|warmer|"
+             r"cooler|sharper|kinder|more honest|more human|more real|"
+             r"more true|more free)\b"
+             r"(?:\s+(?:teacher|thing|place|way|part|kind|sort|type|version|"
+             r"form|bit|lot|deal))?\s+(?:than|over|versus|vs\.?\b)", 0.7, 0.55),
+            # (b) sensory-comparative 'X sounds/feels/tastes/looks/reads WARMER
+            #     than Y' -> positive stance on X (the WARMER-ER class). Strip
+            #     a leading 'i think/believe' frame the same way.
+            (r"(?:\bi\s+(?:think|believe|feel|find|reckon)\s+)?"
+             r"\b(.+?)\s+(?:sounds|sound|feels|feel|tastes|taste|looks|look|reads|read|"
+             r"seems|seem|comes|come|comes\s+across|comes\s+off)\s*"
+             r"(?:more|much)?\s*(?:warmer|cooler|truer|cleaner|honest|realer|"
+             r"more honest|more real|more true|more alive|more human)\b"
+             r"(?:\s+(?:than|over|versus|vs\.?))", 0.7, 0.55),
+            # (c) superlative 'X is the most Y' / 'X is the best Y' /
+            #     'the only Y' -> positive stance on X. Strip the leading
+            #     'i think/believe' frame so the subject is the content head.
+            (r"(?:\bi\s+(?:think|believe|feel|find|reckon)\s+)?"
+             r"\b(.+?)\s+(?:is|are)\s+the\s+(?:most|best|finest|truest|honest|real|"
+             r"purest|clearest|only)\b", 0.75, 0.6),
+            # (d) 'X is just wallpaper/noise/fluff/...' -> negative dismissive
+            #     stance on X (the subject is being demoted to negligible).
+            #     Structural: the dismissive-metaphor noun set is SEED
+            #     vocabulary (the same kind of small lexicon the sentiment
+            #     adjectives use), not a per-topic table; RAVANA can extend it
+            #     at runtime. Strip the leading frame.
+            (r"(?:\bi\s+(?:think|believe|feel|find|reckon)\s+)?"
+             r"\b(.+?)\s+(?:is|are)\s+(?:just|merely|basically|really\s+just)\s*"
+             r"(?:wallpaper|noise|fluff|decoration|decorative|background|filler|"
+             r"branding|spin|hype|fad|nonsense|garbage|junk|pap|slop|trash)"
+             r"(?:\b|[.!?])", -0.7, 0.55),
+            # (e) 'X is the best kind of Y' -> positive stance on X (X is the
+            #     prized member of category Y). Strip the leading frame.
+            (r"(?:\bi\s+(?:think|believe|feel|find|reckon)\s+)?"
+             r"\b(.+?)\s+(?:is|are)\s+the\s+best\b"
+             r"(?:\s+(?:kind|sort|type|breed|example|form|version|bit))?", 0.7, 0.55),
         ):
             for _m in re.finditer(_pat, q_clean, re.IGNORECASE):
                 _raw = _m.group(_m.lastindex).strip().lower()
@@ -924,6 +997,36 @@ class UserModel:
         _soft = _matched_cue in _SOFTENING_CUES or any(
             re.search(p, q) for p in _SOFTENING_CUES)
         if cue_end is None:
+            # Round 2026-08-08f: concession shape. A very common contradiction
+            # does NOT use a retraction keyword ("i take back", "i was wrong"):
+            # the user concedes a prior stance with "i thought X but Y" /
+            # "i used to think X but now Y" / "i told you X but actually Y",
+            # where X's topic matches a stance RAVANA already holds and Y
+            # contradicts it. The prior code only caught keyword-led retractions,
+            # so these fell through to the hollow "got it" ack and the stale
+            # stance persisted (the contradiction was silently dropped). Detect
+            # the concession structurally: a first-person past/present belief
+            # frame ("i thought/i used to think/i told you/i said") followed by
+            # a BUT that introduces a contrasting clause. Resolve the conceded
+            # topic against the LIVE stance store; if it matches a held stance,
+            # reverse/soften it the same way a keyword retraction would. This is
+            # grammatical (no per-topic table) and RAVANA can still revise the
+            # stance by further talk. A concession is a SOFTENING (the user is
+            # walking the stance back, not inverting to a hard opposite
+            # conviction), so it relaxes toward neutral, never force-flips.
+            _concession = re.search(
+                r"\b(?:i\s+(?:thought|used\s+to\s+think|told\s+you|said|believed|felt)"
+                r"|i'?m\s+not\s+so\s+sure)\b"
+                r".{0,60}?\b(?:but|although|though|yet|actually|however)\b", q)
+            if _concession is not None:
+                _target = self._stance_key_in_text(q)
+                if _target is not None:
+                    try:
+                        self.opinions._soft_reversal = True
+                        self.opinions.reverse_stance(_target)
+                    except Exception:
+                        pass
+                    return
             return
         # A retraction cue is either a HARD recant ("i was wrong about X",
         # "i take it all back" — flip decisively) or a SOFTENING ("x isn't that
