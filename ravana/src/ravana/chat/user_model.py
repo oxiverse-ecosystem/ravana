@@ -655,6 +655,21 @@ class UserModel:
             (r"\bi\s+believe\s+we\s+(?:must|should)\s+(?:ban|cut|end|stop|reduce)\s+(.+?)(?:\.|\band\b|\bbut\b|$|,)", -0.8, 0.55),
             (r"\b(.+?)\s+is\s+my\s+favorite\b", 1.0, 0.7),
             (r"\bi\s+believe\s+([\w'-]+)\s+beats\s+([\w'-]+)", 0.7, 0.4),
+            # A-fix (round 2026-08-08b): comparative opinions ("small towns make
+            # better humans than cities", "tea beats coffee", "the mountains are
+            # finer than the coast"). The Winner (X) is the valued term -> a
+            # positive stance on X. General, no per-topic rule; the content head
+            # is resolved by _opinion_topic so the topic is a real concept
+            # (e.g. "small towns"), never a function word. The loser (Y) is NOT
+            # force-negatived here — if the user holds a negative view of it
+            # they state it, and the same miner captures it; we must not invent
+            # a polarity RAVANA could not revise by talking.
+            (r"\b(.+?)\s+(?:makes?|are?|is|make|produce[s]?|breed[s]?|build[s]?)\s+"
+             r"(?:better|finer|more human|more humane|healthier|stronger|"
+             r"happier|wiser|kinder)\s+(?:humans?|people|folk|neighbou?rs?|"
+             r"citizens?|communities?)?\s*(?:than|over|versus|vs\.?)\b", 0.7, 0.5),
+            (r"\b(.+?)\s+(?:beats|outshines|trumps|wins\s+over|is\s+finer\s+than|"
+             r"is\s+better\s+than)\s+(.+?)(?:[.!?]|\band\b|\bbut\b|$|,)", 0.7, 0.5),
         ):
             for _m in re.finditer(_pat, q_clean, re.IGNORECASE):
                 _raw = _m.group(_m.lastindex).strip().lower()
