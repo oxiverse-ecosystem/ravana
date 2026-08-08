@@ -1340,19 +1340,33 @@ class MemoryMixin:
         # self-recall (strategy=memory_recall) and never reach the stored name.
         if re.search(r"\b(?:my name|who am i)\b", t):
             return None
-        # D3 (round v3): AGENT-self-recall. "what did you say about who you are",
-        # "earlier you described yourself", "what was your answer about X" ask
-        # for RAVANA's OWN prior claim, NOT a user fact. Route to the
-        # agent-claim store (populated from RAVANA's real generated replies) so
-        # these don't get swallowed by the user-episode recall below and return
-        # a user utterance (the D-C bug). Content comes from verbatim engine
-        # output, never authored prose.
-        if re.search(
-            r"\b(what did you (?:say|tell me|answer|describe|say about)|"
-            r"earlier you (?:described|said|told me|mentioned)|"
-            r"you described yourself|your answer about|what was your answer|"
-            r"you (?:said|mentioned|told me) something about what you (?:are|were)|"
-            r"remind me what you (?:said|told me) (?:about|you are))\b", t):
+        # D-fix (round 2026-08-08b): the agent-claim recall below must fire ONLY
+        # when the user is asking about RAVANA's OWN self-description ("what did
+        # you say about who you are", "earlier you described yourself"). It must
+        # NOT fire on a user-fact recall like "earlier you said something about
+        # how I see cities" — that is the user asking about THEIR OWN stance, and
+        # routing it to the agent-claim store returns RAVANA's self-intro (a
+        # self/other boundary breach: D-C class). Gate the "earlier you said/
+        # mentioned/told me" and "you said something about" branches on the
+        # recalled content being about the AGENT (yourself / who you are / what
+        # you are / your nature), so a query containing any first-person USER
+        # reference (i / my / me) falls through to the genuine user-episode
+        # recall instead. Structural (regex), not a per-topic guard.
+        _agent_self_recall = (
+            bool(re.search(
+                r"\bwhat did you (?:say|tell me|answer|describe|say about)\b", t))
+            and not bool(re.search(r"\b(i|my|me|we)\b", t))
+        ) or bool(re.search(
+            r"\bearlier you (?:described|said|told me|mentioned) "
+            r"(?:yourself|who you are|what you are|your nature)\b", t)
+        ) or bool(re.search(r"\byou described yourself\b", t)
+        ) or bool(re.search(r"\byour answer about\b|\bwhat was your answer\b", t)
+        ) or bool(re.search(
+            r"\byou (?:said|mentioned|told me) something about what you "
+            r"(?:are|were)\b", t)
+        ) or bool(re.search(
+            r"\bremind me what you (?:said|told me) (?:about|you are)\b", t))
+        if _agent_self_recall:
             _claim = getattr(self, "_agent_claims", {}).get("self")
             if _claim:
                 return _claim
