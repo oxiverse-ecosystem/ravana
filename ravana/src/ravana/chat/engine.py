@@ -2865,6 +2865,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
 
     def process_turn(self, user_input: str) -> str:
         """Process input and generate a response, auto-learning when needed."""
+        # C-fix (round 2026-08-08b): stash the FULL user utterance on the engine
+        # so affect realizers can read the user's own felt-label ("i feel
+        # hollow") even when the disclosure context passed downstream only
+        # carries the extracted event span ("lost half the colony"). Consumed
+        # by _appraised_affective_reply's copula scan as the authoritative text.
+        self._last_user_input = user_input
         # Reset the prior turn's stance-reversal marker so a retraction recorded
         # this turn is consumed/acked the SAME turn and cannot leak into the next
         # turn's acknowledgment (attitude change is a within-turn valuation

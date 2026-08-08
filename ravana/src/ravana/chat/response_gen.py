@@ -4732,6 +4732,21 @@ class ResponseGenMixin(ChainWalkerMixin):
 
         if isinstance(word, str) and word.startswith("loss:"):
             lost = word[len("loss:"):].strip()
+            # C-fix (round 2026-08-08b): when the user ALSO names a felt-state
+            # via a copula ("i feel hollow"), prefer that label over the
+            # loss-event word ("lost") so the reply reads the user's actual
+            # feeling, not just the event. The event (colony loss) is still
+            # acknowledged by the sympathy framing below. Use the engine's FULL
+            # utterance (self._last_user_input) as the authoritative text — the
+            # downstream ctx may only carry the extracted event span.
+            _utt = (getattr(self, "_last_user_input", "") or "") or (
+                getattr(ctx, "raw_input", "") or "")
+            _feel_m = re.search(
+                r"\b(?:i\s*(?:feel|feeling|am|'m|felt|get|got)\s+(?:so|really|"
+                r"very|quite|a\s+little\s+|kind\s+of\s+)?)([a-z]+(?:\s+[a-z]+)?)"
+                r"\b", _utt.lower())
+            if _feel_m:
+                lost = _feel_m.group(1).strip()
             if lost:
                 if has_stored_detail:
                     return (f"i'm so sorry about your {lost}. i remember you "
@@ -4766,6 +4781,31 @@ class ResponseGenMixin(ChainWalkerMixin):
             # ("going through something hard") is a cause description and would
             # read as broken grammar in the "feeling X" frame.
             affect_term = ""
+        # C-fix (round 2026-08-08b): when the user EXPLICITLY names a felt state
+        # via a feeling-copula ("i feel hollow", "i'm scared"), prefer that word
+        # over a co-occurring EVENT word the detector scored higher. Otherwise
+        # "i feel hollow" collapsed to "feeling lost is hard" because the
+        # detector's strongest contributor was the event word "lost" (from "lost
+        # half the colony"). The user's own feeling label is the ground truth.
+        # Use the engine's FULL utterance (self._last_user_input) — the ctx may
+        # only carry the extracted event span, which would re-introduce the
+        # same "lost" mislabel.
+        _utt = (getattr(self, "_last_user_input", "") or "") or (
+            getattr(ctx, "raw_input", "") or "")
+        _feel_m = re.search(
+            r"\b(?:i\s*(?:feel|feeling|am|'m|felt|get|got)\s+(?:so|really|"
+            r"very|quite|a\s+little\s+|kind\s+of\s+)?)([a-z]+(?:\s+[a-z]+)?)"
+            r"\b", _utt.lower())
+        if _feel_m:
+            _ft = _feel_m.group(1).strip()
+            # accept a single-word feeling label, or a two-word one whose second
+            # word is an affect noun (never a cause noun like "half the colony").
+            if " " not in _ft or _ft.split()[-1] in (
+                    "hollow", "empty", "numb", "lost", "sad", "happy", "glad",
+                    "angry", "scared", "afraid", "anxious", "lonely", "tired",
+                    "proud", "calm", "hurt", "hopeless", "hopeful", "grateful",
+                    "excited", "tense", "raw", "low", "blue", "down"):
+                affect_term = _ft
         felt = f"feeling {affect_term}" if affect_term else f"feeling {val_word}"
 
         if kind == "negative":
@@ -4777,9 +4817,27 @@ class ResponseGenMixin(ChainWalkerMixin):
                     f"it. {probe}", "emotional_empathy")
 
         if kind == "positive":
-            close = (f"what's got you feeling so {val_word}?"
-                     if val_word != "good" else "what made today good?")
-            return (f"that's awesome! {close}", "emotional_empathy")
+            # C-fix (round 2026-08-08b): name the REAL felt term the user
+            # expressed (from the copula label if present, else val_word) — do
+            # NOT emit the canned exclamation "that's awesome!", which dropped
+            # the user's actual ambivalence ("proud and a little scared" -> just
+            # "awesome"). When the detector also saw a genuine negative pole
+            # (mixed affect), acknowledge BOTH honestly instead of collapsing to
+            # one positive gloss.
+            _pos_word = affect_term or val_word
+            _signed = getattr(self, "_tmp_signed", None) or {}
+            _neg_word = _signed.get("neg")
+            if _neg_word and _neg_word[1] not in (None, _pos_word):
+                # genuine mixed valence: name both poles, grounded in the user's
+                # own words, not a fixed cheerful template.
+                _neg_label = _neg_word[1]
+                return (f"that's a real mix — feeling {_pos_word} and a bit "
+                        f"{_neg_label} at once. what's the {_pos_word} part about?",
+                        "emotional_empathy")
+            close = (f"what's got you feeling {_pos_word}?"
+                     if _pos_word not in ("good", "") else "what made today good?")
+            return (f"i'm glad something's got you feeling {_pos_word}. {close}",
+                    "emotional_empathy")
 
         # neutral / unspecified affect
         return (f"i hear you. how are you feeling, really?",
