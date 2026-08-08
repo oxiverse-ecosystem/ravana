@@ -38,6 +38,42 @@ _CORRECTION_FACT_PATTERNS = [
     r"([\w\s]+?)\s+are\s+(\w+)[,.]*\s+not\s+(\w+)",
 ]
 
+# real affect categories in brain_regions._CAUSE_SEEDS and
+# support_router._SUPPORT_AFFECT). Used by the bare-copula name guard: a
+# first-person "i'm X" where X is any of these is a TRANSIENT STATE, never a
+# proper noun, so it must not be stored as the user's NAME. This is SEED
+# vocabulary (a data set, not an answer path) — RAVANA-expandable via the
+# shared affect lexicon; removing entries degrades gracefully. Participles
+# ("shaking"/"tired"), irregulars ("torn"/"lost"), and stative/cognitive
+# verbs ("thinking"/"convinced") are all covered so the guard generalizes
+# across every tense/participle form rather than a frozen per-word list.
+_AFFECT_STATE_LEXICON = {
+    # affect / emotion nouns + adjectives
+    "happy", "sad", "glad", "mad", "angry", "furious", "scared", "afraid",
+    "anxious", "worried", "worry", "lonely", "alone", "empty", "hollow",
+    "numb", "lost", "torn", "hurt", "hopeless", "hopeful", "grateful",
+    "excited", "tense", "raw", "low", "blue", "down", "proud", "calm",
+    "nervous", "stressed", "stressedout", "overwhelmed", "depressed",
+    "exhausted", "tired", "hungry", "thirsty", "sick", "confused",
+    "fine", "good", "bad", "ok", "okay", "well", "ready", "done", "sure",
+    "certain", "right", "wrong", "sorry", "here", "there", "home", "awake",
+    "asleep", "late", "early", "busy",
+    # stative / cognitive / feeling verbs (incl. participles + infinitives)
+    "feeling", "felt", "feel", "love", "like", "hate", "dislike", "prefer",
+    "think", "thinking", "believing", "believe", "guess", "guessing",
+    "wonder", "wondering", "mean", "meaning", "know", "knowing", "understand",
+    "want", "wanting", "need", "needing", "wish", "wishing", "hope", "hoping",
+    "doubt", "doubting", "fear", "fearing", "regret", "regretting",
+    "suspect", "suspecting", "agree", "agreeing", "disagree", "convinced",
+    "convincing", "standing", "coming", "going", "trying", "saying",
+    "referring", "talking", "asking", "loving", "hating", "liking",
+    "sticking", "getting", "shaking", "crying", "dying", "lying", "trying",
+    "running", "falling", "breaking", "caring", "waiting", "working",
+    "learning", "growing", "changing", "feeling",
+}
+
+
+
 # D3 (round v3): explicit correction shape "X's name is not Y, it's Z" /
 # "X is not Y, it's Z" where the CORRECTED value is the token after "it's"
 # (never the negation word). Handled separately because its group order is
@@ -369,19 +405,24 @@ class UserModel:
                     "that", "this", "it", "my", "your", "from", "by", "as",
                     "so", "but", "and", "or", "if", "because",
                 }
-                _NAME_REJECT_VERBS = {
-                    "feeling", "felt", "furious", "scared", "afraid",
-                    "worried", "convinced", "tired", "angry", "sad",
-                    "happy", "glad", "excited", "lonely", "hungry",
-                    "thirsty", "confused", "sure", "certain", "wrong",
-                    "right", "sorry", "ok", "okay", "done", "ready",
-                    "hoping", "thinking", "believing", "guessing",
-                    "wondering", "loving", "hating", "liking", "meaning",
-                    "saying", "referring", "talking", "asking", "trying",
-                    "sticking", "standing", "coming", "going", "feeling",
-                }
+                # A-name (round 2026-08-08c): a bare "i'm X" copula is how
+                # users express TRANSIENT STATES ("i'm torn", "i'm shaking",
+                # "i'm proud", "i'm hollow"). The old reject set was a frozen
+                # stoplist that missed "torn"/"shaking"/"proud", so they were
+                # stored as the user's NAME (name poisoning: a later "what's
+                # my name?" answered "torn"/"shaking"). Reject any candidate
+                # whose head token is an AFFECT / STATE / COGNITIVE word, drawn
+                # from the SAME seed vocabulary the empathy gate uses
+                # (brain_regions._CAUSE_SEEDS + support_router._SUPPORT_AFFECT),
+                # expressed here as one data set. This is SEED vocabulary (not
+                # an if/elif answer path): RAVANA can extend it at runtime via
+                # the shared affect lexicon; removing entries degrades
+                # gracefully (only loses one guard). Covers participles
+                # ("shaking"/"tired"), irregulars ("torn"/"lost"), and
+                # stative/cognitive verbs ("thinking"/"convinced").
+                _NAME_REJECT_AFFECT = _AFFECT_STATE_LEXICON
                 _has_closed = any(w.lower() in _CLOSED for w in _nw)
-                _head_verb = _nw[0].lower() in _NAME_REJECT_VERBS
+                _head_verb = _nw[0].lower() in _NAME_REJECT_AFFECT
                 if len(_nw) > 2 or _has_closed or _head_verb:
                     name_cand = ""
             # Reject common states / descriptors / interrogatives so a bare
