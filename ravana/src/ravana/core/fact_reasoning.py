@@ -333,8 +333,33 @@ def conditional_answer(question: str,
             f"and this isn't that situation.")
 
 
+# B-fix (round 2026-08-08b): tighten the enumeration cue so it ONLY fires for
+# true category enumeration ("which hats should I bring" / "what books can you
+# recommend"). Previously the pattern `\b(?:which|what)\b.{0,80}\b(?:should|do|
+# can|could|would)\b` matched ANY "what ... do" question, so open self-synthesis
+# queries ("what do you think i care about", "what do you make of the fact that
+# i keep telling you about loss") reached enumerate_matching and dumped up to 6
+# unrelated stored fact-texts (and even replayed a prior AGENT turn — a
+# source-monitoring error). 
+#   - Require "which/what" to sit with a concrete enumerable noun and an
+#     option/auxiliary close by (real category frame), not a distant "do".
+#   - Gate out self/opinion/source questions ("what do YOU ... about ME",
+#     "what do you think/care/make of", "what did I tell you", "what have you
+#     learned") — those are answered by the structured recall / stance paths,
+#     never by joining unrelated turns.
+_ENUM_SELF = re.compile(
+    r"\b(?:what|anything|tell me|something)\b.*\b(?:do\s+)?you\b.*\b(?:know|"
+    r"remember|recall|learned?|figured out|care|think|make of|tell|told|"
+    r"said|formed|hold|believe|feel)\b.*\b(?:about me|me|my|myself)\b",
+    re.IGNORECASE)
 _ENUM_Q = re.compile(
-    r"\b(?:which|what)\b.{0,80}\b(?:should|do|can|could|would)\b",
+    r"\b(?:which|what)\b\s+(?:\w+\s+){0,6}?\b(?:of\s+(?:the|these|those|my|"
+    r"your)\s+)?(?:books?|hats?|movies?|songs?|places?|things?|options?|"
+    r"examples?|ways?|kinds?|types?|brands?|dishes?|tools?|apps?|games?|"
+    r"people|names?|items?|choices?|categories|topics?|subjects?|colors?|"
+    r"animals?|plants?|ideas?|maps?|routes?|steps?|reasons?|methods?)\b"
+    r".{0,40}\b(?:should|can|could|would|do|recommend|suggest|have|pick|"
+    r"bring|use|try|choose)\b",
     re.IGNORECASE)
 
 
@@ -353,6 +378,13 @@ def enumerate_matching(question: str,
     if not fact_texts:
         return None
     if not _ENUM_Q.search(question or ""):
+        return None
+    # B-fix (round 2026-08-08b): a self/opinion/source-monitoring question must
+    # NEVER reach the blob joiner. Such questions are answered by the structured
+    # recall / stance paths; if nothing maps there, the honest pipeline handles
+    # them. Enumerate_matching only reinstates co-existing VALUES for a genuine
+    # category ("which hats do I have"), not open self-synthesis queries.
+    if _ENUM_SELF.search(question or ""):
         return None
     qw = content_words(question)
     if not qw:
