@@ -3922,6 +3922,58 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 # untouched (no recall frame).
                 if _is_q_g or _pref_stmt_g or _name_stmt_g or _recall_frame:
                     _disc = None
+            # SUPPORT/EMPATHY MISFIRE GATE (RAVANA defect class: a benign
+            # self-disclosure matched support/empathy before checking genuine
+            # distress). This runs at the TOP LEVEL of the empathy frame-guard so
+            # it covers BOTH the primary VAD detection and the GloVe cause
+            # fallback. The cause classifier is NOISY on arbitrary first-person
+            # text: an attribute disclosure about an ENTITY the user owns ("my
+            # dog is a sheepdog named Cairn", "my child is a curious kid named
+            # Sam", "my cat is fluffy and white") is often mislabeled
+            # "loss"/"other_suffering" and routed into the empathy path, where the
+            # turn is MET with comfort instead of ACKED as a fact -- and the
+            # stored fact is dropped. We therefore do NOT trust the classifier for
+            # this gate; instead we use the utterance SHAPE: a plain possessive
+            # attribute statement ("my <entity> is/was/has <attribute>") or a
+            # first-person copula-attribute ("i am/have <role>") with NO explicit
+            # suffering/distress word is, by construction, a factual disclosure,
+            # not a cry for empathy. We drop _disc so it falls through to
+            # autobiographical storage and gets a grounded ack. Genuine distress
+            # is preserved: the gate does NOT fire when a real suffering/loss word
+            # is present ("my mom is sick", "my dog died", "i am sad", "my friend
+            # is hurting"), which keeps those on the empathy path. Structural: it
+            # keys off the utterance shape + a small, stable set of suffering
+            # words -- NOT a per-entity/per-topic table -- so it generalizes
+            # ("my brother is in hospital" stays empathic, "my brother is a
+            # doctor" drops to fact storage). Fail-closed: when ambiguous we KEEP
+            # empathy (do not drop _disc), mirroring the documented support-misfire
+            # fix's default-to-care.
+            if _disc is not None:
+                _low_d = (user_input or "").lower().strip()
+                _low_d = (_low_d.replace("i'm", "i am")
+                          .replace("i've", "i have").replace("i'll", "i will"))
+                # Plain possessive-attribute statement: "my <noun> is/was/has/
+                # are/have/got/named/called <...>". This is the factual-disclosure
+                # shape (the user is telling RAVANA something ABOUT an entity).
+                _possessive_attr = bool(re.match(
+                    r"^my\s+\w+(\s+\w+)?\s+"
+                    r"(is|are|was|were|has|have|got|named|called|likes|loves|enjoys|prefers)\b",
+                    _low_d)) or bool(re.match(
+                    r"^(i am|i'm|i have|i've|i am feeling|i feel)\s+\w+", _low_d))
+                # Genuine distress cues -- a small, stable set of suffering/
+                # loss words. Presence of ANY of these means the utterance IS a
+                # distress disclosure and must stay on the empathy path. This is
+                # the universal "is anyone actually hurting here?" check, NOT a
+                # per-entity table.
+                _suffering = bool(re.search(
+                    r"\b(hurt|hurts|hurting|pain|ache|suffering|suffer|"
+                    r"grief|grieving|lonely|alone|scared|afraid|terrified|"
+                    r"anxious|panic|devastated|broken|dying|dead|died|death|"
+                    r"dies|passed|miserable|hopeless|overwhelmed|exhausted|"
+                    r"furious|angry|cry|cried|crying|sad|sick|ill|hospital|"
+                    r"wounded|bleeding|lost|worried|troubled|upset)\b", _low_d))
+                if _possessive_attr and not _suffering:
+                    _disc = None
             if _disc is not None:
                 # §7 deictic special-case: "i love you" / "i like you" is a
                 # relationship declaration addressed to the AGENT, not a generic
