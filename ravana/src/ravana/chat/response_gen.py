@@ -2553,6 +2553,21 @@ class ResponseGenMixin(ChainWalkerMixin):
         _is_comparative = bool(re.search(
             r"\b(more|most|less|better|worse|rather|instead|than|versus|vs\.?|"
             r"compared to|compared with|prefer .* (to|over)|as .* as)\b", t, re.IGNORECASE))
+        # D2 (round 2026-08-08b-d): the "you're {topic}" lead templates are for
+        # SELF-DESCRIPTIONS ("i'm a teacher" -> "so you're a teacher"). An
+        # OPINION statement ("i think i was wrong about cassettes", "i prefer
+        # tape") is not an identity claim, so planting the opinion topic into
+        # "so you're {topic}" produces garble ("so you're cassettes"). Force the
+        # topic-less acknowledgment whenever the turn leads with an
+        # opinion/belief verb (think/feel/believe/prefer/love/like/hate/wrong
+        # about...) — the reflect-the-topic template only fits a copula
+        # self-description. Structural: an opinion-lead regex, not a per-topic
+        # guard; generalizes across every opinion the user can state.
+        _is_opinion = bool(re.search(
+            r"\b(i\s+(?:think|feel|believe|prefer|love|like|hate|dislike|enjoy|"
+            r"reckon|suppose|was\s+wrong\s+about|was\s+right\s+about))\b",
+            t, re.IGNORECASE))
+
 
         # Affective self-disclosure ("i am sad", "i'm tired") must reach the
         # empathic path, NOT be swallowed by the short-statement backchannel
@@ -2602,6 +2617,11 @@ class ResponseGenMixin(ChainWalkerMixin):
             r"seriously|really|overrated|underrated|more|most|less|than|"
             r"versus|vs\b|compared|rather|instead|better|worse)\b", topic)
         if _is_comparative:
+            _has_clean_topic = False
+        if _is_opinion:
+            # An opinion ("i think i was wrong about cassettes") is not a
+            # self-description, so the "you're {topic}" template does not apply
+            # (it would yield "so you're cassettes"). Use the topic-less lead.
             _has_clean_topic = False
         if is_about_user:
             _lead_pool = "user_leads" if _has_clean_topic else "user_leads_notopic"
@@ -5889,6 +5909,23 @@ class ResponseGenMixin(ChainWalkerMixin):
         """
         subject = ctx.subject
         subj_cap = self._capitalize_subject(subject, getattr(ctx, 'raw_input', subject) or subject) if subject else "that"
+        # D5 (round 2026-08-08b-d): for self/identity-questions ("do you know
+        # who you are yet"), subject extraction can resolve to a QUERY word
+        # ("yet"/"so"/"that") instead of a real concept, producing garble like
+        # "i don't really have a solid grasp on yet so far". If the resolved
+        # subject is a closed-class/stop word, there is no real concept to
+        # reflect — fall back to the neutral "that" framing (already the
+        # default when subject is None). Structural: a closed-class stoplist,
+        # not a per-topic guard.
+        _CLOSED = {
+            "yet", "so", "that", "this", "it", "out", "up", "on", "in", "at",
+            "by", "for", "to", "of", "about", "the", "a", "an", "and", "or",
+            "but", "if", "than", "as", "is", "are", "was", "were", "be",
+            "been", "being", "do", "does", "did", "have", "has", "had",
+            "you", "your", "i", "my", "me", "we", "they", "he", "she",
+        }
+        if subj_cap.lower().strip(" .,!?") in _CLOSED:
+            subj_cap = "that"
         valence = getattr(self.emotion.state, 'valence', 0.5) if hasattr(self, 'emotion') else 0.5
         # Gentle, low-valence-aware phrasing.
         if valence < 0.4:

@@ -302,6 +302,57 @@ class UserModel:
                                                 confidence=conf,
                                                 source="seed_regex")
 
+        def _split_possessive_attr(attr: str):
+            """D6 (round 2026-08-08b-d): 'my partner's name is theo' must model
+            an ENTITY (partner) and its attribute (name), not collapse onto the
+            user's own self-profile. The multi-word attr pattern
+            (r'\\bmy\\s+(...)\\s+is\\s+...') captures 'partner's name' as one attr
+            key under subject 'i'; a later recall path sees the substring
+            'name' and renders 'your name is theo' — reporting the PARTNER'S
+            name as the USER's name (a self/other boundary breach; the same
+            defect class that put 'your name is a hypocrite' in v-aug04).
+
+            Fix: detect a possessive head ('s) in the attr and resolve it to
+            (entity=<owner>, attr=<relation>), mirroring the ALREADY-CORRECT
+            possessive handling in engine_memory._record_episode (which keys
+            'my cat's name is whiskers' -> entity=cat, attr=name). This is
+            structural: any 'my <X>'s <Y> is Z' is stored under entity X, never
+            under the user's 'i' subject. Generic — no per-entity table. The
+            entity grows from experience (the user can name any relation)."""
+            _am = re.match(r"^([\w'-]+)'s\s+(.+)$", attr)
+            if _am:
+                return _am.group(1).strip().lower(), _am.group(2).strip().lower()
+            return None, attr
+
+        def _put_fact_ent(entity: str, attr: str, val: str, conf: float) -> None:
+            """Entity-keyed variant of _put_fact (subject = entity, not 'i')."""
+            _val = (val or "").strip().strip(" .,!?;:'\"").lower()
+            if not _val or _val in _VALUE_STOP:
+                return
+            _PREP = ("up", "down", "from", "at", "in", "on", "with", "to",
+                     "of", "by", "for", "about", "into", "onto", "over",
+                     "under", "near", "behind", "beside", "off")
+            _vwords = _val.split()
+            if _vwords and _vwords[-1] in _PREP:
+                _cut = len(_vwords)
+                for _i in range(len(_vwords) - 1, -1, -1):
+                    if _vwords[_i] in _PREP:
+                        _cut = _i
+                        break
+                _vwords = _vwords[:_cut]
+                _val = " ".join(_vwords)
+            if not _val or _val in _VALUE_STOP:
+                return
+            _subj = entity.lower()
+            existing = self.personal_facts.get(_subj, attr)
+            if (_corrective and existing is not None
+                    and existing.value.lower() != _val):
+                self.personal_facts.contradict(_subj, attr, _val)
+            else:
+                self.personal_facts.assert_fact(_subj, attr, _val,
+                                                confidence=conf,
+                                                source="seed_regex")
+
         m_name = re.search(
             r"\b(?:my\s+name\s+is|i\s+am\s+called|call\s+me)\s+"
             r"([^.,!?]+)",
@@ -587,6 +638,19 @@ class UserModel:
                             _val = _trimmed
                     elif _pat.startswith(r"\bi\s+am\s+allergic\s+to"):
                         _attr = "allergy"
+                # D6 (round 2026-08-08b-d): a possessive attr ('my partner's
+                # name is theo' -> attr="partner's name") must be stored under
+                # the OWNER entity, not the user's 'i' subject. Otherwise a
+                # later recall renders "your name is theo" (partner's name
+                # reported as the user's). Split the possessive head into
+                # (entity, relation) and route through _put_fact_ent. The
+                # recall reconstructor (_retrieve_episodic / _structured_recall)
+                # already keys possessive facts by owner, so this makes the
+                # MINER agree with the recaller by construction.
+                _ent, _rel = _split_possessive_attr(_attr)
+                if _ent is not None:
+                    _put_fact_ent(_ent, _rel, _val, 0.6)
+                    continue
                 if _attr and _val and _attr not in ("name", "location"):
                     # A possession disclosure may name several animals ("i have
                     # two cats named biscuit and gravy"). Split the value on
@@ -655,7 +719,16 @@ class UserModel:
                 r"|often\s+|sometimes\s+|usually\s+)?"
                 r"(?:have\s+been\s+)?(?:been\s+)?(?:keep\s+|grind\s+|race\s+)?"
                 + _verb +
-                r"\s+(?:my\s+|a|an|the\s+)?(.+?)(?:\bfor\b|\bwhen\b|\bbut\b|"
+                # D3 (round 2026-08-08b-d): the article alternative `a` had NO
+                # word boundary, so for "i teach at a school" it matched the
+                # leading 'a' of "at", leaving "t a school" as the object ->
+                # stored "teach t". Bound the article alternatives with \b so
+                # `a`/`an`/`the` only match a STANDALONE article, never the
+                # prefix of another word. The object still passes through
+                # _opinion_topic which drops closed-class words, so "i teach at
+                # a school by the river" -> "school" (real concept head), not
+                # "t". Structural; no per-topic table.
+                r"\s+(?:my\s+|\b(?:a|an|the)\b\s+)?(.+?)(?:\bfor\b|\bwhen\b|\bbut\b|"
                 r"\bbecause\b|\band\b|\.|\!|\?|$|,)",
                 q_clean, re.IGNORECASE)
             if _m:

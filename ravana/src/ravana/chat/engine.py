@@ -1993,6 +1993,24 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     r"are|was|were|had|has|have|will|would|could|can)\b",
                     _stripped.lower()):
                 return
+            # D1 (round 2026-08-08b-d): a recall-scaffold query that is NOT a
+            # question (no trailing '?', no interrogative opener) — e.g.
+            # "you mentioned my tarantula before, remind me what i told you
+            # about the one that molted" — must NOT be encoded as an episodic
+            # "fact". The hippocampus stores experienced CONTENT; a memory/recall
+            # directive is a PFC query. Encoding it lets a later semantically
+            # overlapping recall ("what's the strongest read you've formed")
+            # retrieve the prior recall query's OWN text and echo it verbatim ->
+            # a recursive recall loop (the tarantula echo). Gate on recall
+            # scaffold (remember/recall/remind + a told/said/mentioned verb),
+            # structural regex not a per-topic list.
+            if re.search(
+                    r"\b(remember|recall|remind(?: me)?)\b.*"
+                    r"\b(told|said|ask|mention|tell|mentioned|asked)\b",
+                    _stripped.lower()) or re.search(
+                    r"\b(remind|remember)\b.*\b(i|you)\b.*"
+                    r"\b(told|said|mentioned|asked|tell)\b", _stripped.lower()):
+                return
             content_words = [w.strip(".,!?;:") for w in user_input.lower().split()
                              if len(w.strip(".,!?;:")) >= 3
                              and w.strip(".,!?;:").isalpha()]
