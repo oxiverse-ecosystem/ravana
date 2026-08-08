@@ -2386,6 +2386,44 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     _tok_hits = sum(1 for t in _toks if len(t) > 3 and t in _tl)
                     if _topic in _tl or _tok_hits >= 2:
                         return f"i hold that position: {_txt}"
+        # ── (2b) USER-belief recall ─────────────────────────────────────
+        # "what did i tell you i believe about X" / "what do i believe about
+        # X" ask for the USER's own stated belief, not RAVANA's stance. Answer
+        # from the user-belief store (belief_store entries keyed ('user',
+        # 'told:N')), never by replaying an unrelated episodic turn (the D4
+        # loose-match bug: "about the ocean" echoed the lighthouse belief).
+        # Require the cue to appear verbatim in the belief text OR share >=2
+        # salient cue tokens with it, so a one-word overlap cannot hijack the
+        # recall. Structural overlap scoring; generalizes across topics.
+        _USERBEL = re.search(
+            r"\b(?:what did i (?:tell|say) you|what do i|remind me what i|"
+            r"what (?:was|is) my)\b.{0,30}?\b(?:believe|belief|think|stance|position)\b"
+            r".{0,30}?\b(?:about|on|of)?\b\s*(?P<cue>[a-z][a-z \-]{1,40})", q)
+        if _USERBEL and beliefs is not None:
+            _cue = _USERBEL.group("cue").strip().strip("?.!").lower()
+            # the optional preposition may have been swept into the capture
+            # ("about the ocean"); strip a leading closed-class word so the
+            # cue is the real topic ("the ocean" -> "ocean" tokens).
+            _cue = re.sub(r"^(about|on|of|the|a|an)\s+", "", _cue).strip()
+            _btoks = set(re.findall(r"[a-z']+", _cue)) - {
+                "the", "a", "an", "of", "about", "on", "my", "i", "you",
+                "what", "did", "tell", "say", "do", "believe", "belief",
+                "think", "stance", "position", "is", "was", "are", "to",
+                "in", "for", "with", "that", "this", "it", "and", "or",
+                "but", "from", "by", "as", "at"}
+            _bs = beliefs.get_state().get("beliefs", {})
+            _best = None
+            for _bk, (_txt, _conf, _turn) in _bs.items():
+                _tl = _txt.lower()
+                _hits = sum(1 for t in _btoks if len(t) > 3 and t in _tl)
+                # D4 guard: require the verbatim cue OR >=2 salient cue tokens
+                # to co-occur in the belief text. A single shared token (e.g.
+                # "ocean") must not hijack the recall to an unrelated belief.
+                if _btoks and (_cue in _tl or _hits >= 2):
+                    _best = _txt
+                    break
+            if _best is not None:
+                return f"you told me: {_best}"
         return None
 
     def _recall_user_fact(self, attr_hint, q):
