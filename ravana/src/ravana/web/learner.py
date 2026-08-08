@@ -482,13 +482,18 @@ class SearchEngine:
             if api_name in ("intentforge", "local_api"):
                 # Already handled (and preferred, in order) above when
                 # local_prefer is on and we're allowing remote. When
-                # local_only=True, the local names are the ONLY allowed
-                # source — so they must NOT be skipped here.
+                # local_only=True, BOTH local engines are allowed — intentforge
+                # (localhost:4000, the preferred local intent+retrieval service)
+                # AND local_api (SearXNG on 127.0.0.1:8080). The test
+                # contract (test_live_web_c_lite_smoke) targets
+                # localhost:4000 and the docstring says local_only "hits
+                # localhost:4000", so intentforge MUST be consulted under
+                # local_only — not skipped. Only the REMOTE engines
+                # (duckduckgo, oxiverse) are excluded by local_only.
                 if self.config.local_prefer and not local_only:
                     continue
-                if local_only and api_name != "local_api":
+                if local_only and api_name not in ("intentforge", "local_api"):
                     continue
-                # local_only + local_api falls through to be consulted below.
 
             if not self._is_api_available(api_name):
                 # Diagnostic: record WHY this API was skipped so a fully
