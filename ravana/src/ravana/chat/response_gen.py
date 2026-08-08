@@ -4793,6 +4793,22 @@ class ResponseGenMixin(ChainWalkerMixin):
             r"\b", _utt.lower())
         if _feel_m:
             _ft = _feel_m.group(1).strip()
+            # The copula regex can grab a trailing closed-class word
+            # ("i'm furious the trust cut..." -> "furious the"; "i felt proud
+            # and a little scared" -> "proud and"). Strip any leading/trailing
+            # closed-class word so the felt label is a clean affect term
+            # ("furious", "proud"). A trailing connective/preposition is never
+            # part of a feeling word.
+            _CLOSED = ("the", "a", "an", "and", "or", "but", "of", "to", "in",
+                       "on", "at", "by", "for", "with", "that", "this", "it",
+                       "my", "your", "from", "so", "as", "is", "are", "was",
+                       "were", "because", "about", "up", "down")
+            _ftw = _ft.split()
+            while len(_ftw) > 1 and _ftw[-1] in _CLOSED:
+                _ftw = _ftw[:-1]
+            while len(_ftw) > 1 and _ftw[0] in _CLOSED:
+                _ftw = _ftw[1:]
+            _ft = " ".join(_ftw)
             # Only accept the copula label if it is a REAL affect/state word.
             # A bare "i am <word>" where <word> is NOT an affect term (e.g. a
             # name "i am noor", or a topic "i am tired of X") must NOT be
@@ -4805,12 +4821,7 @@ class ResponseGenMixin(ChainWalkerMixin):
                 from .user_model import _AFFECT_STATE_LEXICON as _AFFECT
             except Exception:
                 _AFFECT = set()
-            _ft_words = _ft.split()
-            _is_affect = (
-                _ft_words[0] in _AFFECT
-                or (_ft in _AFFECT)
-                or (len(_ft_words) == 2 and _ft_words[-1] in _AFFECT)
-            )
+            _is_affect = _ft in _AFFECT or (_ft.split() and _ft.split()[0] in _AFFECT)
             if _is_affect:
                 affect_term = _ft
         felt = f"feeling {affect_term}" if affect_term else f"feeling {val_word}"
