@@ -41,6 +41,17 @@ GLOVE_CACHE = os.path.join(_proj_root, "data", "ravana_glove_cache.npz")
 SEARCH_URL = "http://localhost:4000/search?q="
 
 
+def _offline_gate() -> bool:
+    """True when RAVANA_OFFLINE=1 — the global web gate that makes
+    SearchEngine.search() return [] for every query (no network). Under this
+    gate the live-web-read path is intentionally disabled, so this is an
+    HONEST skip, not a silent pass: the test verifies the REAL web-read path,
+    which cannot run when web access is globally disabled. We skip with a
+    true reason instead of failing on a misleading ``assert len(results) > 0``.
+    """
+    return os.environ.get("RAVANA_OFFLINE") == "1"
+
+
 def _search_engine_up() -> bool:
     """Return True only when the LIVE web path can genuinely run.
 
@@ -113,7 +124,10 @@ def _typed_edge_count(graph) -> int:
     return n
 
 
-@pytest.mark.skipif(not _search_engine_up(), reason="local search engine not up at localhost:4000")
+@pytest.mark.skipif(
+    (not _search_engine_up()) or _offline_gate(),
+    reason="local search engine not up at localhost:4000, or RAVANA_OFFLINE=1 (web-read globally disabled — live-web path cannot run)",
+)
 class TestLiveWebCLiteSmoke:
     def test_live_search_returns_results(self):
         """The live endpoint responds and returns parsed results."""
@@ -123,6 +137,8 @@ class TestLiveWebCLiteSmoke:
         # the local search engine is genuinely down (it is, in CI).
         if not _search_engine_up():
             pytest.skip("local search engine not up at localhost:4000")
+        if _offline_gate():
+            pytest.skip("RAVANA_OFFLINE=1 — live web-read path disabled")
         from ravana.chat.engine import CognitiveChatEngine
         eng = CognitiveChatEngine(dim=64, seed=42, baby_mode=True)
         results = eng.search_engine.search("water", max_results=3, local_only=True)
@@ -136,6 +152,8 @@ class TestLiveWebCLiteSmoke:
         from ravana.chat.engine import CognitiveChatEngine
         if not _search_engine_up():
             pytest.skip("local search engine not up at localhost:4000")
+        if _offline_gate():
+            pytest.skip("RAVANA_OFFLINE=1 — live web-read path disabled")
         eng = CognitiveChatEngine(dim=64, seed=42, baby_mode=True)
         # load glove so the run mirrors production (and N2 would work too)
         if os.path.exists(GLOVE_CACHE):

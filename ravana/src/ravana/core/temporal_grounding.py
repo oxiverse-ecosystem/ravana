@@ -33,6 +33,8 @@ try:
     _HAVE_DATEUTIL = True
 except Exception:  # pragma: no cover - dateutil is a declared dependency
     _HAVE_DATEUTIL = False
+    from ravana._import_guard import report_missing
+    report_missing("dateutil", "relative/ordinal date grounding (\"4 years ago\", \"last month\")", kind="required")
 
 
 _WEEKDAYS = {

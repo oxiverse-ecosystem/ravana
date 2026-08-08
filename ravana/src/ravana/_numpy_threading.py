@@ -43,17 +43,21 @@ os.environ.setdefault("OMP_DYNAMIC", "FALSE")
 os.environ.setdefault("OMP_PROC_BIND", "FALSE")
 
 # Reinforce the env caps with threadpoolctl when available (it drives the
-# actual OpenBLAS/MKL runtime thread pools, not just the env vars). Best-effort:
-# threadpoolctl is an optional dev dependency, so a missing install is fine.
+# actual OpenBLAS/MKL runtime thread pools, not just the env vars). Declared as
+# a hard dependency in pyproject.toml, so a missing install is a real problem.
 try:
     import threadpoolctl  # noqa: F401  (import has side effects on some builds)
     threadpoolctl.threadpool_limits(limits=1)
 except Exception:
-    pass
+    # Required dep: log loudly (not silently) so a broken/omitted install is
+    # caught rather than degrading the AV guard to env-vars-only.
+    from ravana._import_guard import report_missing
+    report_missing("threadpoolctl", "OpenBLAS/MKL thread-pool pin (numpy #27989 AV guard)", kind="required")
 
 # faulthandler turns a silent Windows access violation into a readable Python
 # traceback (instead of an opaque process abort), so any residual BLAS crash is
-# diagnosable rather than mysterious.
+# diagnosable rather than mysterious. Part of the stdlib, so a failure here is a
+# real environment bug, not an optional feature.
 try:
     import faulthandler
 
@@ -65,4 +69,5 @@ try:
         # above, and faulthandler.enable() already converts any residual native
         # crash into a readable traceback instead of a silent abort.
 except Exception:
-    pass
+    from ravana._import_guard import report_missing
+    report_missing("faulthandler", "native crash traceback capture", kind="internal")

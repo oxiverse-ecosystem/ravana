@@ -21,14 +21,28 @@ from collections import defaultdict
 import numpy as np
 import time
 
+# ConceptGraph is RAVANA's own world-model (lives in ravana_ml.graph).
 try:
     from ravana_ml.graph import ConceptGraph, ConceptEdge, ConceptNode
-    from ravana_ml.nn.rlm_v2 import RelationPredictor
 except ImportError:
+    from ravana_ml._import_guard_shim import report_missing as _rm
+    _rm("ravana_ml.graph", "ConceptGraph for analogy engine", kind="internal")
     ConceptGraph = None
     ConceptEdge = None
     ConceptNode = None
-    RelationPredictor = None
+
+try:
+    # RelationPredictor lives in RAVANA's own rlm package (the ravana_ml.nn
+    # path never defined it). A wrong module path here failed silently for
+    # months; the non-silent guard now surfaces such mistakes instead.
+    from ravana.nn.rlm.relation_predictor import RelationPredictor
+except ImportError:
+    try:
+        from ravana_ml.nn.rlm_v2 import RelationPredictor
+    except ImportError:
+        from ravana_ml._import_guard_shim import report_missing
+        report_missing("ravana.nn.rlm.relation_predictor", "RelationPredictor for analogy engine", kind="internal")
+        RelationPredictor = None
 
 
 @dataclass

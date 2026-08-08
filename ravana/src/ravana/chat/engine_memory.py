@@ -63,12 +63,15 @@ try:
     HAS_BS4 = True
 except ImportError:
     HAS_BS4 = False
+    from ravana._import_guard import report_missing
+    report_missing("bs4", "BeautifulSoup HTML parsing (web scraping)", kind="optional")
 
 # Import constants
 from .constants import (TEEN_CONCEPTS, WEB_GARBAGE, STOP_WORDS, ConceptPosDict,
                         _is_word_salad, _is_keyboard_mash,
                         _UNIVERSAL_PURGE, _DEFINITION_ASSERTION)
 from .web_learning import WebLearningMixin
+from ravana._import_guard import report_missing  # non-silent import-guard logging
 from . import pet_slots as _pet_slots
 # Defect F: learned structural-PE snippet model (contrastive gap). Imported
 # lazily-safe so a missing module degrades gracefully (the gate stays None and
@@ -80,6 +83,7 @@ except Exception:  # pragma: no cover - defensive
     SnippetStructureModel = None  # type: ignore
     default_model = None  # type: ignore
     _HAS_SNIPPET_MODEL = False
+    report_missing("ravana.chat.snippet_quality", "web-snippet quality model", kind="internal")
 # Research item B (fail-closed salad monitor): learned distributional classifier
 # + fluent-tautology signature gate. Imported lazily-safe so a missing fit file
 # degrades gracefully (the guard falls back to the legacy rule-based detector).
@@ -91,6 +95,7 @@ except Exception:  # pragma: no cover - defensive
     _HAS_SALAD_LEARNED = False
     is_salad_learned = None
     get_classifier = None
+    report_missing("ravana.chat.salad_classifier", "learned word-salad detector", kind="internal")
 
 # Stage 5a (de-hardcoding plan): snippet-PE gate parameters live in a fit file
 # (data/snippet_pe.json) rather than inline constants. Fails open to seed
@@ -101,6 +106,7 @@ try:
 except Exception:  # pragma: no cover - defensive
     _HAS_PE_CONFIG = False
     _default_pe_config = None
+    report_missing("ravana.chat.snippet_pe_config", "snippet-PE gate fit config", kind="internal")
 
 # Stage 5b-i (de-hardcoding plan): learned distributional POS classifier
 # (data/pos_model.json), replacing the rule-based classify_word_pos +
@@ -112,6 +118,7 @@ except Exception:  # pragma: no cover - defensive
     _HAS_POS_MODEL = False
     PosModel = None
     _pos_seed_from_constants = None
+    report_missing("ravana.chat.pos_model", "learned POS classifier", kind="internal")
 
 # Stage 3 (de-hardcoding plan): Semantic Prototype Router (M-A) — replaces the
 # ~15 hardcoded routing lists with one learned centroid router. Flag-gated
@@ -123,6 +130,7 @@ try:
 except Exception:  # pragma: no cover - defensive
     _HAS_INTENT_ROUTER = False
     IntentRouter = None
+    report_missing("ravana.chat.intent_router", "semantic-prototype intent router", kind="internal")
 
 # Stage 5b-ii (de-hardcoding plan): the duplicated closed-class functional
 # lexicons (_generic / _FRAMING / _bare_moral / _INC/_DEC/_REM) collapse into one
@@ -133,6 +141,7 @@ try:
 except Exception:  # pragma: no cover - defensive
     _HAS_FUNC_LEX = False
     _default_lexicon = None
+    report_missing("ravana.chat.functional_lexicon", "data-driven functional lexicon", kind="internal")
 
 import pickle
 from ravana.web.learner import SearchEngine

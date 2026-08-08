@@ -9,6 +9,15 @@ from ravana.core.multi_hop_reasoner import MultiHopReasoner
 
 
 def _check(name, cond):
+    """Assert ``cond``, reporting ``name`` on failure.
+
+    NOTE: this MUST assert rather than return. These tests are collected by
+    pytest, and a test function that *returns* a bool instead of asserting is
+    reported as PASSED regardless of the value (pytest only warns:
+    PytestReturnNotNoneWarning). Verified 2026-08-07 by hardcoding ``ok = False``
+    in test_possessive_chain: pytest still reported "6 passed". The whole module
+    was therefore decorative and could never have caught a regression.
+    """
     assert cond, name
 
 
@@ -93,9 +102,16 @@ if __name__ == "__main__":
         test_non_multihop_returns_none,
     ]
     print("Phase 3 — multi-hop reasoner tests")
-    results = [t() for t in tests]
-    passed = sum(results)
-    print(f"\n{passed}/{len(results)} passed")
-    if passed != len(results):
+    failed = []
+    for t in tests:
+        try:
+            t()
+        except AssertionError as exc:
+            failed.append(f"{t.__name__}: {exc}")
+            print(f"  FAIL: {t.__name__}: {exc}")
+        else:
+            print(f"  PASS: {t.__name__}")
+    print(f"\n{len(tests) - len(failed)}/{len(tests)} passed")
+    if failed:
         sys.exit(1)
     print("ALL PASS")

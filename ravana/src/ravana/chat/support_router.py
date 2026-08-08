@@ -37,6 +37,8 @@ try:
 except Exception:  # pragma: no cover
     _HAS_NP = False
     np = None
+    from ravana._import_guard import report_missing
+    report_missing("numpy", "vector math for this module", kind="required")
 
 
 # ── Stage 1: heuristic cues ──────────────────────────────────────

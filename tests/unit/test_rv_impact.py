@@ -325,8 +325,14 @@ def test_rv_impact_on_logits():
     print()
     print("FIX: Wire edge.relation_vector into spread_activation or multi-hop scoring.")
     print("  E.g.: act = node.activation * (edge.weight + dot(relation_vec, query)) * decay")
-    
-    return rv_cos, wt_cos
+
+    # This function is a DIAGNOSTIC REPORT, not a pass/fail test: it measures how
+    # much relation vectors influence the logits and prints the analysis. It
+    # asserts nothing by design, so inventing a threshold here would be a
+    # one-test-tuned number. Dropping the `return rv_cos, wt_cos` only silences
+    # PytestReturnNotNoneWarning (pytest ignores the value anyway); the metrics
+    # are printed above and available to the __main__ runner.
+    print(f"\n  [metrics] rv_cos={rv_cos:.4f} wt_cos={wt_cos:.4f}")
 
 
 def test_relation_vector_isolation():

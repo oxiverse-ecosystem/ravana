@@ -11,6 +11,14 @@ from ravana.core.hippocampal_buffer import HippocampalBuffer, HippocampalConfig
 
 
 def _check(name, cond):
+    """Assert ``cond``, reporting ``name`` on failure.
+
+    NOTE: this MUST assert rather than return. pytest reports a test function
+    that *returns* a bool as PASSED regardless of the value (it only emits
+    PytestReturnNotNoneWarning). This module returned for 10 tests, 3 of which
+    were genuinely FAILING and invisible under pytest -- the relative-date
+    cases, dead because python-dateutil was an undeclared dependency.
+    """
     assert cond, name
 
 
@@ -114,10 +122,17 @@ if __name__ == "__main__":
         test_buffer_latest, test_state_roundtrip_with_dates,
     ]
     print("Phase 1 — temporal grounding tests")
-    results = [t() for t in tests]
-    passed = sum(results)
-    print(f"\n{passed}/{len(results)} passed")
-    if passed == len(results):
+    failed = []
+    for t in tests:
+        try:
+            t()
+        except AssertionError as exc:
+            failed.append(t.__name__)
+            print(f"  FAIL: {t.__name__}: {exc}")
+        else:
+            print(f"  PASS: {t.__name__}")
+    print(f"\n{len(tests) - len(failed)}/{len(tests)} passed")
+    if not failed:
         print("ALL PASS")
     else:
         sys.exit(1)

@@ -60,19 +60,25 @@ STOP_WORDS: Set[str] = {
     'lived', 'believe', 'believed', 'hold', 'held', 'bring', 'brought',
 }
 
-# Optional BeautifulSoup
+# Optional BeautifulSoup (web scraping / HTML cleaning). Genuinely optional:
+# the web-learning path degrades to raw-text extraction without it.
 try:
     from bs4 import BeautifulSoup
     HAS_BS4 = True
 except ImportError:
     HAS_BS4 = False
+    from ravana._import_guard import report_missing
+    report_missing("bs4", "BeautifulSoup HTML parsing (web scraping)", kind="optional")
 
-# Optional trafilatura for structured web extraction (roadmap #11)
+# Optional trafilatura for structured web extraction (roadmap #11). Genuinely
+# optional: falls back to the lighter BeautifulSoup/raw path.
 try:
     import trafilatura
     HAS_TRAFILATURA = True
 except ImportError:
     HAS_TRAFILATURA = False
+    from ravana._import_guard import report_missing
+    report_missing("trafilatura", "structured web extraction", kind="optional")
 
 
 @dataclass
@@ -476,13 +482,18 @@ class SearchEngine:
             if api_name in ("intentforge", "local_api"):
                 # Already handled (and preferred, in order) above when
                 # local_prefer is on and we're allowing remote. When
-                # local_only=True, the local names are the ONLY allowed
-                # source — so they must NOT be skipped here.
+                # local_only=True, BOTH local engines are allowed — intentforge
+                # (localhost:4000, the preferred local intent+retrieval service)
+                # AND local_api (SearXNG on 127.0.0.1:8080). The test
+                # contract (test_live_web_c_lite_smoke) targets
+                # localhost:4000 and the docstring says local_only "hits
+                # localhost:4000", so intentforge MUST be consulted under
+                # local_only — not skipped. Only the REMOTE engines
+                # (duckduckgo, oxiverse) are excluded by local_only.
                 if self.config.local_prefer and not local_only:
                     continue
-                if local_only and api_name != "local_api":
+                if local_only and api_name not in ("intentforge", "local_api"):
                     continue
-                # local_only + local_api falls through to be consulted below.
 
             if not self._is_api_available(api_name):
                 # Diagnostic: record WHY this API was skipped so a fully

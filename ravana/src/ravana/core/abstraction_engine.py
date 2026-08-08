@@ -23,6 +23,8 @@ import random
 try:
     from ravana_ml.graph import ConceptGraph, ConceptEdge, ConceptNode
 except ImportError:
+    from ravana_ml._import_guard_shim import report_missing
+    report_missing("ravana_ml.graph", "ConceptGraph for abstraction engine", kind="internal")
     ConceptGraph = None
     ConceptEdge = None
     ConceptNode = None

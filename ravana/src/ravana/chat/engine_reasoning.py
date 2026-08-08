@@ -146,6 +146,8 @@ try:
     HAS_BS4 = True
 except ImportError:
     HAS_BS4 = False
+    from ravana._import_guard import report_missing
+    report_missing("bs4", "BeautifulSoup HTML parsing (web scraping)", kind="optional")
 
 # Import constants
 from .constants import (TEEN_CONCEPTS, WEB_GARBAGE, STOP_WORDS, ConceptPosDict,

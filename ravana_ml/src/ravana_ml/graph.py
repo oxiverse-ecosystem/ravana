@@ -9,6 +9,8 @@ try:
     _HAS_SCIPY_SPARSE = True
 except ImportError:
     _HAS_SCIPY_SPARSE = False
+    from ravana_ml._import_guard_shim import report_missing  # type: ignore
+    report_missing("scipy.sparse", "sparse graph adjacency storage", kind="required")
 
 
 class _DimensionMismatch(Exception):
