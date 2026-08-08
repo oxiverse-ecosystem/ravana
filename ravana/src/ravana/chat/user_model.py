@@ -266,6 +266,33 @@ class UserModel:
             _val = (val or "").strip().strip(" .,!?;:'\"").lower()
             if not _val or _val in _VALUE_STOP:
                 return
+            # C-value (round 2026-08-08c): trim a TRAILING prepositional phrase
+            # from the value. The greedy value capture ("my X is Y", up to 8
+            # words) over-grabbed trailing prepositions, storing nonsense like
+            # "cabin at." / "always raw from hauling hive boxes up the.". A
+            # value that ENDS in a preposition ("up"/"from"/"at"/"in") is an
+            # incomplete capture — drop the preposition and everything after it
+            # so "cabin at." -> "cabin" and "up the mountain" -> "up" -> "".
+            # Structural: one shared chokepoint for every fact; the
+            # preposition set is closed-class (not content), so trimming it
+            # never discards a real value word. If the whole value is
+            # prepositions, reject it (no content to store).
+            _PREP = ("up", "down", "from", "at", "in", "on", "with", "to",
+                     "of", "by", "for", "about", "into", "onto", "over",
+                     "under", "near", "behind", "beside", "off")
+            _vwords = _val.split()
+            if _vwords and _vwords[-1] in _PREP:
+                # drop trailing prepositions and any words following the first
+                # trailing preposition
+                _cut = len(_vwords)
+                for _i in range(len(_vwords) - 1, -1, -1):
+                    if _vwords[_i] in _PREP:
+                        _cut = _i
+                        break
+                _vwords = _vwords[:_cut]
+                _val = " ".join(_vwords)
+            if not _val or _val in _VALUE_STOP:
+                return
             existing = self.personal_facts.get("i", attr)
             if (_corrective and existing is not None
                     and existing.value.lower() != _val):
@@ -1044,6 +1071,21 @@ class UserModel:
         # Mine biographical + general personal facts into the learned store.
         # Extracted so the same-turn identity gate can call it with only the
         # raw text (subject isn't assigned yet in process_turn there).
+        # C-clock (round 2026-08-08c): advance the fact-store turn clock
+        # BEFORE mining personal facts, not after. The disclosure-ack
+        # composer (_derive_ack_from_store) acks a fact only if its
+        # turn_number == the store's current turn_num, so that it reports
+        # what was learned THIS turn (not a stale fact from 30 turns ago).
+        # When advance_turn() ran AFTER mine_personal_facts, a freshly
+        # stored fact got turn_number == turn_num - 1, so the equality
+        # never held and the honest ack fell through to the degenerate
+        # "got it — thanks for telling me." on ~30 turns of real
+        # disclosures (e.g. "my hands are raw from hauling hive boxes").
+        # Advancing first makes the just-stored fact match the clock, so
+        # the ack renders the REAL stored relation. No retraining; pure
+        # ordering fix.
+        self.personal_facts.advance_turn()
+        self.opinions.advance_turn()
         self.mine_personal_facts(query)
 
         self._update_cognitive_style(query)
@@ -1062,8 +1104,6 @@ class UserModel:
         self.engagement_level = min(1.0, 0.3 + 0.7 * (total_followups / max(1, total_interactions)))
 
         self.interaction_count += 1
-        self.personal_facts.advance_turn()
-        self.opinions.advance_turn()
         self.relationship_depth = min(1.0, self.interaction_count / 20.0)
 
         inferred = self.infer_user_goal(query)

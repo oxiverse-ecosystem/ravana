@@ -4732,21 +4732,16 @@ class ResponseGenMixin(ChainWalkerMixin):
 
         if isinstance(word, str) and word.startswith("loss:"):
             lost = word[len("loss:"):].strip()
-            # C-fix (round 2026-08-08b): when the user ALSO names a felt-state
-            # via a copula ("i feel hollow"), prefer that label over the
-            # loss-event word ("lost") so the reply reads the user's actual
-            # feeling, not just the event. The event (colony loss) is still
-            # acknowledged by the sympathy framing below. Use the engine's FULL
-            # utterance (self._last_user_input) as the authoritative text — the
-            # downstream ctx may only carry the extracted event span.
-            _utt = (getattr(self, "_last_user_input", "") or "") or (
-                getattr(ctx, "raw_input", "") or "")
-            _feel_m = re.search(
-                r"\b(?:i\s*(?:feel|feeling|am|'m|felt|get|got)\s+(?:so|really|"
-                r"very|quite|a\s+little\s+|kind\s+of\s+)?)([a-z]+(?:\s+[a-z]+)?)"
-                r"\b", _utt.lower())
-            if _feel_m:
-                lost = _feel_m.group(1).strip()
+            # The loss tag already carries the LOST ENTITY (e.g. "dog"/"colony"),
+            # set by the affect detector's self-possessive loss rule. We
+            # sympathize about THAT entity. We deliberately do NOT override it
+            # with a copula feeling word here: forcing a feeling into
+            # "i'm so sorry about your <feeling>" is ungrammatical
+            # ("sorry about your sad"), and the user's separate feeling is
+            # already acknowledged by the negative-empathy path
+            # ("feeling sad is hard") when the utterance routes there. The
+            # 08-08b felt-override on this branch was reverted: it produced
+            # "sorry about your sad" / "sorry about your hollow".
             if lost:
                 if has_stored_detail:
                     return (f"i'm so sorry about your {lost}. i remember you "
@@ -4798,13 +4793,25 @@ class ResponseGenMixin(ChainWalkerMixin):
             r"\b", _utt.lower())
         if _feel_m:
             _ft = _feel_m.group(1).strip()
-            # accept a single-word feeling label, or a two-word one whose second
-            # word is an affect noun (never a cause noun like "half the colony").
-            if " " not in _ft or _ft.split()[-1] in (
-                    "hollow", "empty", "numb", "lost", "sad", "happy", "glad",
-                    "angry", "scared", "afraid", "anxious", "lonely", "tired",
-                    "proud", "calm", "hurt", "hopeless", "hopeful", "grateful",
-                    "excited", "tense", "raw", "low", "blue", "down"):
+            # Only accept the copula label if it is a REAL affect/state word.
+            # A bare "i am <word>" where <word> is NOT an affect term (e.g. a
+            # name "i am noor", or a topic "i am tired of X") must NOT be
+            # forced into the empathy frame — doing so produced the regression
+            # "feeling noor is hard". The vocabulary is the engine's own affect
+            # lexicon (user_model._AFFECT_STATE_LEXICON), sourced lazily to
+            # avoid an import cycle at module load. This is seed vocabulary,
+            # not an authored per-topic list.
+            try:
+                from .user_model import _AFFECT_STATE_LEXICON as _AFFECT
+            except Exception:
+                _AFFECT = set()
+            _ft_words = _ft.split()
+            _is_affect = (
+                _ft_words[0] in _AFFECT
+                or (_ft in _AFFECT)
+                or (len(_ft_words) == 2 and _ft_words[-1] in _AFFECT)
+            )
+            if _is_affect:
                 affect_term = _ft
         felt = f"feeling {affect_term}" if affect_term else f"feeling {val_word}"
 
