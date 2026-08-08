@@ -1348,8 +1348,11 @@ class MemoryMixin:
         # a user utterance (the D-C bug). Content comes from verbatim engine
         # output, never authored prose.
         if re.search(
-            r"\b(what did you (?:say|tell me|answer)|earlier you described|"
-            r"you described yourself|your answer about|what was your answer)\b", t):
+            r"\b(what did you (?:say|tell me|answer|describe|say about)|"
+            r"earlier you (?:described|said|told me|mentioned)|"
+            r"you described yourself|your answer about|what was your answer|"
+            r"you (?:said|mentioned|told me) something about what you (?:are|were)|"
+            r"remind me what you (?:said|told me) (?:about|you are))\b", t):
             _claim = getattr(self, "_agent_claims", {}).get("self")
             if _claim:
                 return _claim

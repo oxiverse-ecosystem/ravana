@@ -341,6 +341,49 @@ class UserModel:
             # per-name list.
             if name_cand.lower().startswith(("a ", "an ", "the ")):
                 name_cand = ""
+            # D1 (round 2026-08-08b): the bare "i'm X" / "i am X" copula form
+            # is ALSO how users express transient states ("i'm furious at the
+            # coast guard", "i'm scared the light will fail", "i'm feeling
+            # really lonely", "i'm convinced cuttlefish are smarter"). The old
+            # code stored the ENTIRE clause as (i, name, X), so a later
+            # "what's my name" returned "feeling really lonely" / "furious at
+            # the". A name is a SHORT proper noun, never a predicate clause.
+            # Reject a bare-copula candidate unless it is name-shaped:
+            #   - 1-2 word tokens (real chat names are single tokens: iris,
+            #     noor, dev, soren, mira, wren, tobias; two-token names like
+            #     "mary jane" are rare but legitimate), AND
+            #   - contains NO closed-class word (preposition / copula /
+            #     determiner: at/of/for/with/on/in/to/about/the/a/an/is/are/
+            #     was/were/am/that/this/it/my/your), AND
+            #   - its head token is NOT a feeling/state/cognitive verb.
+            # This is structural predicate-vs-proper-noun discrimination, not a
+            # per-name list; it generalizes across every persona. The
+            # feeling/state verb set is SEED vocabulary (RAVANA-expandable: it
+            # shares the role of the affect lexicon used by the empathy
+            # gate), not authored answers.
+            if name_cand:
+                _nw = name_cand.split()
+                _CLOSED = {
+                    "at", "of", "for", "with", "on", "in", "to", "about",
+                    "the", "a", "an", "is", "are", "was", "were", "am",
+                    "that", "this", "it", "my", "your", "from", "by", "as",
+                    "so", "but", "and", "or", "if", "because",
+                }
+                _NAME_REJECT_VERBS = {
+                    "feeling", "felt", "furious", "scared", "afraid",
+                    "worried", "convinced", "tired", "angry", "sad",
+                    "happy", "glad", "excited", "lonely", "hungry",
+                    "thirsty", "confused", "sure", "certain", "wrong",
+                    "right", "sorry", "ok", "okay", "done", "ready",
+                    "hoping", "thinking", "believing", "guessing",
+                    "wondering", "loving", "hating", "liking", "meaning",
+                    "saying", "referring", "talking", "asking", "trying",
+                    "sticking", "standing", "coming", "going", "feeling",
+                }
+                _has_closed = any(w.lower() in _CLOSED for w in _nw)
+                _head_verb = _nw[0].lower() in _NAME_REJECT_VERBS
+                if len(_nw) > 2 or _has_closed or _head_verb:
+                    name_cand = ""
             # Reject common states / descriptors / interrogatives so a bare
             # self-description is never stored as the user's name. Seed
             # stoplist of NON-name words, not a per-name allowlist.

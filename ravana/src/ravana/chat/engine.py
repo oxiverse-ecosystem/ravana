@@ -2189,10 +2189,42 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             if _v is not None and not getattr(_v, "superseded", False):
                 return f"you live in {_v.value}."
             return None
+        if re.search(r"\b(where do i keep|where do i have|where do i store)\b", q):
+            # "where do i keep the light" / "where do i keep my pigeons" —
+            # answer from the 'does' fact whose value overlaps the query noun,
+            # not the dictionary definition of the noun (the word "light" is a
+            # world concept that otherwise echoes "electromagnetic radiation").
+            _qn = set(re.findall(r"[a-z']+", q)) - {
+                "where", "do", "i", "keep", "have", "store", "my", "the",
+                "a", "an", "on", "in", "at", "to", "of", "for", "with", "and"}
+            for _k, _f in pf.facts.items():
+                if not (isinstance(_k, tuple) and len(_k) == 3):
+                    continue
+                if _k[1] != "does" or getattr(_f, "superseded", False):
+                    continue
+                _val = _f.value.lower()
+                if any(n in _val for n in _qn):
+                    return f"you {_val}."
         if re.search(r"\b(where do i work|what do i do|what's my job|what is my work)\b", q):
             _v = pf.get("i", "work") if pf else None
             if _v is not None and not getattr(_v, "superseded", False):
                 return f"you work as {_v.value}."
+        if re.search(r"\b(call sign|radio sign|my sign|ham (call|sign))\b", q):
+            # "what's my call sign" / "what's my radio sign" — prefer the most
+            # RECENT call-sign fact. A corrected sign (e.g. "kh6-mist") is
+            # stored after the first ("kx7-mist"); RAVANA must surface the
+            # corrected value, not the stale first one. Iterate facts in
+            # insertion order and keep the last non-superseded call-sign/sign.
+            _best = None
+            for _k, _f in pf.facts.items():
+                if not (isinstance(_k, tuple) and len(_k) == 3):
+                    continue
+                if _k[1].lower() in ("call sign", "sign") and \
+                        not getattr(_f, "superseded", False):
+                    _best = _f.value
+            if _best:
+                return f"your call sign is {_best}."
+            return None
         if re.search(r"\bwhat'?s\s+my\s+favorite\b", q):
             # surface every favorite_* fact
             if pf is not None:
@@ -2208,7 +2240,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # "what do i keep/have on my rooftop / what do i grind / what do i
         # forage" — match a 'does' / activity fact whose value overlaps the
         # query's content noun.
-        _ACT = re.search(r"\bwhat do i (keep|have|grind|forage|race|play|raise|grow|do)\b", q)
+        _ACT = re.search(r"\bwhat do i (keep|have|grind|forage|race|play|raise|grow|do|study|research|make|build|write|paint|carve|brew|bake|craft|teach|run|operate|manage|restore|tend|practice|code|design|volunteer|cook|fish|hike|garden|farm|lead|organize|collect|watch|read|learn|sail|knit|forge|fly)\b", q)
         # ── (1b) "what did i tell you about X" / "what do i think of X" ──────
         # General user-attribute / user-stance recall. X is resolved to a
         # stored STANCE TOPIC (the user's own attitudes) or to a personal
@@ -2239,10 +2271,21 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     else:
                         _w = "uncertain about"
                     return f"you're {_w} {_topic}."
-            # (b) resolve to a personal fact whose value/noun overlaps the cue
+            # (b) resolve to a personal fact whose value/noun overlaps the cue.
+            # D4 (round 2026-08-08b): the old matcher accepted ANY single
+            # salient-token substring ("any(n in _v for n in _cnouns)"), so
+            # "what did i tell you about the ocean" matched the lighthouse
+            # belief because the token "the" or "ocean" happened to overlap a
+            # far-off fact. Require a SUBSTANTIAL match: the stored fact must
+            # contain the full cue phrase, OR share >=2 salient cue tokens
+            # with the value (so a one-word coincidence cannot hijack the
+            # recall). This is structural overlap scoring, not a per-topic
+            # table; it generalizes across every persona/topic.
             _cnouns = set(re.findall(r"[a-z']+", _cue)) - {
                 "the", "a", "an", "of", "about", "on", "my", "i", "you",
-                "what", "do", "did", "tell", "say", "think", "feel", "s"}
+                "what", "do", "did", "tell", "say", "think", "feel", "s",
+                "is", "are", "was", "were", "to", "in", "for", "with", "that",
+                "this", "it", "and", "or", "but", "from", "by", "as", "at"}
             for _k, _f in pf.facts.items():
                 if not (isinstance(_k, tuple) and len(_k) == 3):
                     continue
@@ -2250,7 +2293,20 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     continue
                 _v = _f.value.lower()
                 _attr = _k[1].lower()
-                if _cue in _v or _attr in _cue or any(n in _v for n in _cnouns):
+                # strong match: the whole cue phrase appears verbatim in the
+                # stored value, or the attribute itself is the cue topic.
+                if _cue in _v or _attr == _cue:
+                    if _attr == "name":
+                        return f"your name is {_v}."
+                    if _attr == "work":
+                        return f"you work as {_v}."
+                    if _attr == "does":
+                        return f"you {_v}."
+                    return f"your {_attr} is {_v}."
+                # weak match: require >=2 salient cue tokens to co-occur in the
+                # value (a single shared stop-word like "the"/"ocean" is not
+                # enough to claim this is the fact the user meant).
+                if _cnouns and sum(1 for n in _cnouns if n in _v) >= 2:
                     if _attr == "name":
                         return f"your name is {_v}."
                     if _attr == "work":
@@ -2319,10 +2375,31 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     "stance", "position", "own", "owning", "your"}
                 for _bk, (_txt, _conf, _turn) in _bs.items():
                     _tl = _txt.lower()
-                    # looser match: any salient token from the cue appears in
-                    # the belief text, OR the resolved topic is a substring.
-                    if _topic in _tl or any(t in _tl for t in _toks if len(t) > 3):
+                    # D4 (round 2026-08-08b): require a SUBSTANTIAL match, not
+                    # a single salient-token coincidence. The cue topic must
+                    # appear verbatim in the belief text, OR >=2 salient cue
+                    # tokens must co-occur in it. A one-word overlap (e.g.
+                    # "ocean") must not hijack the recall to an unrelated
+                    # belief (previously "the ocean" matched the lighthouse
+                    # belief). Structural overlap scoring, not a per-topic
+                    # table.
+                    _tok_hits = sum(1 for t in _toks if len(t) > 3 and t in _tl)
+                    if _topic in _tl or _tok_hits >= 2:
                         return f"i hold that position: {_txt}"
+        return None
+
+    def _recall_user_fact(self, attr_hint, q):
+        """Helpers for _structured_recall: read a personal_fact by attribute."""
+        pf = getattr(getattr(self, "user_model", None), "personal_facts", None)
+        if pf is None:
+            return None
+        for _k, _f in pf.facts.items():
+            if not (isinstance(_k, tuple) and len(_k) == 3):
+                continue
+            if getattr(_f, "superseded", False):
+                continue
+            if _k[1].lower() == attr_hint:
+                return _f.value
         return None
 
     def _try_fact_reasoning(self, user_input: str) -> Optional[str]:
