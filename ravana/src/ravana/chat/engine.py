@@ -2895,6 +2895,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # recode, surfaced in the reply that follows the retraction).
         try:
             self.user_model.opinions.clear_last_reversal()
+            self.user_model.opinions.clear_reversal_guard()
         except Exception:
             pass
         # Step 3a: Meta-command detector at the VERY TOP of process_turn (PFC task-set override)

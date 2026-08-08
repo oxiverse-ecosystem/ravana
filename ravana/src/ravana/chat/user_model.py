@@ -1019,11 +1019,30 @@ class UserModel:
                 r"|i'?m\s+not\s+so\s+sure)\b"
                 r".{0,60}?\b(?:but|although|though|yet|actually|however)\b", q)
             if _concession is not None:
-                _target = self._stance_key_in_text(q)
+                # A concession ("i thought X but Y") walks BACK the belief held
+                # in the PRE-connector clause X — X is the topic the user now
+                # revokes, while Y is the NEW contrasting preference. Resolving
+                # the topic against the WHOLE utterance is wrong: the opinion
+                # miner in the same turn also creates a (bogus) stance from the
+                # trailing "i prefer Y" clause, so a whole-utterance longest-key
+                # match can bind the NEW topic and (a) reverse a stance the user
+                # never walked back, and (b) emit a fabricated "you changed your
+                # mind about Y" ack for a topic with no prior stance. Restrict
+                # resolution to the conceded clause X only. Generic: the clause
+                # is derived from the matched connector span, not a per-topic
+                # table, and still resolves against the live store.
+                _pre_clause = q[:_concession.end()]
+                _target = self._stance_key_in_text(_pre_clause)
+                if _target is None:
+                    # Fallback: the conceded topic may be a multiword key whose
+                    # tokens are split across the connector (e.g. "i thought the
+                    # sea was X but Y"); still scope to the pre-connector span so
+                    # the new preference Y can never be the resolved target.
+                    _target = self._stance_key_in_text(q[:_concession.start()])
                 if _target is not None:
                     try:
                         self.opinions._soft_reversal = True
-                        self.opinions.reverse_stance(_target)
+                        self.opinions.reverse_stance(_target, utterance=text)
                     except Exception:
                         pass
                     return
@@ -1068,7 +1087,7 @@ class UserModel:
                 return
             try:
                 self.opinions._soft_reversal = _soft
-                self.opinions.reverse_stance(_target)
+                self.opinions.reverse_stance(_target, utterance=text)
             except Exception:
                 pass
             return
@@ -1184,7 +1203,7 @@ class UserModel:
             return
         try:
             self.opinions._soft_reversal = _soft
-            self.opinions.reverse_stance(target)
+            self.opinions.reverse_stance(target, utterance=text)
         except Exception:
             pass
 
