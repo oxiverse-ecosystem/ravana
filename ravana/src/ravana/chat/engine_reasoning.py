@@ -2262,9 +2262,22 @@ class ReasoningMixin:
             # recall). Generic (no per-topic table); brain-faithful: you don't
             # acknowledge a fact you heard long ago as if just told.
             _cur_turn = getattr(store, "turn_num", None)
+            # Possessive disclosures (e.g. "my partner's name is Pell",
+            # "my dog is a sheepdog named Cairn") are stored under the ENTITY
+            # key ("partner", "dog"), not under subject "i" — the self/other
+            # boundary fix deliberately keeps them entity-scoped. The ack
+            # composer used to only look under subject "i", so those stored
+            # facts were invisible and the turn fell through to the hollow
+            # "got it — thanks for telling me." Broaden the scan to include
+            # entity-keyed facts stored THIS turn (any subject other than "i"
+            # whose value was just learned), so the ack can render from the
+            # REAL stored fact. Content still comes from the store, never
+            # authored. General: no per-entity table.
             cands = [f for (s, a, v), f in store.facts.items()
-                     if not f.superseded and s in _subjects
-                     and (_cur_turn is None or getattr(f, "turn_number", -1) == _cur_turn)]
+                     if not f.superseded
+                     and (s in _subjects or (s not in ("i",) and s))
+                     and (_cur_turn is None
+                           or getattr(f, "turn_number", -1) == _cur_turn)]
             if not cands:
                 return None
             # Among this-turn facts, highest confidence wins (recency already
