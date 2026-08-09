@@ -113,6 +113,22 @@ _RETRACTION_CUES = (
     r"\b(?:they're|it's|that's|wasn't|isn't|not)\s+(?:not\s+that\s+bad|not\s+so\s+bad|fine|okay|ok|acceptable|good\s+after\s+all)\b",
     r"\bi\s+take\s+(?:it|that|this|things|them|what\s+i\s+said|my\s+words)\s*back",
     r"\bscratch\s+that\b",
+    # Round t_6c023144 (2026-08-09T1953Z residual): first-person reversal
+    # speech acts that the round worker saw slip through to a fresh FOR stance.
+    # "i flipped, the reef tank is more work than joy" formed a new positive
+    # stance instead of recoding the held one, because "flipped" was absent
+    # here — so no cue matched, the concession branch (requires a "but"/belief
+    # frame) never fired, and mine_stance_reversal bailed before reversing. Add
+    # the decisive change-of-mind verbs as SEED cues (RAVANA-expandable, not a
+    # per-topic table). The tail→held-stance resolver already guards against
+    # corruption: a flip on something the user has no stance on is a no-op
+    # (reverse_stance returns None), so false positives are bounded.
+    r"\bi\s+(?:flipped|flip-?flopped|have\s+flipped|'ve\s+flipped)\b",
+    r"\bi\s+(?:recant|recanted|renounce|renounced|revoked|reversed|reneged)\b",
+    r"\bi\s+(?:backtracked|went\s+back\s+on|backed\s+off\s+from)\b",
+    # allow the contraction 'i've' (no space after i) as well as 'i had'/'i have'
+    r"\bi\s*'?ve\s+had\s+a\s+change\s+of\s+heart\b",
+    r"\bi\s+(?:had|have)\s+a\s+change\s+of\s+heart\b",
 )
 
 # Softening retraction cues: the user is walking a stance BACK toward neutral,
