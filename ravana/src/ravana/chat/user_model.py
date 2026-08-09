@@ -141,6 +141,20 @@ _CONJOINED_PET_PAT = (
     r"((?:(?:a|an|the|my|our|their|his|her)?\s*[\w\'-]+\s+(?:named|called)\s+[\w\'-]+"
     r"\s*(?:,?\s*(?:and|&|,)\s*(?:a|an|the)?\s*)?)+)"
 )
+
+# H1 fix (round 2026-08-09h): bare possessive-entity disclosure without an
+# apostrophe: "my cat mire is a half-feral tabby", "my partner cole keeps the
+# tide tables" (the 's form is handled separately by _split_possessive_attr).
+# group1 = entity, group2 = name/first content word, group3 = description.
+_ENTITY_NAME_PAT = (
+    r"\bmy\s+([\w]+)\s+(?!is|are|was|were|has|have|do|does)\b"
+    r"([\w'-]+)\s+"
+    r"(?:(?:is|are|was|were)"
+    r"|(?:keeps?|kept|runs?|raises?|raise|owns?|own|loves?|loved|likes?|liked"
+    r"|drives?|drove|manages?|managed|reads?|read|writes?|wrote|paints?|painted"
+    r"|throws?|threw|fires?|fired|makes?|made|builds?|built|grows?|grew|brews?|brewed))"
+    r"\s+([\w'-]+(?:\s+[\w'-]+){0,7})"
+)
 @dataclass
 class UserModel:
     edge_reactivations: Dict[Tuple[str, str], int] = field(default_factory=dict)
@@ -256,6 +270,81 @@ class UserModel:
                 self.detected_correction_type = CorrectionType.CORRECTION_WITH_FACT
                 self.correction_severity = max(self.correction_severity, 0.8)
 
+        # COUNT / QUANTITY correction (round 2026-08-09g). A plain update like
+        # "it's seven hives now, i split one last week" carries NO negation or
+        # "my X is Y" structure, so the name-correction and _corrective paths
+        # above miss it — the prior count fact ("keep six hives", stored under
+        # the 'does' attribute) was left active and a later "how many hives do
+        # i have" returned the STALE six (measured: T41 -> "ok, noted: wait.",
+        # T42/T64 silently kept six). Detect an update cue + a cardinal number +
+        # an entity noun, locate the prior count/activity fact for that entity,
+        # and supersede it via contradict() (online, no retrain). Content comes
+        # from the live store; no per-topic table, no authored text.
+        if not self.detected_correction:
+            _NUMWORDS = (r"(?:one|two|three|four|five|six|seven|eight|nine|"
+                         r"ten|eleven|twelve|\d+)")
+            _cnt = re.search(
+                r"\b(?P<num>" + _NUMWORDS + r")\s+(?P<ent>[a-z][a-z]+)\b.*\b"
+                r"(now|split|added|new|more|extra|another|gained|got|"
+                r"increased|up to|not|wrong|meant|misspoke|under-?said|"
+                r"lost count|undercounted|recount)\b", q_clean, re.IGNORECASE) or \
+                re.search(
+                r"\b(now|split|added|new|more|extra|another|gained|got|"
+                r"misspoke|under-?said|lost count|recount)\b.*\b"
+                + r"(?P<num>" + _NUMWORDS + r")\s+(?P<ent>[a-z][a-z]+)\b",
+                q_clean, re.IGNORECASE) or \
+                re.search(
+                r"\bit'?s\s+(?P<num>" + _NUMWORDS + r")\s+(?P<ent>[a-z][a-z]+)\b",
+                q_clean, re.IGNORECASE)
+            if _cnt:
+                _num = _cnt.group("num")
+                _ent = _cnt.group("ent").lower().strip()
+                if _ent and _ent not in _VALUE_STOP and _num:
+                    # find the prior activity/count fact whose value mentions
+                    # this entity (e.g. "keep six hives" -> entity "hives").
+                    _prior = None
+                    for (s, a, v), f in self.personal_facts.facts.items():
+                        if s == "i" and a in ("does", "count", "number", "qty") \
+                                and not getattr(f, "superseded", False) \
+                                and _ent in v.lower():
+                            _prior = (a, v)
+                            break
+                    if _prior is not None:
+                        # rebuild the new value with the corrected count,
+                        # preserving the verb + entity from the prior fact.
+                        _verb = re.match(
+                            r"^(keep|have|keep on|have on|raise|own|breed|run|"
+                            r"got|fire|fired|make|made|throw|threw|build|built|"
+                            r"grow|grew|brew|brewed|paint|painted|write|wrote)\b",
+                            _prior[1].lower())
+                        _newval = (f"{_verb.group(1)} " if _verb else "") \
+                            + f"{_num} {_ent}"
+                        self.detected_correction = True
+                        self.detected_correction_fact = (
+                            "i", _prior[0], _newval)
+                        self.detected_correction_type = \
+                            CorrectionType.CORRECTION_WITH_FACT
+                        self.correction_severity = \
+                            max(self.correction_severity, 0.7)
+                    else:
+                        # H3 fix (round 2026-08-09h): no prior count/activity
+                        # fact existed for this entity (e.g. the user said
+                        # "it's nine slipware jugs i fired" without an earlier
+                        # stored "i fired N jugs" activity fact). The correction
+                        # is still a REAL new fact RAVANA should learn online —
+                        # synthesize a 'does' fact from the detected num+entity
+                        # so it persists and a later "how many X did i make"
+                        # resolves. No retrain; the verb is inferred as the
+                        # generic activity marker so recall can render it.
+                        _newval = f"made {_num} {_ent}"
+                        self.detected_correction = True
+                        self.detected_correction_fact = (
+                            "i", "does", _newval)
+                        self.detected_correction_type = \
+                            CorrectionType.CORRECTION_WITH_FACT
+                        self.correction_severity = \
+                            max(self.correction_severity, 0.7)
+
         def _put_fact(attr: str, val: str, conf: float) -> None:
             # D3 (round v3): never store a closed-class / negation token as a
             # fact value. The old miner matched "my sister's name is not meena,
@@ -307,7 +396,7 @@ class UserModel:
             """D6 (round 2026-08-08b-d): 'my partner's name is theo' must model
             an ENTITY (partner) and its attribute (name), not collapse onto the
             user's own self-profile. The multi-word attr pattern
-            (r'\\bmy\\s+(...)\\s+is\\s+...') captures 'partner's name' as one attr
+            (r'\bmy\s+(...)\s+is\s+...') captures 'partner's name' as one attr
             key under subject 'i'; a later recall path sees the substring
             'name' and renders 'your name is theo' — reporting the PARTNER'S
             name as the USER's name (a self/other boundary breach; the same
@@ -535,7 +624,22 @@ class UserModel:
                 name_cap = " ".join(w.capitalize() for w in name_cand.split())
                 self.user_name = name_cap
                 _put_fact("name", name_cap, 0.6)
+        _handled_spans = set()
         for _pat in (
+            # ENTITY-NAME possession (round 2026-08-09h, H1 fix): "my cat mire
+            # is a half-feral tabby", "my partner cole keeps the tide tables".
+            # The 's form ("my cat's name is X") is already handled by
+            # _split_possessive_attr below; this covers the BARE form where the
+            # entity and its name/description sit together without an apostrophe.
+            # group1 = the ENTITY (cat/partner/...), group2 = the name or the
+            # first content word, group3 = the rest of the description. We store
+            # the name under the ENTITY key (so "my cat's name" recall resolves)
+            # AND the description, both via _put_fact_ent — never under the
+            # user's "i" subject (self/other boundary). General: any entity
+            # word, no per-entity table; the entity grows from what the user
+            # actually says. The copula-exclusion (?!is|are|...) stops "my
+            # studio is a shed" from being read as entity=studio, name=is.
+            _ENTITY_NAME_PAT,
             # D2 (round v2): tolerate an optional "name" word between the
             # relation and "is" so "my daughter name is ingrid" stores
             # daughter=ingrid (the old pattern required exactly one token
@@ -596,7 +700,42 @@ class UserModel:
             r"\bi\s+am\s+allergic\s+to\s+([\w'-]+)",
         ):
             for _m in re.finditer(_pat, q_clean, re.IGNORECASE):
+                # H1 fix (round 2026-08-09h): skip spans already consumed by
+                # the entity-name possession pattern above, so the broad
+                # multi-token-attr pattern does not re-store a junk attribute
+                # (e.g. 'cat mire') under the user's "i" subject.
+                if _m.span() in _handled_spans:
+                    continue
                 _attr, _val = None, None
+                # H1 fix (round 2026-08-09h): the ENTITY-NAME possession pattern
+                # (first in the tuple) captures "my <entity> <name> is/are
+                # <desc>". Store the name under the ENTITY key + the description,
+                # both entity-scoped (self/other boundary), then record the span
+                # so the broad multi-token-attr pattern #605 below does NOT also
+                # fire on the same text and store a junk 'cat mire' attribute
+                # under the user's "i" subject. All three groups present.
+                if _m.lastindex == 3 and _pat is _ENTITY_NAME_PAT:
+                    _ent = _m.group(1).strip().lower()
+                    _name = _m.group(2).strip().lower()
+                    _desc = _m.group(3).strip().lower()
+                    _handled_spans.add(_m.span())
+                    if _ent and _name and _name not in _VALUE_STOP:
+                        _put_fact_ent(_ent, "name", _name, 0.6)
+                    if _ent and _desc and _desc not in _VALUE_STOP:
+                        # Activity-verb form ("my partner cole keeps the
+                        # tide tables") -> store a 'does' fact so a later
+                        # recall can render it; copula form -> 'is'.
+                        _verb = re.match(
+                            r"^(keeps?|kept|runs?|raises?|raise|owns?|own|"
+                            r"loves?|loved|likes?|liked|drives?|drove|manages?|managed|"
+                            r"reads?|read|writes?|wrote|paints?|painted|throws?|threw|"
+                            r"fires?|fired|makes?|made|builds?|built|grows?|grew|"
+                            r"brews?|brewed)\b", _desc)
+                        if _verb:
+                            _put_fact_ent(_ent, "does", _desc, 0.6)
+                        else:
+                            _put_fact_ent(_ent, "is", _desc, 0.6)
+                    continue
                 # FIX (round v-aug06b): the conjoined-pet pattern captures a
                 # chain like "ferret named pim and a parrot called coco".
                 # Expand it into individual "species named name" pairs and

@@ -2615,7 +2615,8 @@ class ResponseGenMixin(ChainWalkerMixin):
             r"hate|prefer|enjoy|dislike|mean|means|want|need|have|has|had|"
             r"made|makes|say|says|got|get|know|knew|seem|seems|become|"
             r"seriously|really|overrated|underrated|more|most|less|than|"
-            r"versus|vs\b|compared|rather|instead|better|worse)\b", topic)
+            r"versus|vs\b|compared|rather|instead|better|worse)\b", topic) \
+            and " " not in topic.strip()
         if _is_comparative:
             _has_clean_topic = False
         if _is_opinion:
