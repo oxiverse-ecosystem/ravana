@@ -787,6 +787,17 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             os.makedirs(os.path.join(_proj_root, "data"), exist_ok=True)
             self._save_path = os.path.join(_proj_root, "weights", f"ravana_weights{user_suffix}.pkl")
             self._glove_cache_path = os.path.join(_proj_root, "data", "ravana_glove_cache.npz")
+        # CRITICAL FIX (round 2026-08-09i): persist the suffix as an attribute.
+        # _load() later reads getattr(self, 'user_suffix', '') to decide which
+        # dedicated user_models/ file to load. It was NEVER assigned, so the
+        # attribute defaulted to '' and load_user_model('') read the DEFAULT
+        # user_models/ravana_usermodel.pkl (an empty/stale profile) and
+        # OVERWROTE the correctly-saved embedded user_model snapshot — silently
+        # wiping every learned stance + personal fact on every reload. Assigning
+        # it here makes the dedicated-file lookup keyed to the same suffix as the
+        # weight snapshot. (Also fixes the bad-filename pitfall note in the
+        # skill: now the attribute matches the path used everywhere else.)
+        self.user_suffix = user_suffix
         self.sleep_cycles_completed = 0
         self._chain_traces: List[ChainTrace] = []
         # Phase 7: Impossible Query Registry
@@ -2370,7 +2381,34 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # resolve the phrase to a known stance topic (semantic-ish via the
             # store's own resolver, which folds synonyms)
             _topic = opinions.resolve_topic(_topic_phrase) or _topic_phrase.lower().strip()
-            _s = opinions.query_stance(_topic)
+            # ROUND 2026-08-09i FIX: reject DEICTIC / GENERIC topic phrases.
+            # A loosely-matched self-stance query ("do you have anything like
+            # that?", "what's your view on it") resolves its topic to a pronoun
+            # or generic phrase ("anything like that", "that") which then maps
+            # via resolve_topic onto a STORED stance / belief and emits
+            # "i'm strongly for <junk>" or "i hold that position: <unrelated>"
+            # — confabulated, since the topic carries no real content. Fail
+            # closed: if the phrase contains NO substantive retrieval token
+            # (every token is a closed-class / deictic / generic word), return
+            # None so the query falls through to the honest generative path.
+            # Structural guard (a closed-class token set), not a per-topic table.
+            _GEN = {"anything", "something", "everything", "nothing",
+                     "that", "it", "this", "stuff", "things", "thing",
+                     "matter", "point", "idea", "question", "issue",
+                     "topic", "yes", "no", "maybe", "ok", "okay", "like",
+                     "rather", "or", "and", "but", "if", "than", "as", ""}
+            _phrase_tokens = [t for t in re.findall(r"[a-z']+", _topic_phrase.lower())]
+            _substantive = [t for t in _phrase_tokens
+                            if t not in _GEN and len(t) > 2
+                            and t not in ("the", "a", "an", "of", "about",
+                                          "on", "my", "i", "you", "what",
+                                          "do", "did", "tell", "say", "think",
+                                          "feel", "stance", "position", "own",
+                                          "owning", "your")]
+            if not _substantive:
+                _s = None
+            else:
+                _s = opinions.query_stance(_topic)
             if _s is not None:
                 _pol = _s.polarity
                 if _pol >= 0.6:
@@ -2387,23 +2425,32 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # fall back to belief store
             if beliefs is not None:
                 _bs = beliefs.get_state().get("beliefs", {})
+                # ROUND 2026-08-09i: reject DEICTIC / GENERIC cue tokens. A
+                # loosely-matched self-stance query ("do you have anything like
+                # that?") resolves _topic_phrase to a pronoun/generic word
+                # ("anything", "that", "it") which then appears as a salient
+                # token and matches a stored belief by coincidence (e.g.
+                # "raw honey... beats *anything* in a jar") -> confabulated
+                # "i hold that position: ...". These tokens carry no retrieval
+                # target, so exclude them from the match set entirely.
+                _GEN = {"anything", "something", "everything", "nothing",
+                         "that", "it", "this", "stuff", "things", "thing",
+                         "matter", "point", "idea", "question", "issue",
+                         "topic", "yes", "no", "maybe", "ok", "okay", "like",
+                         "rather", "or", "and", "but", "if", "than", "as", ""}
                 _toks = set(re.findall(r"[a-z']+", _topic_phrase)) - {
                     "the", "a", "an", "of", "about", "on", "my", "i", "you",
                     "what", "do", "did", "tell", "say", "think", "feel",
-                    "stance", "position", "own", "owning", "your"}
-                for _bk, (_txt, _conf, _turn) in _bs.items():
-                    _tl = _txt.lower()
-                    # D4 (round 2026-08-08b): require a SUBSTANTIAL match, not
-                    # a single salient-token coincidence. The cue topic must
-                    # appear verbatim in the belief text, OR >=2 salient cue
-                    # tokens must co-occur in it. A one-word overlap (e.g.
-                    # "ocean") must not hijack the recall to an unrelated
-                    # belief (previously "the ocean" matched the lighthouse
-                    # belief). Structural overlap scoring, not a per-topic
-                    # table.
-                    _tok_hits = sum(1 for t in _toks if len(t) > 3 and t in _tl)
-                    if _topic in _tl or _tok_hits >= 2:
-                        return f"i hold that position: {_txt}"
+                    "stance", "position", "own", "owning", "your"} - _GEN
+                if not _toks:
+                    # nothing substantive to match on -> fail closed
+                    pass
+                else:
+                    for _bk, (_txt, _conf, _turn) in _bs.items():
+                        _tl = _txt.lower()
+                        _tok_hits = sum(1 for t in _toks if len(t) > 3 and t in _tl)
+                        if _topic in _tl or _tok_hits >= 2:
+                            return f"i hold that position: {_txt}"
         # ── (2b) USER-belief recall ─────────────────────────────────────
         # "what did i tell you i believe about X" / "what do i believe about
         # X" ask for the USER's own stated belief, not RAVANA's stance. Answer
@@ -3255,6 +3302,28 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     self._last_responses = self._last_responses[-10:]
                 self.notify_user_idle()
                 return _exp
+        except Exception:
+            pass
+
+        # ── Self-REFERENCE gate (round 2026-08-09i) ─────────────────────
+        # BEFORE the structured-recall / fact-reasoning echo. Catches
+        # self-directed phrasings about RAVANA's OWN mind ("do you know who
+        # you are", "name your own mind", "what would you ask me", "what do
+        # you make of me", "one thread about yourself") that the narrow
+        # identity regex in _route_self_query misses. Answering these from the
+        # episodic echo would replay a stored USER utterance as RAVANA's
+        # self-knowledge — a self/other boundary inversion. _route_self_
+        # reference answers strictly from REAL state (self-model + live user
+        # stores). Fail-open: None -> unchanged flow.
+        try:
+            _sref = self._route_self_reference(user_input)
+            if _sref is not None:
+                self._last_strategy = "self_reference"
+                self._last_responses.append(_sref)
+                if len(self._last_responses) > 10:
+                    self._last_responses = self._last_responses[-10:]
+                self.notify_user_idle()
+                return _sref
         except Exception:
             pass
 
@@ -6418,15 +6487,24 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             if not hasattr(loaded_user_model, 'opinions'):
                 loaded_user_model.opinions = UserStanceStore()
             self.user_model = loaded_user_model
-            # Prefer the dedicated user_models/ store if it exists — it is the
-            # continuously-updated, authoritative profile and may be newer than
-            # the copy frozen inside this weight snapshot. Falls back to the
-            # embedded snapshot (above) for legacy checkpoints.
+            # Prefer the dedicated user_models/ store ONLY when it actually
+            # exists — it is the continuously-updated, authoritative profile
+            # and may be newer than the copy frozen inside this weight snapshot.
+            # CRITICAL FIX (round 2026-08-09i): load_user_model() returns a
+            # FRESH EMPTY UserModel() when the dedicated file is absent, so the
+            # old code ALWAYS overwrote the perfectly-good embedded snapshot
+            # with an empty model — silently wiping every learned stance and
+            # personal fact on every reload (the skill documents these as
+            # "durable across sessions"; they were not). Only swap in the
+            # dedicated store when the file is present; otherwise keep the
+            # authoritative embedded snapshot from THIS checkpoint.
             try:
-                from .user_model import load_user_model
-                _separate_um = load_user_model(getattr(self, 'user_suffix', ''))
-                if _separate_um is not None:
-                    self.user_model = _separate_um
+                from .user_model import load_user_model, _user_model_path
+                _um_path = _user_model_path(getattr(self, 'user_suffix', ''))
+                if os.path.exists(_um_path):
+                    _separate_um = load_user_model(getattr(self, 'user_suffix', ''))
+                    if _separate_um is not None:
+                        self.user_model = _separate_um
             except Exception:
                 pass
             # A reask/correction is only meaningful within a single session.

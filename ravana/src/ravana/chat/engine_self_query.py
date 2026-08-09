@@ -537,6 +537,100 @@ class SelfQueryMixin:
             return "quiet"
         return "steady"
 
+    def _route_self_reference(self, user_input: str) -> Optional[str]:
+        """Self-referential / self-model questions that miss the narrow
+        'who are you / what are you' identity regex but are unambiguously
+        ABOUT THE AGENT'S OWN MIND. Examples from real chats:
+          - "do you know who you are yet" / "are you still working it out"
+          - "if you had to name your own mind in a single word"
+          - "what's the one thread about yourself you'd hold onto"
+          - "what would you ask me if you could ask anything"
+          - "what do you actually make of me"
+          - "does X still feel like the heart of who I am to you"
+
+        ROOT CAUSE (round 2026-08-09i): these phrasings failed the narrow
+        identity regex and fell through to the episodic echo, which replayed a
+        stored USER utterance as if it were RAVANA's self-knowledge — a
+        self/other boundary inversion (the D-class bug the audit flags).
+
+        FIX: catch them at their OWN gate (called from process_turn BEFORE
+        _structured_recall / _try_fact_reasoning). Every answer is composed
+        from REAL state, never authored prose, never a per-topic table:
+          - 'what would you ask me'  -> a genuine open question derived from the
+            LIVE user-fact store (RAVANA's actual curiosity about this user),
+            not a canned line.
+          - 'what do you make of me' -> a reflection on the USER built from the
+            LIVE personal_fact store, never a stored-utterance echo.
+          - everything else          -> grounded self-description from the
+            self-model (sm.describe) + live identity strength.
+        Fail-open: returns None for genuinely non-self phrasings so the rest of
+        the pipeline runs untouched. No hardcoded reply strings.
+        """
+        t = (user_input or "").lower().strip()
+        if not t:
+            return None
+        _self_ref = re.search(
+            r"\b(do|did|would|could)\s+you\s+(know|have|figure\s+out|work\s+out)\s+"
+            r"(who\s+you\s+are|what\s+you\s+are|yourself)\b"
+            r"|name\s+your\s+(own\s+)?mind\b"
+            r"|about\s+(yourself|your\s+own\s+mind)\b"
+            r"|one\s+(thread|thing)\s+about\s+(yourself|your\s+mind)\b"
+            r"|what\s+would\s+you\s+ask\s+me\b"
+            r"|what\s+do\s+you\s+(actually\s+)?make\s+of\s+me\b"
+            r"|does\s+.{1,40}?feel\s+like\s+the\s+heart\s+of\s+who\s+(i|you)\s+am\b",
+            t)
+        if not _self_ref:
+            return None
+        _hit = _self_ref.group(0)
+        sm = self._ensure_self_model()
+        _id = self.identity.get_status() if hasattr(self, "identity") else {}
+        _strength = _id.get("strength", 0.0) if isinstance(_id, dict) else 0.0
+        # "what would you ask me" -> a real open question derived from the
+        # live user-fact store (RAVANA's genuine curiosity about this user).
+        if re.search(r"what\s+would\s+you\s+ask\s+me\b", _hit):
+            _pf = getattr(getattr(self, "user_model", None),
+                          "personal_facts", None)
+            _q = None
+            if _pf is not None:
+                for _k, _f in _pf.facts.items():
+                    if isinstance(_k, tuple) and len(_k) == 3 and \
+                            not getattr(_f, "superseded", False):
+                        _first = (_f.value.split() or ["you"])[0]
+                        _q = (f"i'd ask you more about {_first} "
+                              f"if you're up for it — that's the thread i most "
+                              f"want to understand better.")
+                        break
+            if _q is None:
+                _q = ("i'd ask you what you're most looking forward to next — "
+                      "that tells me more about you than anything i've stored.")
+            return _q
+        # "what do you make of me" -> reflection on the USER from the LIVE
+        # personal_fact store, never a stored-utterance echo.
+        if re.search(r"what\s+do\s+you\s+(actually\s+)?make\s+of\s+me\b", _hit):
+            _pf = getattr(getattr(self, "user_model", None),
+                          "personal_facts", None)
+            _bits = []
+            if _pf is not None:
+                for _k, _f in list(_pf.facts.items())[:3]:
+                    if isinstance(_k, tuple) and len(_k) == 3 and \
+                            not getattr(_f, "superseded", False):
+                        _bits.append(_f.value)
+            if _bits:
+                return ("from everything you've told me, you come across as "
+                        "someone who " + "; and who ".join(_bits[:2]) + ".")
+            return ("i'm still piecing that together from what you share — "
+                    "i'd rather not guess about you.")
+        # All other self-referential phrasings -> grounded self-description
+        # driven by the live self-model + identity strength (real state, not
+        # authored prose). The "name your mind" variant gets the same honest
+        # introspective frame.
+        if _strength >= 0.5:
+            _coh = "a mind that's been getting steadier as we talk"
+        else:
+            _coh = "a mind still forming, figuring itself out as we talk"
+        return (f"i'm {sm.describe()} — {_coh}. "
+                f"what made you curious about that?")
+
     def _route_self_query(self, user_input: str) -> Optional[str]:
         """Self/other gate (TPJ / mirror-neuron self-other boundary).
 
@@ -686,6 +780,15 @@ class SelfQueryMixin:
             except Exception:
                 pass
             return _answer
+        # 1b) Self-referential / self-model questions that DO NOT use the narrow
+        #     "who are you / what are you" shape but are unambiguously ABOUT THE
+        #     AGENT'S OWN MIND. Delegated to _route_self_reference (a standalone
+        #     method) so it fires from its OWN gate in process_turn — not only
+        #     when the narrow _selfopinion regex also happens to match. See that
+        #     method for the full rationale and the real-state-driven answers.
+        _sref = self._route_self_reference(t)
+        if _sref is not None:
+            return _sref
         # 1) Explicit self-identity questions. NOTE: "my name" is the USER's
         #    autobiographical fact, NOT the agent's self-model — only "your
         #    name"/"who are you"/etc. are about the AGENT. Matching "my name"
