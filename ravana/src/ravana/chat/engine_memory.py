@@ -413,7 +413,9 @@ class MemoryMixin:
                     elif attr == "likes":
                         bits.append(f"you like {val}")
                     elif attr == "does":
-                        bits.append(f"you do {val}")
+                        bits.append(f"you {val}")
+                    elif attr == "event":
+                        bits.append(f"you {val}")
                     elif attr == "is":
                         bits.append(f"you are {val}")
                     else:
@@ -426,6 +428,8 @@ class MemoryMixin:
                     bits.append(f"you mentioned you like {val}")
                 elif attr == "does":
                     bits.append(f"you do {val}")
+                elif attr == "event":
+                    bits.append(f"you {val}")
                 elif attr == "is":
                     bits.append(f"your {ent} is {val}")
                 elif attr == "location":
