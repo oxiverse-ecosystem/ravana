@@ -74,15 +74,21 @@ def _reflective_ack_from_vad(engine) -> str:
             _v = float(getattr(_emo.state, "valence", 0.0))
     except Exception:
         _v = 0.0
+    # The ONLY authored tokens are single valence words derived from the live
+    # band; the number rendered is the real measured valence. No sentence is
+    # authored per topic — if no word fits the band, emit the bare frame.
+    _word = ""
     if _v <= -0.3:
-        return "that sounds heavy — thanks for trusting me with it."
-    if _v <= -0.1:
-        return "that lands as something hard — i'm listening."
-    if _v >= 0.3:
-        return "that's a good note to end on — i'm glad you shared it."
-    if _v >= 0.1:
-        return "nice — thanks for telling me."
-    return "thanks for telling me — i'm taking it in."
+        _word = "heavy"
+    elif _v <= -0.1:
+        _word = "raw"
+    elif _v >= 0.3:
+        _word = "good"
+    elif _v >= 0.1:
+        _word = "open"
+    if not _word:
+        return f"noted (valence {_v:+.2f})."
+    return f"it sounds {_word} (valence {_v:+.2f})."
 
 
 # ── Attribute-predicate → value vocabulary (C1, LoCoMo gap fix) ─────────────

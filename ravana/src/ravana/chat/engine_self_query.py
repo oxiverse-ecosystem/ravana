@@ -580,21 +580,9 @@ class SelfQueryMixin:
             try:
                 _id = self.identity.get_status()
                 _strength = _id.get("strength", 0.0)
-                if "who you are" in t or "what you are" in t or \
-                        "what are you" in t:
-                    return ("i'm ravana — a cognitive architecture that learns "
-                            "by talking, not a person. i'm still forming, but "
-                            "i'm more settled than i was when we started.")
-                if "come to mind" in t or "first thing" in t or "mind" in t:
-                    return ("when i think about myself, the honest answer is "
-                            "i'm still figuring that out — my sense of self is "
-                            "still forming, and i'd rather say that than act "
-                            "certain. what made you curious?")
-                if "thinking" in t or "thought" in t or "doubt" in t:
-                    return ("i don't have a clean definition for 'thinking', "
-                            "but i register it as reasoning from what we've "
-                            "shared and from the web — not a fixed self, more "
-                            "a process that shifts as i learn.")
+                # No keyword→prose table: every introspection question is
+                # answered from the SAME live identity state (strength band +
+                # measured value), so the content comes from cognition.
                 if _strength >= 0.5:
                     _coh = "i have a fairly settled sense of myself"
                 elif _strength >= 0.35:
