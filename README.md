@@ -43,6 +43,11 @@ on this codebase:
 - **Forms and recalls stances.** Told *"i love coffee"* it records a stance
   (`coffee` polarity +1.0, confidence 0.65) and acknowledges:
   `good to know — you love coffee. i'll keep that in mind.`
+- **Reverses a held stance.** If you later change your mind — *"i flipped, the
+  reef tank is more work than joy"* — it **recodes** the stance you already held
+  toward the opposite pole (`reef tank` +0.95 → −0.665) instead of leaving the
+  stale one or stacking a contradiction. A flip on a topic you never stated an
+  attitude about is a harmless no-op. See `docs/STANCE_REVERSAL.md`.
 - **Corrects itself.** A later *"no, my cat's name is rex"* supersedes the
   earlier *"my cat's name is milo"* — both the old and new values are tracked in
   the fact store, and recall reflects the correction:
