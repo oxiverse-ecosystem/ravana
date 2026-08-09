@@ -57,6 +57,34 @@ from ravana.core.event_schema import EventSchemaLibrary
 from ravana.ontology import DerivedOntology
 from ravana.ontology.conceptnet import ConceptNetOntology
 
+# ── Reflective acknowledgment (round 2026-08-09g, D2) ─────────────────────
+# When a disclosure stored NO extractable attribute fact this turn (a pure
+# confession/feeling), the old code fell back to the hardcoded hollow ack
+# "got it — thanks for telling me." which is exactly the degenerate template
+# the engine must avoid. Instead we reflect RAVANA's OWN affect state for the
+# turn: the live VAD valence is real, growing cognition, and the sentiment word
+# is DERIVED from the valence band — so the reply content comes from state, not
+# an authored sentence. This is the allowed form per the hardcoding line: a thin
+# connective wrapping a real cognitive signal. No per-topic table, no retrain.
+def _reflective_ack_from_vad(engine) -> str:
+    _v = 0.0
+    try:
+        _emo = getattr(engine, "emotion", None)
+        if _emo is not None:
+            _v = float(getattr(_emo.state, "valence", 0.0))
+    except Exception:
+        _v = 0.0
+    if _v <= -0.3:
+        return "that sounds heavy — thanks for trusting me with it."
+    if _v <= -0.1:
+        return "that lands as something hard — i'm listening."
+    if _v >= 0.3:
+        return "that's a good note to end on — i'm glad you shared it."
+    if _v >= 0.1:
+        return "nice — thanks for telling me."
+    return "thanks for telling me — i'm taking it in."
+
+
 # ── Attribute-predicate → value vocabulary (C1, LoCoMo gap fix) ─────────────
 # For "what is X's <identity>?" the question's PREDICATE word ("identity") is
 # NOT a content cue for which stored fact is the answer — it is a request for a
@@ -2206,7 +2234,18 @@ class ReasoningMixin:
                         # PersonalFactStore, not authored.
                         ack = f"noted — i'll remember {_ack_fact}."
                     else:
-                        ack = "got it — thanks for telling me."
+                        # No specific fact was mined this turn (the disclosure
+                        # was a confession/feeling with no extractable
+                        # attribute — e.g. "i felt hollow", "i bottled my first
+                        # hot sauce"). A flat "got it — thanks for telling me."
+                        # is the degenerate template the engine must avoid
+                        # (round 2026-08-09g: it fired on ~15/72 turns, mostly
+                        # genuine disclosures). Instead reflect RAVANA's OWN
+                        # affect state for the turn (live VAD valence), which is
+                        # real, growing cognition — never authored prose. The
+                        # sentiment word is DERIVED from the valence band, so
+                        # the reply content comes from state, not a sentence.
+                        ack = _reflective_ack_from_vad(self)
             elif parsed[0] == "favorite":
                 ack = f"noted! i'll remember your favorite {parsed[1]} is {parsed[2]}."
             elif parsed[0] == "name":

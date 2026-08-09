@@ -256,6 +256,56 @@ class UserModel:
                 self.detected_correction_type = CorrectionType.CORRECTION_WITH_FACT
                 self.correction_severity = max(self.correction_severity, 0.8)
 
+        # COUNT / QUANTITY correction (round 2026-08-09g). A plain update like
+        # "it's seven hives now, i split one last week" carries NO negation or
+        # "my X is Y" structure, so the name-correction and _corrective paths
+        # above miss it — the prior count fact ("keep six hives", stored under
+        # the 'does' attribute) was left active and a later "how many hives do
+        # i have" returned the STALE six (measured: T41 -> "ok, noted: wait.",
+        # T42/T64 silently kept six). Detect an update cue + a cardinal number +
+        # an entity noun, locate the prior count/activity fact for that entity,
+        # and supersede it via contradict() (online, no retrain). Content comes
+        # from the live store; no per-topic table, no authored text.
+        if not self.detected_correction:
+            _NUMWORDS = (r"(?:one|two|three|four|five|six|seven|eight|nine|"
+                         r"ten|eleven|twelve|\d+)")
+            _cnt = re.search(
+                r"\b(?P<num>" + _NUMWORDS + r")\s+(?P<ent>[a-z][a-z]+)\b.*\b"
+                r"(now|split|added|new|more|extra|another|gained|got|"
+                r"increased|up to)\b", q_clean, re.IGNORECASE) or \
+                re.search(
+                r"\b(now|split|added|new|more|extra|another|gained|got)\b.*\b"
+                + r"(?P<num>" + _NUMWORDS + r")\s+(?P<ent>[a-z][a-z]+)\b",
+                q_clean, re.IGNORECASE)
+            if _cnt:
+                _num = _cnt.group("num")
+                _ent = _cnt.group("ent").lower().strip()
+                if _ent and _ent not in _VALUE_STOP and _num:
+                    # find the prior activity/count fact whose value mentions
+                    # this entity (e.g. "keep six hives" -> entity "hives").
+                    _prior = None
+                    for (s, a, v), f in self.personal_facts.facts.items():
+                        if s == "i" and a in ("does", "count", "number", "qty") \
+                                and not getattr(f, "superseded", False) \
+                                and _ent in v.lower():
+                            _prior = (a, v)
+                            break
+                    if _prior is not None:
+                        # rebuild the new value with the corrected count,
+                        # preserving the verb + entity from the prior fact.
+                        _verb = re.match(
+                            r"^(keep|have|keep on|have on|raise|own|breed|run|"
+                            r"got)\b", _prior[1].lower())
+                        _newval = (f"{_verb.group(1)} " if _verb else "") \
+                            + f"{_num} {_ent}"
+                        self.detected_correction = True
+                        self.detected_correction_fact = (
+                            "i", _prior[0], _newval)
+                        self.detected_correction_type = \
+                            CorrectionType.CORRECTION_WITH_FACT
+                        self.correction_severity = \
+                            max(self.correction_severity, 0.7)
+
         def _put_fact(attr: str, val: str, conf: float) -> None:
             # D3 (round v3): never store a closed-class / negation token as a
             # fact value. The old miner matched "my sister's name is not meena,
@@ -307,7 +357,7 @@ class UserModel:
             """D6 (round 2026-08-08b-d): 'my partner's name is theo' must model
             an ENTITY (partner) and its attribute (name), not collapse onto the
             user's own self-profile. The multi-word attr pattern
-            (r'\\bmy\\s+(...)\\s+is\\s+...') captures 'partner's name' as one attr
+            (r'\bmy\s+(...)\s+is\s+...') captures 'partner's name' as one attr
             key under subject 'i'; a later recall path sees the substring
             'name' and renders 'your name is theo' — reporting the PARTNER'S
             name as the USER's name (a self/other boundary breach; the same
