@@ -287,7 +287,8 @@ class UserModel:
                     for (s, a, v), f in self.personal_facts.facts.items():
                         if s == "i" and a in ("does", "count", "number", "qty") \
                                 and not getattr(f, "superseded", False) \
-                                and _ent in v.lower():
+                                and re.search(r'\b' + re.escape(_ent) + r'\b',
+                                              v.lower(), re.IGNORECASE):
                             _prior = (a, v)
                             break
                     if _prior is not None:
@@ -354,7 +355,7 @@ class UserModel:
                                                 source="seed_regex")
 
         def _split_possessive_attr(attr: str):
-            """D6 (round 2026-08-08b-d): 'my partner's name is theo' must model
+            r"""D6 (round 2026-08-08b-d): 'my partner's name is theo' must model
             an ENTITY (partner) and its attribute (name), not collapse onto the
             user's own self-profile. The multi-word attr pattern
             (r'\bmy\s+(...)\s+is\s+...') captures 'partner's name' as one attr
