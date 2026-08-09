@@ -624,11 +624,8 @@ class SelfQueryMixin:
         # driven by the live self-model + identity strength (real state, not
         # authored prose). The "name your mind" variant gets the same honest
         # introspective frame.
-        if _strength >= 0.5:
-            _coh = "a mind that's been getting steadier as we talk"
-        else:
-            _coh = "a mind still forming, figuring itself out as we talk"
-        return (f"i'm {sm.describe()} — {_coh}. "
+        _coh = "steadier" if _strength >= 0.5 else "forming"
+        return (f"i'm {sm.describe()} — a mind that's been {_coh} as we talk. "
                 f"what made you curious about that?")
 
     def _route_self_query(self, user_input: str) -> Optional[str]:
