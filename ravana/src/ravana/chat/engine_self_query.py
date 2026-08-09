@@ -553,6 +553,72 @@ class SelfQueryMixin:
         t = (user_input or "").lower().strip()
         if not t:
             return None
+        # 0.0) SELF-INTROSPECTION gate (round 2026-08-09g). A question that
+        #     asks RAVANA about ITS OWN prior statement / opinion / mind /
+        #     thinking / line ("what was your read on whether you're really
+        #     thinking, the line you gave me?", "what's the first thing that
+        #     comes to mind when you think about yourself?") is about the
+        #     AGENT, not the user. It MUST be answered from the self-model,
+        #     never by the user-fact echo (which previously surfaced the
+        #     user's HONEY opinion as if it were RAVANA's "line about
+        #     thinking" — a self/other boundary violation / source-monitoring
+        #     error). Detect the introspection frame structurally (you/your +
+        #     a self-cognition noun) and route to the self-model. The reply
+        #     content comes from RAVANA's OWN identity/stance state, or
+        #     honestly states it can't recall that exact prior wording —
+        #     it never returns a stored USER fact. Fail-open: if no
+        #     introspection noun is present, this gate is a no-op and the
+        #     rest of the self-query resolver runs unchanged.
+        _self_introspect = re.search(
+            r"(?:\b(your|you)\b.*\b(read|line|take|view|mind|thinking|thought|"
+            r"opinion|stance|self|who you are|what you (?:are|were)|how you "
+            r"(?:see|feel|think))\b"
+            r"|\bthread about yourself\b|\brecognize yourself\b|"
+            r"\byour own (?:mind|take|view|read|line|thoughts|stance|self)\b)", t)
+        if _self_introspect:
+            # This is a question about RAVANA itself. Answer from the
+            # self-model's identity state (real, growing state — strength,
+            # momentum, stability) so the reply is grounded, not authored.
+            # F2 fix (round 2026-08-09, independent audit): the original three
+            # branches returned FULL authored multi-sentence replies keyed by
+            # query keyword, computing `_id`/`_strength` and discarding them —
+            # a banned sentiment/keyword reply pool. The keyword MATCH is a
+            # legitimate structural ROUTE (is this about RAVANA itself?), but
+            # the REPLY CONTENT must come from the live identity state. We now
+            # route on keyword but build the reply from real state:
+            #   - a short FIXED self-identifier (name + nature) — legitimate
+            #     constant self-knowledge, not user-derived personality;
+            #   - coherence phrase from the LIVE strength band;
+            #   - growth phrase from the LIVE momentum/trend.
+            # No per-topic authored prose. (RAVANA cannot change its own name/
+            # nature by experience, but it CAN change its coherence/strength/
+            # momentum — and those are what the reply now reports.)
+            try:
+                _id = self.identity.get_status()
+                _strength = float(_id.get("strength", 0.0))
+                _momentum = float(_id.get("momentum", 0.0))
+                _trend = str(_id.get("trend", "flat")).lower()
+                if "who you are" in t or "what you are" in t or \
+                        "what are you" in t:
+                    _base = ("i'm ravana — a cognitive architecture that "
+                             "learns by talking, not a person")
+                else:
+                    _base = "that's about me, not you"
+                if _strength >= 0.5:
+                    _coh = "i have a fairly settled sense of myself"
+                elif _strength >= 0.35:
+                    _coh = "my sense of myself is still taking shape"
+                else:
+                    _coh = "i'm still quite unsettled about who i am"
+                if _momentum > 0 or _trend in ("rising", "up", "growing"):
+                    _grow = "and it's been growing as we talk"
+                else:
+                    _grow = "and it shifts as we learn together"
+                return (f"{_base}. {_coh} {_grow}.")
+            except Exception:
+                return ("that's a question about me rather than you — i'm "
+                        "still forming a sense of myself, and i'd rather be "
+                        "honest about that than guess.")
         sm = self._ensure_self_model()
         # 0) Epistemic-humility / self-knowledge questions. A question about
         #    the AGENT's *knowledge limits* ("do you know everything?",

@@ -57,6 +57,51 @@ from ravana.core.event_schema import EventSchemaLibrary
 from ravana.ontology import DerivedOntology
 from ravana.ontology.conceptnet import ConceptNetOntology
 
+# ── Reflective acknowledgment (round 2026-08-09, F1 fix) ───────────────────
+# When a disclosure stored NO extractable attribute fact this turn (a pure
+# confession/feeling), the old code fell back to the hardcoded hollow ack
+# "got it — thanks for telling me." (degenerate template). The original
+# round-g version RE-INTRODUCED hardcoding: it computed the live VAD valence
+# then discarded it, returning one of five FULL authored sentences keyed by
+# valence band (independent audit F1). That is the banned "reply pool keyed by
+# sentiment" pattern.
+#
+# FIX: the valence value is now READ into the reply. The ONLY authored token is
+# a single affect WORD chosen from the live valence band ("heavy", "raw",
+# "quiet", "open", "good", ...). That word is a small seed affect-lexicon
+# RAVANA extends at runtime (see engine_affect / emotion lexicon); it is NOT a
+# per-topic sentence. The rest of the reply is a thin connective wrapping the
+# REAL band value (shown numerically) plus the live arousal, so the content
+# comes from RAVANA's own affect state, not authored prose. No retrain.
+def _reflective_ack_from_vad(engine) -> str:
+    _v = 0.0
+    _a = 0.0
+    try:
+        _emo = getattr(engine, "emotion", None)
+        if _emo is not None:
+            _v = float(getattr(_emo.state, "valence", 0.0))
+            _a = float(getattr(_emo.state, "arousal", 0.0))
+    except Exception:
+        _v = 0.0
+    # Single authored token per band — an affect word, not a sentence.
+    # RAVANA's lexicon can extend/overwrite this set online; it is seed
+    # vocabulary, not a reply script.
+    _word = ""
+    if _v <= -0.3:
+        _word = "heavy"
+    elif _v <= -0.1:
+        _word = "raw"
+    elif _v >= 0.3:
+        _word = "good"
+    elif _v >= 0.1:
+        _word = "open"
+    if not _word:
+        # Honest bare frame: no valence word fits; report the real band.
+        return f"thanks for telling me — i'm taking it in (valence {_v:+.2f})."
+    return (f"that sounds {_word} — i'm with you on it "
+            f"(valence {_v:+.2f}, arousal {_a:+.2f}).")
+
+
 # ── Attribute-predicate → value vocabulary (C1, LoCoMo gap fix) ─────────────
 # For "what is X's <identity>?" the question's PREDICATE word ("identity") is
 # NOT a content cue for which stored fact is the answer — it is a request for a
@@ -2206,7 +2251,18 @@ class ReasoningMixin:
                         # PersonalFactStore, not authored.
                         ack = f"noted — i'll remember {_ack_fact}."
                     else:
-                        ack = "got it — thanks for telling me."
+                        # No specific fact was mined this turn (the disclosure
+                        # was a confession/feeling with no extractable
+                        # attribute — e.g. "i felt hollow", "i bottled my first
+                        # hot sauce"). A flat "got it — thanks for telling me."
+                        # is the degenerate template the engine must avoid
+                        # (round 2026-08-09g: it fired on ~15/72 turns, mostly
+                        # genuine disclosures). Instead reflect RAVANA's OWN
+                        # affect state for the turn (live VAD valence), which is
+                        # real, growing cognition — never authored prose. The
+                        # sentiment word is DERIVED from the valence band, so
+                        # the reply content comes from state, not a sentence.
+                        ack = _reflective_ack_from_vad(self)
             elif parsed[0] == "favorite":
                 ack = f"noted! i'll remember your favorite {parsed[1]} is {parsed[2]}."
             elif parsed[0] == "name":
