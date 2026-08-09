@@ -288,6 +288,7 @@ class UserModel:
                 for _i in range(len(_vwords) - 1, -1, -1):
                     if _vwords[_i] in _PREP:
                         _cut = _i
+                    else:
                         break
                 _vwords = _vwords[:_cut]
                 _val = " ".join(_vwords)
@@ -338,6 +339,7 @@ class UserModel:
                 for _i in range(len(_vwords) - 1, -1, -1):
                     if _vwords[_i] in _PREP:
                         _cut = _i
+                    else:
                         break
                 _vwords = _vwords[:_cut]
                 _val = " ".join(_vwords)
