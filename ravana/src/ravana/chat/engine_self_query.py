@@ -695,16 +695,24 @@ class SelfQueryMixin:
             r"what\s+are\s+you|tell\s+me\s+about\s+yourself|"
             r"what\s+can\s+you\s+(?:actually\s+|really\s+|even\s+)?do|"
             r"your\s+name)\b", t))
-        # 2) A query whose grounded subject is the self node (e.g. bare 'ravana'
-        #    asked as 'what is ravana').
-        _self_subj = False
-        try:
-            _g = self._ground_query(t)
-            if _g and _g[0]:
-                _self_subj = sm.is_self_subject(_g[0])
-        except Exception:
-            _self_subj = False
-        if not (_name_q or _self_subj):
+        # D-fix (round 2026-08-08b): The agent self-intro path fires ONLY on
+        # explicit self-identity patterns above, PLUS a deterministic bare-name
+        # match for "what is ravana" / "tell me about ravana". A prior
+        # implementation fired when the query's GROUNDED subject equaled the
+        # agent name via _ground_query, but that grounder is state-sensitive and
+        # non-deterministically resolved user-directed queries ("earlier you
+        # said something about how i see cities", "what do you actually think i
+        # care about") to the agent name — hijacking the self-intro instead of
+        # answering about the USER. The bare-name match is now a direct regex on
+        # the agent name and is gated by the ABSENCE of any user pronoun
+        # ("me"/"i"/"you"/"my"), so a query about the user can never trigger it.
+        # Structural (regex), not a per-topic guard.
+        _name_about_agent = bool(re.search(
+            r"\b(?:what\s+is|who\s+is|tell\s+me\s+about|what\s+are)\s+"
+            + re.escape(sm.name.lower()) + r"\b", t))
+        _has_user_pronoun = bool(re.search(
+            r"\b(me|my|i'm|i\s|you|your|i've|i'll)\b", t))
+        if not (_name_q or (_name_about_agent and not _has_user_pronoun)):
             return None
         # Compose a stable, honest self-answer from the derived self-model.
         _answer = None

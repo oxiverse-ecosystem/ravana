@@ -516,7 +516,25 @@ class MemoryMixin:
             _best_cue_score = 0
             for rec in store:
                 _t = rec.get("text", "").lower()
-                if re.search(r"\b(remember|recall|what did i|what was i)\b.*\b(told|said|ask|mention|tell)\b", _t):
+                # D1 (round 2026-08-08b-d): a prior RECALL QUERY ("remind me what
+                # i told you about the one that molted") carries no shareable
+                # content, but the old skip-regex only caught
+                # "remember/recall/what did i/what was i" + told/said/ask. A
+                # later semantically-overlapping recall ("what's the strongest
+                # read you've formed") matched the prior recall query's OWN
+                # text (it shares "told you"/"molted") and echoed it verbatim ->
+                # a recursive recall loop (the "you mentioned my tarantula
+                # before, remind me..." echo). Generalize the skip to ANY
+                # recall-scaffold query: remember/recall/remind/what i
+                # told|said|mentioned|asked you, so a query is never retrieved
+                # AS content. Structural (regex on recall syntax), not a
+                # per-topic guard.
+                if re.search(
+                    r"\b(remember|recall|remind(?: me)?)\b"
+                    r".*\b(told|said|ask|mention|tell|said you|mentioned|asked)\b",
+                    _t) or re.search(
+                    r"\b(what|do you remember|remind)\b.*\b(i|you)\b.*"
+                    r"\b(told|said|mentioned|asked|tell|remember|recall)\b", _t):
                     continue  # skip prior recall queries (no content)
                 # count how many cue tokens appear verbatim in this episode
                 _hit = sum(1 for _c in _cue_tokens if _c in _t)
@@ -558,7 +576,13 @@ class MemoryMixin:
             # "remember what I told you") — they carry no shareable content and
             # would otherwise be retrieved by semantic overlap with a new recall
             # query, producing a confabulated self-reference. Fail-closed instead.
-            if re.search(r"\b(remember|recall|what did i|what was i)\b.*\b(told|said|ask|mention|tell)\b", text.lower()):
+            if re.search(
+                r"\b(remember|recall|remind(?: me)?)\b"
+                r".*\b(told|said|ask|mention|tell|said you|mentioned|asked)\b",
+                text.lower()) or re.search(
+                r"\b(what|do you remember|remind)\b.*\b(i|you)\b.*"
+                r"\b(told|said|mentioned|asked|tell|remember|recall)\b",
+                text.lower()):
                 continue
             score = 0.0
             _strong_link = False
@@ -1340,19 +1364,33 @@ class MemoryMixin:
         # self-recall (strategy=memory_recall) and never reach the stored name.
         if re.search(r"\b(?:my name|who am i)\b", t):
             return None
-        # D3 (round v3): AGENT-self-recall. "what did you say about who you are",
-        # "earlier you described yourself", "what was your answer about X" ask
-        # for RAVANA's OWN prior claim, NOT a user fact. Route to the
-        # agent-claim store (populated from RAVANA's real generated replies) so
-        # these don't get swallowed by the user-episode recall below and return
-        # a user utterance (the D-C bug). Content comes from verbatim engine
-        # output, never authored prose.
-        if re.search(
-            r"\b(what did you (?:say|tell me|answer|describe|say about)|"
-            r"earlier you (?:described|said|told me|mentioned)|"
-            r"you described yourself|your answer about|what was your answer|"
-            r"you (?:said|mentioned|told me) something about what you (?:are|were)|"
-            r"remind me what you (?:said|told me) (?:about|you are))\b", t):
+        # D-fix (round 2026-08-08b): the agent-claim recall below must fire ONLY
+        # when the user is asking about RAVANA's OWN self-description ("what did
+        # you say about who you are", "earlier you described yourself"). It must
+        # NOT fire on a user-fact recall like "earlier you said something about
+        # how I see cities" — that is the user asking about THEIR OWN stance, and
+        # routing it to the agent-claim store returns RAVANA's self-intro (a
+        # self/other boundary breach: D-C class). Gate the "earlier you said/
+        # mentioned/told me" and "you said something about" branches on the
+        # recalled content being about the AGENT (yourself / who you are / what
+        # you are / your nature), so a query containing any first-person USER
+        # reference (i / my / me) falls through to the genuine user-episode
+        # recall instead. Structural (regex), not a per-topic guard.
+        _agent_self_recall = (
+            bool(re.search(
+                r"\bwhat did you (?:say|tell me|answer|describe|say about)\b", t))
+            and not bool(re.search(r"\b(i|my|me|we)\b", t))
+        ) or bool(re.search(
+            r"\bearlier you (?:described|said|told me|mentioned) "
+            r"(?:yourself|who you are|what you are|your nature)\b", t)
+        ) or bool(re.search(r"\byou described yourself\b", t)
+        ) or bool(re.search(r"\byour answer about\b|\bwhat was your answer\b", t)
+        ) or bool(re.search(
+            r"\byou (?:said|mentioned|told me) something about what you "
+            r"(?:are|were)\b", t)
+        ) or bool(re.search(
+            r"\bremind me what you (?:said|told me) (?:about|you are)\b", t))
+        if _agent_self_recall:
             _claim = getattr(self, "_agent_claims", {}).get("self")
             if _claim:
                 return _claim
@@ -1531,7 +1569,18 @@ class MemoryMixin:
                             # reflects what the user told us they do.
                             _bits.append(f"you do {_val}")
                         elif _attr == "name":
-                            _bits.append(f"your name is {_val}")
+                            # D6 (round 2026-08-08b-d): a possessive NAME fact
+                            # (partner, pet, ...) must keep its OWNER in the
+                            # render, never collapse onto the user's "your name
+                            # is X". The old code rendered every name attr as
+                            # "your name is X" regardless of entity, so a
+                            # partner's/pet's name was reported as the USER's own
+                            # name — a self/other boundary breach. Only the user
+                            # entity (i/me/my/you) uses "your name is"; any other
+                            # entity keeps "{ent}'s name".
+                            _bits.append(
+                                f"your name is {_val}" if _is_user
+                                else f"your {_ent}'s name is {_val}")
                         elif _attr == "location":
                             _bits.append(f"you live in {_val}")
                         elif _attr == "role":

@@ -707,6 +707,20 @@ def answer_evaluative_framing(text: str) -> Optional[str]:
     questions about the same subject are asked.
     """
     t = _norm(text).rstrip("?.")
+    # C-fix (round 2026-08-08b): this function answers EVALUATIVE QUESTIONS
+    # ("do you think AI is good?"). A first-person declarative self-report that
+    # merely CONTAINS the word "good" (e.g. "a good chili crisp changed
+    # everything") is NOT an evaluative question — routing it here produced the
+    # canned "i don't think <junk> is inherently good or bad" hedge on a
+    # personal disclosure. Require a genuine interrogative frame (a '?' or a
+    # leading auxiliary) so statements fall through to the honest pipeline.
+    _interrogative = (text.rstrip().endswith("?")
+                      or bool(re.match(
+                          r"^(what|who|when|where|why|how|which|is|are|do|"
+                          r"does|did|can|could|would|should|will|may|might|"
+                          r"am|have|has|had)\b", t)))
+    if not _interrogative:
+        return None
     # Evaluative dimensions: (adjective, response_template)
     EVAL_DIMS = [
         ("beneficial", "i think {subj} has many beneficial applications — it can help with things like healthcare, education, and productivity. like any tool, its impact depends on how we choose to use it."),

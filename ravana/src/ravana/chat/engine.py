@@ -1993,6 +1993,24 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     r"are|was|were|had|has|have|will|would|could|can)\b",
                     _stripped.lower()):
                 return
+            # D1 (round 2026-08-08b-d): a recall-scaffold query that is NOT a
+            # question (no trailing '?', no interrogative opener) — e.g.
+            # "you mentioned my tarantula before, remind me what i told you
+            # about the one that molted" — must NOT be encoded as an episodic
+            # "fact". The hippocampus stores experienced CONTENT; a memory/recall
+            # directive is a PFC query. Encoding it lets a later semantically
+            # overlapping recall ("what's the strongest read you've formed")
+            # retrieve the prior recall query's OWN text and echo it verbatim ->
+            # a recursive recall loop (the tarantula echo). Gate on recall
+            # scaffold (remember/recall/remind + a told/said/mentioned verb),
+            # structural regex not a per-topic list.
+            if re.search(
+                    r"\b(remember|recall|remind(?: me)?)\b.*"
+                    r"\b(told|said|ask|mention|tell|mentioned|asked)\b",
+                    _stripped.lower()) or re.search(
+                    r"\b(remind|remember)\b.*\b(i|you)\b.*"
+                    r"\b(told|said|mentioned|asked|tell)\b", _stripped.lower()):
+                return
             content_words = [w.strip(".,!?;:") for w in user_input.lower().split()
                              if len(w.strip(".,!?;:")) >= 3
                              and w.strip(".,!?;:").isalpha()]
@@ -2865,12 +2883,19 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
 
     def process_turn(self, user_input: str) -> str:
         """Process input and generate a response, auto-learning when needed."""
+        # C-fix (round 2026-08-08b): stash the FULL user utterance on the engine
+        # so affect realizers can read the user's own felt-label ("i feel
+        # hollow") even when the disclosure context passed downstream only
+        # carries the extracted event span ("lost half the colony"). Consumed
+        # by _appraised_affective_reply's copula scan as the authoritative text.
+        self._last_user_input = user_input
         # Reset the prior turn's stance-reversal marker so a retraction recorded
         # this turn is consumed/acked the SAME turn and cannot leak into the next
         # turn's acknowledgment (attitude change is a within-turn valuation
         # recode, surfaced in the reply that follows the retraction).
         try:
             self.user_model.opinions.clear_last_reversal()
+            self.user_model.opinions.clear_reversal_guard()
         except Exception:
             pass
         # Step 3a: Meta-command detector at the VERY TOP of process_turn (PFC task-set override)
@@ -3896,6 +3921,58 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 # self-recall detection). Present-tense "i feel anxious" is
                 # untouched (no recall frame).
                 if _is_q_g or _pref_stmt_g or _name_stmt_g or _recall_frame:
+                    _disc = None
+            # SUPPORT/EMPATHY MISFIRE GATE (RAVANA defect class: a benign
+            # self-disclosure matched support/empathy before checking genuine
+            # distress). This runs at the TOP LEVEL of the empathy frame-guard so
+            # it covers BOTH the primary VAD detection and the GloVe cause
+            # fallback. The cause classifier is NOISY on arbitrary first-person
+            # text: an attribute disclosure about an ENTITY the user owns ("my
+            # dog is a sheepdog named Cairn", "my child is a curious kid named
+            # Sam", "my cat is fluffy and white") is often mislabeled
+            # "loss"/"other_suffering" and routed into the empathy path, where the
+            # turn is MET with comfort instead of ACKED as a fact -- and the
+            # stored fact is dropped. We therefore do NOT trust the classifier for
+            # this gate; instead we use the utterance SHAPE: a plain possessive
+            # attribute statement ("my <entity> is/was/has <attribute>") or a
+            # first-person copula-attribute ("i am/have <role>") with NO explicit
+            # suffering/distress word is, by construction, a factual disclosure,
+            # not a cry for empathy. We drop _disc so it falls through to
+            # autobiographical storage and gets a grounded ack. Genuine distress
+            # is preserved: the gate does NOT fire when a real suffering/loss word
+            # is present ("my mom is sick", "my dog died", "i am sad", "my friend
+            # is hurting"), which keeps those on the empathy path. Structural: it
+            # keys off the utterance shape + a small, stable set of suffering
+            # words -- NOT a per-entity/per-topic table -- so it generalizes
+            # ("my brother is in hospital" stays empathic, "my brother is a
+            # doctor" drops to fact storage). Fail-closed: when ambiguous we KEEP
+            # empathy (do not drop _disc), mirroring the documented support-misfire
+            # fix's default-to-care.
+            if _disc is not None:
+                _low_d = (user_input or "").lower().strip()
+                _low_d = (_low_d.replace("i'm", "i am")
+                          .replace("i've", "i have").replace("i'll", "i will"))
+                # Plain possessive-attribute statement: "my <noun> is/was/has/
+                # are/have/got/named/called <...>". This is the factual-disclosure
+                # shape (the user is telling RAVANA something ABOUT an entity).
+                _possessive_attr = bool(re.match(
+                    r"^my\s+\w+(\s+\w+)?\s+"
+                    r"(is|are|was|were|has|have|got|named|called|likes|loves|enjoys|prefers)\b",
+                    _low_d)) or bool(re.match(
+                    r"^(i am|i'm|i have|i've|i am feeling|i feel)\s+\w+", _low_d))
+                # Genuine distress cues -- a small, stable set of suffering/
+                # loss words. Presence of ANY of these means the utterance IS a
+                # distress disclosure and must stay on the empathy path. This is
+                # the universal "is anyone actually hurting here?" check, NOT a
+                # per-entity table.
+                _suffering = bool(re.search(
+                    r"\b(hurt|hurts|hurting|pain|ache|suffering|suffer|"
+                    r"grief|grieving|lonely|alone|scared|afraid|terrified|"
+                    r"anxious|panic|devastated|broken|dying|dead|died|death|"
+                    r"dies|passed|miserable|hopeless|overwhelmed|exhausted|"
+                    r"furious|angry|cry|cried|crying|sad|sick|ill|hospital|"
+                    r"wounded|bleeding|lost|worried|troubled|upset)\b", _low_d))
+                if _possessive_attr and not _suffering:
                     _disc = None
             if _disc is not None:
                 # §7 deictic special-case: "i love you" / "i like you" is a

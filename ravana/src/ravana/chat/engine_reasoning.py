@@ -2262,33 +2262,71 @@ class ReasoningMixin:
             # recall). Generic (no per-topic table); brain-faithful: you don't
             # acknowledge a fact you heard long ago as if just told.
             _cur_turn = getattr(store, "turn_num", None)
+            # Possessive disclosures (e.g. "my partner's name is Pell",
+            # "my dog is a sheepdog named Cairn") are stored under the ENTITY
+            # key ("partner", "dog"), not under subject "i" — the self/other
+            # boundary fix deliberately keeps them entity-scoped. The ack
+            # composer used to only look under subject "i", so those stored
+            # facts were invisible and the turn fell through to the hollow
+            # "got it — thanks for telling me." Broaden the scan to include
+            # entity-keyed facts stored THIS turn (any subject other than "i"
+            # whose value was just learned), so the ack can render from the
+            # REAL stored fact. Content still comes from the store, never
+            # authored. General: no per-entity table.
             cands = [f for (s, a, v), f in store.facts.items()
-                     if not f.superseded and s in _subjects
-                     and (_cur_turn is None or getattr(f, "turn_number", -1) == _cur_turn)]
+                     if not f.superseded
+                     and (s in _subjects or (s not in ("i",) and s))
+                     and (_cur_turn is None
+                           or getattr(f, "turn_number", -1) == _cur_turn)]
             if not cands:
                 return None
             # Among this-turn facts, highest confidence wins (recency already
             # guaranteed by the scope above).
             best = max(cands, key=lambda f: getattr(f, "confidence", 0.0))
             attr, val = best.attribute, best.value
-            # Natural phrasing for the common relation keys (mirrors
-            # engine_memory._reconstruct_entity so acks and recall agree).
-            _phrase = {
-                "name": f"your name is {val}",
-                "location": f"you live in {val}",
-                "background": f"{val}",
-                "favorite": f"your favorite {val}",
-                "likes": f"you like {val}",
-                "does": f"you do {val}",
-                "is": f"you are {val}",
-            }.get(attr, None)
-            # Pet possessions are stored under a species-keyed slot
-            # ("cat", "cat_2"). Render naturally instead of echoing the raw
-            # slot key ("your cat_2 is gravy").
-            if _phrase is None and _pet_slots.is_pet_attribute(attr):
-                _phrase = _pet_slots.render(attr, val)
-            if _phrase is None:
-                _phrase = f"your {attr} is {val}"
+            # Entity-aware phrasing. Facts are stored under their REAL subject
+            # (the entity the fact is about), which can be "i" (the user's own
+            # biographical profile) or an OTHER entity ("partner", "dog"),
+            # per the self/other boundary fix. The phrasing MUST honor that
+            # subject: "my partner's name is Pell" is stored under
+            # ("partner","name","pell") and must ack "your partner's name is
+            # pell" — NOT "your name is pell", which would mis-attribute the
+            # partner's name to the user. Mirrors
+            # engine_memory._reconstruct_entity so acks and recall agree.
+            _subj = (getattr(best, "subject", "") or "").lower().strip()
+            _is_self = _subj in ("i", "me", "user", "")
+            # Common relation keys. Self-subject renders in second person
+            # ("your name is"); other-subject is possessive ("your partner's
+            # name is"). The only split is the subject — no per-entity table.
+            if _is_self:
+                _phrase = {
+                    "name": f"your name is {val}",
+                    "location": f"you live in {val}",
+                    "background": f"{val}",
+                    "favorite": f"your favorite {val}",
+                    "likes": f"you like {val}",
+                    "does": f"you do {val}",
+                    "is": f"you are {val}",
+                }.get(attr, None)
+                if _phrase is None and _pet_slots.is_pet_attribute(attr):
+                    # Pet possessions stored under a species-keyed slot
+                    # ("cat", "cat_2"); render naturally ("your cat is gravy").
+                    _phrase = _pet_slots.render(attr, val)
+                if _phrase is None:
+                    _phrase = f"your {attr} is {val}"
+            else:
+                _ent = _subj
+                _phrase = {
+                    "name": f"your {_ent}'s name is {val}",
+                    "location": f"your {_ent} is located at {val}",
+                    "background": f"{val}",
+                    "favorite": f"your {_ent}'s favorite is {val}",
+                    "likes": f"you mentioned your {_ent} likes {val}",
+                    "does": f"your {_ent} does {val}",
+                    "is": f"your {_ent} is {val}",
+                }.get(attr, None)
+                if _phrase is None:
+                    _phrase = f"your {_ent}'s {attr} is {val}"
             # Return the rendered relation phrase only (e.g. "you do chai
             # stall"); the caller wraps it in the "noted — i'll remember ..."
             # frame. Returning a ready-made ack string here caused a tuple-

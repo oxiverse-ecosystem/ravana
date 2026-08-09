@@ -38,6 +38,42 @@ _CORRECTION_FACT_PATTERNS = [
     r"([\w\s]+?)\s+are\s+(\w+)[,.]*\s+not\s+(\w+)",
 ]
 
+# real affect categories in brain_regions._CAUSE_SEEDS and
+# support_router._SUPPORT_AFFECT). Used by the bare-copula name guard: a
+# first-person "i'm X" where X is any of these is a TRANSIENT STATE, never a
+# proper noun, so it must not be stored as the user's NAME. This is SEED
+# vocabulary (a data set, not an answer path) — RAVANA-expandable via the
+# shared affect lexicon; removing entries degrades gracefully. Participles
+# ("shaking"/"tired"), irregulars ("torn"/"lost"), and stative/cognitive
+# verbs ("thinking"/"convinced") are all covered so the guard generalizes
+# across every tense/participle form rather than a frozen per-word list.
+_AFFECT_STATE_LEXICON = {
+    # affect / emotion nouns + adjectives
+    "happy", "sad", "glad", "mad", "angry", "furious", "scared", "afraid",
+    "anxious", "worried", "worry", "lonely", "alone", "empty", "hollow",
+    "numb", "lost", "torn", "hurt", "hopeless", "hopeful", "grateful",
+    "excited", "tense", "raw", "low", "blue", "down", "proud", "calm",
+    "nervous", "stressed", "stressedout", "overwhelmed", "depressed",
+    "exhausted", "tired", "hungry", "thirsty", "sick", "confused",
+    "fine", "good", "bad", "ok", "okay", "well", "ready", "done", "sure",
+    "certain", "right", "wrong", "sorry", "here", "there", "home", "awake",
+    "asleep", "late", "early", "busy",
+    # stative / cognitive / feeling verbs (incl. participles + infinitives)
+    "feeling", "felt", "feel", "love", "like", "hate", "dislike", "prefer",
+    "think", "thinking", "believing", "believe", "guess", "guessing",
+    "wonder", "wondering", "mean", "meaning", "know", "knowing", "understand",
+    "want", "wanting", "need", "needing", "wish", "wishing", "hope", "hoping",
+    "doubt", "doubting", "fear", "fearing", "regret", "regretting",
+    "suspect", "suspecting", "agree", "agreeing", "disagree", "convinced",
+    "convincing", "standing", "coming", "going", "trying", "saying",
+    "referring", "talking", "asking", "loving", "hating", "liking",
+    "sticking", "getting", "shaking", "crying", "dying", "lying", "trying",
+    "running", "falling", "breaking", "caring", "waiting", "working",
+    "learning", "growing", "changing", "feeling",
+}
+
+
+
 # D3 (round v3): explicit correction shape "X's name is not Y, it's Z" /
 # "X is not Y, it's Z" where the CORRECTED value is the token after "it's"
 # (never the negation word). Handled separately because its group order is
@@ -230,12 +266,92 @@ class UserModel:
             _val = (val or "").strip().strip(" .,!?;:'\"").lower()
             if not _val or _val in _VALUE_STOP:
                 return
+            # C-value (round 2026-08-08c): trim a TRAILING prepositional phrase
+            # from the value. The greedy value capture ("my X is Y", up to 8
+            # words) over-grabbed trailing prepositions, storing nonsense like
+            # "cabin at." / "always raw from hauling hive boxes up the.". A
+            # value that ENDS in a preposition ("up"/"from"/"at"/"in") is an
+            # incomplete capture — drop the preposition and everything after it
+            # so "cabin at." -> "cabin" and "up the mountain" -> "up" -> "".
+            # Structural: one shared chokepoint for every fact; the
+            # preposition set is closed-class (not content), so trimming it
+            # never discards a real value word. If the whole value is
+            # prepositions, reject it (no content to store).
+            _PREP = ("up", "down", "from", "at", "in", "on", "with", "to",
+                     "of", "by", "for", "about", "into", "onto", "over",
+                     "under", "near", "behind", "beside", "off")
+            _vwords = _val.split()
+            if _vwords and _vwords[-1] in _PREP:
+                # drop trailing prepositions and any words following the first
+                # trailing preposition
+                _cut = len(_vwords)
+                for _i in range(len(_vwords) - 1, -1, -1):
+                    if _vwords[_i] in _PREP:
+                        _cut = _i
+                    else:
+                        break
+                _vwords = _vwords[:_cut]
+                _val = " ".join(_vwords)
+            if not _val or _val in _VALUE_STOP:
+                return
             existing = self.personal_facts.get("i", attr)
             if (_corrective and existing is not None
                     and existing.value.lower() != _val):
                 self.personal_facts.contradict("i", attr, _val)
             else:
                 self.personal_facts.assert_fact("i", attr, _val,
+                                                confidence=conf,
+                                                source="seed_regex")
+
+        def _split_possessive_attr(attr: str):
+            """D6 (round 2026-08-08b-d): 'my partner's name is theo' must model
+            an ENTITY (partner) and its attribute (name), not collapse onto the
+            user's own self-profile. The multi-word attr pattern
+            (r'\\bmy\\s+(...)\\s+is\\s+...') captures 'partner's name' as one attr
+            key under subject 'i'; a later recall path sees the substring
+            'name' and renders 'your name is theo' — reporting the PARTNER'S
+            name as the USER's name (a self/other boundary breach; the same
+            defect class that put 'your name is a hypocrite' in v-aug04).
+
+            Fix: detect a possessive head ('s) in the attr and resolve it to
+            (entity=<owner>, attr=<relation>), mirroring the ALREADY-CORRECT
+            possessive handling in engine_memory._record_episode (which keys
+            'my cat's name is whiskers' -> entity=cat, attr=name). This is
+            structural: any 'my <X>'s <Y> is Z' is stored under entity X, never
+            under the user's 'i' subject. Generic — no per-entity table. The
+            entity grows from experience (the user can name any relation)."""
+            _am = re.match(r"^([\w'-]+)'s\s+(.+)$", attr)
+            if _am:
+                return _am.group(1).strip().lower(), _am.group(2).strip().lower()
+            return None, attr
+
+        def _put_fact_ent(entity: str, attr: str, val: str, conf: float) -> None:
+            """Entity-keyed variant of _put_fact (subject = entity, not 'i')."""
+            _val = (val or "").strip().strip(" .,!?;:'\"").lower()
+            if not _val or _val in _VALUE_STOP:
+                return
+            _PREP = ("up", "down", "from", "at", "in", "on", "with", "to",
+                     "of", "by", "for", "about", "into", "onto", "over",
+                     "under", "near", "behind", "beside", "off")
+            _vwords = _val.split()
+            if _vwords and _vwords[-1] in _PREP:
+                _cut = len(_vwords)
+                for _i in range(len(_vwords) - 1, -1, -1):
+                    if _vwords[_i] in _PREP:
+                        _cut = _i
+                    else:
+                        break
+                _vwords = _vwords[:_cut]
+                _val = " ".join(_vwords)
+            if not _val or _val in _VALUE_STOP:
+                return
+            _subj = entity.lower()
+            existing = self.personal_facts.get(_subj, attr)
+            if (_corrective and existing is not None
+                    and existing.value.lower() != _val):
+                self.personal_facts.contradict(_subj, attr, _val)
+            else:
+                self.personal_facts.assert_fact(_subj, attr, _val,
                                                 confidence=conf,
                                                 source="seed_regex")
 
@@ -321,6 +437,21 @@ class UserModel:
                     m_loc.group(1), re.IGNORECASE)
             if _trailing:
                 _loc = _trailing.group(1).strip()
+            # Round 2026-08-08f: a long location clause with a trailing
+            # measure/qualifier ("i live in a lighthouse on a rock about two
+            # kilometers offshore") over-grabs the qualifier, pushing the
+            # capture past the <=5-word gate so NO location fact is stored and
+            # the disclosure falls through to the hollow "got it" ack. Trim a
+            # trailing qualifier phrase led by a measure word ("about/around/
+            # roughly" or a number+unit like "two kilometers") so the real
+            # place head ("a lighthouse on a rock") is kept and stored.
+            # Structural: cuts at a closed-class qualifier, never invents a
+            # place; degrades gracefully if trimming leaves nothing.
+            else:
+                _loc = re.split(
+                    r"\s+(?:about|around|roughly|approximately|some)\s+"
+                    r"(?:\d+\s+\w+|\w+)\b", _loc)[0].strip()
+                _loc = re.split(r"\s+\d+\s+(?:kilometer|meter|mile|km|mi|minute|hour|year|month)s?\b", _loc)[0].strip()
             if _loc and len(_loc.split()) <= 5:
                 self.user_location = _loc
                 _put_fact("location", _loc, 0.6)
@@ -369,19 +500,24 @@ class UserModel:
                     "that", "this", "it", "my", "your", "from", "by", "as",
                     "so", "but", "and", "or", "if", "because",
                 }
-                _NAME_REJECT_VERBS = {
-                    "feeling", "felt", "furious", "scared", "afraid",
-                    "worried", "convinced", "tired", "angry", "sad",
-                    "happy", "glad", "excited", "lonely", "hungry",
-                    "thirsty", "confused", "sure", "certain", "wrong",
-                    "right", "sorry", "ok", "okay", "done", "ready",
-                    "hoping", "thinking", "believing", "guessing",
-                    "wondering", "loving", "hating", "liking", "meaning",
-                    "saying", "referring", "talking", "asking", "trying",
-                    "sticking", "standing", "coming", "going", "feeling",
-                }
+                # A-name (round 2026-08-08c): a bare "i'm X" copula is how
+                # users express TRANSIENT STATES ("i'm torn", "i'm shaking",
+                # "i'm proud", "i'm hollow"). The old reject set was a frozen
+                # stoplist that missed "torn"/"shaking"/"proud", so they were
+                # stored as the user's NAME (name poisoning: a later "what's
+                # my name?" answered "torn"/"shaking"). Reject any candidate
+                # whose head token is an AFFECT / STATE / COGNITIVE word, drawn
+                # from the SAME seed vocabulary the empathy gate uses
+                # (brain_regions._CAUSE_SEEDS + support_router._SUPPORT_AFFECT),
+                # expressed here as one data set. This is SEED vocabulary (not
+                # an if/elif answer path): RAVANA can extend it at runtime via
+                # the shared affect lexicon; removing entries degrades
+                # gracefully (only loses one guard). Covers participles
+                # ("shaking"/"tired"), irregulars ("torn"/"lost"), and
+                # stative/cognitive verbs ("thinking"/"convinced").
+                _NAME_REJECT_AFFECT = _AFFECT_STATE_LEXICON
                 _has_closed = any(w.lower() in _CLOSED for w in _nw)
-                _head_verb = _nw[0].lower() in _NAME_REJECT_VERBS
+                _head_verb = _nw[0].lower() in _NAME_REJECT_AFFECT
                 if len(_nw) > 2 or _has_closed or _head_verb:
                     name_cand = ""
             # Reject common states / descriptors / interrogatives so a bare
@@ -519,6 +655,19 @@ class UserModel:
                             _val = _trimmed
                     elif _pat.startswith(r"\bi\s+am\s+allergic\s+to"):
                         _attr = "allergy"
+                # D6 (round 2026-08-08b-d): a possessive attr ('my partner's
+                # name is theo' -> attr="partner's name") must be stored under
+                # the OWNER entity, not the user's 'i' subject. Otherwise a
+                # later recall renders "your name is theo" (partner's name
+                # reported as the user's). Split the possessive head into
+                # (entity, relation) and route through _put_fact_ent. The
+                # recall reconstructor (_retrieve_episodic / _structured_recall)
+                # already keys possessive facts by owner, so this makes the
+                # MINER agree with the recaller by construction.
+                _ent, _rel = _split_possessive_attr(_attr)
+                if _ent is not None:
+                    _put_fact_ent(_ent, _rel, _val, 0.6)
+                    continue
                 if _attr and _val and _attr not in ("name", "location"):
                     # A possession disclosure may name several animals ("i have
                     # two cats named biscuit and gravy"). Split the value on
@@ -587,7 +736,16 @@ class UserModel:
                 r"|often\s+|sometimes\s+|usually\s+)?"
                 r"(?:have\s+been\s+)?(?:been\s+)?(?:keep\s+|grind\s+|race\s+)?"
                 + _verb +
-                r"\s+(?:my\s+|a|an|the\s+)?(.+?)(?:\bfor\b|\bwhen\b|\bbut\b|"
+                # D3 (round 2026-08-08b-d): the article alternative `a` had NO
+                # word boundary, so for "i teach at a school" it matched the
+                # leading 'a' of "at", leaving "t a school" as the object ->
+                # stored "teach t". Bound the article alternatives with \b so
+                # `a`/`an`/`the` only match a STANDALONE article, never the
+                # prefix of another word. The object still passes through
+                # _opinion_topic which drops closed-class words, so "i teach at
+                # a school by the river" -> "school" (real concept head), not
+                # "t". Structural; no per-topic table.
+                r"\s+(?:my\s+|\b(?:a|an|the)\b\s+)?(.+?)(?:\bfor\b|\bwhen\b|\bbut\b|"
                 r"\bbecause\b|\band\b|\.|\!|\?|$|,)",
                 q_clean, re.IGNORECASE)
             if _m:
@@ -655,6 +813,79 @@ class UserModel:
             (r"\bi\s+believe\s+we\s+(?:must|should)\s+(?:ban|cut|end|stop|reduce)\s+(.+?)(?:\.|\band\b|\bbut\b|$|,)", -0.8, 0.55),
             (r"\b(.+?)\s+is\s+my\s+favorite\b", 1.0, 0.7),
             (r"\bi\s+believe\s+([\w'-]+)\s+beats\s+([\w'-]+)", 0.7, 0.4),
+            # A-fix (round 2026-08-08b): comparative opinions ("small towns make
+            # better humans than cities", "tea beats coffee", "the mountains are
+            # finer than the coast"). The Winner (X) is the valued term -> a
+            # positive stance on X. General, no per-topic rule; the content head
+            # is resolved by _opinion_topic so the topic is a real concept
+            # (e.g. "small towns"), never a function word. The loser (Y) is NOT
+            # force-negatived here — if the user holds a negative view of it
+            # they state it, and the same miner captures it; we must not invent
+            # a polarity RAVANA could not revise by talking.
+            (r"\b(.+?)\s+(?:makes?|are?|is|make|produce[s]?|breed[s]?|build[s]?)\s+"
+             r"(?:better|finer|more human|more humane|healthier|stronger|"
+             r"happier|wiser|kinder)\s+(?:humans?|people|folk|neighbou?rs?|"
+             r"citizens?|communities?)?\s*(?:than|over|versus|vs\.?)\b", 0.7, 0.5),
+            (r"\b(.+?)\s+(?:beats|outshines|trumps|wins\s+over|is\s+finer\s+than|"
+             r"is\s+better\s+than)\s+(.+?)(?:[.!?]|\band\b|\bbut\b|$|,)", 0.7, 0.5),
+            # Round 2026-08-08f: broaden the comparative / superlative /
+            # dismissive opinion classes. The prior miner only caught the
+            # 'makes better people than' and 'beats' shapes; rich value
+            # judgments like 'the sea is a better teacher than any classroom',
+            # 'hand-built synths sound warmer than mass-produced', 'graveyards
+            # are the most honest libraries', 'the cold water is the only
+            # honest part of my day', 'most modern music is just wallpaper',
+            # 'the best knots are the ones you can untie in the dark' were NOT
+            # captured -> no stance -> no contradiction target -> dead hollow
+            # ack. Each class below is a GRAMMATICAL pattern (no per-topic
+            # list); the content head is resolved by _opinion_topic so the
+            # stance lands on the real concept (e.g. 'sea', 'hand-built
+            # synths', 'graveyards', 'cold water', 'modern music'). Polarity
+            # is lexical: comparatives/superlatives/dismissals are inherently
+            # valenced. RAVANA can still revise any stance by talking (the
+            # store merges on new input); nothing is frozen or retrained.
+            # (a) comparative copula 'X is a better/safer/finer/honest-er Y
+            #     than Z' -> positive stance on X. The leading 'i think/
+            #     i believe' frame is stripped so the captured subject is the
+            #     real content head (e.g. 'sea'), never 'i think the sea'.
+            (r"(?:\bi\s+(?:think|believe|feel|find|reckon)\s+)?"
+             r"\b(.+?)\s+(?:is|are)\s+(?:a|an)?\s*(?:better|safer|finer|kinder|"
+             r"wiser|healthier|stronger|truer|freer|calmer|cleaner|warmer|"
+             r"cooler|sharper|kinder|more honest|more human|more real|"
+             r"more true|more free)\b"
+             r"(?:\s+(?:teacher|thing|place|way|part|kind|sort|type|version|"
+             r"form|bit|lot|deal))?\s+(?:than|over|versus|vs\.?\b)", 0.7, 0.55),
+            # (b) sensory-comparative 'X sounds/feels/tastes/looks/reads WARMER
+            #     than Y' -> positive stance on X (the WARMER-ER class). Strip
+            #     a leading 'i think/believe' frame the same way.
+            (r"(?:\bi\s+(?:think|believe|feel|find|reckon)\s+)?"
+             r"\b(.+?)\s+(?:sounds|sound|feels|feel|tastes|taste|looks|look|reads|read|"
+             r"seems|seem|comes|come|comes\s+across|comes\s+off)\s*"
+             r"(?:more|much)?\s*(?:warmer|cooler|truer|cleaner|honest|realer|"
+             r"more honest|more real|more true|more alive|more human)\b"
+             r"(?:\s+(?:than|over|versus|vs\.?))", 0.7, 0.55),
+            # (c) superlative 'X is the most Y' / 'X is the best Y' /
+            #     'the only Y' -> positive stance on X. Strip the leading
+            #     'i think/believe' frame so the subject is the content head.
+            (r"(?:\bi\s+(?:think|believe|feel|find|reckon)\s+)?"
+             r"\b(.+?)\s+(?:is|are)\s+the\s+(?:most|best|finest|truest|honest|real|"
+             r"purest|clearest|only)\b", 0.75, 0.6),
+            # (d) 'X is just wallpaper/noise/fluff/...' -> negative dismissive
+            #     stance on X (the subject is being demoted to negligible).
+            #     Structural: the dismissive-metaphor noun set is SEED
+            #     vocabulary (the same kind of small lexicon the sentiment
+            #     adjectives use), not a per-topic table; RAVANA can extend it
+            #     at runtime. Strip the leading frame.
+            (r"(?:\bi\s+(?:think|believe|feel|find|reckon)\s+)?"
+             r"\b(.+?)\s+(?:is|are)\s+(?:just|merely|basically|really\s+just)\s*"
+             r"(?:wallpaper|noise|fluff|decoration|decorative|background|filler|"
+             r"branding|spin|hype|fad|nonsense|garbage|junk|pap|slop|trash)"
+             r"(?:\b|[.!?])", -0.7, 0.55),
+            # (e) 'X is the best kind of Y' -> positive stance on X (X is the
+            #     prized member of category Y). Strip the leading frame.
+            (r"(?:\bi\s+(?:think|believe|feel|find|reckon)\s+)?"
+             r"\b(.+?)\s+(?:is|are)\s+the\s+best\b"
+             r"(?:\s+(?:kind|sort|type|breed|example|form|version|bit))?", 0.7, 0.55),
         ):
             for _m in re.finditer(_pat, q_clean, re.IGNORECASE):
                 _raw = _m.group(_m.lastindex).strip().lower()
@@ -768,6 +999,55 @@ class UserModel:
         _soft = _matched_cue in _SOFTENING_CUES or any(
             re.search(p, q) for p in _SOFTENING_CUES)
         if cue_end is None:
+            # Round 2026-08-08f: concession shape. A very common contradiction
+            # does NOT use a retraction keyword ("i take back", "i was wrong"):
+            # the user concedes a prior stance with "i thought X but Y" /
+            # "i used to think X but now Y" / "i told you X but actually Y",
+            # where X's topic matches a stance RAVANA already holds and Y
+            # contradicts it. The prior code only caught keyword-led retractions,
+            # so these fell through to the hollow "got it" ack and the stale
+            # stance persisted (the contradiction was silently dropped). Detect
+            # the concession structurally: a first-person past/present belief
+            # frame ("i thought/i used to think/i told you/i said") followed by
+            # a BUT that introduces a contrasting clause. Resolve the conceded
+            # topic against the LIVE stance store; if it matches a held stance,
+            # reverse/soften it the same way a keyword retraction would. This is
+            # grammatical (no per-topic table) and RAVANA can still revise the
+            # stance by further talk. A concession is a SOFTENING (the user is
+            # walking the stance back, not inverting to a hard opposite
+            # conviction), so it relaxes toward neutral, never force-flips.
+            _concession = re.search(
+                r"\b(?:i\s+(?:thought|used\s+to\s+think|told\s+you|said|believed|felt)"
+                r"|i'?m\s+not\s+so\s+sure)\b"
+                r".{0,60}?\b(?:but|although|though|yet|actually|however)\b", q)
+            if _concession is not None:
+                # A concession ("i thought X but Y") walks BACK the belief held
+                # in the PRE-connector clause X — X is the topic the user now
+                # revokes, while Y is the NEW contrasting preference. Resolving
+                # the topic against the WHOLE utterance is wrong: the opinion
+                # miner in the same turn also creates a (bogus) stance from the
+                # trailing "i prefer Y" clause, so a whole-utterance longest-key
+                # match can bind the NEW topic and (a) reverse a stance the user
+                # never walked back, and (b) emit a fabricated "you changed your
+                # mind about Y" ack for a topic with no prior stance. Restrict
+                # resolution to the conceded clause X only. Generic: the clause
+                # is derived from the matched connector span, not a per-topic
+                # table, and still resolves against the live store.
+                _pre_clause = q[:_concession.end()]
+                _target = self._stance_key_in_text(_pre_clause)
+                if _target is None:
+                    # Fallback: the conceded topic may be a multiword key whose
+                    # tokens are split across the connector (e.g. "i thought the
+                    # sea was X but Y"); still scope to the pre-connector span so
+                    # the new preference Y can never be the resolved target.
+                    _target = self._stance_key_in_text(q[:_concession.start()])
+                if _target is not None:
+                    try:
+                        self.opinions._soft_reversal = True
+                        self.opinions.reverse_stance(_target, utterance=text)
+                    except Exception:
+                        pass
+                    return
             return
         # A retraction cue is either a HARD recant ("i was wrong about X",
         # "i take it all back" — flip decisively) or a SOFTENING ("x isn't that
@@ -809,7 +1089,7 @@ class UserModel:
                 return
             try:
                 self.opinions._soft_reversal = _soft
-                self.opinions.reverse_stance(_target)
+                self.opinions.reverse_stance(_target, utterance=text)
             except Exception:
                 pass
             return
@@ -925,7 +1205,7 @@ class UserModel:
             return
         try:
             self.opinions._soft_reversal = _soft
-            self.opinions.reverse_stance(target)
+            self.opinions.reverse_stance(target, utterance=text)
         except Exception:
             pass
 
@@ -988,6 +1268,21 @@ class UserModel:
         # Mine biographical + general personal facts into the learned store.
         # Extracted so the same-turn identity gate can call it with only the
         # raw text (subject isn't assigned yet in process_turn there).
+        # C-clock (round 2026-08-08c): advance the fact-store turn clock
+        # BEFORE mining personal facts, not after. The disclosure-ack
+        # composer (_derive_ack_from_store) acks a fact only if its
+        # turn_number == the store's current turn_num, so that it reports
+        # what was learned THIS turn (not a stale fact from 30 turns ago).
+        # When advance_turn() ran AFTER mine_personal_facts, a freshly
+        # stored fact got turn_number == turn_num - 1, so the equality
+        # never held and the honest ack fell through to the degenerate
+        # "got it — thanks for telling me." on ~30 turns of real
+        # disclosures (e.g. "my hands are raw from hauling hive boxes").
+        # Advancing first makes the just-stored fact match the clock, so
+        # the ack renders the REAL stored relation. No retraining; pure
+        # ordering fix.
+        self.personal_facts.advance_turn()
+        self.opinions.advance_turn()
         self.mine_personal_facts(query)
 
         self._update_cognitive_style(query)
@@ -1006,8 +1301,6 @@ class UserModel:
         self.engagement_level = min(1.0, 0.3 + 0.7 * (total_followups / max(1, total_interactions)))
 
         self.interaction_count += 1
-        self.personal_facts.advance_turn()
-        self.opinions.advance_turn()
         self.relationship_depth = min(1.0, self.interaction_count / 20.0)
 
         inferred = self.infer_user_goal(query)

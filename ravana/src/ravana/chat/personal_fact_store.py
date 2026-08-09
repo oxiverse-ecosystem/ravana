@@ -259,12 +259,33 @@ class UserStanceStore:
         # consumed by the ack composer and cleared, never serialized as truth).
         # topic -> (old_polarity, new_polarity)
         self.last_reversal: Optional[Tuple[str, float, float]] = None
-        # turn-guard keyed by topic so repeated mining of the same utterance
-        # cannot double-flip a stance (idempotent reversal within a turn).
-        self._reversed_this_turn: Dict[str, int] = {}
+        # Idempotency guard keyed by the NORMALIZED UTTERANCE, not turn_num:
+        # a concession/retraction is mined TWICE within one process_turn — once
+        # by the early gate (mine_personal_facts @ engine.py:2977) and once by
+        # the self_disclosure -> observe_user_query -> mine_personal_facts path
+        # (@ engine.py:2100/1284) — and the fact-store turn clock is advanced
+        # BETWEEN them (0 -> 1 in observe_user_query). A turn_num-keyed guard
+        # therefore misses the second fire, double-flips the stance and
+        # overwrites last_reversal's old-polarity with the already-reversed
+        # value (corrupting the ack framing). Keying on the utterance text makes
+        # repeated mining of the SAME utterance idempotent regardless of when in
+        # the turn it is seen (matches the docstring on reverse_stance).
+        self._reversed_utterance: Dict[str, str] = {}
 
     def clear_last_reversal(self):
         self.last_reversal = None
+
+    def clear_reversal_guard(self):
+        """Reset the per-utterance idempotency guard at the START of a turn.
+
+        The guard suppresses repeated mining of the same utterance within one
+        process_turn (it is mined twice: early gate + self_disclosure observe
+        path). It MUST NOT be reset inside advance_turn(), because observe_user_query
+        calls advance_turn() between the two mining calls — resetting there would
+        clear the guard and allow the second mine to double-flip. Resetting here,
+        once per user turn, correctly scopes the guard to a single turn.
+        """
+        self._reversed_utterance = {}
 
     def advance_turn(self):
         self.turn_num += 1
@@ -335,7 +356,8 @@ class UserStanceStore:
         s.rehearsal_count += 1
         s.turn_number = self.turn_num
 
-    def reverse_stance(self, topic: str, reversal_strength: float = 0.85) -> Optional[Stance]:
+    def reverse_stance(self, topic: str, reversal_strength: float = 0.85,
+                       utterance: Optional[str] = None) -> Optional[Stance]:
         """Flip the user's stance on `topic` (e.g. "i take back X").
 
         A retraction is an attitude CHANGE recoding, not a fresh merge: the
@@ -363,8 +385,15 @@ class UserStanceStore:
         existing = self.stances.get(key)
         if existing is None:
             return None
-        # Already reversed this turn (repeated mining of the same utterance).
-        if self._reversed_this_turn.get(key) == self.turn_num:
+        # Already reversed this SAME utterance / this turn's mining epoch.
+        # Key = normalized utterance when one is supplied (so repeated mining
+        # of the same utterance idempotently suppresses even when the fact-store
+        # clock advanced between the two mining calls within a process_turn),
+        # else fall back to the turn clock (original unit-level within-turn
+        # idempotency for direct callers that pass no utterance).
+        _norm = re.sub(r"\s+", " ", (utterance or "").lower().strip())
+        _guard_key = _norm if _norm else self.turn_num
+        if self._reversed_utterance.get(key) == _guard_key:
             return existing
         old_polarity = existing.polarity
         old_confidence = existing.confidence
@@ -378,7 +407,7 @@ class UserStanceStore:
         existing.confidence = max(0.1, existing.confidence * (1.0 - blend * 0.6))
         existing.rehearsal_count += 1
         existing.turn_number = self.turn_num
-        self._reversed_this_turn[key] = self.turn_num
+        self._reversed_utterance[key] = _guard_key
         self.last_reversal = (existing.topic, old_polarity, existing.polarity)
         return existing
 
