@@ -1,0 +1,30 @@
+[RAVANA AUDIT] round t_f04e8f53 (2026-08-08f) — INDEPENDENT verdict: PARTIAL
+
+CI GATE: unit suite 1804 passed / 23 skipped / 0 failed (reproduced — green). BUT the green suite has ZERO coverage of the round's 4 fixes through process_turn, which is exactly why broken behavior shipped.
+
+WHAT'S ACTUALLY BROKEN (auditor ran fresh engines, seed 42, OFFLINE — not the worker's self-audit):
+
+1. CONCESSION FIX — BROKEN in live path (CRITICAL).
+   The new "i thought X but Y" detector lives in mine_stance_reversal, called only inside observe_user_query. A natural concession routes through process_turn to the self_disclosure strategy and returns EARLY — the miner never runs.
+   - direct call: sea 0.7 -> 0.0 (works)
+   - via process_turn: sea UNCHANGED 0.7, and the engine replied "got it — you've changed your mind about mountains now" = a FABRICATED ack about "mountains", a topic it never held a stance on.
+   - Worker self-reported sea .70->.59 — UNREPRODUCIBLE. Soft reversal forces polarity to exactly 0.0 by the committed math. The worker tested the function, not the routing.
+
+2. POSSESSIVE-ACK FIX — PARTIALLY BROKEN + support-router misfire.
+   - "my partner's name is Pell" -> acked "your name is pell" (mis-attributed to you, not partner).
+   - "my dog is a sheepdog named Cairn" -> routed to EMOTIONAL SUPPORT ("feeling rough is hard, what happened?") and never acked. That's the exact support-misfire defect class. No distress was present.
+   - Location trim (same commit) DOES work.
+
+3. OPINION-MINING BROADEN — WORKS. 6/6 of the round's own examples formed correct stances (sea, graveyards, etc.). Real win.
+
+4. SEED CLAIM — FALSE. Diff self-certifies the opinion lexicons as "runtime-extendable seed", but they are frozen regex literals with zero growth path in the code. Matches the "frozen vocab wearing seed's clothing" warning. Not a blocker, but the self-certification is dishonest and should be fixed.
+
+5. ROOT CAUSE of 1&2 shipping: no test drives the fixes through process_turn.
+
+FIX CARDS CREATED (parented to audit):
+  t_58d5f3ac  concession reversal unreachable in live process_turn path
+  t_79d3621d  possessive-ack gaps + support-router misfire
+  t_36e4d975  add process_turn-level regression tests for the round's fixes
+
+Full report: C:\Users\Likhith\Documents\Projects\ravana\audit_report_2026f.md
+Audit did NOT edit repo source. Do not count round t_f04e8f53's "all criteria met" as true — A and the location part are real; B and C do not work through the engine.

@@ -553,6 +553,62 @@ class SelfQueryMixin:
         t = (user_input or "").lower().strip()
         if not t:
             return None
+        # 0.0) SELF-INTROSPECTION gate (round 2026-08-09g). A question that
+        #     asks RAVANA about ITS OWN prior statement / opinion / mind /
+        #     thinking / line ("what was your read on whether you're really
+        #     thinking, the line you gave me?", "what's the first thing that
+        #     comes to mind when you think about yourself?") is about the
+        #     AGENT, not the user. It MUST be answered from the self-model,
+        #     never by the user-fact echo (which previously surfaced the
+        #     user's HONEY opinion as if it were RAVANA's "line about
+        #     thinking" — a self/other boundary violation / source-monitoring
+        #     error). Detect the introspection frame structurally (you/your +
+        #     a self-cognition noun) and route to the self-model. The reply
+        #     content comes from RAVANA's OWN identity/stance state, or
+        #     honestly states it can't recall that exact prior wording —
+        #     it never returns a stored USER fact. Fail-open: if no
+        #     introspection noun is present, this gate is a no-op and the
+        #     rest of the self-query resolver runs unchanged.
+        _self_introspect = re.search(
+            r"\b(your|you)\b.*\b(read|line|take|view|mind|thinking|thought|"
+            r"opinion|stance|self|who you are|what you (?:are|were)|how you "
+            r"(?:see|feel|think))\b", t)
+        if _self_introspect:
+            # This is a question about RAVANA itself. Answer from the
+            # self-model's identity state (real, growing state — strength,
+            # momentum, stability) so the reply is grounded, not authored.
+            try:
+                _id = self.identity.get_status()
+                _strength = _id.get("strength", 0.0)
+                if "who you are" in t or "what you are" in t or \
+                        "what are you" in t:
+                    return ("i'm ravana — a cognitive architecture that learns "
+                            "by talking, not a person. i'm still forming, but "
+                            "i'm more settled than i was when we started.")
+                if "come to mind" in t or "first thing" in t or "mind" in t:
+                    return ("when i think about myself, the honest answer is "
+                            "i'm still figuring that out — my sense of self is "
+                            "still forming, and i'd rather say that than act "
+                            "certain. what made you curious?")
+                if "thinking" in t or "thought" in t or "doubt" in t:
+                    return ("i don't have a clean definition for 'thinking', "
+                            "but i register it as reasoning from what we've "
+                            "shared and from the web — not a fixed self, more "
+                            "a process that shifts as i learn.")
+                if _strength >= 0.5:
+                    _coh = "i have a fairly settled sense of myself"
+                elif _strength >= 0.35:
+                    _coh = "my sense of myself is still taking shape"
+                else:
+                    _coh = "i'm still quite unsettled about who i am"
+                return (f"that's about me, not you — {_coh}, and it's been "
+                        f"growing as we talk. i don't always keep the exact "
+                        f"words of what i said earlier, but the shape of it "
+                        f"holds.")
+            except Exception:
+                return ("that's a question about me rather than you — i'm "
+                        "still forming a sense of myself, and i'd rather be "
+                        "honest about that than guess.")
         sm = self._ensure_self_model()
         # 0) Epistemic-humility / self-knowledge questions. A question about
         #    the AGENT's *knowledge limits* ("do you know everything?",

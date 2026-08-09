@@ -2334,6 +2334,83 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     return f"your {_attr} is {_v}."
             return None
 
+        # ── (1c) Possessive-entity + count + activity biographical recall ──
+        # These were PREVIOUSLY NESTED inside the (1b) "_TOLD" block, so they
+        # only fired when the query ALSO matched "what did i tell you about
+        # X". A plain biographical query ("where do i keep the bees", "how
+        # many hives do i have", "what do i keep on the rooftop") never hit
+        # "tell me about", so it fell through _structured_recall -> None ->
+        # the episodic fact-echo, which DUMPED an unrelated stored utterance
+        # as "you told me earlier: ..." (source-monitoring error, measured
+        # across round 2026-08-09g: T39 returned the typewriter fact for
+        # "where do i keep the bees"). Hoisted to a STANDALONE top-level
+        # branch so any matching biographical query resolves from the live
+        # PersonalFactStore. No per-topic table; structural overlap scoring.
+        #
+        # Possessive-entity recall: "my partner's name is X" / "what's my
+        # dog's name" — facts are stored under the ENTITY key
+        # ("partner"/"dog", not "i"), per the self/other-boundary fix. The
+        # old resolver only looked under "i", so it returned the USER's own
+        # name for "what's my partner's name" (T36). Resolve the entity noun
+        # from the possessive and read the matching entity-scoped fact.
+        _ENT_ATTR = re.search(
+            r"\bmy\s+([a-z][a-z]+)(?:'s)?\s+(name|age|breed|job|work|is|"
+            r"does|location|live|color|type|kind|favorite)\b", q)
+        if _ENT_ATTR and pf is not None:
+            _ent = _ENT_ATTR.group(1).lower().strip()
+            # fold the spoken attribute to the store's relation key
+            _eattr_raw = _ENT_ATTR.group(2).lower()
+            _eattr = ("does" if _eattr_raw == "does"
+                      else "is" if _eattr_raw == "is"
+                      else "name" if _eattr_raw == "name"
+                      else _eattr_raw)
+            for _k, _f in pf.facts.items():
+                if not (isinstance(_k, tuple) and len(_k) == 3):
+                    continue
+                if _k[0] == _ent and _k[1] == _eattr \
+                        and not getattr(_f, "superseded", False):
+                    _v = _f.value
+                    if _eattr == "name":
+                        return f"your {_ent}'s name is {_v}."
+                    if _eattr == "does":
+                        return f"your {_ent} does {_v}."
+                    if _eattr == "is":
+                        return f"your {_ent} is {_v}."
+                    return f"your {_ent}'s {_eattr} is {_v}."
+        # Count / quantity recall: "how many X do i have / keep / raise" ->
+        # scan 'does' facts whose value contains a leading cardinal number
+        # and the cue noun; or a dedicated count attribute. Honest fallback
+        # to None when no count fact matches (never fabricate).
+        _COUNT = re.search(
+            r"\bhow\s+many\s+([a-z][a-z]+)\s+(do\s+i|did\s+i|have|keep|raise|"
+            r"own|got|breed|run|keep on|have on)\b", q)
+        if _COUNT and pf is not None:
+            _cn = _COUNT.group(1).lower().strip()
+            _best = None
+            for _k, _f in pf.facts.items():
+                if not (isinstance(_k, tuple) and len(_k) == 3):
+                    continue
+                if getattr(_f, "superseded", False):
+                    continue
+                if _k[1] in ("count", "number", "qty") and _cn in _f.value.lower():
+                    _best = _f.value
+                    break
+                if _k[1] == "does":
+                    _v = _f.value.lower()
+                    # a count fact reads like "keep six hives" (number words,
+                    # as the miner stores them) or "have 7 dogs" (digits).
+                    _m = re.match(r"^(?:keep|have|keep on|have on|raise|own|"
+                                  r"breed|run|got)\s+(?:(?:one|two|three|four|"
+                                  r"five|six|seven|eight|nine|ten|eleven|twelve)"
+                                  r"|\d+)\b\s+", _v)
+                    if _m and _cn in _v:
+                        _best = _m.group(1)
+                        break
+            if _best is not None:
+                return f"you have {_best} {_cn}."
+        # Activity / possession recall ("what do i keep/have/do", "where do i
+        # keep X"). Hoisted out of the _TOLD block so it runs for ANY such
+        # query, not only ones containing "tell me about".
         if _ACT and pf is not None:
             _verb = _ACT.group(1)
             _qnouns = set(re.findall(r"[a-z']+", q)) - {
