@@ -3924,7 +3924,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 # utterance (optionally after a leading "so/well/and/i guess").
                 _state_disclosure = bool(re.match(
                     r"^(so |well |and |i guess |i think )?"
-                    r"(i'm|i am|i feel|i've been|i am feeling|i feel like)\b", _low)) or \
+                    r"(i'm|i am|i feel|i felt|i've been|i am feeling|i feel like)\b", _low)) or \
                     bool(re.match(
                         r"^(so |well |and |my )\s*\w+(\s+\w+)?\s+"
                         r"(is|are|has|have|got|passed|died|left|hurts?|is being)\b", _low))
