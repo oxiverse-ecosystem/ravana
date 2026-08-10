@@ -841,6 +841,16 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # I told you" query reconstructs what was said instead of confabulating.
         self._episodic_transcript: List[Dict[str, Any]] = []
         self._episodic_index: Dict[str, Dict[str, str]] = {}  # hippocampal entity index (A3)
+        # Share the hippocampal episodic entity index + raw transcript with the
+        # user_model so the fact miner can enforce the self/other boundary on
+        # OWNER re-attribution (a pet moved off the user must also drop the
+        # user-facing episodic entry + raw transcript fact for that entity, not
+        # just its fact-store record). Read-only intent from the miner's side;
+        # the engine remains the sole writer of these structures during normal
+        # turns. The miner only MUTATES them on an explicit owner re-attribution
+        # (superseding the user's record) — never during ordinary disclosure.
+        self.user_model._episodic_index = self._episodic_index
+        self.user_model._episodic_transcript = self._episodic_transcript
         # In-turn fact store: a combined "statement(s) + question" user turn
         # (e.g. LoCoMo / LongMemEval benchmark items) packs premises AND a
         # question into ONE process_turn call. The rest of the pipeline treats
@@ -1116,6 +1126,13 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
 
         # New cognitive modules (Phase 2-5)
         self.hippocampal_buffer = HippocampalBuffer(HippocampalConfig(max_facts=50, decay_turns=50))
+        # Share the hippocampal buffer with the user_model so the fact miner can
+        # enforce the self/other boundary on OWNER re-attribution (a pet moved
+        # off the user must also be purged from this buffer — the multi-hop
+        # reasoner reads raw utterances from it). Read-only intent from the
+        # miner's side; the engine remains the sole writer during normal turns.
+        # The miner only MUTATES it on an explicit owner re-attribution.
+        self.user_model._hippocampal_buffer = self.hippocampal_buffer
         # Phase 1 (LoCoMo/LongMemEval): temporal grounding — resolve relative
         # date phrases against the current session date at STORE time.
         try:

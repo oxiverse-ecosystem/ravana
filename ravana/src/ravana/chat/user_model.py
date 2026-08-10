@@ -312,6 +312,191 @@ class UserModel:
                         self.correction_severity = max(self.correction_severity, 0.8)
 
 
+        # REVERSE-ORDER POSSESSION NAMING + OWNER RE-ATTRIBUTION miner (round
+        # 2026-08-10T1401Z feature). Limitation #1 flagged in the round report:
+        # the possession miner only captures "my <species> is/are named/called
+        # <name>" and "i have a <species> named <name>" — FORWARD order with the
+        # owner first. But a user re-discloses pets the OTHER way round, which
+        # the miner never modelled:
+        #   * reverse-order naming: "the barn owl is mine and she's called wren"
+        #     (THE <species> IS MINE [and (he|she|it)'s called|named <name>]) —
+        #     the owl was previously stored under the USER (subject "i",
+        #     species slot "owl") on the first disclosure, so this second
+        #     phrasing must FILE THE NAME on that same slot, not drop it.
+        #   * owner re-attribution: "pip is my sister's cat" /
+        #     "the barn owl is mine" — re-assigns an owned entity to a DIFFERENT
+        #     owner. The first disclosure stored pip under subject "i"; this
+        #     must MOVE it to subject "sister" so a later "what's my cat's name"
+        #     no longer returns pip (self/other boundary).
+        # Both write through the SAME pet_slots resolver (species_of / learn_species
+        # / slot_for) the forward miner and the recall sites use, so the key
+        # agrees by construction. No per-topic table; species + owner come from
+        # the live store and the live pet_slots vocabulary (RAVANA-expandable).
+        # Online, no retrain: each turn mines from raw text only.
+        _POSSESS_RE = re.compile(
+            r"\b(the\s+)?(?P<sp>[\w'-]+)\s+(?:is|was|are|were)\s+"
+            r"(?P<mine>(?:mine|my\s+own|ours))"
+            r"(?:\s+(?:and|but|,)?\s*(?:he|she|it|they)'s\s+"
+            r"(?:called|named)\s+(?P<nm>[\w'-]+))?",
+            re.IGNORECASE)
+        for _pr in _POSSESS_RE.finditer(q_clean):
+            _sp_word = _pr.group("sp").strip().lower()
+            if _sp_word in ("the",):
+                continue
+            _species = _pet_slots.species_of(_sp_word)
+            if _species is None and _sp_word.isalpha():
+                _species = _pet_slots.learn_species(_sp_word)
+            if _species is None:
+                continue
+            _slot = _pet_slots.slot_for(_species, 1)
+            _nm = (_pr.group("nm") or "").strip().strip(".,!?")
+            _mine = _pr.group("mine")
+            # Locate any prior slot for this species under the USER — the
+            # first disclosure stored it there (subject "i").
+            _prior_user = self.personal_facts.get("i", _slot)
+            # Ownership claim "is mine" for an entity already owned: file the
+            # name on the existing user slot if one wasn't given before.
+            if _nm and _prior_user is not None:
+                if _prior_user.value.lower() != _nm.lower():
+                    self.personal_facts.contradict("i", _slot, _nm)
+                else:
+                    self.personal_facts.reinforce("i", _slot, _nm)
+            elif _nm:
+                # "the barn owl is mine and she's called wren" — first time we
+                # see the name for this species under the user; store it.
+                self.personal_facts.assert_fact(
+                    "i", _slot, _nm, confidence=0.6,
+                    source="seed_regex")
+            # Owner re-attribution: "the barn owl is mine" for an entity that
+            # was previously stored under a DIFFERENT owner must RE-ASSIGN it to
+            # the user. Detect the cross-owner move by scanning for an active
+            # prior slot for this species under any non-user subject.
+            if _prior_user is None and _mine:
+                for (s, a, v), f in self.personal_facts.facts.items():
+                    if (s != "i" and a == _slot and not f.superseded):
+                        # move to the user: retire the old owner's record and
+                        # re-assert under "i" (preserve the value/name).
+                        f.superseded = True
+                        self.personal_facts.assert_fact(
+                            "i", _slot, v, confidence=0.6,
+                            source="seed_regex")
+                        break
+        # OWNER-AS-POSSESSOR re-attribution: "<name> is my <owner>'s <species>"
+        # e.g. "pip is my sister's cat" / "wren is my mum's owl". Re-assigns an
+        # owned entity from the USER to a NAMED third-party owner. The first
+        # disclosure stored pip under subject "i"; this must MOVE it to subject
+        # <owner> so recall keyed by the user no longer returns it (self/other
+        # boundary, same reasoning as the D6 possessive-split fix). Generic:
+        # any "<name> is my <owner>'s <species>" resolves owner + species from
+        # the live pet_slots vocabulary; the user can name any relation.
+        _OWNER_RE = re.compile(
+            r"\b(?P<nm>[\w'-]+)\s+is\s+my\s+(?P<own>[\w'-]+)'s\s+"
+            r"(?P<sp>[\w'-]+)\b", re.IGNORECASE)
+        for _or in _OWNER_RE.finditer(q_clean):
+            _nm = _or.group("nm").strip().strip(".,!?").lower()
+            _owner = _or.group("own").strip().lower()
+            _sp_word = _or.group("sp").strip().lower()
+            if _owner in ("the", "a", "an") or not _nm:
+                continue
+            # Owner re-attribution ONLY fires when the user already owns a pet
+            # NAMED <nm>. This anchors the species to the entity the user
+            # actually disclosed ("pip is my sister's cat" -> pip was the
+            # user's cat), so a stray "<name> is my <owner>'s name" (a person
+            # naming themselves after a pet) can never learn "name" as a
+            # species or move an unrelated fact. We resolve the species from
+            # the LIVE user-owned slot whose value contains _nm — never from
+            # the trailing word, which may be a relation noun ("name"), and we
+            # never call learn_species here. If the user owns no pet named _nm,
+            # this is not a possession re-attribution; skip it.
+            _prior_user = None
+            _slot = None
+            for (s, a, v), f in self.personal_facts.facts.items():
+                if (s == "i" and not f.superseded
+                        and _pet_slots.is_pet_attribute(a)
+                        and _nm in re.sub(r"^(?:called|named)\s+", "",
+                                          v.lower()).split()):
+                    _prior_user = f
+                    _slot = a
+                    break
+            if _prior_user is None or _slot is None:
+                continue
+            # Owner re-attribution: the entity leaves the user and moves to a
+            # named third-party owner. The name comes from THIS phrase (_nm),
+            # which is the clean name — the forward miner may have stored a
+            # "called <name>" value, so we prefer the explicit name here and
+            # never echo the "called " scaffolding into the owner's record.
+            # Retire EVERY active user record for this species slot
+            # (value-agnostic): contradict() would skip superseding when the
+            # new value equals the old, which would leave the user's stale
+            # record active and a later "what's my <species>'s name" would
+            # still surface it. Self/other boundary must be enforced.
+            for (s, a, v), f in self.personal_facts.facts.items():
+                if s == "i" and a == _slot and not f.superseded:
+                    f.superseded = True
+            # The hippocampal episodic index is keyed by ENTITY (not subject),
+            # so moving pip off the user must ALSO clear the user-facing entry
+            # for that entity — otherwise a later "what's my cat's name" reads
+            # episodic_index["cat"] and echoes the stale name. This is the same
+            # self/other boundary as the fact-store supersede above, applied to
+            # the recall source the engine actually reads.
+            _ent_word = _pet_slots.base_species(_slot)
+            _epi_index = getattr(self, "_episodic_index", None)
+            if _epi_index is not None and _ent_word in _epi_index:
+                _epi_index.pop(_ent_word, None)
+            # The RAW episodic transcript is a SECOND recall source: recall
+            # merges each stored turn's `facts` dict into the entity index
+            # (engine_memory.py _retrieve_episodic). Turn 1 stored
+            # {"cat": "called pip"} in that turn-record's `facts`, so even after
+            # we pop episodic_index["cat"], the transcript still replays the
+            # stale name for the user's cat. The user just re-attributed this
+            # entity to a THIRD PARTY — redact that entity from every stored
+            # turn's `facts` so the self/other boundary holds at BOTH recall
+            # sources. Only the entity keyed by this species leaves the user;
+            # other stored facts on the same turn are untouched.
+            _epi_tr = getattr(self, "_episodic_transcript", None)
+            if _epi_tr is not None:
+                for _rec in _epi_tr:
+                    _rfacts = _rec.get("facts")
+                    if not isinstance(_rfacts, dict):
+                        continue
+                    for _k in list(_rfacts.keys()):
+                        _ent_tok = _k.split("_", 1)[0] if "_" in _k else _k
+                        if _pet_slots.species_of(_ent_tok) == _ent_word:
+                            _rfacts.pop(_k, None)
+            # The HIPPOCAMPAL BUFFER is a THIRD recall source: multi-hop
+            # relational recall (_try_multi_hop -> _hop_retrieve) reads raw
+            # stored utterances from it via buf.retrieve(<entity>). Turn 1 stored
+            # ("cat","is_about","my cat is called pip") there, and the multi-hop
+            # reasoner returns that raw utterance verbatim as the answer to
+            # "what is my cat's name?". The user just re-attributed the cat to a
+            # third party, so the user-facing buffer entry for that species must
+            # be RETIRED from every key list it lives under — otherwise the
+            # self/other boundary leaks at the multi-hop path even though the
+            # fact-store + episodic sources are clean. buf.retrieve does NOT
+            # honor the `superseded` flag, so we remove the objects directly from
+            # each key-list (the same FactTriple is indexed under the species
+            # subject AND alias keys, so we must purge it everywhere).
+            _hbuf = getattr(self, "_hippocampal_buffer", None)
+            if _hbuf is not None:
+                _hb_facts = getattr(_hbuf, "facts", None)
+                if _hb_facts is not None:
+                    # FactTriple is an unhashable dataclass, so collect the
+                    # objects to drop via id() rather than a set literal.
+                    _drop_ids = {id(_f) for _lst in _hb_facts.values()
+                                 for _f in _lst
+                                 if getattr(_f, "subject", None) == _ent_word}
+                    if _drop_ids:
+                        for _k, _lst in _hb_facts.items():
+                            _hb_facts[_k] = [_f for _f in _lst
+                                            if id(_f) not in _drop_ids]
+                        _all = getattr(_hbuf, "_all_facts", None)
+                        if _all is not None:
+                            _hbuf._all_facts = [_f for _f in _all
+                                                if id(_f) not in _drop_ids]
+            self.personal_facts.assert_fact(
+                _owner, _slot, _nm, confidence=0.6,
+                source="seed_regex")
+
         # COUNT / QUANTITY correction (round 2026-08-09g). A plain update like
         # "it's seven hives now, i split one last week" carries NO negation or
         # "my X is Y" structure, so the name-correction and _corrective paths
