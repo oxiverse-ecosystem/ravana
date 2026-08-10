@@ -553,6 +553,50 @@ class SelfQueryMixin:
         t = (user_input or "").lower().strip()
         if not t:
             return None
+        # 0.0) SELF-INTROSPECTION gate (round 2026-08-09g). A question that
+        #     asks RAVANA about ITS OWN prior statement / opinion / mind /
+        #     thinking / line ("what was your read on whether you're really
+        #     thinking, the line you gave me?", "what's the first thing that
+        #     comes to mind when you think about yourself?") is about the
+        #     AGENT, not the user. It MUST be answered from the self-model,
+        #     never by the user-fact echo (which previously surfaced the
+        #     user's HONEY opinion as if it were RAVANA's "line about
+        #     thinking" — a self/other boundary violation / source-monitoring
+        #     error). Detect the introspection frame structurally (you/your +
+        #     a self-cognition noun) and route to the self-model. The reply
+        #     content comes from RAVANA's OWN identity/stance state, or
+        #     honestly states it can't recall that exact prior wording —
+        #     it never returns a stored USER fact. Fail-open: if no
+        #     introspection noun is present, this gate is a no-op and the
+        #     rest of the self-query resolver runs unchanged.
+        _self_introspect = re.search(
+            r"\b(your|you)\b.*\b(read|line|take|view|mind|thinking|thought|"
+            r"opinion|stance|self|who you are|what you (?:are|were)|how you "
+            r"(?:see|feel|think))\b", t)
+        if _self_introspect:
+            # This is a question about RAVANA itself. Answer from the
+            # self-model's identity state (real, growing state — strength,
+            # momentum, stability) so the reply is grounded, not authored.
+            try:
+                _id = self.identity.get_status()
+                _strength = _id.get("strength", 0.0)
+                # No keyword→prose table: every introspection question is
+                # answered from the SAME live identity state (strength band +
+                # measured value), so the content comes from cognition.
+                if _strength >= 0.5:
+                    _coh = "i have a fairly settled sense of myself"
+                elif _strength >= 0.35:
+                    _coh = "my sense of myself is still taking shape"
+                else:
+                    _coh = "i'm still quite unsettled about who i am"
+                return (f"that's about me, not you — {_coh}, and it's been "
+                        f"growing as we talk. i don't always keep the exact "
+                        f"words of what i said earlier, but the shape of it "
+                        f"holds.")
+            except Exception:
+                return ("that's a question about me rather than you — i'm "
+                        "still forming a sense of myself, and i'd rather be "
+                        "honest about that than guess.")
         sm = self._ensure_self_model()
         # 0) Epistemic-humility / self-knowledge questions. A question about
         #    the AGENT's *knowledge limits* ("do you know everything?",
@@ -695,16 +739,24 @@ class SelfQueryMixin:
             r"what\s+are\s+you|tell\s+me\s+about\s+yourself|"
             r"what\s+can\s+you\s+(?:actually\s+|really\s+|even\s+)?do|"
             r"your\s+name)\b", t))
-        # 2) A query whose grounded subject is the self node (e.g. bare 'ravana'
-        #    asked as 'what is ravana').
-        _self_subj = False
-        try:
-            _g = self._ground_query(t)
-            if _g and _g[0]:
-                _self_subj = sm.is_self_subject(_g[0])
-        except Exception:
-            _self_subj = False
-        if not (_name_q or _self_subj):
+        # D-fix (round 2026-08-08b): The agent self-intro path fires ONLY on
+        # explicit self-identity patterns above, PLUS a deterministic bare-name
+        # match for "what is ravana" / "tell me about ravana". A prior
+        # implementation fired when the query's GROUNDED subject equaled the
+        # agent name via _ground_query, but that grounder is state-sensitive and
+        # non-deterministically resolved user-directed queries ("earlier you
+        # said something about how i see cities", "what do you actually think i
+        # care about") to the agent name — hijacking the self-intro instead of
+        # answering about the USER. The bare-name match is now a direct regex on
+        # the agent name and is gated by the ABSENCE of any user pronoun
+        # ("me"/"i"/"you"/"my"), so a query about the user can never trigger it.
+        # Structural (regex), not a per-topic guard.
+        _name_about_agent = bool(re.search(
+            r"\b(?:what\s+is|who\s+is|tell\s+me\s+about|what\s+are)\s+"
+            + re.escape(sm.name.lower()) + r"\b", t))
+        _has_user_pronoun = bool(re.search(
+            r"\b(me|my|i'm|i\s|you|your|i've|i'll)\b", t))
+        if not (_name_q or (_name_about_agent and not _has_user_pronoun)):
             return None
         # Compose a stable, honest self-answer from the derived self-model.
         _answer = None

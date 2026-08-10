@@ -1993,6 +1993,24 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     r"are|was|were|had|has|have|will|would|could|can)\b",
                     _stripped.lower()):
                 return
+            # D1 (round 2026-08-08b-d): a recall-scaffold query that is NOT a
+            # question (no trailing '?', no interrogative opener) — e.g.
+            # "you mentioned my tarantula before, remind me what i told you
+            # about the one that molted" — must NOT be encoded as an episodic
+            # "fact". The hippocampus stores experienced CONTENT; a memory/recall
+            # directive is a PFC query. Encoding it lets a later semantically
+            # overlapping recall ("what's the strongest read you've formed")
+            # retrieve the prior recall query's OWN text and echo it verbatim ->
+            # a recursive recall loop (the tarantula echo). Gate on recall
+            # scaffold (remember/recall/remind + a told/said/mentioned verb),
+            # structural regex not a per-topic list.
+            if re.search(
+                    r"\b(remember|recall|remind(?: me)?)\b.*"
+                    r"\b(told|said|ask|mention|tell|mentioned|asked)\b",
+                    _stripped.lower()) or re.search(
+                    r"\b(remind|remember)\b.*\b(i|you)\b.*"
+                    r"\b(told|said|mentioned|asked|tell)\b", _stripped.lower()):
+                return
             content_words = [w.strip(".,!?;:") for w in user_input.lower().split()
                              if len(w.strip(".,!?;:")) >= 3
                              and w.strip(".,!?;:").isalpha()]
@@ -2194,16 +2212,35 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # answer from the 'does' fact whose value overlaps the query noun,
             # not the dictionary definition of the noun (the word "light" is a
             # world concept that otherwise echoes "electromagnetic radiation").
+            #
+            # D1 fix (round 2026-08-09g): the OLD matcher used naive substring
+            # overlap (`any(n in _val for n in _qn)`). That COLLIDES: "me"
+            # (from "remind me what i said") is a substring of "mechanical", so
+            # "where do i keep the bees" returned the "restore old mechanical
+            # typewriters" fact (measured T39). Use WORD-BOUNDARY matching so a
+            # query token only matches a whole word in the value, AND fall back
+            # to the query VERB vs the fact's leading verb (the miner may drop
+            # the object noun, e.g. "i keep six hives of bees" -> stored as
+            # "keep six hives", so "bees" is absent but the verb "keep" still
+            # identifies the activity). Structural; no per-topic table.
             _qn = set(re.findall(r"[a-z']+", q)) - {
                 "where", "do", "i", "keep", "have", "store", "my", "the",
-                "a", "an", "on", "in", "at", "to", "of", "for", "with", "and"}
+                "a", "an", "on", "in", "at", "to", "of", "for", "with", "and",
+                "exactly", "remind", "said", "what", "me"}
+            _qverb = re.search(
+                r"\b(keep|have|store|keep\s+on|have\s+on|raise|grow|put|"
+                r"place)\b", q)
+            _qverb = _qverb.group(1).lower().strip() if _qverb else ""
             for _k, _f in pf.facts.items():
                 if not (isinstance(_k, tuple) and len(_k) == 3):
                     continue
                 if _k[1] != "does" or getattr(_f, "superseded", False):
                     continue
                 _val = _f.value.lower()
-                if any(n in _val for n in _qn):
+                _fverb = _val.split()[0] if _val.split() else ""
+                if (any(re.search(r"\b" + re.escape(_n) + r"\b", _val)
+                         for _n in _qn)
+                        or (_qverb and _qverb == _fverb)):
                     return f"you {_val}."
         if re.search(r"\b(where do i work|what do i do|what's my job|what is my work)\b", q):
             _v = pf.get("i", "work") if pf else None
@@ -2316,6 +2353,108 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     return f"your {_attr} is {_v}."
             return None
 
+        # ── (1c) Possessive-entity + count + activity biographical recall ──
+        # These were PREVIOUSLY NESTED inside the (1b) "_TOLD" block, so they
+        # only fired when the query ALSO matched "what did i tell you about
+        # X". A plain biographical query ("where do i keep the bees", "how
+        # many hives do i have", "what do i keep on the rooftop") never hit
+        # "tell me about", so it fell through _structured_recall -> None ->
+        # the episodic fact-echo, which DUMPED an unrelated stored utterance
+        # as "you told me earlier: ..." (source-monitoring error, measured
+        # across round 2026-08-09g: T39 returned the typewriter fact for
+        # "where do i keep the bees"). Hoisted to a STANDALONE top-level
+        # branch so any matching biographical query resolves from the live
+        # PersonalFactStore. No per-topic table; structural overlap scoring.
+        #
+        # Possessive-entity recall: "my partner's name is X" / "what's my
+        # dog's name" — facts are stored under the ENTITY key
+        # ("partner"/"dog", not "i"), per the self/other-boundary fix. The
+        # old resolver only looked under "i", so it returned the USER's own
+        # name for "what's my partner's name" (T36). Resolve the entity noun
+        # from the possessive and read the matching entity-scoped fact.
+        _ENT_ATTR = re.search(
+            r"\bmy\s+([a-z][a-z]+)(?:'s)?\s+(name|age|breed|job|work|is|"
+            r"does|location|live|color|type|kind|favorite)\b", q)
+        if _ENT_ATTR and pf is not None:
+            _ent = _ENT_ATTR.group(1).lower().strip()
+            # fold the spoken attribute to the store's relation key
+            _eattr_raw = _ENT_ATTR.group(2).lower()
+            _eattr = ("does" if _eattr_raw == "does"
+                      else "is" if _eattr_raw == "is"
+                      else "name" if _eattr_raw == "name"
+                      else _eattr_raw)
+            for _k, _f in pf.facts.items():
+                if not (isinstance(_k, tuple) and len(_k) == 3):
+                    continue
+                if _k[0] == _ent and _k[1] == _eattr \
+                        and not getattr(_f, "superseded", False):
+                    _v = _f.value
+                    if _eattr == "name":
+                        return f"your {_ent}'s name is {_v}."
+                    if _eattr == "does":
+                        return f"your {_ent} does {_v}."
+                    if _eattr == "is":
+                        return f"your {_ent} is {_v}."
+                    return f"your {_ent}'s {_eattr} is {_v}."
+        # Count / quantity recall: "how many X do i have / keep / raise" ->
+        # scan 'does' facts whose value contains a leading cardinal number
+        # and the cue noun; or a dedicated count attribute. Honest fallback
+        # to None when no count fact matches (never fabricate).
+        # "where do i keep/have X" / "where do i store X" — locate the 'does'
+        # fact whose value mentions the cue noun (the location-bearing activity
+        # fact). This is the biographical-where query that, unhandled, fell
+        # through to the episodic echo (round 2026-08-09g T39). Resolve from
+        # the live store; never a user fact.
+        _WHERE = re.search(
+            r"\bwhere\s+do\s+i\s+(keep|have|store|keep\s+on|have\s+on|raise|"
+            r"grow|put|place)\s+(my\s+)?([a-z][a-z]+)\b", q)
+        if _WHERE and pf is not None:
+            _wn = _WHERE.group(3).lower().strip()
+            _wverb = _WHERE.group(1).lower().strip()
+            for _k, _f in pf.facts.items():
+                if not (isinstance(_k, tuple) and len(_k) == 3):
+                    continue
+                if _k[1] == "does" and not getattr(_f, "superseded", False):
+                    _v = _f.value.lower()
+                    # Match on the cue noun OR on the leading verb (the
+                    # miner may drop the object noun, e.g. 'i keep six
+                    # hives of bees' -> stored as 'keep six hives', so the
+                    # noun 'bees' is absent; the query verb 'keep' still
+                    # identifies the activity fact). Structural, not a
+                    # per-topic table.
+                    _fverb = _v.split()[0] if _v.split() else ""
+                    if _wn in _v or (_wverb and _wverb == _fverb):
+                        return f"you {_v}."
+        _COUNT = re.search(
+            r"\bhow\s+many\s+([a-z][a-z]+)\s+(do\s+i|did\s+i|have|keep|raise|"
+            r"own|got|breed|run|keep on|have on)\b", q)
+        if _COUNT and pf is not None:
+            _cn = _COUNT.group(1).lower().strip()
+            _best = None
+            for _k, _f in pf.facts.items():
+                if not (isinstance(_k, tuple) and len(_k) == 3):
+                    continue
+                if getattr(_f, "superseded", False):
+                    continue
+                if _k[1] in ("count", "number", "qty") and _cn in _f.value.lower():
+                    _best = _f.value
+                    break
+                if _k[1] == "does":
+                    _v = _f.value.lower()
+                    # a count fact reads like "keep six hives" (number words,
+                    # as the miner stores them) or "have 7 dogs" (digits).
+                    _m = re.match(r"^(?:keep|have|keep on|have on|raise|own|"
+                                  r"breed|run|got)\s+((?:one|two|three|four|"
+                                  r"five|six|seven|eight|nine|ten|eleven|twelve)"
+                                  r"|\d+)\b\s+", _v)
+                    if _m and _cn in _v:
+                        _best = _m.group(1)
+                        break
+            if _best is not None:
+                return f"you have {_best} {_cn}."
+        # Activity / possession recall ("what do i keep/have/do", "where do i
+        # keep X"). Hoisted out of the _TOLD block so it runs for ANY such
+        # query, not only ones containing "tell me about".
         if _ACT and pf is not None:
             _verb = _ACT.group(1)
             _qnouns = set(re.findall(r"[a-z']+", q)) - {
@@ -2865,12 +3004,19 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
 
     def process_turn(self, user_input: str) -> str:
         """Process input and generate a response, auto-learning when needed."""
+        # C-fix (round 2026-08-08b): stash the FULL user utterance on the engine
+        # so affect realizers can read the user's own felt-label ("i feel
+        # hollow") even when the disclosure context passed downstream only
+        # carries the extracted event span ("lost half the colony"). Consumed
+        # by _appraised_affective_reply's copula scan as the authoritative text.
+        self._last_user_input = user_input
         # Reset the prior turn's stance-reversal marker so a retraction recorded
         # this turn is consumed/acked the SAME turn and cannot leak into the next
         # turn's acknowledgment (attitude change is a within-turn valuation
         # recode, surfaced in the reply that follows the retraction).
         try:
             self.user_model.opinions.clear_last_reversal()
+            self.user_model.opinions.clear_reversal_guard()
         except Exception:
             pass
         # Step 3a: Meta-command detector at the VERY TOP of process_turn (PFC task-set override)
@@ -3897,6 +4043,95 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 # untouched (no recall frame).
                 if _is_q_g or _pref_stmt_g or _name_stmt_g or _recall_frame:
                     _disc = None
+            # SUPPORT/EMPATHY MISFIRE GATE (RAVANA defect class: a benign
+            # self-disclosure matched support/empathy before checking genuine
+            # distress). This runs at the TOP LEVEL of the empathy frame-guard so
+            # it covers BOTH the primary VAD detection and the GloVe cause
+            # fallback. The cause classifier is NOISY on arbitrary first-person
+            # text: an attribute disclosure about an ENTITY the user owns ("my
+            # dog is a sheepdog named Cairn", "my child is a curious kid named
+            # Sam", "my cat is fluffy and white") is often mislabeled
+            # "loss"/"other_suffering" and routed into the empathy path, where the
+            # turn is MET with comfort instead of ACKED as a fact -- and the
+            # stored fact is dropped. We therefore do NOT trust the classifier for
+            # this gate; instead we use the utterance SHAPE: a plain possessive
+            # attribute statement ("my <entity> is/was/has <attribute>") or a
+            # first-person copula-attribute ("i am/have <role>") with NO explicit
+            # suffering/distress word is, by construction, a factual disclosure,
+            # not a cry for empathy. We drop _disc so it falls through to
+            # autobiographical storage and gets a grounded ack. Genuine distress
+            # is preserved: the gate does NOT fire when a real suffering/loss word
+            # is present ("my mom is sick", "my dog died", "i am sad", "my friend
+            # is hurting"), which keeps those on the empathy path. Structural: it
+            # keys off the utterance shape + a small, stable set of suffering
+            # words -- NOT a per-entity/per-topic table -- so it generalizes
+            # ("my brother is in hospital" stays empathic, "my brother is a
+            # doctor" drops to fact storage). Fail-closed: when ambiguous we KEEP
+            # empathy (do not drop _disc), mirroring the documented support-misfire
+            # fix's default-to-care.
+            # ── Correction-persist gate (round 2026-08-09g, D3) ───────────────
+            # mine_personal_facts detects user corrections (name, relation, and
+            # the count/quantity form: "it's seven hives now, i split one"). A
+            # correction that is ALSO classified as a self-disclosure (e.g. T2
+            # "oh wait, i was wrong earlier, it's seven hives now") would hit
+            # the empathy early-return below and the stale fact would never be
+            # superseded. Persist ANY detected correction HERE, before the
+            # empathy path, online/incrementally via contradict() (no retrain),
+            # and emit a grounded correction ack. The disclosure empathy path
+            # returns after this, so it never double-handles. Content from the
+            # live store; no authored prose.
+            try:
+                _cf = getattr(self.user_model, "detected_correction_fact", None)
+                if (getattr(self.user_model, "detected_correction", False)
+                        and _cf):
+                    _cf_subj, _cf_attr, _cf_val = _cf
+                    self.user_model.personal_facts.contradict(
+                        "i", _cf_attr, _cf_val)
+                    _cf_phrase = {
+                        "name": f"your {_cf_attr} is {_cf_val}",
+                        "is": f"you are {_cf_val}",
+                        "does": f"you do {_cf_val}",
+                        "likes": f"you like {_cf_val}",
+                        "location": f"you live in {_cf_val}",
+                        "favorite": f"your favorite {_cf_val}",
+                    }.get(_cf_attr, f"your {_cf_attr} is {_cf_val}")
+                    _ack = (f"thanks for correcting me — i'll remember "
+                            f"{_cf_phrase}.")
+                    self._last_strategy = "correction_persist"
+                    self._last_responses.append(_ack)
+                    if len(self._last_responses) > 10:
+                        self._last_responses = self._last_responses[-10:]
+                    self.user_model.reset_correction_flags()
+                    self.notify_user_idle()
+                    return _ack
+            except Exception:
+                pass
+            if _disc is not None:
+                _low_d = (user_input or "").lower().strip()
+                _low_d = (_low_d.replace("i'm", "i am")
+                          .replace("i've", "i have").replace("i'll", "i will"))
+                # Plain possessive-attribute statement: "my <noun> is/was/has/
+                # are/have/got/named/called <...>". This is the factual-disclosure
+                # shape (the user is telling RAVANA something ABOUT an entity).
+                _possessive_attr = bool(re.match(
+                    r"^my\s+\w+(\s+\w+)?\s+"
+                    r"(is|are|was|were|has|have|got|named|called|likes|loves|enjoys|prefers)\b",
+                    _low_d)) or bool(re.match(
+                    r"^(i am|i'm|i have|i've|i am feeling|i feel)\s+\w+", _low_d))
+                # Genuine distress cues -- a small, stable set of suffering/
+                # loss words. Presence of ANY of these means the utterance IS a
+                # distress disclosure and must stay on the empathy path. This is
+                # the universal "is anyone actually hurting here?" check, NOT a
+                # per-entity table.
+                _suffering = bool(re.search(
+                    r"\b(hurt|hurts|hurting|pain|ache|suffering|suffer|"
+                    r"grief|grieving|lonely|alone|scared|afraid|terrified|"
+                    r"anxious|panic|devastated|broken|dying|dead|died|death|"
+                    r"dies|passed|miserable|hopeless|overwhelmed|exhausted|"
+                    r"furious|angry|cry|cried|crying|sad|sick|ill|hospital|"
+                    r"wounded|bleeding|lost|worried|troubled|upset)\b", _low_d))
+                if _possessive_attr and not _suffering:
+                    _disc = None
             if _disc is not None:
                 # §7 deictic special-case: "i love you" / "i like you" is a
                 # relationship declaration addressed to the AGENT, not a generic
@@ -4119,6 +4354,45 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             self.search_engine.clear_search_cache()
         except Exception:
             pass
+        # ── General correction persistence (round 2026-08-09g, D3) ───────
+        # mine_personal_facts detects user corrections (name, relation, and
+        # the new count/quantity form: "it's seven hives now, i split one")
+        # but only the SELF-DISCLOSURE path (which returns at ~4101) consumes
+        # the signal via contradict(). A correction phrased as a non-
+        # disclosure turn (no "my X is Y" / feeling shape) never reached that
+        # path, so its detected_correction was silently reset here without
+        # ever superseding the stale fact (measured: T41 "it's seven hives
+        # now" -> "ok, noted: wait."; the count stayed six). Persist ANY
+        # detected correction here, online/incrementally, and emit a grounded
+        # correction ack. The disclosure path returns before this point, so
+        # this never double-handles. Content from the live store; no
+        # authored prose, no retrain.
+        try:
+            _cf = getattr(self.user_model, "detected_correction_fact", None)
+            if getattr(self.user_model, "detected_correction", False) and _cf:
+                _cf_subj, _cf_attr, _cf_val = _cf
+                self.user_model.personal_facts.contradict(
+                    "i", _cf_attr, _cf_val)
+                _cf_phrase = {
+                    "name": f"your {_cf_attr} is {_cf_val}",
+                    "is": f"you are {_cf_val}",
+                    "does": f"you do {_cf_val}",
+                    "likes": f"you like {_cf_val}",
+                    "location": f"you live in {_cf_val}",
+                    "favorite": f"your favorite {_cf_val}",
+                }.get(_cf_attr, f"your {_cf_attr} is {_cf_val}")
+                _ack = (f"thanks for correcting me — i'll remember "
+                        f"{_cf_phrase}.")
+                self._last_strategy = "correction_persist"
+                self._last_responses.append(_ack)
+                if len(self._last_responses) > 10:
+                    self._last_responses = self._last_responses[-10:]
+                self.user_model.reset_correction_flags()
+                self.notify_user_idle()
+                return _ack
+        except Exception:
+            pass
+
         self.user_model.reset_correction_flags()  # Reset LPFC pause flag each turn
         # Decay recency boost: clear after 10 turns (synaptic tag window)
         if hasattr(self, '_recent_learn_turn') and self.turn_count - self._recent_learn_turn > 10:

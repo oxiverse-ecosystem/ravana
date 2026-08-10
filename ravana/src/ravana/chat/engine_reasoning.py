@@ -57,6 +57,40 @@ from ravana.core.event_schema import EventSchemaLibrary
 from ravana.ontology import DerivedOntology
 from ravana.ontology.conceptnet import ConceptNetOntology
 
+# ── Reflective acknowledgment (round 2026-08-09g, D2) ─────────────────────
+# When a disclosure stored NO extractable attribute fact this turn (a pure
+# confession/feeling), the old code fell back to the hardcoded hollow ack
+# "got it — thanks for telling me." which is exactly the degenerate template
+# the engine must avoid. Instead we reflect RAVANA's OWN affect state for the
+# turn: the live VAD valence is real, growing cognition, and the sentiment word
+# is DERIVED from the valence band — so the reply content comes from state, not
+# an authored sentence. This is the allowed form per the hardcoding line: a thin
+# connective wrapping a real cognitive signal. No per-topic table, no retrain.
+def _reflective_ack_from_vad(engine) -> str:
+    _v = 0.0
+    try:
+        _emo = getattr(engine, "emotion", None)
+        if _emo is not None:
+            _v = float(getattr(_emo.state, "valence", 0.0))
+    except Exception:
+        _v = 0.0
+    # The ONLY authored tokens are single valence words derived from the live
+    # band; the number rendered is the real measured valence. No sentence is
+    # authored per topic — if no word fits the band, emit the bare frame.
+    _word = ""
+    if _v <= -0.3:
+        _word = "heavy"
+    elif _v <= -0.1:
+        _word = "raw"
+    elif _v >= 0.3:
+        _word = "good"
+    elif _v >= 0.1:
+        _word = "open"
+    if not _word:
+        return f"noted (valence {_v:+.2f})."
+    return f"it sounds {_word} (valence {_v:+.2f})."
+
+
 # ── Attribute-predicate → value vocabulary (C1, LoCoMo gap fix) ─────────────
 # For "what is X's <identity>?" the question's PREDICATE word ("identity") is
 # NOT a content cue for which stored fact is the answer — it is a request for a
@@ -2206,7 +2240,18 @@ class ReasoningMixin:
                         # PersonalFactStore, not authored.
                         ack = f"noted — i'll remember {_ack_fact}."
                     else:
-                        ack = "got it — thanks for telling me."
+                        # No specific fact was mined this turn (the disclosure
+                        # was a confession/feeling with no extractable
+                        # attribute — e.g. "i felt hollow", "i bottled my first
+                        # hot sauce"). A flat "got it — thanks for telling me."
+                        # is the degenerate template the engine must avoid
+                        # (round 2026-08-09g: it fired on ~15/72 turns, mostly
+                        # genuine disclosures). Instead reflect RAVANA's OWN
+                        # affect state for the turn (live VAD valence), which is
+                        # real, growing cognition — never authored prose. The
+                        # sentiment word is DERIVED from the valence band, so
+                        # the reply content comes from state, not a sentence.
+                        ack = _reflective_ack_from_vad(self)
             elif parsed[0] == "favorite":
                 ack = f"noted! i'll remember your favorite {parsed[1]} is {parsed[2]}."
             elif parsed[0] == "name":
@@ -2262,33 +2307,71 @@ class ReasoningMixin:
             # recall). Generic (no per-topic table); brain-faithful: you don't
             # acknowledge a fact you heard long ago as if just told.
             _cur_turn = getattr(store, "turn_num", None)
+            # Possessive disclosures (e.g. "my partner's name is Pell",
+            # "my dog is a sheepdog named Cairn") are stored under the ENTITY
+            # key ("partner", "dog"), not under subject "i" — the self/other
+            # boundary fix deliberately keeps them entity-scoped. The ack
+            # composer used to only look under subject "i", so those stored
+            # facts were invisible and the turn fell through to the hollow
+            # "got it — thanks for telling me." Broaden the scan to include
+            # entity-keyed facts stored THIS turn (any subject other than "i"
+            # whose value was just learned), so the ack can render from the
+            # REAL stored fact. Content still comes from the store, never
+            # authored. General: no per-entity table.
             cands = [f for (s, a, v), f in store.facts.items()
-                     if not f.superseded and s in _subjects
-                     and (_cur_turn is None or getattr(f, "turn_number", -1) == _cur_turn)]
+                     if not f.superseded
+                     and (s in _subjects or (s not in ("i",) and s))
+                     and (_cur_turn is None
+                           or getattr(f, "turn_number", -1) == _cur_turn)]
             if not cands:
                 return None
             # Among this-turn facts, highest confidence wins (recency already
             # guaranteed by the scope above).
             best = max(cands, key=lambda f: getattr(f, "confidence", 0.0))
             attr, val = best.attribute, best.value
-            # Natural phrasing for the common relation keys (mirrors
-            # engine_memory._reconstruct_entity so acks and recall agree).
-            _phrase = {
-                "name": f"your name is {val}",
-                "location": f"you live in {val}",
-                "background": f"{val}",
-                "favorite": f"your favorite {val}",
-                "likes": f"you like {val}",
-                "does": f"you do {val}",
-                "is": f"you are {val}",
-            }.get(attr, None)
-            # Pet possessions are stored under a species-keyed slot
-            # ("cat", "cat_2"). Render naturally instead of echoing the raw
-            # slot key ("your cat_2 is gravy").
-            if _phrase is None and _pet_slots.is_pet_attribute(attr):
-                _phrase = _pet_slots.render(attr, val)
-            if _phrase is None:
-                _phrase = f"your {attr} is {val}"
+            # Entity-aware phrasing. Facts are stored under their REAL subject
+            # (the entity the fact is about), which can be "i" (the user's own
+            # biographical profile) or an OTHER entity ("partner", "dog"),
+            # per the self/other boundary fix. The phrasing MUST honor that
+            # subject: "my partner's name is Pell" is stored under
+            # ("partner","name","pell") and must ack "your partner's name is
+            # pell" — NOT "your name is pell", which would mis-attribute the
+            # partner's name to the user. Mirrors
+            # engine_memory._reconstruct_entity so acks and recall agree.
+            _subj = (getattr(best, "subject", "") or "").lower().strip()
+            _is_self = _subj in ("i", "me", "user", "")
+            # Common relation keys. Self-subject renders in second person
+            # ("your name is"); other-subject is possessive ("your partner's
+            # name is"). The only split is the subject — no per-entity table.
+            if _is_self:
+                _phrase = {
+                    "name": f"your name is {val}",
+                    "location": f"you live in {val}",
+                    "background": f"{val}",
+                    "favorite": f"your favorite {val}",
+                    "likes": f"you like {val}",
+                    "does": f"you do {val}",
+                    "is": f"you are {val}",
+                }.get(attr, None)
+                if _phrase is None and _pet_slots.is_pet_attribute(attr):
+                    # Pet possessions stored under a species-keyed slot
+                    # ("cat", "cat_2"); render naturally ("your cat is gravy").
+                    _phrase = _pet_slots.render(attr, val)
+                if _phrase is None:
+                    _phrase = f"your {attr} is {val}"
+            else:
+                _ent = _subj
+                _phrase = {
+                    "name": f"your {_ent}'s name is {val}",
+                    "location": f"your {_ent} is located at {val}",
+                    "background": f"{val}",
+                    "favorite": f"your {_ent}'s favorite is {val}",
+                    "likes": f"you mentioned your {_ent} likes {val}",
+                    "does": f"your {_ent} does {val}",
+                    "is": f"your {_ent} is {val}",
+                }.get(attr, None)
+                if _phrase is None:
+                    _phrase = f"your {_ent}'s {attr} is {val}"
             # Return the rendered relation phrase only (e.g. "you do chai
             # stall"); the caller wraps it in the "noted — i'll remember ..."
             # frame. Returning a ready-made ack string here caused a tuple-
