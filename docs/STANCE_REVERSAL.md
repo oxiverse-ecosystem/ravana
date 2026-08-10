@@ -44,8 +44,8 @@ Round `t_6c023144` (auto cycle 2026-08-09T1953Z) logged a residual limitation: a
 free-text reversal like *"i flipped, the reef tank is more work than joy"* formed
 a **fresh FOR stance** on `reef tank` instead of recoding the held one.
 
-Root cause: the word `flipped` (and sibling first-person change-of-mind verbs
-were absent from the retraction-cue seed set
+Root cause: the word `flipped` (and sibling first-person change-of-mind verbs)
+was absent from the retraction-cue seed set
 `_RETRACTION_CUES` (`ravana/src/ravana/chat/user_model.py:93`). With no cue
 matching, `mine_stance_reversal` (`user_model.py:1108`) never entered its
 reversal path, so the utterance fell through to ordinary opinion mining and

@@ -123,7 +123,7 @@ _RETRACTION_CUES = (
     # per-topic table). The tail→held-stance resolver already guards against
     # corruption: a flip on something the user has no stance on is a no-op
     # (reverse_stance returns None), so false positives are bounded.
-    r"\bi\s+(?:flipped|flip-?flopped|have\s+flipped|'ve\s+flipped)\b",
+    r"\bi\s*(?:'ve\s+|have\s+|)(?:flipped|flip-?flopped)\b",
     r"\bi\s+(?:recant|recanted|renounce|renounced|revoked|reversed|reneged)\b",
     r"\bi\s+(?:backtracked|went\s+back\s+on|backed\s+off\s+from)\b",
     # allow the contraction 'i've' (no space after i) as well as 'i had'/'i have'

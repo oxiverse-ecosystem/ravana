@@ -595,7 +595,8 @@ class SelfQueryMixin:
                 for _k, _f in _pf.facts.items():
                     if isinstance(_k, tuple) and len(_k) == 3 and \
                             not getattr(_f, "superseded", False):
-                        _first = (_f.value.split() or ["you"])[0]
+                        _val = str(getattr(_f, "value", _f) or "")
+                        _first = (_val.split() or ["you"])[0]
                         _q = (f"i'd ask you more about {_first} "
                               f"if you're up for it — that's the thread i most "
                               f"want to understand better.")
@@ -611,10 +612,13 @@ class SelfQueryMixin:
                           "personal_facts", None)
             _bits = []
             if _pf is not None:
-                for _k, _f in list(_pf.facts.items())[:3]:
+                for _k, _f in _pf.facts.items():
                     if isinstance(_k, tuple) and len(_k) == 3 and \
                             not getattr(_f, "superseded", False):
-                        _bits.append(_f.value)
+                        _val = str(getattr(_f, "value", _f) or "")
+                        _bits.append(f"{_k[1]}: {_val}")
+                    if len(_bits) >= 3:
+                        break
             if _bits:
                 return ("from everything you've told me, you come across as "
                         "someone who " + "; and who ".join(_bits[:2]) + ".")

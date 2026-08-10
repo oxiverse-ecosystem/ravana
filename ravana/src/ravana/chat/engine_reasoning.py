@@ -2086,9 +2086,10 @@ class ReasoningMixin:
             else:
                 # like/love
                 ml = re.search(
-                    r"\bi\s+(like|love|hate)\s+(.+?)(?:\s*(?:\.|!|\?|,|-{1,3}|$|"
+                    r"\bi\s+(like|love|hate)\s+(.+?)(?:\s*(?:\.|!|\?|,|$)"
+                    r"|\s+-{1,3}\s+"
                     r"\s+but\s+|\s+and\s+|\s+because\s+|\s+so\s+|\s+which\s+|"
-                    r"\s+that\s+|\s+when\s+|\s+where\s+|\s+while\s+))",
+                    r"\s+that\s+|\s+when\s+|\s+where\s+|\s+while\s+)",
                     q, re.IGNORECASE)
                 if ml:
                     # D3 (round v2): carry the ACTUAL verb so the

@@ -3845,7 +3845,9 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     r"\b(hurt|hurts|pain|ache|suffering|suffer|grief|grieving|"
                     r"lonely|alone|scared|afraid|terrified|anxious|panic|"
                     r"devastated|broken|dying|dead|miserable|hopeless|"
-                    r"overwhelmed|exhausted|furious|angry|cry|cried|crying)\b", _low))
+                    r"overwhelmed|exhausted|furious|angry|cry|cried|crying|"
+                    r"empty|numb|hollow|blue|gutted|meh|low|down|wrecked|"
+                    r"crushed|sad|unhappy|worthless|lost)\b", _low))
                 # ELI5 / simile self-reference ("like i'm five", "as if i'm ...")
                 # is a request framing, not a state disclosure.
                 _eli5_simile = bool(re.search(
