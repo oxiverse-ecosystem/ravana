@@ -2160,6 +2160,51 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         except Exception:
             pass
 
+    def _persist_correction_and_ack(self) -> Optional[str]:
+        """Persist a detected correction and return an acknowledgment.
+
+        Extracts the correction-persistence logic shared by multiple paths
+        (self-disclosure, general persistence). Resolves the subject from
+        _cf_subj (entity-keyed or user "i"), persists via contradict(), and
+        renders an acknowledgment attributed to the corrected entity.
+        """
+        try:
+            _cf = getattr(self.user_model, "detected_correction_fact", None)
+            if not (getattr(self.user_model, "detected_correction", False) and _cf):
+                return None
+            _cf_subj, _cf_attr, _cf_val = _cf
+            # Resolve subject: entity-keyed correction vs user correction
+            _subj = "i"
+            if str(_cf_subj).lower() not in ("i", "me", "my"):
+                # Entity-keyed correction (e.g., "my partner's name is...")
+                # The subject is the entity, not the user.
+                _subj = str(_cf_subj).lower()
+            # Persist the correction
+            self.user_model.personal_facts.contradict(_subj, _cf_attr, _cf_val)
+            # Render acknowledgment attributed to the corrected entity
+            if _subj == "i":
+                _cf_phrase = {
+                    "name": f"your {_cf_attr} is {_cf_val}",
+                    "is": f"you are {_cf_val}",
+                    "does": f"you do {_cf_val}",
+                    "likes": f"you like {_cf_val}",
+                    "location": f"you live in {_cf_val}",
+                    "favorite": f"your favorite {_cf_val}",
+                }.get(_cf_attr, f"your {_cf_attr} is {_cf_val}")
+            else:
+                # Entity-keyed acknowledgment
+                _cf_phrase = {
+                    "name": f"{_subj}'s {_cf_attr} is {_cf_val}",
+                    "is": f"{_subj} is {_cf_val}",
+                    "does": f"{_subj} does {_cf_val}",
+                    "likes": f"{_subj} likes {_cf_val}",
+                    "location": f"{_subj} is at {_cf_val}",
+                    "favorite": f"{_subj}'s favorite {_cf_val}",
+                }.get(_cf_attr, f"{_subj}'s {_cf_attr} is {_cf_val}")
+            return f"thanks for correcting me — i'll remember {_cf_phrase}."
+        except Exception:
+            return None
+
     def _structured_recall(self, user_input: str) -> Optional[str]:
         """Structured-first biographical / stance recall (round 2026-08-08).
 
@@ -2438,37 +2483,46 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         elif _ent_loc_b:
             _ent_loc_phrase = _ent_loc_b.group(1).strip()
         if _ent_loc_phrase and pf is not None:
-            # Collect entity-keyed (subject != "i") location facts. Exclude the
-            # USER's own location so "where do i live" (handled above) is never
-            # double-answered here, and so a city name with no stored fact
-            # cannot be mistaken for an entity whereabouts.
-            _ent_loc_facts = [
-                (k[0], f.value) for (k, f) in pf.facts.items()
-                if isinstance(k, tuple) and len(k) == 3
-                and k[1] == "location" and k[0] != "i"
-                and not getattr(f, "superseded", False)]
-            if _ent_loc_facts:
-                _elw = _ent_loc_phrase.split()
-                _best = None
-                # Suffix-window match: the entity phrase (or any trailing part
-                # of it) contains the stored subject as a whole word. Lets a
-                # user say "where's the slow coal narrowboat moored" and still
-                # resolve to the stored subject "slow coal". Longest stored
-                # subject wins so "coal" doesn't beat "slow coal".
-                for _i in range(len(_elw)):
-                    _c = " ".join(_elw[_i:])
-                    for _subj, _place in _ent_loc_facts:
-                        if re.search(r"\b" + re.escape(_subj) + r"\b", _c):
-                            if _best is None or len(_subj) > len(_best[0]):
-                                _best = (_subj, _place)
-                            break
-                if _best is not None:
-                    _subj, _place = _best
-                    _ans = f"the {_subj} is at {_place}."
-                    # B4 confirmation wiring: a follow-up "yes / that's right"
-                    # confirms this fact (closes the learning loop).
-                    self._last_pf_recall = (_subj, "location", _place)
-                    return _ans
+            # Reject question-frame tokens that aren't genuine entity nouns.
+            # "where do you work" or "where's the van" must not resolve to a
+            # stored entity location when "work" or "van" are just question
+            # framing words, not the actual entity name.
+            _QUESTION_FRAME_STOP = {
+                "work", "van", "job", "place", "thing", "one", "it", "that",
+                "this", "there", "here", "what", "where", "when", "how", "why"
+            }
+            if _ent_loc_phrase.lower() not in _QUESTION_FRAME_STOP:
+                # Collect entity-keyed (subject != "i") location facts. Exclude the
+                # USER's own location so "where do i live" (handled above) is never
+                # double-answered here, and so a city name with no stored fact
+                # cannot be mistaken for an entity whereabouts.
+                _ent_loc_facts = [
+                    (k[0], f.value) for (k, f) in pf.facts.items()
+                    if isinstance(k, tuple) and len(k) == 3
+                    and k[1] == "location" and k[0] != "i"
+                    and not getattr(f, "superseded", False)]
+                if _ent_loc_facts:
+                    _elw = _ent_loc_phrase.split()
+                    _best = None
+                    # Suffix-window match: the entity phrase (or any trailing part
+                    # of it) contains the stored subject as a whole word. Lets a
+                    # user say "where's the slow coal narrowboat moored" and still
+                    # resolve to the stored subject "slow coal". Longest stored
+                    # subject wins so "coal" doesn't beat "slow coal".
+                    for _i in range(len(_elw)):
+                        _c = " ".join(_elw[_i:])
+                        for _subj, _place in _ent_loc_facts:
+                            if re.search(r"\b" + re.escape(_subj) + r"\b", _c):
+                                if _best is None or len(_subj) > len(_best[0]):
+                                    _best = (_subj, _place)
+                                break
+                    if _best is not None:
+                        _subj, _place = _best
+                        _ans = f"the {_subj} is at {_place}."
+                        # B4 confirmation wiring: a follow-up "yes / that's right"
+                        # confirms this fact (closes the learning loop).
+                        self._last_pf_recall = (_subj, "location", _place)
+                        return _ans
         # Count / quantity recall: "how many X do i have / keep / raise" ->
         # scan 'does' facts whose value contains a leading cardinal number
         # and the cue noun; or a dedicated count attribute. Honest fallback
@@ -2510,7 +2564,13 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 if getattr(_f, "superseded", False):
                     continue
                 if _k[1] in ("count", "number", "qty") and _cn in _f.value.lower():
-                    _best = _f.value
+                    # Extract only the leading cardinal from the value, matching
+                    # the bare-cardinal behavior of the "does" branch below.
+                    _v = _f.value.lower()
+                    _m = re.match(r"^((?:one|two|three|four|five|six|seven|eight|"
+                                  r"nine|ten|eleven|twelve)|\d+)\b", _v)
+                    if _m:
+                        _best = _m.group(1)
                     break
                 if _k[1] == "does":
                     _v = _f.value.lower()
@@ -4213,32 +4273,15 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # and emit a grounded correction ack. The disclosure empathy path
             # returns after this, so it never double-handles. Content from the
             # live store; no authored prose.
-            try:
-                _cf = getattr(self.user_model, "detected_correction_fact", None)
-                if (getattr(self.user_model, "detected_correction", False)
-                        and _cf):
-                    _cf_subj, _cf_attr, _cf_val = _cf
-                    self.user_model.personal_facts.contradict(
-                        "i", _cf_attr, _cf_val)
-                    _cf_phrase = {
-                        "name": f"your {_cf_attr} is {_cf_val}",
-                        "is": f"you are {_cf_val}",
-                        "does": f"you do {_cf_val}",
-                        "likes": f"you like {_cf_val}",
-                        "location": f"you live in {_cf_val}",
-                        "favorite": f"your favorite {_cf_val}",
-                    }.get(_cf_attr, f"your {_cf_attr} is {_cf_val}")
-                    _ack = (f"thanks for correcting me — i'll remember "
-                            f"{_cf_phrase}.")
-                    self._last_strategy = "correction_persist"
-                    self._last_responses.append(_ack)
-                    if len(self._last_responses) > 10:
-                        self._last_responses = self._last_responses[-10:]
-                    self.user_model.reset_correction_flags()
-                    self.notify_user_idle()
-                    return _ack
-            except Exception:
-                pass
+            _ack = self._persist_correction_and_ack()
+            if _ack:
+                self._last_strategy = "correction_persist"
+                self._last_responses.append(_ack)
+                if len(self._last_responses) > 10:
+                    self._last_responses = self._last_responses[-10:]
+                self.user_model.reset_correction_flags()
+                self.notify_user_idle()
+                return _ack
             if _disc is not None:
                 _low_d = (user_input or "").lower().strip()
                 _low_d = (_low_d.replace("i'm", "i am")
@@ -4381,30 +4424,10 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # like assert_fact would), so a later "what have you learned about
             # me" reflects the corrected fact, not the old one. The user is
             # ground truth for their own profile.
-            try:
-                _cf = getattr(self.user_model, "detected_correction_fact", None)
-                if getattr(self.user_model, "detected_correction", False) and _cf:
-                    _cf_subj, _cf_attr, _cf_val = _cf
-                    if str(_cf_subj).lower() in ("i", "me", "my"):
-                        self.user_model.personal_facts.contradict(
-                            "i", _cf_attr, _cf_val)
-                        # Render a grounded correction ack from the REAL fact
-                        # (content from the store, no authored prose). Phrasing
-                        # mirrors the correction ack mapping in engine_persis-
-                        # tence; covers the common relation keys. This beats the
-                        # generic "got it — thanks for telling me." hollow ack.
-                        _rel_phrase = {
-                            "name": f"your {_cf_attr} is {_cf_val}",
-                            "is": f"you are {_cf_val}",
-                            "does": f"you do {_cf_val}",
-                            "likes": f"you like {_cf_val}",
-                            "location": f"you live in {_cf_val}",
-                            "favorite": f"your favorite {_cf_val}",
-                        }.get(_cf_attr, f"your {_cf_attr} is {_cf_val}")
-                        _ack = (f"thanks for correcting me — i'll remember "
-                                f"{_rel_phrase}.")
-            except Exception:
-                pass
+            # Update acknowledgment if a correction was detected
+            _correction_ack = self._persist_correction_and_ack()
+            if _correction_ack:
+                _ack = _correction_ack
             self._last_responses.append(_ack)
             if len(self._last_responses) > 10:
                 self._last_responses = self._last_responses[-10:]
@@ -4500,31 +4523,15 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # correction ack. The disclosure path returns before this point, so
         # this never double-handles. Content from the live store; no
         # authored prose, no retrain.
-        try:
-            _cf = getattr(self.user_model, "detected_correction_fact", None)
-            if getattr(self.user_model, "detected_correction", False) and _cf:
-                _cf_subj, _cf_attr, _cf_val = _cf
-                self.user_model.personal_facts.contradict(
-                    "i", _cf_attr, _cf_val)
-                _cf_phrase = {
-                    "name": f"your {_cf_attr} is {_cf_val}",
-                    "is": f"you are {_cf_val}",
-                    "does": f"you do {_cf_val}",
-                    "likes": f"you like {_cf_val}",
-                    "location": f"you live in {_cf_val}",
-                    "favorite": f"your favorite {_cf_val}",
-                }.get(_cf_attr, f"your {_cf_attr} is {_cf_val}")
-                _ack = (f"thanks for correcting me — i'll remember "
-                        f"{_cf_phrase}.")
-                self._last_strategy = "correction_persist"
-                self._last_responses.append(_ack)
-                if len(self._last_responses) > 10:
-                    self._last_responses = self._last_responses[-10:]
-                self.user_model.reset_correction_flags()
-                self.notify_user_idle()
-                return _ack
-        except Exception:
-            pass
+        _ack = self._persist_correction_and_ack()
+        if _ack:
+            self._last_strategy = "correction_persist"
+            self._last_responses.append(_ack)
+            if len(self._last_responses) > 10:
+                self._last_responses = self._last_responses[-10:]
+            self.user_model.reset_correction_flags()
+            self.notify_user_idle()
+            return _ack
 
         self.user_model.reset_correction_flags()  # Reset LPFC pause flag each turn
         # Decay recency boost: clear after 10 turns (synaptic tag window)

@@ -26,5 +26,5 @@ FIX CARDS CREATED (parented to audit):
   t_79d3621d  possessive-ack gaps + support-router misfire
   t_36e4d975  add process_turn-level regression tests for the round's fixes
 
-Full report: C:\Users\Likhith\Documents\Projects\ravana\audit_report_2026f.md
+Full report: audit_report_2026f.md
 Audit did NOT edit repo source. Do not count round t_f04e8f53's "all criteria met" as true — A and the location part are real; B and C do not work through the engine.

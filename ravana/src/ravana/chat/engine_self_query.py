@@ -574,7 +574,6 @@ class SelfQueryMixin:
             r"\b(do|did|would|could)\s+you\s+(know|have|figure\s+out|work\s+out)\s+"
             r"(who\s+you\s+are|what\s+you\s+are|yourself)\b"
             r"|name\s+your\s+(own\s+)?mind\b"
-            r"|about\s+(yourself|your\s+own\s+mind)\b"
             r"|one\s+(thread|thing)\s+about\s+(yourself|your\s+mind)\b"
             r"|what\s+would\s+you\s+ask\s+me\b"
             r"|what\s+do\s+you\s+(actually\s+)?make\s+of\s+me\b"
@@ -687,9 +686,13 @@ class SelfQueryMixin:
         #     introspection noun is present, this gate is a no-op and the
         #     rest of the self-query resolver runs unchanged.
         _self_introspect = re.search(
-            r"\b(your|you)\b.*\b(read|line|take|view|mind|thinking|thought|"
-            r"opinion|stance|self|who you are|what you (?:are|were)|how you "
-            r"(?:see|feel|think))\b", t)
+            r"\byour\s+(?:own\s+)?(read|line|take|view|mind|thinking|thought|"
+            r"opinion|stance|self)\b"
+            r"|\byou\s+(?:said|told|mentioned)\b.*\b(?:your|yourself)\b"
+            r"|\babout\s+(?:yourself|your\s+own\s+mind)\b"
+            r"|\bwho\s+you\s+are\b"
+            r"|\bwhat\s+you\s+(?:are|were)\b"
+            r"|\bhow\s+you\s+(?:see|feel|think)\b", t)
         if _self_introspect:
             # This is a question about RAVANA itself. Answer from the
             # self-model's identity state (real, growing state — strength,
@@ -714,7 +717,73 @@ class SelfQueryMixin:
                 return ("that's a question about me rather than you — i'm "
                         "still forming a sense of myself, and i'd rather be "
                         "honest about that than guess.")
+        # 1) Explicit self-identity questions. NOTE: "my name" is the USER's
+        #    autobiographical fact, NOT the agent's self-model — only "your
+        #    name"/"who are you"/etc. are about the AGENT. Matching "my name"
+        #    here wrongly answered "what is my name" with the agent's own name.
+        # ROUTING FIX: identity/name queries must be handled BEFORE
+        # _route_self_reference so "tell me about yourself" and "who are you"
+        # reach the narrow identity branch instead of being caught by the
+        # broader self-reference pattern.
         sm = self._ensure_self_model()
+        _name_q = bool(re.search(
+            r"\b(what(?:'s| is)\s+your\s+name|who\s+are\s+you|"
+            r"what\s+are\s+you|tell\s+me\s+about\s+yourself|"
+            r"what\s+can\s+you\s+(?:actually\s+|really\s+|even\s+)?do|"
+            r"your\s+name)\b", t))
+        # D-fix (round 2026-08-08b): The agent self-intro path fires ONLY on
+        # explicit self-identity patterns above, PLUS a deterministic bare-name
+        # match for "what is ravana" / "tell me about ravana". A prior
+        # implementation fired when the query's GROUNDED subject equaled the
+        # agent name via _ground_query, but that grounder is state-sensitive and
+        # non-deterministically resolved user-directed queries ("earlier you
+        # said something about how i see cities", "what do you actually think i
+        # care about") to the agent name — hijacking the self-intro instead of
+        # answering about the USER. The bare-name match is now a direct regex on
+        # the agent name and is gated by the ABSENCE of any user pronoun
+        # ("me"/"i"/"you"/"my"), so a query about the user can never trigger it.
+        # Structural (regex), not a per-topic guard.
+        _name_about_agent = bool(re.search(
+            r"\b(?:what\s+is|who\s+is|tell\s+me\s+about|what\s+are)\s+"
+            + re.escape(sm.name.lower()) + r"\b", t))
+        _has_user_pronoun = bool(re.search(
+            r"\b(me|my|i'm|i\s|you|your|i've|i'll)\b", t))
+        if _name_q or (_name_about_agent and not _has_user_pronoun):
+            # Compose a stable, honest self-answer from the derived self-model.
+            _answer = None
+            if re.search(r"\bname\b", t):
+                _answer = (f"i'm {sm.name} — {sm.describe().split(',', 1)[-1].strip()}. "
+                           f"what's yours?")
+            elif re.search(r"\b(what\s+are\s+you|who\s+are\s+you)\b", t):
+                _answer = (f"i'm {sm.describe()} — an ai that learns by talking, "
+                           f"not a person. what made you curious?")
+            elif re.search(r"\bwhat\s+can\s+you\s+(?:actually\s+|really\s+|even\s+)?do\b", t):
+                # Derived, not authored: the self-description comes from the live
+                # self-model (sm.describe()), and the only claims made are TRUE of
+                # the architecture regardless of topic — it learns from conversation
+                # and recalls what the user tells it (online learning + fact store).
+                # No per-capability brochure RAVANA could never revise by talking.
+                _answer = (f"i'm {sm.describe()} — i learn from the things we talk "
+                           f"about and remember what you tell me. what would you "
+                           f"like to try?")
+            else:
+                # Bare self-subject ("what is ravana") -> describe from the model.
+                _answer = f"that's me — {sm.describe()}."
+            # D3 (round v3): persist RAVANA's OWN self-description so a later
+            # "what did you say about who you are" can recall it instead of a user
+            # episode (the D-C bug). The stored content is the verbatim composed
+            # answer produced by the self-model THIS turn — real output, not authored
+            # prose — so it passes the no-hardcoding line. The store is a plain dict
+            # RAVANA can overwrite at runtime (e.g. when the user asks it to
+            # re-describe itself), not frozen code. Captured at this chokepoint
+            # because self-description turns return via this method and never reach
+            # the generic generation/response path.
+            try:
+                self._agent_claims = getattr(self, "_agent_claims", {})
+                self._agent_claims["self"] = _answer.strip()
+            except Exception:
+                pass
+            return _answer
         # 0) Epistemic-humility / self-knowledge questions. A question about
         #    the AGENT's *knowledge limits* ("do you know everything?",
         #    "what don't you know?", "are you sure?") must be answered from
@@ -856,68 +925,7 @@ class SelfQueryMixin:
         _sref = self._route_self_reference(t)
         if _sref is not None:
             return _sref
-        # 1) Explicit self-identity questions. NOTE: "my name" is the USER's
-        #    autobiographical fact, NOT the agent's self-model — only "your
-        #    name"/"who are you"/etc. are about the AGENT. Matching "my name"
-        #    here wrongly answered "what is my name" with the agent's own name.
-        _name_q = bool(re.search(
-            r"\b(what(?:'s| is)\s+your\s+name|who\s+are\s+you|"
-            r"what\s+are\s+you|tell\s+me\s+about\s+yourself|"
-            r"what\s+can\s+you\s+(?:actually\s+|really\s+|even\s+)?do|"
-            r"your\s+name)\b", t))
-        # D-fix (round 2026-08-08b): The agent self-intro path fires ONLY on
-        # explicit self-identity patterns above, PLUS a deterministic bare-name
-        # match for "what is ravana" / "tell me about ravana". A prior
-        # implementation fired when the query's GROUNDED subject equaled the
-        # agent name via _ground_query, but that grounder is state-sensitive and
-        # non-deterministically resolved user-directed queries ("earlier you
-        # said something about how i see cities", "what do you actually think i
-        # care about") to the agent name — hijacking the self-intro instead of
-        # answering about the USER. The bare-name match is now a direct regex on
-        # the agent name and is gated by the ABSENCE of any user pronoun
-        # ("me"/"i"/"you"/"my"), so a query about the user can never trigger it.
-        # Structural (regex), not a per-topic guard.
-        _name_about_agent = bool(re.search(
-            r"\b(?:what\s+is|who\s+is|tell\s+me\s+about|what\s+are)\s+"
-            + re.escape(sm.name.lower()) + r"\b", t))
-        _has_user_pronoun = bool(re.search(
-            r"\b(me|my|i'm|i\s|you|your|i've|i'll)\b", t))
-        if not (_name_q or (_name_about_agent and not _has_user_pronoun)):
-            return None
-        # Compose a stable, honest self-answer from the derived self-model.
-        _answer = None
-        if re.search(r"\bname\b", t):
-            _answer = (f"i'm {sm.name} — {sm.describe().split(',', 1)[-1].strip()}. "
-                       f"what's yours?")
-        elif re.search(r"\b(what\s+are\s+you|who\s+are\s+you)\b", t):
-            _answer = (f"i'm {sm.describe()} — an ai that learns by talking, "
-                       f"not a person. what made you curious?")
-        elif re.search(r"\bwhat\s+can\s+you\s+(?:actually\s+|really\s+|even\s+)?do\b", t):
-            # Derived, not authored: the self-description comes from the live
-            # self-model (sm.describe()), and the only claims made are TRUE of
-            # the architecture regardless of topic — it learns from conversation
-            # and recalls what the user tells it (online learning + fact store).
-            # No per-capability brochure RAVANA could never revise by talking.
-            _answer = (f"i'm {sm.describe()} — i learn from the things we talk "
-                       f"about and remember what you tell me. what would you "
-                       f"like to try?")
-        else:
-            # Bare self-subject ("what is ravana") -> describe from the model.
-            _answer = f"that's me — {sm.describe()}."
-        # D3 (round v3): persist RAVANA's OWN self-description so a later
-        # "what did you say about who you are" can recall it instead of a user
-        # episode (the D-C bug). The stored content is the verbatim composed
-        # answer produced by the self-model THIS turn — real output, not authored
-        # prose — so it passes the no-hardcoding line. The store is a plain dict
-        # RAVANA can overwrite at runtime (e.g. when the user asks it to
-        # re-describe itself), not frozen code. Captured at this chokepoint
-        # because self-description turns return via this method and never reach
-        # the generic generation/response path.
-        try:
-            self._agent_claims["self"] = _answer.strip()
-        except Exception:
-            pass
-        return _answer
+        return None
 
     def _consult_internal_knowledge(self, user_input: str) -> Optional[str]:
         """Before web, consult RAVANA's consolidated internal memory.

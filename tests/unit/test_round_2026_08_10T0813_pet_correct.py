@@ -15,12 +15,14 @@ for _p in (_PROJ, os.path.join(_PROJ, "ravana", "src"), os.path.join(_PROJ, "rav
 from ravana.chat.engine import CognitiveChatEngine
 
 
-def _fresh_engine(suffix):
-    return CognitiveChatEngine(dim=64, seed=42, baby_mode=True, user_suffix=suffix)
+def _fresh_engine(tmp_path, suffix):
+    import tempfile
+    tmpdir = tempfile.mkdtemp(prefix=f"ravana_pet_{suffix}_", dir=str(tmp_path))
+    return CognitiveChatEngine(dim=64, seed=42, baby_mode=True, user_suffix=suffix, data_dir=tmpdir)
 
 
-def test_pet_redisclosure_corrects_stale_name():
-    eng = _fresh_engine("petfix_a")
+def test_pet_redisclosure_corrects_stale_name(tmp_path):
+    eng = _fresh_engine(tmp_path, "petfix_a")
     eng.process_turn("my dog is a lurcher named wren, she is half-greyhound")
     eng.process_turn(
         "no, actually wren is my partner's name, the dog is a lurcher "
@@ -33,8 +35,8 @@ def test_pet_redisclosure_corrects_stale_name():
     assert "briar" in recall, recall
 
 
-def test_pet_redisclosure_does_not_fire_on_first_disclosure():
-    eng = _fresh_engine("petfix_b")
+def test_pet_redisclosure_does_not_fire_on_first_disclosure(tmp_path):
+    eng = _fresh_engine(tmp_path, "petfix_b")
     eng.process_turn("my cat is a tabby called milo")
     # a second, DIFFERENT first disclosure of a new species must just store
     eng.process_turn("my dog is a spaniel called rex")

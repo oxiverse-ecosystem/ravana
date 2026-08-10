@@ -87,8 +87,12 @@ def _reflective_ack_from_vad(engine) -> str:
     elif _v >= 0.1:
         _word = "open"
     if not _word:
-        return f"noted (valence {_v:+.2f})."
-    return f"it sounds {_word} (valence {_v:+.2f})."
+        if hasattr(self, "logger") and self.logger:
+            self.logger.debug(f"reflective_ack: valence={_v:+.2f}, no word selected")
+        return "noted."
+    if hasattr(self, "logger") and self.logger:
+        self.logger.debug(f"reflective_ack: valence={_v:+.2f}, word={_word}")
+    return f"it sounds {_word}."
 
 
 # ── Attribute-predicate → value vocabulary (C1, LoCoMo gap fix) ─────────────
@@ -2121,8 +2125,7 @@ class ReasoningMixin:
                 # like/love
                 ml = re.search(
                     r"\bi\s+(like|love|hate)\s+(.+?)(?:\s*(?:\.|!|\?|,|$)"
-                    r"|\s+-{1,3}\s+"
-                    r"\s+but\s+|\s+and\s+|\s+because\s+|\s+so\s+|\s+which\s+|"
+                    r"|\s+-{1,3}\s+|\s+but\s+|\s+and\s+|\s+because\s+|\s+so\s+|\s+which\s+|"
                     r"\s+that\s+|\s+when\s+|\s+where\s+|\s+while\s+)",
                     q, re.IGNORECASE)
                 if ml:

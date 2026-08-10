@@ -276,3 +276,22 @@ def test_humor_grammar_agreement():
             f"no valid connector in: {joke!r}"
     # All three templates should differ (rotation works).
     assert len(seen) >= 2, f"humor did not rotate: {seen!r}"
+
+
+def test_enum_self_recognizes_i_before_you():
+    """Regression: source-monitoring queries with 'I' before 'you' must match _ENUM_SELF.
+
+    "What things have I told you?" is a source-monitoring question (about what the
+    user disclosed), not a world query. The regex must recognize this pattern.
+    """
+    from ravana.core.fact_reasoning import _ENUM_SELF
+    # Test cases with 'I' appearing before 'you'
+    test_queries = [
+        "What things have I told you?",
+        "What did I tell you about my dog?",
+        "What have I told you so far?",
+        "What things have I said to you?",
+    ]
+    for query in test_queries:
+        match = _ENUM_SELF.search(query)
+        assert match is not None, f"_ENUM_SELF did not match: {query!r}"

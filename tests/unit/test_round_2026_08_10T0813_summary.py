@@ -38,6 +38,8 @@ def test_summary_skips_event_noise():
     # biographical facts present
     assert "Caspar" in out, out
     assert "dog is a lurcher named wren" in out, out
+    # loss-event phrase must not appear in summary
+    assert "lost a kestrel" not in out.lower(), out
 
 
 def test_make_of_me_skips_raw_fact_dump():
@@ -48,3 +50,5 @@ def test_make_of_me_skips_raw_fact_dump():
     assert "does:" not in out, out
     # reads as a natural biographical sketch
     assert "caspar" in out.lower(), out
+    # loss-event phrase must not appear in summary
+    assert "lost a kestrel" not in out.lower(), out

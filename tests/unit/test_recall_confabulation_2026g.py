@@ -75,9 +75,11 @@ def test_d3_count_correction_supersedes():
     eng = _new_engine("t_d3_cnt")
     eng.process_turn("i keep six hives of bees on a rooftop")
     eng.process_turn("oh wait, i was wrong earlier, it's seven hives now, i split one last week")
-    # the correction should be acknowledged (not "ok, noted: wait")
+    # the correction should be acknowledged with a correction marker
     r_ack = eng._last_responses[-1].lower() if eng._last_responses else ""
-    assert "wait" not in r_ack or "noted: wait" not in r_ack, f"correction dropped: {r_ack!r}"
+    # The acknowledgment should contain a correction marker like "thanks for correcting me"
+    # or "i'll remember" rather than being a bare "noted: wait"
+    assert ("correcting" in r_ack or "remember" in r_ack), f"correction not acknowledged: {r_ack!r}"
     # later count query must reflect the NEW number
     r2 = eng.process_turn("so how many hives do i have now, after the split?")
     assert "seven" in r2.lower(), f"expected updated count 'seven', got: {r2!r}"

@@ -35,7 +35,7 @@ These numbers are from a live run of `UserModel` (not a hand-written example):
 
 A reversal is a **valuation recode linked to the prior stance**, not a fresh
 opinion merge. The link is preserved so the acknowledgment can reference what was
-reversed (see `PersonalFactStore.last_reversal`
+reversed (see `UserStanceStore.last_reversal`
 `ravana/src/ravana/chat/personal_fact_store.py:261`, set at `:411`).
 
 ## How it grew — the residual gap
@@ -52,12 +52,12 @@ reversal path, so the utterance fell through to ordinary opinion mining and
 accumulated a second, contradicting stance.
 
 The fix extended `_RETRACTION_CUES` with a SEED set of first-person reversal
-speech acts (`user_model.py:116-131`):
+speech acts (`user_model.py:116-132`):
 
 ```python
 # Round t_6c023144 (2026-08-09T1953Z residual): first-person reversal
 # speech acts that the round worker saw slip through to a fresh FOR stance.
-r"\bi\s+(?:flipped|flip-?flopped|have\s+flipped|'ve\s+flipped)\b",
+r"\bi\s*(?:'ve\s+|have\s+|)(?:flipped|flip-?flopped)\b",
 r"\bi\s+(?:recant|recanted|renounce|renounced|revoked|reversed|reneged)\b",
 r"\bi\s+(?:backtracked|went\s+back\s+on|backed\s+off\s+from)\b",
 r"\bi\s*'?ve\s+had\s+a\s+change\s+of\s+heart\b",
@@ -67,22 +67,22 @@ r"\bi\s+(?:had|have)\s+a\s+change\s+of\s+heart\b",
 ## Mechanism (real code paths)
 
 Reversal detection runs inside `UserModel.mine_personal_facts`
-(called at `user_model.py:1069`, which invokes `mine_stance_reversal`). The
+(called at `user_model.py:1263`, which invokes `mine_stance_reversal` at `:1302`). The
 resolver:
 
 1. Scans the utterance against `_RETRACTION_CUES` (hard recants) and
-   `_SOFTENING_CUES` (`user_model.py:141`, a subset of the former — *relax
+   `_SOFTENING_CUES` (`user_model.py:134`, a subset of the former — *relax
    toward neutral*, never invert). A softening idiom anywhere in the utterance
-   governs the whole speech act (`user_model.py:1137-1138`).
+   governs the whole speech act (`user_model.py:1331-1338`).
 2. Extracts the **topic** from the clause after the cue
-   (`user_model.py:1199-1207`), with fallbacks that resolve a held stance by
+   (`user_model.py:1394-1450`), with fallbacks that resolve a held stance by
    token containment when the tail is empty or non-content-led
-   (`user_model.py:1219-1256`).
+   (`user_model.py:1414-1427`).
 3. **Bounds false positives** with a scope guard: a recant whose content is a
    *strict subset* of a broader held topic is treated as a narrowing, not a
-   reversal, and is rejected (`user_model.py:1257-1343`). This prevents flipping
+   reversal, and is rejected (`user_model.py:1451-1499`). This prevents flipping
    "acoustic music" when the user only walked back "acoustic-*only*".
-4. Calls `PersonalFactStore.reverse_stance(topic, utterance=text)`
+4. Calls `UserStanceStore.reverse_stance(topic, utterance=text)`
    (`personal_fact_store.py:359`), which:
    - returns `None` (no-op) if no stance is held on the topic
      (`personal_fact_store.py:385-387`) — a flip on something the user never
@@ -132,7 +132,7 @@ card's run).
 
 - A flip resolves against the **held** stance store; if the topic can't be linked
   to a held stance by tight token overlap, the recant is ignored rather than
-  guessing (scope guard at `user_model.py:1283-1343`).
+  guessing (scope guard at `user_model.py:1451-1499`).
 - Third-person or hypothetical reversals ("people flip on diets") are not
   attitude changes about the user and are not reversed.
 - Reversal strength is fixed per cue class (hard `0.85` / soft `0.5`); it is not

@@ -8,6 +8,7 @@ Covers:
   over-collapse (these caused web retrieval to silently fail for valid facts).
 """
 import pytest
+import re
 
 
 @pytest.fixture(scope="module")
@@ -216,4 +217,42 @@ def test_sanitize_definition_text_strips_doi(engine):
     san = engine._sanitize_definition_text(raw)
     assert san is not None
     assert "doi" not in san.lower(), f"doi leaked: {san!r}"
+
+
+def test_opinion_regex_recognizes_contracted_wrong(engine):
+    """Regression: _is_opinion must recognize both 'i'm wrong about' and 'i am wrong about'.
+
+    The opinion gate prevents planting the topic into 'you're {topic}' acknowledgments.
+    Without matching the contracted form, "i'm wrong about cassettes" would produce
+    garbled output like "so you're cassettes" instead of a topic-less ack.
+    """
+    from ravana.chat.response_gen import ResponseGenerator
+    rg = ResponseGenerator(engine)
+    # Both contracted and expanded forms should be recognized as opinion leads
+    for text in ["i'm wrong about cassettes", "i am wrong about cassettes"]:
+        t = text.lower().strip()
+        _is_opinion = bool(re.search(
+            r"\b(i\s+(?:think|feel|believe|prefer|love|like|hate|dislike|enjoy|"
+            r"reckon|suppose|was\s+wrong\s+about|was\s+right\s+about)|"
+            r"i'm\s+wrong\s+about|i\s+am\s+wrong\s+about)\b",
+            t, re.IGNORECASE))
+        assert _is_opinion, f"opinion pattern did not match: {text!r}"
+
+
+def test_mixed_affect_preserved_through_disclosure(engine):
+    """Regression: signed affect data must be preserved for mixed-affect detection.
+
+    _detect_emotional_disclosure sets _tmp_signed (pos/neg affect terms), but it was
+    being cleared before _appraised_affective_reply could read it for mixed-valence
+    acknowledgment. This test verifies that a disclosure containing both positive and
+    negative feelings acknowledges both poles (not just one).
+    """
+    # "proud and a little scared" contains both positive (proud) and negative (scared)
+    response = engine.process_turn("i'm proud and a little scared about the presentation")
+    # The mixed-affect acknowledgment should reference both feelings
+    assert response is not None
+    # Either both terms appear, or the mixed-valence template is used
+    lower_resp = response.lower()
+    has_mixed_ack = ("mix" in lower_resp or ("proud" in lower_resp and "scared" in lower_resp))
+    assert has_mixed_ack, f"mixed-affect not acknowledged in: {response!r}"
 

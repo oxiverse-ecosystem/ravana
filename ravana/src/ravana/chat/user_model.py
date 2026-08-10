@@ -322,7 +322,9 @@ class UserModel:
         # an entity noun, locate the prior count/activity fact for that entity,
         # and supersede it via contradict() (online, no retrain). Content comes
         # from the live store; no per-topic table, no authored text.
-        if not self.detected_correction:
+        # Guard on detected_correction_fact (matching pet-correction logic):
+        # only skip when a real correction FACT is already extracted.
+        if not self.detected_correction_fact:
             _NUMWORDS = (r"(?:one|two|three|four|five|six|seven|eight|nine|"
                          r"ten|eleven|twelve|\d+)")
             _cnt = re.search(
@@ -410,7 +412,7 @@ class UserModel:
                                                 source="seed_regex")
 
         def _split_possessive_attr(attr: str):
-            """D6 (round 2026-08-08b-d): 'my partner's name is theo' must model
+            r"""D6 (round 2026-08-08b-d): 'my partner's name is theo' must model
             an ENTITY (partner) and its attribute (name), not collapse onto the
             user's own self-profile. The multi-word attr pattern
             (r'\bmy\s+(...)\s+is\s+...') captures 'partner's name' as one attr
@@ -982,14 +984,11 @@ class UserModel:
             "glaze", "wire", "prune", "pot", "plant", "sketch", "draw",
             "sculpt", "stitch", "mend", "whittle", "start", "begin", "try",
             "go", "use", "take", "make", "get", "built", "taught", "wrote",
-            "drew", "sang", "flew", "swam", "rode", "drove", "broke",
-            "spoke", "woke", "froze", "chose", "ate", "drank", "grew",
-            "threw", "knew", "wore", "brought", "bought", "caught",
-            "kept", "slept", "left", "felt", "met",
-            "sent", "spent", "lost", "found", "held", "told", "sold",
-            "paid", "said", "gave", "came", "went", "did", "saw", "got",
-            "made", "took", "set", "put", "cut", "hit", "read", "led",
-            "fed", "bled", "fed",
+            "drew", "sang", "flew", "swam", "rode", "drove",
+            "spoke", "woke", "chose", "wore", "brought", "bought",
+            "slept", "left",
+            "sent", "spent", "held", "sold",
+            "paid", "said", "set", "put", "read", "led",
         )
         _EVENT_VERBS = (
             "drop", "lose", "find", "remove", "break", "discover", "notice",
