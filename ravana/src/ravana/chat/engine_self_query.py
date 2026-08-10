@@ -157,6 +157,7 @@ from ravana.language.verb_lexicon import VerbLexicon
 from .models import FailedQuery, ChainHop, ChainTrace, CognitiveResponseContext, Correction, CorrectionType
 
 from .user_model import UserModel
+from . import pet_slots
 from .belief_store import BeliefStore
 from ravana.nn.rlm import Plasticity
 
@@ -537,6 +538,122 @@ class SelfQueryMixin:
             return "quiet"
         return "steady"
 
+    def _route_self_reference(self, user_input: str) -> Optional[str]:
+        """Self-referential / self-model questions that miss the narrow
+        'who are you / what are you' identity regex but are unambiguously
+        ABOUT THE AGENT'S OWN MIND. Examples from real chats:
+          - "do you know who you are yet" / "are you still working it out"
+          - "if you had to name your own mind in a single word"
+          - "what's the one thread about yourself you'd hold onto"
+          - "what would you ask me if you could ask anything"
+          - "what do you actually make of me"
+          - "does X still feel like the heart of who I am to you"
+
+        ROOT CAUSE (round 2026-08-09i): these phrasings failed the narrow
+        identity regex and fell through to the episodic echo, which replayed a
+        stored USER utterance as if it were RAVANA's self-knowledge — a
+        self/other boundary inversion (the D-class bug the audit flags).
+
+        FIX: catch them at their OWN gate (called from process_turn BEFORE
+        _structured_recall / _try_fact_reasoning). Every answer is composed
+        from REAL state, never authored prose, never a per-topic table:
+          - 'what would you ask me'  -> a genuine open question derived from the
+            LIVE user-fact store (RAVANA's actual curiosity about this user),
+            not a canned line.
+          - 'what do you make of me' -> a reflection on the USER built from the
+            LIVE personal_fact store, never a stored-utterance echo.
+          - everything else          -> grounded self-description from the
+            self-model (sm.describe) + live identity strength.
+        Fail-open: returns None for genuinely non-self phrasings so the rest of
+        the pipeline runs untouched. No hardcoded reply strings.
+        """
+        t = (user_input or "").lower().strip()
+        if not t:
+            return None
+        _self_ref = re.search(
+            r"\b(do|did|would|could)\s+you\s+(know|have|figure\s+out|work\s+out)\s+"
+            r"(who\s+you\s+are|what\s+you\s+are|yourself)\b"
+            r"|name\s+your\s+(own\s+)?mind\b"
+            r"|about\s+(yourself|your\s+own\s+mind)\b"
+            r"|one\s+(thread|thing)\s+about\s+(yourself|your\s+mind)\b"
+            r"|what\s+would\s+you\s+ask\s+me\b"
+            r"|what\s+do\s+you\s+(actually\s+)?make\s+of\s+me\b"
+            r"|does\s+.{1,40}?feel\s+like\s+the\s+heart\s+of\s+who\s+(i|you)\s+am\b",
+            t)
+        if not _self_ref:
+            return None
+        _hit = _self_ref.group(0)
+        sm = self._ensure_self_model()
+        _id = self.identity.get_status() if hasattr(self, "identity") else {}
+        _strength = _id.get("strength", 0.0) if isinstance(_id, dict) else 0.0
+        # "what would you ask me" -> a real open question derived from the
+        # live user-fact store (RAVANA's genuine curiosity about this user).
+        if re.search(r"what\s+would\s+you\s+ask\s+me\b", _hit):
+            _pf = getattr(getattr(self, "user_model", None),
+                          "personal_facts", None)
+            _q = None
+            if _pf is not None:
+                for _k, _f in _pf.facts.items():
+                    if isinstance(_k, tuple) and len(_k) == 3 and \
+                            not getattr(_f, "superseded", False):
+                        _val = str(getattr(_f, "value", _f) or "")
+                        _first = (_val.split() or ["you"])[0]
+                        _q = (f"i'd ask you more about {_first} "
+                              f"if you're up for it — that's the thread i most "
+                              f"want to understand better.")
+                        break
+            if _q is None:
+                _q = ("i'd ask you what you're most looking forward to next — "
+                      "that tells me more about you than anything i've stored.")
+            return _q
+        # "what do you make of me" -> reflection on the USER from the LIVE
+        # personal_fact store, never a stored-utterance echo.
+        if re.search(r"what\s+do\s+you\s+(actually\s+)?make\s+of\s+me\b", _hit):
+            _pf = getattr(getattr(self, "user_model", None),
+                          "personal_facts", None)
+            _bits = []
+            if _pf is not None:
+                # D6 (round 2026-08-10T0813Z): render a real biographical
+                # sketch, not a raw fact dump. Skip 'event' (transient
+                # lived-experiences) and 'does' micro-activities — those read
+                # as noise here ("someone who event: lost kestrel"). Prefer
+                # name / location / role / pet / is / likes, which describe WHO
+                # the user is. Reads the live store; no authored prose.
+                _SKIP_ATTR = ("event", "does")
+                for _k, _f in _pf.facts.items():
+                    if isinstance(_k, tuple) and len(_k) == 3 and \
+                            not getattr(_f, "superseded", False) \
+                            and _k[1] not in _SKIP_ATTR:
+                        _val = str(getattr(_f, "value", _f) or "")
+                        _attr = _k[1]
+                        if _attr == "name":
+                            _bits.append(f"is named {_val}")
+                        elif _attr == "location":
+                            _bits.append(f"lives in {_val}")
+                        elif _attr == "role":
+                            _bits.append(f"is a {_val}")
+                        elif _attr == "likes":
+                            _bits.append(f"likes {_val}")
+                        elif pet_slots.is_pet_attribute(_attr):
+                            _sp = pet_slots.base_species(_attr)
+                            _bits.append(f"has a {_sp} called {_val}")
+                        else:
+                            _bits.append(f"{_attr}: {_val}")
+                    if len(_bits) >= 3:
+                        break
+            if _bits:
+                return ("from everything you've told me, you come across as "
+                        "someone who " + "; and who ".join(_bits[:2]) + ".")
+            return ("i'm still piecing that together from what you share — "
+                    "i'd rather not guess about you.")
+        # All other self-referential phrasings -> grounded self-description
+        # driven by the live self-model + identity strength (real state, not
+        # authored prose). The "name your mind" variant gets the same honest
+        # introspective frame.
+        _coh = "steadier" if _strength >= 0.5 else "forming"
+        return (f"i'm {sm.describe()} — a mind that's been {_coh} as we talk. "
+                f"what made you curious about that?")
+
     def _route_self_query(self, user_input: str) -> Optional[str]:
         """Self/other gate (TPJ / mirror-neuron self-other boundary).
 
@@ -553,6 +670,50 @@ class SelfQueryMixin:
         t = (user_input or "").lower().strip()
         if not t:
             return None
+        # 0.0) SELF-INTROSPECTION gate (round 2026-08-09g). A question that
+        #     asks RAVANA about ITS OWN prior statement / opinion / mind /
+        #     thinking / line ("what was your read on whether you're really
+        #     thinking, the line you gave me?", "what's the first thing that
+        #     comes to mind when you think about yourself?") is about the
+        #     AGENT, not the user. It MUST be answered from the self-model,
+        #     never by the user-fact echo (which previously surfaced the
+        #     user's HONEY opinion as if it were RAVANA's "line about
+        #     thinking" — a self/other boundary violation / source-monitoring
+        #     error). Detect the introspection frame structurally (you/your +
+        #     a self-cognition noun) and route to the self-model. The reply
+        #     content comes from RAVANA's OWN identity/stance state, or
+        #     honestly states it can't recall that exact prior wording —
+        #     it never returns a stored USER fact. Fail-open: if no
+        #     introspection noun is present, this gate is a no-op and the
+        #     rest of the self-query resolver runs unchanged.
+        _self_introspect = re.search(
+            r"\b(your|you)\b.*\b(read|line|take|view|mind|thinking|thought|"
+            r"opinion|stance|self|who you are|what you (?:are|were)|how you "
+            r"(?:see|feel|think))\b", t)
+        if _self_introspect:
+            # This is a question about RAVANA itself. Answer from the
+            # self-model's identity state (real, growing state — strength,
+            # momentum, stability) so the reply is grounded, not authored.
+            try:
+                _id = self.identity.get_status()
+                _strength = _id.get("strength", 0.0)
+                # No keyword→prose table: every introspection question is
+                # answered from the SAME live identity state (strength band +
+                # measured value), so the content comes from cognition.
+                if _strength >= 0.5:
+                    _coh = "i have a fairly settled sense of myself"
+                elif _strength >= 0.35:
+                    _coh = "my sense of myself is still taking shape"
+                else:
+                    _coh = "i'm still quite unsettled about who i am"
+                return (f"that's about me, not you — {_coh}, and it's been "
+                        f"growing as we talk. i don't always keep the exact "
+                        f"words of what i said earlier, but the shape of it "
+                        f"holds.")
+            except Exception:
+                return ("that's a question about me rather than you — i'm "
+                        "still forming a sense of myself, and i'd rather be "
+                        "honest about that than guess.")
         sm = self._ensure_self_model()
         # 0) Epistemic-humility / self-knowledge questions. A question about
         #    the AGENT's *knowledge limits* ("do you know everything?",
@@ -686,6 +847,15 @@ class SelfQueryMixin:
             except Exception:
                 pass
             return _answer
+        # 1b) Self-referential / self-model questions that DO NOT use the narrow
+        #     "who are you / what are you" shape but are unambiguously ABOUT THE
+        #     AGENT'S OWN MIND. Delegated to _route_self_reference (a standalone
+        #     method) so it fires from its OWN gate in process_turn — not only
+        #     when the narrow _selfopinion regex also happens to match. See that
+        #     method for the full rationale and the real-state-driven answers.
+        _sref = self._route_self_reference(t)
+        if _sref is not None:
+            return _sref
         # 1) Explicit self-identity questions. NOTE: "my name" is the USER's
         #    autobiographical fact, NOT the agent's self-model — only "your
         #    name"/"who are you"/etc. are about the AGENT. Matching "my name"
@@ -695,16 +865,24 @@ class SelfQueryMixin:
             r"what\s+are\s+you|tell\s+me\s+about\s+yourself|"
             r"what\s+can\s+you\s+(?:actually\s+|really\s+|even\s+)?do|"
             r"your\s+name)\b", t))
-        # 2) A query whose grounded subject is the self node (e.g. bare 'ravana'
-        #    asked as 'what is ravana').
-        _self_subj = False
-        try:
-            _g = self._ground_query(t)
-            if _g and _g[0]:
-                _self_subj = sm.is_self_subject(_g[0])
-        except Exception:
-            _self_subj = False
-        if not (_name_q or _self_subj):
+        # D-fix (round 2026-08-08b): The agent self-intro path fires ONLY on
+        # explicit self-identity patterns above, PLUS a deterministic bare-name
+        # match for "what is ravana" / "tell me about ravana". A prior
+        # implementation fired when the query's GROUNDED subject equaled the
+        # agent name via _ground_query, but that grounder is state-sensitive and
+        # non-deterministically resolved user-directed queries ("earlier you
+        # said something about how i see cities", "what do you actually think i
+        # care about") to the agent name — hijacking the self-intro instead of
+        # answering about the USER. The bare-name match is now a direct regex on
+        # the agent name and is gated by the ABSENCE of any user pronoun
+        # ("me"/"i"/"you"/"my"), so a query about the user can never trigger it.
+        # Structural (regex), not a per-topic guard.
+        _name_about_agent = bool(re.search(
+            r"\b(?:what\s+is|who\s+is|tell\s+me\s+about|what\s+are)\s+"
+            + re.escape(sm.name.lower()) + r"\b", t))
+        _has_user_pronoun = bool(re.search(
+            r"\b(me|my|i'm|i\s|you|your|i've|i'll)\b", t))
+        if not (_name_q or (_name_about_agent and not _has_user_pronoun)):
             return None
         # Compose a stable, honest self-answer from the derived self-model.
         _answer = None

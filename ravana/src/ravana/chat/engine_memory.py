@@ -413,7 +413,9 @@ class MemoryMixin:
                     elif attr == "likes":
                         bits.append(f"you like {val}")
                     elif attr == "does":
-                        bits.append(f"you do {val}")
+                        bits.append(f"you {val}")
+                    elif attr == "event":
+                        bits.append(f"you {val}")
                     elif attr == "is":
                         bits.append(f"you are {val}")
                     else:
@@ -426,6 +428,8 @@ class MemoryMixin:
                     bits.append(f"you mentioned you like {val}")
                 elif attr == "does":
                     bits.append(f"you do {val}")
+                elif attr == "event":
+                    bits.append(f"you {val}")
                 elif attr == "is":
                     bits.append(f"your {ent} is {val}")
                 elif attr == "location":
@@ -512,17 +516,55 @@ class MemoryMixin:
         _cue_tokens = [w.strip(".,!?") for w in re.findall(r"[a-z']+", q.lower())
                        if len(w) >= 3 and w not in _CUE_STOP]
         if _cue_tokens:
+            # ROUND 2026-08-09i FIX: cue matching was VERBATIM-only, so a query
+            # cue that differed by morphology from the stored episode text could
+            # never match (e.g. "swarm" vs the stored turn "the hive *swarmed*",
+            # "die" vs "died"), and the recall fell through to the loose semantic
+            # pass which returned a WRONG, unrelated episode. Add lemma stemming
+            # (Porter) on both the cue and each episode's token stream so the
+            # content-addressable recall matches on word FORM, not exact spelling.
+            # This is a general, distribution-driven fix (no per-topic synonym
+            # table) and keeps the fail-closed fallback to the semantic pass when
+            # nothing stems-match. Lazy-import; PorterStemmer is already a
+            # project dependency.
+            try:
+                from nltk.stem import PorterStemmer as _PS
+                _stemmer = _PS()
+                _stem = lambda w: _stemmer.stem(w)
+            except Exception:
+                _stem = (lambda w: w)  # graceful degrade: verbatim match only
+            _cue_stems = {_stem(c) for c in _cue_tokens}
             _best_cue = None
             _best_cue_score = 0
             for rec in store:
                 _t = rec.get("text", "").lower()
-                if re.search(r"\b(remember|recall|what did i|what was i)\b.*\b(told|said|ask|mention|tell)\b", _t):
+                # D1 (round 2026-08-08b-d): a prior RECALL QUERY ("remind me what
+                # i told you about the one that molted") carries no shareable
+                # content, but the old skip-regex only caught
+                # "remember/recall/what did i/what was i" + told/said/ask. A
+                # later semantically-overlapping recall ("what's the strongest
+                # read you've formed") matched the prior recall query's OWN
+                # text (it shares "told you"/"molted") and echoed it verbatim ->
+                # a recursive recall loop (the "you mentioned my tarantula
+                # before, remind me..." echo). Generalize the skip to ANY
+                # recall-scaffold query: remember/recall/remind/what i
+                # told|said|mentioned|asked you, so a query is never retrieved
+                # AS content. Structural (regex on recall syntax), not a
+                # per-topic guard.
+                if re.search(
+                    r"\b(remember|recall|remind(?: me)?)\b"
+                    r".*\b(told|said|ask|mention|tell|said you|mentioned|asked)\b",
+                    _t) or re.search(
+                    r"\b(what|do you remember|remind)\b.*\b(i|you)\b.*"
+                    r"\b(told|said|mentioned|asked|tell|remember|recall)\b", _t):
                     continue  # skip prior recall queries (no content)
-                # count how many cue tokens appear verbatim in this episode
-                _hit = sum(1 for _c in _cue_tokens if _c in _t)
+                # Count how many cue tokens' STEMS appear in this episode's
+                # stemmed token stream (morphology-invariant match).
+                _t_stems = {_stem(w) for w in re.findall(r"[a-z']+", _t)}
+                _hit = sum(1 for _cs in _cue_stems if _cs in _t_stems)
                 # weight by fraction of cue tokens present (a focused match
                 # beats a scattered one)
-                _frac = _hit / len(_cue_tokens)
+                _frac = _hit / len(_cue_stems)
                 if _hit > 0 and _frac >= 0.34 and _hit > _best_cue_score:
                     _best_cue_score = _hit
                     _best_cue = rec
@@ -558,7 +600,13 @@ class MemoryMixin:
             # "remember what I told you") — they carry no shareable content and
             # would otherwise be retrieved by semantic overlap with a new recall
             # query, producing a confabulated self-reference. Fail-closed instead.
-            if re.search(r"\b(remember|recall|what did i|what was i)\b.*\b(told|said|ask|mention|tell)\b", text.lower()):
+            if re.search(
+                r"\b(remember|recall|remind(?: me)?)\b"
+                r".*\b(told|said|ask|mention|tell|said you|mentioned|asked)\b",
+                text.lower()) or re.search(
+                r"\b(what|do you remember|remind)\b.*\b(i|you)\b.*"
+                r"\b(told|said|mentioned|asked|tell|remember|recall)\b",
+                text.lower()):
                 continue
             score = 0.0
             _strong_link = False
@@ -1340,19 +1388,35 @@ class MemoryMixin:
         # self-recall (strategy=memory_recall) and never reach the stored name.
         if re.search(r"\b(?:my name|who am i)\b", t):
             return None
-        # D3 (round v3): AGENT-self-recall. "what did you say about who you are",
-        # "earlier you described yourself", "what was your answer about X" ask
-        # for RAVANA's OWN prior claim, NOT a user fact. Route to the
-        # agent-claim store (populated from RAVANA's real generated replies) so
-        # these don't get swallowed by the user-episode recall below and return
-        # a user utterance (the D-C bug). Content comes from verbatim engine
-        # output, never authored prose.
-        if re.search(
-            r"\b(what did you (?:say|tell me|answer|describe|say about)|"
-            r"earlier you (?:described|said|told me|mentioned)|"
-            r"you described yourself|your answer about|what was your answer|"
-            r"you (?:said|mentioned|told me) something about what you (?:are|were)|"
-            r"remind me what you (?:said|told me) (?:about|you are))\b", t):
+        # D-fix (round 2026-08-08b): the agent-claim recall below must fire ONLY
+        # when the user is asking about RAVANA's OWN self-description ("what did
+        # you say about who you are", "earlier you described yourself"). It must
+        # NOT fire on a user-fact recall like "earlier you said something about
+        # how I see cities" — that is the user asking about THEIR OWN stance, and
+        # routing it to the agent-claim store returns RAVANA's self-intro (a
+        # self/other boundary breach: D-C class). Gate the "earlier you said/
+        # mentioned/told me" and "you said something about" branches on the
+        # recalled content being about the AGENT (yourself / who you are / what
+        # you are / your nature), so a query containing any first-person USER
+        # reference (i / my / me) falls through to the genuine user-episode
+        # recall instead. Structural (regex), not a per-topic guard.
+        _user_ref = bool(re.search(r"\b(i|my|me|we)\b", t))
+        _agent_self_recall = (
+            bool(re.search(
+                r"\bwhat did you (?:say|tell me|answer|describe|say about)\b", t))
+            and not _user_ref
+        ) or bool(re.search(
+            r"\bearlier you (?:described|said|told me|mentioned) "
+            r"(?:yourself|who you are|what you are|your nature)\b", t)
+        ) or bool(re.search(r"\byou described yourself\b", t)
+        ) or (bool(re.search(r"\byour answer about\b|\bwhat was your answer\b", t))
+              and not bool(re.search(r"\b(i|my|we)\b", t))
+        ) or bool(re.search(
+            r"\byou (?:said|mentioned|told me) something about what you "
+            r"(?:are|were)\b", t)
+        ) or bool(re.search(
+            r"\bremind me what you (?:said|told me) (?:about|you are)\b", t))
+        if _agent_self_recall:
             _claim = getattr(self, "_agent_claims", {}).get("self")
             if _claim:
                 return _claim
@@ -1515,8 +1579,27 @@ class MemoryMixin:
                 # must render as natural first/second-person statements, never
                 # as "your i's name is X".
                 _is_user = (str(_ent).lower() in ("i", "me", "my", "you"))
+                # D6 (round 2026-08-10T0813Z): the learned-profile summary must
+                # read as a BIOGRAPHY, not a raw activity/event log. 'event'
+                # facts are transient lived-experiences (a kestrel died, a jar
+                # dropped) and were the dominant noise in "what have you told
+                # me" dumps ("your event is got muddled; you do mix"). Skip them
+                # here; keep only stable biographical attributes (name,
+                # location, role, pet, likes, is, and a capped sample of
+                # 'does' activities). 'does' is capped so a long chat does not
+                # enumerate dozens of micro-activities. This is a rendering
+                # filter over the live store — no fact is deleted, recall of a
+                # specific activity still works via the A2 path below.
+                _does_shown = 0
+                _DOES_CAP = 4
                 for _attr, _vals in _facts.items():
                     for _val in _vals:
+                        if _attr == "event":
+                            continue
+                        if _attr == "does":
+                            if _does_shown >= _DOES_CAP:
+                                continue
+                            _does_shown += 1
                         if _attr == "favorite":
                             _bits.append(f"your favorite {_val}")
                         elif _attr == "likes":
@@ -1531,7 +1614,18 @@ class MemoryMixin:
                             # reflects what the user told us they do.
                             _bits.append(f"you do {_val}")
                         elif _attr == "name":
-                            _bits.append(f"your name is {_val}")
+                            # D6 (round 2026-08-08b-d): a possessive NAME fact
+                            # (partner, pet, ...) must keep its OWNER in the
+                            # render, never collapse onto the user's "your name
+                            # is X". The old code rendered every name attr as
+                            # "your name is X" regardless of entity, so a
+                            # partner's/pet's name was reported as the USER's own
+                            # name — a self/other boundary breach. Only the user
+                            # entity (i/me/my/you) uses "your name is"; any other
+                            # entity keeps "{ent}'s name".
+                            _bits.append(
+                                f"your name is {_val}" if _is_user
+                                else f"your {_ent}'s name is {_val}")
                         elif _attr == "location":
                             _bits.append(f"you live in {_val}")
                         elif _attr == "role":
@@ -1671,29 +1765,32 @@ class MemoryMixin:
         # specificity), not the verbatim question. The miner already extracted
         # the self-disclosed facts, so surface those.
         if re.search(r"\bwhat did i (?:just )?(?:tell|say|mention)\b", t):
-            # B-fix (round v-aug04): a TOPIC-CUED variant ("what did i say
-            # about open source", "what did i tell you about my cats") asks
-            # about a SPECIFIC subject, not the literally-previous turn. The old
-            # code always echoed the last turn, so "what did i say about open
-            # source" returned "what's my favorite color?" — wrong episode.
-            # Now: extract the cue after "about/that", search the transcript for
-            # the episode whose TEXT contains that cue, and return its gist.
-            # Only when there is NO cue do we default to the immediately-preceding
-            # turn (genuine "what did i just say?").
+            # B-fix (round v-aug04) + ROUND 2026-08-09i: a TOPIC-CUED
+            # variant ("what did i say about swarm", "what did i tell you
+            # about my cats") asks about a SPECIFIC subject, not the
+            # literally-preceding turn. The old code did a strict substring
+            # scan of the cue against each episode's text, which MISSED
+            # morphology variants ("swarm" vs the stored "swarmed",
+            # "die" vs "died") and fell through to the previous turn — so
+            # "what did i say about the swarm" returned the trailer fact
+            # instead of the swarm episode. Delegate to _retrieve_episodic,
+            # which now does morphology-invariant (Porter-stem) cue matching
+            # and returns the episode actually containing the cue. Only when
+            # there is NO cue do we default to the immediately-preceding turn
+            # (genuine "what did i just say?").
             _cue = ""
             _m = re.search(r"\b(?:about|that|regarding|on)\s+([a-z']+)", t)
             if _m:
                 _cue = _m.group(1).lower().strip(".,!?")
             if _cue and len(_cue) >= 3:
-                _cued = None
-                for _r in reversed(self._episodic_transcript):
-                    if _cue in (_r.get("text", "") or "").lower():
-                        _cued = _r
-                        break
-                if _cued is not None:
-                    _cg = self._reconstruct_gist(_cued)
-                    if _cg:
-                        return _cg
+                # Delegate to _retrieve_episodic with the ORIGINAL query — it now
+                # does morphology-invariant (Porter-stem) cue matching and returns
+                # the episode actually containing the cue. Rewriting the query
+                # (e.g. "what did i tell you about swarm") changes the cue shape
+                # and can miss; the original user_input is what was proven to work.
+                _cued = self._retrieve_episodic(user_input)
+                if _cued:
+                    return _cued
             last_turn = prior[-1].strip()
             # Pull the matching transcript record (highest turn_index = prev).
             matching = [r for r in self._episodic_transcript

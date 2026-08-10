@@ -43,12 +43,24 @@ on this codebase:
 - **Forms and recalls stances.** Told *"i love coffee"* it records a stance
   (`coffee` polarity +1.0, confidence 0.65) and acknowledges:
   `good to know — you love coffee. i'll keep that in mind.`
+- **Reverses a held stance.** If you later change your mind — *"i flipped, the
+  reef tank is more work than joy"* — it **recodes** the stance you already held
+  toward the opposite pole (`reef tank` +0.95 → −0.665) instead of leaving the
+  stale one or stacking a contradiction. A flip on a topic you never stated an
+  attitude about is a harmless no-op. See `docs/STANCE_REVERSAL.md`.
 - **Corrects itself.** A later *"no, my cat's name is rex"* supersedes the
   earlier *"my cat's name is milo"* — both the old and new values are tracked in
   the fact store, and recall reflects the correction:
   `from what you've told me, you live in berlin; your cat is rex; …`
 - **Recalls what you told it.** *"what do you remember about me?"* surfaces the
   learned facts/stances (location, pet, likes) drawn from the durable stores.
+- **Surfaces a named thing's whereabouts from a stored location fact.** Told
+  *"the slow coal is moored at bingley"* it stores `('slow coal','location','bingley')`,
+  and later answers *"where's the slow coal moored?"* with
+  *"the slow coal is at bingley."* — even after a correction (*"actually the slow
+  coal is moored at saltaire now"* → *"the slow coal is at saltaire."*). Unknown
+  places (e.g. *"where is paris?"*) return honest uncertainty, never a fabricated
+  location. See `docs/ENTITY_LOCATION_RECALL.md`.
 - **Abstains when it has no settled view.** Asked *"what do you think about
   coffee?"* before forming its own position, it returns an honest non-answer
   rather than fabricating one:
@@ -181,6 +193,7 @@ See [`docs/`](docs/README.md):
 - [Training](docs/TRAINING.md) — `train.py` modes and the LingGen promotion gate.
 - [Benchmarks](docs/BENCHMARKS.md) — every benchmark/diagnostic script and what it measures.
 - [Development](docs/DEVELOPMENT.md) — layout, path shims, test commands, conventions.
+- [Entity-Location Recall](docs/ENTITY_LOCATION_RECALL.md) — capturing + surfacing a named thing's whereabouts.
 
 ## Benchmark results
 
