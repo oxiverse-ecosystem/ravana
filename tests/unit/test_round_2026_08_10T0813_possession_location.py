@@ -33,3 +33,86 @@ def test_possession_location_correction_supersedes():
     assert ("saltaire", False) in [(v, sup) for k, v, sup in facts if k[1] == "location"], facts
     # bingley superseded
     assert ("bingley", True) in [(v, sup) for k, v, sup in facts if k[1] == "location"], facts
+
+
+def test_possession_location_leading_hedge_not_new_entity():
+    """A correction led by a discourse hedge ('actually the slow coal ...')
+    must resolve to the SAME stored entity ('slow coal'), not a fragment
+    ('ctually the slow coal'). Regression for a bug where the optional article
+    regex glued onto the 'a' inside 'actually'."""
+    um = UserModel()
+    um.mine_personal_facts("the slow coal is moored at bingley for the winter")
+    um.mine_personal_facts("actually the slow coal is moored at saltaire now")
+    ents = {k[0] for k in um.personal_facts.facts if k[0] != "i"}
+    assert "ctually the slow coal" not in ents, ents
+    assert "slow coal" in ents, ents
+    active_loc = [(v.value, getattr(v, "superseded", False))
+                  for k, v in um.personal_facts.facts.items()
+                  if k[0] == "slow coal" and k[1] == "location"]
+    assert ("saltaire", False) in active_loc, active_loc
+    assert ("bingley", True) in active_loc, active_loc
+
+
+def _eng():
+    from ravana.chat.engine import CognitiveChatEngine
+    return CognitiveChatEngine(dim=64, seed=42, baby_mode=True,
+                               user_suffix="test_entloc_recall")
+
+
+def test_entity_location_recall_surfaced_not_echo():
+    """Limitation #1 (round 2026-08-10T0813Z): a stored entity-keyed location
+    must be SURFACED on a 'where is X' query instead of falling through to the
+    episodic echo of the raw utterance."""
+    eng = _eng()
+    eng.process_turn("the slow coal is moored at bingley")
+    ans = eng.process_turn("where's the slow coal moored?")
+    assert "bingley" in ans, ans
+    assert "you told me earlier" not in ans, ans
+    # alternate phrasings all resolve to the structured fact
+    for q in ("where is the slow coal?", "where's the slow coal?",
+              "what is the slow coal's location?"):
+        a = eng.process_turn(q)
+        assert "bingley" in a, (q, a)
+        assert "you told me earlier" not in a, (q, a)
+
+
+def test_entity_location_recall_multiple_entities():
+    eng = _eng()
+    eng.process_turn("the slow coal is moored at bingley")
+    eng.process_turn("the van is parked in leeds")
+    assert "bingley" in eng.process_turn("where's the slow coal moored?")
+    assert "leeds" in eng.process_turn("where is the van?")
+
+
+def test_entity_location_recall_correction_composes():
+    """Stored fact correction (supersede) must be reflected in recall."""
+    eng = _eng()
+    eng.process_turn("the slow coal is moored at bingley")
+    eng.process_turn("actually the slow coal is moored at saltaire now")
+    ans = eng.process_turn("where's the slow coal moored?")
+    assert "saltaire" in ans, ans
+    assert "bingley" not in ans, ans
+
+
+def test_entity_location_recall_unknown_fails_closed():
+    """No stored entity location -> honest uncertainty, not a confabulated
+    place. ('where is paris' has no entity fact, so the engine must not
+    fabricate a bingley-style answer.)"""
+    eng = _eng()
+    eng.process_turn("the slow coal is moored at bingley")
+    ans = eng.process_turn("where is paris?")
+    assert "paris" not in ans.lower() or "don't" in ans or "outside" in ans, ans
+    # No structured-location answer leaked for an unstored entity
+    assert "the paris is at" not in ans.lower(), ans
+
+
+def test_entity_location_recall_user_location_not_hijacked():
+    """The user's own location ('i live in X') is answered by the biographical
+    'where do i live' path, not swallowed as an entity whereabouts."""
+    eng = _eng()
+    eng.process_turn("the slow coal is moored at bingley")
+    eng.process_turn("i live in hexham")
+    ans = eng.process_turn("where do i live?")
+    assert "hexham" in ans, ans
+    assert "the slow coal" not in ans, ans
+

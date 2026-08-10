@@ -576,7 +576,8 @@ class UserModel:
         # table. The entity resolves through the same personal-fact store the
         # user can correct. Online/incremental; no retrain, no LLM.
         _pos_loc = re.search(
-            r"\b(?:my|the|a|an|our|their|his|her)?\s*([\w'-]+(?:\s+[\w'-]+){0,3})"
+            r"\b(?:my|the|a|an|our|their|his|her)\b\s*"
+            r"([\w'-]+(?:\s+[\w'-]+){0,3})"
             r"\s+(?:is|was|are|were|sits|lies|stays|remains)\s+"
             r"(?:moored|berthed|anchored|docked|based|parked|stationed|"
             r"kept|stored|housed|tied up|wintered)\s+"
@@ -585,6 +586,18 @@ class UserModel:
         if _pos_loc:
             _ent = _pos_loc.group(1).strip().strip(" .,!?").lower()
             _place = _pos_loc.group(2).strip().strip(" .,!?").lower()
+            # Strip a leading hedge / discourse word from the entity head so
+            # corrections like "actually the slow coal is moored at saltaire"
+            # resolve to the SAME entity ("slow coal"), not a fresh one
+            # ("ctually the slow coal"). The hedge set is SEED vocabulary
+            # (discourse markers RAVANA can grow); missing one degrades to the
+            # old behavior (a separate entity) — no crash, no wrong answer.
+            _HEDGE = ("actually", "now", "well", "so", "but", "right",
+                      "okay", "ok", "and", "then", "still")
+            _ent_words = _ent.split()
+            while len(_ent_words) > 1 and _ent_words[0] in _HEDGE:
+                _ent_words = _ent_words[1:]
+            _ent = " ".join(_ent_words)
             # reject closed-class / non-entity heads (e.g. "it is moored at x")
             if (_ent and _place and _ent not in _VALUE_STOP
                     and _place not in _VALUE_STOP
