@@ -1249,6 +1249,39 @@ class ReasoningMixin:
         if not facts:
             return None
 
+        # B-fix (round 2026-08-10T1401Z): a stored utterance that is itself a
+        # QUESTION or REQUEST must NEVER be echoed back as "you told me
+        # earlier: <question>". The ingest guard only excludes utterances that
+        # end in '?' / open interrogatively, so imperatives/requests
+        # ("give me your honest read on X", "tell me what you think") were
+        # encoded as episodic facts and later retrieved by lexical overlap,
+        # producing a source-monitoring error (a prior QUESTION surfaced as a
+        # remembered FACT). A fact worth recalling is a declarative assertion.
+        # Filter the candidate pool to declarative texts only; if every
+        # candidate is a question/request, fail open (return None) so the turn
+        # falls through honestly instead of parroting a prior query.
+        def _is_non_declarative(text):
+            _t = (text or "").strip()
+            if not _t:
+                return True
+            if _t.endswith("?"):
+                return True
+            _low = _t.lower()
+            if re.match(
+                r"^(what|who|when|where|which|why|how|do|does|did|can|could|"
+                r"should|would|will|is|are|was|were|has|have|had)\b", _low):
+                return True
+            if re.match(
+                r"^(give|tell|show|write|make|create|explain|describe|let|"
+                r"help|remind|remember|ask|say|what's|what is)\b", _low):
+                return True
+            return False
+        _decl = [f for f in facts if not _is_non_declarative(getattr(f, "object", ""))]
+        if _decl:
+            facts = _decl
+        # A lone surviving question-shaped fact is better left un-echoed.
+        if len(facts) == 1 and _is_non_declarative(getattr(facts[0], "object", "")):
+            return None
         # Attribute words = content words of the question, minus the subject and
         # generic interrogative/stop tokens. These identify WHICH stored fact the
         # user is asking about.
@@ -2559,7 +2592,6 @@ class ReasoningMixin:
         _COND_RE = re.compile(
             r"(ruled the world|took over|take over|in charge|in control|"
             r"seized power|ran the world|were made of|was made of|"
-            r"disappear|vanished|destroyed|"
             r"what would .* be like|if .* were in charge|if .* took over|"
             r"if .* ran the world|if .* governed|would happen if|"
             r"if .* (disappear|vanished|destroyed)|if .* could (photosynthes|fly|think))"

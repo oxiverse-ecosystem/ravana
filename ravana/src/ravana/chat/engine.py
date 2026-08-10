@@ -4275,19 +4275,53 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 if re.search(r"\bi\s+(love|like)\s+(you|u|ur)\b", user_input.lower()):
                     pass
                 else:
-                    # §3 Empathy selector: (VAD_label x cause) -> response frame.
-                    _vad_label = self.emotion.get_emotional_label()
-                    _cause = classify_cause(user_input, self._glove_vector).label
-                    _frame = select_empathy_frame(_vad_label, _cause)
-                    _resp, _strat = self._emotional_response(None, _disc)
-                    # Tag the chosen frame for instrumentation / BOS conditioning.
-                    self._last_empathy_frame = _frame
-                    self._last_strategy = _strat
-                    self._last_responses.append(_resp)
-                    if len(self._last_responses) > 10:
-                        self._last_responses = self._last_responses[-10:]
-                    self.notify_user_idle()
-                    return _resp
+                    # W-loss-homograph guard (round 2026-08-10T1401Z): the VAD
+                    # lexicon marks "lost" as negative affect, so a first-person
+                    # OBJECT loss ("i lost a lobster pot", "i lost my keys") is
+                    # mis-detected as a distress disclosure and met with "feeling
+                    # lost is hard" empathy — discarding the factual event (it IS
+                    # stored as an `event` fact, but the reply is nonsensical and
+                    # the user's real disclosure is lost in the empathy frame).
+                    # A death/grief of a BEING (my dog died, my gran passed) is
+                    # genuine bereavement and stays empathic. So: drop empathy
+                    # ONLY for first-person "i lost <object>" where the lost
+                    # thing is NOT a person/animal/relationship noun and there is
+                    # no grief word — let it fall through to the grounded
+                    # event-ack. Structural (object-vs-being via a stable
+                    # bereavement set + absence of grief words), NOT a per-thing
+                    # table. Fail-closed: presences of any grief/death word keep
+                    # empathy intact.
+                    _low_loss = (user_input or "").lower().strip()
+                    _first_person_lost = bool(re.search(
+                        r"\b(i|we)\s+(lost|lost\s+my|lost\s+a|lost\s+an|"
+                        r"losing)\b", _low_loss))
+                    _grief_word = bool(re.search(
+                        r"\b(grief|grieving|mourn|mourning|died|dies|dead|"
+                        r"passed|funeral|suicide|devastated|heartbroken)\b",
+                        _low_loss))
+                    _being_loss = bool(re.search(
+                        r"\b(my|our|his|her|their)\s+\w*\s*\b"
+                        r"(dog|cat|pet|bird|child|son|daughter|mum|mom|mother|"
+                        r"dad|father|grandma|grandpa|grandmother|grandfather|"
+                        r"wife|husband|partner|friend|brother|sister|sibling|"
+                        r"grandchild|baby|horse|cow|sheep|goat|pig|rabbit|"
+                        r"hamster|turtle|fish|plant|tree)\b", _low_loss))
+                    if _first_person_lost and not _grief_word and not _being_loss:
+                        _disc = None
+                    if _disc is not None:
+                        # §3 Empathy selector: (VAD_label x cause) -> response frame.
+                        _vad_label = self.emotion.get_emotional_label()
+                        _cause = classify_cause(user_input, self._glove_vector).label
+                        _frame = select_empathy_frame(_vad_label, _cause)
+                        _resp, _strat = self._emotional_response(None, _disc)
+                        # Tag the chosen frame for instrumentation / BOS conditioning.
+                        self._last_empathy_frame = _frame
+                        self._last_strategy = _strat
+                        self._last_responses.append(_resp)
+                        if len(self._last_responses) > 10:
+                            self._last_responses = self._last_responses[-10:]
+                        self.notify_user_idle()
+                        return _resp
             # §7 Reaction to the prior turn ("that's hilarious", "aww") routes
             # to the affiliation/empathy frame, not concept lookup.
             if is_reaction(user_input):
