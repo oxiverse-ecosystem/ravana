@@ -1579,8 +1579,27 @@ class MemoryMixin:
                 # must render as natural first/second-person statements, never
                 # as "your i's name is X".
                 _is_user = (str(_ent).lower() in ("i", "me", "my", "you"))
+                # D6 (round 2026-08-10T0813Z): the learned-profile summary must
+                # read as a BIOGRAPHY, not a raw activity/event log. 'event'
+                # facts are transient lived-experiences (a kestrel died, a jar
+                # dropped) and were the dominant noise in "what have you told
+                # me" dumps ("your event is got muddled; you do mix"). Skip them
+                # here; keep only stable biographical attributes (name,
+                # location, role, pet, likes, is, and a capped sample of
+                # 'does' activities). 'does' is capped so a long chat does not
+                # enumerate dozens of micro-activities. This is a rendering
+                # filter over the live store — no fact is deleted, recall of a
+                # specific activity still works via the A2 path below.
+                _does_shown = 0
+                _DOES_CAP = 4
                 for _attr, _vals in _facts.items():
                     for _val in _vals:
+                        if _attr == "event":
+                            continue
+                        if _attr == "does":
+                            if _does_shown >= _DOES_CAP:
+                                continue
+                            _does_shown += 1
                         if _attr == "favorite":
                             _bits.append(f"your favorite {_val}")
                         elif _attr == "likes":
