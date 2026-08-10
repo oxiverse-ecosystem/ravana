@@ -5,6 +5,7 @@ structured, entity-keyed location fact (so a later correction supersedes it),
 not left as a raw episodic echo.
 """
 import os
+import re
 import sys
 
 os.environ["RAVANA_OFFLINE"] = "1"
@@ -97,13 +98,24 @@ def test_entity_location_recall_correction_composes():
 def test_entity_location_recall_unknown_fails_closed():
     """No stored entity location -> honest uncertainty, not a confabulated
     place. ('where is paris' has no entity fact, so the engine must not
-    fabricate a bingley-style answer.)"""
+    fabricate a bingley-style 'the paris is at X' answer.)"""
     eng = _eng()
     eng.process_turn("the slow coal is moored at bingley")
     ans = eng.process_turn("where is paris?")
-    assert "paris" not in ans.lower() or "don't" in ans or "outside" in ans, ans
-    # No structured-location answer leaked for an unstored entity
+    # Fail-closed property (deterministic, wording-independent): the reply must
+    # NOT assert a place for paris, and must NOT leak the unrelated stored
+    # 'bingley' fact. The engine's exact uncertainty phrasing varies run-to-run
+    # ("i don't have a clean definition for paris...", "paris are fuzzy for me
+    # ...", "honestly, paris is a bit outside what i know..."), so we assert the
+    # NEGATIVE property — no fabricated / leaked location — rather than matching
+    # any one phrasing (which would make this test flaky / one-realization-tuned).
+    # Verified across 3 independent seeds: none of the three observed replies
+    # assert a paris location or mention bingley.
     assert "the paris is at" not in ans.lower(), ans
+    assert "bingley" not in ans.lower(), ans
+    assert not re.search(
+        r"\bparis (?:is|are) (?:in|at|based|located|moored|parked)\b",
+        ans.lower()), ans
 
 
 def test_entity_location_recall_user_location_not_hijacked():
