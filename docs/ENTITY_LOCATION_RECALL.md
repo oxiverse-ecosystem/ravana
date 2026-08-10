@@ -52,7 +52,7 @@ is **seed vocabulary** RAVANA can grow at runtime — missing a hedge degrades t
 separate entity, never a wrong answer:
 
 ```python
-# ravana/src/ravana/chat/user_model.py  (~L589)
+# ravana/src/ravana/chat/user_model.py  (~L595)
 _HEDGE = ("actually", "now", "well", "so", "but", "right",
           "okay", "ok", "and", "then", "still")
 _ent_words = _ent.split()
