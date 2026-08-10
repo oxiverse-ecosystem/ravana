@@ -384,6 +384,18 @@ class MemoryMixin:
                         # value collide with the active one. Corrections win.
                         if getattr(_fact, "superseded", False):
                             continue
+                        # SELF/OTHER BOUNDARY (round 2026-08-10T1401Z): only the
+                        # USER's own pet facts belong in the user-facing recall
+                        # index. A pet the user re-attributed to a third party
+                        # (e.g. "pip is my sister's cat") is stored under that
+                        # owner's subject (subject != "i"); folding it in would
+                        # make "what's my cat's name" surface a pet that is no
+                        # longer the user's. Skip non-user subjects so the
+                        # boundary holds at the recall source, not just the
+                        # fact-store.
+                        _subj = _key[0] if isinstance(_key, (tuple, list)) and len(_key) > 0 else None
+                        if _subj not in (None, "i", "I"):
+                            continue
                         _attr = _key[1] if isinstance(_key, (tuple, list)) and len(_key) > 1 else None
                         _val = getattr(_fact, "value", _fact)
                         if _attr and _pet_slots.is_pet_attribute(_attr):

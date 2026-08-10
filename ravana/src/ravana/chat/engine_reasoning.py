@@ -1912,6 +1912,17 @@ class ReasoningMixin:
                 got = buf.retrieve(key)
                 if got:
                     cands.extend(got)
+            # SOURCE MONITORING (round 2026-08-10T1401Z): a user's self-
+            # disclosure ("my cat is called pip", "actually pip is my sister's
+            # cat") is stored in the buffer as a USER fact (user_fact=True).
+            # Multi-hop RELATIONAL reasoning is world-knowledge retrieval — it
+            # must not replay a user's own autobiographical utterance as if it
+            # were a fact answering "what is my cat's name?". Skipping
+            # user_fact triples here is consistent with the buffer's own
+            # contract (user facts are NEVER drained into the world graph) and
+            # closes the self/other boundary at the multi-hop path.
+            cands = [f for f in cands
+                     if not getattr(f, "user_fact", False)]
             # de-dup
             seen, uniq = set(), []
             for f in cands:
