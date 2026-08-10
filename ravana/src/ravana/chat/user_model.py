@@ -286,7 +286,12 @@ class UserModel:
         # contradict() machinery supersedes it (online, no retrain). When the
         # slot is empty the normal possession miner stores it. No per-topic
         # table — species comes from the live pet_slots vocabulary.
-        if not self.detected_correction:
+        # Guard on detected_correction_fact (not the bare flag): _detect_correction
+        # may set detected_correction=True via a weak signal (sentiment-drop /
+        # reask) WITHOUT a fact, which would otherwise suppress this pet fact
+        # and leave flag=True/fact=None (the T46 chat regression). Only skip
+        # when a real correction FACT is already extracted.
+        if not self.detected_correction_fact:
             _pet_corr = re.search(
                 r"\b(?:my|the|a|an)\s+([\w'-]+)\s+(?:is|was|are|were)\s+"
                 r"(?:a\s+|an\s+)?(?:[\w'-]+\s+){0,2}?"
@@ -556,6 +561,48 @@ class UserModel:
             if _loc and len(_loc.split()) <= 5:
                 self.user_location = _loc
                 _put_fact("location", _loc, 0.6)
+        # POSSESSION-LOCATION miner (round 2026-08-10T0813Z). A named
+        # possession's whereabouts ("the slow coal is moored at bingley",
+        # "the van is parked in leeds") is a location fact about THAT entity,
+        # not the user — but the location miner above only handles "i live in
+        # X" / "i am from X". Without this, "where's the slow coal moored"
+        # could only echo the raw utterance from the episodic index and a
+        # later correction ("at saltaire, not bingley") had no structured fact
+        # to supersede (measured: T23 stored nothing; T45 recall fell through
+        # to the empty filler). Capture the entity + place and store it as an
+        # entity-keyed location fact via _put_fact_ent (subject = entity, not
+        # 'i'), so a later correction/contradict resolves by the same entity
+        # key. Generic: any entity noun + place preposition; no per-place
+        # table. The entity resolves through the same personal-fact store the
+        # user can correct. Online/incremental; no retrain, no LLM.
+        _pos_loc = re.search(
+            r"\b(?:my|the|a|an|our|their|his|her)?\s*([\w'-]+(?:\s+[\w'-]+){0,3})"
+            r"\s+(?:is|was|are|were|sits|lies|stays|remains)\s+"
+            r"(?:moored|berthed|anchored|docked|based|parked|stationed|"
+            r"kept|stored|housed|tied up|wintered)\s+"
+            r"(?:at|in|on|near|by|outside|outside of)\s+"
+            r"([\w'-]+(?:\s+[\w'-]+){0,3})", q_clean, re.IGNORECASE)
+        if _pos_loc:
+            _ent = _pos_loc.group(1).strip().strip(" .,!?").lower()
+            _place = _pos_loc.group(2).strip().strip(" .,!?").lower()
+            # reject closed-class / non-entity heads (e.g. "it is moored at x")
+            if (_ent and _place and _ent not in _VALUE_STOP
+                    and _place not in _VALUE_STOP
+                    and len(_ent.split()) <= 4 and len(_place.split()) <= 4):
+                # Trim a trailing qualifier/clause from the place ("bingley for
+                # the winter" -> "bingley"; "leeds near the canal" -> "leeds";
+                # "saltaire now" -> "saltaire").
+                _place = re.split(r"\s+(?:for|near|by|outside|on|with|that|which|now|currently|these days|,|\.)\b",
+                                  _place)[0].strip()
+                if _place and _place not in _VALUE_STOP:
+                    # A possession has exactly ONE whereabouts; a new location
+                    # for the same entity SUPERSEDES the prior one (online
+                    # correction, no retrain). The user is ground truth.
+                    _prior = self.personal_facts.get(_ent, "location")
+                    if _prior is not None and _prior.value.lower() != _place.lower():
+                        self.personal_facts.contradict(_ent, "location", _place)
+                    else:
+                        _put_fact_ent(_ent, "location", _place, 0.6)
         if m_name:
             name_cand = m_name.group(1).strip()
             name_cand = re.split(r"\s+(?:and|but|,|\.)\s*", name_cand)[0].strip()
