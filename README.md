@@ -54,6 +54,13 @@ on this codebase:
   `from what you've told me, you live in berlin; your cat is rex; …`
 - **Recalls what you told it.** *"what do you remember about me?"* surfaces the
   learned facts/stances (location, pet, likes) drawn from the durable stores.
+- **Surfaces a named thing's whereabouts from a stored location fact.** Told
+  *"the slow coal is moored at bingley"* it stores `('slow coal','location','bingley')`,
+  and later answers *"where's the slow coal moored?"* with
+  *"the slow coal is at bingley."* — even after a correction (*"actually the slow
+  coal is moored at saltaire now"* → *"the slow coal is at saltaire."*). Unknown
+  places (e.g. *"where is paris?"*) return honest uncertainty, never a fabricated
+  location. See `docs/ENTITY_LOCATION_RECALL.md`.
 - **Abstains when it has no settled view.** Asked *"what do you think about
   coffee?"* before forming its own position, it returns an honest non-answer
   rather than fabricating one:
@@ -186,6 +193,7 @@ See [`docs/`](docs/README.md):
 - [Training](docs/TRAINING.md) — `train.py` modes and the LingGen promotion gate.
 - [Benchmarks](docs/BENCHMARKS.md) — every benchmark/diagnostic script and what it measures.
 - [Development](docs/DEVELOPMENT.md) — layout, path shims, test commands, conventions.
+- [Entity-Location Recall](docs/ENTITY_LOCATION_RECALL.md) — capturing + surfacing a named thing's whereabouts.
 
 ## Benchmark results
 
