@@ -113,6 +113,22 @@ _RETRACTION_CUES = (
     r"\b(?:they're|it's|that's|wasn't|isn't|not)\s+(?:not\s+that\s+bad|not\s+so\s+bad|fine|okay|ok|acceptable|good\s+after\s+all)\b",
     r"\bi\s+take\s+(?:it|that|this|things|them|what\s+i\s+said|my\s+words)\s*back",
     r"\bscratch\s+that\b",
+    # Round t_6c023144 (2026-08-09T1953Z residual): first-person reversal
+    # speech acts that the round worker saw slip through to a fresh FOR stance.
+    # "i flipped, the reef tank is more work than joy" formed a new positive
+    # stance instead of recoding the held one, because "flipped" was absent
+    # here — so no cue matched, the concession branch (requires a "but"/belief
+    # frame) never fired, and mine_stance_reversal bailed before reversing. Add
+    # the decisive change-of-mind verbs as SEED cues (RAVANA-expandable, not a
+    # per-topic table). The tail→held-stance resolver already guards against
+    # corruption: a flip on something the user has no stance on is a no-op
+    # (reverse_stance returns None), so false positives are bounded.
+    r"\bi\s*(?:'ve\s+|have\s+|)(?:flipped|flip-?flopped)\b",
+    r"\bi\s+(?:recant|recanted|renounce|renounced|revoked|reversed|reneged)\b",
+    r"\bi\s+(?:backtracked|went\s+back\s+on|backed\s+off\s+from)\b",
+    # allow the contraction 'i've' (no space after i) as well as 'i had'/'i have'
+    r"\bi\s*'?ve\s+had\s+a\s+change\s+of\s+heart\b",
+    r"\bi\s+(?:had|have)\s+a\s+change\s+of\s+heart\b",
 )
 
 # Softening retraction cues: the user is walking a stance BACK toward neutral,
@@ -815,6 +831,128 @@ class UserModel:
             _obj = self._opinion_topic(_cont.group(2).strip().lower())
             if _obj and len(_obj.split()) <= 5:
                 _put_fact("does", _obj, 0.55)
+
+        # FIX (round 2026-08-09T1953Z): general first-person activity +
+        # experience capture. The D3 activity loop above only matches BARE
+        # verb forms ("train", "keep") and omits common disclosure verbs
+        # ("throw", "shoot", "develop", "clean", "grow", "train"). Real chat
+        # is dominated by gerunds and continuous tenses ("i throw pots",
+        # "i've been training a juniper bonsai", "i shoot 35mm", "i keep air
+        # plants", "i clean the reef tank glass") — none of which the D3 loop
+        # caught, so they fell through to the hollow "got it — thanks for
+        # telling me." ack AND became unrecallable. This block generalises the
+        # capture to inflected forms and a broader closed VERB SEED set, and
+        # ADDS firsthand-experience (event) capture for disclosures like "i
+        # dropped half its needles", "i lost a favia coral to heat", "i
+        # repotted the juniper and found a root that went necrotic", "i
+        # removed the dead favia". These are real things the user did/experienced
+        # about their world and must land in the same PersonalFactStore so cued
+        # recall and the "what have you learned about me" summary can surface
+        # them (the old code only ever recalled 'does'/'likes' activity facts).
+        #
+        # DESIGN (per round hardcoding rule + seed-vs-hardcoding test):
+        #  - The verb vocabulary is SEED structure: a closed list of
+        #    activity/experience verbs. It is RAVANA-expandable in principle
+        #    (it feeds the same PersonalFactStore the user can correct/extend),
+        #    NOT a per-topic answer dictionary and NOT authored reply prose.
+        #    Removing an entry degrades gracefully (one fewer activity class
+        #    captured) — it is not content RAVANA can never change, so it is
+        #    seed knowledge, not hardcoding.
+        #  - The value is the resolved CONTENT HEAD of the object phrase
+        #    (_opinion_topic drops closed-class words), so the stored value is
+        #    a real concept ("pots", "bonsai", "35mm", "air plants", "reef
+        #    tank glass"), never a function word.
+        #  - Capture is GENERAL (any "i <verb> <object>"), so it fires on new
+        #    topics without retraining or per-topic tuning.
+        #  - Activity verbs -> attr "does" (consistent with the D3 loop).
+        #  - Experience/event verbs -> attr "event" (new), so a later recall
+        #    can reconstruct "you dropped <x>" / "you lost <y>" grammatically
+        #    (see engine_memory._reconstruct_entity + engine_reasoning
+        #    ._derive_ack_from_store which now render the 'event' attr).
+        # Closed VERB SEED vocabulary (RAVANA-expandable; feeds the same
+        # PersonalFactStore the user can correct — NOT per-topic answers, NOT
+        # authored prose). Covers everyday disclosure verbs + common irregular
+        # past forms so first-person activities/experiences actually land.
+        _ACTIVITY_VERBS = (
+            "run", "own", "operate", "play", "teach", "study", "manage",
+            "drive", "build", "make", "sell", "restore", "grow", "watch",
+            "raise", "tend", "brew", "bake", "write", "read", "learn",
+            "practice", "collect", "fix", "paint", "code", "design", "craft",
+            "volunteer", "cook", "fish", "hike", "garden", "farm", "lead",
+            "organize", "keep", "grind", "race", "sail", "fly", "knit",
+            "sew", "weld", "forge", "carve", "compose", "record", "perform",
+            "coach", "train", "compete", "spin", "weave", "mount", "trade",
+            "host", "guide", "throw", "shoot", "develop", "clean", "reload",
+            "recharge", "assemble", "mix", "pour", "press", "roll", "fire",
+            "glaze", "wire", "prune", "pot", "plant", "sketch", "draw",
+            "sculpt", "stitch", "mend", "whittle", "start", "begin", "try",
+            "go", "use", "take", "make", "get", "built", "taught", "wrote",
+            "drew", "sang", "flew", "swam", "rode", "drove", "broke",
+            "spoke", "woke", "froze", "chose", "ate", "drank", "grew",
+            "threw", "knew", "wore", "brought", "bought", "caught",
+            "kept", "slept", "left", "felt", "met",
+            "sent", "spent", "lost", "found", "held", "told", "sold",
+            "paid", "said", "gave", "came", "went", "did", "saw", "got",
+            "made", "took", "set", "put", "cut", "hit", "read", "led",
+            "fed", "bled", "fed",
+        )
+        _EVENT_VERBS = (
+            "drop", "lose", "find", "remove", "break", "discover", "notice",
+            "repot", "prune", "harvest", "spill", "melt", "crack", "kill",
+            "ruin", "save", "nurse", "revive", "miss", "spot",
+            "catch", "pull", "cut", "burn", "flood", "rescue", "rebuild",
+            "recover", "heal", "uproot", "freeze", "thaw", "hatch",
+            "bloom", "wilt", "die", "survive", "escape", "return", "birth",
+            "fall", "fell", "crash", "lose", "lost", "found", "kept",
+            "broke", "felt", "cut", "hit", "met", "told", "saw", "got",
+            "made", "took", "gave", "came", "went", "did", "ate", "drank",
+            "grew", "knew", "threw", "froze", "bled", "fed", "died",
+        )
+        # Match "i [aux?] <verb>(s|ed|ing)? <object> <clause-boundary>".
+        # The object stops at a clause boundary (., !, ?, ",", " and ",
+        # " but ", " because ", " so ", " which ", " that ", " when ",
+        # " where ") so a multi-clause sentence stores only the relevant
+        # fragment (e.g. "i repotted the juniper and found a root..." ->
+        # "juniper", not "juniper and found a root"). The verb is matched
+        # with optional inflection so gerunds/continuous tenses are caught.
+        _act_pat = re.compile(
+            r"\bi\s+(?:also\s+|really\s+|even\s+|just\s+|now\s+|still\s+|"
+            r"often\s+|sometimes\s+|usually\s+)?"
+            r"(?:have\s+been\s+|has\s+been\s+|am\s+|was\s+|were\s+)?"
+            r"(?:been\s+)?"
+            r"(" + "|".join(_ACTIVITY_VERBS) + r")(?:s|es|ing|ed|[a-z]ed|[a-z]d)?"
+            r"\s+(?:my\s+|a\s+|an\s+|the\s+|some\s+|two\s+|three\s+|four\s+|"
+            r"five\s+|six\s+|seven\s+|eight\s+|nine\s+|ten\s+)?"
+            r"(.+?)(?:\s*(?:\.|\!|\?|,|-{1,3}|$|"
+            r"\s+and\s+|\s+but\s+|\s+because\s+|\s+so\s+|\s+which\s+|"
+            r"\s+that\s+|\s+when\s+|\s+where\s+|\s+while\s+))",
+            re.IGNORECASE)
+        for _am in _act_pat.finditer(q_clean):
+            _verb = _am.group(1).lower()
+            _obj = self._opinion_topic(_am.group(2).strip().lower())
+            if _obj and 1 <= len(_obj.split()) <= 5:
+                _put_fact("does", f"{_verb} {_obj}", 0.55)
+        # Experience / event capture: first-person "i <event-verb> <object>"
+        # describing something that happened to the user's world. Captured
+        # under attr "event" so it is recallable as a lived experience (not
+        # conflated with ongoing activity). Same clause-boundary + content-head
+        # rules as the activity capture above.
+        _evt_pat = re.compile(
+            r"\bi\s+(?:also\s+|really\s+|even\s+|just\s+|now\s+|still\s+|"
+            r"often\s+|sometimes\s+|usually\s+)?"
+            r"(?:have\s+|has\s+|had\s+)?(?:almost\s+|nearly\s+)?"
+            r"(" + "|".join(_EVENT_VERBS) + r")(?:s|es|ing|ed|[a-z]ed|[a-z]d)?"
+            r"\s+(?:my\s+|a\s+|an\s+|the\s+|some\s+|two\s+|three\s+|four\s+|"
+            r"five\s+|six\s+|seven\s+|eight\s+|nine\s+|ten\s+)?"
+            r"(.+?)(?:\s*(?:\.|\!|\?|,|-{1,3}|$|"
+            r"\s+and\s+|\s+but\s+|\s+because\s+|\s+so\s+|\s+which\s+|"
+            r"\s+that\s+|\s+when\s+|\s+where\s+|\s+while\s+))",
+            re.IGNORECASE)
+        for _em in _evt_pat.finditer(q_clean):
+            _verb = _em.group(1).lower()
+            _obj = self._opinion_topic(_em.group(2).strip().lower())
+            if _obj and 1 <= len(_obj.split()) <= 5:
+                _put_fact("event", f"{_verb} {_obj}", 0.5)
 
         # Opinion mining (C2): capture the user's value judgments alongside
         # facts. Runs in the miner (not only observe_user_query) so opinions are

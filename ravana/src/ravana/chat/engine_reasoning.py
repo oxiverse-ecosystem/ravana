@@ -820,7 +820,7 @@ class ReasoningMixin:
             # find the phrase following "of"/"from"/"(" after the root word
             _m = re.search(
                 r"\b(?:square root|cube root|fourth root|sqrt|root)\b"
-                r"\s*(?:of|from|\(|\s)*\s*([a-z0-9 +\-]+?)\s*(?:\)|\?|\.|,|$)",
+                r"\s*(?:of|from|\(|\s)*\s*([a-z0-9 +\-]+?)\s*(?:\)|\?|\.|,|-{1,3}|$)",
                 user_input.lower().replace("×", "*").replace("x", "*"))
             if _m:
                 _radicand_phrase = _m.group(1).strip().rstrip(").")
@@ -2119,13 +2119,27 @@ class ReasoningMixin:
                     parsed = ("name", None, name_cap)
             else:
                 # like/love
-                ml = re.search(r"\bi\s+(like|love|hate)\s+(.+)", q, re.IGNORECASE)
+                ml = re.search(
+                    r"\bi\s+(like|love|hate)\s+(.+?)(?:\s*(?:\.|!|\?|,|$)"
+                    r"|\s+-{1,3}\s+"
+                    r"\s+but\s+|\s+and\s+|\s+because\s+|\s+so\s+|\s+which\s+|"
+                    r"\s+that\s+|\s+when\s+|\s+where\s+|\s+while\s+)",
+                    q, re.IGNORECASE)
                 if ml:
                     # D3 (round v2): carry the ACTUAL verb so the
                     # acknowledgment preserves polarity ("i hate X" must be
                     # acked as "you hate X", never "you like X"). The old code
                     # hardcoded 'love' if 'love' in q else 'like', discarding
                     # 'hate' and defaulting negatives to 'like'.
+                    # FIX (round 2026-08-09T1953Z): the object is now bounded
+                    # by a clause boundary ("but", "and", ",", period, ...)
+                    # instead of the greedy (.+) that captured the whole
+                    # trailing clause. Before: "i love the crazed glaze - but
+                    # i actually prefer a clean uniform one now" stored the
+                    # ENTIRE tail as the liked object (a malformed fact). Now
+                    # it stores "crazed glaze" and a later contradiction
+                    # ("i prefer a clean uniform one now") is handled by the
+                    # opinion/stance circuit rather than polluting the fact.
                     parsed = ("like", ml.group(1).lower(), ml.group(2).strip(" .!?"))
 
         # Persist via the existing UserModel store (single source of truth).
@@ -2350,7 +2364,8 @@ class ReasoningMixin:
                     "background": f"{val}",
                     "favorite": f"your favorite {val}",
                     "likes": f"you like {val}",
-                    "does": f"you do {val}",
+                    "does": f"you {val}",
+                    "event": f"you {val}",
                     "is": f"you are {val}",
                 }.get(attr, None)
                 if _phrase is None and _pet_slots.is_pet_attribute(attr):
@@ -2368,6 +2383,7 @@ class ReasoningMixin:
                     "favorite": f"your {_ent}'s favorite is {val}",
                     "likes": f"you mentioned your {_ent} likes {val}",
                     "does": f"your {_ent} does {val}",
+                    "event": f"your {_ent} {val}",
                     "is": f"your {_ent} is {val}",
                 }.get(attr, None)
                 if _phrase is None:
