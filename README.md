@@ -61,6 +61,14 @@ on this codebase:
   coal is moored at saltaire now"* → *"the slow coal is at saltaire."*). Unknown
   places (e.g. *"where is paris?"*) return honest uncertainty, never a fabricated
   location. See `docs/ENTITY_LOCATION_RECALL.md`.
+- **Re-attaches pets you re-disclose the reverse way round, and re-attributes
+  them to a new owner.** If you first say *"my cat is called pip"* then correct
+  *"actually pip is my sister's cat"*, RAVANA moves pip off your record onto the
+  sister (self/other boundary) so a later *"what is my cat's name?"* never claims
+  pip is yours — it attributes pip to the sister. Likewise *"the owl is mine and
+  she's called briar"* files the corrected name on the owl slot, so recall returns
+  `briar`, not the stale `wren`. No LLM, no retrain; the boundary is enforced at
+  every recall source. See `docs/POSSESSION_REATTRIBUTION.md`.
 - **Abstains when it has no settled view.** Asked *"what do you think about
   coffee?"* before forming its own position, it returns an honest non-answer
   rather than fabricating one:
