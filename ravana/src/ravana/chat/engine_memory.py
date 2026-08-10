@@ -1400,15 +1400,17 @@ class MemoryMixin:
         # you are / your nature), so a query containing any first-person USER
         # reference (i / my / me) falls through to the genuine user-episode
         # recall instead. Structural (regex), not a per-topic guard.
+        _user_ref = bool(re.search(r"\b(i|my|me|we)\b", t))
         _agent_self_recall = (
             bool(re.search(
                 r"\bwhat did you (?:say|tell me|answer|describe|say about)\b", t))
-            and not bool(re.search(r"\b(i|my|me|we)\b", t))
+            and not _user_ref
         ) or bool(re.search(
             r"\bearlier you (?:described|said|told me|mentioned) "
             r"(?:yourself|who you are|what you are|your nature)\b", t)
         ) or bool(re.search(r"\byou described yourself\b", t)
-        ) or bool(re.search(r"\byour answer about\b|\bwhat was your answer\b", t)
+        ) or (bool(re.search(r"\byour answer about\b|\bwhat was your answer\b", t))
+              and not bool(re.search(r"\b(i|my|we)\b", t))
         ) or bool(re.search(
             r"\byou (?:said|mentioned|told me) something about what you "
             r"(?:are|were)\b", t)
