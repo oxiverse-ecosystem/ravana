@@ -272,6 +272,41 @@ class UserModel:
                 self.detected_correction_type = CorrectionType.CORRECTION_WITH_FACT
                 self.correction_severity = max(self.correction_severity, 0.8)
 
+        # PET re-disclosure correction (round 2026-08-10T0813Z). A pet name
+        # stated in a SECOND phrasing ("the dog is a lurcher called briar"
+        # after "my dog is a lurcher named wren") is a CORRECTION of the
+        # earlier name, not a fresh disclosure — but the possession miner only
+        # matches "my/a/an/the <species> named/called <name>" (one shape), so
+        # "the dog is a lurcher called briar" (species + copula + breed +
+        # called + name) fell through and the stale name persisted, then a
+        # later "what's my dog's name" returned the OLD name. Detect the
+        # copula+breed+name shape, resolve the species via pet_slots (the same
+        # resolver the miner and recall sites use), and if that slot already
+        # holds a DIFFERENT active value, flag a correction so the existing
+        # contradict() machinery supersedes it (online, no retrain). When the
+        # slot is empty the normal possession miner stores it. No per-topic
+        # table — species comes from the live pet_slots vocabulary.
+        if not self.detected_correction:
+            _pet_corr = re.search(
+                r"\b(?:my|the|a|an)\s+([\w'-]+)\s+(?:is|was|are|were)\s+"
+                r"(?:a\s+|an\s+)?(?:[\w'-]+\s+){0,2}?"
+                r"(?:named|called)\s+([\w'-]+)", q_clean, re.IGNORECASE)
+            if _pet_corr:
+                _sp_word = _pet_corr.group(1).strip().lower()
+                _new_name = _pet_corr.group(2).strip().strip(".,!?")
+                _species = _pet_slots.species_of(_sp_word)
+                if _species is None and _sp_word.isalpha():
+                    _species = _pet_slots.learn_species(_sp_word)
+                if _species is not None and _new_name:
+                    _slot = _pet_slots.slot_for(_species, 1)
+                    _prior = self.personal_facts.get("i", _slot)
+                    if _prior is not None and _prior.value.lower() != _new_name.lower():
+                        self.detected_correction = True
+                        self.detected_correction_fact = ("i", _slot, _new_name)
+                        self.detected_correction_type = CorrectionType.CORRECTION_WITH_FACT
+                        self.correction_severity = max(self.correction_severity, 0.8)
+
+
         # COUNT / QUANTITY correction (round 2026-08-09g). A plain update like
         # "it's seven hives now, i split one last week" carries NO negation or
         # "my X is Y" structure, so the name-correction and _corrective paths
