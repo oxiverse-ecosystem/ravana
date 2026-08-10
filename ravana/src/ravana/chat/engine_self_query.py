@@ -157,6 +157,7 @@ from ravana.language.verb_lexicon import VerbLexicon
 from .models import FailedQuery, ChainHop, ChainTrace, CognitiveResponseContext, Correction, CorrectionType
 
 from .user_model import UserModel
+from . import pet_slots
 from .belief_store import BeliefStore
 from ravana.nn.rlm import Plasticity
 
@@ -612,11 +613,32 @@ class SelfQueryMixin:
                           "personal_facts", None)
             _bits = []
             if _pf is not None:
+                # D6 (round 2026-08-10T0813Z): render a real biographical
+                # sketch, not a raw fact dump. Skip 'event' (transient
+                # lived-experiences) and 'does' micro-activities — those read
+                # as noise here ("someone who event: lost kestrel"). Prefer
+                # name / location / role / pet / is / likes, which describe WHO
+                # the user is. Reads the live store; no authored prose.
+                _SKIP_ATTR = ("event", "does")
                 for _k, _f in _pf.facts.items():
                     if isinstance(_k, tuple) and len(_k) == 3 and \
-                            not getattr(_f, "superseded", False):
+                            not getattr(_f, "superseded", False) \
+                            and _k[1] not in _SKIP_ATTR:
                         _val = str(getattr(_f, "value", _f) or "")
-                        _bits.append(f"{_k[1]}: {_val}")
+                        _attr = _k[1]
+                        if _attr == "name":
+                            _bits.append(f"is named {_val}")
+                        elif _attr == "location":
+                            _bits.append(f"lives in {_val}")
+                        elif _attr == "role":
+                            _bits.append(f"is a {_val}")
+                        elif _attr == "likes":
+                            _bits.append(f"likes {_val}")
+                        elif pet_slots.is_pet_attribute(_attr):
+                            _sp = pet_slots.base_species(_attr)
+                            _bits.append(f"has a {_sp} called {_val}")
+                        else:
+                            _bits.append(f"{_attr}: {_val}")
                     if len(_bits) >= 3:
                         break
             if _bits:
