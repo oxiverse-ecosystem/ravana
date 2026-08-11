@@ -529,6 +529,16 @@ class MemoryMixin:
                     if getattr(_fact, "superseded", False):
                         continue
                     _subj = _key[0] if isinstance(_key, (tuple, list)) and len(_key) > 0 else None
+                    # Self/other boundary (round 2026-08-11T0521Z R6 fix): a
+                    # "my <pet>" query resolves to the USER's own record only. A
+                    # pet re-attributed to a third party (subject != "i") was
+                    # retired from the user's ownership, so folding it here would
+                    # surface it as "your cat is pip" — exactly the leak the
+                    # regression test forbids. Skip non-user subjects so the
+                    # boundary holds at this recall source, matching the unit
+                    # entity-index guard above (L397).
+                    if _subj not in (None, "i", "I"):
+                        continue
                     _attr = _key[1] if isinstance(_key, (tuple, list)) and len(_key) > 1 else None
                     # the entity matches either as a stored entity subject, or
                     # as the attribute key under a third-party subject (a pet

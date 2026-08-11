@@ -1357,15 +1357,17 @@ class UserModel:
             if len(_o.split()) <= 2 and any(w in _SENSATION_BODY
                                             for w in _o.split()):
                 return False
-            # A single resolved content word is too thin to be a reliable
-            # possession/activity ("felt chest", "said brack", "keep coming").
-            # Require >=2 substantive words unless the word is an unambiguous
-            # possession noun (handled by the pet/species path elsewhere). This
-            # drops sensation/particle fragments without losing real multi-word
-            # disclosures ("keep homing pigeons").
-            if len(_o.split()) < 2:
-                return False
-            return _obj and 1 <= len(_obj.split()) <= 5
+            # R5 fix (round 2026-08-11T0521Z): do NOT reject on word-count
+            # alone. The earlier "<2 reject" + "<=5 cap" dropped legitimate real
+            # disclosures (single-noun possessions like "jar", and 6-7-word
+            # activity/event objects like "throw pots at a community studio").
+            # Reject only on CONTENT grounds (sensation/body/particle/error-meta
+            # words handled by the guards above), never on length. A single real
+            # noun ("jar") and a long real noun phrase ("repeated the juniper
+            # this spring and found a root") must BOTH pass; the R5 intent (drop
+            # inner-state "felt chest") is preserved by the _SENSATION_BODY gate
+            # above, not a length cap.
+            return bool(_obj)
         for _am in _act_pat.finditer(q_clean):
             _verb = _am.group(1).lower()
             _raw_obj = _am.group(2).strip().lower()
