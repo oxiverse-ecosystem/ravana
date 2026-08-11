@@ -207,6 +207,7 @@ from .models import FailedQuery, ChainHop, ChainTrace, CognitiveResponseContext,
 
 from .user_model import UserModel
 from .user_model import _CORRECTION_NAME_FACT_PATTERN
+from .personal_fact_store import QuantityMemory, render_count
 from .belief_store import BeliefStore
 from ravana.nn.rlm import Plasticity
 
@@ -2516,32 +2517,60 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     if _wn in _v or (_wverb and _wverb == _fverb):
                         return f"you {_v}."
         _COUNT = re.search(
-            r"\bhow\s+many\s+([a-z][a-z]+)\s+(do\s+i|did\s+i|have|keep|raise|"
-            r"own|got|breed|run|keep on|have on)\b", q)
-        if _COUNT and pf is not None:
-            _cn = _COUNT.group(1).lower().strip()
-            _best = None
-            for _k, _f in pf.facts.items():
-                if not (isinstance(_k, tuple) and len(_k) == 3):
-                    continue
-                if getattr(_f, "superseded", False):
-                    continue
-                if _k[1] in ("count", "number", "qty") and _cn in _f.value.lower():
-                    _best = _f.value
-                    break
-                if _k[1] == "does":
-                    _v = _f.value.lower()
-                    # a count fact reads like "keep six hives" (number words,
-                    # as the miner stores them) or "have 7 dogs" (digits).
-                    _m = re.match(r"^(?:keep|have|keep on|have on|raise|own|"
-                                  r"breed|run|got)\s+((?:one|two|three|four|"
-                                  r"five|six|seven|eight|nine|ten|eleven|twelve)"
-                                  r"|\d+)\b\s+", _v)
-                    if _m and _cn in _v:
-                        _best = _m.group(1)
+            r"\bhow\s+many\s+"
+            r"((?:[a-z][a-z]+(?:\s+(?!(?:do\s+i|did\s+i|have|had|keep|kept|"
+            r"raise|raised|own|got|breed|bred|run|ran|grow|grew|make|made|"
+            r"bake|lose|lost|keep\s+on|have\s+on|in\s+total|all\s+told|"
+            r"altogether|total|a\s+total|in\s+all)\b)[a-z][a-z]+){0,3})\s+)?"
+            r"(do\s+i|did\s+i|have|had|keep|kept|raise|raised|own|got|breed|bred|"
+            r"run|ran|grow|grew|make|made|bake|lose|lost|keep\s+on|"
+            r"have\s+on)?\s*"
+            r"(in\s+total|all\s+told|altogether|total|a\s+total|in\s+all)?\b",
+            q)
+        if _COUNT is not None:
+            _qm = getattr(um, "quantity_memory", None)
+            _agg_noun = (_COUNT.group(1) or "").strip()
+            # Aggregate detection is INDEPENDENT of verb position: "in total"
+            # may follow the subject verb ("do i have in total") or sit right
+            # after the noun ("animals in total").
+            _agg_word = re.search(
+                r"\b(in\s+total|all\s+told|altogether|total|a\s+total|"
+                r"in\s+all)\b", q)
+            if _agg_word and _qm is not None:
+                _total = _qm.aggregate(category="possession")
+                if _total > 0:
+                    # Strip a trailing "in" the optional noun group may have
+                    # greedily captured ("animals in" -> "animals").
+                    _label = (_agg_noun.split(" in ")[0].strip()
+                             if _agg_noun else "pets")
+                    return f"you have {render_count(_total)} {_label} in total."
+            _cn = (_COUNT.group(1) or "").strip()
+            _verb = _COUNT.group(2)
+            if _cn and _verb and _qm is not None:
+                _kind = None
+                for _vk, (_k, _c) in QuantityMemory.VERB_KIND.items():
+                    if _verb.replace(" ", "") == _vk or _verb == _vk:
+                        _kind = _k
                         break
-            if _best is not None:
-                return f"you have {_best} {_cn}."
+                _rec = _qm.query_count(_cn, kind=_kind)
+                if _rec is not None:
+                    return f"you have {render_count(_rec.count)} {_cn}."
+            if pf is not None and _cn:
+                for _k, _f in pf.facts.items():
+                    if not (isinstance(_k, tuple) and len(_k) == 3):
+                        continue
+                    if getattr(_f, "superseded", False):
+                        continue
+                    if _k[1] == "does":
+                        _v = _f.value.lower()
+                        _m = re.match(
+                            r"^(?:keep|have|keep on|have on|raise|own|"
+                            r"breed|run|grow|got|make|bake|lose|kept|had|"
+                            r"raised|bred|ran|grew|made|lost)\s+"
+                            r"((?:one|two|three|four|five|six|seven|eight|"
+                            r"nine|ten|eleven|twelve)|\d+)\b\s+", _v)
+                        if _m and _cn in _v:
+                            return f"you have {_m.group(1)} {_cn}."
         # Activity / possession recall ("what do i keep/have/do", "where do i
         # keep X"). Hoisted out of the _TOLD block so it runs for ANY such
         # query, not only ones containing "tell me about".

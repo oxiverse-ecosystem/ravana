@@ -4,7 +4,8 @@ import pickle
 from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional, Tuple, Set
 from .models import CorrectionType
-from .personal_fact_store import PersonalFactStore, UserStanceStore
+from .personal_fact_store import (
+    PersonalFactStore, UserStanceStore, QuantityMemory, number_to_int)
 from . import pet_slots as _pet_slots
 
 # ── Dedicated user-model store ───────────────────────────────────────────────
@@ -174,6 +175,14 @@ class UserModel:
     # topic), kept SEPARATE from biographical facts. Opinions decay faster than
     # facts (malleable attitudes), per OFC/vmPFC vs hippocampal circuit split.
     opinions: UserStanceStore = field(default_factory=UserStanceStore)
+    # Structured quantity memory (round 2026-08-11T0521Z): count-bearing
+    # disclosures ("i keep twelve racing pigeons") are captured as
+    # (subject, kind, count, noun) so RAVANA can SYNTHESIZE a clean count answer
+    # and AGGREGATE across the store ("how many pets in total"). The 'does'/
+    # 'event' text facts still hold the gist sentence; this store holds the
+    # NUMBER, decoupling it from the gist. Seed + online; durable via
+    # get/set_state so it survives engine reload.
+    quantity_memory: QuantityMemory = field(default_factory=QuantityMemory)
 
     knowledge_model: Dict[str, float] = field(default_factory=dict)
     learning_goals: Dict[str, int] = field(default_factory=dict)
@@ -607,6 +616,18 @@ class UserModel:
                             CorrectionType.CORRECTION_WITH_FACT
                         self.correction_severity = \
                             max(self.correction_severity, 0.7)
+                        # Mirror the corrected count into the structured
+                        # QuantityMemory store so "how many X" recall reflects
+                        # the NEW number (otherwise it would echo the stale
+                        # pre-correction count). Seed + online; the store
+                        # supersedes the prior record by subject+noun.
+                        try:
+                            _qcount = number_to_int(_num)
+                            if _qcount is not None:
+                                self.quantity_memory.correct(
+                                    subject="i", noun=_ent, count=_qcount)
+                        except Exception:
+                            pass
 
         def _put_fact(attr: str, val: str, conf: float) -> None:
             # D3 (round v3): never store a closed-class / negation token as a
@@ -1374,7 +1395,71 @@ class UserModel:
             if _activity_obj_is_real(_obj, _raw_obj):
                 _put_fact("event", f"{_verb} {_obj}", 0.5)
 
-        # Opinion mining (C2): capture the user's value judgments alongside
+        # Quantitative possession / activity capture (round 2026-08-11T0521Z):
+        # "i keep twelve racing pigeons", "i have three cats", "i bake two
+        # sourdough loaves", "i lost five hens" — extract the LEADING count +
+        # the noun phrase and store it as a structured (subject, kind, count,
+        # noun) record in self.quantity_memory. This decouples the NUMBER from
+        # the gist sentence so a later "how many racing pigeons do i keep" can
+        # be answered with a clean count and "how many pets in total" can be
+        # AGGREGATED across the store. The 'does'/'event' text fact (which
+        # already preserves the number) is still written above; this adds the
+        # structured count on top. Seed + online: the number-word lexicon and
+        # verb->category map live in QuantityMemory (extendable at runtime), so
+        # a new quantity phrasing is captured without retraining or a per-topic
+        # table. Structural: any "i <verb> <count> <noun>" lands here.
+        # Skip interrogatives — a count QUESTION ("how many cats do i have")
+        # must never be stored as if RAVANA had asserted a quantity. The
+        # mine runs for both declarative disclosures and (later) the opinion
+        # miner, which has its own _is_question guard; this one mirrors it so a
+        # first-person count question is never seeded as a fact.
+        _qty_is_question = (q_clean.rstrip().endswith("?")
+                             or bool(re.match(
+                                 r"^(what|who|when|where|why|how|which|is|are|"
+                                 r"do|does|did|can|could|would|should|will|may|"
+                                 r"might|am|have|has|had)\b", q_clean)))
+        _qty_pat = re.compile(
+            r"\bi\s+(?:also\s+|really\s+|even\s+|just\s+|now\s+|still\s+|"
+            r"often\s+|sometimes\s+|usually\s+)?"
+            r"(" + "|".join(QuantityMemory.VERB_KIND.keys()) + r")"
+            r"(?:s|es|ing|ed|[a-z]ed|[a-z]d)?"
+            r"\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|"
+            r"eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|"
+            r"eighteen|nineteen|twenty|\d+)\s+"
+            r"(.+?)(?:\s*(?:\.|!|\?|,|-{1,3}|$|"
+            r"\s+and\s+|\s+but\s+|\s+because\s+|\s+so\s+|\s+which\s+|"
+            r"\s+that\s+|\s+when\s+|\s+where\s+|\s+while\s+|"
+            r"\s+in\s+|\s+on\s+|\s+at\s+|\s+with\s+|\s+for\s+|\s+of\s+"
+            r"\s+from\s+))",
+            re.IGNORECASE)
+        if not _qty_is_question:
+            for _qm in _qty_pat.finditer(q_clean):
+                _v = _qm.group(1).lower()
+                _num_tok = _qm.group(2).lower()
+                _noun_raw = _qm.group(3).strip().lower()
+                _vk = QuantityMemory.VERB_KIND.get(_v)
+                if _vk is None:
+                    continue
+                _kind, _cat = _vk
+                _cnt = number_to_int(_num_tok)
+                if _cnt is None or _cnt <= 0:
+                    continue
+                # Resolve a canonical noun: an animal word -> its species (so
+                # "racing pigeons" aggregates with "homing pigeons" under
+                # "pigeon"); otherwise the last content noun, singularized.
+                _toks = [t for t in re.findall(r"[a-z']+", _noun_raw)
+                         if t not in self._OPINION_STOP]
+                if not _toks:
+                    continue
+                _spec = _pet_slots.species_of(_toks[-1]) or _pet_slots.species_of(
+                    _toks[0])
+                _canon = _spec if _spec else (
+                    _toks[-1][:-1] if len(_toks[-1]) > 3 and _toks[-1].endswith("s")
+                    else _toks[-1])
+                self.quantity_memory.assert_quantity(
+                    "i", _kind, _cnt, _noun_raw, _canon, category=_cat,
+                    confidence=0.6, source="seed_regex")
+
         # facts. Runs in the miner (not only observe_user_query) so opinions are
         # captured even when process_turn early-returns before Step 5b (e.g. a
         # bare "i really like cats" hits a preference handler). Polarity from
@@ -1816,6 +1901,32 @@ class UserModel:
             self.opinions.reverse_stance(target, utterance=text)
         except Exception:
             pass
+        # Mirror any count correction into the structured QuantityMemory store
+        # so "how many X" recall reflects the corrected number. Runs once per
+        # mine regardless of which correction-detection path (277 / 580) set
+        # detected_correction_fact. Seed + online; correct() supersedes the
+        # prior record by subject+noun so a stale count is retired, not echoed.
+        try:
+            _cf = self.detected_correction_fact
+            if (_cf and str(_cf[0]).lower() in ("i", "me", "my")
+                    and _cf[1] in ("does", "count", "number", "qty")):
+                _cfv = (_cf[2] or "").lower().strip()
+                _qc = None
+                _qent = None
+                _ctoks = _cfv.split()
+                for _i, _tok in enumerate(_ctoks):
+                    _n = number_to_int(_tok)
+                    if _n is not None and _i + 1 < len(_ctoks):
+                        _qc = _n
+                        _qent = " ".join(
+                            t for t in _ctoks[_i + 1:_i + 4]
+                            if re.match(r"^[a-z]+$", t))
+                        break
+                if _qc is not None and _qent:
+                    self.quantity_memory.correct(
+                        subject="i", noun=_qent, count=_qc)
+        except Exception:
+            pass
 
     def observe_user_query(self, query: str, subject: str, valence: float):
         subject_lower = subject.lower()
@@ -2231,6 +2342,7 @@ class UserModel:
             'user_background': self.user_background,
             'preferences': self.preferences,
             'personal_facts': self.personal_facts.get_state(),
+            'quantity_memory': self.quantity_memory.get_state(),
             'opinions': self.opinions.get_state(),
             'emotional_state': self.emotional_state,
             'belief_state': self.belief_state,
@@ -2261,6 +2373,9 @@ class UserModel:
         _pf = state.get('personal_facts')
         if _pf:
             self.personal_facts.set_state(_pf)
+        _qm = state.get('quantity_memory')
+        if _qm:
+            self.quantity_memory.set_state(_qm)
         _op = state.get('opinions')
         if _op:
             self.opinions.set_state(_op)
@@ -2293,7 +2408,10 @@ def load_user_model(user_suffix: str = "") -> "UserModel":
     with open(path, "rb") as f:
         um = pickle.load(f)
     if not hasattr(um, "personal_facts"):
-        from .personal_fact_store import PersonalFactStore, UserStanceStore
+        from .personal_fact_store import PersonalFactStore, UserStanceStore, QuantityMemory
         um.personal_facts = PersonalFactStore()
         um.opinions = UserStanceStore()
+    if not hasattr(um, "quantity_memory"):
+        from .personal_fact_store import QuantityMemory
+        um.quantity_memory = QuantityMemory()
     return um
