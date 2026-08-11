@@ -1354,8 +1354,18 @@ class UserModel:
                 "shiver", "sweat", "tear", "tears", "breath", "pulse", "blood",
                 "sigh", "lump", "swelling", "cramp", "tingle", "numb",
             )
-            if len(_o.split()) <= 2 and any(w in _SENSATION_BODY
-                                            for w in _o.split()):
+            # R5 (round 2026-08-11T0521Z): scope the body/sensation gate so it
+            # ONLY rejects a SENSATION PHRASE — an object whose content words are
+            # ALL body/sensation words (e.g. bare "chest", "felt chest",
+            # "felt cold bite", "broke ice"). This is the inner-state / affective
+            # detail the R5 round was created to drop. It must NOT drop a real noun
+            # phrase that merely CONTAINS a body word alongside a real noun
+            # ("hand planes", "foot cream", "chest freezer") — those carry a real
+            # possession/activity head and pass through (verified by probe). The
+            # earlier broad form (`len<=2 and any body word`) wrongly rejected
+            # real 2-word objects like "build hand planes" and is superseded here.
+            _words = _o.split()
+            if _words and all(w in _SENSATION_BODY for w in _words):
                 return False
             # R5 fix (round 2026-08-11T0521Z): do NOT reject on word-count
             # alone. The earlier "<2 reject" + "<=5 cap" dropped legitimate real
@@ -1365,8 +1375,8 @@ class UserModel:
             # words handled by the guards above), never on length. A single real
             # noun ("jar") and a long real noun phrase ("repeated the juniper
             # this spring and found a root") must BOTH pass; the R5 intent (drop
-            # inner-state "felt chest") is preserved by the _SENSATION_BODY gate
-            # above, not a length cap.
+            # inner-state "felt chest") is preserved by the all-words sensation
+            # gate above, not a length cap.
             return bool(_obj)
         for _am in _act_pat.finditer(q_clean):
             _verb = _am.group(1).lower()
