@@ -510,3 +510,84 @@ def test_D2_question_not_answered_by_unrelated_echo(engine):
         assert len(qt & ft) >= 2, \
             f"D2 regression: unrelated fact echoed for a question: {mem!r}"
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Feature (round 2026-08-11T1328Z): Agent Self-Stance Formation & Recall.
+# Residual limitation from the round: a self-opinion question ("what's your
+# read on X") fell through to "i'm still figuring that out" even when the USER
+# had stated strong views on X across the conversation. RAVANA had no structured
+# self-model to render a real lean from. This test asserts the NEW capability:
+# the agent DERIVES, RECORDS, and RECALLS an informed stance grounded in the
+# user's actual learned stance — and stays honestly silent only with no evidence.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_F1_agent_self_stance_forms_from_user_stance(engine):
+    # The user states a strong, repeated view on a topic. The agent's own
+    # self-opinion question about that topic must now render a REAL grounded
+    # lean ("i lean toward X" / "i am drawn to X") instead of the hollow
+    # "still figuring that out" frame.
+    eng = engine
+    # Mine a confident user stance: "i really love chanterelles" (positive),
+    # expressed twice so confidence clears the 0.35 floor.
+    eng.process_turn("i really love chanterelles — they're the best thing i find.")
+    eng.process_turn("i really love chanterelles more than any other mushroom.")
+    # Sanity: the user stance was actually learned.
+    _us = eng.user_model.opinions.resolve_topic("chanterelles")
+    assert _us is not None, "precondition: user stance on 'chanterelles' not mined"
+    _st = eng.user_model.opinions.query_stance(_us)
+    assert _st is not None and _st.confidence >= 0.35, \
+        f"precondition: user stance confidence too low: {_st}"
+    # Now ask the agent for ITS read on the topic.
+    r = eng.process_turn("what do you think about chanterelles?")
+    assert "still figuring that out" not in r, \
+        f"F1 regression: agent has no self-stance on a discussed topic -> {r!r}"
+    # The agent must have DERIVED + RECORDED its own stance in the durable store.
+    _key = eng._agent_stance_key("chanterelles")
+    assert _key, "precondition: agent stance key derivation failed"
+    _own = getattr(eng, "_agent_stances", {})
+    assert _key in _own and _own[_key].confidence >= 0.35, \
+        f"F1 regression: agent did not form/record a stance on 'chanterelles': {_own!r}"
+    # The recorded stance is GROUNDED in the user's (positive) polarity, not a
+    # confabulation: agent polarity should be positive (drawn toward), since the
+    # user was strongly for it.
+    assert _own[_key].polarity > 0.0, \
+        f"F1 regression: agent stance polarity not grounded in user's positive view: {_own[_key].polarity}"
+
+
+def test_F2_agent_self_stance_recalled_stably(engine):
+    # The derived stance must persist in the engine's store and be recalled on
+    # a LATER ask (personality continuity), not recomputed as a hollow answer
+    # each time. This exercises the recall branch of the resolver.
+    eng = engine
+    # Mine a confident user stance the miner recognizes ("i really love X").
+    eng.process_turn("i really love open hardware — it should be the standard.")
+    eng.process_turn("i really love open hardware more than closed gear.")
+    r1 = eng.process_turn("what do you think about open hardware?")
+    assert "still figuring that out" not in r1, \
+        f"F2 regression: first ask hollow -> {r1!r}"
+    _key = eng._agent_stance_key("open hardware")
+    _own = getattr(eng, "_agent_stances", {})
+    assert _key in _own, f"F2 precondition: stance not recorded -> {_own!r}"
+    # Ask again; the resolver must hit the RECALL branch (confidence preserved,
+    # no reformation needed) and still render a grounded stance.
+    r2 = eng.process_turn("what's your take on open hardware?")
+    assert "still figuring that out" not in r2, \
+        f"F2 regression: recall branch hollow on second ask -> {r2!r}"
+    assert getattr(_own[_key], "confidence", 0.0) >= 0.35, \
+        f"F2 regression: recorded stance confidence dropped -> {_own[_key]}"
+
+
+def test_F3_agent_honest_when_no_evidence(engine):
+    # When the user has expressed NO view on a topic and there is no
+    # constitutive value, the agent must remain HONEST (no fabricated stance).
+    # "blefuscu" is a topic neither seeded nor discussed — no evidence exists.
+    eng = engine
+    r = eng.process_turn("what do you think about blefuscu?")
+    assert "still figuring that out" in r, \
+        f"F3 regression: agent fabricated a stance on an unseen topic -> {r!r}"
+    _key = eng._agent_stance_key("blefuscu")
+    _own = getattr(eng, "_agent_stances", {})
+    assert _key not in _own or _own.get(_key, None) is None, \
+        f"F3 regression: a stance was stored for an evidence-less topic -> {_own!r}"
+
+
