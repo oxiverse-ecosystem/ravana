@@ -207,6 +207,7 @@ from .models import FailedQuery, ChainHop, ChainTrace, CognitiveResponseContext,
 
 from .user_model import UserModel
 from .user_model import _CORRECTION_NAME_FACT_PATTERN
+from .personal_fact_store import QuantityMemory, render_count
 from .belief_store import BeliefStore
 from ravana.nn.rlm import Plasticity
 
@@ -787,6 +788,17 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             os.makedirs(os.path.join(_proj_root, "data"), exist_ok=True)
             self._save_path = os.path.join(_proj_root, "weights", f"ravana_weights{user_suffix}.pkl")
             self._glove_cache_path = os.path.join(_proj_root, "data", "ravana_glove_cache.npz")
+        # CRITICAL FIX (round 2026-08-09i): persist the suffix as an attribute.
+        # _load() later reads getattr(self, 'user_suffix', '') to decide which
+        # dedicated user_models/ file to load. It was NEVER assigned, so the
+        # attribute defaulted to '' and load_user_model('') read the DEFAULT
+        # user_models/ravana_usermodel.pkl (an empty/stale profile) and
+        # OVERWROTE the correctly-saved embedded user_model snapshot — silently
+        # wiping every learned stance + personal fact on every reload. Assigning
+        # it here makes the dedicated-file lookup keyed to the same suffix as the
+        # weight snapshot. (Also fixes the bad-filename pitfall note in the
+        # skill: now the attribute matches the path used everywhere else.)
+        self.user_suffix = user_suffix
         self.sleep_cycles_completed = 0
         self._chain_traces: List[ChainTrace] = []
         # Phase 7: Impossible Query Registry
@@ -830,6 +842,16 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # I told you" query reconstructs what was said instead of confabulating.
         self._episodic_transcript: List[Dict[str, Any]] = []
         self._episodic_index: Dict[str, Dict[str, str]] = {}  # hippocampal entity index (A3)
+        # Share the hippocampal episodic entity index + raw transcript with the
+        # user_model so the fact miner can enforce the self/other boundary on
+        # OWNER re-attribution (a pet moved off the user must also drop the
+        # user-facing episodic entry + raw transcript fact for that entity, not
+        # just its fact-store record). Read-only intent from the miner's side;
+        # the engine remains the sole writer of these structures during normal
+        # turns. The miner only MUTATES them on an explicit owner re-attribution
+        # (superseding the user's record) — never during ordinary disclosure.
+        self.user_model._episodic_index = self._episodic_index
+        self.user_model._episodic_transcript = self._episodic_transcript
         # In-turn fact store: a combined "statement(s) + question" user turn
         # (e.g. LoCoMo / LongMemEval benchmark items) packs premises AND a
         # question into ONE process_turn call. The rest of the pipeline treats
@@ -1105,6 +1127,13 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
 
         # New cognitive modules (Phase 2-5)
         self.hippocampal_buffer = HippocampalBuffer(HippocampalConfig(max_facts=50, decay_turns=50))
+        # Share the hippocampal buffer with the user_model so the fact miner can
+        # enforce the self/other boundary on OWNER re-attribution (a pet moved
+        # off the user must also be purged from this buffer — the multi-hop
+        # reasoner reads raw utterances from it). Read-only intent from the
+        # miner's side; the engine remains the sole writer during normal turns.
+        # The miner only MUTATES it on an explicit owner re-attribution.
+        self.user_model._hippocampal_buffer = self.hippocampal_buffer
         # Phase 1 (LoCoMo/LongMemEval): temporal grounding — resolve relative
         # date phrases against the current session date at STORE time.
         try:
@@ -1993,6 +2022,24 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     r"are|was|were|had|has|have|will|would|could|can)\b",
                     _stripped.lower()):
                 return
+            # D1 (round 2026-08-08b-d): a recall-scaffold query that is NOT a
+            # question (no trailing '?', no interrogative opener) — e.g.
+            # "you mentioned my tarantula before, remind me what i told you
+            # about the one that molted" — must NOT be encoded as an episodic
+            # "fact". The hippocampus stores experienced CONTENT; a memory/recall
+            # directive is a PFC query. Encoding it lets a later semantically
+            # overlapping recall ("what's the strongest read you've formed")
+            # retrieve the prior recall query's OWN text and echo it verbatim ->
+            # a recursive recall loop (the tarantula echo). Gate on recall
+            # scaffold (remember/recall/remind + a told/said/mentioned verb),
+            # structural regex not a per-topic list.
+            if re.search(
+                    r"\b(remember|recall|remind(?: me)?)\b.*"
+                    r"\b(told|said|ask|mention|tell|mentioned|asked)\b",
+                    _stripped.lower()) or re.search(
+                    r"\b(remind|remember)\b.*\b(i|you)\b.*"
+                    r"\b(told|said|mentioned|asked|tell)\b", _stripped.lower()):
+                return
             content_words = [w.strip(".,!?;:") for w in user_input.lower().split()
                              if len(w.strip(".,!?;:")) >= 3
                              and w.strip(".,!?;:").isalpha()]
@@ -2194,16 +2241,35 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # answer from the 'does' fact whose value overlaps the query noun,
             # not the dictionary definition of the noun (the word "light" is a
             # world concept that otherwise echoes "electromagnetic radiation").
+            #
+            # D1 fix (round 2026-08-09g): the OLD matcher used naive substring
+            # overlap (`any(n in _val for n in _qn)`). That COLLIDES: "me"
+            # (from "remind me what i said") is a substring of "mechanical", so
+            # "where do i keep the bees" returned the "restore old mechanical
+            # typewriters" fact (measured T39). Use WORD-BOUNDARY matching so a
+            # query token only matches a whole word in the value, AND fall back
+            # to the query VERB vs the fact's leading verb (the miner may drop
+            # the object noun, e.g. "i keep six hives of bees" -> stored as
+            # "keep six hives", so "bees" is absent but the verb "keep" still
+            # identifies the activity). Structural; no per-topic table.
             _qn = set(re.findall(r"[a-z']+", q)) - {
                 "where", "do", "i", "keep", "have", "store", "my", "the",
-                "a", "an", "on", "in", "at", "to", "of", "for", "with", "and"}
+                "a", "an", "on", "in", "at", "to", "of", "for", "with", "and",
+                "exactly", "remind", "said", "what", "me"}
+            _qverb = re.search(
+                r"\b(keep|have|store|keep\s+on|have\s+on|raise|grow|put|"
+                r"place)\b", q)
+            _qverb = _qverb.group(1).lower().strip() if _qverb else ""
             for _k, _f in pf.facts.items():
                 if not (isinstance(_k, tuple) and len(_k) == 3):
                     continue
                 if _k[1] != "does" or getattr(_f, "superseded", False):
                     continue
                 _val = _f.value.lower()
-                if any(n in _val for n in _qn):
+                _fverb = _val.split()[0] if _val.split() else ""
+                if (any(re.search(r"\b" + re.escape(_n) + r"\b", _val)
+                         for _n in _qn)
+                        or (_qverb and _qverb == _fverb)):
                     return f"you {_val}."
         if re.search(r"\b(where do i work|what do i do|what's my job|what is my work)\b", q):
             _v = pf.get("i", "work") if pf else None
@@ -2316,6 +2382,200 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     return f"your {_attr} is {_v}."
             return None
 
+        # ── (1c) Possessive-entity + count + activity biographical recall ──
+        # These were PREVIOUSLY NESTED inside the (1b) "_TOLD" block, so they
+        # only fired when the query ALSO matched "what did i tell you about
+        # X". A plain biographical query ("where do i keep the bees", "how
+        # many hives do i have", "what do i keep on the rooftop") never hit
+        # "tell me about", so it fell through _structured_recall -> None ->
+        # the episodic fact-echo, which DUMPED an unrelated stored utterance
+        # as "you told me earlier: ..." (source-monitoring error, measured
+        # across round 2026-08-09g: T39 returned the typewriter fact for
+        # "where do i keep the bees"). Hoisted to a STANDALONE top-level
+        # branch so any matching biographical query resolves from the live
+        # PersonalFactStore. No per-topic table; structural overlap scoring.
+        #
+        # Possessive-entity recall: "my partner's name is X" / "what's my
+        # dog's name" — facts are stored under the ENTITY key
+        # ("partner"/"dog", not "i"), per the self/other-boundary fix. The
+        # old resolver only looked under "i", so it returned the USER's own
+        # name for "what's my partner's name" (T36). Resolve the entity noun
+        # from the possessive and read the matching entity-scoped fact.
+        _ENT_ATTR = re.search(
+            r"\bmy\s+([a-z][a-z]+)(?:'s)?\s+(name|age|breed|job|work|is|"
+            r"does|location|live|color|type|kind|favorite)\b", q)
+        if _ENT_ATTR and pf is not None:
+            _ent = _ENT_ATTR.group(1).lower().strip()
+            # fold the spoken attribute to the store's relation key
+            _eattr_raw = _ENT_ATTR.group(2).lower()
+            _eattr = ("does" if _eattr_raw == "does"
+                      else "is" if _eattr_raw == "is"
+                      else "name" if _eattr_raw == "name"
+                      else _eattr_raw)
+            for _k, _f in pf.facts.items():
+                if not (isinstance(_k, tuple) and len(_k) == 3):
+                    continue
+                if _k[0] == _ent and _k[1] == _eattr \
+                        and not getattr(_f, "superseded", False):
+                    _v = _f.value
+                    if _eattr == "name":
+                        return f"your {_ent}'s name is {_v}."
+                    if _eattr == "does":
+                        return f"your {_ent} does {_v}."
+                    if _eattr == "is":
+                        return f"your {_ent} is {_v}."
+                    return f"your {_ent}'s {_eattr} is {_v}."
+        # ── (1c-i) Entity-keyed LOCATION recall (round 2026-08-10T0813Z) ──
+        # Limitation #1 from the round report: a named possession's whereabouts
+        # is now stored as an ENTITY-KEYED location fact (fix D, commit
+        # ac4e2c7 — subject = the entity, e.g. "slow coal", not "i"), but
+        # "where's the slow coal moored?" still fell through to the episodic
+        # echo because the recall router only resolved location for the USER
+        # ("where do i live") or a possessive "my X" (_ENT_ATTR block above) —
+        # never a determiner-led / bare named entity. Surface the structured
+        # fact here. General: ANY entity with a stored location fact answers;
+        # no per-place / per-entity table, no authored reply pools. Fail-closed:
+        # when no stored entity location matches, return None so the honest
+        # web / uncertainty path handles genuinely unknown places ("where is
+        # paris"). Reads the LIVE PersonalFactStore, which the user can correct
+        # (contradict) at runtime — so the capability is learnable, not frozen.
+        _ent_loc_a = re.search(
+            r"\bwhere(?:'s|'re|s)?\s+"
+            r"(?:is|are|was|were\s+)?"
+            r"(?:the|my|our|their|his|her|a|an|this|that|these|those)?\s*"
+            r"([a-z][a-z'\- ]{1,40}?)\s*"
+            r"(?:moored|berthed|anchored|docked|based|parked|stationed|"
+            r"kept|stored|housed|tied\s+up|wintered|located|situated)?\s*"
+            r"(?:at|in|on)?\s*\??\s*$", q)
+        _ent_loc_b = re.search(
+            r"\bwhat\s+is\s+(?:the|my|our|their|a|an|this|that)?\s*"
+            r"([a-z][a-z'\- ]{1,40}?)'s\s+location\s*\??\s*$", q)
+        _ent_loc_phrase = None
+        if _ent_loc_a:
+            _ent_loc_phrase = _ent_loc_a.group(1).strip()
+        elif _ent_loc_b:
+            _ent_loc_phrase = _ent_loc_b.group(1).strip()
+        if _ent_loc_phrase and pf is not None:
+            # Collect entity-keyed (subject != "i") location facts. Exclude the
+            # USER's own location so "where do i live" (handled above) is never
+            # double-answered here, and so a city name with no stored fact
+            # cannot be mistaken for an entity whereabouts.
+            _ent_loc_facts = [
+                (k[0], f.value) for (k, f) in pf.facts.items()
+                if isinstance(k, tuple) and len(k) == 3
+                and k[1] == "location" and k[0] != "i"
+                and not getattr(f, "superseded", False)]
+            if _ent_loc_facts:
+                _elw = _ent_loc_phrase.split()
+                _best = None
+                # Suffix-window match: the entity phrase (or any trailing part
+                # of it) contains the stored subject as a whole word. Lets a
+                # user say "where's the slow coal narrowboat moored" and still
+                # resolve to the stored subject "slow coal". Longest stored
+                # subject wins so "coal" doesn't beat "slow coal".
+                for _i in range(len(_elw)):
+                    _c = " ".join(_elw[_i:])
+                    for _subj, _place in _ent_loc_facts:
+                        if re.search(r"\b" + re.escape(_subj) + r"\b", _c):
+                            if _best is None or len(_subj) > len(_best[0]):
+                                _best = (_subj, _place)
+                            break
+                if _best is not None:
+                    _subj, _place = _best
+                    _ans = f"the {_subj} is at {_place}."
+                    # B4 confirmation wiring: a follow-up "yes / that's right"
+                    # confirms this fact (closes the learning loop).
+                    self._last_pf_recall = (_subj, "location", _place)
+                    return _ans
+        # Count / quantity recall: "how many X do i have / keep / raise" ->
+        # scan 'does' facts whose value contains a leading cardinal number
+        # and the cue noun; or a dedicated count attribute. Honest fallback
+        # to None when no count fact matches (never fabricate).
+        # "where do i keep/have X" / "where do i store X" — locate the 'does'
+        # fact whose value mentions the cue noun (the location-bearing activity
+        # fact). This is the biographical-where query that, unhandled, fell
+        # through to the episodic echo (round 2026-08-09g T39). Resolve from
+        # the live store; never a user fact.
+        _WHERE = re.search(
+            r"\bwhere\s+do\s+i\s+(keep|have|store|keep\s+on|have\s+on|raise|"
+            r"grow|put|place)\s+(my\s+)?([a-z][a-z]+)\b", q)
+        if _WHERE and pf is not None:
+            _wn = _WHERE.group(3).lower().strip()
+            _wverb = _WHERE.group(1).lower().strip()
+            for _k, _f in pf.facts.items():
+                if not (isinstance(_k, tuple) and len(_k) == 3):
+                    continue
+                if _k[1] == "does" and not getattr(_f, "superseded", False):
+                    _v = _f.value.lower()
+                    # Match on the cue noun OR on the leading verb (the
+                    # miner may drop the object noun, e.g. 'i keep six
+                    # hives of bees' -> stored as 'keep six hives', so the
+                    # noun 'bees' is absent; the query verb 'keep' still
+                    # identifies the activity fact). Structural, not a
+                    # per-topic table.
+                    _fverb = _v.split()[0] if _v.split() else ""
+                    if _wn in _v or (_wverb and _wverb == _fverb):
+                        return f"you {_v}."
+        _COUNT = re.search(
+            r"\bhow\s+many\s+"
+            r"((?:[a-z][a-z]+(?:\s+(?!(?:do\s+i|did\s+i|have|had|keep|kept|"
+            r"raise|raised|own|got|breed|bred|run|ran|grow|grew|make|made|"
+            r"bake|lose|lost|keep\s+on|have\s+on|in\s+total|all\s+told|"
+            r"altogether|total|a\s+total|in\s+all)\b)[a-z][a-z]+){0,3})\s+)?"
+            r"(do\s+i|did\s+i|have|had|keep|kept|raise|raised|own|got|breed|bred|"
+            r"run|ran|grow|grew|make|made|bake|lose|lost|keep\s+on|"
+            r"have\s+on)?\s*"
+            r"(in\s+total|all\s+told|altogether|total|a\s+total|in\s+all)?\b",
+            q)
+        if _COUNT is not None:
+            # Restrict to first-person possession questions
+            _first_person_cue = bool(re.search(r"\b(do\s+i|did\s+i|my)\b", q))
+            _qm = getattr(um, "quantity_memory", None) if _first_person_cue else None
+            _agg_noun = (_COUNT.group(1) or "").strip()
+            # Aggregate detection is INDEPENDENT of verb position: "in total"
+            # may follow the subject verb ("do i have in total") or sit right
+            # after the noun ("animals in total").
+            _agg_word = re.search(
+                r"\b(in\s+total|all\s+told|altogether|total|a\s+total|"
+                r"in\s+all)\b", q)
+            if _agg_word and _qm is not None:
+                _total = _qm.aggregate(category="possession")
+                if _total > 0:
+                    # Strip a trailing "in" the optional noun group may have
+                    # greedily captured ("animals in" -> "animals").
+                    _label = (_agg_noun.split(" in ")[0].strip()
+                             if _agg_noun else "pets")
+                    return f"you have {render_count(_total)} {_label} in total."
+            _cn = (_COUNT.group(1) or "").strip()
+            _verb = _COUNT.group(2)
+            if _cn and _verb and _qm is not None:
+                _kind = None
+                for _vk, (_k, _c) in QuantityMemory.VERB_KIND.items():
+                    if _verb.replace(" ", "") == _vk or _verb == _vk:
+                        _kind = _k
+                        break
+                _rec = _qm.query_count(_cn, kind=_kind)
+                if _rec is not None:
+                    return f"you have {render_count(_rec.count)} {_cn}."
+            if pf is not None and _cn:
+                for _k, _f in pf.facts.items():
+                    if not (isinstance(_k, tuple) and len(_k) == 3):
+                        continue
+                    if getattr(_f, "superseded", False):
+                        continue
+                    if _k[1] == "does":
+                        _v = _f.value.lower()
+                        _m = re.match(
+                            r"^(?:keep|have|keep on|have on|raise|own|"
+                            r"breed|run|grow|got|make|bake|lose|kept|had|"
+                            r"raised|bred|ran|grew|made|lost)\s+"
+                            r"((?:one|two|three|four|five|six|seven|eight|"
+                            r"nine|ten|eleven|twelve)|\d+)\b\s+", _v)
+                        if _m and _cn in _v:
+                            return f"you have {_m.group(1)} {_cn}."
+        # Activity / possession recall ("what do i keep/have/do", "where do i
+        # keep X"). Hoisted out of the _TOLD block so it runs for ANY such
+        # query, not only ones containing "tell me about".
         if _ACT and pf is not None:
             _verb = _ACT.group(1)
             _qnouns = set(re.findall(r"[a-z']+", q)) - {
@@ -2352,7 +2612,34 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # resolve the phrase to a known stance topic (semantic-ish via the
             # store's own resolver, which folds synonyms)
             _topic = opinions.resolve_topic(_topic_phrase) or _topic_phrase.lower().strip()
-            _s = opinions.query_stance(_topic)
+            # ROUND 2026-08-09i FIX: reject DEICTIC / GENERIC topic phrases.
+            # A loosely-matched self-stance query ("do you have anything like
+            # that?", "what's your view on it") resolves its topic to a pronoun
+            # or generic phrase ("anything like that", "that") which then maps
+            # via resolve_topic onto a STORED stance / belief and emits
+            # "i'm strongly for <junk>" or "i hold that position: <unrelated>"
+            # — confabulated, since the topic carries no real content. Fail
+            # closed: if the phrase contains NO substantive retrieval token
+            # (every token is a closed-class / deictic / generic word), return
+            # None so the query falls through to the honest generative path.
+            # Structural guard (a closed-class token set), not a per-topic table.
+            _GEN = {"anything", "something", "everything", "nothing",
+                     "that", "it", "this", "stuff", "things", "thing",
+                     "matter", "point", "idea", "question", "issue",
+                     "topic", "yes", "no", "maybe", "ok", "okay", "like",
+                     "rather", "or", "and", "but", "if", "than", "as", ""}
+            _phrase_tokens = [t for t in re.findall(r"[a-z']+", _topic_phrase.lower())]
+            _substantive = [t for t in _phrase_tokens
+                            if t not in _GEN and len(t) > 2
+                            and t not in ("the", "a", "an", "of", "about",
+                                          "on", "my", "i", "you", "what",
+                                          "do", "did", "tell", "say", "think",
+                                          "feel", "stance", "position", "own",
+                                          "owning", "your")]
+            if not _substantive:
+                _s = None
+            else:
+                _s = opinions.query_stance(_topic)
             if _s is not None:
                 _pol = _s.polarity
                 if _pol >= 0.6:
@@ -2369,23 +2656,32 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # fall back to belief store
             if beliefs is not None:
                 _bs = beliefs.get_state().get("beliefs", {})
+                # ROUND 2026-08-09i: reject DEICTIC / GENERIC cue tokens. A
+                # loosely-matched self-stance query ("do you have anything like
+                # that?") resolves _topic_phrase to a pronoun/generic word
+                # ("anything", "that", "it") which then appears as a salient
+                # token and matches a stored belief by coincidence (e.g.
+                # "raw honey... beats *anything* in a jar") -> confabulated
+                # "i hold that position: ...". These tokens carry no retrieval
+                # target, so exclude them from the match set entirely.
+                _GEN = {"anything", "something", "everything", "nothing",
+                         "that", "it", "this", "stuff", "things", "thing",
+                         "matter", "point", "idea", "question", "issue",
+                         "topic", "yes", "no", "maybe", "ok", "okay", "like",
+                         "rather", "or", "and", "but", "if", "than", "as", ""}
                 _toks = set(re.findall(r"[a-z']+", _topic_phrase)) - {
                     "the", "a", "an", "of", "about", "on", "my", "i", "you",
                     "what", "do", "did", "tell", "say", "think", "feel",
-                    "stance", "position", "own", "owning", "your"}
-                for _bk, (_txt, _conf, _turn) in _bs.items():
-                    _tl = _txt.lower()
-                    # D4 (round 2026-08-08b): require a SUBSTANTIAL match, not
-                    # a single salient-token coincidence. The cue topic must
-                    # appear verbatim in the belief text, OR >=2 salient cue
-                    # tokens must co-occur in it. A one-word overlap (e.g.
-                    # "ocean") must not hijack the recall to an unrelated
-                    # belief (previously "the ocean" matched the lighthouse
-                    # belief). Structural overlap scoring, not a per-topic
-                    # table.
-                    _tok_hits = sum(1 for t in _toks if len(t) > 3 and t in _tl)
-                    if _topic in _tl or _tok_hits >= 2:
-                        return f"i hold that position: {_txt}"
+                    "stance", "position", "own", "owning", "your"} - _GEN
+                if not _toks:
+                    # nothing substantive to match on -> fail closed
+                    pass
+                else:
+                    for _bk, (_txt, _conf, _turn) in _bs.items():
+                        _tl = _txt.lower()
+                        _tok_hits = sum(1 for t in _toks if len(t) > 3 and t in _tl)
+                        if _topic in _tl or _tok_hits >= 2:
+                            return f"i hold that position: {_txt}"
         # ── (2b) USER-belief recall ─────────────────────────────────────
         # "what did i tell you i believe about X" / "what do i believe about
         # X" ask for the USER's own stated belief, not RAVANA's stance. Answer
@@ -2835,6 +3131,9 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             pass
         try:
             self._episodic_transcript = []
+            # Synchronize user_model reference after rebind
+            if hasattr(self, "user_model"):
+                self.user_model._episodic_transcript = self._episodic_transcript
         except Exception:
             pass
         try:
@@ -2863,14 +3162,55 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         except Exception:
             pass
 
+    def _handle_correction_persist(self):
+        """Handle detected correction by superseding old fact and returning ack.
+
+        Returns the acknowledgment string if a correction was detected and handled,
+        or None otherwise. Uses _cf_subj from the detected fact tuple to determine
+        the subject for contradict().
+        """
+        try:
+            _cf = getattr(self.user_model, "detected_correction_fact", None)
+            if not (getattr(self.user_model, "detected_correction", False) and _cf):
+                return None
+            _cf_subj, _cf_attr, _cf_val = _cf
+            self.user_model.personal_facts.contradict(
+                _cf_subj, _cf_attr, _cf_val)
+            _cf_phrase = {
+                "name": f"your {_cf_attr} is {_cf_val}",
+                "is": f"you are {_cf_val}",
+                "does": f"you do {_cf_val}",
+                "likes": f"you like {_cf_val}",
+                "location": f"you live in {_cf_val}",
+                "favorite": f"your favorite {_cf_val}",
+            }.get(_cf_attr, f"your {_cf_attr} is {_cf_val}")
+            _ack = (f"thanks for correcting me — i'll remember "
+                    f"{_cf_phrase}.")
+            self._last_strategy = "correction_persist"
+            self._last_responses.append(_ack)
+            if len(self._last_responses) > 10:
+                self._last_responses = self._last_responses[-10:]
+            self.user_model.reset_correction_flags()
+            self.notify_user_idle()
+            return _ack
+        except Exception:
+            return None
+
     def process_turn(self, user_input: str) -> str:
         """Process input and generate a response, auto-learning when needed."""
+        # C-fix (round 2026-08-08b): stash the FULL user utterance on the engine
+        # so affect realizers can read the user's own felt-label ("i feel
+        # hollow") even when the disclosure context passed downstream only
+        # carries the extracted event span ("lost half the colony"). Consumed
+        # by _appraised_affective_reply's copula scan as the authoritative text.
+        self._last_user_input = user_input
         # Reset the prior turn's stance-reversal marker so a retraction recorded
         # this turn is consumed/acked the SAME turn and cannot leak into the next
         # turn's acknowledgment (attitude change is a within-turn valuation
         # recode, surfaced in the reply that follows the retraction).
         try:
             self.user_model.opinions.clear_last_reversal()
+            self.user_model.opinions.clear_reversal_guard()
         except Exception:
             pass
         # Step 3a: Meta-command detector at the VERY TOP of process_turn (PFC task-set override)
@@ -3230,6 +3570,28 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     self._last_responses = self._last_responses[-10:]
                 self.notify_user_idle()
                 return _exp
+        except Exception:
+            pass
+
+        # ── Self-REFERENCE gate (round 2026-08-09i) ─────────────────────
+        # BEFORE the structured-recall / fact-reasoning echo. Catches
+        # self-directed phrasings about RAVANA's OWN mind ("do you know who
+        # you are", "name your own mind", "what would you ask me", "what do
+        # you make of me", "one thread about yourself") that the narrow
+        # identity regex in _route_self_query misses. Answering these from the
+        # episodic echo would replay a stored USER utterance as RAVANA's
+        # self-knowledge — a self/other boundary inversion. _route_self_
+        # reference answers strictly from REAL state (self-model + live user
+        # stores). Fail-open: None -> unchanged flow.
+        try:
+            _sref = self._route_self_reference(user_input)
+            if _sref is not None:
+                self._last_strategy = "self_reference"
+                self._last_responses.append(_sref)
+                if len(self._last_responses) > 10:
+                    self._last_responses = self._last_responses[-10:]
+                self.notify_user_idle()
+                return _sref
         except Exception:
             pass
 
@@ -3709,7 +4071,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 # utterance (optionally after a leading "so/well/and/i guess").
                 _state_disclosure = bool(re.match(
                     r"^(so |well |and |i guess |i think )?"
-                    r"(i'm|i am|i feel|i've been|i am feeling|i feel like)\b", _low)) or \
+                    r"(i'm|i am|i feel|i felt|i've been|i am feeling|i feel like)\b", _low)) or \
                     bool(re.match(
                         r"^(so |well |and |my )\s*\w+(\s+\w+)?\s+"
                         r"(is|are|has|have|got|passed|died|left|hurts?|is being)\b", _low))
@@ -3751,7 +4113,9 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     r"\b(hurt|hurts|pain|ache|suffering|suffer|grief|grieving|"
                     r"lonely|alone|scared|afraid|terrified|anxious|panic|"
                     r"devastated|broken|dying|dead|miserable|hopeless|"
-                    r"overwhelmed|exhausted|furious|angry|cry|cried|crying)\b", _low))
+                    r"overwhelmed|exhausted|furious|angry|cry|cried|crying|"
+                    r"empty|numb|hollow|blue|gutted|meh|low|down|wrecked|"
+                    r"crushed|sad|unhappy|worthless|lost)\b", _low))
                 # ELI5 / simile self-reference ("like i'm five", "as if i'm ...")
                 # is a request framing, not a state disclosure.
                 _eli5_simile = bool(re.search(
@@ -3897,6 +4261,72 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 # untouched (no recall frame).
                 if _is_q_g or _pref_stmt_g or _name_stmt_g or _recall_frame:
                     _disc = None
+            # SUPPORT/EMPATHY MISFIRE GATE (RAVANA defect class: a benign
+            # self-disclosure matched support/empathy before checking genuine
+            # distress). This runs at the TOP LEVEL of the empathy frame-guard so
+            # it covers BOTH the primary VAD detection and the GloVe cause
+            # fallback. The cause classifier is NOISY on arbitrary first-person
+            # text: an attribute disclosure about an ENTITY the user owns ("my
+            # dog is a sheepdog named Cairn", "my child is a curious kid named
+            # Sam", "my cat is fluffy and white") is often mislabeled
+            # "loss"/"other_suffering" and routed into the empathy path, where the
+            # turn is MET with comfort instead of ACKED as a fact -- and the
+            # stored fact is dropped. We therefore do NOT trust the classifier for
+            # this gate; instead we use the utterance SHAPE: a plain possessive
+            # attribute statement ("my <entity> is/was/has <attribute>") or a
+            # first-person copula-attribute ("i am/have <role>") with NO explicit
+            # suffering/distress word is, by construction, a factual disclosure,
+            # not a cry for empathy. We drop _disc so it falls through to
+            # autobiographical storage and gets a grounded ack. Genuine distress
+            # is preserved: the gate does NOT fire when a real suffering/loss word
+            # is present ("my mom is sick", "my dog died", "i am sad", "my friend
+            # is hurting"), which keeps those on the empathy path. Structural: it
+            # keys off the utterance shape + a small, stable set of suffering
+            # words -- NOT a per-entity/per-topic table -- so it generalizes
+            # ("my brother is in hospital" stays empathic, "my brother is a
+            # doctor" drops to fact storage). Fail-closed: when ambiguous we KEEP
+            # empathy (do not drop _disc), mirroring the documented support-misfire
+            # fix's default-to-care.
+            # ── Correction-persist gate (round 2026-08-09g, D3) ───────────────
+            # mine_personal_facts detects user corrections (name, relation, and
+            # the count/quantity form: "it's seven hives now, i split one"). A
+            # correction that is ALSO classified as a self-disclosure (e.g. T2
+            # "oh wait, i was wrong earlier, it's seven hives now") would hit
+            # the empathy early-return below and the stale fact would never be
+            # superseded. Persist ANY detected correction HERE, before the
+            # empathy path, online/incrementally via contradict() (no retrain),
+            # and emit a grounded correction ack. The disclosure empathy path
+            # returns after this, so it never double-handles. Content from the
+            # live store; no authored prose.
+            _correction_ack = self._handle_correction_persist()
+            if _correction_ack:
+                return _correction_ack
+            if _disc is not None:
+                _low_d = (user_input or "").lower().strip()
+                _low_d = (_low_d.replace("i'm", "i am")
+                          .replace("i've", "i have").replace("i'll", "i will"))
+                # Plain possessive-attribute statement: "my <noun> is/was/has/
+                # are/have/got/named/called <...>". This is the factual-disclosure
+                # shape (the user is telling RAVANA something ABOUT an entity).
+                _possessive_attr = bool(re.match(
+                    r"^my\s+\w+(\s+\w+)?\s+"
+                    r"(is|are|was|were|has|have|got|named|called|likes|loves|enjoys|prefers)\b",
+                    _low_d)) or bool(re.match(
+                    r"^(i am|i'm|i have|i've|i am feeling|i feel)\s+\w+", _low_d))
+                # Genuine distress cues -- a small, stable set of suffering/
+                # loss words. Presence of ANY of these means the utterance IS a
+                # distress disclosure and must stay on the empathy path. This is
+                # the universal "is anyone actually hurting here?" check, NOT a
+                # per-entity table.
+                _suffering = bool(re.search(
+                    r"\b(hurt|hurts|hurting|pain|ache|suffering|suffer|"
+                    r"grief|grieving|lonely|alone|scared|afraid|terrified|"
+                    r"anxious|panic|devastated|broken|dying|dead|died|death|"
+                    r"dies|passed|miserable|hopeless|overwhelmed|exhausted|"
+                    r"furious|angry|cry|cried|crying|sad|sick|ill|hospital|"
+                    r"wounded|bleeding|lost|worried|troubled|upset)\b", _low_d))
+                if _possessive_attr and not _suffering:
+                    _disc = None
             if _disc is not None:
                 # §7 deictic special-case: "i love you" / "i like you" is a
                 # relationship declaration addressed to the AGENT, not a generic
@@ -3907,22 +4337,90 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 if re.search(r"\bi\s+(love|like)\s+(you|u|ur)\b", user_input.lower()):
                     pass
                 else:
-                    # §3 Empathy selector: (VAD_label x cause) -> response frame.
-                    _vad_label = self.emotion.get_emotional_label()
-                    _cause = classify_cause(user_input, self._glove_vector).label
-                    _frame = select_empathy_frame(_vad_label, _cause)
-                    _resp, _strat = self._emotional_response(None, _disc)
-                    # Tag the chosen frame for instrumentation / BOS conditioning.
-                    self._last_empathy_frame = _frame
-                    self._last_strategy = _strat
-                    self._last_responses.append(_resp)
-                    if len(self._last_responses) > 10:
-                        self._last_responses = self._last_responses[-10:]
-                    self.notify_user_idle()
-                    return _resp
-            # §7 Reaction to the prior turn ("that's hilarious", "aww") routes
-            # to the affiliation/empathy frame, not concept lookup.
-            if is_reaction(user_input):
+                    # W-loss-homograph guard (round 2026-08-10T1401Z): the VAD
+                    # lexicon marks "lost" as negative affect, so a first-person
+                    # OBJECT loss ("i lost a lobster pot", "i lost my keys") is
+                    # mis-detected as a distress disclosure and met with "feeling
+                    # lost is hard" empathy — discarding the factual event (it IS
+                    # stored as an `event` fact, but the reply is nonsensical and
+                    # the user's real disclosure is lost in the empathy frame).
+                    # A death/grief of a BEING (my dog died, my gran passed) is
+                    # genuine bereavement and stays empathic. So: drop empathy
+                    # ONLY for first-person "i lost <object>" where the lost
+                    # thing is NOT a person/animal/relationship noun and there is
+                    # no grief word — let it fall through to the grounded
+                    # event-ack. Structural (object-vs-being via a stable
+                    # bereavement set + absence of grief words), NOT a per-thing
+                    # table. Fail-closed: presences of any grief/death word keep
+                    # empathy intact.
+                    _low_loss = (user_input or "").lower().strip()
+                    _first_person_lost = bool(re.search(
+                        r"\b(i|we)\s+(lost|lost\s+my|lost\s+a|lost\s+an|"
+                        r"losing)\b", _low_loss))
+                    _grief_word = bool(re.search(
+                        r"\b(grief|grieving|mourn|mourning|died|dies|dead|"
+                        r"passed|funeral|suicide|devastated|heartbroken)\b",
+                        _low_loss))
+                    _being_loss = bool(re.search(
+                        r"\b(my|our|his|her|their)\s+\w*\s*\b"
+                        r"(dog|cat|pet|bird|child|son|daughter|mum|mom|mother|"
+                        r"dad|father|grandma|grandpa|grandmother|grandfather|"
+                        r"wife|husband|partner|friend|brother|sister|sibling|"
+                        r"grandchild|baby|horse|cow|sheep|goat|pig|rabbit|"
+                        r"hamster|turtle|fish|plant|tree)\b", _low_loss))
+                    if _first_person_lost and not _grief_word and not _being_loss:
+                        _disc = None
+                    if _disc is not None:
+                        # §3 Empathy selector: (VAD_label x cause) -> response frame.
+                        _vad_label = self.emotion.get_emotional_label()
+                        _cause = classify_cause(user_input, self._glove_vector).label
+                        _frame = select_empathy_frame(_vad_label, _cause)
+                        _resp, _strat = self._emotional_response(None, _disc)
+                        # Tag the chosen frame for instrumentation / BOS conditioning.
+                        self._last_empathy_frame = _frame
+                        self._last_strategy = _strat
+                        self._last_responses.append(_resp)
+                        if len(self._last_responses) > 10:
+                            self._last_responses = self._last_responses[-10:]
+                        self.notify_user_idle()
+                        return _resp
+            # R1 fix (round 2026-08-11T0521Z): the reaction gate below matches
+            # bare lead-in cues like "so"/"that" (is_reaction /^\\s*(that'?s|so|...)/).
+            # That is correct for a reaction to the prior turn ("so, glad that
+            # landed"), but it ALSO swallows a genuine SELF-BIOGRAPHY question
+            # that opens with "so" — e.g. "so after everything, am i a
+            # pigeon-keeper or a baker at heart?" / "so, who am i to you?".
+            # Those are NOT reactions; they ask RAVANA to integrate what it
+            # learned about the user into a stance. Route them past the
+            # affiliation frame so the real self-model / user-profile pipeline
+            # answers. Detection is structural: a self-biography question
+            # contains an identity / self-reflective verb-phrase ("am i",
+            # "who am i", "what am i", "do you make of me", "at heart") OR an
+            # "or" disjunction of roles (a forced-choice self-labeling). This
+            # is a deictic-intent guard, not a per-topic table; it generalizes
+            # across every persona. Fail-open: a real reaction with no
+            # self-biography cue still hits the affiliation frame below.
+            _low_react = (user_input or "").lower().strip()
+            # A self-biography question asks RAVANA to integrate what it learned
+            # about the USER into a stance/summary. Two structural shapes:
+            #  (a) an explicit identity verb-phrase ("am i", "who am i", "do you
+            #      make of me", "at heart"), or
+            #  (b) a forced-choice self-labeling ("am i a baker or a keeper",
+            #      "more of a X or a Y") — an "or"/"versus" disjunction that also
+            #      names the user's self ("i'm", "me", "my"). A plain reaction
+            #      like "so, cats or dogs?" is NOT exempted (no self cue), so it
+            #      still routes to the affiliation frame. Structural, not a
+            #      per-topic table; generalizes across every persona.
+            _self_bio_phrase = bool(re.search(
+                r"\b(am i|are i|who am i|what am i|do you (?:make|think) of me|"
+                r"at heart|who do you (?:think|say) i am|more me|more of a)\b",
+                _low_react))
+            _self_bio_choice = bool(re.search(
+                r"\b(or|versus|vs\\.?|rather than)\b", _low_react)) and (
+                "i'm" in _low_react or " i " in _low_react or "me" in _low_react
+                or "my " in _low_react or "am i" in _low_react)
+            _self_bio_intent = _self_bio_phrase or _self_bio_choice
+            if is_reaction(user_input) and not _self_bio_intent:
                 _last = self._last_responses[-1] if self._last_responses else ""
                 _low = user_input.lower()
                 if "hilarious" in _low or "funny" in _low or "haha" in _low:
@@ -4119,6 +4617,23 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             self.search_engine.clear_search_cache()
         except Exception:
             pass
+        # ── General correction persistence (round 2026-08-09g, D3) ───────
+        # mine_personal_facts detects user corrections (name, relation, and
+        # the new count/quantity form: "it's seven hives now, i split one")
+        # but only the SELF-DISCLOSURE path (which returns at ~4101) consumes
+        # the signal via contradict(). A correction phrased as a non-
+        # disclosure turn (no "my X is Y" / feeling shape) never reached that
+        # path, so its detected_correction was silently reset here without
+        # ever superseding the stale fact (measured: T41 "it's seven hives
+        # now" -> "ok, noted: wait."; the count stayed six). Persist ANY
+        # detected correction here, online/incrementally, and emit a grounded
+        # correction ack. The disclosure path returns before this point, so
+        # this never double-handles. Content from the live store; no
+        # authored prose, no retrain.
+        _correction_ack = self._handle_correction_persist()
+        if _correction_ack:
+            return _correction_ack
+
         self.user_model.reset_correction_flags()  # Reset LPFC pause flag each turn
         # Decay recency boost: clear after 10 turns (synaptic tag window)
         if hasattr(self, '_recent_learn_turn') and self.turn_count - self._recent_learn_turn > 10:
@@ -4278,8 +4793,27 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 # yields a stance + affect rather than a dictionary entry.
                 if m_agent_stance:
                     # "what do you think about cats" -> target after the cue.
+                    # R3 fix (round 2026-08-11T0521Z): take the LAST substantive
+                    # content word as the topic, not the first. A comparative
+                    # like "between the loft and the banjo, which do you think
+                    # is more me?" left "between" as the target under the old
+                    # split()[0] extraction, which produced the broken "i'm
+                    # drawn to." prefix. Skip closed-class / connector words
+                    # (between/and/which/more/me/you/is/do/think...) and take
+                    # the final real topic; if none remains, leave target empty
+                    # so _agent_stance_on returns its honest no-topic fallback.
                     _tail = clean_input[m_agent_stance.end():]
-                    target = _tail.strip(" ?!.").split()[0] if _tail.strip(" ?!.").split() else ""
+                    _tail_toks = [w for w in re.findall(r"[a-z']+", _tail)
+                                  if w not in ("about", "on", "the", "a",
+                                               "an", "of", "for", "with",
+                                               "to", "is", "are", "do",
+                                               "does", "you", "i", "it",
+                                               "that", "this", "and", "or",
+                                               "between", "which", "more",
+                                               "me", "what", "just", "said",
+                                               "right", "really", "exactly",
+                                               "think", "than")]
+                    target = _tail_toks[-1] if _tail_toks else ""
                 elif m_agent_likes_yesno:
                     _ym = re.search(
                         r"\bdo\s+you\s+(?:like|love|hate|enjoy|prefer|care\s+for)\s+([a-z][a-z\s'-]{1,30}?)[\?\.]?$",
@@ -4671,7 +5205,29 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             except Exception:
                 _has_strong_anchoring = False
 
-        if not _has_strong_anchoring and self._is_absurd_query(user_input, subject):
+        # R1 fix (round 2026-08-11T0521Z): a self-biography question that
+        # asks RAVANA to INTEGRATE what it learned about the USER into a
+        # stance/summary ("so after everything, am i a pigeon-keeper or a
+        # baker at heart?", "who am i to you?") must NOT be treated as an
+        # absurd/OOD premise. The absurd-query detector keys on low concept
+        # cosine ("pigeon-keeper" x "baker"), which is exactly the shape of a
+        # genuine self-labeling question, so it would fire here and produce
+        # "pigeon-keeper — that's a fun image!". Exempt the self-bio intent
+        # (same structural guard as the reaction gate above) so it falls
+        # through to the real self-model / user-profile synthesis. A plain odd
+        # premise with no self-bio cue still hits absurd_query below.
+        _low_sb = (user_input or "").lower().strip()
+        _sb_phrase = bool(re.search(
+            r"\b(am i|are i|who am i|what am i|do you (?:make|think) of me|"
+            r"at heart|who do you (?:think|say) i am|more me|more of a)\b",
+            _low_sb))
+        _sb_choice = bool(re.search(
+            r"\b(or|versus|vs\.?|rather than)\b", _low_sb)) and (
+            "i'm" in _low_sb or " i " in _low_sb or "me" in _low_sb
+            or "my " in _low_sb or "am i" in _low_sb)
+        _self_bio_intent = _sb_phrase or _sb_choice
+        if (not _has_strong_anchoring and self._is_absurd_query(user_input, subject)
+                and not _self_bio_intent):
             _absurd_resp = self._handle_absurd_query(user_input, subject)
             self._last_strategy = "absurd_query"
             self._last_responses.append(_absurd_resp)
@@ -6341,15 +6897,24 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             if not hasattr(loaded_user_model, 'opinions'):
                 loaded_user_model.opinions = UserStanceStore()
             self.user_model = loaded_user_model
-            # Prefer the dedicated user_models/ store if it exists — it is the
-            # continuously-updated, authoritative profile and may be newer than
-            # the copy frozen inside this weight snapshot. Falls back to the
-            # embedded snapshot (above) for legacy checkpoints.
+            # Prefer the dedicated user_models/ store ONLY when it actually
+            # exists — it is the continuously-updated, authoritative profile
+            # and may be newer than the copy frozen inside this weight snapshot.
+            # CRITICAL FIX (round 2026-08-09i): load_user_model() returns a
+            # FRESH EMPTY UserModel() when the dedicated file is absent, so the
+            # old code ALWAYS overwrote the perfectly-good embedded snapshot
+            # with an empty model — silently wiping every learned stance and
+            # personal fact on every reload (the skill documents these as
+            # "durable across sessions"; they were not). Only swap in the
+            # dedicated store when the file is present; otherwise keep the
+            # authoritative embedded snapshot from THIS checkpoint.
             try:
-                from .user_model import load_user_model
-                _separate_um = load_user_model(getattr(self, 'user_suffix', ''))
-                if _separate_um is not None:
-                    self.user_model = _separate_um
+                from .user_model import load_user_model, _user_model_path
+                _um_path = _user_model_path(getattr(self, 'user_suffix', ''))
+                if os.path.exists(_um_path):
+                    _separate_um = load_user_model(getattr(self, 'user_suffix', ''))
+                    if _separate_um is not None:
+                        self.user_model = _separate_um
             except Exception:
                 pass
             # A reask/correction is only meaningful within a single session.

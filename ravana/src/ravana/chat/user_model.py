@@ -4,7 +4,8 @@ import pickle
 from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional, Tuple, Set
 from .models import CorrectionType
-from .personal_fact_store import PersonalFactStore, UserStanceStore
+from .personal_fact_store import (
+    PersonalFactStore, UserStanceStore, QuantityMemory, number_to_int)
 from . import pet_slots as _pet_slots
 
 # ── Dedicated user-model store ───────────────────────────────────────────────
@@ -37,6 +38,42 @@ _CORRECTION_FACT_PATTERNS = [
     r"([\w\s]+?)\s+is\s+(\w+)[,.]*\s+not\s+(\w+)",
     r"([\w\s]+?)\s+are\s+(\w+)[,.]*\s+not\s+(\w+)",
 ]
+
+# real affect categories in brain_regions._CAUSE_SEEDS and
+# support_router._SUPPORT_AFFECT). Used by the bare-copula name guard: a
+# first-person "i'm X" where X is any of these is a TRANSIENT STATE, never a
+# proper noun, so it must not be stored as the user's NAME. This is SEED
+# vocabulary (a data set, not an answer path) — RAVANA-expandable via the
+# shared affect lexicon; removing entries degrades gracefully. Participles
+# ("shaking"/"tired"), irregulars ("torn"/"lost"), and stative/cognitive
+# verbs ("thinking"/"convinced") are all covered so the guard generalizes
+# across every tense/participle form rather than a frozen per-word list.
+_AFFECT_STATE_LEXICON = {
+    # affect / emotion nouns + adjectives
+    "happy", "sad", "glad", "mad", "angry", "furious", "scared", "afraid",
+    "anxious", "worried", "worry", "lonely", "alone", "empty", "hollow",
+    "numb", "lost", "torn", "hurt", "hopeless", "hopeful", "grateful",
+    "excited", "tense", "raw", "low", "blue", "down", "proud", "calm",
+    "nervous", "stressed", "stressedout", "overwhelmed", "depressed",
+    "exhausted", "tired", "hungry", "thirsty", "sick", "confused",
+    "fine", "good", "bad", "ok", "okay", "well", "ready", "done", "sure",
+    "certain", "right", "wrong", "sorry", "here", "there", "home", "awake",
+    "asleep", "late", "early", "busy",
+    # stative / cognitive / feeling verbs (incl. participles + infinitives)
+    "feeling", "felt", "feel", "love", "like", "hate", "dislike", "prefer",
+    "think", "thinking", "believing", "believe", "guess", "guessing",
+    "wonder", "wondering", "mean", "meaning", "know", "knowing", "understand",
+    "want", "wanting", "need", "needing", "wish", "wishing", "hope", "hoping",
+    "doubt", "doubting", "fear", "fearing", "regret", "regretting",
+    "suspect", "suspecting", "agree", "agreeing", "disagree", "convinced",
+    "convincing", "standing", "coming", "going", "trying", "saying",
+    "referring", "talking", "asking", "loving", "hating", "liking",
+    "sticking", "getting", "shaking", "crying", "dying", "lying", "trying",
+    "running", "falling", "breaking", "caring", "waiting", "working",
+    "learning", "growing", "changing", "feeling",
+}
+
+
 
 # D3 (round v3): explicit correction shape "X's name is not Y, it's Z" /
 # "X is not Y, it's Z" where the CORRECTED value is the token after "it's"
@@ -77,6 +114,22 @@ _RETRACTION_CUES = (
     r"\b(?:they're|it's|that's|wasn't|isn't|not)\s+(?:not\s+that\s+bad|not\s+so\s+bad|fine|okay|ok|acceptable|good\s+after\s+all)\b",
     r"\bi\s+take\s+(?:it|that|this|things|them|what\s+i\s+said|my\s+words)\s*back",
     r"\bscratch\s+that\b",
+    # Round t_6c023144 (2026-08-09T1953Z residual): first-person reversal
+    # speech acts that the round worker saw slip through to a fresh FOR stance.
+    # "i flipped, the reef tank is more work than joy" formed a new positive
+    # stance instead of recoding the held one, because "flipped" was absent
+    # here — so no cue matched, the concession branch (requires a "but"/belief
+    # frame) never fired, and mine_stance_reversal bailed before reversing. Add
+    # the decisive change-of-mind verbs as SEED cues (RAVANA-expandable, not a
+    # per-topic table). The tail→held-stance resolver already guards against
+    # corruption: a flip on something the user has no stance on is a no-op
+    # (reverse_stance returns None), so false positives are bounded.
+    r"\bi\s*(?:'ve\s+|have\s+|)(?:flipped|flip-?flopped)\b",
+    r"\bi\s+(?:recant|recanted|renounce|renounced|revoked|reversed|reneged)\b",
+    r"\bi\s+(?:backtracked|went\s+back\s+on|backed\s+off\s+from)\b",
+    # allow the contraction 'i've' (no space after i) as well as 'i had'/'i have'
+    r"\bi\s*'?ve\s+had\s+a\s+change\s+of\s+heart\b",
+    r"\bi\s+(?:had|have)\s+a\s+change\s+of\s+heart\b",
 )
 
 # Softening retraction cues: the user is walking a stance BACK toward neutral,
@@ -122,6 +175,14 @@ class UserModel:
     # topic), kept SEPARATE from biographical facts. Opinions decay faster than
     # facts (malleable attitudes), per OFC/vmPFC vs hippocampal circuit split.
     opinions: UserStanceStore = field(default_factory=UserStanceStore)
+    # Structured quantity memory (round 2026-08-11T0521Z): count-bearing
+    # disclosures ("i keep twelve racing pigeons") are captured as
+    # (subject, kind, count, noun) so RAVANA can SYNTHESIZE a clean count answer
+    # and AGGREGATE across the store ("how many pets in total"). The 'does'/
+    # 'event' text facts still hold the gist sentence; this store holds the
+    # NUMBER, decoupling it from the gist. Seed + online; durable via
+    # get/set_state so it survives engine reload.
+    quantity_memory: QuantityMemory = field(default_factory=QuantityMemory)
 
     knowledge_model: Dict[str, float] = field(default_factory=dict)
     learning_goals: Dict[str, int] = field(default_factory=dict)
@@ -220,6 +281,356 @@ class UserModel:
                 self.detected_correction_type = CorrectionType.CORRECTION_WITH_FACT
                 self.correction_severity = max(self.correction_severity, 0.8)
 
+        # PET re-disclosure correction (round 2026-08-10T0813Z). A pet name
+        # stated in a SECOND phrasing ("the dog is a lurcher called briar"
+        # after "my dog is a lurcher named wren") is a CORRECTION of the
+        # earlier name, not a fresh disclosure — but the possession miner only
+        # matches "my/a/an/the <species> named/called <name>" (one shape), so
+        # "the dog is a lurcher called briar" (species + copula + breed +
+        # called + name) fell through and the stale name persisted, then a
+        # later "what's my dog's name" returned the OLD name. Detect the
+        # copula+breed+name shape, resolve the species via pet_slots (the same
+        # resolver the miner and recall sites use), and if that slot already
+        # holds a DIFFERENT active value, flag a correction so the existing
+        # contradict() machinery supersedes it (online, no retrain). When the
+        # slot is empty the normal possession miner stores it. No per-topic
+        # table — species comes from the live pet_slots vocabulary.
+        # Guard on detected_correction_fact (not the bare flag): _detect_correction
+        # may set detected_correction=True via a weak signal (sentiment-drop /
+        # reask) WITHOUT a fact, which would otherwise suppress this pet fact
+        # and leave flag=True/fact=None (the T46 chat regression). Only skip
+        # when a real correction FACT is already extracted.
+        if not self.detected_correction_fact:
+            _pet_corr = re.search(
+                r"\b(?:my|the|a|an)\s+([\w'-]+)\s+(?:is|was|are|were)\s+"
+                r"(?:a\s+|an\s+)?(?:[\w'-]+\s+){0,2}?"
+                r"(?:named|called)\s+([\w'-]+)", q_clean, re.IGNORECASE)
+            if _pet_corr:
+                _sp_word = _pet_corr.group(1).strip().lower()
+                _new_name = _pet_corr.group(2).strip().strip(".,!?")
+                _species = _pet_slots.species_of(_sp_word)
+                if _species is None and _sp_word.isalpha():
+                    _species = _pet_slots.learn_species(_sp_word)
+                if _species is not None and _new_name:
+                    _slot = _pet_slots.slot_for(_species, 1)
+                    _prior = self.personal_facts.get("i", _slot)
+                    if _prior is not None and _prior.value.lower() != _new_name.lower():
+                        self.detected_correction = True
+                        self.detected_correction_fact = ("i", _slot, _new_name)
+                        self.detected_correction_type = CorrectionType.CORRECTION_WITH_FACT
+                        self.correction_severity = max(self.correction_severity, 0.8)
+
+
+        # REVERSE-ORDER POSSESSION NAMING + OWNER RE-ATTRIBUTION miner (round
+        # 2026-08-10T1401Z feature). Limitation #1 flagged in the round report:
+        # the possession miner only captures "my <species> is/are named/called
+        # <name>" and "i have a <species> named <name>" — FORWARD order with the
+        # owner first. But a user re-discloses pets the OTHER way round, which
+        # the miner never modelled:
+        #   * reverse-order naming: "the barn owl is mine and she's called wren"
+        #     (THE <species> IS MINE [and (he|she|it)'s called|named <name>]) —
+        #     the owl was previously stored under the USER (subject "i",
+        #     species slot "owl") on the first disclosure, so this second
+        #     phrasing must FILE THE NAME on that same slot, not drop it.
+        #   * owner re-attribution: "pip is my sister's cat" /
+        #     "the barn owl is mine" — re-assigns an owned entity to a DIFFERENT
+        #     owner. The first disclosure stored pip under subject "i"; this
+        #     must MOVE it to subject "sister" so a later "what's my cat's name"
+        #     no longer returns pip (self/other boundary).
+        # Both write through the SAME pet_slots resolver (species_of / learn_species
+        # / slot_for) the forward miner and the recall sites use, so the key
+        # agrees by construction. No per-topic table; species + owner come from
+        # the live store and the live pet_slots vocabulary (RAVANA-expandable).
+        # Online, no retrain: each turn mines from raw text only.
+        _POSSESS_RE = re.compile(
+            r"\b(the\s+)?(?P<sp>[\w'-]+)\s+(?:is|was|are|were)\s+"
+            r"(?P<mine>(?:mine|my\s+own|ours))"
+            r"(?:\s+(?:and|but|,)?\s*(?:he|she|it|they)'s\s+"
+            r"(?:called|named)\s+(?P<nm>[\w'-]+))?",
+            re.IGNORECASE)
+        for _pr in _POSSESS_RE.finditer(q_clean):
+            _sp_word = _pr.group("sp").strip().lower()
+            if _sp_word in ("the",):
+                continue
+            _species = _pet_slots.species_of(_sp_word)
+            if _species is None and _sp_word.isalpha():
+                _species = _pet_slots.learn_species(_sp_word)
+            if _species is None:
+                continue
+            _slot = _pet_slots.slot_for(_species, 1)
+            _nm = (_pr.group("nm") or "").strip().strip(".,!?")
+            _mine = _pr.group("mine")
+            # Locate any prior slot for this species under the USER — the
+            # first disclosure stored it there (subject "i").
+            _prior_user = self.personal_facts.get("i", _slot)
+            # Ownership claim "is mine" for an entity already owned: file the
+            # name on the existing user slot if one wasn't given before.
+            if _nm and _prior_user is not None:
+                if _prior_user.value.lower() != _nm.lower():
+                    self.personal_facts.contradict("i", _slot, _nm)
+                else:
+                    self.personal_facts.reinforce("i", _slot, _nm)
+            elif _nm:
+                # "the barn owl is mine and she's called wren" — first time we
+                # see the name for this species under the user; store it.
+                self.personal_facts.assert_fact(
+                    "i", _slot, _nm, confidence=0.6,
+                    source="seed_regex")
+            # Owner re-attribution: "the barn owl is mine" for an entity that
+            # was previously stored under a DIFFERENT owner must RE-ASSIGN it to
+            # the user. Detect the cross-owner move by scanning for an active
+            # prior slot for this species under any non-user subject.
+            if _prior_user is None and _mine:
+                for (s, a, v), f in self.personal_facts.facts.items():
+                    if (s != "i" and a == _slot and not f.superseded):
+                        # move to the user: retire the old owner's record and
+                        # re-assert under "i" (preserve the value/name).
+                        f.superseded = True
+                        self.personal_facts.assert_fact(
+                            "i", _slot, v, confidence=0.6,
+                            source="seed_regex")
+                        break
+        # R8 fix (round 2026-08-11T0521Z): REVERSE-ORDER ownership claim /
+        # correction "<name>'s my <species>" (e.g. "salt's my dog actually")
+        # was NOT captured by the forward "<species> is mine" miner
+        # (_POSSESS_RE) nor the owner re-attribution miner (_OWNER_RE, which
+        # only moves an entity OFF the user). So "salt's my dog" — a user
+        # re-claiming a pet a neighbour had disclosed — was silently dropped,
+        # and recall still returned the neighbour's record. This block handles
+        # the subject-first form: extract name + species, and (a) if a prior
+        # active record for this species exists under a NON-user subject,
+        # re-attribute it to the USER (supersede the old owner's record, assert
+        # under "i" with the clean name); (b) otherwise assert / file the name
+        # on the user's species slot (same resolver the forward miner uses, so
+        # the key agrees by construction). Only KNOWN species match
+        # (species_of without learn_species) so a stray "<name>'s my <relation>"
+        # (e.g. "john's my friend") can never learn "friend" as a pet species.
+        _NAME_MINE_RE = re.compile(
+            r"\b(?P<nm>[A-Za-z][\w'-]*)\s*'s\s+my\s+(?P<sp>[\w'-]+)\b",
+            re.IGNORECASE)
+        for _nr in _NAME_MINE_RE.finditer(q_clean):
+            _nm = _nr.group("nm").strip().strip(".,!?").lower()
+            _sp_word = _nr.group("sp").strip().lower()
+            if not _nm or _sp_word in ("the", "a", "an"):
+                continue
+            # Do NOT treat an interrogative word ("what", "who", "which", ...)
+            # or closed-class pronouns/existentials as a pet name. A recall query
+            # like "what's my dog's name" matches this pattern (nm="what", sp="dog")
+            # and would otherwise overwrite the stored name with the question word.
+            # Genuine names are never wh-words or these closed-class tokens, so this
+            # guard is safe.
+            if _nm in ("what", "who", "which", "where", "when", "why",
+                       "how", "whose", "whom", "that", "there", "here",
+                       "he", "she", "it"):
+                continue
+            _species = _pet_slots.species_of(_sp_word)
+            if _species is None:
+                # Only react to KNOWN species (no learn_species here) to avoid
+                # learning a relation noun ("friend") as a pet species.
+                continue
+            _slot = _pet_slots.slot_for(_species, 1)
+            # (a) re-attribute from a prior non-user owner to the user.
+            _moved = False
+            for (s, a, v), f in self.personal_facts.facts.items():
+                if (s != "i" and a == _slot
+                        and not getattr(f, "superseded", False)):
+                    f.superseded = True
+                    self.personal_facts.assert_fact(
+                        "i", _slot, _nm, confidence=0.6,
+                        source="seed_regex")
+                    _moved = True
+                    break
+            if _moved:
+                continue
+            # (b) file / reinforce the name on the user's own species slot.
+            _prior_user = self.personal_facts.get("i", _slot)
+            if _prior_user is not None:
+                if _prior_user.value.lower() != _nm.lower():
+                    self.personal_facts.contradict("i", _slot, _nm)
+                else:
+                    self.personal_facts.reinforce("i", _slot, _nm)
+            else:
+                self.personal_facts.assert_fact(
+                    "i", _slot, _nm, confidence=0.6,
+                    source="seed_regex")
+        # OWNER-AS-POSSESSOR re-attribution: "<name> is my <owner>'s <species>"
+        # e.g. "pip is my sister's cat" / "wren is my mum's owl". Re-assigns an
+        # owned entity from the USER to a NAMED third-party owner. The first
+        # disclosure stored pip under subject "i"; this must MOVE it to subject
+        # <owner> so recall keyed by the user no longer returns it (self/other
+        # boundary, same reasoning as the D6 possessive-split fix). Generic:
+        # any "<name> is my <owner>'s <species>" resolves owner + species from
+        # the live pet_slots vocabulary; the user can name any relation.
+        _OWNER_RE = re.compile(
+            r"\b(?P<nm>[\w'-]+)\s+is\s+my\s+(?P<own>[\w'-]+)'s\s+"
+            r"(?P<sp>[\w'-]+)\b", re.IGNORECASE)
+        for _or in _OWNER_RE.finditer(q_clean):
+            _nm = _or.group("nm").strip().strip(".,!?").lower()
+            _owner = _or.group("own").strip().lower()
+            _sp_word = _or.group("sp").strip().lower()
+            if _owner in ("the", "a", "an") or not _nm:
+                continue
+            # Owner re-attribution ONLY fires when the user already owns a pet
+            # NAMED <nm>. This anchors the species to the entity the user
+            # actually disclosed ("pip is my sister's cat" -> pip was the
+            # user's cat), so a stray "<name> is my <owner>'s name" (a person
+            # naming themselves after a pet) can never learn "name" as a
+            # species or move an unrelated fact. We resolve the species from
+            # the LIVE user-owned slot whose value contains _nm — never from
+            # the trailing word, which may be a relation noun ("name"), and we
+            # never call learn_species here. If the user owns no pet named _nm,
+            # this is not a possession re-attribution; skip it.
+            _prior_user = None
+            _slot = None
+            for (s, a, v), f in self.personal_facts.facts.items():
+                if (s == "i" and not f.superseded
+                        and _pet_slots.is_pet_attribute(a)
+                        and _nm in re.sub(r"^(?:called|named)\s+", "",
+                                          v.lower()).split()):
+                    _prior_user = f
+                    _slot = a
+                    break
+            if _prior_user is None or _slot is None:
+                continue
+            # Owner re-attribution: the entity leaves the user and moves to a
+            # named third-party owner. The name comes from THIS phrase (_nm),
+            # which is the clean name — the forward miner may have stored a
+            # "called <name>" value, so we prefer the explicit name here and
+            # never echo the "called " scaffolding into the owner's record.
+            # Retire EVERY active user record for this species slot
+            # (value-agnostic): contradict() would skip superseding when the
+            # new value equals the old, which would leave the user's stale
+            # record active and a later "what's my <species>'s name" would
+            # still surface it. Self/other boundary must be enforced.
+            for (s, a, v), f in self.personal_facts.facts.items():
+                if s == "i" and a == _slot and not f.superseded:
+                    f.superseded = True
+            # The hippocampal episodic index is keyed by ENTITY (not subject),
+            # so moving pip off the user must ALSO clear the user-facing entry
+            # for that entity — otherwise a later "what's my cat's name" reads
+            # episodic_index["cat"] and echoes the stale name. This is the same
+            # self/other boundary as the fact-store supersede above, applied to
+            # the recall source the engine actually reads.
+            _ent_word = _pet_slots.base_species(_slot)
+            _epi_index = getattr(self, "_episodic_index", None)
+            if _epi_index is not None and _ent_word in _epi_index:
+                _epi_index.pop(_ent_word, None)
+            # The RAW episodic transcript is a SECOND recall source: recall
+            # merges each stored turn's `facts` dict into the entity index
+            # (engine_memory.py _retrieve_episodic). Turn 1 stored
+            # {"cat": "called pip"} in that turn-record's `facts`, so even after
+            # we pop episodic_index["cat"], the transcript still replays the
+            # stale name for the user's cat. The user just re-attributed this
+            # entity to a THIRD PARTY — redact that entity from every stored
+            # turn's `facts` so the self/other boundary holds at BOTH recall
+            # sources. Only the entity keyed by this species leaves the user;
+            # other stored facts on the same turn are untouched.
+            _epi_tr = getattr(self, "_episodic_transcript", None)
+            if _epi_tr is not None:
+                for _rec in _epi_tr:
+                    _rfacts = _rec.get("facts")
+                    if not isinstance(_rfacts, dict):
+                        continue
+                    for _k in list(_rfacts.keys()):
+                        _ent_tok = _k.split("_", 1)[0] if "_" in _k else _k
+                        if _pet_slots.species_of(_ent_tok) == _ent_word:
+                            _rfacts.pop(_k, None)
+            # The HIPPOCAMPAL BUFFER is a THIRD recall source: multi-hop
+            # relational recall (_try_multi_hop -> _hop_retrieve) reads raw
+            # stored utterances from it via buf.retrieve(<entity>). Turn 1 stored
+            # ("cat","is_about","my cat is called pip") there, and the multi-hop
+            # reasoner returns that raw utterance verbatim as the answer to
+            # "what is my cat's name?". The user just re-attributed the cat to a
+            # third party, so the user-facing buffer entry for that species must
+            # be RETIRED from every key list it lives under — otherwise the
+            # self/other boundary leaks at the multi-hop path even though the
+            # fact-store + episodic sources are clean. buf.retrieve does NOT
+            # honor the `superseded` flag, so we remove the objects directly from
+            # each key-list (the same FactTriple is indexed under the species
+            # subject AND alias keys, so we must purge it everywhere).
+            _hbuf = getattr(self, "_hippocampal_buffer", None)
+            if _hbuf is not None:
+                _hb_facts = getattr(_hbuf, "facts", None)
+                if _hb_facts is not None:
+                    # FactTriple is an unhashable dataclass, so collect the
+                    # objects to drop via id() rather than a set literal.
+                    _drop_ids = {id(_f) for _lst in _hb_facts.values()
+                                 for _f in _lst
+                                 if getattr(_f, "subject", None) == _ent_word}
+                    if _drop_ids:
+                        for _k, _lst in _hb_facts.items():
+                            _hb_facts[_k] = [_f for _f in _lst
+                                            if id(_f) not in _drop_ids]
+                        _all = getattr(_hbuf, "_all_facts", None)
+                        if _all is not None:
+                            _hbuf._all_facts = [_f for _f in _all
+                                                if id(_f) not in _drop_ids]
+            self.personal_facts.assert_fact(
+                _owner, _slot, _nm, confidence=0.6,
+                source="seed_regex")
+
+        # COUNT / QUANTITY correction (round 2026-08-09g). A plain update like
+        # "it's seven hives now, i split one last week" carries NO negation or
+        # "my X is Y" structure, so the name-correction and _corrective paths
+        # above miss it — the prior count fact ("keep six hives", stored under
+        # the 'does' attribute) was left active and a later "how many hives do
+        # i have" returned the STALE six (measured: T41 -> "ok, noted: wait.",
+        # T42/T64 silently kept six). Detect an update cue + a cardinal number +
+        # an entity noun, locate the prior count/activity fact for that entity,
+        # and supersede it via contradict() (online, no retrain). Content comes
+        # from the live store; no per-topic table, no authored text.
+        if not self.detected_correction:
+            _NUMWORDS = (r"(?:one|two|three|four|five|six|seven|eight|nine|"
+                         r"ten|eleven|twelve|\d+)")
+            _cnt = re.search(
+                r"\b(?P<num>" + _NUMWORDS + r")\s+(?P<ent>[a-z][a-z]+)\b.*\b"
+                r"(now|split|added|new|more|extra|another|gained|got|"
+                r"increased|up to)\b", q_clean, re.IGNORECASE) or \
+                re.search(
+                r"\b(now|split|added|new|more|extra|another|gained|got)\b.*\b"
+                + r"(?P<num>" + _NUMWORDS + r")\s+(?P<ent>[a-z][a-z]+)\b",
+                q_clean, re.IGNORECASE)
+            if _cnt:
+                _num = _cnt.group("num")
+                _ent = _cnt.group("ent").lower().strip()
+                if _ent and _ent not in _VALUE_STOP and _num:
+                    # find the prior activity/count fact whose value mentions
+                    # this entity (e.g. "keep six hives" -> entity "hives").
+                    _prior = None
+                    for (s, a, v), f in self.personal_facts.facts.items():
+                        if s == "i" and a in ("does", "count", "number", "qty") \
+                                and not getattr(f, "superseded", False) \
+                                and _ent in v.lower():
+                            _prior = (a, v)
+                            break
+                    if _prior is not None:
+                        # rebuild the new value with the corrected count,
+                        # preserving the verb + entity from the prior fact.
+                        _verb = re.match(
+                            r"^(keep|have|keep on|have on|raise|own|breed|run|"
+                            r"got)\b", _prior[1].lower())
+                        _newval = (f"{_verb.group(1)} " if _verb else "") \
+                            + f"{_num} {_ent}"
+                        self.detected_correction = True
+                        self.detected_correction_fact = (
+                            "i", _prior[0], _newval)
+                        self.detected_correction_type = \
+                            CorrectionType.CORRECTION_WITH_FACT
+                        self.correction_severity = \
+                            max(self.correction_severity, 0.7)
+                        # Mirror the corrected count into the structured
+                        # QuantityMemory store so "how many X" recall reflects
+                        # the NEW number (otherwise it would echo the stale
+                        # pre-correction count). Seed + online; the store
+                        # supersedes the prior record by subject+noun.
+                        try:
+                            _qcount = number_to_int(_num)
+                            if _qcount is not None:
+                                self.quantity_memory.correct(
+                                    subject="i", noun=_ent, count=_qcount)
+                        except Exception:
+                            pass
+
         def _put_fact(attr: str, val: str, conf: float) -> None:
             # D3 (round v3): never store a closed-class / negation token as a
             # fact value. The old miner matched "my sister's name is not meena,
@@ -230,12 +641,92 @@ class UserModel:
             _val = (val or "").strip().strip(" .,!?;:'\"").lower()
             if not _val or _val in _VALUE_STOP:
                 return
+            # C-value (round 2026-08-08c): trim a TRAILING prepositional phrase
+            # from the value. The greedy value capture ("my X is Y", up to 8
+            # words) over-grabbed trailing prepositions, storing nonsense like
+            # "cabin at." / "always raw from hauling hive boxes up the.". A
+            # value that ENDS in a preposition ("up"/"from"/"at"/"in") is an
+            # incomplete capture — drop the preposition and everything after it
+            # so "cabin at." -> "cabin" and "up the mountain" -> "up" -> "".
+            # Structural: one shared chokepoint for every fact; the
+            # preposition set is closed-class (not content), so trimming it
+            # never discards a real value word. If the whole value is
+            # prepositions, reject it (no content to store).
+            _PREP = ("up", "down", "from", "at", "in", "on", "with", "to",
+                     "of", "by", "for", "about", "into", "onto", "over",
+                     "under", "near", "behind", "beside", "off")
+            _vwords = _val.split()
+            if _vwords and _vwords[-1] in _PREP:
+                # drop trailing prepositions and any words following the first
+                # trailing preposition
+                _cut = len(_vwords)
+                for _i in range(len(_vwords) - 1, -1, -1):
+                    if _vwords[_i] in _PREP:
+                        _cut = _i
+                    else:
+                        break
+                _vwords = _vwords[:_cut]
+                _val = " ".join(_vwords)
+            if not _val or _val in _VALUE_STOP:
+                return
             existing = self.personal_facts.get("i", attr)
             if (_corrective and existing is not None
                     and existing.value.lower() != _val):
                 self.personal_facts.contradict("i", attr, _val)
             else:
                 self.personal_facts.assert_fact("i", attr, _val,
+                                                confidence=conf,
+                                                source="seed_regex")
+
+        def _split_possessive_attr(attr: str):
+            """D6 (round 2026-08-08b-d): 'my partner's name is theo' must model
+            an ENTITY (partner) and its attribute (name), not collapse onto the
+            user's own self-profile. The multi-word attr pattern
+            (r'\bmy\s+(...)\s+is\s+...') captures 'partner's name' as one attr
+            key under subject 'i'; a later recall path sees the substring
+            'name' and renders 'your name is theo' — reporting the PARTNER'S
+            name as the USER's name (a self/other boundary breach; the same
+            defect class that put 'your name is a hypocrite' in v-aug04).
+
+            Fix: detect a possessive head ('s) in the attr and resolve it to
+            (entity=<owner>, attr=<relation>), mirroring the ALREADY-CORRECT
+            possessive handling in engine_memory._record_episode (which keys
+            'my cat's name is whiskers' -> entity=cat, attr=name). This is
+            structural: any 'my <X>'s <Y> is Z' is stored under entity X, never
+            under the user's 'i' subject. Generic — no per-entity table. The
+            entity grows from experience (the user can name any relation)."""
+            _am = re.match(r"^([\w'-]+)'s\s+(.+)$", attr)
+            if _am:
+                return _am.group(1).strip().lower(), _am.group(2).strip().lower()
+            return None, attr
+
+        def _put_fact_ent(entity: str, attr: str, val: str, conf: float) -> None:
+            """Entity-keyed variant of _put_fact (subject = entity, not 'i')."""
+            _val = (val or "").strip().strip(" .,!?;:'\"").lower()
+            if not _val or _val in _VALUE_STOP:
+                return
+            _PREP = ("up", "down", "from", "at", "in", "on", "with", "to",
+                     "of", "by", "for", "about", "into", "onto", "over",
+                     "under", "near", "behind", "beside", "off")
+            _vwords = _val.split()
+            if _vwords and _vwords[-1] in _PREP:
+                _cut = len(_vwords)
+                for _i in range(len(_vwords) - 1, -1, -1):
+                    if _vwords[_i] in _PREP:
+                        _cut = _i
+                    else:
+                        break
+                _vwords = _vwords[:_cut]
+                _val = " ".join(_vwords)
+            if not _val or _val in _VALUE_STOP:
+                return
+            _subj = entity.lower()
+            existing = self.personal_facts.get(_subj, attr)
+            if (_corrective and existing is not None
+                    and existing.value.lower() != _val):
+                self.personal_facts.contradict(_subj, attr, _val)
+            else:
+                self.personal_facts.assert_fact(_subj, attr, _val,
                                                 confidence=conf,
                                                 source="seed_regex")
 
@@ -321,9 +812,79 @@ class UserModel:
                     m_loc.group(1), re.IGNORECASE)
             if _trailing:
                 _loc = _trailing.group(1).strip()
+            # Round 2026-08-08f: a long location clause with a trailing
+            # measure/qualifier ("i live in a lighthouse on a rock about two
+            # kilometers offshore") over-grabs the qualifier, pushing the
+            # capture past the <=5-word gate so NO location fact is stored and
+            # the disclosure falls through to the hollow "got it" ack. Trim a
+            # trailing qualifier phrase led by a measure word ("about/around/
+            # roughly" or a number+unit like "two kilometers") so the real
+            # place head ("a lighthouse on a rock") is kept and stored.
+            # Structural: cuts at a closed-class qualifier, never invents a
+            # place; degrades gracefully if trimming leaves nothing.
+            else:
+                _loc = re.split(
+                    r"\s+(?:about|around|roughly|approximately|some)\s+"
+                    r"(?:\d+\s+\w+|\w+)\b", _loc)[0].strip()
+                _loc = re.split(r"\s+\d+\s+(?:kilometer|meter|mile|km|mi|minute|hour|year|month)s?\b", _loc)[0].strip()
             if _loc and len(_loc.split()) <= 5:
                 self.user_location = _loc
                 _put_fact("location", _loc, 0.6)
+        # POSSESSION-LOCATION miner (round 2026-08-10T0813Z). A named
+        # possession's whereabouts ("the slow coal is moored at bingley",
+        # "the van is parked in leeds") is a location fact about THAT entity,
+        # not the user — but the location miner above only handles "i live in
+        # X" / "i am from X". Without this, "where's the slow coal moored"
+        # could only echo the raw utterance from the episodic index and a
+        # later correction ("at saltaire, not bingley") had no structured fact
+        # to supersede (measured: T23 stored nothing; T45 recall fell through
+        # to the empty filler). Capture the entity + place and store it as an
+        # entity-keyed location fact via _put_fact_ent (subject = entity, not
+        # 'i'), so a later correction/contradict resolves by the same entity
+        # key. Generic: any entity noun + place preposition; no per-place
+        # table. The entity resolves through the same personal-fact store the
+        # user can correct. Online/incremental; no retrain, no LLM.
+        _pos_loc = re.search(
+            r"\b(?:my|the|a|an|our|their|his|her)\b\s*"
+            r"([\w'-]+(?:\s+[\w'-]+){0,3})"
+            r"\s+(?:is|was|are|were|sits|lies|stays|remains)\s+"
+            r"(?:moored|berthed|anchored|docked|based|parked|stationed|"
+            r"kept|stored|housed|tied up|wintered)\s+"
+            r"(?:at|in|on|near|by|outside|outside of)\s+"
+            r"([\w'-]+(?:\s+[\w'-]+){0,3})", q_clean, re.IGNORECASE)
+        if _pos_loc:
+            _ent = _pos_loc.group(1).strip().strip(" .,!?").lower()
+            _place = _pos_loc.group(2).strip().strip(" .,!?").lower()
+            # Strip a leading hedge / discourse word from the entity head so
+            # corrections like "actually the slow coal is moored at saltaire"
+            # resolve to the SAME entity ("slow coal"), not a fresh one
+            # ("ctually the slow coal"). The hedge set is SEED vocabulary
+            # (discourse markers RAVANA can grow); missing one degrades to the
+            # old behavior (a separate entity) — no crash, no wrong answer.
+            _HEDGE = ("actually", "now", "well", "so", "but", "right",
+                      "okay", "ok", "and", "then", "still")
+            _ent_words = _ent.split()
+            while len(_ent_words) > 1 and _ent_words[0] in _HEDGE:
+                _ent_words = _ent_words[1:]
+            _ent = " ".join(_ent_words)
+            # reject closed-class / non-entity heads (e.g. "it is moored at x")
+            if (_ent and _place and _ent not in _VALUE_STOP
+                    and _place not in _VALUE_STOP
+                    and len(_ent.split()) <= 4 and len(_place.split()) <= 4):
+                # Trim a trailing qualifier/clause from the place ("bingley for
+                # the winter" -> "bingley"; "leeds near the canal" -> "leeds";
+                # "saltaire now" -> "saltaire").
+                _place = re.split(r"\s+(?:for|near|by|outside|on|with|that|which|now|currently|these days|,|\.)\b",
+                                  _place)[0].strip()
+                if _place and _place not in _VALUE_STOP:
+                    # A possession has exactly ONE whereabouts; a new location
+                    # for the same entity SUPERSEDES the prior one (online
+                    # correction, no retrain). The user is ground truth.
+                    _prior = self.personal_facts.get(_ent, "location")
+                    if _prior is not None and _prior.value.lower() != _place.lower():
+                        self.personal_facts.contradict(_ent, "location", _place)
+                    else:
+                        _put_fact_ent(_ent, "location", _place, 0.6)
         if m_name:
             name_cand = m_name.group(1).strip()
             name_cand = re.split(r"\s+(?:and|but|,|\.)\s*", name_cand)[0].strip()
@@ -369,19 +930,24 @@ class UserModel:
                     "that", "this", "it", "my", "your", "from", "by", "as",
                     "so", "but", "and", "or", "if", "because",
                 }
-                _NAME_REJECT_VERBS = {
-                    "feeling", "felt", "furious", "scared", "afraid",
-                    "worried", "convinced", "tired", "angry", "sad",
-                    "happy", "glad", "excited", "lonely", "hungry",
-                    "thirsty", "confused", "sure", "certain", "wrong",
-                    "right", "sorry", "ok", "okay", "done", "ready",
-                    "hoping", "thinking", "believing", "guessing",
-                    "wondering", "loving", "hating", "liking", "meaning",
-                    "saying", "referring", "talking", "asking", "trying",
-                    "sticking", "standing", "coming", "going", "feeling",
-                }
+                # A-name (round 2026-08-08c): a bare "i'm X" copula is how
+                # users express TRANSIENT STATES ("i'm torn", "i'm shaking",
+                # "i'm proud", "i'm hollow"). The old reject set was a frozen
+                # stoplist that missed "torn"/"shaking"/"proud", so they were
+                # stored as the user's NAME (name poisoning: a later "what's
+                # my name?" answered "torn"/"shaking"). Reject any candidate
+                # whose head token is an AFFECT / STATE / COGNITIVE word, drawn
+                # from the SAME seed vocabulary the empathy gate uses
+                # (brain_regions._CAUSE_SEEDS + support_router._SUPPORT_AFFECT),
+                # expressed here as one data set. This is SEED vocabulary (not
+                # an if/elif answer path): RAVANA can extend it at runtime via
+                # the shared affect lexicon; removing entries degrades
+                # gracefully (only loses one guard). Covers participles
+                # ("shaking"/"tired"), irregulars ("torn"/"lost"), and
+                # stative/cognitive verbs ("thinking"/"convinced").
+                _NAME_REJECT_AFFECT = _AFFECT_STATE_LEXICON
                 _has_closed = any(w.lower() in _CLOSED for w in _nw)
-                _head_verb = _nw[0].lower() in _NAME_REJECT_VERBS
+                _head_verb = _nw[0].lower() in _NAME_REJECT_AFFECT
                 if len(_nw) > 2 or _has_closed or _head_verb:
                     name_cand = ""
             # Reject common states / descriptors / interrogatives so a bare
@@ -519,6 +1085,19 @@ class UserModel:
                             _val = _trimmed
                     elif _pat.startswith(r"\bi\s+am\s+allergic\s+to"):
                         _attr = "allergy"
+                # D6 (round 2026-08-08b-d): a possessive attr ('my partner's
+                # name is theo' -> attr="partner's name") must be stored under
+                # the OWNER entity, not the user's 'i' subject. Otherwise a
+                # later recall renders "your name is theo" (partner's name
+                # reported as the user's). Split the possessive head into
+                # (entity, relation) and route through _put_fact_ent. The
+                # recall reconstructor (_retrieve_episodic / _structured_recall)
+                # already keys possessive facts by owner, so this makes the
+                # MINER agree with the recaller by construction.
+                _ent, _rel = _split_possessive_attr(_attr)
+                if _ent is not None:
+                    _put_fact_ent(_ent, _rel, _val, 0.6)
+                    continue
                 if _attr and _val and _attr not in ("name", "location"):
                     # A possession disclosure may name several animals ("i have
                     # two cats named biscuit and gravy"). Split the value on
@@ -587,7 +1166,16 @@ class UserModel:
                 r"|often\s+|sometimes\s+|usually\s+)?"
                 r"(?:have\s+been\s+)?(?:been\s+)?(?:keep\s+|grind\s+|race\s+)?"
                 + _verb +
-                r"\s+(?:my\s+|a|an|the\s+)?(.+?)(?:\bfor\b|\bwhen\b|\bbut\b|"
+                # D3 (round 2026-08-08b-d): the article alternative `a` had NO
+                # word boundary, so for "i teach at a school" it matched the
+                # leading 'a' of "at", leaving "t a school" as the object ->
+                # stored "teach t". Bound the article alternatives with \b so
+                # `a`/`an`/`the` only match a STANDALONE article, never the
+                # prefix of another word. The object still passes through
+                # _opinion_topic which drops closed-class words, so "i teach at
+                # a school by the river" -> "school" (real concept head), not
+                # "t". Structural; no per-topic table.
+                r"\s+(?:my\s+|\b(?:a|an|the)\b\s+)?(.+?)(?:\bfor\b|\bwhen\b|\bbut\b|"
                 r"\bbecause\b|\band\b|\.|\!|\?|$|,)",
                 q_clean, re.IGNORECASE)
             if _m:
@@ -608,7 +1196,274 @@ class UserModel:
             if _obj and len(_obj.split()) <= 5:
                 _put_fact("does", _obj, 0.55)
 
-        # Opinion mining (C2): capture the user's value judgments alongside
+        # FIX (round 2026-08-09T1953Z): general first-person activity +
+        # experience capture. The D3 activity loop above only matches BARE
+        # verb forms ("train", "keep") and omits common disclosure verbs
+        # ("throw", "shoot", "develop", "clean", "grow", "train"). Real chat
+        # is dominated by gerunds and continuous tenses ("i throw pots",
+        # "i've been training a juniper bonsai", "i shoot 35mm", "i keep air
+        # plants", "i clean the reef tank glass") — none of which the D3 loop
+        # caught, so they fell through to the hollow "got it — thanks for
+        # telling me." ack AND became unrecallable. This block generalises the
+        # capture to inflected forms and a broader closed VERB SEED set, and
+        # ADDS firsthand-experience (event) capture for disclosures like "i
+        # dropped half its needles", "i lost a favia coral to heat", "i
+        # repotted the juniper and found a root that went necrotic", "i
+        # removed the dead favia". These are real things the user did/experienced
+        # about their world and must land in the same PersonalFactStore so cued
+        # recall and the "what have you learned about me" summary can surface
+        # them (the old code only ever recalled 'does'/'likes' activity facts).
+        #
+        # DESIGN (per round hardcoding rule + seed-vs-hardcoding test):
+        #  - The verb vocabulary is SEED structure: a closed list of
+        #    activity/experience verbs. It is RAVANA-expandable in principle
+        #    (it feeds the same PersonalFactStore the user can correct/extend),
+        #    NOT a per-topic answer dictionary and NOT authored reply prose.
+        #    Removing an entry degrades gracefully (one fewer activity class
+        #    captured) — it is not content RAVANA can never change, so it is
+        #    seed knowledge, not hardcoding.
+        #  - The value is the resolved CONTENT HEAD of the object phrase
+        #    (_opinion_topic drops closed-class words), so the stored value is
+        #    a real concept ("pots", "bonsai", "35mm", "air plants", "reef
+        #    tank glass"), never a function word.
+        #  - Capture is GENERAL (any "i <verb> <object>"), so it fires on new
+        #    topics without retraining or per-topic tuning.
+        #  - Activity verbs -> attr "does" (consistent with the D3 loop).
+        #  - Experience/event verbs -> attr "event" (new), so a later recall
+        #    can reconstruct "you dropped <x>" / "you lost <y>" grammatically
+        #    (see engine_memory._reconstruct_entity + engine_reasoning
+        #    ._derive_ack_from_store which now render the 'event' attr).
+        # Closed VERB SEED vocabulary (RAVANA-expandable; feeds the same
+        # PersonalFactStore the user can correct — NOT per-topic answers, NOT
+        # authored prose). Covers everyday disclosure verbs + common irregular
+        # past forms so first-person activities/experiences actually land.
+        _ACTIVITY_VERBS = (
+            "run", "own", "operate", "play", "teach", "study", "manage",
+            "drive", "build", "make", "sell", "restore", "grow", "watch",
+            "raise", "tend", "brew", "bake", "write", "read", "learn",
+            "practice", "collect", "fix", "paint", "code", "design", "craft",
+            "volunteer", "cook", "fish", "hike", "garden", "farm", "lead",
+            "organize", "keep", "grind", "race", "sail", "fly", "knit",
+            "sew", "weld", "forge", "carve", "compose", "record", "perform",
+            "coach", "train", "compete", "spin", "weave", "mount", "trade",
+            "host", "guide", "throw", "shoot", "develop", "clean", "reload",
+            "recharge", "assemble", "mix", "pour", "press", "roll", "fire",
+            "glaze", "wire", "prune", "pot", "plant", "sketch", "draw",
+            "sculpt", "stitch", "mend", "whittle", "start", "begin", "try",
+            "go", "use", "take", "make", "get", "built", "taught", "wrote",
+            "drew", "sang", "flew", "swam", "rode", "drove", "broke",
+            "spoke", "woke", "froze", "chose", "ate", "drank", "grew",
+            "threw", "knew", "wore", "brought", "bought", "caught",
+            "kept", "slept", "left", "felt", "met",
+            "sent", "spent", "lost", "found", "held", "told", "sold",
+            "paid", "said", "gave", "came", "went", "did", "saw", "got",
+            "made", "took", "set", "put", "cut", "hit", "read", "led",
+            "fed", "bled", "fed",
+        )
+        _EVENT_VERBS = (
+            "drop", "lose", "find", "remove", "break", "discover", "notice",
+            "repot", "prune", "harvest", "spill", "melt", "crack", "kill",
+            "ruin", "save", "nurse", "revive", "miss", "spot",
+            "catch", "pull", "cut", "burn", "flood", "rescue", "rebuild",
+            "recover", "heal", "uproot", "freeze", "thaw", "hatch",
+            "bloom", "wilt", "die", "survive", "escape", "return", "birth",
+            "fall", "fell", "crash", "lose", "lost", "found", "kept",
+            "broke", "felt", "cut", "hit", "met", "told", "saw", "got",
+            "made", "took", "gave", "came", "went", "did", "ate", "drank",
+            "grew", "knew", "threw", "froze", "bled", "fed", "died",
+        )
+        # Match "i [aux?] <verb>(s|ed|ing)? <object> <clause-boundary>".
+        # The object stops at a clause boundary (., !, ?, ",", " and ",
+        # " but ", " because ", " so ", " which ", " that ", " when ",
+        # " where ") so a multi-clause sentence stores only the relevant
+        # fragment (e.g. "i repotted the juniper and found a root..." ->
+        # "juniper", not "juniper and found a root"). The verb is matched
+        # with optional inflection so gerunds/continuous tenses are caught.
+        _act_pat = re.compile(
+            r"\bi\s+(?:also\s+|really\s+|even\s+|just\s+|now\s+|still\s+|"
+            r"often\s+|sometimes\s+|usually\s+)?"
+            r"(?:have\s+been\s+|has\s+been\s+|am\s+|was\s+|were\s+)?"
+            r"(?:been\s+)?"
+            r"(" + "|".join(_ACTIVITY_VERBS) + r")(?:s|es|ing|ed|[a-z]ed|[a-z]d)?"
+            r"\s+(?:my\s+|a\s+|an\s+|the\s+|some\s+|two\s+|three\s+|four\s+|"
+            r"five\s+|six\s+|seven\s+|eight\s+|nine\s+|ten\s+)?"
+            r"(.+?)(?:\s*(?:\.|\!|\?|,|-{1,3}|$|"
+            r"\s+and\s+|\s+but\s+|\s+because\s+|\s+so\s+|\s+which\s+|"
+            r"\s+that\s+|\s+when\s+|\s+where\s+|\s+while\s+))",
+            re.IGNORECASE)
+        # D5 (round 2026-08-10T0813Z): reject activity captures whose OBJECT
+        # is an embedded question, a meta-reflection, or a verbatim self-quote
+        # rather than a real possessed thing. "i lose track of whether i told
+        # you" matched the activity verb "told"/"lose" and stored junk
+        # ('does'/'event' = "told you", "lose track") that polluted later
+        # recall. The object clause is scanned for question-frames
+        # (whether/if/when/what/why/how/who + a second clause) and for the
+        # self-quote pronoun "you"/"me" as the object head (a quoted speech
+        # act, not a possession). Generic: structural grammar test, no
+        # per-topic list; the real possession object still passes through.
+        def _activity_obj_is_real(_obj: str, _raw: str = "") -> bool:
+            _o = (_obj or "").strip().lower()
+            if not _o:
+                return False
+            # Scan the RAW object clause (before _opinion_topic trims it) for
+            # an embedded/subordinate question ("of whether i told you",
+            # "why he left") — a meta-reflection, not a possessed thing. The
+            # head is often a content word ("track"), so the trimmed topic
+            # alone would pass; the raw clause exposes the quote/question.
+            _raw_l = (_raw or _o)
+            if re.search(
+                r"\b(?:of|about|whether|if|why|how|what|when|who|where|that)\b\s+"
+                r"(?:i|you|we|they|he|she|it|the|a|an|my|your|this|that)\b",
+                _raw_l):
+                return False
+            _head = _o.split()[0]
+            # object resolves to a quote/self-reference, not a thing
+            if _head in ("you", "me", "i", "im", "i'm", "we", "us", "they", "them"):
+                return False
+            # the trimmed topic is a single closed-class / particle word
+            # ("up", "off", "out") left after stripping the real object — a
+            # dangling verb-particle, not a possessed thing ("i mixed them
+            # up" -> topic "up", "i got it wrong" -> "wrong"). Reject.
+            if len(_o.split()) == 1 and _o in (
+                "up", "down", "off", "out", "around", "over", "wrong",
+                "right", "back", "in", "on"):
+                return False
+            # the object is a self-error / meta-reflection verb ("muddled",
+            # "confused", "mistaken") — "i got muddled" / "i was confused"
+            # reports the user's own slip, not a possession. A small seed of
+            # error-meta words (structural, RAVANA-expandable), not a per-topic
+            # answer table; the real disclosure object still passes through.
+            if len(_o.split()) == 1 and _o in (
+                "muddled", "confused", "mistaken", "tangled", "muddled",
+                "flustered", "garbled", "befuddled"):
+                return False
+            # R5 fix (round 2026-08-11T0521Z): reject body-part / sensation /
+            # feeling-word objects. "i felt it in my chest for days" resolved
+            # to the single word "chest" (a body part) and was stored as
+            # ('i','does','felt chest') — an experiential/affective detail, NOT
+            # a possession or activity. Same class as "felt cold bite" /
+            # "broke ice": the verb is a sensation verb and the object is a
+            # body/sensation word, so it is an inner state, not a thing the
+            # user does/keeps. A SEED vocabulary (RAVANA-expandable via
+            # learn_sensation; the real possession object still passes through
+            # because it is a noun like "pigeons"/"loft"/"banjo"). Not a
+            # per-topic answer table.
+            _SENSATION_BODY = (
+                "chest", "heart", "stomach", "head", "skin", "bone", "hand",
+                "arm", "leg", "eye", "ear", "lung", "brain", "back", "shoulder",
+                "spine", "knee", "foot", "finger", "toe", "face", "throat",
+                "bite", "burn", "chill", "cold", "heat", "pain", "ache",
+                "shiver", "sweat", "tear", "tears", "breath", "pulse", "blood",
+                "sigh", "lump", "swelling", "cramp", "tingle", "numb",
+            )
+            if len(_o.split()) <= 2 and any(w in _SENSATION_BODY
+                                            for w in _o.split()):
+                return False
+            # R5 fix (round 2026-08-11T0521Z): do NOT reject on word-count
+            # alone. The earlier "<2 reject" + "<=5 cap" dropped legitimate real
+            # disclosures (single-noun possessions like "jar", and 6-7-word
+            # activity/event objects like "throw pots at a community studio").
+            # Reject only on CONTENT grounds (sensation/body/particle/error-meta
+            # words handled by the guards above), never on length. A single real
+            # noun ("jar") and a long real noun phrase ("repeated the juniper
+            # this spring and found a root") must BOTH pass; the R5 intent (drop
+            # inner-state "felt chest") is preserved by the _SENSATION_BODY gate
+            # above, not a length cap.
+            return bool(_obj)
+        for _am in _act_pat.finditer(q_clean):
+            _verb = _am.group(1).lower()
+            _raw_obj = _am.group(2).strip().lower()
+            _obj = self._opinion_topic(_raw_obj)
+            if _activity_obj_is_real(_obj, _raw_obj):
+                _put_fact("does", f"{_verb} {_obj}", 0.55)
+        # Experience / event capture: first-person "i <event-verb> <object>"
+        # describing something that happened to the user's world. Captured
+        # under attr "event" so it is recallable as a lived experience (not
+        # conflated with ongoing activity). Same clause-boundary + content-head
+        # rules as the activity capture above.
+        _evt_pat = re.compile(
+            r"\bi\s+(?:also\s+|really\s+|even\s+|just\s+|now\s+|still\s+|"
+            r"often\s+|sometimes\s+|usually\s+)?"
+            r"(?:have\s+|has\s+|had\s+)?(?:almost\s+|nearly\s+)?"
+            r"(" + "|".join(_EVENT_VERBS) + r")(?:s|es|ing|ed|[a-z]ed|[a-z]d)?"
+            r"\s+(?:my\s+|a\s+|an\s+|the\s+|some\s+|two\s+|three\s+|four\s+|"
+            r"five\s+|six\s+|seven\s+|eight\s+|nine\s+|ten\s+)?"
+            r"(.+?)(?:\s*(?:\.|\!|\?|,|-{1,3}|$|"
+            r"\s+and\s+|\s+but\s+|\s+because\s+|\s+so\s+|\s+which\s+|"
+            r"\s+that\s+|\s+when\s+|\s+where\s+|\s+while\s+))",
+            re.IGNORECASE)
+        for _em in _evt_pat.finditer(q_clean):
+            _verb = _em.group(1).lower()
+            _raw_obj = _em.group(2).strip().lower()
+            _obj = self._opinion_topic(_raw_obj)
+            if _activity_obj_is_real(_obj, _raw_obj):
+                _put_fact("event", f"{_verb} {_obj}", 0.5)
+
+        # Quantitative possession / activity capture (round 2026-08-11T0521Z):
+        # "i keep twelve racing pigeons", "i have three cats", "i bake two
+        # sourdough loaves", "i lost five hens" — extract the LEADING count +
+        # the noun phrase and store it as a structured (subject, kind, count,
+        # noun) record in self.quantity_memory. This decouples the NUMBER from
+        # the gist sentence so a later "how many racing pigeons do i keep" can
+        # be answered with a clean count and "how many pets in total" can be
+        # AGGREGATED across the store. The 'does'/'event' text fact (which
+        # already preserves the number) is still written above; this adds the
+        # structured count on top. Seed + online: the number-word lexicon and
+        # verb->category map live in QuantityMemory (extendable at runtime), so
+        # a new quantity phrasing is captured without retraining or a per-topic
+        # table. Structural: any "i <verb> <count> <noun>" lands here.
+        # Skip interrogatives — a count QUESTION ("how many cats do i have")
+        # must never be stored as if RAVANA had asserted a quantity. The
+        # mine runs for both declarative disclosures and (later) the opinion
+        # miner, which has its own _is_question guard; this one mirrors it so a
+        # first-person count question is never seeded as a fact.
+        _qty_is_question = (q_clean.rstrip().endswith("?")
+                             or bool(re.match(
+                                 r"^(what|who|when|where|why|how|which|is|are|"
+                                 r"do|does|did|can|could|would|should|will|may|"
+                                 r"might|am|have|has|had)\b", q_clean)))
+        _qty_pat = re.compile(
+            r"\bi\s+(?:also\s+|really\s+|even\s+|just\s+|now\s+|still\s+|"
+            r"often\s+|sometimes\s+|usually\s+)?"
+            r"(" + "|".join(QuantityMemory.VERB_KIND.keys()) + r")"
+            r"(?:s|es|ing|ed|[a-z]ed|[a-z]d)?"
+            r"\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|"
+            r"eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|"
+            r"eighteen|nineteen|twenty|\d+)\s+"
+            r"(.+?)(?:\s*(?:\.|!|\?|,|-{1,3}|$|"
+            r"\s+and\s+|\s+but\s+|\s+because\s+|\s+so\s+|\s+which\s+|"
+            r"\s+that\s+|\s+when\s+|\s+where\s+|\s+while\s+|"
+            r"\s+in\s+|\s+on\s+|\s+at\s+|\s+with\s+|\s+for\s+|\s+of\s+|"
+            r"\s+from\s+))",
+            re.IGNORECASE)
+        if not _qty_is_question:
+            for _qm in _qty_pat.finditer(q_clean):
+                _v = _qm.group(1).lower()
+                _num_tok = _qm.group(2).lower()
+                _noun_raw = _qm.group(3).strip().lower()
+                _vk = QuantityMemory.VERB_KIND.get(_v)
+                if _vk is None:
+                    continue
+                _kind, _cat = _vk
+                _cnt = number_to_int(_num_tok)
+                if _cnt is None or _cnt <= 0:
+                    continue
+                # Resolve a canonical noun: an animal word -> its species (so
+                # "racing pigeons" aggregates with "homing pigeons" under
+                # "pigeon"); otherwise the last content noun, singularized.
+                _toks = [t for t in re.findall(r"[a-z']+", _noun_raw)
+                         if t not in self._OPINION_STOP]
+                if not _toks:
+                    continue
+                _spec = _pet_slots.species_of(_toks[-1]) or _pet_slots.species_of(
+                    _toks[0])
+                _canon = _spec if _spec else (
+                    _toks[-1][:-1] if len(_toks[-1]) > 3 and _toks[-1].endswith("s")
+                    else _toks[-1])
+                self.quantity_memory.assert_quantity(
+                    "i", _kind, _cnt, _noun_raw, _canon, category=_cat,
+                    confidence=0.6, source="seed_regex")
+
         # facts. Runs in the miner (not only observe_user_query) so opinions are
         # captured even when process_turn early-returns before Step 5b (e.g. a
         # bare "i really like cats" hits a preference handler). Polarity from
@@ -655,6 +1510,79 @@ class UserModel:
             (r"\bi\s+believe\s+we\s+(?:must|should)\s+(?:ban|cut|end|stop|reduce)\s+(.+?)(?:\.|\band\b|\bbut\b|$|,)", -0.8, 0.55),
             (r"\b(.+?)\s+is\s+my\s+favorite\b", 1.0, 0.7),
             (r"\bi\s+believe\s+([\w'-]+)\s+beats\s+([\w'-]+)", 0.7, 0.4),
+            # A-fix (round 2026-08-08b): comparative opinions ("small towns make
+            # better humans than cities", "tea beats coffee", "the mountains are
+            # finer than the coast"). The Winner (X) is the valued term -> a
+            # positive stance on X. General, no per-topic rule; the content head
+            # is resolved by _opinion_topic so the topic is a real concept
+            # (e.g. "small towns"), never a function word. The loser (Y) is NOT
+            # force-negatived here — if the user holds a negative view of it
+            # they state it, and the same miner captures it; we must not invent
+            # a polarity RAVANA could not revise by talking.
+            (r"\b(.+?)\s+(?:makes?|are?|is|make|produce[s]?|breed[s]?|build[s]?)\s+"
+             r"(?:better|finer|more human|more humane|healthier|stronger|"
+             r"happier|wiser|kinder)\s+(?:humans?|people|folk|neighbou?rs?|"
+             r"citizens?|communities?)?\s*(?:than|over|versus|vs\.?)\b", 0.7, 0.5),
+            (r"\b(.+?)\s+(?:beats|outshines|trumps|wins\s+over|is\s+finer\s+than|"
+             r"is\s+better\s+than)\s+(.+?)(?:[.!?]|\band\b|\bbut\b|$|,)", 0.7, 0.5),
+            # Round 2026-08-08f: broaden the comparative / superlative /
+            # dismissive opinion classes. The prior miner only caught the
+            # 'makes better people than' and 'beats' shapes; rich value
+            # judgments like 'the sea is a better teacher than any classroom',
+            # 'hand-built synths sound warmer than mass-produced', 'graveyards
+            # are the most honest libraries', 'the cold water is the only
+            # honest part of my day', 'most modern music is just wallpaper',
+            # 'the best knots are the ones you can untie in the dark' were NOT
+            # captured -> no stance -> no contradiction target -> dead hollow
+            # ack. Each class below is a GRAMMATICAL pattern (no per-topic
+            # list); the content head is resolved by _opinion_topic so the
+            # stance lands on the real concept (e.g. 'sea', 'hand-built
+            # synths', 'graveyards', 'cold water', 'modern music'). Polarity
+            # is lexical: comparatives/superlatives/dismissals are inherently
+            # valenced. RAVANA can still revise any stance by talking (the
+            # store merges on new input); nothing is frozen or retrained.
+            # (a) comparative copula 'X is a better/safer/finer/honest-er Y
+            #     than Z' -> positive stance on X. The leading 'i think/
+            #     i believe' frame is stripped so the captured subject is the
+            #     real content head (e.g. 'sea'), never 'i think the sea'.
+            (r"(?:\bi\s+(?:think|believe|feel|find|reckon)\s+)?"
+             r"\b(.+?)\s+(?:is|are)\s+(?:a|an)?\s*(?:better|safer|finer|kinder|"
+             r"wiser|healthier|stronger|truer|freer|calmer|cleaner|warmer|"
+             r"cooler|sharper|kinder|more honest|more human|more real|"
+             r"more true|more free)\b"
+             r"(?:\s+(?:teacher|thing|place|way|part|kind|sort|type|version|"
+             r"form|bit|lot|deal))?\s+(?:than|over|versus|vs\.?\b)", 0.7, 0.55),
+            # (b) sensory-comparative 'X sounds/feels/tastes/looks/reads WARMER
+            #     than Y' -> positive stance on X (the WARMER-ER class). Strip
+            #     a leading 'i think/believe' frame the same way.
+            (r"(?:\bi\s+(?:think|believe|feel|find|reckon)\s+)?"
+             r"\b(.+?)\s+(?:sounds|sound|feels|feel|tastes|taste|looks|look|reads|read|"
+             r"seems|seem|comes|come|comes\s+across|comes\s+off)\s*"
+             r"(?:more|much)?\s*(?:warmer|cooler|truer|cleaner|honest|realer|"
+             r"more honest|more real|more true|more alive|more human)\b"
+             r"(?:\s+(?:than|over|versus|vs\.?))", 0.7, 0.55),
+            # (c) superlative 'X is the most Y' / 'X is the best Y' /
+            #     'the only Y' -> positive stance on X. Strip the leading
+            #     'i think/believe' frame so the subject is the content head.
+            (r"(?:\bi\s+(?:think|believe|feel|find|reckon)\s+)?"
+             r"\b(.+?)\s+(?:is|are)\s+the\s+(?:most|best|finest|truest|honest|real|"
+             r"purest|clearest|only)\b", 0.75, 0.6),
+            # (d) 'X is just wallpaper/noise/fluff/...' -> negative dismissive
+            #     stance on X (the subject is being demoted to negligible).
+            #     Structural: the dismissive-metaphor noun set is SEED
+            #     vocabulary (the same kind of small lexicon the sentiment
+            #     adjectives use), not a per-topic table; RAVANA can extend it
+            #     at runtime. Strip the leading frame.
+            (r"(?:\bi\s+(?:think|believe|feel|find|reckon)\s+)?"
+             r"\b(.+?)\s+(?:is|are)\s+(?:just|merely|basically|really\s+just)\s*"
+             r"(?:wallpaper|noise|fluff|decoration|decorative|background|filler|"
+             r"branding|spin|hype|fad|nonsense|garbage|junk|pap|slop|trash)"
+             r"(?:\b|[.!?])", -0.7, 0.55),
+            # (e) 'X is the best kind of Y' -> positive stance on X (X is the
+            #     prized member of category Y). Strip the leading frame.
+            (r"(?:\bi\s+(?:think|believe|feel|find|reckon)\s+)?"
+             r"\b(.+?)\s+(?:is|are)\s+the\s+best\b"
+             r"(?:\s+(?:kind|sort|type|breed|example|form|version|bit))?", 0.7, 0.55),
         ):
             for _m in re.finditer(_pat, q_clean, re.IGNORECASE):
                 _raw = _m.group(_m.lastindex).strip().lower()
@@ -768,6 +1696,55 @@ class UserModel:
         _soft = _matched_cue in _SOFTENING_CUES or any(
             re.search(p, q) for p in _SOFTENING_CUES)
         if cue_end is None:
+            # Round 2026-08-08f: concession shape. A very common contradiction
+            # does NOT use a retraction keyword ("i take back", "i was wrong"):
+            # the user concedes a prior stance with "i thought X but Y" /
+            # "i used to think X but now Y" / "i told you X but actually Y",
+            # where X's topic matches a stance RAVANA already holds and Y
+            # contradicts it. The prior code only caught keyword-led retractions,
+            # so these fell through to the hollow "got it" ack and the stale
+            # stance persisted (the contradiction was silently dropped). Detect
+            # the concession structurally: a first-person past/present belief
+            # frame ("i thought/i used to think/i told you/i said") followed by
+            # a BUT that introduces a contrasting clause. Resolve the conceded
+            # topic against the LIVE stance store; if it matches a held stance,
+            # reverse/soften it the same way a keyword retraction would. This is
+            # grammatical (no per-topic table) and RAVANA can still revise the
+            # stance by further talk. A concession is a SOFTENING (the user is
+            # walking the stance back, not inverting to a hard opposite
+            # conviction), so it relaxes toward neutral, never force-flips.
+            _concession = re.search(
+                r"\b(?:i\s+(?:thought|used\s+to\s+think|told\s+you|said|believed|felt)"
+                r"|i'?m\s+not\s+so\s+sure)\b"
+                r".{0,60}?\b(?:but|although|though|yet|actually|however)\b", q)
+            if _concession is not None:
+                # A concession ("i thought X but Y") walks BACK the belief held
+                # in the PRE-connector clause X — X is the topic the user now
+                # revokes, while Y is the NEW contrasting preference. Resolving
+                # the topic against the WHOLE utterance is wrong: the opinion
+                # miner in the same turn also creates a (bogus) stance from the
+                # trailing "i prefer Y" clause, so a whole-utterance longest-key
+                # match can bind the NEW topic and (a) reverse a stance the user
+                # never walked back, and (b) emit a fabricated "you changed your
+                # mind about Y" ack for a topic with no prior stance. Restrict
+                # resolution to the conceded clause X only. Generic: the clause
+                # is derived from the matched connector span, not a per-topic
+                # table, and still resolves against the live store.
+                _pre_clause = q[:_concession.end()]
+                _target = self._stance_key_in_text(_pre_clause)
+                if _target is None:
+                    # Fallback: the conceded topic may be a multiword key whose
+                    # tokens are split across the connector (e.g. "i thought the
+                    # sea was X but Y"); still scope to the pre-connector span so
+                    # the new preference Y can never be the resolved target.
+                    _target = self._stance_key_in_text(q[:_concession.start()])
+                if _target is not None:
+                    try:
+                        self.opinions._soft_reversal = True
+                        self.opinions.reverse_stance(_target, utterance=text)
+                    except Exception:
+                        pass
+                    return
             return
         # A retraction cue is either a HARD recant ("i was wrong about X",
         # "i take it all back" — flip decisively) or a SOFTENING ("x isn't that
@@ -809,7 +1786,7 @@ class UserModel:
                 return
             try:
                 self.opinions._soft_reversal = _soft
-                self.opinions.reverse_stance(_target)
+                self.opinions.reverse_stance(_target, utterance=text)
             except Exception:
                 pass
             return
@@ -925,7 +1902,33 @@ class UserModel:
             return
         try:
             self.opinions._soft_reversal = _soft
-            self.opinions.reverse_stance(target)
+            self.opinions.reverse_stance(target, utterance=text)
+        except Exception:
+            pass
+        # Mirror any count correction into the structured QuantityMemory store
+        # so "how many X" recall reflects the corrected number. Runs once per
+        # mine regardless of which correction-detection path (277 / 580) set
+        # detected_correction_fact. Seed + online; correct() supersedes the
+        # prior record by subject+noun so a stale count is retired, not echoed.
+        try:
+            _cf = self.detected_correction_fact
+            if (_cf and str(_cf[0]).lower() in ("i", "me", "my")
+                    and _cf[1] in ("does", "count", "number", "qty")):
+                _cfv = (_cf[2] or "").lower().strip()
+                _qc = None
+                _qent = None
+                _ctoks = _cfv.split()
+                for _i, _tok in enumerate(_ctoks):
+                    _n = number_to_int(_tok)
+                    if _n is not None and _i + 1 < len(_ctoks):
+                        _qc = _n
+                        _qent = " ".join(
+                            t for t in _ctoks[_i + 1:_i + 4]
+                            if re.match(r"^[a-z]+$", t))
+                        break
+                if _qc is not None and _qent:
+                    self.quantity_memory.correct(
+                        subject="i", noun=_qent, count=_qc)
         except Exception:
             pass
 
@@ -988,6 +1991,21 @@ class UserModel:
         # Mine biographical + general personal facts into the learned store.
         # Extracted so the same-turn identity gate can call it with only the
         # raw text (subject isn't assigned yet in process_turn there).
+        # C-clock (round 2026-08-08c): advance the fact-store turn clock
+        # BEFORE mining personal facts, not after. The disclosure-ack
+        # composer (_derive_ack_from_store) acks a fact only if its
+        # turn_number == the store's current turn_num, so that it reports
+        # what was learned THIS turn (not a stale fact from 30 turns ago).
+        # When advance_turn() ran AFTER mine_personal_facts, a freshly
+        # stored fact got turn_number == turn_num - 1, so the equality
+        # never held and the honest ack fell through to the degenerate
+        # "got it — thanks for telling me." on ~30 turns of real
+        # disclosures (e.g. "my hands are raw from hauling hive boxes").
+        # Advancing first makes the just-stored fact match the clock, so
+        # the ack renders the REAL stored relation. No retraining; pure
+        # ordering fix.
+        self.personal_facts.advance_turn()
+        self.opinions.advance_turn()
         self.mine_personal_facts(query)
 
         self._update_cognitive_style(query)
@@ -1006,8 +2024,6 @@ class UserModel:
         self.engagement_level = min(1.0, 0.3 + 0.7 * (total_followups / max(1, total_interactions)))
 
         self.interaction_count += 1
-        self.personal_facts.advance_turn()
-        self.opinions.advance_turn()
         self.relationship_depth = min(1.0, self.interaction_count / 20.0)
 
         inferred = self.infer_user_goal(query)
@@ -1330,6 +2346,7 @@ class UserModel:
             'user_background': self.user_background,
             'preferences': self.preferences,
             'personal_facts': self.personal_facts.get_state(),
+            'quantity_memory': self.quantity_memory.get_state(),
             'opinions': self.opinions.get_state(),
             'emotional_state': self.emotional_state,
             'belief_state': self.belief_state,
@@ -1360,6 +2377,9 @@ class UserModel:
         _pf = state.get('personal_facts')
         if _pf:
             self.personal_facts.set_state(_pf)
+        _qm = state.get('quantity_memory')
+        if _qm:
+            self.quantity_memory.set_state(_qm)
         _op = state.get('opinions')
         if _op:
             self.opinions.set_state(_op)
@@ -1392,7 +2412,10 @@ def load_user_model(user_suffix: str = "") -> "UserModel":
     with open(path, "rb") as f:
         um = pickle.load(f)
     if not hasattr(um, "personal_facts"):
-        from .personal_fact_store import PersonalFactStore, UserStanceStore
+        from .personal_fact_store import PersonalFactStore, UserStanceStore, QuantityMemory
         um.personal_facts = PersonalFactStore()
         um.opinions = UserStanceStore()
+    if not hasattr(um, "quantity_memory"):
+        from .personal_fact_store import QuantityMemory
+        um.quantity_memory = QuantityMemory()
     return um

@@ -2553,6 +2553,21 @@ class ResponseGenMixin(ChainWalkerMixin):
         _is_comparative = bool(re.search(
             r"\b(more|most|less|better|worse|rather|instead|than|versus|vs\.?|"
             r"compared to|compared with|prefer .* (to|over)|as .* as)\b", t, re.IGNORECASE))
+        # D2 (round 2026-08-08b-d): the "you're {topic}" lead templates are for
+        # SELF-DESCRIPTIONS ("i'm a teacher" -> "so you're a teacher"). An
+        # OPINION statement ("i think i was wrong about cassettes", "i prefer
+        # tape") is not an identity claim, so planting the opinion topic into
+        # "so you're {topic}" produces garble ("so you're cassettes"). Force the
+        # topic-less acknowledgment whenever the turn leads with an
+        # opinion/belief verb (think/feel/believe/prefer/love/like/hate/wrong
+        # about...) — the reflect-the-topic template only fits a copula
+        # self-description. Structural: an opinion-lead regex, not a per-topic
+        # guard; generalizes across every opinion the user can state.
+        _is_opinion = bool(re.search(
+            r"\b(i\s+(?:think|feel|believe|prefer|love|like|hate|dislike|enjoy|"
+            r"reckon|suppose|was\s+wrong\s+about|was\s+right\s+about))\b",
+            t, re.IGNORECASE))
+
 
         # Affective self-disclosure ("i am sad", "i'm tired") must reach the
         # empathic path, NOT be swallowed by the short-statement backchannel
@@ -2602,6 +2617,11 @@ class ResponseGenMixin(ChainWalkerMixin):
             r"seriously|really|overrated|underrated|more|most|less|than|"
             r"versus|vs\b|compared|rather|instead|better|worse)\b", topic)
         if _is_comparative:
+            _has_clean_topic = False
+        if _is_opinion:
+            # An opinion ("i think i was wrong about cassettes") is not a
+            # self-description, so the "you're {topic}" template does not apply
+            # (it would yield "so you're cassettes"). Use the topic-less lead.
             _has_clean_topic = False
         if is_about_user:
             _lead_pool = "user_leads" if _has_clean_topic else "user_leads_notopic"
@@ -4564,6 +4584,8 @@ class ResponseGenMixin(ChainWalkerMixin):
             else:
                 _word = strongest[1]
             self._update_vad_baseline(V_lex)
+            # Preserve signed poles before cleanup so mixed-valence branch can use them.
+            self._preserved_signed = _signed
             self._tmp_signed = None
             return (kind, _word)
 
@@ -4586,6 +4608,8 @@ class ResponseGenMixin(ChainWalkerMixin):
             word = _signed["neg"][1]
         else:
             word = strongest[1] if strongest else None
+        # Preserve signed poles before cleanup so mixed-valence branch can use them.
+        self._preserved_signed = _signed
         self._tmp_signed = None
         return (kind, word)
 
@@ -4732,6 +4756,16 @@ class ResponseGenMixin(ChainWalkerMixin):
 
         if isinstance(word, str) and word.startswith("loss:"):
             lost = word[len("loss:"):].strip()
+            # The loss tag already carries the LOST ENTITY (e.g. "dog"/"colony"),
+            # set by the affect detector's self-possessive loss rule. We
+            # sympathize about THAT entity. We deliberately do NOT override it
+            # with a copula feeling word here: forcing a feeling into
+            # "i'm so sorry about your <feeling>" is ungrammatical
+            # ("sorry about your sad"), and the user's separate feeling is
+            # already acknowledged by the negative-empathy path
+            # ("feeling sad is hard") when the utterance routes there. The
+            # 08-08b felt-override on this branch was reverted: it produced
+            # "sorry about your sad" / "sorry about your hollow".
             if lost:
                 if has_stored_detail:
                     return (f"i'm so sorry about your {lost}. i remember you "
@@ -4766,6 +4800,54 @@ class ResponseGenMixin(ChainWalkerMixin):
             # ("going through something hard") is a cause description and would
             # read as broken grammar in the "feeling X" frame.
             affect_term = ""
+        # C-fix (round 2026-08-08b): when the user EXPLICITLY names a felt state
+        # via a feeling-copula ("i feel hollow", "i'm scared"), prefer that word
+        # over a co-occurring EVENT word the detector scored higher. Otherwise
+        # "i feel hollow" collapsed to "feeling lost is hard" because the
+        # detector's strongest contributor was the event word "lost" (from "lost
+        # half the colony"). The user's own feeling label is the ground truth.
+        # Use the engine's FULL utterance (self._last_user_input) — the ctx may
+        # only carry the extracted event span, which would re-introduce the
+        # same "lost" mislabel.
+        _utt = (getattr(self, "_last_user_input", "") or "") or (
+            getattr(ctx, "raw_input", "") or "")
+        _feel_m = re.search(
+            r"\b(?:i\s*(?:feel|feeling|am|'m|felt|get|got)\s+(?:so|really|"
+            r"very|quite|a\s+little\s+|kind\s+of\s+)?)([a-z]+(?:\s+[a-z]+)?)"
+            r"\b", _utt.lower())
+        if _feel_m:
+            _ft = _feel_m.group(1).strip()
+            # The copula regex can grab a trailing closed-class word
+            # ("i'm furious the trust cut..." -> "furious the"; "i felt proud
+            # and a little scared" -> "proud and"). Strip any leading/trailing
+            # closed-class word so the felt label is a clean affect term
+            # ("furious", "proud"). A trailing connective/preposition is never
+            # part of a feeling word.
+            _CLOSED = ("the", "a", "an", "and", "or", "but", "of", "to", "in",
+                       "on", "at", "by", "for", "with", "that", "this", "it",
+                       "my", "your", "from", "so", "as", "is", "are", "was",
+                       "were", "because", "about", "up", "down")
+            _ftw = _ft.split()
+            while len(_ftw) > 1 and _ftw[-1] in _CLOSED:
+                _ftw = _ftw[:-1]
+            while len(_ftw) > 1 and _ftw[0] in _CLOSED:
+                _ftw = _ftw[1:]
+            _ft = " ".join(_ftw)
+            # Only accept the copula label if it is a REAL affect/state word.
+            # A bare "i am <word>" where <word> is NOT an affect term (e.g. a
+            # name "i am noor", or a topic "i am tired of X") must NOT be
+            # forced into the empathy frame — doing so produced the regression
+            # "feeling noor is hard". The vocabulary is the engine's own affect
+            # lexicon (user_model._AFFECT_STATE_LEXICON), sourced lazily to
+            # avoid an import cycle at module load. This is seed vocabulary,
+            # not an authored per-topic list.
+            try:
+                from .user_model import _AFFECT_STATE_LEXICON as _AFFECT
+            except Exception:
+                _AFFECT = set()
+            _is_affect = _ft in _AFFECT or (_ft.split() and _ft.split()[0] in _AFFECT)
+            if _is_affect:
+                affect_term = _ft
         felt = f"feeling {affect_term}" if affect_term else f"feeling {val_word}"
 
         if kind == "negative":
@@ -4777,9 +4859,27 @@ class ResponseGenMixin(ChainWalkerMixin):
                     f"it. {probe}", "emotional_empathy")
 
         if kind == "positive":
-            close = (f"what's got you feeling so {val_word}?"
-                     if val_word != "good" else "what made today good?")
-            return (f"that's awesome! {close}", "emotional_empathy")
+            # C-fix (round 2026-08-08b): name the REAL felt term the user
+            # expressed (from the copula label if present, else val_word) — do
+            # NOT emit the canned exclamation "that's awesome!", which dropped
+            # the user's actual ambivalence ("proud and a little scared" -> just
+            # "awesome"). When the detector also saw a genuine negative pole
+            # (mixed affect), acknowledge BOTH honestly instead of collapsing to
+            # one positive gloss.
+            _pos_word = affect_term or val_word
+            _signed = getattr(self, "_preserved_signed", None) or {}
+            _neg_word = _signed.get("neg")
+            if _neg_word and _neg_word[1] not in (None, _pos_word):
+                # genuine mixed valence: name both poles, grounded in the user's
+                # own words, not a fixed cheerful template.
+                _neg_label = _neg_word[1]
+                return (f"that's a real mix — feeling {_pos_word} and a bit "
+                        f"{_neg_label} at once. what's the {_pos_word} part about?",
+                        "emotional_empathy")
+            close = (f"what's got you feeling {_pos_word}?"
+                     if _pos_word not in ("good", "") else "what made today good?")
+            return (f"i'm glad something's got you feeling {_pos_word}. {close}",
+                    "emotional_empathy")
 
         # neutral / unspecified affect
         return (f"i hear you. how are you feeling, really?",
@@ -5813,6 +5913,23 @@ class ResponseGenMixin(ChainWalkerMixin):
         """
         subject = ctx.subject
         subj_cap = self._capitalize_subject(subject, getattr(ctx, 'raw_input', subject) or subject) if subject else "that"
+        # D5 (round 2026-08-08b-d): for self/identity-questions ("do you know
+        # who you are yet"), subject extraction can resolve to a QUERY word
+        # ("yet"/"so"/"that") instead of a real concept, producing garble like
+        # "i don't really have a solid grasp on yet so far". If the resolved
+        # subject is a closed-class/stop word, there is no real concept to
+        # reflect — fall back to the neutral "that" framing (already the
+        # default when subject is None). Structural: a closed-class stoplist,
+        # not a per-topic guard.
+        _CLOSED = {
+            "yet", "so", "that", "this", "it", "out", "up", "on", "in", "at",
+            "by", "for", "to", "of", "about", "the", "a", "an", "and", "or",
+            "but", "if", "than", "as", "is", "are", "was", "were", "be",
+            "been", "being", "do", "does", "did", "have", "has", "had",
+            "you", "your", "i", "my", "me", "we", "they", "he", "she",
+        }
+        if subj_cap.lower().strip(" .,!?") in _CLOSED:
+            subj_cap = "that"
         valence = getattr(self.emotion.state, 'valence', 0.5) if hasattr(self, 'emotion') else 0.5
         # Gentle, low-valence-aware phrasing.
         if valence < 0.4:
@@ -6191,7 +6308,22 @@ class ResponseGenMixin(ChainWalkerMixin):
         # *before* decomposition for conditional queries, because hypotheticals
         # ("what if X disappeared") should forward-chain consequences from the
         # causal graph rather than merely decomposing web sub-questions.
-        if self._is_conditional_query(ctx.raw_input):
+        # F4 (round 2026-08-10T1401Z): the fused prototype router can promote
+        # "conditional" for a plain declarative (stateful priming across a long
+        # conversation), which routes an unrelated statement into the
+        # counterfactual simulator and leaks an internal graph dump
+        # ("here's the most likely ripple if X were other than it is..."). A
+        # genuine counterfactual REQUIRES an explicit hypothetical MARKER
+        # (if / suppose / what if / were / would / imagine / in a world where).
+        # Fail-closed: without one, the simulator must not fire regardless of
+        # what the fused router said — a bare declarative is an assertion, not a
+        # scenario to forward-chain. This guards the leak without depending on
+        # the opaque router's internal state.
+        _HAS_HYPOTHETICAL = bool(re.search(
+            r"\b(if|suppose|supposing|assume|assuming|what if|imagine|"
+            r"were|would|in a world (where|without)|pretend)\b",
+            (ctx.raw_input or "").lower()))
+        if self._is_conditional_query(ctx.raw_input) and _HAS_HYPOTHETICAL:
             _sim = self._simulate_counterfactual(ctx)
             if _sim:
                 if getattr(self, '_trace_enabled', False):
@@ -6297,7 +6429,7 @@ class ResponseGenMixin(ChainWalkerMixin):
         # answer, do NOT fall through to a stale subject definition (that would
         # emit "Sun is the star..." for "if the sun disappeared" — exactly the
         # abstract, off-topic reply we must avoid). Be honest instead.
-        if self._is_conditional_query(ctx.raw_input):
+        if self._is_conditional_query(ctx.raw_input) and _HAS_HYPOTHETICAL:
             # Attempt generative counterfactual simulation (DMN + hippocampus
             # analog) BEFORE falling back to uncertainty: given an intervention
             # do(X) on the grounded subject, forward-chain along causal edges to
