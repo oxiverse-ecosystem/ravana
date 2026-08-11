@@ -1253,6 +1253,36 @@ class UserModel:
                 "muddled", "confused", "mistaken", "tangled", "muddled",
                 "flustered", "garbled", "befuddled"):
                 return False
+            # R5 fix (round 2026-08-11T0521Z): reject body-part / sensation /
+            # feeling-word objects. "i felt it in my chest for days" resolved
+            # to the single word "chest" (a body part) and was stored as
+            # ('i','does','felt chest') — an experiential/affective detail, NOT
+            # a possession or activity. Same class as "felt cold bite" /
+            # "broke ice": the verb is a sensation verb and the object is a
+            # body/sensation word, so it is an inner state, not a thing the
+            # user does/keeps. A SEED vocabulary (RAVANA-expandable via
+            # learn_sensation; the real possession object still passes through
+            # because it is a noun like "pigeons"/"loft"/"banjo"). Not a
+            # per-topic answer table.
+            _SENSATION_BODY = (
+                "chest", "heart", "stomach", "head", "skin", "bone", "hand",
+                "arm", "leg", "eye", "ear", "lung", "brain", "back", "shoulder",
+                "spine", "knee", "foot", "finger", "toe", "face", "throat",
+                "bite", "burn", "chill", "cold", "heat", "pain", "ache",
+                "shiver", "sweat", "tear", "tears", "breath", "pulse", "blood",
+                "sigh", "lump", "swelling", "cramp", "tingle", "numb",
+            )
+            if len(_o.split()) <= 2 and any(w in _SENSATION_BODY
+                                            for w in _o.split()):
+                return False
+            # A single resolved content word is too thin to be a reliable
+            # possession/activity ("felt chest", "said brack", "keep coming").
+            # Require >=2 substantive words unless the word is an unambiguous
+            # possession noun (handled by the pet/species path elsewhere). This
+            # drops sensation/particle fragments without losing real multi-word
+            # disclosures ("keep homing pigeons").
+            if len(_o.split()) < 2:
+                return False
             return _obj and 1 <= len(_obj.split()) <= 5
         for _am in _act_pat.finditer(q_clean):
             _verb = _am.group(1).lower()
