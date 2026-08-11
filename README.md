@@ -73,6 +73,14 @@ on this codebase:
   coffee?"* before forming its own position, it returns an honest non-answer
   rather than fabricating one:
   `i'm still figuring that out. i don't have a settled view on that yet — what do you think?`
+- **Remembers and totals counts you disclose.** Told *"i keep twelve racing
+  pigeons"* / *"i have three cats"* / *"i lost five hens"*, it stores each count as
+  structured state (not free text) so it can answer *"how many racing pigeons do i
+  keep?"* with `you have twelve racing pigeons.` and *"how many pets do i have in
+  total?"* with `you have 21 pets in total.` (losses aren't counted as pets) — and
+  a later *"it's seven hives now"* supersedes an earlier *"i keep six hives"*, so
+  recall returns the corrected `you have seven hives.` No LLM, no retrain, no
+  authored reply pool. See `docs/QUANTITY_MEMORY.md`.
 
 These capabilities are backed by four durable stores — an **identity model**
 (`IdentityEngine`), **stances** (`UserStanceStore`), **personal facts**
@@ -202,6 +210,7 @@ See [`docs/`](docs/README.md):
 - [Benchmarks](docs/BENCHMARKS.md) — every benchmark/diagnostic script and what it measures.
 - [Development](docs/DEVELOPMENT.md) — layout, path shims, test commands, conventions.
 - [Entity-Location Recall](docs/ENTITY_LOCATION_RECALL.md) — capturing + surfacing a named thing's whereabouts.
+- [Quantity Memory](docs/QUANTITY_MEMORY.md) — capturing counts you disclose, answering "how many", totalling "in total", correcting online.
 
 ## Benchmark results
 
