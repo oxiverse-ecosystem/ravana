@@ -561,6 +561,7 @@ class QuantityMemory:
     def __init__(self, decay_turns: int = 50):
         self.records: Dict[Tuple[str, str, str, int], QuantityRecord] = {}
         self.turn_num: int = 0
+        self._decay_turns = decay_turns
 
     def advance_turn(self):
         self.turn_num += 1
@@ -573,20 +574,22 @@ class QuantityMemory:
                         noun_canonical, category="possession",
                         confidence=0.6, source="seed_regex") -> None:
         key = self._key(subject, kind, noun_canonical, count)
-        existing = self.records.get(key)
-        if existing is not None:
-            existing.confidence = min(1.0, existing.confidence + 0.1)
-            existing.turn_number = self.turn_num
-            existing.superseded = False
-            return
         # Conflicting prior count for the same (subject, kind, noun_canonical)?
         # Mark the old one superseded (the new disclosure is the active truth).
+        # Run this BEFORE checking the existing key, so re-asserting a prior
+        # count supersedes all other active counts for the same triplet.
         for (s, k, nc, c), r in list(self.records.items()):
             if (s == subject.lower().strip()
                     and k == kind.lower().strip()
                     and nc == noun_canonical.lower().strip()
                     and c != int(count) and not r.superseded):
                 r.superseded = True
+        existing = self.records.get(key)
+        if existing is not None:
+            existing.confidence = min(1.0, existing.confidence + 0.1)
+            existing.turn_number = self.turn_num
+            existing.superseded = False
+            return
         self.records[key] = QuantityRecord(
             subject=subject, kind=kind, count=int(count),
             noun_phrase=noun_phrase, noun_canonical=noun_canonical,

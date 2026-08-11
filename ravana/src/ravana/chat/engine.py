@@ -2528,7 +2528,9 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             r"(in\s+total|all\s+told|altogether|total|a\s+total|in\s+all)?\b",
             q)
         if _COUNT is not None:
-            _qm = getattr(um, "quantity_memory", None)
+            # Restrict to first-person possession questions
+            _first_person_cue = bool(re.search(r"\b(do\s+i|did\s+i|my)\b", q))
+            _qm = getattr(um, "quantity_memory", None) if _first_person_cue else None
             _agg_noun = (_COUNT.group(1) or "").strip()
             # Aggregate detection is INDEPENDENT of verb position: "in total"
             # may follow the subject verb ("do i have in total") or sit right
@@ -3129,6 +3131,9 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             pass
         try:
             self._episodic_transcript = []
+            # Synchronize user_model reference after rebind
+            if hasattr(self, "user_model"):
+                self.user_model._episodic_transcript = self._episodic_transcript
         except Exception:
             pass
         try:
@@ -3156,6 +3161,40 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             self.hippocampal_buffer._recent_retrievals.clear()
         except Exception:
             pass
+
+    def _handle_correction_persist(self):
+        """Handle detected correction by superseding old fact and returning ack.
+
+        Returns the acknowledgment string if a correction was detected and handled,
+        or None otherwise. Uses _cf_subj from the detected fact tuple to determine
+        the subject for contradict().
+        """
+        try:
+            _cf = getattr(self.user_model, "detected_correction_fact", None)
+            if not (getattr(self.user_model, "detected_correction", False) and _cf):
+                return None
+            _cf_subj, _cf_attr, _cf_val = _cf
+            self.user_model.personal_facts.contradict(
+                _cf_subj, _cf_attr, _cf_val)
+            _cf_phrase = {
+                "name": f"your {_cf_attr} is {_cf_val}",
+                "is": f"you are {_cf_val}",
+                "does": f"you do {_cf_val}",
+                "likes": f"you like {_cf_val}",
+                "location": f"you live in {_cf_val}",
+                "favorite": f"your favorite {_cf_val}",
+            }.get(_cf_attr, f"your {_cf_attr} is {_cf_val}")
+            _ack = (f"thanks for correcting me — i'll remember "
+                    f"{_cf_phrase}.")
+            self._last_strategy = "correction_persist"
+            self._last_responses.append(_ack)
+            if len(self._last_responses) > 10:
+                self._last_responses = self._last_responses[-10:]
+            self.user_model.reset_correction_flags()
+            self.notify_user_idle()
+            return _ack
+        except Exception:
+            return None
 
     def process_turn(self, user_input: str) -> str:
         """Process input and generate a response, auto-learning when needed."""
@@ -4259,32 +4298,9 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # and emit a grounded correction ack. The disclosure empathy path
             # returns after this, so it never double-handles. Content from the
             # live store; no authored prose.
-            try:
-                _cf = getattr(self.user_model, "detected_correction_fact", None)
-                if (getattr(self.user_model, "detected_correction", False)
-                        and _cf):
-                    _cf_subj, _cf_attr, _cf_val = _cf
-                    self.user_model.personal_facts.contradict(
-                        "i", _cf_attr, _cf_val)
-                    _cf_phrase = {
-                        "name": f"your {_cf_attr} is {_cf_val}",
-                        "is": f"you are {_cf_val}",
-                        "does": f"you do {_cf_val}",
-                        "likes": f"you like {_cf_val}",
-                        "location": f"you live in {_cf_val}",
-                        "favorite": f"your favorite {_cf_val}",
-                    }.get(_cf_attr, f"your {_cf_attr} is {_cf_val}")
-                    _ack = (f"thanks for correcting me — i'll remember "
-                            f"{_cf_phrase}.")
-                    self._last_strategy = "correction_persist"
-                    self._last_responses.append(_ack)
-                    if len(self._last_responses) > 10:
-                        self._last_responses = self._last_responses[-10:]
-                    self.user_model.reset_correction_flags()
-                    self.notify_user_idle()
-                    return _ack
-            except Exception:
-                pass
+            _correction_ack = self._handle_correction_persist()
+            if _correction_ack:
+                return _correction_ack
             if _disc is not None:
                 _low_d = (user_input or "").lower().strip()
                 _low_d = (_low_d.replace("i'm", "i am")
@@ -4614,31 +4630,9 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # correction ack. The disclosure path returns before this point, so
         # this never double-handles. Content from the live store; no
         # authored prose, no retrain.
-        try:
-            _cf = getattr(self.user_model, "detected_correction_fact", None)
-            if getattr(self.user_model, "detected_correction", False) and _cf:
-                _cf_subj, _cf_attr, _cf_val = _cf
-                self.user_model.personal_facts.contradict(
-                    "i", _cf_attr, _cf_val)
-                _cf_phrase = {
-                    "name": f"your {_cf_attr} is {_cf_val}",
-                    "is": f"you are {_cf_val}",
-                    "does": f"you do {_cf_val}",
-                    "likes": f"you like {_cf_val}",
-                    "location": f"you live in {_cf_val}",
-                    "favorite": f"your favorite {_cf_val}",
-                }.get(_cf_attr, f"your {_cf_attr} is {_cf_val}")
-                _ack = (f"thanks for correcting me — i'll remember "
-                        f"{_cf_phrase}.")
-                self._last_strategy = "correction_persist"
-                self._last_responses.append(_ack)
-                if len(self._last_responses) > 10:
-                    self._last_responses = self._last_responses[-10:]
-                self.user_model.reset_correction_flags()
-                self.notify_user_idle()
-                return _ack
-        except Exception:
-            pass
+        _correction_ack = self._handle_correction_persist()
+        if _correction_ack:
+            return _correction_ack
 
         self.user_model.reset_correction_flags()  # Reset LPFC pause flag each turn
         # Decay recency boost: clear after 10 turns (synaptic tag window)

@@ -414,12 +414,14 @@ class UserModel:
             if not _nm or _sp_word in ("the", "a", "an"):
                 continue
             # Do NOT treat an interrogative word ("what", "who", "which", ...)
-            # as a pet name. A recall query like "what's my dog's name" matches
-            # this pattern (nm="what", sp="dog") and would otherwise overwrite
-            # the stored name with the question word. Genuine names are never
-            # wh-words, so this guard is safe.
+            # or closed-class pronouns/existentials as a pet name. A recall query
+            # like "what's my dog's name" matches this pattern (nm="what", sp="dog")
+            # and would otherwise overwrite the stored name with the question word.
+            # Genuine names are never wh-words or these closed-class tokens, so this
+            # guard is safe.
             if _nm in ("what", "who", "which", "where", "when", "why",
-                       "how", "whose", "whom"):
+                       "how", "whose", "whom", "that", "there", "here",
+                       "he", "she", "it"):
                 continue
             _species = _pet_slots.species_of(_sp_word)
             if _species is None:
@@ -1431,7 +1433,7 @@ class UserModel:
             r"(.+?)(?:\s*(?:\.|!|\?|,|-{1,3}|$|"
             r"\s+and\s+|\s+but\s+|\s+because\s+|\s+so\s+|\s+which\s+|"
             r"\s+that\s+|\s+when\s+|\s+where\s+|\s+while\s+|"
-            r"\s+in\s+|\s+on\s+|\s+at\s+|\s+with\s+|\s+for\s+|\s+of\s+"
+            r"\s+in\s+|\s+on\s+|\s+at\s+|\s+with\s+|\s+for\s+|\s+of\s+|"
             r"\s+from\s+))",
             re.IGNORECASE)
         if not _qty_is_question:

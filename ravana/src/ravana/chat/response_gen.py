@@ -4584,6 +4584,8 @@ class ResponseGenMixin(ChainWalkerMixin):
             else:
                 _word = strongest[1]
             self._update_vad_baseline(V_lex)
+            # Preserve signed poles before cleanup so mixed-valence branch can use them.
+            self._preserved_signed = _signed
             self._tmp_signed = None
             return (kind, _word)
 
@@ -4606,6 +4608,8 @@ class ResponseGenMixin(ChainWalkerMixin):
             word = _signed["neg"][1]
         else:
             word = strongest[1] if strongest else None
+        # Preserve signed poles before cleanup so mixed-valence branch can use them.
+        self._preserved_signed = _signed
         self._tmp_signed = None
         return (kind, word)
 
@@ -4863,7 +4867,7 @@ class ResponseGenMixin(ChainWalkerMixin):
             # (mixed affect), acknowledge BOTH honestly instead of collapsing to
             # one positive gloss.
             _pos_word = affect_term or val_word
-            _signed = getattr(self, "_tmp_signed", None) or {}
+            _signed = getattr(self, "_preserved_signed", None) or {}
             _neg_word = _signed.get("neg")
             if _neg_word and _neg_word[1] not in (None, _pos_word):
                 # genuine mixed valence: name both poles, grounded in the user's

@@ -228,7 +228,8 @@ class MemoryMixin:
         }
         self._episodic_transcript.append(rec)
         if len(self._episodic_transcript) > 100:
-            self._episodic_transcript = self._episodic_transcript[-100:]
+            # Mutate in place to keep user_model reference synchronized
+            del self._episodic_transcript[:-100]
         # Mirror into the temporal indexer (hippocampal time cells).
         try:
             from .brain_regions import Episode, EpisodicIndex
@@ -495,7 +496,7 @@ class MemoryMixin:
         _specific_entity = None
         for tok in re.findall(r"[a-z']+", q):
             _tok = tok[:-2] if tok.endswith("'s") else tok
-            if _tok in _entity_idx and _tok not in ("i", "you", "my", "your"):
+            if _tok in _entity_idx and _tok in ("i", "you", "my", "your"):
                 _ent_hit = _tok
                 break
             # species map (e.g. "cats" -> "cat" entity) — a specific owned
@@ -1517,8 +1518,9 @@ class MemoryMixin:
         ) or bool(re.search(
             r"\byou (?:said|mentioned|told me) something about what you "
             r"(?:are|were)\b", t)
-        ) or bool(re.search(
+        ) or (bool(re.search(
             r"\bremind me what you (?:said|told me) (?:about|you are)\b", t))
+              and not _user_ref)
         if _agent_self_recall:
             _claim = getattr(self, "_agent_claims", {}).get("self")
             if _claim:
