@@ -477,22 +477,103 @@ class MemoryMixin:
         # before reaching the real cue "cat". A cued recall is specific by
         # construction — the generic self-profile is only correct when the
         # query names no entity at all.
+        # R6 fix (round 2026-08-11T0521Z): a possessive-entity query names a
+        # SPECIFIC owned thing ("my dog's name", "how many pigeons did i
+        # keep"). The old loop only checked _entity_idx (which holds the
+        # USER's own pet facts, subject "i") and otherwise fell through to the
+        # generic-self fallback on ANY "name"/LOC word — so "what is my dog's
+        # name" / "how many pigeons" returned "you told me your name is esa"
+        # (the user's own name), a pronoun short-circuit (the bare "my"/"name"
+        # matched before the specific entity was resolved). Fix: when the
+        # query names a specific entity/species noun, resolve it from the FULL
+        # personal-fact store across ALL subjects (honoring the self/other
+        # boundary — a pet re-attributed to a third party resolves to that
+        # owner), and do NOT use generic-self. Only use generic-self when no
+        # specific entity is named and the query is a bare user-bio question
+        # ("what is my name", "where do i live").
         _generic_self = False
+        _specific_entity = None
         for tok in re.findall(r"[a-z']+", q):
             _tok = tok[:-2] if tok.endswith("'s") else tok
             if _tok in _entity_idx and _tok not in ("i", "you", "my", "your"):
                 _ent_hit = _tok
                 break
-            # species map (e.g. "cats" -> "cat" entity)
+            # species map (e.g. "cats" -> "cat" entity) — a specific owned
+            # thing the user named; resolve it from the full store below.
             _sp = _pet_slots.species_of(_tok)
-            if _sp is not None and _sp in _entity_idx:
-                _ent_hit = _sp
+            if _sp is not None:
+                _specific_entity = _sp
                 break
-            if _tok in ("i", "you", "my", "your") and "i" in _entity_idx:
-                # only treat as a cued recall when the query also
-                # asks about a biographical attribute
-                if any(w in q for w in _LOC_WORDS) or "name" in q:
-                    _generic_self = True
+            # a named non-user entity already in the index (e.g. "salt" stored
+            # under subject "neighbour") — resolve it from the full store. The
+            # self-pronoun "i" is also in _entity_idx (the user's own profile),
+            # but it must NOT be treated as a specific owned entity here — doing
+            # so would reconstruct the whole "i" profile for ANY query
+            # containing "i"/"my" (e.g. "how many pigeons did i keep" -> "your
+            # name is esa; you keep loft"). A genuine bare self-bio question is
+            # handled by the tightened generic-self fallback below, not here.
+            if _tok in _entity_idx and _tok not in ("i", "you", "my", "your"):
+                _specific_entity = _tok
+                break
+        if _specific_entity is not None:
+            # Resolve the entity from the FULL personal-fact store (all
+            # subjects), preferring an active (non-superseded) fact. This honors
+            # the self/other boundary: a pet re-attributed to a third party
+            # resolves to that owner's record, not the user's. Build a small
+            # facts dict for _reconstruct_entity.
+            _pf = getattr(self, "user_model", None)
+            _pfs = getattr(_pf, "personal_facts", None) if _pf else None
+            if _pfs is not None:
+                _ent_facts = {}
+                for _key, _fact in getattr(_pfs, "facts", {}).items():
+                    if getattr(_fact, "superseded", False):
+                        continue
+                    _subj = _key[0] if isinstance(_key, (tuple, list)) and len(_key) > 0 else None
+                    _attr = _key[1] if isinstance(_key, (tuple, list)) and len(_key) > 1 else None
+                    # the entity matches either as a stored entity subject, or
+                    # as the attribute key under a third-party subject (a pet
+                    # disclosed as "my neighbour's dog is X" is stored as
+                    # subject="neighbour", attr="dog"), or as a pet-slot whose
+                    # canonical species is the query entity.
+                    _is_entity = (_subj == _specific_entity) or (_attr == _specific_entity) or (
+                        _pet_slots.is_pet_attribute(_attr) and
+                        _pet_slots.base_species(_attr) == _specific_entity)
+                    if _is_entity and _attr not in (None,):
+                        # fold under a render key: use the species for pets,
+                        # else the entity subject.
+                        _rk = (_pet_slots.base_species(_attr)
+                               if _pet_slots.is_pet_attribute(_attr)
+                               else _specific_entity)
+                        _ent_facts.setdefault(_rk, {})[_attr] = getattr(_fact, "value", _fact)
+                # also accept the user-facing index entry if present
+                if _specific_entity in _entity_idx:
+                    for _a, _v in _entity_idx[_specific_entity].items():
+                        _ent_facts.setdefault(_specific_entity, {})[_a] = _v
+                if _ent_facts:
+                    # prefer the species/pet render key when present
+                    _rk = next((k for k in _ent_facts
+                                if _pet_slots.species_of(k) is not None),
+                               next(iter(_ent_facts)))
+                    _bits = _reconstruct_entity(_rk, _ent_facts[_rk])
+                    if _bits:
+                        return "you told me " + "; ".join(dict.fromkeys(_bits)) + "."
+        # Generic-self fallback: ONLY for a bare user-biography question that
+        # names NO specific entity (e.g. "what is my name", "where do i live").
+        # A query that named a specific owned thing ("my dog's name") already
+        # resolved via _specific_entity above and must NOT reach here. The
+        # trigger is kept tight: "name" only counts when it is the question's
+        # TARGET ("what is my name" / "who am i"), not a passing mention like
+        # "did i name them" inside a count/possession question — otherwise
+        # "how many pigeons did i name" would wrongly collapse to the user's
+        # name. LOC words still trigger generic-self (where do i live).
+        if _ent_hit is None and _specific_entity is None:
+            _has_person = bool(re.search(r"\b(i|my|me|we|our)\b", q))
+            _name_target = bool(re.search(
+                r"\b(what'?s|what\s+is)\s+my\s+name\b|\bmy\s+name\s*\?|who\s+am\s+i\b|"
+                r"\btell\s+me\s+(?:about|who)\s+(?:myself|me)\b", q))
+            _has_bio_attr = _name_target or any(w in q for w in _LOC_WORDS)
+            if _has_person and _has_bio_attr and "i" in _entity_idx:
+                _generic_self = True
         if _ent_hit is None and _generic_self:
             _ent_hit = "i"
         if _ent_hit is not None:
@@ -1716,8 +1797,22 @@ class MemoryMixin:
                         _val = str(getattr(_v, "value", _v) or "").lower()
                         _attr = (_k[1] if isinstance(_k, (tuple, list)) and len(_k) >= 3 else _k) or ""
                         # Match on a value token OR the cued attribute word.
+                        # R6 fix (round 2026-08-11T0521Z): the 'name' attribute
+                        # must NOT match a passing mention of the word "name"
+                        # (e.g. "did i name them" in a count/possession question)
+                        # — that collapsed "how many pigeons did i name" into
+                        # "your name is esa". Only match the name attr when the
+                        # query is a genuine name-target question; otherwise the
+                        # bare attribute-word match skips 'name'.
                         _val_tokens = {t for t in re.findall(r"[a-z']+", _val)}
-                        if _val_tokens & _q_tokens or _attr.lower() in _q_tokens:
+                        _attr_in_q = _attr.lower() in _q_tokens
+                        if _attr.lower() == "name":
+                            _name_target = bool(re.search(
+                                r"\b(what'?s|what\s+is)\s+my\s+name\b|\bmy\s+name\s*\?|"
+                                r"who\s+am\s+i\b|\btell\s+me\s+(?:about|who)\s+(?:myself|me)\b",
+                                (user_input or "").lower()))
+                            _attr_in_q = _name_target
+                        if _val_tokens & _q_tokens or _attr_in_q:
                             _matched.append((_attr, getattr(_v, "value", _v)))
                     if _matched:
                         _bits = []
