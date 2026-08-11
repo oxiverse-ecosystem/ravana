@@ -4339,9 +4339,43 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                             self._last_responses = self._last_responses[-10:]
                         self.notify_user_idle()
                         return _resp
-            # §7 Reaction to the prior turn ("that's hilarious", "aww") routes
-            # to the affiliation/empathy frame, not concept lookup.
-            if is_reaction(user_input):
+            # R1 fix (round 2026-08-11T0521Z): the reaction gate below matches
+            # bare lead-in cues like "so"/"that" (is_reaction /^\\s*(that'?s|so|...)/).
+            # That is correct for a reaction to the prior turn ("so, glad that
+            # landed"), but it ALSO swallows a genuine SELF-BIOGRAPHY question
+            # that opens with "so" — e.g. "so after everything, am i a
+            # pigeon-keeper or a baker at heart?" / "so, who am i to you?".
+            # Those are NOT reactions; they ask RAVANA to integrate what it
+            # learned about the user into a stance. Route them past the
+            # affiliation frame so the real self-model / user-profile pipeline
+            # answers. Detection is structural: a self-biography question
+            # contains an identity / self-reflective verb-phrase ("am i",
+            # "who am i", "what am i", "do you make of me", "at heart") OR an
+            # "or" disjunction of roles (a forced-choice self-labeling). This
+            # is a deictic-intent guard, not a per-topic table; it generalizes
+            # across every persona. Fail-open: a real reaction with no
+            # self-biography cue still hits the affiliation frame below.
+            _low_react = (user_input or "").lower().strip()
+            # A self-biography question asks RAVANA to integrate what it learned
+            # about the USER into a stance/summary. Two structural shapes:
+            #  (a) an explicit identity verb-phrase ("am i", "who am i", "do you
+            #      make of me", "at heart"), or
+            #  (b) a forced-choice self-labeling ("am i a baker or a keeper",
+            #      "more of a X or a Y") — an "or"/"versus" disjunction that also
+            #      names the user's self ("i'm", "me", "my"). A plain reaction
+            #      like "so, cats or dogs?" is NOT exempted (no self cue), so it
+            #      still routes to the affiliation frame. Structural, not a
+            #      per-topic table; generalizes across every persona.
+            _self_bio_phrase = bool(re.search(
+                r"\b(am i|are i|who am i|what am i|do you (?:make|think) of me|"
+                r"at heart|who do you (?:think|say) i am|more me|more of a)\b",
+                _low_react))
+            _self_bio_choice = bool(re.search(
+                r"\b(or|versus|vs\\.?|rather than)\b", _low_react)) and (
+                "i'm" in _low_react or " i " in _low_react or "me" in _low_react
+                or "my " in _low_react or "am i" in _low_react)
+            _self_bio_intent = _self_bio_phrase or _self_bio_choice
+            if is_reaction(user_input) and not _self_bio_intent:
                 _last = self._last_responses[-1] if self._last_responses else ""
                 _low = user_input.lower()
                 if "hilarious" in _low or "funny" in _low or "haha" in _low:
@@ -4736,8 +4770,27 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 # yields a stance + affect rather than a dictionary entry.
                 if m_agent_stance:
                     # "what do you think about cats" -> target after the cue.
+                    # R3 fix (round 2026-08-11T0521Z): take the LAST substantive
+                    # content word as the topic, not the first. A comparative
+                    # like "between the loft and the banjo, which do you think
+                    # is more me?" left "between" as the target under the old
+                    # split()[0] extraction, which produced the broken "i'm
+                    # drawn to." prefix. Skip closed-class / connector words
+                    # (between/and/which/more/me/you/is/do/think...) and take
+                    # the final real topic; if none remains, leave target empty
+                    # so _agent_stance_on returns its honest no-topic fallback.
                     _tail = clean_input[m_agent_stance.end():]
-                    target = _tail.strip(" ?!.").split()[0] if _tail.strip(" ?!.").split() else ""
+                    _tail_toks = [w for w in re.findall(r"[a-z']+", _tail)
+                                  if w not in ("about", "on", "the", "a",
+                                               "an", "of", "for", "with",
+                                               "to", "is", "are", "do",
+                                               "does", "you", "i", "it",
+                                               "that", "this", "and", "or",
+                                               "between", "which", "more",
+                                               "me", "what", "just", "said",
+                                               "right", "really", "exactly",
+                                               "think", "than")]
+                    target = _tail_toks[-1] if _tail_toks else ""
                 elif m_agent_likes_yesno:
                     _ym = re.search(
                         r"\bdo\s+you\s+(?:like|love|hate|enjoy|prefer|care\s+for)\s+([a-z][a-z\s'-]{1,30}?)[\?\.]?$",
@@ -5129,7 +5182,29 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             except Exception:
                 _has_strong_anchoring = False
 
-        if not _has_strong_anchoring and self._is_absurd_query(user_input, subject):
+        # R1 fix (round 2026-08-11T0521Z): a self-biography question that
+        # asks RAVANA to INTEGRATE what it learned about the USER into a
+        # stance/summary ("so after everything, am i a pigeon-keeper or a
+        # baker at heart?", "who am i to you?") must NOT be treated as an
+        # absurd/OOD premise. The absurd-query detector keys on low concept
+        # cosine ("pigeon-keeper" x "baker"), which is exactly the shape of a
+        # genuine self-labeling question, so it would fire here and produce
+        # "pigeon-keeper — that's a fun image!". Exempt the self-bio intent
+        # (same structural guard as the reaction gate above) so it falls
+        # through to the real self-model / user-profile synthesis. A plain odd
+        # premise with no self-bio cue still hits absurd_query below.
+        _low_sb = (user_input or "").lower().strip()
+        _sb_phrase = bool(re.search(
+            r"\b(am i|are i|who am i|what am i|do you (?:make|think) of me|"
+            r"at heart|who do you (?:think|say) i am|more me|more of a)\b",
+            _low_sb))
+        _sb_choice = bool(re.search(
+            r"\b(or|versus|vs\.?|rather than)\b", _low_sb)) and (
+            "i'm" in _low_sb or " i " in _low_sb or "me" in _low_sb
+            or "my " in _low_sb or "am i" in _low_sb)
+        _self_bio_intent = _sb_phrase or _sb_choice
+        if (not _has_strong_anchoring and self._is_absurd_query(user_input, subject)
+                and not _self_bio_intent):
             _absurd_resp = self._handle_absurd_query(user_input, subject)
             self._last_strategy = "absurd_query"
             self._last_responses.append(_absurd_resp)

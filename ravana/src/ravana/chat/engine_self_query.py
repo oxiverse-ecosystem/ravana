@@ -319,11 +319,24 @@ class SelfQueryMixin:
         # A target-less call (e.g. "what do you like" with no object) falls back
         # to the gist guess rather than inventing a concept.
         if not target:
+            # R3 fix (round 2026-08-11T0521Z): a target-less call previously
+            # returned the dangling stance prefix "i'm drawn to." followed by a
+            # fragment, which the caller joined into the broken sentence
+            # "i'm drawn to. still figuring that out — ...". Emit a COMPLETE,
+            # grammatical honest sentence instead (no dangling prefix): the
+            # agent states it is still forming a sense of what it is drawn to
+            # and turns the question back to the user. The content is a
+            # structural honest fallback (no topic was given to take a stance
+            # on), not authored per-topic prose — an honest flat fallback beats
+            # fake depth. The full sentence lives in the stance slot; reason is
+            # empty so the caller's "stance + reason" join stays grammatical.
             _gist = self._agent_likes_guess()
             if _gist == "still figuring that out":
-                return ("i'm drawn to", "still figuring that out — what are you into? "
-                        "i'll tell you how i'm leaning once we've talked some")
-            return ("i'm drawn to", f"things like {_gist} — they sit well with how i'm wired right now")
+                return ("i'm still getting a sense of what i'm drawn to — "
+                        "what are you into? i'll tell you how i'm leaning "
+                        "once we've talked some", "")
+            return (f"i find myself drawn to things like {_gist} — they sit "
+                    f"well with how i'm wired right now. what about you?", "")
         # A target was given (e.g. "do you like music") — compute a REAL stance
         # from valence + GloVe transitivity below; do NOT delegate to the gist
         # guess (that would skip the actual value computation).
@@ -786,6 +799,7 @@ class SelfQueryMixin:
             r"\b(do\s+you\s+(think|feel|believe|have|care)\b"
             r"|what\s+do\s+you\s+(think|feel|believe)\s+about\b"
             r"|how\s+do\s+you\s+(feel|think)\s+about\b"
+            r"|what\s+do\s+you\s+make\s+of\b"          # R2 fix: "what do you make of X" is a standard opinion-request form (round 2026-08-11T0521Z). Previously unmatched, so it fell through to hippocampal echo of the user's own prior turn (self/other boundary breach). "make of" asks for RAVANA's stance, same as "think of"; route to _agent_stance_on below.
             r"|your\s+(opinion|thoughts|take|view|stance|read|honest\s+read)\s+(on|about)\b"
             r"|what's\s+your\s+(opinion|take|view|stance|read)\s+(on|about)\b"
             r"|what\s+is\s+your\s+(opinion|take|view|stance|read)\s+(on|about)\b"
