@@ -1158,6 +1158,22 @@ class UserModel:
                     else:
                         _put_fact(_attr, _val, 0.6)
 
+        # D4 (round 2026-08-11T1328Z): a communication / meta verb is itself a
+        # speech-act or inner-state report, never a possession or lived
+        # activity. "i told a friend X" / "i keep saying it" / "i felt a kind
+        # of weight lift" must not become ('i','does','told friend...') /
+        # ('i','does','keep saying') / ('i','does','felt kind'). Reject any
+        # activity capture whose VERB is in this SEED set (RAVANA-expandable,
+        # not a per-topic answer table). A real activity verb ("keep pigeons"/
+        # "brew"/"forge"/"run") is never in this set, so genuine disclosures
+        # still pass in both the D3-style loop and the general-activity loop.
+        _META_VERBS = (
+            "tell", "tells", "told", "say", "says", "said", "mention",
+            "mentions", "mentioning", "recall", "recount", "repeat",
+            "repeated", "keep", "kept", "lose", "lost", "feel", "feels",
+            "felt", "think", "know", "learn", "forget",
+        )
+
         # D3 (round v3): capture self-disclosed ACTIVITIES / possessions that the
         # existing "my X is Y" / "i am a role" miners miss — e.g. "i run a chai
         # stall near the mysore palace", "i play the tabla when the stall is
@@ -1208,6 +1224,13 @@ class UserModel:
                 r"\bbecause\b|\band\b|\.|\!|\?|$|,)",
                 q_clean, re.IGNORECASE)
             if _m:
+                # D4 (round 2026-08-11T1328Z): reject the capture when the
+                # activity VERB is a communication / meta / inner-state verb
+                # ("tell"/"told"/"keep"/"lose"/"felt"...). "i told a friend X"
+                # / "i keep saying it" must not become a 'does' possession
+                # fact. SEED vocabulary, shared with the general-activity loop.
+                if _verb.lower() in _META_VERBS:
+                    continue
                 _obj = self._opinion_topic(_m.group(1).strip().lower())
                 if _obj and len(_obj.split()) <= 5:
                     # D4 fix (round 2026-08-11T1328Z): the resolved object HEAD
@@ -1459,6 +1482,17 @@ class UserModel:
             return bool(_obj)
         for _am in _act_pat.finditer(q_clean):
             _verb = _am.group(1).lower()
+            # D4 (round 2026-08-11T1328Z): a communication / meta verb
+            # ("tell"/"told"/"say"/"said"/"mention"/"keep"/"lose"/"felt"...) is
+            # itself a speech-act or inner-state report, not a possession or
+            # lived activity — "i told a friend X" / "i keep saying it" must
+            # not become ('i','does','told friend...') / ('i','does','keep
+            # saying'). Reject on the VERB so the capture is suppressed even
+            # when the object head is a real noun ("friend"). SEED vocabulary,
+            # RAVANA-expandable; a real activity verb ("keep pigeons"/"brew"/
+            # "forge") is never in this set. Not a per-topic answer table.
+            if _verb in _META_VERBS:
+                continue
             _raw_obj = _am.group(2).strip().lower()
             _obj = self._opinion_topic(_raw_obj)
             if _activity_obj_is_real(_obj, _raw_obj):
@@ -1481,6 +1515,13 @@ class UserModel:
             re.IGNORECASE)
         for _em in _evt_pat.finditer(q_clean):
             _verb = _em.group(1).lower()
+            # D4 (round 2026-08-11T1328Z): the event miner shares the same
+            # meta-discourse verb guard as the activity miners — "i told a
+            # friend drowned" must not become ('i','event','told friend
+            # drowned'). A real lived-event verb ("lost"/"found"/"broke"/
+            # "dropped" a thing) is never in this set.
+            if _verb in _META_VERBS:
+                continue
             _raw_obj = _em.group(2).strip().lower()
             _obj = self._opinion_topic(_raw_obj)
             if _activity_obj_is_real(_obj, _raw_obj):

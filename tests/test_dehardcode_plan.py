@@ -490,7 +490,8 @@ def test_D4_activity_miner_skips_meta_discourse(engine):
     junk = [k for k in facts if isinstance(k, tuple) and len(k) >= 3
             and k[1] in ("does", "event")
             and str(facts[k].value).lower() in
-            ("keep saying", "felt kind", "told friend", "lose track", "felt weight")]
+            ("keep saying", "felt kind", "told friend", "told friend drowned",
+             "lose track", "felt weight")]
     assert not junk, f"D4 regression: meta-discourse stored as activity/event -> {junk}"
 
 
