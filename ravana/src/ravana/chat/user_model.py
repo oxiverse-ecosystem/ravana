@@ -381,6 +381,59 @@ class UserModel:
                             "i", _slot, v, confidence=0.6,
                             source="seed_regex")
                         break
+        # R8 fix (round 2026-08-11T0521Z): REVERSE-ORDER ownership claim /
+        # correction "<name>'s my <species>" (e.g. "salt's my dog actually")
+        # was NOT captured by the forward "<species> is mine" miner
+        # (_POSSESS_RE) nor the owner re-attribution miner (_OWNER_RE, which
+        # only moves an entity OFF the user). So "salt's my dog" — a user
+        # re-claiming a pet a neighbour had disclosed — was silently dropped,
+        # and recall still returned the neighbour's record. This block handles
+        # the subject-first form: extract name + species, and (a) if a prior
+        # active record for this species exists under a NON-user subject,
+        # re-attribute it to the USER (supersede the old owner's record, assert
+        # under "i" with the clean name); (b) otherwise assert / file the name
+        # on the user's species slot (same resolver the forward miner uses, so
+        # the key agrees by construction). Only KNOWN species match
+        # (species_of without learn_species) so a stray "<name>'s my <relation>"
+        # (e.g. "john's my friend") can never learn "friend" as a pet species.
+        _NAME_MINE_RE = re.compile(
+            r"\b(?P<nm>[A-Za-z][\w'-]*)\s*'s\s+my\s+(?P<sp>[\w'-]+)\b",
+            re.IGNORECASE)
+        for _nr in _NAME_MINE_RE.finditer(q_clean):
+            _nm = _nr.group("nm").strip().strip(".,!?").lower()
+            _sp_word = _nr.group("sp").strip().lower()
+            if not _nm or _sp_word in ("the", "a", "an"):
+                continue
+            _species = _pet_slots.species_of(_sp_word)
+            if _species is None:
+                # Only react to KNOWN species (no learn_species here) to avoid
+                # learning a relation noun ("friend") as a pet species.
+                continue
+            _slot = _pet_slots.slot_for(_species, 1)
+            # (a) re-attribute from a prior non-user owner to the user.
+            _moved = False
+            for (s, a, v), f in self.personal_facts.facts.items():
+                if (s != "i" and a == _slot
+                        and not getattr(f, "superseded", False)):
+                    f.superseded = True
+                    self.personal_facts.assert_fact(
+                        "i", _slot, _nm, confidence=0.6,
+                        source="seed_regex")
+                    _moved = True
+                    break
+            if _moved:
+                continue
+            # (b) file / reinforce the name on the user's own species slot.
+            _prior_user = self.personal_facts.get("i", _slot)
+            if _prior_user is not None:
+                if _prior_user.value.lower() != _nm.lower():
+                    self.personal_facts.contradict("i", _slot, _nm)
+                else:
+                    self.personal_facts.reinforce("i", _slot, _nm)
+            else:
+                self.personal_facts.assert_fact(
+                    "i", _slot, _nm, confidence=0.6,
+                    source="seed_regex")
         # OWNER-AS-POSSESSOR re-attribution: "<name> is my <owner>'s <species>"
         # e.g. "pip is my sister's cat" / "wren is my mum's owl". Re-assigns an
         # owned entity from the USER to a NAMED third-party owner. The first
