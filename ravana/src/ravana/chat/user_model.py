@@ -404,6 +404,14 @@ class UserModel:
             _sp_word = _nr.group("sp").strip().lower()
             if not _nm or _sp_word in ("the", "a", "an"):
                 continue
+            # Do NOT treat an interrogative word ("what", "who", "which", ...)
+            # as a pet name. A recall query like "what's my dog's name" matches
+            # this pattern (nm="what", sp="dog") and would otherwise overwrite
+            # the stored name with the question word. Genuine names are never
+            # wh-words, so this guard is safe.
+            if _nm in ("what", "who", "which", "where", "when", "why",
+                       "how", "whose", "whom"):
+                continue
             _species = _pet_slots.species_of(_sp_word)
             if _species is None:
                 # Only react to KNOWN species (no learn_species here) to avoid
