@@ -944,9 +944,40 @@ class UserModel:
                 # ("shaking"/"tired"), irregulars ("torn"/"lost"), and
                 # stative/cognitive verbs ("thinking"/"convinced").
                 _NAME_REJECT_AFFECT = _AFFECT_STATE_LEXICON
-                _has_closed = any(w.lower() in _CLOSED for w in _nw)
+                # D3 fix (round 2026-08-11T1328Z): the guard below tested the
+                # WHOLE candidate against the non-name stoplist, so multi-word
+                # transient/copula phrases slipped through and were stored as
+                # the user's NAME — "i'm not here" -> name "not here"; "i'm
+                # most myself" -> name "most myself"; "i'm gone" -> name
+                # "gone" — and then corrupted every self-summary ("from what
+                # you've told me, your name is not here; your name is gone").
+                # A name is a SHORT PROPER NOUN, never a predicate phrase. Test
+                # PER TOKEN: reject the candidate if ANY token is a closed-class
+                # word, a non-name state word, a reflexive pronoun, or a
+                # location/deixis word ("here"/"there"/"gone"). This is
+                # structural predicate-vs-proper-noun discrimination, generalizes
+                # across every persona (no per-name list), and degrades
+                # gracefully (a missing stop word merely loses this one guard).
+                _NAME_PRON = {
+                    "myself", "yourself", "himself", "herself", "itself",
+                    "themselves", "gone", "here", "there", "now", "then",
+                    "elsewhere", "anywhere", "nowhere", "somewhere",
+                    # Non-name states / descriptors / deixis (folds in the
+                    # later _NON_NAME stoplist so this guard never references a
+                    # variable assigned later in the function scope).
+                    "happy", "sad", "tired", "busy", "fine", "good", "bad",
+                    "hungry", "thirsty", "angry", "mad", "glad", "ok", "okay",
+                    "sorry", "lost", "ready", "done", "sure", "right", "wrong",
+                    "well", "sick", "late", "early", "home", "awake", "asleep",
+                    "confused", "scared", "afraid", "excited", "nervous",
+                    "calm", "what", "who", "why", "how", "where", "when",
+                    "not", "no", "yes", "maybe",
+                }
+                _has_stop = (
+                    any(w.lower() in _CLOSED for w in _nw)
+                    or any(w.lower() in _NAME_PRON for w in _nw))
                 _head_verb = _nw[0].lower() in _NAME_REJECT_AFFECT
-                if len(_nw) > 2 or _has_closed or _head_verb:
+                if len(_nw) > 2 or _has_stop or _head_verb:
                     name_cand = ""
             # Reject common states / descriptors / interrogatives so a bare
             # self-description is never stored as the user's name. Seed
@@ -1179,6 +1210,27 @@ class UserModel:
             if _m:
                 _obj = self._opinion_topic(_m.group(1).strip().lower())
                 if _obj and len(_obj.split()) <= 5:
+                    # D4 fix (round 2026-08-11T1328Z): the resolved object HEAD
+                    # must not be a communication / meta-discourse / abstract-
+                    # state word ("saying", "told", "kind", "track", "felt"...).
+                    # "i keep saying it" / "i felt a kind of weight lift" matched
+                    # the activity verb and stored junk ('does' = "keep saying"
+                    # / "felt kind") that pollutes recall. A real possession/
+                    # activity head ("pigeons", "tabla", "homing pigeons") is
+                    # never in this SEED vocabulary and still passes. Shared
+                    # with the general-activity miner below so both capture the
+                    # same real disclosures and reject the same meta-discourse.
+                    _META_HEAD = (
+                        "saying", "says", "said", "tell", "tells", "telling",
+                        "told", "mention", "mentions", "mentioning", "recall",
+                        "recount", "repeat", "repeated", "keep", "kept",
+                        "lose", "lost", "kind", "weight", "hush", "lift",
+                        "track", "sort", "type", "notion", "feeling", "feels",
+                        "felt", "bit", "thing", "stuff", "business", "matter",
+                        "point",
+                    )
+                    if _obj.split()[0] in _META_HEAD:
+                        continue
                     # Store the verb WITH the object ("keep homing pigeons")
                     # so activity recall ("what do i keep?") can match the
                     # verb and return a complete, grammatical answer instead
@@ -1366,6 +1418,33 @@ class UserModel:
             # real 2-word objects like "build hand planes" and is superseded here.
             _words = _o.split()
             if _words and all(w in _SENSATION_BODY for w in _words):
+                return False
+            # D4 fix (round 2026-08-11T1328Z): the activity/event miner must
+            # capture REAL possessions / lived actions, NOT the user's own
+            # META-DISCOURSE or inner-state reporting. "i keep saying it",
+            # "i felt a kind of weight lift", "i told a friend", "i lost
+            # track of whether" matched an activity verb and stored junk
+            # ('does'/'event' = "keep saying" / "felt kind" / "told friend
+            # drowned" / "lose track") that then pollutes recall and profile
+            # summaries. These are speech-act / abstract-state objects, not
+            # things the user possesses or does. Reject the capture when the
+            # object HEAD is a communication/meta verb (saying/telling/told/
+            # mention), a self-reference pronoun, or an abstract-state noun
+            # (kind/weight/hush/lift/track/sort/type/notion/feeling) — the
+            # words a possession/activity head would never be. This is a SEED
+            # vocabulary (RAVANA-expandable, shared with the empathy/affect
+            # lexicon); a real possession noun ("pigeons"/"loft"/"banjo"/
+            # "ginger beer") is never in this set and still passes. Not a
+            # per-topic answer table.
+            _META_DISCOURSE = (
+                "saying", "says", "said", "tell", "tells", "telling", "told",
+                "mention", "mentions", "mentioning", "recall", "recount",
+                "repeat", "repeated", "keep", "kept", "lose", "lost",
+                "kind", "weight", "hush", "lift", "track", "sort", "type",
+                "notion", "feeling", "feels", "felt", "bit", "thing",
+                "stuff", "business", "matter", "point",
+            )
+            if _head in _META_DISCOURSE:
                 return False
             # R5 fix (round 2026-08-11T0521Z): do NOT reject on word-count
             # alone. The earlier "<2 reject" + "<=5 cap" dropped legitimate real

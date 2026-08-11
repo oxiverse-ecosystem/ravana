@@ -440,3 +440,72 @@ def test_coverage_pe_vetoes_offtopic_snippet(engine):
     assert engine._topic_coverage_pe(
         "is it ever okay to break a promise", "promise", _promise) == 0.0
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# RAVANA round 2026-08-11T1328Z regression guards
+# D1: reaction/affiliation gate must not swallow a genuine question.
+# D2: a question must not be answered by echoing an unrelated prior turn.
+# D3: bare "i'm X" copula must not store a transient phrase as the user's name.
+# D4: activity/event miner must not store meta-discourse / inner-state objects.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_D1_reaction_gate_spares_question(engine):
+    # "so what's your real read on X" / "so, whose dog is it now" open with the
+    # reaction lead-in "so" but are QUESTIONS. The affiliation gate must NOT
+    # swallow them into a hollow "glad you felt that" ack; they must fall
+    # through to the real pipeline.
+    eng = engine
+    r = eng.process_turn(
+        "so what's your real read on the cave versus the radio, now you've heard all that?")
+    assert "glad you felt that" not in r, f"D1 regression: question swallowed by reaction gate -> {r!r}"
+    # A genuine reaction (no '?', no interrogative opener) must still route to
+    # the affiliation frame without crashing.
+    r2 = eng.process_turn("so, that really landed")
+    assert isinstance(r2, str) and r2.strip()
+
+
+def test_D3_bare_copula_does_not_poison_name(engine):
+    # Transient copula phrases must NOT be stored as the user's NAME.
+    eng = engine
+    eng.process_turn("i'm not here, not really.")
+    eng.process_turn("i'm most myself when the water's still.")
+    eng.process_turn("i'm gone by the time you read this.")
+    name = eng.user_model.user_name
+    assert name not in ("Not Here", "Most Myself", "Gone"), \
+        f"D3 regression: transient phrase stored as name -> {name!r}"
+    # A real self-naming still works.
+    eng.process_turn("i'm mara.")
+    assert eng.user_model.user_name.lower() == "mara", \
+        f"D3 regression: real name not captured -> {eng.user_model.user_name!r}"
+
+
+def test_D4_activity_miner_skips_meta_discourse(engine):
+    # "i keep saying it" / "i felt a kind of weight lift" / "i told a friend"
+    # must NOT become ('i','does',...) / ('i','event',...) possession facts.
+    eng = engine
+    eng.process_turn("i keep saying it — the cave keeps its secrets.")
+    eng.process_turn("i felt a kind of weight lift when i surfaced.")
+    eng.process_turn("i told a friend about the sump last week.")
+    facts = eng.user_model.personal_facts.facts
+    junk = [k for k in facts if isinstance(k, tuple) and len(k) >= 3
+            and k[1] in ("does", "event")
+            and str(facts[k].value).lower() in
+            ("keep saying", "felt kind", "told friend", "lose track", "felt weight")]
+    assert not junk, f"D4 regression: meta-discourse stored as activity/event -> {junk}"
+
+
+def test_D2_question_not_answered_by_unrelated_echo(engine):
+    # A question whose best hippocampal match shares only a stray token must
+    # not be answered by echoing an unrelated prior turn.
+    import re as _re
+    eng = engine
+    eng.process_turn("i forage chanterelles up past the quarry, the western slope after rain.")
+    q = "come on, the sump over the shack any day, right?"
+    mem = eng._try_hippocampal_retrieval(
+        type("_Ctx", (), {"subject": "sump"})(), q)
+    if mem is not None:
+        qt = {t for t in _re.findall(r"[a-zA-Z']+", q.lower()) if len(t) >= 3}
+        ft = {t for t in _re.findall(r"[a-zA-Z']+", mem.lower()) if len(t) >= 3}
+        assert len(qt & ft) >= 2, \
+            f"D2 regression: unrelated fact echoed for a question: {mem!r}"
+

@@ -4404,7 +4404,26 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 "i'm" in _low_react or " i " in _low_react or "me" in _low_react
                 or "my " in _low_react or "am i" in _low_react)
             _self_bio_intent = _self_bio_phrase or _self_bio_choice
-            if is_reaction(user_input) and not _self_bio_intent:
+            # D1 fix (round 2026-08-11T1328Z): the reaction/affiliation gate is
+            # keyed only on a lead-in cue ("so"/"that"/"wow"...), but a
+            # genuine QUESTION frequently opens with "so" — "so what's your
+            # real read on the cave versus the radio" / "so, whose dog is it
+            # now" / "so after all of this, what do you actually make of me".
+            # The gate swallowed these and returned a hollow affiliation ack
+            # ("glad you felt that — i'm listening") instead of answering the
+            # question. A reaction is a RESPONSE to the prior turn; a question
+            # is a REQUEST for content. Exempt any interrogative-shaped input
+            # from the affiliation frame so it falls through to the real
+            # reasoning/recall pipeline. Structural: a leading '?' or an
+            # interrogative opener — no per-question list; generalizes across
+            # every persona. Fail-open: a real reaction (no '?', no opener)
+            # still hits the affiliation frame below.
+            _is_question = (
+                "?" in (user_input or "") or re.match(
+                    r"^\s*(who|what|when|where|which|why|how|did|do|does|"
+                    r"is|are|was|were|would|will|could|can|should|am|have|"
+                    r"has|had|may|might|shall)\b", (user_input or "").lower()))
+            if is_reaction(user_input) and not _self_bio_intent and not _is_question:
                 _last = self._last_responses[-1] if self._last_responses else ""
                 _low = user_input.lower()
                 if "hilarious" in _low or "funny" in _low or "haha" in _low:
