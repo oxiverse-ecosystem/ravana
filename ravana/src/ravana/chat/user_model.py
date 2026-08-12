@@ -350,11 +350,21 @@ class UserModel:
             _sp_word = _pr.group("sp").strip().lower()
             if _sp_word in ("the",):
                 continue
+            _nm = (_pr.group("nm") or "").strip().strip(".,!?")
             _species = _pet_slots.species_of(_sp_word)
             if _species is None:
-                continue
+                # "the owl is mine and she's called wren" for a species the
+                # forward miner never got a chance to learn (e.g. the prior
+                # disclosure was a bare possession like "i keep an owl in the
+                # loft", which mints no pet slot). The attached name is
+                # itself evidence of a real pet, so learn the species here
+                # too — same gate (a name/"called"/"named" is present) the
+                # forward miner uses when it learns an unknown species.
+                if _nm and _sp_word.isalpha():
+                    _species = _pet_slots.learn_species(_sp_word)
+                if _species is None:
+                    continue
             _slot = _pet_slots.slot_for(_species, 1)
-            _nm = (_pr.group("nm") or "").strip().strip(".,!?")
             _mine = _pr.group("mine")
             # Locate any prior slot for this species under the USER — the
             # first disclosure stored it there (subject "i").
@@ -1064,7 +1074,7 @@ class UserModel:
             # slot). Fires only when the head word is a real species (resolved
             # by pet_slots), so non-pet "my brother is a tall guy called bob"
             # is handled by the existing guard, not learned as a pet.
-            r"\bmy\s+([\w-]+)\s+(?:is|are|was|were|'s)\s+(?:a|an)\s+"
+            r"\bmy\s+([\w-]+)(?:\s+(?:is|are|was|were)|'s)\s+(?:a|an)\s+"
             r"(?:[\w'-]+\s+){0,6}?(?:named|called)\s+([\w'-]+)",
             # D2: "i am a/an <noun>" self-descriptions (vegetarian, pilot,
             # teacher, ...) captured as a durable identity/role fact. Generic
