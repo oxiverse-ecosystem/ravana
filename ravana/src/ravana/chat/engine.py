@@ -2841,7 +2841,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     break
             if _best is not None:
                 return f"you told me: {_best}"
-        # ── (2c) Reverse pet lookup by NAME ─────────────────────────────
+        # ── (2c) Reverse "who is X to me" lookup by NAME (type-agnostic) ─
         # Limitation T40 (round 2026-08-12T0613Z): a possession disclosed as
         # a NAME ("my dog's a retriever called wren", "my cat is ember") was
         # only recallable via the SPECIES noun ("what is my dog's name").
@@ -2859,35 +2859,68 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # PersonalFactStore, which the user can correct at runtime (a renamed
         # pet supersedes the old slot and this lookup tracks the active one).
         _NAMEQ = re.search(
-            r"\b(?:who|what)\s+(?:is|was|are|were)\s+([a-z][a-z'\-]{1,20})\s*"
+            r"\b(?:who|what)\s+(?:is|was|are|were)\s+"
+            r"([a-z][a-z'\-]+(?:\s+[a-z][a-z'\-]+){0,3})\s*"
             r"(?:to|with|for)\s+(?:me|you|us|myself)\b", q)
         if _NAMEQ and pf is not None:
             _qnm = _NAMEQ.group(1).strip().lower().strip(".,!?")
             if len(_qnm) >= 2:
                 try:
                     from . import pet_slots as _psl
+                    # Seed entity-relationship vocabulary: the kinds of
+                    # "my <X> is <NAME>" fact whose NAME the user can ask about
+                    # ("who is sarah to me" / "what is the blue one to me").
+                    # Pets resolve through pet_slots (runtime-extensible
+                    # species); people through a relationship-noun set; common
+                    # possessions through a possession-noun set. These are SEED
+                    # vocabulary, not an answer table — the rendered label is
+                    # the LIVE attribute (read at lookup time, so runtime-
+                    # learned species/entities work) and the sets can grow from
+                    # conversation. Profile attributes (born/lives/job/name/...)
+                    # are intentionally excluded so a place-value fact ("i was
+                    # born in paris") never answers "who is paris to me" as
+                    # "your born is paris".
+                    _REL_NOUNS = frozenset({
+                        "sister", "brother", "friend", "mother", "father",
+                        "mom", "dad", "wife", "husband", "partner", "son",
+                        "daughter", "cousin", "sibling", "grandma", "grandpa",
+                        "grandmother", "grandfather", "aunt", "uncle",
+                        "nephew", "niece", "boss", "colleague", "neighbor",
+                        "neighbour",
+                    })
+                    _POSS_NOUNS = frozenset({
+                        "car", "cars", "bike", "bicycle", "truck", "van",
+                        "phone", "mobile", "laptop", "computer", "pc",
+                        "tablet", "camera", "watch", "ring", "boat", "ship",
+                        "guitar", "piano", "plant", "tree", "house", "home",
+                        "drone", "book", "motorbike", "scooter", "telescope",
+                    })
                     _matched = None
                     for _k, _f in pf.facts.items():
                         if not (isinstance(_k, tuple) and len(_k) == 3):
                             continue
                         if getattr(_f, "superseded", False):
                             continue
-                        # pets are stored under subject "i" (the user's own
-                        # companion) keyed by a pet_slots attribute; the VALUE
-                        # is the pet's name. A third-party pet (subject != "i")
-                        # is out of scope for "to me" — resolved at the source
-                        # so the self/other boundary holds (a sister's cat is
-                        # not "to me").
+                        # self/other boundary: only the user's own named
+                        # entities answer a "to me" query — a third-party's pet
+                        # or relation (subject != "i") is out of scope (a
+                        # sister's cat is not "to me").
                         if _k[0] != "i":
                             continue
-                        if not _psl.is_pet_attribute(_k[1]):
+                        _attr = _k[1]
+                        if _psl.is_pet_attribute(_attr):
+                            _label = _psl.base_species(_attr)
+                        elif _attr.lower() in _REL_NOUNS or _attr.lower() in _POSS_NOUNS:
+                            _label = _attr.lower()
+                        else:
+                            # Not a named-entity relationship the user would
+                            # ask about by name (e.g. born/lives/job/name).
                             continue
                         if getattr(_f, "value", "").strip().lower().strip(".,!?") == _qnm:
-                            _matched = (_k[1], getattr(_f, "value", _f))
+                            _matched = (_label, getattr(_f, "value", _f))
                             break
                     if _matched is not None:
-                        _sp = _psl.base_species(_matched[0])
-                        return f"your {_sp} is {_matched[1]}."
+                        return f"your {_matched[0]} is {_matched[1]}."
                 except Exception:
                     pass
         return None

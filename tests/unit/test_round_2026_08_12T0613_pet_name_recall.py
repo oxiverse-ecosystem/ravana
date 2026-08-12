@@ -83,3 +83,37 @@ def test_reverse_pet_name_recall_third_party_out_of_scope():
     eng.process_turn("my sister's cat is mochi")
     recall = eng.process_turn("who is mochi to me?")
     assert "your cat is mochi" not in recall.lower(), recall
+
+
+def test_reverse_name_recall_person():
+    # Generalization beyond pets (T40): a person disclosed as a relation
+    # ("my sister is sarah") must resolve by NAME on the same query shape
+    # the pet branch already answered. The label comes from the LIVE
+    # attribute ("sister"), not a pet grammar.
+    eng = _fresh_engine("petname_person")
+    eng.process_turn("my sister is sarah")
+    recall = eng.process_turn("who is sarah to me?")
+    assert "your sister is sarah" in recall.lower(), recall
+
+
+def test_reverse_name_recall_possession():
+    # A named possession ("my car is the blue one") must similarly resolve by
+    # its name. The trigger captures the multi-word name; the label is the
+    # possession noun from the fact attribute.
+    eng = _fresh_engine("petname_poss")
+    eng.process_turn("my car is the blue one")
+    recall = eng.process_turn("what is the blue one to me?")
+    assert "your car is the blue one" in recall.lower(), recall
+
+
+def test_reverse_name_recall_profile_fact_not_hijacked():
+    # Negative guard for the generalization: a place/profile value fact
+    # ("i was born in paris") must NOT be claimed as a named relation on a
+    # "who is paris to me?" query — the resolver is entity-scoped (pets /
+    # relationship nouns / possession nouns), so profile attributes are
+    # skipped and the lookup falls through honestly.
+    eng = _fresh_engine("petname_profile")
+    eng.process_turn("i was born in paris")
+    recall = eng.process_turn("who is paris to me?")
+    assert "your born is paris" not in recall.lower(), recall
+
