@@ -69,6 +69,20 @@ def test_answerable_query_marker():
     assert eng._is_answerable_query("by the way") is False
 
 
+def test_answerable_query_interrogative_not_swallowed():
+    # Round 2026-08-12T1234Z DEFECT 1: a complete opinion/wh- question ending
+    # in "?" (e.g. "so what's your real read on X versus Y?") is an answerable
+    # speech act and must NOT be disqualified. The old guard returned False for
+    # ANY "?"-ended text, which let genuine questions fall through to the
+    # preamble hold ("mm-hmm, what were you going to say?"). A bare "so" (no
+    # "?") stays non-answerable; a "so"-led QUESTION (with "?") is answerable.
+    eng = _bare_engine()
+    assert eng._is_answerable_query("so") is False
+    assert eng._is_answerable_query("so what's your real read on the hawk versus the blade, now you've heard all that?") is True
+    # And therefore the preamble gate must not withhold it.
+    assert eng._is_preamble_fragment("so what's your real read on the hawk versus the blade, now you've heard all that?") is False
+
+
 # ── M9: preamble false-negative via dependency-closure ─────────────────────
 # A real incomplete lead-in with NO cue word must still be held. Brain analog:
 # completeness = satisfied open syntactic/semantic dependencies (verb

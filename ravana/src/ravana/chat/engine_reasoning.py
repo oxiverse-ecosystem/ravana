@@ -2654,6 +2654,17 @@ class ReasoningMixin:
         t = (text or "").strip().rstrip(" .!?")
         if not t:
             return False
+        # A trailing "?" marks a COMPLETE interrogative speech act — a question
+        # is, by definition, a closed proposition with its dependencies satisfied
+        # (it is the hearer's turn to answer, not a dangling lead-in). The
+        # coordinator/complementizer checks below would otherwise mis-flag a
+        # question that HAPPENS to end in a COMP word ("...all that?") as an open
+        # fragment and withhold a warranted reply via the preamble hold. Root
+        # cause of round 2026-08-12T1234Z DEFECT 1 ("so what's your real read on
+        # the hawk versus the blade, now you've heard all that?" -> "mm-hmm, what
+        # were you going to say?"). Test the RAW trailing "?" before the strip.
+        if (text or "").strip().endswith("?"):
+            return True
         toks = [w.strip(".,!?") for w in t.split() if w.strip(".,!?")]
         if not toks:
             return False
@@ -2783,9 +2794,23 @@ class ReasoningMixin:
         The preamble detector must never eat it. Returns False (not a preamble)
         for these so generation proceeds.
         """
-        low = (text or "").strip().lower().rstrip(" .!?")
-        if not low or low.endswith("?"):
+        raw = (text or "").strip()
+        low = raw.lower().rstrip(" .!?")
+        if not low:
             return False
+        # A trailing "?" is the strongest signal of a COMPLETE query — an
+        # interrogative is, by definition, an answerable speech act. The old
+        # guard returned False for *any* "?"-ended text, which let complete
+        # opinion/wh- questions ("so what's your real read on X versus Y?")
+        # fall through to the preamble hold and get swallowed with "mm-hmm,
+        # what were you going to say?". Check the RAW trailing "?" BEFORE the
+        # punctuation strip below (the strip would erase it and defeat the
+        # test). A dangling fragment that merely ends in "?" (e.g. "what i mean
+        # is?") is already caught as incomplete by the caller's
+        # _is_clause_complete check before this is consulted, so returning True
+        # here is safe. (Round 2026-08-12T1234Z — DEFECT 1.)
+        if raw.endswith("?"):
+            return True
         # wh- words + imperative definition commands are complete queries.
         _QUERY_MARKERS = (
             "what", "who", "where", "when", "why", "how", "which",
