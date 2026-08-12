@@ -2858,71 +2858,154 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # table, no authored reply — every answer slot is read live from the
         # PersonalFactStore, which the user can correct at runtime (a renamed
         # pet supersedes the old slot and this lookup tracks the active one).
-        _NAMEQ = re.search(
-            r"\b(?:who|what)\s+(?:is|was|are|were)\s+"
-            r"([a-z][a-z'\-]+(?:\s+[a-z][a-z'\-]+){0,3})\s*"
-            r"(?:to|with|for)\s+(?:me|you|us|myself)\b", q)
-        if _NAMEQ and pf is not None:
-            _qnm = _NAMEQ.group(1).strip().lower().strip(".,!?")
-            if len(_qnm) >= 2:
-                try:
-                    from . import pet_slots as _psl
-                    # Seed entity-relationship vocabulary: the kinds of
-                    # "my <X> is <NAME>" fact whose NAME the user can ask about
-                    # ("who is sarah to me" / "what is the blue one to me").
-                    # Pets resolve through pet_slots (runtime-extensible
-                    # species); people through a relationship-noun set; common
-                    # possessions through a possession-noun set. These are SEED
-                    # vocabulary, not an answer table — the rendered label is
-                    # the LIVE attribute (read at lookup time, so runtime-
-                    # learned species/entities work) and the sets can grow from
-                    # conversation. Profile attributes (born/lives/job/name/...)
-                    # are intentionally excluded so a place-value fact ("i was
-                    # born in paris") never answers "who is paris to me" as
-                    # "your born is paris".
-                    _REL_NOUNS = frozenset({
-                        "sister", "brother", "friend", "mother", "father",
-                        "mom", "dad", "wife", "husband", "partner", "son",
-                        "daughter", "cousin", "sibling", "grandma", "grandpa",
-                        "grandmother", "grandfather", "aunt", "uncle",
-                        "nephew", "niece", "boss", "colleague", "neighbor",
-                        "neighbour",
-                    })
-                    _POSS_NOUNS = frozenset({
-                        "car", "cars", "bike", "bicycle", "truck", "van",
-                        "phone", "mobile", "laptop", "computer", "pc",
-                        "tablet", "camera", "watch", "ring", "boat", "ship",
-                        "guitar", "piano", "plant", "tree", "house", "home",
-                        "drone", "book", "motorbike", "scooter", "telescope",
-                    })
-                    _matched = None
+        # ── (2c) Reverse "who/what is X to me" / "whose <species> is it" lookup ─
+        # Generalization (round 2026-08-12T1234Z) of the prior T40 name-only fix.
+        # The old branch (a) only scanned facts with subject=="i", so a pet name
+        # stored as ('goshawk','name','vesper') was invisible; (b) only matched
+        # the literal "who|what is" regex, so apostrophe contractions ("what's
+        # bracken, to me?") fell through; (c) could not answer "whose <species>
+        # is it now" (possessor-of-a-species). All three question forms are now
+        # ONE path: normalize the query (expand who's/what's/whose, strip commas)
+        # then classify each LIVE fact by an ownership predicate and reverse-index
+        # by VALUE / SPECIES. The rendered label is read from the matched fact's
+        # OWN attribute/subject (pet_slots.base_species for animals, the relation
+        # noun for people) — never authored prose, never a per-name answer table.
+        # Corrections propagate automatically because superseded facts are skipped
+        # (a renamed/moved pet tracks the active slot). Self/other boundary is
+        # preserved: only the user's own entities (subject "i" or a species the
+        # user owns) answer "to me"; a third party's pet answers "whose" only.
+        if pf is not None:
+            try:
+                from . import pet_slots as _psl
+                # Seed relationship-noun vocabulary: the kinds of "my <RELATION>
+                # <NAME>" the user can ask about by name ("who is cal to me").
+                # This is SEED vocabulary (a noun set, not an answer table); the
+                # rendered label is the LIVE attribute, and the set can be
+                # extended at runtime via learn_relation(). Profile attributes
+                # (born/lives/job/name/...) are intentionally excluded so a
+                # place-value fact ("i was born in paris") never answers "who is
+                # paris to me" as "your born is paris".
+                _REL_NOUNS = frozenset({
+                    "sister", "brother", "friend", "mother", "father",
+                    "mom", "dad", "wife", "husband", "partner", "son",
+                    "daughter", "cousin", "sibling", "grandma", "grandpa",
+                    "grandmother", "grandfather", "aunt", "uncle",
+                    "nephew", "niece", "boss", "colleague", "neighbor",
+                    "neighbour",
+                })
+                _POSS_NOUNS = frozenset({
+                    "car", "cars", "bike", "bicycle", "truck", "van",
+                    "phone", "mobile", "laptop", "computer", "pc",
+                    "tablet", "camera", "watch", "ring", "boat", "ship",
+                    "guitar", "piano", "plant", "tree", "house", "home",
+                    "drone", "book", "motorbike", "scooter", "telescope",
+                })
+
+                def _norm_query(s):
+                    # Expand contractions + strip punctuation so "what's"/"who's"/
+                    # "whose" and stray commas match the same logic as "what is".
+                    s = (s or "").lower().strip()
+                    s = (s.replace("who's", "who is").replace("what's", "what is")
+                          .replace("whose", "whose").replace("n't", " not"))
+                    s = s.replace(",", " ").replace("  ", " ").strip()
+                    return s
+
+                _qn = _norm_query(q)
+                # (i) NAME -> entity ("who is vesper to me?" / "what's bracken to me?")
+                _NAMEQ = re.search(
+                    r"\b(?:who|what)\s+(?:is|was|are|were)\s+"
+                    r"([a-z][a-z'\-]+(?:\s+[a-z][a-z'\-]+){0,3})\s+"
+                    r"(?:to|with|for)\s+(?:me|you|us|myself)\b", _qn)
+                # (ii) WHOSE <species> ("whose hawk is it now?" / "whose dog?")
+                _WHOSEQ = re.search(
+                    r"\bwhose\s+([a-z][a-z'\-]+)\s+(?:is|was|are|were)\s+"
+                    r"(?:it|he|she|they)(?:\s+now)?\b", _qn)
+
+                # Classify a stored fact into an ownership bucket. Returns
+                # (label, value, owner, priority) or None if out of scope.
+                # priority: pet=0, possession=1, relation/other=2 — a name that
+                # collides across entity types (e.g. "bracken" is both the user's
+                # dog and, via a faulty inference, a "neighbour") resolves to the
+                # most entity-like reading (pet/possession) rather than a
+                # relationship noun.
+                _REL_WORDS = _REL_NOUNS | _POSS_NOUNS
+                def _classify(_k, _f):
+                    if not (isinstance(_k, tuple) and len(_k) == 3):
+                        return None
+                    if getattr(_f, "superseded", False):
+                        return None
+                    _subj, _attr, _val = _k
+                    _val = (getattr(_f, "value", _val) or "").strip()
+                    if not _val:
+                        return None
+                    _val_l = _val.lower().strip(".,!?")
+                    _attr_l = str(_attr).lower().strip()
+                    # pet stored under user: ("i","dog","wren") etc.
+                    if _subj == "i" and _psl.is_pet_attribute(_attr):
+                        return (_psl.base_species(_attr), _val, "i", 0)
+                    # entity named by its NAME attribute: ("goshawk","name","vesper"),
+                    # ("dog","name","wren"). The "name" attribute is the universal
+                    # "this entity is called X" signal — type-agnostic, no species
+                    # whitelist, so a goshawk/falcon/axolotl the seed never listed
+                    # still resolves. Reject only when the subject is a relationship
+                    # noun (those are handled by the relation branch below).
+                    if _attr_l == "name" and str(_subj).lower() not in _REL_WORDS:
+                        return (str(_subj), _val, "i", 0)
+                    # relation-noun attribute (combined or plain):
+                    #   ("i","brother cal","desc") or ("i","brother","cal")
+                    _attr_head = _attr_l.split()[0] if _attr_l.split() else ""
+                    if _attr_head in _REL_NOUNS:
+                        # combined "brother cal" -> name is the tail token
+                        _name = _val_l if _attr_l == _attr_head else \
+                            _attr_l.split(" ", 1)[1] if " " in _attr_l else _val_l
+                        return (_attr_head, _name or _val, "i", 2)
+                    if _attr_head in _POSS_NOUNS:
+                        # possession: value is the possession's name/identifier
+                        return (_attr_head, _val, "i", 1)
+                    # third-party's pet: ("neighbour","dog","bracken") — answers
+                    # "whose" only, never "to me".
+                    if _subj != "i" and _psl.is_pet_attribute(_attr):
+                        return (_psl.base_species(_attr), _val, _subj, 3)
+                    return None
+
+                if _NAMEQ:
+                    _qnm = _NAMEQ.group(1).strip().lower().strip(".,!?")
+                    if len(_qnm) >= 2:
+                        _best = None  # (priority, label, value)
+                        for _k, _f in pf.facts.items():
+                            _c = _classify(_k, _f)
+                            if _c is None or _c[2] != "i":
+                                continue
+                            if _c[1].lower().strip(".,!?") == _qnm:
+                                if _best is None or _c[3] < _best[0]:
+                                    _best = (_c[3], _c[0], _c[1])
+                        if _best is not None:
+                            return f"your {_best[1]} is {_best[2]}."
+                elif _WHOSEQ:
+                    _spq = _WHOSEQ.group(1).strip().lower()
+                    _spq_canon = _psl.species_of(_spq)
+                    _best = None  # (priority, owner, entity)
                     for _k, _f in pf.facts.items():
-                        if not (isinstance(_k, tuple) and len(_k) == 3):
+                        _c = _classify(_k, _f)
+                        if _c is None:
                             continue
-                        if getattr(_f, "superseded", False):
+                        _ent = _c[0]
+                        # match by canonical species, or by head-token overlap
+                        # ("hawk" vs stored "goshawk") — still fully online.
+                        _match = (_spq_canon is not None and
+                                  _psl.species_of(_ent) == _spq_canon)
+                        if not _match:
+                            _match = _spq in _ent or _ent in _spq or _spq.rstrip("s") == _ent.rstrip("s")
+                        if not _match:
                             continue
-                        # self/other boundary: only the user's own named
-                        # entities answer a "to me" query — a third-party's pet
-                        # or relation (subject != "i") is out of scope (a
-                        # sister's cat is not "to me").
-                        if _k[0] != "i":
-                            continue
-                        _attr = _k[1]
-                        if _psl.is_pet_attribute(_attr):
-                            _label = _psl.base_species(_attr)
-                        elif _attr.lower() in _REL_NOUNS or _attr.lower() in _POSS_NOUNS:
-                            _label = _attr.lower()
-                        else:
-                            # Not a named-entity relationship the user would
-                            # ask about by name (e.g. born/lives/job/name).
-                            continue
-                        if getattr(_f, "value", "").strip().lower().strip(".,!?") == _qnm:
-                            _matched = (_label, getattr(_f, "value", _f))
-                            break
-                    if _matched is not None:
-                        return f"your {_matched[0]} is {_matched[1]}."
-                except Exception:
-                    pass
+                        if _best is None or _c[3] < _best[0]:
+                            _best = (_c[3], _c[2], _ent)
+                    if _best is not None:
+                        if _best[1] == "i":
+                            return f"it's yours — your {_best[2]}."
+                        return f"it's your {_best[1]}'s {_best[2]}."
+            except Exception:
+                pass
         return None
 
     def _recall_user_fact(self, attr_hint, q):
@@ -3377,6 +3460,22 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         try:
             self.user_model.opinions.clear_last_reversal()
             self.user_model.opinions.clear_reversal_guard()
+        except Exception:
+            pass
+        # C-fix (round 2026-08-12T1234Z): reset the prior turn's
+        # correction flags at the TOP of process_turn, before any detector can
+        # read them. _detect_correction() (user_model.py) can raise the
+        # detected_correction flag via a WEAK signal (sentiment-drop / reask)
+        # WITHOUT a fresh fact; the old code only cleared the flag inside the
+        # persist gates AFTER consuming it, so a flag set on turn N could leak
+        # into turn N+1's correction-persist gate and persist a STALE fact under
+        # a junk attribute (observed: ('i','is','just') — a garbage
+        # correction "you are just" stored from a prior turn's mis-read).
+        # Resetting here makes correction a strictly WITHIN-turn signal: each
+        # turn re-derives its own correction fact from its own text. No per-topic
+        # logic; mirrors the reversal-marker reset directly above.
+        try:
+            self.user_model.reset_correction_flags()
         except Exception:
             pass
         # Step 3a: Meta-command detector at the VERY TOP of process_turn (PFC task-set override)
