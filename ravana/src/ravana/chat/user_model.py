@@ -309,8 +309,6 @@ class UserModel:
                 _sp_word = _pet_corr.group(1).strip().lower()
                 _new_name = _pet_corr.group(2).strip().strip(".,!?")
                 _species = _pet_slots.species_of(_sp_word)
-                if _species is None and _sp_word.isalpha():
-                    _species = _pet_slots.learn_species(_sp_word)
                 if _species is not None and _new_name:
                     _slot = _pet_slots.slot_for(_species, 1)
                     _prior = self.personal_facts.get("i", _slot)
@@ -353,8 +351,6 @@ class UserModel:
             if _sp_word in ("the",):
                 continue
             _species = _pet_slots.species_of(_sp_word)
-            if _species is None and _sp_word.isalpha():
-                _species = _pet_slots.learn_species(_sp_word)
             if _species is None:
                 continue
             _slot = _pet_slots.slot_for(_species, 1)
@@ -1068,7 +1064,7 @@ class UserModel:
             # slot). Fires only when the head word is a real species (resolved
             # by pet_slots), so non-pet "my brother is a tall guy called bob"
             # is handled by the existing guard, not learned as a pet.
-            r"\bmy\s+([\w-]+)\s*(?:'s)?\s+(?:a|an|the\s+)?"
+            r"\bmy\s+([\w-]+)\s+(?:is|are|was|were|'s)\s+(?:a|an)\s+"
             r"(?:[\w'-]+\s+){0,6}?(?:named|called)\s+([\w'-]+)",
             # D2: "i am a/an <noun>" self-descriptions (vegetarian, pilot,
             # teacher, ...) captured as a durable identity/role fact. Generic
@@ -1599,7 +1595,7 @@ class UserModel:
             r"(.+?)(?:\s*(?:\.|!|\?|,|-{1,3}|$|"
             r"\s+and\s+|\s+but\s+|\s+because\s+|\s+so\s+|\s+which\s+|"
             r"\s+that\s+|\s+when\s+|\s+where\s+|\s+while\s+|"
-            r"\s+in\s+|\s+on\s+|\s+at\s+|\s+with\s+|\s+for\s+|\s+of\s+"
+            r"\s+in\s+|\s+on\s+|\s+at\s+|\s+with\s+|\s+for\s+|\s+of\s+|"
             r"\s+from\s+))",
             re.IGNORECASE)
         if not _qty_is_question:

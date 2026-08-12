@@ -573,20 +573,22 @@ class QuantityMemory:
                         noun_canonical, category="possession",
                         confidence=0.6, source="seed_regex") -> None:
         key = self._key(subject, kind, noun_canonical, count)
-        existing = self.records.get(key)
-        if existing is not None:
-            existing.confidence = min(1.0, existing.confidence + 0.1)
-            existing.turn_number = self.turn_num
-            existing.superseded = False
-            return
         # Conflicting prior count for the same (subject, kind, noun_canonical)?
         # Mark the old one superseded (the new disclosure is the active truth).
+        # Do this BEFORE checking for an existing record so reinstating a prior
+        # count cannot leave multiple active records.
         for (s, k, nc, c), r in list(self.records.items()):
             if (s == subject.lower().strip()
                     and k == kind.lower().strip()
                     and nc == noun_canonical.lower().strip()
                     and c != int(count) and not r.superseded):
                 r.superseded = True
+        existing = self.records.get(key)
+        if existing is not None:
+            existing.confidence = min(1.0, existing.confidence + 0.1)
+            existing.turn_number = self.turn_num
+            existing.superseded = False
+            return
         self.records[key] = QuantityRecord(
             subject=subject, kind=kind, count=int(count),
             noun_phrase=noun_phrase, noun_canonical=noun_canonical,
@@ -608,28 +610,28 @@ class QuantityMemory:
         if not _n or count is None:
             return
         _matched = False
-        for (s, k, nc, c), r in list(self.records.items()):
-            if s != subj or r.superseded:
+        _retired_this_call = []
+        for (_s, _k, _nc, _c), r in list(self.records.items()):
+            if _s != subj or r.superseded:
                 continue
             if (r.noun_canonical == _n
                     or _n in self._noun_tokens(r.noun_phrase)):
                 r.superseded = True
                 _matched = True
+                _retired_this_call.append(((_s, _k, _nc, _c), r))
         if _matched:
             # Re-assert the corrected count. Use the canonical noun from the
             # most-recent matching record to keep the key stable.
             _canon = _n
-            for (s, k, nc, c), r in self.records.items():
-                if (s == subj and r.superseded
-                        and (r.noun_canonical == _n
-                             or _n in self._noun_tokens(r.noun_phrase))):
-                    _prev_kind = k
-                    _prev_cat = r.category
-                    _canon = nc
-                    break
-            else:
-                _prev_kind = "keep"
-                _prev_cat = category
+            _prev_kind = "keep"
+            _prev_cat = category
+            if _retired_this_call:
+                # Select the record with the highest turn_number among those retired now
+                _best = max(_retired_this_call, key=lambda x: getattr(x[1], "turn_number", 0))
+                (_s, _k, _nc, _c), _r = _best
+                _prev_kind = _k
+                _prev_cat = _r.category
+                _canon = _nc
             self.assert_quantity(subj, _prev_kind, count, _n, _canon,
                                  category=_prev_cat, confidence=0.85,
                                  source="correction")
@@ -679,19 +681,37 @@ class QuantityMemory:
         caller decides how to phrase an honest empty answer).
         """
         subj = subject.lower().strip()
-        total = 0
-        for (s, k, nc, c), r in self.records.items():
-            if s == subj and not r.superseded and r.category == category:
-                total += r.count
+        # Deduplicate by noun_canonical to count each noun once
+        _seen: Dict[str, QuantityRecord] = {}
+        for (_s, _k, nc, _c), r in self.records.items():
+            if _s == subj and not r.superseded and r.category == category:
+                if nc not in _seen or (
+                    getattr(r, "confidence", 0.0) > getattr(_seen[nc], "confidence", 0.0) or
+                    (getattr(r, "confidence", 0.0) == getattr(_seen[nc], "confidence", 0.0) and
+                     getattr(r, "turn_number", 0) > getattr(_seen[nc], "turn_number", 0))
+                ):
+                    _seen[nc] = r
+        total = sum(r.count for r in _seen.values())
         return total
 
     def aggregate_tokens(self, subject: str = "i") -> Dict[str, int]:
         """Per-category totals, for summary rendering."""
         subj = subject.lower().strip()
+        # Deduplicate by noun_canonical within each category
+        _by_cat: Dict[str, Dict[str, QuantityRecord]] = {}
+        for (_s, _k, nc, _c), r in self.records.items():
+            if _s == subj and not r.superseded:
+                if r.category not in _by_cat:
+                    _by_cat[r.category] = {}
+                if nc not in _by_cat[r.category] or (
+                    getattr(r, "confidence", 0.0) > getattr(_by_cat[r.category][nc], "confidence", 0.0) or
+                    (getattr(r, "confidence", 0.0) == getattr(_by_cat[r.category][nc], "confidence", 0.0) and
+                     getattr(r, "turn_number", 0) > getattr(_by_cat[r.category][nc], "turn_number", 0))
+                ):
+                    _by_cat[r.category][nc] = r
         out: Dict[str, int] = {}
-        for (s, k, nc, c), r in self.records.items():
-            if s == subj and not r.superseded:
-                out[r.category] = out.get(r.category, 0) + r.count
+        for cat, nouns in _by_cat.items():
+            out[cat] = sum(r.count for r in nouns.values())
         return out
 
     def get_state(self) -> Dict:

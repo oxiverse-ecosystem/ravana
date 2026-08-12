@@ -3296,11 +3296,13 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         have these empty anyway.
         """
         try:
-            self._episodic_index = {}
+            self._episodic_index.clear()
+            self.user_model._episodic_index = self._episodic_index
         except Exception:
             pass
         try:
-            self._episodic_transcript = []
+            self._episodic_transcript.clear()
+            self.user_model._episodic_transcript = self._episodic_transcript
         except Exception:
             pass
         try:
@@ -6515,6 +6517,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
     # without depending on a particular engine instance layout, and they import
     # the Stance type lazily to avoid a top-of-module import cycle.
 
+    @staticmethod
     def _serialize_agent_stances(engine: "CognitiveChatEngine") -> Dict[str, Any]:
         """Persist the agent's derived stance store to a plain serializable map.
 
@@ -6536,6 +6539,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 continue
         return _out
 
+    @staticmethod
     def _agent_stance_from_tuple(key: str, val: Any):
         """Rehydrate one persisted agent stance into a Stance, or None if junk.
 
@@ -6778,7 +6782,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 # stance it derived from the conversation, instead of recomputing
                 # a hollow transient answer each boot. topic -> (topic, polarity,
                 # confidence, valence, arousal, turn_number, rehearsal_count).
-                'agent_stances': self._serialize_agent_stances(),
+                'agent_stances': self._serialize_agent_stances(self),
             }
             state['state_checksum'] = self._checksum_state(state)
             # Phase 1: Write graph to SQLite database for ACID persistence
@@ -7085,7 +7089,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         if not (isinstance(_k, str) and _k.strip()
                                 and _k.strip().lower() not in _JUNK):
                             continue
-                        _st = _agent_stance_from_tuple(_k, _v)
+                        _st = self._agent_stance_from_tuple(_k, _v)
                         if _st is not None:
                             _restored[_k.strip().lower()] = _st
                 self._agent_stances = _restored
