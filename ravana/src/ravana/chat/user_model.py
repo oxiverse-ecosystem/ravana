@@ -1167,10 +1167,24 @@ class UserModel:
         # not a per-topic answer table). A real activity verb ("keep pigeons"/
         # "brew"/"forge"/"run") is never in this set, so genuine disclosures
         # still pass in both the D3-style loop and the general-activity loop.
+        # NOTE (round 2026-08-11T1328Z audit fix t_86c5c46b): this set is for
+        # SPEECH-ACT / INNER-STATE verbs only ("tell"/"say"/"feel"/"think"...).
+        # Genuine possession / loss verbs "keep"/"kept"/"lose"/"lost" were
+        # wrongly listed here, so first-person disclosures ("i keep homing
+        # pigeons", "i lost a kestrel", "i keep a saltwater reef tank") were
+        # dropped BEFORE capture, and the downstream count-correction path
+        # (which needs the stored 'does' text fact as its prior) went dead,
+        # leaving stale "six hives" after a "seven" correction. Their
+        # meta-discourse protection is already provided by the OBJECT-level
+        # guards (_META_HEAD / _META_DISCOURSE / embedded-question scan), which
+        # reject "keep saying" / "felt kind" / "lose track of whether..." on
+        # the object HEAD — so the verb-level guard must NOT reject real
+        # possession/loss verbs. Keep/lose are SEPARATELY in the activity/event
+        # verb seed lists so the disclosures still land.
         _META_VERBS = (
             "tell", "tells", "told", "say", "says", "said", "mention",
             "mentions", "mentioning", "recall", "recount", "repeat",
-            "repeated", "keep", "kept", "lose", "lost", "feel", "feels",
+            "repeated", "feel", "feels",
             "felt", "think", "know", "learn", "forget",
         )
 
