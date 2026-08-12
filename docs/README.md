@@ -26,6 +26,7 @@ truth; every claim here was checked against `ravana/`, `ravana_ml/`, and
 | [STANCE_REVERSAL.md](STANCE_REVERSAL.md) | How the user changing their mind recodes a held stance (first-person reversal / retraction cues), verified against the live engine. |
 | [ENTITY_LOCATION_RECALL.md](ENTITY_LOCATION_RECALL.md) | Capturing + surfacing a named thing's whereabouts (entity-keyed `location` fact, "where is X?" recall, correction, fail-closed on unknown). |
 | [POSSESSION_REATTRIBUTION.md](POSSESSION_REATTRIBUTION.md) | Reverse-order pet naming + owner re-attribution (self/other boundary enforced at all four recall sources, no LLM). |
+| [AGENT_SELF_STANCE.md](AGENT_SELF_STANCE.md) | RAVANA forms, records, and recalls its own stance on a discussed topic (grounded in the user's view, attenuated, persisted), and stays honestly silent with no evidence. |
 | [FAQ.md](FAQ.md) | Troubleshooting: installation, runtime, development issues. |
 
 ## Quick orientation
