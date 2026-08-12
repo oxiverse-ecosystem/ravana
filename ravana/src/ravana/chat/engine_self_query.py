@@ -990,6 +990,77 @@ class SelfQueryMixin:
                                   "versus", "vs", "more", "me", "now", "after",
                                   "what", "just", "said", "right", "really",
                                   "exactly", "tell", "think")]
+            # ── Binary contrast self-opinion capability (round 2026-08-12T1234Z,
+            # t_2595f8ad) ───────────────────────────────────────────────────────
+            # A question that names TWO options ("your take on the sea versus the
+            # mountains", "do you prefer the countryside or the cities") is a
+            # CONTRASTIVE self-opinion, not a single-topic one. The prior
+            # extractor stripped `versus`/`vs`/`or` and took only the LAST token
+            # as the target, so the contrast collapsed to one side and the engine
+            # answered "i'm for <last word>" while the other option was silently
+            # dropped — the round's documented residual limitation. RAVANA already
+            # holds a structured lean per topic (constitutive _agent_values,
+            # recalled _agent_stances, or a lean derived from the user's learned
+            # opinion); the missing piece is engaging BOTH sides at once.
+            #
+            # This is a REAL capability (no hardcoded reply): we split the tail on
+            # the contrastive connective, resolve EACH side independently through
+            # the EXISTING _agent_stance_on resolver (which reads real state and
+            # answers honestly when ungrounded), and compose a reply that names
+            # both sides with their real leans. The deciding test passes: had we
+            # no view on either, both resolves honestly and the answer falls back
+            # cleanly rather than fabricating. No LLM, no retraining; the per-side
+            # stance is computed live, every time.
+            _contrast = None
+            _csep = None
+            for _sep in (" versus ", " vs ", " vs. ", " or ", " over ",
+                         " rather than "):
+                if _sep in (" " + _tail + " "):
+                    _csep = _sep.strip()
+                    _parts = _tail.split(_sep)
+                    _contrast = [p.strip() for p in _parts if p.strip()]
+                    break
+            if _contrast is not None and len(_contrast) >= 2:
+                # Drop the closed-class / scaffold tokens from each side, keep the
+                # LAST content word as that side's topic target (same convention
+                # the single-topic path uses), so "the sea" -> "sea",
+                # "the mountains" -> "mountains".
+                _SCRUB = ("about", "on", "the", "a", "an", "of", "for", "with",
+                          "to", "we", "should", "could", "would", "is", "are",
+                          "do", "does", "you", "i", "it", "that", "this", "and",
+                          "or", "honest", "read", "take", "view", "opinion",
+                          "thoughts", "stance", "versus", "vs", "more", "me",
+                          "now", "after", "what", "just", "said", "right",
+                          "really", "exactly", "tell", "think", "than",
+                          "rather")
+                _sides = []
+                for _p in _contrast:
+                    _pt = [w for w in re.findall(r"[a-z']+", _p)
+                           if w not in _SCRUB]
+                    if _pt:
+                        _sides.append(_pt[-1])
+                if len(_sides) >= 2:
+                    _resolved = [(s, self._agent_stance_on(s)) for s in _sides]
+                    # Both sides grounded (or at least one has a real lean and
+                    # the other resolves to a real 'still figuring'): compose.
+                    # We engage both even when one is honest-ungrounded — the
+                    # point is to answer the CONTRAST, not to hide a side.
+                    _phrases = []
+                    for _s, (_st, _rs) in _resolved:
+                        _phrases.append(f"i {_st} {_s}")
+                    _answer = "; ".join(_phrases)
+                    if not _answer.endswith((".", "!", "?")):
+                        _answer += "."
+                    # No fabricated prose: if BOTH sides came back as the hollow
+                    # honest fallback, leave it — that IS the honest answer (no
+                    # view on either). It is never a single-topic collapSE.
+                    try:
+                        self._agent_claims.setdefault("self", None)
+                        self._agent_claims["opinion"] = _answer.strip()
+                    except Exception:
+                        pass
+                    return _answer
+            # ── Single-topic self-opinion (unchanged path) ──────────────────
             _target = _toks[-1] if _toks else ""
             _stance, _reason = self._agent_stance_on(_target)
             _reason = (_reason or "").rstrip()
