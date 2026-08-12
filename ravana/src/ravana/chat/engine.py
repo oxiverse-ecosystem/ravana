@@ -2841,8 +2841,56 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     break
             if _best is not None:
                 return f"you told me: {_best}"
+        # ── (2c) Reverse pet lookup by NAME ─────────────────────────────
+        # Limitation T40 (round 2026-08-12T0613Z): a possession disclosed as
+        # a NAME ("my dog's a retriever called wren", "my cat is ember") was
+        # only recallable via the SPECIES noun ("what is my dog's name").
+        # A query that names the pet by its NAME ("who is wren to me?",
+        # "what relation is ember to me") had no retrieval path: it fell
+        # through to the generic self-blurb. Real cognition resolves a
+        # name -> the entity it belongs to, then answers about that entity.
+        # This branch reverse-indexes the pet store by VALUE (the name) and
+        # answers the RELATIONSHIP ("your dog is wren"), so the user can ask
+        # about a companion by the name they actually use. It is the inverse
+        # of the existing species-keyed recall (1c / engine_memory entity
+        # scan) and shares pet_slots for the species resolution, so the two
+        # directions agree on the keys by construction. No per-animal answer
+        # table, no authored reply — every answer slot is read live from the
+        # PersonalFactStore, which the user can correct at runtime (a renamed
+        # pet supersedes the old slot and this lookup tracks the active one).
+        _NAMEQ = re.search(
+            r"\b(?:who|what)\s+(?:is|was|are|were)\s+([a-z][a-z'\-]{1,20})\s*"
+            r"(?:to|with|for)\s+(?:me|you|us|myself)\b", q)
+        if _NAMEQ and pf is not None:
+            _qnm = _NAMEQ.group(1).strip().lower().strip(".,!?")
+            if len(_qnm) >= 2:
+                try:
+                    from . import pet_slots as _psl
+                    _matched = None
+                    for _k, _f in pf.facts.items():
+                        if not (isinstance(_k, tuple) and len(_k) == 3):
+                            continue
+                        if getattr(_f, "superseded", False):
+                            continue
+                        # pets are stored under subject "i" (the user's own
+                        # companion) keyed by a pet_slots attribute; the VALUE
+                        # is the pet's name. A third-party pet (subject != "i")
+                        # is out of scope for "to me" — resolved at the source
+                        # so the self/other boundary holds (a sister's cat is
+                        # not "to me").
+                        if _k[0] != "i":
+                            continue
+                        if not _psl.is_pet_attribute(_k[1]):
+                            continue
+                        if getattr(_f, "value", "").strip().lower().strip(".,!?") == _qnm:
+                            _matched = (_k[1], getattr(_f, "value", _f))
+                            break
+                    if _matched is not None:
+                        _sp = _psl.base_species(_matched[0])
+                        return f"your {_sp} is {_matched[1]}."
+                except Exception:
+                    pass
         return None
-
 
     def _recall_user_fact(self, attr_hint, q):
         """Helpers for _structured_recall: read a personal_fact by attribute."""
