@@ -96,7 +96,13 @@ def test_positive_disclosure_not_mixed(eng):
     resp = eng.process_turn("this morning i pulled my first full super of honey and i'm buzzing with joy")
     assert "mixed" not in resp.lower(), \
         f"positive disclosure must not be tagged 'mixed', got: {resp}"
-    assert "good" in resp.lower(), f"positive disclosure should ask 'what made today good?', got: {resp}"
+    # The reply must acknowledge the positive state. It may use the generic
+    # 'good' OR the user's own named feeling ('joy') — the affect override
+    # now prefers the real felt term over a canned 'good' (round 2026-08-08c).
+    # Either is a valid positive acknowledgment; the regression being guarded
+    # against is the collapsed 'mixed?' tag, which this must never produce.
+    assert ("good" in resp.lower() or "joy" in resp.lower()), \
+        f"positive disclosure should acknowledge the feeling (good/joy), got: {resp}"
 
 
 # ── D5: non-death distress routes to empathy ───────────────────────────────
