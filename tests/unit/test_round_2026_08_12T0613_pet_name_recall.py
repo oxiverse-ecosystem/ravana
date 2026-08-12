@@ -72,3 +72,14 @@ def test_reverse_pet_name_recall_runtime_learned_species():
     eng.process_turn("i have an axolotl named nyx")
     recall = eng.process_turn("who is nyx to me?")
     assert "your axolotl is nyx" in recall.lower(), recall
+
+
+def test_reverse_pet_name_recall_third_party_out_of_scope():
+    # A third-party pet ("my sister's cat is mochi") is stored under a
+    # non-user subject and must NOT be claimed as the user's on a "to me"
+    # query. The branch's self/other boundary (subject != "i" skipped) means
+    # the name lookup falls through instead of asserting "your cat is mochi".
+    eng = _fresh_engine("petname_e")
+    eng.process_turn("my sister's cat is mochi")
+    recall = eng.process_turn("who is mochi to me?")
+    assert "your cat is mochi" not in recall.lower(), recall
