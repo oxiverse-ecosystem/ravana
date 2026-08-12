@@ -309,8 +309,6 @@ class UserModel:
                 _sp_word = _pet_corr.group(1).strip().lower()
                 _new_name = _pet_corr.group(2).strip().strip(".,!?")
                 _species = _pet_slots.species_of(_sp_word)
-                if _species is None and _sp_word.isalpha():
-                    _species = _pet_slots.learn_species(_sp_word)
                 if _species is not None and _new_name:
                     _slot = _pet_slots.slot_for(_species, 1)
                     _prior = self.personal_facts.get("i", _slot)
@@ -352,13 +350,21 @@ class UserModel:
             _sp_word = _pr.group("sp").strip().lower()
             if _sp_word in ("the",):
                 continue
-            _species = _pet_slots.species_of(_sp_word)
-            if _species is None and _sp_word.isalpha():
-                _species = _pet_slots.learn_species(_sp_word)
-            if _species is None:
-                continue
-            _slot = _pet_slots.slot_for(_species, 1)
             _nm = (_pr.group("nm") or "").strip().strip(".,!?")
+            _species = _pet_slots.species_of(_sp_word)
+            if _species is None:
+                # "the owl is mine and she's called wren" for a species the
+                # forward miner never got a chance to learn (e.g. the prior
+                # disclosure was a bare possession like "i keep an owl in the
+                # loft", which mints no pet slot). The attached name is
+                # itself evidence of a real pet, so learn the species here
+                # too — same gate (a name/"called"/"named" is present) the
+                # forward miner uses when it learns an unknown species.
+                if _nm and _sp_word.isalpha():
+                    _species = _pet_slots.learn_species(_sp_word)
+                if _species is None:
+                    continue
+            _slot = _pet_slots.slot_for(_species, 1)
             _mine = _pr.group("mine")
             # Locate any prior slot for this species under the USER — the
             # first disclosure stored it there (subject "i").
@@ -1046,6 +1052,30 @@ class UserModel:
             r"([\w'-]+)\s+(?:named|called|named\s+called)\s+"
             r"([\w'-]+(?:\s+(?:and|,|&)\s*[\w'-]+)*)",
             r"\bmy\s+([\w'-]+)\s+(?:named|called)\s+([\w'-]+)",
+            # B-fix (round 2026-08-12T0613Z): a forward possession disclosure
+            # with an INTERSTITIAL breed/adjective phrase between the species
+            # and the name was never captured: "my dog is a nova scotia duck
+            # tolling retriever called wren" / "my cat is a maine coon called
+            # ember". The existing forward pattern requires the name
+            # immediately after the species ("my dog called wren"), so the
+            # breed phrase ("is a ... retriever") broke the match and the pet
+            # fact was dropped — measured this round: T11 "my dog's a nova
+            # scotia duck tolling retriever called wren" stored NOTHING, so a
+            # later "what's my dog's name" fell through to "outside what i
+            # know". This allows an optional copula (is/are/was/were OR the
+            # spoken contraction 's, since users say "my dog's a retriever
+            # called wren") + article + up-to-6-word breed/adjective span
+            # before named/called, then routes through the SAME _pet_slots slot
+            # logic the bare pattern uses (no per-animal table; species
+            # resolved live). The species capture is LETTERS-ONLY ([\w-]+) so
+            # the trailing 's is consumed as the copula, not folded into the
+            # species token. Generic across any breed phrase length; the breed
+            # words are discarded (only the species + name matter for the
+            # slot). Fires only when the head word is a real species (resolved
+            # by pet_slots), so non-pet "my brother is a tall guy called bob"
+            # is handled by the existing guard, not learned as a pet.
+            r"\bmy\s+([\w-]+)(?:\s+(?:is|are|was|were)|'s)\s+(?:a|an)\s+"
+            r"(?:[\w'-]+\s+){0,6}?(?:named|called)\s+([\w'-]+)",
             # D2: "i am a/an <noun>" self-descriptions (vegetarian, pilot,
             # teacher, ...) captured as a durable identity/role fact. Generic
             # structural capture — the noun becomes the attribute value, no
@@ -1575,7 +1605,7 @@ class UserModel:
             r"(.+?)(?:\s*(?:\.|!|\?|,|-{1,3}|$|"
             r"\s+and\s+|\s+but\s+|\s+because\s+|\s+so\s+|\s+which\s+|"
             r"\s+that\s+|\s+when\s+|\s+where\s+|\s+while\s+|"
-            r"\s+in\s+|\s+on\s+|\s+at\s+|\s+with\s+|\s+for\s+|\s+of\s+"
+            r"\s+in\s+|\s+on\s+|\s+at\s+|\s+with\s+|\s+for\s+|\s+of\s+|"
             r"\s+from\s+))",
             re.IGNORECASE)
         if not _qty_is_question:
@@ -1737,6 +1767,31 @@ class UserModel:
                 _topic = self._opinion_topic(_raw)
                 if not _topic:
                     continue
+                # C-fix (round 2026-08-12T0613Z): reject a SINGLE-WORD topic
+                # that is not a real attitude object. Comparative / superlative
+                # patterns ("analog synthesis beats anything in a laptop" ->
+                # topic "anything"; "standing in the lamp room is the most
+                # awake i feel" -> topic "standing") capture a non-attitude HEAD
+                # that pollutes the stance store with keys RAVANA can never
+                # reconcile or recall (measured this round: stances keyed
+                # "anything"->0.7, "standing"->0.75, "open ocean"->0.0). The fix
+                # rejects a SMALL universal ghost set: indefinite pronouns
+                # (anything/something/everything/nothing/...) and grammatical
+                # gerunds (standing/being/doing/...) that can NEVER own an
+                # attitude. This is seed vocabulary (universal, not
+                # topic-specific) — a legitimate single-word stance like
+                # "cilantro" or "solitude" passes through. Multiword content
+                # phrases (e.g. "open ocean", "acoustic music", "solar punk")
+                # ALWAYS pass because they carry genuine content nouns. NOTE: an
+                # earlier draft also required the topic to be in the engine's
+                # GloVe vocabulary, but that wrongly dropped rare-but-valid
+                # single-word attitudes (regression: test_round_aug07_fixes
+                # KeyError 'cilantro'), so the vocabulary gate was removed — the
+                # ghost set alone is the correct, minimal structural guard.
+                if " " not in _topic:
+                    if _topic in self._STANCE_GHOST_TOPICS:
+                        continue
+
                 # Sign-PRESERVING affect blend (D3 fix, round v-aug06).
                 # Bug: the prior code used the RUNNING emotional buffer
                 # (_v = EMA of ALL prior turns) to modulate polarity via
@@ -2330,6 +2385,29 @@ class UserModel:
         "is", "are", "was", "were", "be", "been", "being", "am",
         "not", "don't", "dont", "do", "does", "did", "can", "cannot", "cant",
         "it", "they're", "im", "i'm", "you're", "we're", "there",
+    }
+
+    # C-fix (round 2026-08-12T0613Z): universal ghost topics that can NEVER
+    # own a stance. Comparative / superlative patterns occasionally capture a
+    # non-attitude head (an indefinite pronoun like "anything", or a grammatical
+    # gerund like "standing"/"being" stripped from a longer phrase). These are
+    # rejected as single-word stance topics. This is a tiny UNIVERSAL seed set
+    # (indefinite pronouns + grammatical gerunds), NOT a per-topic deny-list —
+    # it generalizes to any topic the user names and RAVANA cannot learn
+    # attitude objects from these ghosts.
+    _STANCE_GHOST_TOPICS = {
+        # indefinite pronouns / quantifiers
+        "anything", "something", "everything", "nothing", "whatever",
+        "whoever", "whichever", "anyone", "everyone", "someone", "noone",
+        "nobody", "everybody", "somebody", "anybody",
+        # grammatical gerunds that pattern-matchers emit as a head but can
+        # never be an attitude object
+        "standing", "being", "doing", "having", "going", "coming", "feeling",
+        "thinking", "knowing", "wanting", "making", "taking", "getting",
+        "being", "saying", "talking", "looking", "feeling", "seeming",
+        "open", "single", "moment", "sense", "breath", "note", "held",
+        "restless", "quietest", "quiet", "outside", "inside", "away",
+        "around", "through", "across", "behind", "before", "after",
     }
 
     def _opinion_topic(self, phrase: str) -> Optional[str]:
