@@ -508,7 +508,7 @@ class SelfQueryMixin:
         """Canonical key for an agent-derived stance on `target`.
 
         Mirrors the junk-guard used for the constitutive-value keys so a
-        non-topic (``"right"``/``"source"``/``"it"``) can never become a stored
+        non-topic (``"right"``/``"it"``/``"that"``) can never become a stored
         stance — those are exactly the confabulation class the stance resolver
         must reject. Returns the stripped lowercase key, or ``""`` if the target
         is not a real topic (callers treat the empty key as "no stance").

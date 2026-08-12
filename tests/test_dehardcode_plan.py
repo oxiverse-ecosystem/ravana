@@ -591,3 +591,23 @@ def test_F3_agent_honest_when_no_evidence(engine):
         f"F3 regression: a stance was stored for an evidence-less topic -> {_own!r}"
 
 
+def test_F4_agent_stance_key_rejects_junk_topics(engine):
+    # Documented LIMIT: the canonical key derivation (_agent_stance_key) must
+    # reject non-topics ("right"/"source"/"it"/"that"/...) so a hollow or
+    # deictic cue can never become a stored agent stance (the old
+    # confabulation class). A real topic returns its stripped lowercase key.
+    eng = engine
+    # Junk / deictic tokens -> empty key (callers treat "" as "no stance").
+    # These exactly match the _JUNK set in engine_self_query.py:_agent_stance_key.
+    for _junk in ("right", "it", "that", "things", "really", "all", "matter",
+                  "topic", "question", "ok", "okay", "", "   "):
+        assert eng._agent_stance_key(_junk) == "", \
+            f"F4 regression: junk topic '{_junk}' should yield empty key, " \
+            f"got {eng._agent_stance_key(_junk)!r}"
+    # A real topic yields a canonical lowercased key (multiword kept verbatim).
+    assert eng._agent_stance_key("Chanterelles") == "chanterelles", \
+        "F4 regression: real topic key not canonicalized"
+    assert eng._agent_stance_key("open Hardware") == "open hardware", \
+        "F4 regression: multiword topic key not lowercased"
+
+
