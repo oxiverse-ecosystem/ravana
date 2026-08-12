@@ -117,3 +117,60 @@ def test_reverse_name_recall_profile_fact_not_hijacked():
     recall = eng.process_turn("who is paris to me?")
     assert "your born is paris" not in recall.lower(), recall
 
+
+# ── Round 2026-08-12T1234Z generalization extensions ────────────────────────
+# The T40 fix (above) only handled pets stored under subject=="i" and the
+# literal "who|what is" regex. This round generalized the resolver to: (a) any
+# entity named via a "name" attribute (incl. animals NOT in the species seed,
+# e.g. goshawk); (b) apostrophe contractions ("what's X to me?"); (c) the
+# "whose <species> is it" possessor query with head-token species overlap.
+def test_reverse_name_recall_apostrophe_contraction():
+    # "what's" must normalize to "what is" so the same path fires.
+    eng = _fresh_engine("petname_apos")
+    eng.process_turn("my dog's a retriever called bracken")
+    recall = eng.process_turn("what's bracken to me?")
+    assert "your dog is bracken" in recall.lower(), recall
+
+
+def test_reverse_pet_name_recall_species_subject_nonseed():
+    # A pet disclosed via the possessive-split form ("my goshawk's name is
+    # vesper") is stored as ('goshawk','name','vesper') — subject is the
+    # species, which is NOT in the pet_slots seed. The generalized resolver
+    # keys off the universal "name" attribute, so a non-seed animal still
+    # resolves by name.
+    eng = _fresh_engine("petname_goshawk")
+    eng.process_turn("my goshawk's name is vesper, she rides the thermals")
+    recall = eng.process_turn("who is vesper to me?")
+    assert "your goshawk is vesper" in recall.lower(), recall
+
+
+def test_reverse_whose_species_query():
+    # "whose <species> is it" must resolve the possessor from the live store,
+    # tolerating head-token species overlap ("hawk" vs stored "goshawk").
+    eng = _fresh_engine("petname_whose")
+    eng.process_turn("my goshawk's name is vesper")
+    recall = eng.process_turn("whose hawk is it?")
+    assert "yours" in recall.lower(), recall
+
+
+def test_reverse_name_recall_person_combined_attr():
+    # A person disclosed as a combined relation+name attribute
+    # ("my brother cal is the one who taught me") stores ('i','brother cal',desc).
+    # The resolver splits the relation head ("brother") and answers by name.
+    eng = _fresh_engine("petname_brother")
+    eng.process_turn("my brother cal is the one who taught me to read the wind")
+    recall = eng.process_turn("who is cal to me?")
+    assert "your brother is cal" in recall.lower(), recall
+
+
+def test_reverse_name_recall_priority_over_relation_collision():
+    # When a name collides across entity types (bracken is both the user's dog
+    # and, via a faulty inference, a "neighbour"), the resolver must prefer the
+    # most entity-like reading (pet) over the relationship noun.
+    eng = _fresh_engine("petname_collide")
+    eng.process_turn("my dog is a lurcher called bracken")
+    eng.process_turn("my neighbour is bracken")
+    recall = eng.process_turn("what's bracken to me?")
+    assert "your dog is bracken" in recall.lower(), recall
+
+
