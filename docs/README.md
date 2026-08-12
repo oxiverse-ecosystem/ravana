@@ -28,6 +28,7 @@ truth; every claim here was checked against `ravana/`, `ravana_ml/`, and
 | [POSSESSION_REATTRIBUTION.md](POSSESSION_REATTRIBUTION.md) | Reverse-order pet naming + owner re-attribution (self/other boundary enforced at all four recall sources, no LLM). |
 | [PET_NAME_RECALL.md](PET_NAME_RECALL.md) | Reverse pet lookup by name: answer "who is wren to me?" by reverse-indexing the pet store by VALUE, honoring rename + self/other boundary, no LLM. |
 | [AGENT_SELF_STANCE.md](AGENT_SELF_STANCE.md) | RAVANA forms, records, and recalls its own stance on a discussed topic (grounded in the user's view, attenuated, persisted), and stays honestly silent with no evidence. |
+| [CONTRASTIVE_SELF_OPINION.md](CONTRASTIVE_SELF_OPINION.md) | Binary "X versus Y" / "prefer A or B" self-opinion: RAVANA engages BOTH named sides through real state (split on the connective, resolve each side, compose), no single-token collapse. |
 | [FAQ.md](FAQ.md) | Troubleshooting: installation, runtime, development issues. |
 
 ## Quick orientation

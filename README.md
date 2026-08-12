@@ -90,6 +90,14 @@ on this codebase:
   next time. On a topic with no evidence it stays honestly silent
   (`i'm still figuring that out …`) instead of borrowing your opinion. No LLM, no
   retrain, no authored reply pool. See `docs/AGENT_SELF_STANCE.md`.
+- **Engages BOTH sides of a binary self-opinion.** Asked *"what's your take on the
+  sea versus the mountains?"* or *"do you prefer the countryside or the cities?"*,
+  it splits on the contrastive connective (`versus` / `vs` / `or` / `over` /
+  `rather than`) and resolves **each** side through its real stance state — e.g.
+  `i'm for sea.; i'm still figuring out mountains.` — instead of collapsing to the
+  last token and dropping the other side. A side with no view is answered honestly,
+  never fabricated. No LLM, no retrain, no authored reply pool. See
+  `docs/CONTRASTIVE_SELF_OPINION.md`.
 - **Remembers and totals counts you disclose.** Told *"i keep twelve racing
   pigeons"* / *"i have three cats"* / *"i lost five hens"*, it stores each count as
   structured state (not free text) so it can answer *"how many racing pigeons do i
