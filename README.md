@@ -54,6 +54,15 @@ on this codebase:
   `from what you've told me, you live in berlin; your cat is rex; …`
 - **Recalls what you told it.** *"what do you remember about me?"* surfaces the
   learned facts/stances (location, pet, likes) drawn from the durable stores.
+- **Answers relation-word questions about people you named.** After *"my
+  brother dev works as a paramedic in leeds"* it answers *"what does my brother
+  do for work?"* from the stored fact (`your brother works as a paramedic in
+  leeds.`) — not an unrelated episode echo. The relationship is stored under the
+  person's name, so the query resolves the spoken relation word ("brother") back
+  to the entity ("dev") via a forward index
+  (`PersonalFactStore.resolve_relation`), then reads that person's role/does
+  facts. It fails closed (returns nothing) when the relationship was never
+  disclosed. See `docs/RELATIONSHIP_RECALL.md`.
 - **Abstains when it has no settled view.** Asked *"what do you think about
   coffee?"* before forming its own position, it returns an honest non-answer
   rather than fabricating one:
