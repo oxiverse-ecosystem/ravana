@@ -30,6 +30,7 @@ truth; every claim here was checked against `ravana/`, `ravana_ml/`, and
 | [AGENT_SELF_STANCE.md](AGENT_SELF_STANCE.md) | RAVANA forms, records, and recalls its own stance on a discussed topic (grounded in the user's view, attenuated, persisted), and stays honestly silent with no evidence. |
 | [CONTRASTIVE_SELF_OPINION.md](CONTRASTIVE_SELF_OPINION.md) | Binary "X versus Y" / "prefer A or B" self-opinion: RAVANA engages BOTH named sides through real state (split on the connective, resolve each side, compose), no single-token collapse. |
 | [SELF_OPINION_RELATIVE_CLAUSE.md](SELF_OPINION_RELATIVE_CLAUSE.md) | Single-topic self-opinion whose topic is a relative clause: RAVANA resolves the CONTENT HEAD (e.g. "people who talk") instead of the last token ("theatres"), matching the mined stance key, no hollow-fallback collapse. |
+| [BARE_COMPARATIVE_STANCE.md](BARE_COMPARATIVE_STANCE.md) | Bare comparative stance mining: a value-comparative without a leading "i think/believe/feel" frame ("X is more <ADJ> than Y") is mined as a real stance on the winner (X); downward "less" form is the negative mirror; a universal frame-verb collision guard keeps the framed and bare forms clean. |
 | [FAQ.md](FAQ.md) | Troubleshooting: installation, runtime, development issues. |
 
 ## Quick orientation

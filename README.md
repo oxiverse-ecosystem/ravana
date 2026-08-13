@@ -109,6 +109,15 @@ on this codebase:
   `privacy`) are unchanged; an ungrounded relative clause stays honestly silent,
   never fabricated. No LLM, no retrain, no authored reply pool. See
   `docs/SELF_OPINION_RELATIVE_CLAUSE.md`.
+- **Mines a stance from a bare comparative, no leading opinion verb.** Told
+  *"teaching kids to cook is more important than coding"* (no *"i think/believe/
+  feel"* frame), it records a stance on the winner (`teaching kids`, polarity +),
+  so a later *"what do you think about teaching kids?"* can engage the real lean
+  instead of staying silent. A downward form (*"tidal energy is less worthwhile
+  than protecting the reef"*) is captured as the negative mirror. The leading
+  frame is made optional in the copula shape and a universal guard drops any
+  garbled collision topic, so the framed and bare forms both land cleanly. No LLM,
+  no retrain, no authored reply pool. See `docs/BARE_COMPARATIVE_STANCE.md`.
 - **Remembers and totals counts you disclose.** Told *"i keep twelve racing
   pigeons"* / *"i have three cats"* / *"i lost five hens"*, it stores each count as
   structured state (not free text) so it can answer *"how many racing pigeons do i
