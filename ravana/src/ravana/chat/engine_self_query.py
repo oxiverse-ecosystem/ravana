@@ -1047,7 +1047,20 @@ class SelfQueryMixin:
                     # point is to answer the CONTRAST, not to hide a side.
                     _phrases = []
                     for _s, (_st, _rs) in _resolved:
-                        _phrases.append(f"i {_st} {_s}")
+                        # _agent_stance_on returns a COMPLETE stance sentence
+                        # (e.g. "i'm for sea" when grounded, or the honest
+                        # "i'm still figuring that out" fallback). It already
+                        # begins with "i" and, when grounded, already NAMES the
+                        # topic (_canon). Wrapping it in f"i {_st} {_s}" would
+                        # double-prepend "i " and duplicate the topic word
+                        # (observed: "i i'm still figuring that out observer").
+                        # So use the sentence as-is when it already ends with
+                        # the side name; otherwise append the side for clarity.
+                        _stt = _st.rstrip(".!?")
+                        if _s and not _stt.lower().endswith(_s.lower()):
+                            _phrases.append(f"{_stt} {_s}")
+                        else:
+                            _phrases.append(_stt)
                     _answer = "; ".join(_phrases)
                     if not _answer.endswith((".", "!", "?")):
                         _answer += "."
