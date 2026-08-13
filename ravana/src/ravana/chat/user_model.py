@@ -58,6 +58,29 @@ _AFFECT_STATE_LEXICON = {
     "fine", "good", "bad", "ok", "okay", "well", "ready", "done", "sure",
     "certain", "right", "wrong", "sorry", "here", "there", "home", "awake",
     "asleep", "late", "early", "busy",
+    # Round 2026-08-13T1656Z: the 1136Z round's head-token guard missed any
+    # feeling word NOT already in this set. A bare-copula transient state
+    # ("i'm gutted", "i'm elated") stores the EMOTION as the user's NAME.
+    # Add a broad closed set of common English emotional/affective words
+    # (intensifiers + participles included) so the head-token rejection is not
+    # a frozen allowlist that silently leaks. Seed vocabulary, not answers.
+    "gutted", "devastated", "crushed", "heartbroken", "broken", "shattered",
+    "elated", "thrilled", "delighted", "overjoyed", "joyful", "gleeful",
+    "content", "satisfied", "relieved", "restless", "unsettled", "unstable",
+    "uneasy", "rattled", "shaken", "spent", "drained", "fried", "wired",
+    "cranky", "grumpy", "snappy", "moody", "weepy", "choked", "frozen",
+    "numbed", "aching", "pained", "sore", "grief", "grieving", "mourning",
+    "bereft", "void", "blank", "spaced", "floaty", "giddy", "giggly",
+    "bashful", "shy", "sheepish", "guilty", "ashamed", "embarrassed",
+    "awkward", "annoyed", "irritated", "fuming", "seething", "bitter",
+    "resentful", "envy", "jealous", "envious", "wistful", "nostalgic",
+    "melancholy", "wistful", "yearning", "longing", "pining", "aching",
+    "miserable", "miserable", "agitated", "freaked", "panicked", "spooked",
+    "startled", "jumpy", "queasy", "dizzy", "faint", "woozy", "groggy",
+    "frustrated", "disappointed", "letdown", "deflated", "defeated",
+    "humiliated", "small", "invisible", "abandoned", "lonely", "isolated",
+    "rejected", "betrayed", "betraying", "used", "misunderstood", "stuck",
+    "trapped", "lost", "adrift", "disconnected", "detached", "numbed",
     # stative / cognitive / feeling verbs (incl. participles + infinitives)
     "feeling", "felt", "feel", "love", "like", "hate", "dislike", "prefer",
     "think", "thinking", "believing", "believe", "guess", "guessing",
@@ -454,6 +477,11 @@ class UserModel:
             r"\bi\s+(?:live|lives|am|was|were|grew\s+up)\s+(?:in|near|at|from)\s+"
             r"([A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z][A-Za-z'\-]*){0,7})",
             q_clean, re.IGNORECASE)
+        m_loc_based = re.search(
+            r"\b(?:i'am|i\s+am|i'm)\s+(?:a|an)?\s*[\w'\-]+(?:\s+[\w'\-]+){0,3}\s+"
+            r"based\s+(?:in|near|at|from)\s+"
+            r"([A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z][A-Za-z'\-]*){0,7})",
+            q_clean, re.IGNORECASE)
         # FIX (round v-aug06b): when the location clause NAMES a place via
         # "called/named" (e.g. "i live in a small town called hollow creek"),
         # the real toponym is the named phrase, not the filler leading up to
@@ -480,8 +508,9 @@ class UserModel:
             if _loc and len(_loc.split()) <= 4:
                 self.user_location = _loc
                 _put_fact("location", _loc, 0.6)
-        elif m_loc:
-            _loc = m_loc.group(1).strip().strip(" .,!")
+        elif m_loc or m_loc_based:
+            _ml = m_loc or m_loc_based
+            _loc = _ml.group(1).strip().strip(" .,!")
             _loc = re.split(r"\s+(?:and|but|,|\.)\s*", _loc)[0].strip()
             # FIX (round v-aug06c): a location clause like "a small apartment
             # near the river in porto" caps the 5-word capture at "a small
@@ -496,11 +525,11 @@ class UserModel:
             # noun after called/named over the filler leading up to it.
             _trailing = re.search(
                 r"\b(?:in|near|at|from)\s+([A-Za-z][A-Za-z]+(?:\s+[A-Za-z][A-Za-z]+){0,2})\s*$",
-                m_loc.group(1), re.IGNORECASE)
+                _ml.group(1), re.IGNORECASE)
             if not _trailing:
                 _trailing = re.search(
                     r"\b(?:called|named|spelled)\s+([A-Za-z][A-Za-z]+(?:\s+[A-Za-z][A-Za-z]+){0,3})",
-                    m_loc.group(1), re.IGNORECASE)
+                    _ml.group(1), re.IGNORECASE)
             if _trailing:
                 _loc = _trailing.group(1).strip()
             # Round 2026-08-08f: a long location clause with a trailing
@@ -521,6 +550,61 @@ class UserModel:
             if _loc and len(_loc.split()) <= 5:
                 self.user_location = _loc
                 _put_fact("location", _loc, 0.6)
+        # ── Relational disclosure capture (round 2026-08-13T1656Z) ──────────
+        # "my friend wren collects vinyl", "my sister meera is a marine
+        # biologist", "my brother dev works as a paramedic". The existing
+        # possessive miner only handles "my <rel>'s <attr> is <val>" (split
+        # entity). The BARE "my <relation> <name> <rest>" shape was never
+        # captured as a relationship, so a later "who is wren to me?" could
+        # only echo an unrelated episode (self/other boundary breach + source
+        # monitoring error). This stores the relationship STRUCTURALLY under
+        # the entity (subject=name, attr=relationship, val=relation; plus the
+        # descriptive rest as a 'does'/'role' fact keyed by entity), reusing
+        # the SAME _put_fact_ent path the possessive miner uses, so recall and
+        # miner agree on the key by construction.
+        #   - The relation word is a SEED vocabulary (RELATION_WORDS) the user
+        #     can extend at runtime via new disclosures; it is NOT a per-name
+        #     answer table and NOT authored reply prose. Removing a word
+        #     degrades gracefully (one fewer relation class captured).
+        #   - The name is the NEXT token after the relation word; it must be a
+        #     capitalized/alpha proper noun, never a closed-class word.
+        #   - Type-agnostic: friend / sister / brother / cousin / mentor /
+        #     neighbour / colleague / dog / cat all resolve through one path;
+        #     the answer renders the relationship label from the stored fact.
+        _RELATION_WORDS = (
+            "friend", "sister", "brother", "mother", "father", "parent",
+            "daughter", "son", "cousin", "aunt", "uncle", "grandmother",
+            "grandfather", "niece", "nephew", "wife", "husband", "partner",
+            "spouse", "mentor", "student", "colleague", "boss", "neighbor",
+            "neighbour", "roommate", "teammate", "pet", "dog", "cat", "bird",
+            "rabbit", "horse", "child", "kid", "buddy", "pal",
+        )
+        _rel_m = re.search(
+            r"\bmy\s+([a-z][a-z]+)\s+([A-Za-z][A-Za-z]+(?:'?[A-Za-z]+)?)\b"
+            r"(.*)$", q_clean, re.IGNORECASE)
+        if _rel_m:
+            _rel = _rel_m.group(1).lower().strip()
+            _nm = _rel_m.group(2).strip().lower()
+            _rest = _rel_m.group(3).strip().strip(" .,!?")
+            if _rel in _RELATION_WORDS and _nm and _nm not in (
+                    "the", "a", "an", "is", "are", "was", "were", "and"):
+                # store the relationship itself (subject=name entity)
+                _put_fact_ent(_nm, "relationship", _rel, 0.6)
+                # store the descriptive rest keyed by the same entity so a
+                # later "what does my brother do" answers from the store.
+                if _rest:
+                    _rstrip = re.sub(
+                        r"^(?:is|are|was|were|'s)\s+", "", _rest).strip()
+                    if _rstrip:
+                        # "works as a paramedic" / "is a marine biologist" ->
+                        # role; "collects vinyl records" -> does
+                        if re.match(r"^(?:works?\s+as|is\s+(?:a|an)|'s\s+a)\b",
+                                    _rest, re.IGNORECASE):
+                            _put_fact_ent(_nm, "role", _rstrip, 0.6)
+                        else:
+                            _obj = self._opinion_topic(_rstrip)
+                            if _obj:
+                                _put_fact_ent(_nm, "does", _obj, 0.6)
         if m_name:
             name_cand = m_name.group(1).strip()
             name_cand = re.split(r"\s+(?:and|but|,|\.)\s*", name_cand)[0].strip()
@@ -583,8 +667,27 @@ class UserModel:
                 # stative/cognitive verbs ("thinking"/"convinced").
                 _NAME_REJECT_AFFECT = _AFFECT_STATE_LEXICON
                 _has_closed = any(w.lower() in _CLOSED for w in _nw)
-                _head_verb = _nw[0].lower() in _NAME_REJECT_AFFECT
-                if len(_nw) > 2 or _has_closed or _head_verb:
+                # Round 2026-08-13T1656Z: structural fix. The 1136Z guard only
+                # tested the HEAD token against the affect lexicon, so a
+                # candidate whose SECOND token was a feeling word ("still
+                # buzzing" -> head "still" passed) slipped through as a name.
+                # Reject when ANY token is an affect/state/cognitive word OR a
+                # verb-form (gerund/participle: "buzzing", "gutted"). A name is
+                # a proper noun, never a predicate. This is structural
+                # predicate-vs-proper-noun discrimination over the whole token
+                # set, not a per-name table; it generalizes across every
+                # persona. Seed vocabulary, not authored answers.
+                _any_affect = any(w.lower() in _NAME_REJECT_AFFECT for w in _nw)
+                _any_verbform = any(re.search(
+                    r"(ing|ed|en)$", w.lower()) and w.lower()
+                    not in ("ring", "sing", "king", "wing", "thing", "ping",
+                            "song", "ding", "string", "spring", "bring",
+                            "sting", "swing", "fling", "hang", "bang", "fang",
+                            "long", "song", "wing", "red", "bed", "fed", "led",
+                            "wed", "tend", "end", "send", "wend", "mend", "pen",
+                            "ten", "men", "den", "ken", "hen", "ben", "yen")
+                    for w in _nw)
+                if len(_nw) > 2 or _has_closed or _any_affect or _any_verbform:
                     name_cand = ""
             # Reject common states / descriptors / interrogatives so a bare
             # self-description is never stored as the user's name. Seed
@@ -871,42 +974,57 @@ class UserModel:
         #    ._derive_ack_from_store which now render the 'event' attr).
         # Closed VERB SEED vocabulary (RAVANA-expandable; feeds the same
         # PersonalFactStore the user can correct — NOT per-topic answers, NOT
-        # authored prose). Covers everyday disclosure verbs + common irregular
-        # past forms so first-person activities/experiences actually land.
+        # authored prose). Covers everyday disclosure verbs so first-person
+        # activities/experiences actually land.
+        #
+        # Round 2026-08-13T1656Z: PRUNED. The prior list mixed sustained-
+        # activity verbs with ACHIEVEMENT / COMMUNICATION verbs (got, said,
+        # made, gave, told, came, went, did, saw, met, sold, paid, sent,
+        # spent, bought, caught, brought, ate, drank, knew, wore, led, read,
+        # flew, swam, rode, drove, broke, spoke, woke, froze, chose, slept,
+        # felt, held, ...). Those fire on outcome/utterance disclosures
+        # ("i got the artist residency", "i said open-plan offices help")
+        # whose object is a bare NOUN PHRASE naming an outcome, not a
+        # recurring activity the user "does". The miner stored them as
+        # ('i','does','got artist residency') / ('i','does','said open') —
+        # garbage facts that then echoed in the self-summary.
+        #   - Sustained activities / hobbies / possessions ("i keep raccoons",
+        #     "i throw pottery", "i sail a dinghy", "i forge knives") are kept
+        #     in _ACTIVITY_VERBS -> attr 'does' (the user DOES these).
+        #   - Physical-world experiences that happen TO the user's world
+        #     ("i dropped the vase", "i lost a coral", "i repotted the
+        #     juniper") are kept in _EVENT_VERBS -> attr 'event'.
+        #   - Pure achievements / communication acts (got/made/gave/said/
+        #     told/saw/met/...) are EXCLUDED from both: they name an outcome
+        #     or an utterance, not an activity or a world-experience, so they
+        #     must not become 'does'/'event' facts. (They are still captured
+        #     elsewhere as beliefs/stances when the user states an opinion.)
+        # This is a principled seed-set split, not per-topic tuning: removing
+        # a verb degrades gracefully (one fewer activity class captured), and
+        # the set is RAVANA-expandable via the same store. 'keep'/'grow'/
+        # 'raise'/'collect'/'restore' (genuine ongoing care/possession) stay.
         _ACTIVITY_VERBS = (
             "run", "own", "operate", "play", "teach", "study", "manage",
-            "drive", "build", "make", "sell", "restore", "grow", "watch",
-            "raise", "tend", "brew", "bake", "write", "read", "learn",
-            "practice", "collect", "fix", "paint", "code", "design", "craft",
-            "volunteer", "cook", "fish", "hike", "garden", "farm", "lead",
-            "organize", "keep", "grind", "race", "sail", "fly", "knit",
-            "sew", "weld", "forge", "carve", "compose", "record", "perform",
-            "coach", "train", "compete", "spin", "weave", "mount", "trade",
-            "host", "guide", "throw", "shoot", "develop", "clean", "reload",
-            "recharge", "assemble", "mix", "pour", "press", "roll", "fire",
-            "glaze", "wire", "prune", "pot", "plant", "sketch", "draw",
-            "sculpt", "stitch", "mend", "whittle", "start", "begin", "try",
-            "go", "use", "take", "make", "get", "built", "taught", "wrote",
-            "drew", "sang", "flew", "swam", "rode", "drove", "broke",
-            "spoke", "woke", "froze", "chose", "ate", "drank", "grew",
-            "threw", "knew", "wore", "brought", "bought", "caught",
-            "kept", "slept", "left", "felt", "met",
-            "sent", "spent", "lost", "found", "held", "told", "sold",
-            "paid", "said", "gave", "came", "went", "did", "saw", "got",
-            "made", "took", "set", "put", "cut", "hit", "read", "led",
-            "fed", "bled", "fed",
+            "build", "restore", "grow", "grew", "watch", "raise", "tend", "brew",
+            "bake", "write", "read", "learn", "practice", "collect", "fix",
+            "paint", "code", "design", "craft", "volunteer", "cook", "fish",
+            "hike", "garden", "farm", "lead", "organize", "keep", "grind",
+            "race", "sail", "fly", "knit", "sew", "weld", "forge", "carve",
+            "compose", "record", "perform", "coach", "train", "compete",
+            "spin", "weave", "mount", "trade", "host", "guide", "throw",
+            "shoot", "develop", "clean", "reload", "recharge", "assemble",
+            "mix", "pour", "press", "roll", "fire", "glaze", "wire", "prune",
+            "pot", "plant", "sketch", "draw", "sculpt", "stitch", "mend",
+            "whittle", "make", "start", "begin", "try",
         )
         _EVENT_VERBS = (
-            "drop", "lose", "find", "remove", "break", "discover", "notice",
-            "repot", "prune", "harvest", "spill", "melt", "crack", "kill",
-            "ruin", "save", "nurse", "revive", "miss", "spot",
+            "drop", "lose", "lost", "find", "found", "remove", "break", "broke",
+            "discover", "notice", "repot", "prune", "harvest", "spill", "melt",
+            "crack", "kill", "ruin", "save", "nurse", "revive", "miss", "spot",
             "catch", "pull", "cut", "burn", "flood", "rescue", "rebuild",
-            "recover", "heal", "uproot", "freeze", "thaw", "hatch",
-            "bloom", "wilt", "die", "survive", "escape", "return", "birth",
-            "fall", "fell", "crash", "lose", "lost", "found", "kept",
-            "broke", "felt", "cut", "hit", "met", "told", "saw", "got",
-            "made", "took", "gave", "came", "went", "did", "ate", "drank",
-            "grew", "knew", "threw", "froze", "bled", "fed", "died",
+            "recover", "heal", "uproot", "freeze", "thaw", "hatch", "bloom",
+            "wilt", "die", "survive", "escape", "return", "birth", "fall",
+            "fell", "crash",
         )
         # Match "i [aux?] <verb>(s|ed|ing)? <object> <clause-boundary>".
         # The object stops at a clause boundary (., !, ?, ",", " and ",
