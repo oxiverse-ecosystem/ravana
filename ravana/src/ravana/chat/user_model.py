@@ -1944,17 +1944,44 @@ class UserModel:
              r"(?:admire|respect|treasure|cherish|value|appreciate)\s+(.+?)(?:\.|\band\b|\bbut\b|$|,)", 0.8, 0.6),
             (r"\bi\s+(?:really\s+|truly\s+|deeply\s+)?"
              r"(?:despise|loathe|resent|detest|scorn|disdain|abhor)\s+(.+?)(?:\.|\band\b|\bbut\b|$|,)", -0.8, 0.6),
-            # (h) "i think/believe/feel X is (more) <VAL-ADJ> (than Y)" with a
+            # (h) "[i think/believe/feel] X is (more) <VAL-ADJ> (than Y)" with a
             #     broad value-adjective lexicon (the comparative slot makes it
             #     "X over Y" without needing a literal "than"). Polarity from
-            #     the lexicon; the leading frame is stripped so X is the head.
-            (r"\bi\s+(?:think|believe|feel|find|reckon)\s+(.+?)\s+(?:is|are)\s+"
+            #     the lexicon; the leading "i (think|believe|...)" frame is
+            #     OPTIONAL so X is the head whether or not the user fronts the
+            #     statement with an opinion verb — this is the limitation #3
+            #     (round 2026-08-13T1136Z) capability: a bare comparative
+            #     "teaching kids to cook is more important than coding" is now
+            #     mined as a real stance on X (+0.75), not dropped. The frame
+            #     is made optional INSIDE the single pattern (not as a separate
+            #     bare pattern) so it cannot re-match mid-string and seed a
+            #     second garbled topic that collides with the framed match —
+            #     that collision was the reason bare comparatives were
+            #     originally left un-mined. This mirrors pattern (a) above,
+            #     which already mines bare comparatives ("the sea is a better
+            #     teacher than any classroom") with an optional frame and no
+            #     collision. Grammatical/structural: seed valence lexicon, no
+            #     per-topic answers, no authored prose; RAVANA revises any
+            #     stance by talking.
+            (r"(?:\bi\s+(?:think|believe|feel|find|reckon)\s+)?\b(.+?)\s+(?:is|are)\s+"
              r"(?:much\s+|far\s+|way\s+|more\s+|so\s+)?(?:"
              r"important|valuable|meaningful|useful|helpful|worthwhile|"
              r"significant|relevant|fair|just|honest|beautiful|wonderful|"
              r"vital|crucial|essential|wise|healthy|kind|free|true|real|"
              r"alive|human|warm|clean|brave|strong|necessary|right)\b", 0.75, 0.5),
-            (r"\bi\s+(?:think|believe|feel|find|reckon)\s+(.+?)\s+(?:is|are)\s+"
+            # (h-neg-q) the SAME copula shape but led by "less"/"fewer" — a
+            # DOWNWARD comparative ("X is less important than Y") is the
+            # negative mirror of (h) ("X is more important than Y"). The
+            # leading frame is optional (same limitation #3 capability) and
+            # the collision guard below drops any "believe X" garble. Seed
+            # valence lexicon, no per-topic answers; RAVANA revises by talking.
+            (r"(?:\bi\s+(?:think|believe|feel|find|reckon)\s+)?\b(.+?)\s+(?:is|are)\s+"
+             r"(?:much\s+|far\s+|way\s+)?less\s+(?:important|valuable|meaningful|"
+             r"useful|helpful|worthwhile|significant|relevant|fair|just|honest|"
+             r"beautiful|wonderful|vital|crucial|essential|wise|healthy|kind|"
+             r"free|true|real|alive|human|warm|clean|brave|strong|necessary|right)\b",
+             -0.75, 0.5),
+            (r"(?:\bi\s+(?:think|believe|feel|find|reckon)\s+)?\b(.+?)\s+(?:is|are)\s+"
              r"(?:much\s+|far\s+|way\s+|more\s+|so\s+)?(?:"
              r"unimportant|worthless|meaningless|useless|harmful|pointless|"
              r"pointless|trivial|irrelevant|unfair|dishonest|ugly|awful|"
@@ -2011,6 +2038,15 @@ class UserModel:
                 # garbage stance).
                 _topic = self._opinion_topic(_raw)
                 if not _topic:
+                    continue
+                # Limitation #3 fix (round 2026-08-13T1136Z): the frame is now
+                # OPTIONAL, which lets a single framed sentence ("i believe
+                # silence is more important than noise") match twice — once
+                # framed (topic "silence") and once mid-string from the bare
+                # "i" (topic "believe silence"). Drop any resolved topic whose
+                # FIRST token is a frame verb so only the correct topic
+                # survives; no real attitude object begins with one.
+                if _topic.split()[0] in self._FRAME_VERBS:
                     continue
                 # C-fix (round 2026-08-12T0613Z): reject a SINGLE-WORD topic
                 # that is not a real attitude object. Comparative / superlative
@@ -2654,6 +2690,22 @@ class UserModel:
         "restless", "quietest", "quiet", "outside", "inside", "away",
         "around", "through", "across", "behind", "before", "after",
     }
+
+    # Limitation #3 fix (round 2026-08-13T1136Z): the opinion shapes below make
+    # the leading "i think/believe/feel/find/reckon" frame OPTIONAL so a bare
+    # comparative ("teaching kids to cook is more important than coding") is
+    # mined as a real stance. But making the frame optional would let ONE
+    # framed sentence ("i believe silence is more important than noise") match
+    # TWICE: once with the frame consumed (topic "silence") and once mid-string
+    # from the bare "i" (topic "believe silence") — the exact collision that
+    # originally forced bare comparatives to be left un-mined. This universal
+    # guard drops any resolved topic whose FIRST token is a frame verb, so the
+    # garbled "believe silence" collision key is rejected while the correct
+    # "silence" topic (from the framed match) survives. No real attitude object
+    # begins with a frame verb, so this is a safe, general grammatical guard —
+    # not a per-topic deny-list; removing the words degrades gracefully.
+    _FRAME_VERBS = {"think", "believes", "believe", "felt", "feel",
+                    "find", "finds", "reckon", "reckons"}
 
     def _opinion_topic(self, phrase: str) -> Optional[str]:
         """Resolve the salient CONTENT HEAD of an opinion-object phrase.

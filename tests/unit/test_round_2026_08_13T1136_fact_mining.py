@@ -119,3 +119,50 @@ def test_C_negative_value_verb_comparative(eng):
     stances = eng.user_model.opinions.stances
     assert "quiet night" in stances
     assert stances["quiet night"].polarity < 0
+
+
+def test_D_bare_comparative_stance_without_leading_frame(eng):
+    """Limitation #3 (round 2026-08-13T1136Z) capability.
+
+    A comparative value judgment WITHOUT a leading 'i think/believe/feel'
+    frame must still be mined as a real stance on the winner (X). Before
+    this capability the miner only caught the framed form
+    ('i believe teaching kids to cook is more important than coding') and
+    dropped the bare form ('teaching kids to cook is more important than
+    coding') -> no stance -> contradiction queries had nothing to cite.
+    The resolved topic ('teaching kids') is the content head per
+    _opinion_topic (it cuts at the preposition 'to'); what matters is that
+    the BARE (no-frame) sentence now produces a durable stance at all.
+    """
+    eng.process_turn("teaching kids to cook is more important than coding")
+    stances = eng.user_model.opinions.stances
+    assert "teaching kids" in stances, (
+        f"bare comparative lost its stance: stances={list(stances)}"
+    )
+    assert stances["teaching kids"].polarity > 0
+    # The framed form still works (no regression on the prior D-C fix).
+    eng.process_turn("i believe solitude is more honest than company")
+    assert "solitude" in stances
+
+
+def test_D_bare_comparative_negative_without_leading_frame(eng):
+    """'tidal energy is less worthwhile than protecting the reef' -> -stance."""
+    eng.process_turn("tidal energy is less worthwhile than protecting the reef")
+    stances = eng.user_model.opinions.stances
+    assert "tidal energy" in stances, (
+        f"bare negative comparative lost: stances={list(stances)}"
+    )
+    assert stances["tidal energy"].polarity < 0
+
+
+def test_D_bare_comparative_no_midstring_collision(eng):
+    """The optional-frame fix must NOT seed a second garbled topic from the
+    frame verb drifting into the mid-string match. 'i believe silence is more
+    important than noise' should land exactly one stance on 'silence' (the
+    collision bug was a second key like 'believe silence').
+    """
+    eng.process_turn("i believe silence is more important than noise")
+    stances = eng.user_model.opinions.stances
+    assert "silence" in stances
+    _keys = [k for k in stances if "believe silence" in k or k.startswith("believe ")]
+    assert not _keys, f"collision seeded garbled topic: {_keys}"
