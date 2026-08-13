@@ -761,6 +761,22 @@ class UserModel:
             r"\bi\s+(?:live|lives|am|was|were|grew\s+up)\s+(?:in|near|at|from)\s+"
             r"([A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z][A-Za-z'\-]*){0,7})",
             q_clean, re.IGNORECASE)
+        # D-D (round 2026-08-13T0634Z): a location fact must be a DECLARATIVE
+        # self-disclosure, not a substring matched inside a question or a
+        # conditional lead-in. The bare regex matches "i am from what i've
+        # said" inside "if you had to describe ... from what i've said?" and
+        # stored ('i','location','what i've said') — a rhetorical question
+        # mined as the user's home town. Guard: drop the location capture when
+        # the turn is an interrogative (ends with "?") or opens with a
+        # conditional/relative lead ("if ...", "when ...", "who ...", "what
+        # ...", "how ...") — a real "i live in X" disclosure is none of those.
+        # Structural (no per-place list); a genuine disclosure still stores.
+        if m_loc is not None:
+            _loc_lead = q_clean.lstrip()
+            if ("?" in q_clean) or re.match(
+                    r"^(if|when|who|what|how|why|whether|suppose|imagine)\b",
+                    _loc_lead):
+                m_loc = None
         # FIX (round v-aug06b): when the location clause NAMES a place via
         # "called/named" (e.g. "i live in a small town called hollow creek"),
         # the real toponym is the named phrase, not the filler leading up to
@@ -1148,6 +1164,28 @@ class UserModel:
                 # already keys possessive facts by owner, so this makes the
                 # MINER agree with the recaller by construction.
                 _ent, _rel = _split_possessive_attr(_attr)
+                # A NAME relation holds a short proper noun (the entity's name),
+                # never the trailing descriptive clause that often follows it
+                # ("my dog's name is wren and she's a scruffy terrier",
+                #  "my brother is arjun and he's learning to weld"). The old
+                # value trim (line ~1119) only split on a hard sentence break,
+                # so the whole post-copula clause ("wren and she's a scruffy
+                # terrier") was stored as the name value — which then broke
+                # reverse-lookups ("who is wren to me") and self-summaries.
+                # General fix: when the relation is a name, keep ONLY the
+                # leading proper-noun run and cut at the first coordinating
+                # clause / appositive (" and ", " but ", " who ", " she's ",
+                # " he's ", ", ", " with "). Multi-word proper names ("mary
+                # jane") survive because we stop at the clause boundary, not at
+                # the first space. Structural, not a per-entity table; the
+                # trimmed remainder is simply dropped (a name has no second
+                # fact). This also makes a later correction ("no, my dog is
+                # milo") supersede cleanly.
+                if _rel == "name":
+                    _val = re.split(
+                        r"\s+(?:and|but|who|that|which|,)\s+|\s+(?:she|he|it)'?s\s+"
+                        r"|\s+with\s+|\s*\.\s*|\s*\?\s*", _val)[0].strip()
+                    _val = _val.strip(".,!?;:'\"")
                 if _ent is not None:
                     _put_fact_ent(_ent, _rel, _val, 0.6)
                     continue

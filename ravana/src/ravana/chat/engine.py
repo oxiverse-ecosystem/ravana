@@ -3108,6 +3108,21 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     # noun (those are handled by the relation branch below).
                     if _attr_l == "name" and str(_subj).lower() not in _REL_WORDS:
                         return (str(_subj), _val, "i", 0)
+                    # (entity, name, value) shape for a RELATION noun, e.g.
+                    # ("brother","name","arjun") from "my brother's name is
+                    # arjun". The relation-noun branch below only handles the
+                    # (i, brother, <name>) / (i, "brother cal", desc) shapes, so
+                    # a name disclosed via the possessive "X's name is Y" form
+                    # was invisible to reverse-lookup ("who is arjun to me?"
+                    # -> None). Generalize: when the subject is itself a
+                    # relation noun and the attribute is "name", reverse-index
+                    # by the name value and answer the relationship from the
+                    # subject. No per-relation table — any _REL_NOUNS member
+                    # works (sister/mother/...), and the rendered label is the
+                    # live subject. This is the inverse of the (i, brother,
+                    # name) path and agrees with it on the key by construction.
+                    if _attr_l == "name" and str(_subj).lower() in _REL_WORDS:
+                        return (str(_subj).lower(), _val, "i", 2)
                     # relation-noun attribute (combined or plain):
                     #   ("i","brother cal","desc") or ("i","brother","cal")
                     _attr_head = _attr_l.split()[0] if _attr_l.split() else ""
