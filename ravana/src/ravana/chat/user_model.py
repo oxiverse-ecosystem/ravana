@@ -73,6 +73,65 @@ _AFFECT_STATE_LEXICON = {
     "learning", "growing", "changing", "feeling",
 }
 
+# Module-level activity/event verb seed vocabularies (B-activity fix,
+# round 2026-08-13T1136Z). Defined at module scope so every activity miner
+# inside mine_personal_facts (narrow D3 loop, general loop, continuous-tense
+# loop) can reference them without local-scoping errors. SEED structure:
+# RAVANA-expandable (feeds the same PersonalFactStore the user can
+# correct/extend), NOT per-topic answers or authored prose. Shared by the
+# lone-verb-form guard that rejects a single-token verb object ('works',
+# 'replaying', 'play', 'build') so process/denial phrases never become
+# 'does'/'event' facts.
+_ACTIVITY_VERBS = (
+    "run", "own", "operate", "play", "teach", "study", "manage",
+    "drive", "build", "make", "sell", "restore", "grow", "watch",
+    "raise", "tend", "brew", "bake", "write", "read", "learn",
+    "practice", "collect", "fix", "paint", "code", "design", "craft",
+    "volunteer", "cook", "fish", "hike", "garden", "farm", "lead",
+    "organize", "keep", "grind", "race", "sail", "fly", "knit",
+    "sew", "weld", "forge", "carve", "compose", "record", "perform",
+    "coach", "train", "compete", "spin", "weave", "mount", "trade",
+    "host", "guide", "throw", "shoot", "develop", "clean", "reload",
+    "recharge", "assemble", "mix", "pour", "press", "roll", "fire",
+    "glaze", "wire", "prune", "pot", "plant", "sketch", "draw",
+    "sculpt", "stitch", "mend", "whittle", "start", "begin", "try",
+    "go", "use", "take", "made", "built", "taught", "wrote",
+    "drew", "sang", "flew", "swam", "rode", "drove", "broke",
+    "spoke", "woke", "froze", "chose", "ate", "drank", "grew",
+    "threw", "knew", "wore", "brought", "bought", "caught",
+    "kept", "slept", "left", "felt", "met",
+    "sent", "spent", "lost", "found", "held", "told", "sold",
+    "paid", "said", "gave", "came", "went", "did", "saw", "got",
+    "set", "put", "cut", "hit", "read", "led", "fed", "bled",
+)
+_EVENT_VERBS = (
+    "drop", "lose", "find", "remove", "break", "discover", "notice",
+    "repot", "prune", "harvest", "spill", "melt", "crack", "kill",
+    "ruin", "save", "nurse", "revive", "miss", "spot",
+    "catch", "pull", "cut", "burn", "flood", "rescue", "rebuild",
+    "recover", "heal", "uproot", "freeze", "thaw", "hatch",
+    "bloom", "wilt", "wood", "survive", "escape", "return", "birth",
+    "fall", "fell", "crash", "lost", "found", "kept",
+    "broke", "felt", "cut", "hit", "met", "told", "saw", "got",
+    "made", "took", "gave", "came", "went", "did", "ate", "drank",
+    "grew", "knew", "threw", "froze", "bled", "fed", "died",
+)
+
+# Negative / denial markers (B-activity fix, round 2026-08-13T1136Z). A
+# first-person ACTIVITY/EVENT capture must only fire on an AFFIRMATIVE
+# disclosure, never a denial ("nothing i build works", "i don't keep
+# pigeons", "i never said that"). A denial is not an assertion that the
+# user does/keeps the thing, so storing it as a 'does'/'event' fact poisons
+# the self-summary. SEED vocabulary (universal negative markers), not a
+# per-phrase list; generalizes across every denial wording. Removing one
+# entry merely loses that denial form. This is a guard on utterance POLARITY,
+# not content RAVANA can never change.
+_NEG_MARKERS = (
+    "nothing", "never", "no longer", "not ", "n't ", "dont", "don't",
+    "doesnt", "doesn't", "didnt", "didn't", "won't", "wont", "can't",
+    "cant", "isn't", "isnt", "aren't", "arent", "without", "seldom",
+    "hardly", "barely", "no one", "nobody",
+)
 
 
 # D3 (round v3): explicit correction shape "X's name is not Y, it's Z" /
@@ -992,8 +1051,33 @@ class UserModel:
                 _has_stop = (
                     any(w.lower() in _CLOSED for w in _nw)
                     or any(w.lower() in _NAME_PRON for w in _nw))
-                _head_verb = _nw[0].lower() in _NAME_REJECT_AFFECT
-                if len(_nw) > 2 or _has_stop or _head_verb:
+                # A-name fix (round 2026-08-13T1136Z): a name is a SHORT PROPER
+                # NOUN, never a verb/predicate phrase. Two structural tests:
+                #  (1) ANY token is an AFFECT / STATE / COGNITIVE word from the
+                #      seed lexicon. The prior code tested `_nw[0]` only, so a
+                #      two-word transient state whose HEAD was a benign adverb
+                #      ("i'm still [buzzing]") passed the head check and became
+                #      name "still buzzing", corrupting every self-summary
+                #      ("your name is Still Buzzing"). Matches the documented
+                #      contract (lines 971-973: "reject if ANY token is a ...
+                #      state word"), generalizes across every persona.
+                #  (2) ANY token is a gerund/participle (-ing) — "buzzing",
+                #      "shaking", "trembling" are transient states, never names.
+                #      POS-based (universal, no per-word list), so it catches
+                #      state words RAVANA has never seen. Restricted to -ing
+                #      only: -ed/-en/-es would wrongly reject real names
+                #      (karen, james, charles, fred). A genuine two-token name
+                #      like "nina rose" has neither affect tokens nor -ing
+                #      forms, so it still passes.
+                # Not hardcoding: both guards are structural (lexicon is seed
+                # vocabulary RAVANA extends at runtime; the -ing test is a
+                # universal rule), so the engine changes its stored state via
+                # experience, never through code-baked answers.
+                _any_affect = any(w.lower() in _NAME_REJECT_AFFECT for w in _nw)
+                _any_verbform = any(
+                    re.fullmatch(r"[a-z']+ing", w.lower()) for w in _nw
+                )
+                if len(_nw) > 2 or _has_stop or _any_affect or _any_verbform:
                     name_cand = ""
             # Reject common states / descriptors / interrogatives so a bare
             # self-description is never stored as the user's name. Seed
@@ -1300,6 +1384,13 @@ class UserModel:
                 r"\bbecause\b|\band\b|\.|\!|\?|$|,)",
                 q_clean, re.IGNORECASE)
             if _m:
+                # B-activity fix (round 2026-08-13T1136Z): a denial is not
+                # an activity assertion. Skip the whole 'does' capture when
+                # the utterance carries a negative marker ('nothing i build
+                # works', 'i don't keep pigeons') so the denial is never
+                # stored as a possession. Structural (universal markers).
+                if any(_m2 in q_clean for _m2 in _NEG_MARKERS):
+                    continue
                 # D4 (round 2026-08-11T1328Z): reject the capture when the
                 # activity VERB is a communication / meta / inner-state verb
                 # ("tell"/"told"/"keep"/"lose"/"felt"...). "i told a friend X"
@@ -1330,6 +1421,26 @@ class UserModel:
                     )
                     if _obj.split()[0] in _META_HEAD:
                         continue
+                    # B-activity fix (round 2026-08-13T1136Z): a 'does' fact
+                    # must have a concrete OBJECT, not a lone verb-form. A
+                    # single-token object shaped like a verb ("works",
+                    # "replaying", "play", "build") is a process / denial /
+                    # mental loop, never a possession — storing it poisons the
+                    # self-summary ("you do build works", "you do keep
+                    # replaying"). Reject a single-word object that is a verb
+                    # form (gerund -ing, participle -ed/-en, 3rd-person -es) or
+                    # a known activity/event/meta verb. Structural POS/shape
+                    # test, not a per-phrase list: multi-word noun objects
+                    # ("homing pigeons", "play sarod") still pass. Mirrors the
+                    # guard in the general-activity miner below.
+                    _ow = _obj.split()
+                    if len(_ow) == 1:
+                        _tok = _ow[0]
+                        if (re.fullmatch(r"[a-z']*(?:ing|ed|en|es)", _tok)
+                                or _tok in _ACTIVITY_VERBS
+                                or _tok in _EVENT_VERBS
+                                or _tok in _META_VERBS):
+                            continue
                     # Store the verb WITH the object ("keep homing pigeons")
                     # so activity recall ("what do i keep?") can match the
                     # verb and return a complete, grammatical answer instead
@@ -1341,7 +1452,27 @@ class UserModel:
             r"\bi(?:'ve| have)\s+been\s+(\w+ing)\s+(.+?)(?:\bfor\b|\bsince\b|\.|\!|\?|$|,)",
             q_clean, re.IGNORECASE)
         if _cont:
-            _obj = self._opinion_topic(_cont.group(2).strip().lower())
+            # B-activity fix (round 2026-08-13T1136Z): a denial is not an
+            # activity assertion; skip the continuous-tense 'does' capture
+            # when the utterance carries a negative marker.
+            if any(_m2 in q_clean for _m2 in _NEG_MARKERS):
+                _cont = None
+            _obj = self._opinion_topic(_cont.group(2).strip().lower()) if _cont else None
+            # B-activity fix (round 2026-08-13T1136Z): same lone-verb-form
+            # guard as the other activity miners — "i've been learning to
+            # play the sarod" resolves its object to the bare verb "play"
+            # (the article "the" breaks the phrase before "sarod"), which is
+            # a process, not a possession. Reject a single-token verb-form
+            # object rather than storing 'does' = "play".
+            if _obj:
+                _ow = _obj.split()
+                if len(_ow) == 1:
+                    _tok = _ow[0]
+                    if (re.fullmatch(r"[a-z']*(?:ing|ed|en|es)", _tok)
+                            or _tok in _ACTIVITY_VERBS
+                            or _tok in _EVENT_VERBS
+                            or _tok in _META_VERBS):
+                        _obj = None
             if _obj and len(_obj.split()) <= 5:
                 _put_fact("does", _obj, 0.55)
 
@@ -1386,41 +1517,12 @@ class UserModel:
         # PersonalFactStore the user can correct — NOT per-topic answers, NOT
         # authored prose). Covers everyday disclosure verbs + common irregular
         # past forms so first-person activities/experiences actually land.
-        _ACTIVITY_VERBS = (
-            "run", "own", "operate", "play", "teach", "study", "manage",
-            "drive", "build", "make", "sell", "restore", "grow", "watch",
-            "raise", "tend", "brew", "bake", "write", "read", "learn",
-            "practice", "collect", "fix", "paint", "code", "design", "craft",
-            "volunteer", "cook", "fish", "hike", "garden", "farm", "lead",
-            "organize", "keep", "grind", "race", "sail", "fly", "knit",
-            "sew", "weld", "forge", "carve", "compose", "record", "perform",
-            "coach", "train", "compete", "spin", "weave", "mount", "trade",
-            "host", "guide", "throw", "shoot", "develop", "clean", "reload",
-            "recharge", "assemble", "mix", "pour", "press", "roll", "fire",
-            "glaze", "wire", "prune", "pot", "plant", "sketch", "draw",
-            "sculpt", "stitch", "mend", "whittle", "start", "begin", "try",
-            "go", "use", "take", "make", "get", "built", "taught", "wrote",
-            "drew", "sang", "flew", "swam", "rode", "drove", "broke",
-            "spoke", "woke", "froze", "chose", "ate", "drank", "grew",
-            "threw", "knew", "wore", "brought", "bought", "caught",
-            "kept", "slept", "left", "felt", "met",
-            "sent", "spent", "lost", "found", "held", "told", "sold",
-            "paid", "said", "gave", "came", "went", "did", "saw", "got",
-            "made", "took", "set", "put", "cut", "hit", "read", "led",
-            "fed", "bled", "fed",
-        )
-        _EVENT_VERBS = (
-            "drop", "lose", "find", "remove", "break", "discover", "notice",
-            "repot", "prune", "harvest", "spill", "melt", "crack", "kill",
-            "ruin", "save", "nurse", "revive", "miss", "spot",
-            "catch", "pull", "cut", "burn", "flood", "rescue", "rebuild",
-            "recover", "heal", "uproot", "freeze", "thaw", "hatch",
-            "bloom", "wilt", "die", "survive", "escape", "return", "birth",
-            "fall", "fell", "crash", "lose", "lost", "found", "kept",
-            "broke", "felt", "cut", "hit", "met", "told", "saw", "got",
-            "made", "took", "gave", "came", "went", "did", "ate", "drank",
-            "grew", "knew", "threw", "froze", "bled", "fed", "died",
-        )
+        # B-activity fix (round 2026-08-13T1136Z): the tuples now live at
+        # MODULE scope (_ACTIVITY_VERBS / _EVENT_VERBS, defined just after
+        # _AFFECT_STATE_LEXICON) so the narrow D3 loop, this general loop,
+        # and the continuous-tense loop all share one definition and the
+        # lone-verb-form guards below can reference them without scoping
+        # errors. They are referenced here, not redefined.
         # Match "i [aux?] <verb>(s|ed|ing)? <object> <clause-boundary>".
         # The object stops at a clause boundary (., !, ?, ",", " and ",
         # " but ", " because ", " so ", " which ", " that ", " when ",
@@ -1454,6 +1556,28 @@ class UserModel:
             _o = (_obj or "").strip().lower()
             if not _o:
                 return False
+            # B-activity fix (round 2026-08-13T1136Z): a 'does'/'event' fact is
+            # a POSSESSION or lived ACTIVITY with a concrete OBJECT ("homing
+            # pigeons", "tabla", "play sarod", "throw pots"). A single-token
+            # object that is itself a VERB FORM ("works", "replaying", "play",
+            # "build") is a process / denial / mental loop, never a thing the
+            # user keeps or does — storing it poisons the self-summary
+            # ("you do build works", "you do keep replaying"). Reject a
+            # single-word object whose shape is a verb (gerund -ing, past
+            # participle -ed/-en, third-person -es, or a bare infinitive that
+            # is a known activity/event verb). Structural: a POS/shape test on
+            # the resolved head, not a per-phrase list — so "homing pigeons"
+            # (2 tokens, head noun) and "play sarod" (head verb + noun) still
+            # pass, while any lone verb-form is dropped. RAVANA changes its own
+            # store via experience; this is a guard on form, not content.
+            _ow = _o.split()
+            if len(_ow) == 1:
+                _tok = _ow[0]
+                _verb_shape = re.fullmatch(
+                    r"[a-z']*(?:ing|ed|en|es)", _tok) is not None
+                if _verb_shape or _tok in _ACTIVITY_VERBS or _tok in _EVENT_VERBS \
+                        or _tok in _META_VERBS:
+                    return False
             # Scan the RAW object clause (before _opinion_topic trims it) for
             # an embedded/subordinate question ("of whether i told you",
             # "why he left") — a meta-reflection, not a possessed thing. The
@@ -1557,6 +1681,11 @@ class UserModel:
             # gate above, not a length cap.
             return bool(_obj)
         for _am in _act_pat.finditer(q_clean):
+            # B-activity fix (round 2026-08-13T1136Z): a denial is not an
+            # activity assertion; skip the 'does'/'event' capture when the
+            # utterance carries a negative marker.
+            if any(_m2 in q_clean for _m2 in _NEG_MARKERS):
+                continue
             _verb = _am.group(1).lower()
             # D4 (round 2026-08-11T1328Z): a communication / meta verb
             # ("tell"/"told"/"say"/"said"/"mention"/"keep"/"lose"/"felt"...) is
@@ -1831,6 +1960,36 @@ class UserModel:
              r"pointless|trivial|irrelevant|unfair|dishonest|ugly|awful|"
              r"terrible|harmful|wrong|cruel|false|empty|cold|dirty|weak|"
              r"unnecessary|foolish|stupid|dangerous|toxic)\b", -0.75, 0.5),
+            # (i) value-verb comparative "i think X <value-verb> more than Y"
+            #     / "i believe X matters more than Y" / "X means more to me
+            #     than Y" — a GENERAL shape the (h) copula pattern missed
+            #     ("i think handwritten letters mean more than texts" produced
+            #     NO stance because the predicate was 'mean more than', not
+            #     'is <VAL-ADJ>'). The value-verb set is a small SEED
+            #     vocabulary (mean/matter/matters/matter more/outweigh/
+            #     outweighs/beat/trump/win/prefer/count more than) — expanded
+            #     at runtime via the affect/opinion store, NOT a per-topic
+            #     table. Polarity is +0.75 (the 'more than' comparative is
+            #     inherently X-over-Y; a negative value-verb like 'mean less
+            #     than' is covered by the negative branch below). The leading
+            #     'i think/believe/feel/find/reckon' frame is stripped so X is
+            #     the content head. A bare (no-leading-frame) form is NOT
+            #     added, per the NOTE below (it re-matched mid-string and
+            #     collided with the topic). Generalizes: 'handwritten letters
+            #     mean more than texts' -> +0.75 on 'handwritten letters'.
+            (r"\bi\s+(?:think|believe|feel|find|reckon)\s+(.+?)\s+"
+             r"(?:means|mean|matters|matter|mattering|outweighs|outweigh|"
+             r"beats|trumps|wins\s+over|prefer|prefers|counts|count)"
+             r"(?:\s+(?:more|far|much|way))?\s+(?:than|over|to\s+me|to\s+us)"
+             r"(?:\s+.+?)?(?:[.!?]|\s+and\b|\s+but\b|$)", 0.75, 0.5),
+            # (i-neg) negative value-verb comparative "X means less than Y" /
+            #     "X matters less than Y" -> -0.75 on X. Same general shape,
+            #     opposite polarity; seed verb set, not a per-topic table.
+            (r"\bi\s+(?:think|believe|feel|find|reckon)\s+(.+?)\s+"
+             r"(?:means|mean|matters|matter|mattering|outweighs|outweigh|"
+             r"beats|trumps|wins\s+over|prefer|prefers|counts|count)"
+             r"\s+(?:less|fewer|little)\s+(?:than|over)\s+.+?"
+             r"(?:[.!?]|\s+and\b|\s+but\b|$|,)", -0.75, 0.5),
             # NOTE: a bare comparative "X is more <ADJ> than Y" (no leading
             # "i think" frame) is intentionally NOT added as a separate
             # pattern. The (h) pattern above already covers the user-opinion
