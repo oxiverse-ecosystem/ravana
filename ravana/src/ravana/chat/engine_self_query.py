@@ -1073,8 +1073,66 @@ class SelfQueryMixin:
                     except Exception:
                         pass
                     return _answer
-            # ── Single-topic self-opinion (unchanged path) ──────────────────
-            _target = _toks[-1] if _toks else ""
+            # ── Single-topic self-opinion ────────────────────────────────────
+            # D-B FIX (round 2026-08-13T0634Z): the prior extractor took the
+            # LAST content token of the tail as the stance target
+            # (`_target = _toks[-1]`). That is correct for a flat topic ("your
+            # stance on privacy" -> "privacy"), but it MANGLES a relative-clause
+            # topic: "your stance on people who talk in theatres" yields target
+            # "theatres", which never matches the mined stance key
+            # "people who talk" -> the agent answers the hollow "i'm still
+            # figuring that out" even though it learned a strong view from the
+            # user. This is the SAME defect the D-C fix hardened on the MINING
+            # side (user_model._opinion_topic's relative-CLAUSE BRIDGE), but on
+            # the QUERY side the tail extractor never got the same treatment.
+            #
+            # Fix: resolve the tail's CONTENT HEAD with the SAME relative-clause
+            # / head-resolution discipline the miner uses — keep a relative
+            # pronoun (who/whom/that/which) as a BRIDGE and continue into its
+            # clause, cut at the first internal closed-class word, and drop a
+            # trailing closed-class/modifier. So "people who talk in theatres"
+            # -> head "people who talk" (matching the mined key), NOT "theatres".
+            # This is a structural generalizer over the tail — no per-topic
+            # table, no hardcoded reply. _agent_stance_on still does the real
+            # grounding/derivation below.
+            if _toks:
+                _REL_BRIDGE = {"who", "whom", "that", "which"}
+                _OPINION_STOP = getattr(
+                    getattr(self, "user_model", None), "_OPINION_STOP", None)
+                if _OPINION_STOP is None:
+                    _OPINION_STOP = {
+                        "the", "a", "an", "my", "your", "our", "their", "his",
+                        "her", "its", "this", "that", "these", "those", "some",
+                        "any", "no", "all", "every", "i", "you", "he", "she",
+                        "we", "they", "me", "him", "us", "them", "and", "but",
+                        "or", "so", "if", "when", "while", "because", "of", "to",
+                        "in", "on", "at", "for", "with", "from", "by", "as",
+                        "into", "about", "over", "under", "how", "what", "why",
+                        "who", "where", "off", "onto", "upon", "than", "then",
+                        "till", "until", "since", "really", "very", "just",
+                        "only", "also", "too", "quite", "more", "most", "much",
+                        "many", "such", "own", "same", "other", "another", "is",
+                        "are", "was", "were", "be", "been", "being", "am", "not",
+                        "do", "does", "did", "can", "it", "they're", "im",
+                        "i'm", "you're", "we're", "there",
+                    }
+                _head = []
+                for _t in _toks:
+                    if _t in _REL_BRIDGE:
+                        _head.append(_t)   # bridge: keep clause content below
+                        continue
+                    if _t in _OPINION_STOP:
+                        break
+                    _head.append(_t)
+                # Trim trailing closed-class/modifier words (but never a
+                # trailing relative bridge such as "who"/"that").
+                while len(_head) > 1 and _head[-1] in _OPINION_STOP:
+                    _head.pop()
+                _target = " ".join(_head) if _head else ""
+            else:
+                _target = ""
+            if not _target:
+                _target = _toks[-1] if _toks else ""
             _stance, _reason = self._agent_stance_on(_target)
             _reason = (_reason or "").rstrip()
             if _reason and not _reason.endswith((".", "!", "?")):
