@@ -2211,6 +2211,49 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             if _v is not None and not getattr(_v, "superseded", False):
                 return f"your name is {_v.value}."
             return None
+        # ── (0b) Reverse name→relationship recall (round 2026-08-13T1656Z) ──
+        # "who is wren to me?" / "what is meera to me?" / "who is dev to me?"
+        # The user names an entity; RAVANA must reverse-index the
+        # PersonalFactStore by the entity NAME and answer the relationship
+        # from the stored fact — type-agnostic (friend / sister / brother /
+        # pet / colleague all resolve through one path). This is the precise
+        # fix for the 6f generalization gap: the trigger ("who is <X> to me")
+        # is relation-agnostic, so the resolver must NOT hardcode pet grammar
+        # or a per-entity table. It scans every entity-scoped fact (subject !=
+        # 'i') for one whose key[0] == the named entity and renders the
+        # relationship label from the 'relationship'/'role'/'does' attributes.
+        # Structural reverse index, not a per-topic answer dictionary; the
+        # answer content comes entirely from durable store state.
+        _WHO = re.search(
+            r"\bwho\s+(?:is|are|was|were)\s+([a-z][a-z']+)\s+(?:to\s+me|in\s+"
+            r"my\s+life|to\s+me\b)\b|\bwhat\s+(?:is|are|was|were)\s+([a-z][a-z']+)\s+"
+            r"to\s+me\b", q)
+        if _WHO and pf is not None:
+            _ent_name = (_WHO.group(1) or _WHO.group(2) or "").lower().strip()
+            if _ent_name:
+                _rel = None
+                _role = None
+                _does = None
+                for _k, _f in pf.facts.items():
+                    if not (isinstance(_k, tuple) and len(_k) == 3):
+                        continue
+                    if _k[0] != _ent_name or getattr(_f, "superseded", False):
+                        continue
+                    if _k[1] == "relationship" and _rel is None:
+                        _rel = _f.value
+                    elif _k[1] == "role" and _role is None:
+                        _role = _f.value
+                    elif _k[1] == "does" and _does is None:
+                        _does = _f.value
+                if _rel:
+                    _ans = f"{_ent_name} is your {_rel}."
+                    if _role:
+                        _ans += f" {_ent_name} {_role}."
+                    elif _does:
+                        _ans += f" {_ent_name} {_does}."
+                    return _ans
+                # entity known but no relationship fact (e.g. a pet stored
+                # only by species slot) -> honest fallthrough, not a confab.
         # "where do i live / work" / "what do i do"
         if re.search(r"\b(where do i live|what city|what town|where am i from)\b", q) and \
                 re.search(r"\b(live|from)\b", q):
@@ -2390,7 +2433,8 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             _ent = _ENT_ATTR.group(1).lower().strip()
             # fold the spoken attribute to the store's relation key
             _eattr_raw = _ENT_ATTR.group(2).lower()
-            _eattr = ("does" if _eattr_raw == "does"
+            _eattr = ("does" if _eattr_raw in ("does", "work")
+                      else "role" if _eattr_raw == "job"
                       else "is" if _eattr_raw == "is"
                       else "name" if _eattr_raw == "name"
                       else _eattr_raw)
@@ -2407,6 +2451,17 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     if _eattr == "is":
                         return f"your {_ent} is {_v}."
                     return f"your {_ent}'s {_eattr} is {_v}."
+            # Round 2026-08-13T1656Z: job/work may also be stored as 'role'
+            # (e.g. "works as a paramedic" -> role="works as a paramedic"). If
+            # the folded attr found nothing, fall back to 'role' so "what does
+            # my brother do for work" still answers from the structured store.
+            if _eattr_raw in ("job", "work"):
+                for _k, _f in pf.facts.items():
+                    if not (isinstance(_k, tuple) and len(_k) == 3):
+                        continue
+                    if _k[0] == _ent and _k[1] == "role" \
+                            and not getattr(_f, "superseded", False):
+                        return f"your {_ent} {_f.value}."
         # Count / quantity recall: "how many X do i have / keep / raise" ->
         # scan 'does' facts whose value contains a leading cardinal number
         # and the cue noun; or a dedicated count attribute. Honest fallback
