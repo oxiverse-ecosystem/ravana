@@ -98,6 +98,17 @@ on this codebase:
   last token and dropping the other side. A side with no view is answered honestly,
   never fabricated. No LLM, no retrain, no authored reply pool. See
   `docs/CONTRASTIVE_SELF_OPINION.md`.
+- **Resolves a relative-clause topic to its content head in a self-opinion
+  query.** Asked *"your honest read on people who talk in theatres?"* or
+  *"what's your take on friends who keep their promises?"*, it no longer
+  collapses the topic to the trailing last token (`theatres` / `promises`) — it
+  resolves the **content head** (`people who talk` / `friends who keep`), which
+  matches the stance key it mined from you, so it engages the real lean it
+  learned (`i'm against people who talk.`) instead of the hollow
+  `i'm still figuring that out`. Flat topics (`"your honest read on privacy"` ->
+  `privacy`) are unchanged; an ungrounded relative clause stays honestly silent,
+  never fabricated. No LLM, no retrain, no authored reply pool. See
+  `docs/SELF_OPINION_RELATIVE_CLAUSE.md`.
 - **Remembers and totals counts you disclose.** Told *"i keep twelve racing
   pigeons"* / *"i have three cats"* / *"i lost five hens"*, it stores each count as
   structured state (not free text) so it can answer *"how many racing pigeons do i
