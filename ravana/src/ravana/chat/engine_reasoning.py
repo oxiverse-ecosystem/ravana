@@ -2058,9 +2058,17 @@ class ReasoningMixin:
         # An "i <verb> <object>" statement is an activity disclosure UNLESS the
         # verb is one of the stative verbs above (those are handled by the
         # affect/opinion/benign paths). Require a following content word so
-        # bare "i run" still counts.
+        # bare "i run" still counts. GENERALISED (round 2026-08-13T2059Z): the
+        # verb token now ALSO consumes hyphenated compound verbs
+        # (e.g. "tide-pool", "astro-photograph") and any lowercase token, so a
+        # first-person disclosure using a novel or compound verb is recognised
+        # as a disclosure (and routed to store+ack) instead of leaking into the
+        # knowledge-query / uncertainty path. The stative deny-list below still
+        # excludes copula/affect verbs; everything else is treated as an
+        # activity report. Open-class, not a per-verb whitelist — RAVANA learns
+        # the verb from experience, it never hardcodes the verb set.
         _gen_act = re.compile(
-            r"\bi\s+([a-z']+)(?:\s+[a-z']+)+\b", re.IGNORECASE)
+            r"\bi\s+([a-z']+(?:-[a-z']+)*)(?:\s+[a-z'\\-]+)+", re.IGNORECASE)
         _m = _gen_act.search(q)
         _is_activity = bool(_m) and _m.group(1).lower() not in _STATIVE_VERBS
         if not (_self_pat.search(q) or _is_activity):
