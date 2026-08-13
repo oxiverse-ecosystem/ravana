@@ -2438,10 +2438,13 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                       else "is" if _eattr_raw == "is"
                       else "name" if _eattr_raw == "name"
                       else _eattr_raw)
+            # candidate store-attributes for this spoken attribute
+            _want = {"name": ("name",), "does": ("does", "role"),
+                     "role": ("role", "does"), "is": ("is",)}.get(_eattr, (_eattr,))
             for _k, _f in pf.facts.items():
                 if not (isinstance(_k, tuple) and len(_k) == 3):
                     continue
-                if _k[0] == _ent and _k[1] == _eattr \
+                if _k[0] == _ent and _k[1] in _want \
                         and not getattr(_f, "superseded", False):
                     _v = _f.value
                     if _eattr == "name":
@@ -2451,15 +2454,54 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     if _eattr == "is":
                         return f"your {_ent} is {_v}."
                     return f"your {_ent}'s {_eattr} is {_v}."
-            # Round 2026-08-13T1656Z: job/work may also be stored as 'role'
-            # (e.g. "works as a paramedic" -> role="works as a paramedic"). If
-            # the folded attr found nothing, fall back to 'role' so "what does
-            # my brother do for work" still answers from the structured store.
-            if _eattr_raw in ("job", "work"):
+            # Forward relationship index (FEATURE, round 2026-08-13T1656Z):
+            # a bare disclosure ("my brother dev works as a paramedic") stores
+            # the relationship UNDER THE PERSON'S NAME (subject=name,
+            # attr="relationship", val="brother"), not under the word "brother".
+            # So a query that names the RELATION WORD ("my brother's job") finds
+            # nothing under "brother" and fell through to the episodic echo in
+            # prior rounds. Resolve relword -> entity name via the store's
+            # durable relationship index, then read that entity's facts. This is
+            # the structural complement to the reverse name->relationship
+            # resolver; it reads the live store (pf.resolve_relation), so no
+            # per-relation answer table and no hardcoding. The reply keeps the
+            # user's framing ("your brother ...") while the content comes from
+            # the resolved person's structured facts.
+            if _eattr in ("name", "does", "role", "is"):
+                _ename = pf.resolve_relation(_ent)
+                if _ename:
+                    for _k, _f in pf.facts.items():
+                        if not (isinstance(_k, tuple) and len(_k) == 3):
+                            continue
+                        if _k[0] == _ename and _k[1] in _want \
+                                and not getattr(_f, "superseded", False):
+                            _v = _f.value
+                            if _eattr == "name":
+                                return f"your {_ent}'s name is {_v}."
+                            if _eattr == "does":
+                                return f"your {_ent} does {_v}."
+                            if _eattr == "is":
+                                return f"your {_ent} is {_v}."
+                            return f"your {_ent} {_v}."
+        # Entity activity / role phrasing with the VERB BEFORE the relation
+        # noun ("what does my brother do for work", "what does my sister do"):
+        # the _ENT_ATTR pattern above requires the attribute word to follow the
+        # noun, so it misses this word order. Resolve the relation word to the
+        # stored entity name and read that entity's 'does'/'role' fact — same
+        # forward relationship index, same "content from store" guarantee, no
+        # per-relation answer table.
+        _DO_ENT = re.search(
+            r"\b(?:what|who)\s+(?:does|do|did)\s+my\s+([a-z][a-z]+)\s+"
+            r"(do|does|did|work|for\s+work|for\s+a\s+living|do\s+for\s+a\s+"
+            r"living|do\s+for\s+work|job|is|study|studies|teach|teaches)\b", q)
+        if _DO_ENT and pf is not None:
+            _ent = _DO_ENT.group(1).lower().strip()
+            _ename = pf.resolve_relation(_ent)
+            if _ename:
                 for _k, _f in pf.facts.items():
                     if not (isinstance(_k, tuple) and len(_k) == 3):
                         continue
-                    if _k[0] == _ent and _k[1] == "role" \
+                    if _k[0] == _ename and _k[1] in ("role", "does") \
                             and not getattr(_f, "superseded", False):
                         return f"your {_ent} {_f.value}."
         # Count / quantity recall: "how many X do i have / keep / raise" ->
