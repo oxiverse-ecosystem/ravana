@@ -17,6 +17,25 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
 USER_MODELS_DIR = os.path.join(_REPO_ROOT, "user_models")
 
 
+# Relation-word seed vocabulary — shared by the relational fact miner AND the
+# engine's entity-attributed recall resolver. A bare disclosure ("my brother
+# dev works as a paramedic") stores the relationship under the PERSON'S NAME
+# (subject=name, attr="relationship", val=<relword>), so a later query that
+# names the RELATION WORD ("what is my brother's job") must resolve relword ->
+# entity name via the relationship index. Keeping the vocabulary in ONE place
+# means the miner and the recall resolver can never drift apart, and RAVANA
+# still extends it at runtime as new disclosures arrive (it is seed data, not
+# an answer table). This is the structural complement to the reverse
+# name->relationship resolver in engine._structured_recall.
+_RELATION_VOCAB = (
+    "friend", "sister", "brother", "mother", "father", "parent",
+    "daughter", "son", "cousin", "aunt", "uncle", "grandmother",
+    "grandfather", "niece", "nephew", "wife", "husband", "partner",
+    "spouse", "mentor", "student", "colleague", "boss", "neighbor",
+    "neighbour", "roommate", "teammate", "pet", "dog", "cat", "bird",
+    "rabbit", "horse", "child", "kid", "buddy", "pal",
+)
+
 # Correction detection patterns — ACC conflict detection (Error-Related Negativity)
 _CORRECTION_DIRECT_PATTERNS = [
     r"\bno[!,.]", r"that'?s wrong", r"that'?s not right", r"that'?s incorrect",
@@ -571,14 +590,8 @@ class UserModel:
         #   - Type-agnostic: friend / sister / brother / cousin / mentor /
         #     neighbour / colleague / dog / cat all resolve through one path;
         #     the answer renders the relationship label from the stored fact.
-        _RELATION_WORDS = (
-            "friend", "sister", "brother", "mother", "father", "parent",
-            "daughter", "son", "cousin", "aunt", "uncle", "grandmother",
-            "grandfather", "niece", "nephew", "wife", "husband", "partner",
-            "spouse", "mentor", "student", "colleague", "boss", "neighbor",
-            "neighbour", "roommate", "teammate", "pet", "dog", "cat", "bird",
-            "rabbit", "horse", "child", "kid", "buddy", "pal",
-        )
+        # (The relation vocabulary lives at module level as _RELATION_VOCAB so
+        #  the engine's recall resolver shares the exact same seed set.)
         _rel_m = re.search(
             r"\bmy\s+([a-z][a-z]+)\s+([A-Za-z][A-Za-z]+(?:'?[A-Za-z]+)?)\b"
             r"(.*)$", q_clean, re.IGNORECASE)
@@ -586,7 +599,7 @@ class UserModel:
             _rel = _rel_m.group(1).lower().strip()
             _nm = _rel_m.group(2).strip().lower()
             _rest = _rel_m.group(3).strip().strip(" .,!?")
-            if _rel in _RELATION_WORDS and _nm and _nm not in (
+            if _rel in _RELATION_VOCAB and _nm and _nm not in (
                     "the", "a", "an", "is", "are", "was", "were", "and"):
                 # store the relationship itself (subject=name entity)
                 _put_fact_ent(_nm, "relationship", _rel, 0.6)
