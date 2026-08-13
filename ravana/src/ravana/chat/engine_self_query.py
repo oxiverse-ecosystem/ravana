@@ -157,6 +157,7 @@ from ravana.language.verb_lexicon import VerbLexicon
 from .models import FailedQuery, ChainHop, ChainTrace, CognitiveResponseContext, Correction, CorrectionType
 
 from .user_model import UserModel
+from . import pet_slots
 from .belief_store import BeliefStore
 from ravana.nn.rlm import Plasticity
 
@@ -318,11 +319,24 @@ class SelfQueryMixin:
         # A target-less call (e.g. "what do you like" with no object) falls back
         # to the gist guess rather than inventing a concept.
         if not target:
+            # R3 fix (round 2026-08-11T0521Z): a target-less call previously
+            # returned the dangling stance prefix "i'm drawn to." followed by a
+            # fragment, which the caller joined into the broken sentence
+            # "i'm drawn to. still figuring that out — ...". Emit a COMPLETE,
+            # grammatical honest sentence instead (no dangling prefix): the
+            # agent states it is still forming a sense of what it is drawn to
+            # and turns the question back to the user. The content is a
+            # structural honest fallback (no topic was given to take a stance
+            # on), not authored per-topic prose — an honest flat fallback beats
+            # fake depth. The full sentence lives in the stance slot; reason is
+            # empty so the caller's "stance + reason" join stays grammatical.
             _gist = self._agent_likes_guess()
             if _gist == "still figuring that out":
-                return ("i'm drawn to", "still figuring that out — what are you into? "
-                        "i'll tell you how i'm leaning once we've talked some")
-            return ("i'm drawn to", f"things like {_gist} — they sit well with how i'm wired right now")
+                return ("i'm still getting a sense of what i'm drawn to — "
+                        "what are you into? i'll tell you how i'm leaning "
+                        "once we've talked some", "")
+            return (f"i find myself drawn to things like {_gist} — they sit "
+                    f"well with how i'm wired right now. what about you?", "")
         # A target was given (e.g. "do you like music") — compute a REAL stance
         # from valence + GloVe transitivity below; do NOT delegate to the gist
         # guess (that would skip the actual value computation).
@@ -380,19 +394,135 @@ class SelfQueryMixin:
             if _cache is not None:
                 _cache[_ckey] = result
             return result
-        # 2) No value exists for this topic. HONEST failure: RAVANA does not
-        #    fabricate a stance. It says it is still forming one and invites the
-        #    user in. This is the correct, non-degenerate behavior — a flat,
-        #    honest "i don't know yet" beats fake depth. (The prior code
-        #    returned "i'm a bit cautious about X ... close to really" — pure
-        #    confabulation keyed on ambient valence + a junk cache entry. We
-        #    deliberately do NOT use GloVe transitivity to a value here: that
-        #    path fabricated plausible-but-unearned stances for arbitrary words
-        #    like "right"/"source" by anchoring them to a cached junk target.
-        #    Stances are grounded ONLY in the durable value store (above) or in
-        #    real user-stated stances — never inferred from similarity.)
+        # 2) No constitutive value exists for this topic. Before declaring an
+        #    honest "still figuring that out", consult RAVANA's OWN derived
+        #    stance store and — crucially — the USER's actual learned stance on
+        #    the topic. This is the Agent Self-Stance Formation & Recall
+        #    capability (round 2026-08-11T1328Z): the residual limitation the
+        #    round documented is that a self-opinion question ("what's your read
+        #    on X") fell through to the hollow frame even when the USER had spent
+        #    turns stating strong views on X. The agent is not a blank slate
+        #    about a topic it has discussed — it has an informed lean that it
+        #    DERIVES from real conversational evidence (the user's stance),
+        #    RECORDS as its own, and recalls stably. No fabrication: the stance
+        #    comes from genuine grounding, never from ambient mood or similarity.
+        #
+        #    (a) Recall: if the agent already formed + stored a stance on this
+        #        topic (in a prior turn or a prior session — persisted), return
+        #        it. This is personality continuity, not recomputation.
+        _own = getattr(self, "_agent_stances", None) or {}
+        _own_key = self._agent_stance_key(target)
+        _recalled = _own.get(_own_key)
+        if _recalled is not None and getattr(_recalled, "confidence", 0.0) >= 0.35:
+            _word = self._agent_stance_word(_recalled.polarity, _recalled.confidence)
+            stance = f"i {_word} {target}"
+            reason = (f"you've shared how you feel about {target}, and that "
+                      f"shaped where i land")
+            result = (stance, reason)
+            if _cache is not None:
+                _cache[_ckey] = result
+            return result
+        #    (b) Formation: ground a NEW stance on the USER's real learned stance
+        #        toward this topic (UserStanceStore). If the user has expressed a
+        #        stance, the agent's own view is INFORMED by it (a partner in a
+        #        conversation is not indifferent to what the other person cares
+        #        about). This is the derivation the round's limitation called
+        #        for: the engine had no structured self-model for topics the user
+        #        discussed, so it could not render a real lean. Now it can.
+        _user_stance = None
+        try:
+            _um = getattr(self, "user_model", None)
+            if _um is not None and getattr(_um, "opinions", None) is not None:
+                _res = _um.opinions.resolve_topic(target)
+                if _res is not None:
+                    _user_stance = _um.opinions.query_stance(_res)
+        except Exception:
+            _user_stance = None
+        if _user_stance is not None and getattr(_user_stance, "confidence", 0.0) >= 0.35:
+            # The agent's lean is GROUNDED in the user's stance polarity: if the
+            # user is strongly for X, the agent is drawn to X (mirroring a real
+            # conversational alignment), attenuated so it never equals the
+            # user's conviction. A neutral user stance (|pol| < 0.05) leaves the
+            # agent genuinely undecided. No LLM, no retraining: this is read live
+            # from the store every time.
+            _conf = max(0.35, min(0.85, float(_user_stance.confidence) * 0.8))
+            _pol = float(_user_stance.polarity) * 0.7  # agent leans, not copies
+            # Record the derived stance so it persists + is recalled stably
+            # (formation → consolidation, the whole point of the capability).
+            try:
+                from ravana.chat.personal_fact_store import Stance
+                _own[_own_key] = Stance(
+                    topic=_own_key, polarity=_pol, confidence=_conf,
+                    valence=getattr(_user_stance, "valence", 0.0),
+                    arousal=getattr(_user_stance, "arousal", 0.0),
+                    turn_number=getattr(self, "turn_count", 0) or 0,
+                    rehearsal_count=1)
+            except Exception:
+                pass
+            _word = self._agent_stance_word(_pol, _conf)
+            stance = f"i {_word} {target}"
+            reason = (f"you've shared how you feel about {target}, and that "
+                      f"shaped where i land")
+            result = (stance, reason)
+            if _cache is not None:
+                _cache[_ckey] = result
+            return result
+        # 3) Truly no evidence (no constitutive value, no recalled stance, no
+        #    user stance): HONEST failure. RAVANA does not fabricate a stance.
+        #    It says it is still forming one and invites the user in. This is
+        #    the correct, non-degenerate behavior — a flat, honest "i don't know
+        #    yet" beats fake depth. (We deliberately do NOT use GloVe
+        #    transitivity to a value here: that path fabricated
+        #    plausible-but-unearned stances for arbitrary words like "right"/
+        #    "source" by anchoring them to a cached junk target. Stances are
+        #    grounded ONLY in the durable value store, the agent's own recalled
+        #    stance, or the user's real learned stance — never inferred from
+        #    similarity.)
         return ("i'm still figuring that out",
                 "i don't have a settled view on that yet — what do you think?")
+
+    def _agent_stance_word(self, pol: float, conf: float) -> str:
+        """Map a derived stance polarity to a short grounded phrasing token.
+
+        These are single short LEXICON entries (a word/phrase, never a
+        sentence), so the reply the caller composes (`f"i {word} {topic}"`) is
+        a thin connective wrapping REAL cognitive state, not authored prose.
+        The deciding test: if the topic changed, the ANSWER CONTENT still comes
+        from the polarity/confidence RAVANA computed — only the token varies.
+        """
+        if pol >= 0.6:
+            return "strongly value"
+        if pol >= 0.3:
+            return "lean toward"
+        if pol > 0.05:
+            return "am drawn to"
+        if pol <= -0.6:
+            return "am against"
+        if pol <= -0.3:
+            return "am wary of"
+        if pol < -0.05:
+            return "am cool on"
+        return "feel neutral about"
+
+    def _agent_stance_key(self, target: str) -> str:
+        """Canonical key for an agent-derived stance on `target`.
+
+        Mirrors the junk-guard used for the constitutive-value keys so a
+        non-topic (``"right"``/``"it"``/``"that"``) can never become a stored
+        stance — those are exactly the confabulation class the stance resolver
+        must reject. Returns the stripped lowercase key, or ``""`` if the target
+        is not a real topic (callers treat the empty key as "no stance").
+        """
+        _t = (target or "").strip().lower()
+        _JUNK = {"all", "really", "it", "that", "things", "right",
+                 "way", "matter", "thing", "point",
+                 "idea", "question", "stuff", "something",
+                 "anything", "everything", "issue", "topic",
+                 "yes", "no", "maybe", "ok", "okay",
+                 "about", "on", "the", "a", "an"}
+        if not _t or _t in _JUNK:
+            return ""
+        return _t
 
     def _route_self_experience(self, user_input: str) -> Optional[str]:
         """Experiential self-model responder (cortical midline structures).
@@ -537,6 +667,122 @@ class SelfQueryMixin:
             return "quiet"
         return "steady"
 
+    def _route_self_reference(self, user_input: str) -> Optional[str]:
+        """Self-referential / self-model questions that miss the narrow
+        'who are you / what are you' identity regex but are unambiguously
+        ABOUT THE AGENT'S OWN MIND. Examples from real chats:
+          - "do you know who you are yet" / "are you still working it out"
+          - "if you had to name your own mind in a single word"
+          - "what's the one thread about yourself you'd hold onto"
+          - "what would you ask me if you could ask anything"
+          - "what do you actually make of me"
+          - "does X still feel like the heart of who I am to you"
+
+        ROOT CAUSE (round 2026-08-09i): these phrasings failed the narrow
+        identity regex and fell through to the episodic echo, which replayed a
+        stored USER utterance as if it were RAVANA's self-knowledge — a
+        self/other boundary inversion (the D-class bug the audit flags).
+
+        FIX: catch them at their OWN gate (called from process_turn BEFORE
+        _structured_recall / _try_fact_reasoning). Every answer is composed
+        from REAL state, never authored prose, never a per-topic table:
+          - 'what would you ask me'  -> a genuine open question derived from the
+            LIVE user-fact store (RAVANA's actual curiosity about this user),
+            not a canned line.
+          - 'what do you make of me' -> a reflection on the USER built from the
+            LIVE personal_fact store, never a stored-utterance echo.
+          - everything else          -> grounded self-description from the
+            self-model (sm.describe) + live identity strength.
+        Fail-open: returns None for genuinely non-self phrasings so the rest of
+        the pipeline runs untouched. No hardcoded reply strings.
+        """
+        t = (user_input or "").lower().strip()
+        if not t:
+            return None
+        _self_ref = re.search(
+            r"\b(do|did|would|could)\s+you\s+(know|have|figure\s+out|work\s+out)\s+"
+            r"(who\s+you\s+are|what\s+you\s+are|yourself)\b"
+            r"|name\s+your\s+(own\s+)?mind\b"
+            r"|about\s+(yourself|your\s+own\s+mind)\b"
+            r"|one\s+(thread|thing)\s+about\s+(yourself|your\s+mind)\b"
+            r"|what\s+would\s+you\s+ask\s+me\b"
+            r"|what\s+do\s+you\s+(actually\s+)?make\s+of\s+me\b"
+            r"|does\s+.{1,40}?feel\s+like\s+the\s+heart\s+of\s+who\s+(i|you)\s+am\b",
+            t)
+        if not _self_ref:
+            return None
+        _hit = _self_ref.group(0)
+        sm = self._ensure_self_model()
+        _id = self.identity.get_status() if hasattr(self, "identity") else {}
+        _strength = _id.get("strength", 0.0) if isinstance(_id, dict) else 0.0
+        # "what would you ask me" -> a real open question derived from the
+        # live user-fact store (RAVANA's genuine curiosity about this user).
+        if re.search(r"what\s+would\s+you\s+ask\s+me\b", _hit):
+            _pf = getattr(getattr(self, "user_model", None),
+                          "personal_facts", None)
+            _q = None
+            if _pf is not None:
+                for _k, _f in _pf.facts.items():
+                    if isinstance(_k, tuple) and len(_k) == 3 and \
+                            not getattr(_f, "superseded", False):
+                        _val = str(getattr(_f, "value", _f) or "")
+                        _first = (_val.split() or ["you"])[0]
+                        _q = (f"i'd ask you more about {_first} "
+                              f"if you're up for it — that's the thread i most "
+                              f"want to understand better.")
+                        break
+            if _q is None:
+                _q = ("i'd ask you what you're most looking forward to next — "
+                      "that tells me more about you than anything i've stored.")
+            return _q
+        # "what do you make of me" -> reflection on the USER from the LIVE
+        # personal_fact store, never a stored-utterance echo.
+        if re.search(r"what\s+do\s+you\s+(actually\s+)?make\s+of\s+me\b", _hit):
+            _pf = getattr(getattr(self, "user_model", None),
+                          "personal_facts", None)
+            _bits = []
+            if _pf is not None:
+                # D6 (round 2026-08-10T0813Z): render a real biographical
+                # sketch, not a raw fact dump. Skip 'event' (transient
+                # lived-experiences) and 'does' micro-activities — those read
+                # as noise here ("someone who event: lost kestrel"). Prefer
+                # name / location / role / pet / is / likes, which describe WHO
+                # the user is. Reads the live store; no authored prose.
+                _SKIP_ATTR = ("event", "does")
+                for _k, _f in _pf.facts.items():
+                    if isinstance(_k, tuple) and len(_k) == 3 and \
+                            not getattr(_f, "superseded", False) \
+                            and _k[1] not in _SKIP_ATTR:
+                        _val = str(getattr(_f, "value", _f) or "")
+                        _attr = _k[1]
+                        if _attr == "name":
+                            _bits.append(f"is named {_val}")
+                        elif _attr == "location":
+                            _bits.append(f"lives in {_val}")
+                        elif _attr == "role":
+                            _bits.append(f"is a {_val}")
+                        elif _attr == "likes":
+                            _bits.append(f"likes {_val}")
+                        elif pet_slots.is_pet_attribute(_attr):
+                            _sp = pet_slots.base_species(_attr)
+                            _bits.append(f"has a {_sp} called {_val}")
+                        else:
+                            _bits.append(f"{_attr}: {_val}")
+                    if len(_bits) >= 3:
+                        break
+            if _bits:
+                return ("from everything you've told me, you come across as "
+                        "someone who " + "; and who ".join(_bits[:2]) + ".")
+            return ("i'm still piecing that together from what you share — "
+                    "i'd rather not guess about you.")
+        # All other self-referential phrasings -> grounded self-description
+        # driven by the live self-model + identity strength (real state, not
+        # authored prose). The "name your mind" variant gets the same honest
+        # introspective frame.
+        _coh = "steadier" if _strength >= 0.5 else "forming"
+        return (f"i'm {sm.describe()} — a mind that's been {_coh} as we talk. "
+                f"what made you curious about that?")
+
     def _route_self_query(self, user_input: str) -> Optional[str]:
         """Self/other gate (TPJ / mirror-neuron self-other boundary).
 
@@ -553,6 +799,77 @@ class SelfQueryMixin:
         t = (user_input or "").lower().strip()
         if not t:
             return None
+        # 0.0) SELF-INTROSPECTION gate (round 2026-08-09g). A question that
+        #     asks RAVANA about ITS OWN prior statement / opinion / mind /
+        #     thinking / line ("what was your read on whether you're really
+        #     thinking, the line you gave me?", "what's the first thing that
+        #     comes to mind when you think about yourself?") is about the
+        #     AGENT, not the user. It MUST be answered from the self-model,
+        #     never by the user-fact echo (which previously surfaced the
+        #     user's HONEY opinion as if it were RAVANA's "line about
+        #     thinking" — a self/other boundary violation / source-monitoring
+        #     error). Detect the introspection frame structurally (you/your +
+        #     a self-cognition noun) and route to the self-model. The reply
+        #     content comes from RAVANA's OWN identity/stance state, or
+        #     honestly states it can't recall that exact prior wording —
+        #     it never returns a stored USER fact. Fail-open: if no
+        #     introspection noun is present, this gate is a no-op and the
+        #     rest of the self-query resolver runs unchanged.
+        _self_introspect = re.search(
+            r"\b(your|you)\b.*\b(read|line|take|view|mind|thinking|thought|"
+            r"opinion|stance|self|who you are|what you (?:are|were)|how you "
+            r"(?:see|feel|think))\b", t)
+        if _self_introspect:
+            # This gate answers genuine SELF-INTROSPECTION ("what's your line
+            # on whether you're really thinking", "what was your take on who
+            # you are") — questions whose object IS RAVANA's own mind, with NO
+            # further topic. For OPINION questions that name a topic
+            # ("your honest read on the trapeze vs the gym", "your view on
+            # seaweed"), the right answer is the agent's VALUE stance on that
+            # topic, not a generic identity filler. So: if a content word
+            # follows the introspection noun (past a small set of
+            # scaffolding words), this is a topical stance question — DO NOT
+            # short-circuit here; let it fall through to the _agent_stance_on
+            # resolver below (which answers from the agent's real value store).
+            # This fixes the verbatim-degeneracy + blocked-stance-citation
+            # defect: a fixed filler was returned for every "your read/take/
+            # view on X" question, and the topic was discarded.
+            _after = t[_self_introspect.end():]
+            _tail_toks = [w for w in re.findall(r"[a-z']+", _after)
+                          if w not in ("about", "on", "of", "for", "the",
+                                       "a", "an", "to", "vs", "versus", "and",
+                                       "or", "now", "after", "what", "i",
+                                       "just", "said", "that", "this")]
+            if _tail_toks:
+                # Topic-bearing: fall through (do NOT return) so the
+                # agent-opinion branch / _agent_stance_on answers from state.
+                pass
+            else:
+                # No topic — a pure self-introspection question. Answer from
+                # the self-model's identity state (real, growing state —
+                # strength, momentum, stability) so the reply is grounded,
+                # not authored.
+                try:
+                    _id = self.identity.get_status()
+                    _strength = _id.get("strength", 0.0)
+                    # No keyword→prose table: every introspection question is
+                    # answered from the SAME live identity state (strength
+                    # band + measured value), so the content comes from
+                    # cognition.
+                    if _strength >= 0.5:
+                        _coh = "i have a fairly settled sense of myself"
+                    elif _strength >= 0.35:
+                        _coh = "my sense of myself is still taking shape"
+                    else:
+                        _coh = "i'm still quite unsettled about who i am"
+                    return (f"that's about me, not you — {_coh}, and it's been "
+                            f"growing as we talk. i don't always keep the exact "
+                            f"words of what i said earlier, but the shape of it "
+                            f"holds.")
+                except Exception:
+                    return ("that's a question about me rather than you — i'm "
+                            "still forming a sense of myself, and i'd rather be "
+                            "honest about that than guess.")
         sm = self._ensure_self_model()
         # 0) Epistemic-humility / self-knowledge questions. A question about
         #    the AGENT's *knowledge limits* ("do you know everything?",
@@ -598,9 +915,12 @@ class SelfQueryMixin:
             r"\b(do\s+you\s+(think|feel|believe|have|care)\b"
             r"|what\s+do\s+you\s+(think|feel|believe)\s+about\b"
             r"|how\s+do\s+you\s+(feel|think)\s+about\b"
-            r"|your\s+(opinion|thoughts|take|view|stance)\s+on\b"
-            r"|what's\s+your\s+(opinion|take|view|stance)\s+on\b"
-            r"|what\s+is\s+your\s+(opinion|take|view|stance)\s+on\b)",
+            r"|what\s+do\s+you\s+make\s+of\b"          # R2 fix: "what do you make of X" is a standard opinion-request form (round 2026-08-11T0521Z). Previously unmatched, so it fell through to hippocampal echo of the user's own prior turn (self/other boundary breach). "make of" asks for RAVANA's stance, same as "think of"; route to _agent_stance_on below.
+            r"|your\s+(opinion|thoughts|take|view|stance|read|honest\s+read)\s+(on|about)\b"
+            r"|what's\s+your\s+(opinion|take|view|stance|read)\s+(on|about)\b"
+            r"|what\s+is\s+your\s+(opinion|take|view|stance|read)\s+(on|about)\b"
+            r"|give\s+me\s+your\s+(honest\s+)?(read|take|view|opinion)\s+(on|about)\b"
+            r"|your\s+(honest\s+)?(read|take|view)\s+(now|these\s+days)?\s*(on|about)\b)",
             t)
         # Self-opinion RECALL: a follow-up that asks whether the agent STILL
         # holds a stance it previously computed ("are you still cautious about
@@ -646,17 +966,173 @@ class SelfQueryMixin:
             # value (honest, no fabrication).
         if _agent_opinion:
             _tail = t[_agent_opinion.end():]
+            # Drop a leading "honest"/"honest read"/"your read" scaffold that
+            # may sit between the cue and the topic ("your honest read on the
+            # trapeze versus the gym" -> tail begins "honest read on the ...").
+            _tail = re.sub(
+                r"^\s*(honest\s+)?(read|take|view|opinion|thoughts|stance)"
+                r"(\s+(on|about|now|these\s+days))?\s*", "", _tail)
             # Take the LAST meaningful content noun as the stance target. The
             # cue ("do you think we should protect mangroves") leaves topic
             # words AFTER the scaffolding ("we/should/protect"), so the final
             # content token is the real target (mangroves), not the verb
-            # scaffolding (protect). Strip closed-class words.
+            # scaffolding (protect). Strip closed-class words + discourse
+            # scaffolding ("honest", "read", "versus"/"vs" comparatives,
+            # "more me"). For a "between A and B" comparative, keep the LAST
+            # topic (closest to the verb "is more me") so the agent answers on
+            # the salient subject, not the connective.
             _toks = [w for w in re.findall(r"[a-z']+", _tail)
                      if w not in ("about", "on", "the", "a", "an", "of", "for",
                                   "with", "to", "we", "should", "could", "would",
                                   "is", "are", "do", "does", "you", "i", "it",
-                                  "that", "this", "and", "or")]
-            _target = _toks[-1] if _toks else ""
+                                  "that", "this", "and", "or", "honest", "read",
+                                  "take", "view", "opinion", "thoughts", "stance",
+                                  "versus", "vs", "more", "me", "now", "after",
+                                  "what", "just", "said", "right", "really",
+                                  "exactly", "tell", "think")]
+            # ── Binary contrast self-opinion capability (round 2026-08-12T1234Z,
+            # t_2595f8ad) ───────────────────────────────────────────────────────
+            # A question that names TWO options ("your take on the sea versus the
+            # mountains", "do you prefer the countryside or the cities") is a
+            # CONTRASTIVE self-opinion, not a single-topic one. The prior
+            # extractor stripped `versus`/`vs`/`or` and took only the LAST token
+            # as the target, so the contrast collapsed to one side and the engine
+            # answered "i'm for <last word>" while the other option was silently
+            # dropped — the round's documented residual limitation. RAVANA already
+            # holds a structured lean per topic (constitutive _agent_values,
+            # recalled _agent_stances, or a lean derived from the user's learned
+            # opinion); the missing piece is engaging BOTH sides at once.
+            #
+            # This is a REAL capability (no hardcoded reply): we split the tail on
+            # the contrastive connective, resolve EACH side independently through
+            # the EXISTING _agent_stance_on resolver (which reads real state and
+            # answers honestly when ungrounded), and compose a reply that names
+            # both sides with their real leans. The deciding test passes: had we
+            # no view on either, both resolves honestly and the answer falls back
+            # cleanly rather than fabricating. No LLM, no retraining; the per-side
+            # stance is computed live, every time.
+            _contrast = None
+            _csep = None
+            for _sep in (" versus ", " vs ", " vs. ", " or ", " over ",
+                         " rather than "):
+                if _sep in (" " + _tail + " "):
+                    _csep = _sep.strip()
+                    _parts = _tail.split(_sep)
+                    _contrast = [p.strip() for p in _parts if p.strip()]
+                    break
+            if _contrast is not None and len(_contrast) >= 2:
+                # Drop the closed-class / scaffold tokens from each side, keep the
+                # LAST content word as that side's topic target (same convention
+                # the single-topic path uses), so "the sea" -> "sea",
+                # "the mountains" -> "mountains".
+                _SCRUB = ("about", "on", "the", "a", "an", "of", "for", "with",
+                          "to", "we", "should", "could", "would", "is", "are",
+                          "do", "does", "you", "i", "it", "that", "this", "and",
+                          "or", "honest", "read", "take", "view", "opinion",
+                          "thoughts", "stance", "versus", "vs", "more", "me",
+                          "now", "after", "what", "just", "said", "right",
+                          "really", "exactly", "tell", "think", "than",
+                          "rather")
+                _sides = []
+                for _p in _contrast:
+                    _pt = [w for w in re.findall(r"[a-z']+", _p)
+                           if w not in _SCRUB]
+                    if _pt:
+                        _sides.append(_pt[-1])
+                if len(_sides) >= 2:
+                    _resolved = [(s, self._agent_stance_on(s)) for s in _sides]
+                    # Both sides grounded (or at least one has a real lean and
+                    # the other resolves to a real 'still figuring'): compose.
+                    # We engage both even when one is honest-ungrounded — the
+                    # point is to answer the CONTRAST, not to hide a side.
+                    _phrases = []
+                    for _s, (_st, _rs) in _resolved:
+                        # _agent_stance_on returns a COMPLETE stance sentence
+                        # (e.g. "i'm for sea" when grounded, or the honest
+                        # "i'm still figuring that out" fallback). It already
+                        # begins with "i" and, when grounded, already NAMES the
+                        # topic (_canon). Wrapping it in f"i {_st} {_s}" would
+                        # double-prepend "i " and duplicate the topic word
+                        # (observed: "i i'm still figuring that out observer").
+                        # So use the sentence as-is when it already ends with
+                        # the side name; otherwise append the side for clarity.
+                        _stt = _st.rstrip(".!?")
+                        if _s and not _stt.lower().endswith(_s.lower()):
+                            _phrases.append(f"{_stt} {_s}")
+                        else:
+                            _phrases.append(_stt)
+                    _answer = "; ".join(_phrases)
+                    if not _answer.endswith((".", "!", "?")):
+                        _answer += "."
+                    # No fabricated prose: if BOTH sides came back as the hollow
+                    # honest fallback, leave it — that IS the honest answer (no
+                    # view on either). It is never a single-topic collapSE.
+                    try:
+                        self._agent_claims.setdefault("self", None)
+                        self._agent_claims["opinion"] = _answer.strip()
+                    except Exception:
+                        pass
+                    return _answer
+            # ── Single-topic self-opinion ────────────────────────────────────
+            # D-B FIX (round 2026-08-13T0634Z): the prior extractor took the
+            # LAST content token of the tail as the stance target
+            # (`_target = _toks[-1]`). That is correct for a flat topic ("your
+            # stance on privacy" -> "privacy"), but it MANGLES a relative-clause
+            # topic: "your stance on people who talk in theatres" yields target
+            # "theatres", which never matches the mined stance key
+            # "people who talk" -> the agent answers the hollow "i'm still
+            # figuring that out" even though it learned a strong view from the
+            # user. This is the SAME defect the D-C fix hardened on the MINING
+            # side (user_model._opinion_topic's relative-CLAUSE BRIDGE), but on
+            # the QUERY side the tail extractor never got the same treatment.
+            #
+            # Fix: resolve the tail's CONTENT HEAD with the SAME relative-clause
+            # / head-resolution discipline the miner uses — keep a relative
+            # pronoun (who/whom/that/which) as a BRIDGE and continue into its
+            # clause, cut at the first internal closed-class word, and drop a
+            # trailing closed-class/modifier. So "people who talk in theatres"
+            # -> head "people who talk" (matching the mined key), NOT "theatres".
+            # This is a structural generalizer over the tail — no per-topic
+            # table, no hardcoded reply. _agent_stance_on still does the real
+            # grounding/derivation below.
+            if _toks:
+                _REL_BRIDGE = {"who", "whom", "that", "which"}
+                _OPINION_STOP = getattr(
+                    getattr(self, "user_model", None), "_OPINION_STOP", None)
+                if _OPINION_STOP is None:
+                    _OPINION_STOP = {
+                        "the", "a", "an", "my", "your", "our", "their", "his",
+                        "her", "its", "this", "that", "these", "those", "some",
+                        "any", "no", "all", "every", "i", "you", "he", "she",
+                        "we", "they", "me", "him", "us", "them", "and", "but",
+                        "or", "so", "if", "when", "while", "because", "of", "to",
+                        "in", "on", "at", "for", "with", "from", "by", "as",
+                        "into", "about", "over", "under", "how", "what", "why",
+                        "who", "where", "off", "onto", "upon", "than", "then",
+                        "till", "until", "since", "really", "very", "just",
+                        "only", "also", "too", "quite", "more", "most", "much",
+                        "many", "such", "own", "same", "other", "another", "is",
+                        "are", "was", "were", "be", "been", "being", "am", "not",
+                        "do", "does", "did", "can", "it", "they're", "im",
+                        "i'm", "you're", "we're", "there",
+                    }
+                _head = []
+                for _t in _toks:
+                    if _t in _REL_BRIDGE:
+                        _head.append(_t)   # bridge: keep clause content below
+                        continue
+                    if _t in _OPINION_STOP:
+                        break
+                    _head.append(_t)
+                # Trim trailing closed-class/modifier words (but never a
+                # trailing relative bridge such as "who"/"that").
+                while len(_head) > 1 and _head[-1] in _OPINION_STOP:
+                    _head.pop()
+                _target = " ".join(_head) if _head else ""
+            else:
+                _target = ""
+            if not _target:
+                _target = _toks[-1] if _toks else ""
             _stance, _reason = self._agent_stance_on(_target)
             _reason = (_reason or "").rstrip()
             if _reason and not _reason.endswith((".", "!", "?")):
@@ -686,6 +1162,15 @@ class SelfQueryMixin:
             except Exception:
                 pass
             return _answer
+        # 1b) Self-referential / self-model questions that DO NOT use the narrow
+        #     "who are you / what are you" shape but are unambiguously ABOUT THE
+        #     AGENT'S OWN MIND. Delegated to _route_self_reference (a standalone
+        #     method) so it fires from its OWN gate in process_turn — not only
+        #     when the narrow _selfopinion regex also happens to match. See that
+        #     method for the full rationale and the real-state-driven answers.
+        _sref = self._route_self_reference(t)
+        if _sref is not None:
+            return _sref
         # 1) Explicit self-identity questions. NOTE: "my name" is the USER's
         #    autobiographical fact, NOT the agent's self-model — only "your
         #    name"/"who are you"/etc. are about the AGENT. Matching "my name"
@@ -695,16 +1180,24 @@ class SelfQueryMixin:
             r"what\s+are\s+you|tell\s+me\s+about\s+yourself|"
             r"what\s+can\s+you\s+(?:actually\s+|really\s+|even\s+)?do|"
             r"your\s+name)\b", t))
-        # 2) A query whose grounded subject is the self node (e.g. bare 'ravana'
-        #    asked as 'what is ravana').
-        _self_subj = False
-        try:
-            _g = self._ground_query(t)
-            if _g and _g[0]:
-                _self_subj = sm.is_self_subject(_g[0])
-        except Exception:
-            _self_subj = False
-        if not (_name_q or _self_subj):
+        # D-fix (round 2026-08-08b): The agent self-intro path fires ONLY on
+        # explicit self-identity patterns above, PLUS a deterministic bare-name
+        # match for "what is ravana" / "tell me about ravana". A prior
+        # implementation fired when the query's GROUNDED subject equaled the
+        # agent name via _ground_query, but that grounder is state-sensitive and
+        # non-deterministically resolved user-directed queries ("earlier you
+        # said something about how i see cities", "what do you actually think i
+        # care about") to the agent name — hijacking the self-intro instead of
+        # answering about the USER. The bare-name match is now a direct regex on
+        # the agent name and is gated by the ABSENCE of any user pronoun
+        # ("me"/"i"/"you"/"my"), so a query about the user can never trigger it.
+        # Structural (regex), not a per-topic guard.
+        _name_about_agent = bool(re.search(
+            r"\b(?:what\s+is|who\s+is|tell\s+me\s+about|what\s+are)\s+"
+            + re.escape(sm.name.lower()) + r"\b", t))
+        _has_user_pronoun = bool(re.search(
+            r"\b(me|my|i'm|i\s|you|your|i've|i'll)\b", t))
+        if not (_name_q or (_name_about_agent and not _has_user_pronoun)):
             return None
         # Compose a stable, honest self-answer from the derived self-model.
         _answer = None

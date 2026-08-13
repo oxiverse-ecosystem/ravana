@@ -43,16 +43,80 @@ on this codebase:
 - **Forms and recalls stances.** Told *"i love coffee"* it records a stance
   (`coffee` polarity +1.0, confidence 0.65) and acknowledges:
   `good to know — you love coffee. i'll keep that in mind.`
+- **Reverses a held stance.** If you later change your mind — *"i flipped, the
+  reef tank is more work than joy"* — it **recodes** the stance you already held
+  toward the opposite pole (`reef tank` +0.95 → −0.665) instead of leaving the
+  stale one or stacking a contradiction. A flip on a topic you never stated an
+  attitude about is a harmless no-op. See `docs/STANCE_REVERSAL.md`.
 - **Corrects itself.** A later *"no, my cat's name is rex"* supersedes the
   earlier *"my cat's name is milo"* — both the old and new values are tracked in
   the fact store, and recall reflects the correction:
   `from what you've told me, you live in berlin; your cat is rex; …`
 - **Recalls what you told it.** *"what do you remember about me?"* surfaces the
   learned facts/stances (location, pet, likes) drawn from the durable stores.
+- **Surfaces a named thing's whereabouts from a stored location fact.** Told
+  *"the slow coal is moored at bingley"* it stores `('slow coal','location','bingley')`,
+  and later answers *"where's the slow coal moored?"* with
+  *"the slow coal is at bingley."* — even after a correction (*"actually the slow
+  coal is moored at saltaire now"* → *"the slow coal is at saltaire."*). Unknown
+  places (e.g. *"where is paris?"*) return honest uncertainty, never a fabricated
+  location. See `docs/ENTITY_LOCATION_RECALL.md`.
+- **Re-attaches pets you re-disclose the reverse way round, and re-attributes
+  them to a new owner.** If you first say *"my cat is called pip"* then correct
+  *"actually pip is my sister's cat"*, RAVANA moves pip off your record onto the
+  sister (self/other boundary) so a later *"what is my cat's name?"* never claims
+  pip is yours — it attributes pip to the sister. Likewise *"the owl is mine and
+  she's called briar"* files the corrected name on the owl slot, so recall returns
+  `briar`, not the stale `wren`. No LLM, no retrain; the boundary is enforced at
+  every recall source. See `docs/POSSESSION_REATTRIBUTION.md`.
+- **Answers about a pet by the name you actually use.** Told *"my dog's a
+  retriever called wren"*, it can later answer *"who is wren to me?"* with
+  *"your dog is wren."* — the inverse of species-keyed recall, reverse-indexing
+  the pet store by the **name** (the stored value) and surfacing the relationship
+  (the species). It honors a renamed pet (a superseded name is never reported as
+  yours), keeps a third party's pet out of scope for *"to me"* (self/other
+  boundary), and works for runtime-learned species (*"i have an axolotl named
+  nyx"* → *"your axolotl is nyx."*). No LLM, no retrain, no authored reply pool.
+  See `docs/PET_NAME_RECALL.md`.
 - **Abstains when it has no settled view.** Asked *"what do you think about
   coffee?"* before forming its own position, it returns an honest non-answer
   rather than fabricating one:
   `i'm still figuring that out. i don't have a settled view on that yet — what do you think?`
+- **Forms and recalls its own stance on a topic you've discussed.** Asked
+  *"what do you think about chanterelles?"* after you've said *"i really love
+  chanterelles"*, it answers from a stance it **derived and recorded as its own**
+  (`i'm strongly for chanterelles.`) — grounded in your real learned view,
+  attenuated (it leans, never copies), and persisted so it recalls the same stance
+  next time. On a topic with no evidence it stays honestly silent
+  (`i'm still figuring that out …`) instead of borrowing your opinion. No LLM, no
+  retrain, no authored reply pool. See `docs/AGENT_SELF_STANCE.md`.
+- **Engages BOTH sides of a binary self-opinion.** Asked *"what's your take on the
+  sea versus the mountains?"* or *"do you prefer the countryside or the cities?"*,
+  it splits on the contrastive connective (`versus` / `vs` / `or` / `over` /
+  `rather than`) and resolves **each** side through its real stance state — e.g.
+  `i'm for sea.; i'm still figuring out mountains.` — instead of collapsing to the
+  last token and dropping the other side. A side with no view is answered honestly,
+  never fabricated. No LLM, no retrain, no authored reply pool. See
+  `docs/CONTRASTIVE_SELF_OPINION.md`.
+- **Resolves a relative-clause topic to its content head in a self-opinion
+  query.** Asked *"your honest read on people who talk in theatres?"* or
+  *"what's your take on friends who keep their promises?"*, it no longer
+  collapses the topic to the trailing last token (`theatres` / `promises`) — it
+  resolves the **content head** (`people who talk` / `friends who keep`), which
+  matches the stance key it mined from you, so it engages the real lean it
+  learned (`i'm against people who talk.`) instead of the hollow
+  `i'm still figuring that out`. Flat topics (`"your honest read on privacy"` ->
+  `privacy`) are unchanged; an ungrounded relative clause stays honestly silent,
+  never fabricated. No LLM, no retrain, no authored reply pool. See
+  `docs/SELF_OPINION_RELATIVE_CLAUSE.md`.
+- **Remembers and totals counts you disclose.** Told *"i keep twelve racing
+  pigeons"* / *"i have three cats"* / *"i lost five hens"*, it stores each count as
+  structured state (not free text) so it can answer *"how many racing pigeons do i
+  keep?"* with `you have twelve racing pigeons.` and *"how many pets do i have in
+  total?"* with `you have 21 pets in total.` (losses aren't counted as pets) — and
+  a later *"it's seven hives now"* supersedes an earlier *"i keep six hives"*, so
+  recall returns the corrected `you have seven hives.` No LLM, no retrain, no
+  authored reply pool. See `docs/QUANTITY_MEMORY.md`.
 
 These capabilities are backed by four durable stores — an **identity model**
 (`IdentityEngine`), **stances** (`UserStanceStore`), **personal facts**
@@ -181,6 +245,10 @@ See [`docs/`](docs/README.md):
 - [Training](docs/TRAINING.md) — `train.py` modes and the LingGen promotion gate.
 - [Benchmarks](docs/BENCHMARKS.md) — every benchmark/diagnostic script and what it measures.
 - [Development](docs/DEVELOPMENT.md) — layout, path shims, test commands, conventions.
+- [Entity-Location Recall](docs/ENTITY_LOCATION_RECALL.md) — capturing + surfacing a named thing's whereabouts.
+- [Quantity Memory](docs/QUANTITY_MEMORY.md) — capturing counts you disclose, answering "how many", totalling "in total", correcting online.
+- [Reverse Pet Lookup by Name](docs/PET_NAME_RECALL.md) — answering "who is wren to me?" by reverse-indexing the pet store by the name value.
+- [Agent Self-Stance](docs/AGENT_SELF_STANCE.md) — RAVANA forms, records, and recalls its own stance on a discussed topic (grounded in your view, attenuated, persisted), and stays honestly silent otherwise.
 
 ## Benchmark results
 

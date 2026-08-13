@@ -384,6 +384,18 @@ class MemoryMixin:
                         # value collide with the active one. Corrections win.
                         if getattr(_fact, "superseded", False):
                             continue
+                        # SELF/OTHER BOUNDARY (round 2026-08-10T1401Z): only the
+                        # USER's own pet facts belong in the user-facing recall
+                        # index. A pet the user re-attributed to a third party
+                        # (e.g. "pip is my sister's cat") is stored under that
+                        # owner's subject (subject != "i"); folding it in would
+                        # make "what's my cat's name" surface a pet that is no
+                        # longer the user's. Skip non-user subjects so the
+                        # boundary holds at the recall source, not just the
+                        # fact-store.
+                        _subj = _key[0] if isinstance(_key, (tuple, list)) and len(_key) > 0 else None
+                        if _subj not in (None, "i", "I"):
+                            continue
                         _attr = _key[1] if isinstance(_key, (tuple, list)) and len(_key) > 1 else None
                         _val = getattr(_fact, "value", _fact)
                         if _attr and _pet_slots.is_pet_attribute(_attr):
@@ -413,7 +425,9 @@ class MemoryMixin:
                     elif attr == "likes":
                         bits.append(f"you like {val}")
                     elif attr == "does":
-                        bits.append(f"you do {val}")
+                        bits.append(f"you {val}")
+                    elif attr == "event":
+                        bits.append(f"you {val}")
                     elif attr == "is":
                         bits.append(f"you are {val}")
                     else:
@@ -426,6 +440,8 @@ class MemoryMixin:
                     bits.append(f"you mentioned you like {val}")
                 elif attr == "does":
                     bits.append(f"you do {val}")
+                elif attr == "event":
+                    bits.append(f"you {val}")
                 elif attr == "is":
                     bits.append(f"your {ent} is {val}")
                 elif attr == "location":
@@ -461,22 +477,113 @@ class MemoryMixin:
         # before reaching the real cue "cat". A cued recall is specific by
         # construction — the generic self-profile is only correct when the
         # query names no entity at all.
+        # R6 fix (round 2026-08-11T0521Z): a possessive-entity query names a
+        # SPECIFIC owned thing ("my dog's name", "how many pigeons did i
+        # keep"). The old loop only checked _entity_idx (which holds the
+        # USER's own pet facts, subject "i") and otherwise fell through to the
+        # generic-self fallback on ANY "name"/LOC word — so "what is my dog's
+        # name" / "how many pigeons" returned "you told me your name is esa"
+        # (the user's own name), a pronoun short-circuit (the bare "my"/"name"
+        # matched before the specific entity was resolved). Fix: when the
+        # query names a specific entity/species noun, resolve it from the FULL
+        # personal-fact store across ALL subjects (honoring the self/other
+        # boundary — a pet re-attributed to a third party resolves to that
+        # owner), and do NOT use generic-self. Only use generic-self when no
+        # specific entity is named and the query is a bare user-bio question
+        # ("what is my name", "where do i live").
         _generic_self = False
+        _specific_entity = None
         for tok in re.findall(r"[a-z']+", q):
             _tok = tok[:-2] if tok.endswith("'s") else tok
             if _tok in _entity_idx and _tok not in ("i", "you", "my", "your"):
                 _ent_hit = _tok
                 break
-            # species map (e.g. "cats" -> "cat" entity)
+            # species map (e.g. "cats" -> "cat" entity) — a specific owned
+            # thing the user named; resolve it from the full store below.
             _sp = _pet_slots.species_of(_tok)
-            if _sp is not None and _sp in _entity_idx:
-                _ent_hit = _sp
+            if _sp is not None:
+                _specific_entity = _sp
                 break
-            if _tok in ("i", "you", "my", "your") and "i" in _entity_idx:
-                # only treat as a cued recall when the query also
-                # asks about a biographical attribute
-                if any(w in q for w in _LOC_WORDS) or "name" in q:
-                    _generic_self = True
+            # a named non-user entity already in the index (e.g. "salt" stored
+            # under subject "neighbour") — resolve it from the full store. The
+            # self-pronoun "i" is also in _entity_idx (the user's own profile),
+            # but it must NOT be treated as a specific owned entity here — doing
+            # so would reconstruct the whole "i" profile for ANY query
+            # containing "i"/"my" (e.g. "how many pigeons did i keep" -> "your
+            # name is esa; you keep loft"). A genuine bare self-bio question is
+            # handled by the tightened generic-self fallback below, not here.
+            if _tok in _entity_idx and _tok not in ("i", "you", "my", "your"):
+                _specific_entity = _tok
+                break
+        if _specific_entity is not None:
+            # Resolve the entity from the FULL personal-fact store (all
+            # subjects), preferring an active (non-superseded) fact. This honors
+            # the self/other boundary: a pet re-attributed to a third party
+            # resolves to that owner's record, not the user's. Build a small
+            # facts dict for _reconstruct_entity.
+            _pf = getattr(self, "user_model", None)
+            _pfs = getattr(_pf, "personal_facts", None) if _pf else None
+            if _pfs is not None:
+                _ent_facts = {}
+                for _key, _fact in getattr(_pfs, "facts", {}).items():
+                    if getattr(_fact, "superseded", False):
+                        continue
+                    _subj = _key[0] if isinstance(_key, (tuple, list)) and len(_key) > 0 else None
+                    # Self/other boundary (round 2026-08-11T0521Z R6 fix): a
+                    # "my <pet>" query resolves to the USER's own record only. A
+                    # pet re-attributed to a third party (subject != "i") was
+                    # retired from the user's ownership, so folding it here would
+                    # surface it as "your cat is pip" — exactly the leak the
+                    # regression test forbids. Skip non-user subjects so the
+                    # boundary holds at this recall source, matching the unit
+                    # entity-index guard above (L397).
+                    if _subj not in (None, "i", "I"):
+                        continue
+                    _attr = _key[1] if isinstance(_key, (tuple, list)) and len(_key) > 1 else None
+                    # the entity matches either as a stored entity subject, or
+                    # as the attribute key under a third-party subject (a pet
+                    # disclosed as "my neighbour's dog is X" is stored as
+                    # subject="neighbour", attr="dog"), or as a pet-slot whose
+                    # canonical species is the query entity.
+                    _is_entity = (_subj == _specific_entity) or (_attr == _specific_entity) or (
+                        _pet_slots.is_pet_attribute(_attr) and
+                        _pet_slots.base_species(_attr) == _specific_entity)
+                    if _is_entity and _attr not in (None,):
+                        # fold under a render key: use the species for pets,
+                        # else the entity subject.
+                        _rk = (_pet_slots.base_species(_attr)
+                               if _pet_slots.is_pet_attribute(_attr)
+                               else _specific_entity)
+                        _ent_facts.setdefault(_rk, {})[_attr] = getattr(_fact, "value", _fact)
+                # also accept the user-facing index entry if present
+                if _specific_entity in _entity_idx:
+                    for _a, _v in _entity_idx[_specific_entity].items():
+                        _ent_facts.setdefault(_specific_entity, {})[_a] = _v
+                if _ent_facts:
+                    # prefer the species/pet render key when present
+                    _rk = next((k for k in _ent_facts
+                                if _pet_slots.species_of(k) is not None),
+                               next(iter(_ent_facts)))
+                    _bits = _reconstruct_entity(_rk, _ent_facts[_rk])
+                    if _bits:
+                        return "you told me " + "; ".join(dict.fromkeys(_bits)) + "."
+        # Generic-self fallback: ONLY for a bare user-biography question that
+        # names NO specific entity (e.g. "what is my name", "where do i live").
+        # A query that named a specific owned thing ("my dog's name") already
+        # resolved via _specific_entity above and must NOT reach here. The
+        # trigger is kept tight: "name" only counts when it is the question's
+        # TARGET ("what is my name" / "who am i"), not a passing mention like
+        # "did i name them" inside a count/possession question — otherwise
+        # "how many pigeons did i name" would wrongly collapse to the user's
+        # name. LOC words still trigger generic-self (where do i live).
+        if _ent_hit is None and _specific_entity is None:
+            _has_person = bool(re.search(r"\b(i|my|me|we|our)\b", q))
+            _name_target = bool(re.search(
+                r"\b(what'?s|what\s+is)\s+my\s+name\b|\bmy\s+name\s*\?|who\s+am\s+i\b|"
+                r"\btell\s+me\s+(?:about|who)\s+(?:myself|me)\b", q))
+            _has_bio_attr = _name_target or any(w in q for w in _LOC_WORDS)
+            if _has_person and _has_bio_attr and "i" in _entity_idx:
+                _generic_self = True
         if _ent_hit is None and _generic_self:
             _ent_hit = "i"
         if _ent_hit is not None:
@@ -512,22 +619,95 @@ class MemoryMixin:
         _cue_tokens = [w.strip(".,!?") for w in re.findall(r"[a-z']+", q.lower())
                        if len(w) >= 3 and w not in _CUE_STOP]
         if _cue_tokens:
+            # ROUND 2026-08-09i FIX: cue matching was VERBATIM-only, so a query
+            # cue that differed by morphology from the stored episode text could
+            # never match (e.g. "swarm" vs the stored turn "the hive *swarmed*",
+            # "die" vs "died"), and the recall fell through to the loose semantic
+            # pass which returned a WRONG, unrelated episode. Add lemma stemming
+            # (Porter) on both the cue and each episode's token stream so the
+            # content-addressable recall matches on word FORM, not exact spelling.
+            # This is a general, distribution-driven fix (no per-topic synonym
+            # table) and keeps the fail-closed fallback to the semantic pass when
+            # nothing stems-match. Lazy-import; PorterStemmer is already a
+            # project dependency.
+            try:
+                from nltk.stem import PorterStemmer as _PS
+                _stemmer = _PS()
+                _stem = lambda w: _stemmer.stem(w)
+            except Exception:
+                _stem = (lambda w: w)  # graceful degrade: verbatim match only
+            _cue_stems = {_stem(c) for c in _cue_tokens}
             _best_cue = None
             _best_cue_score = 0
             for rec in store:
                 _t = rec.get("text", "").lower()
-                if re.search(r"\b(remember|recall|what did i|what was i)\b.*\b(told|said|ask|mention|tell)\b", _t):
+                # D1 (round 2026-08-08b-d): a prior RECALL QUERY ("remind me what
+                # i told you about the one that molted") carries no shareable
+                # content, but the old skip-regex only caught
+                # "remember/recall/what did i/what was i" + told/said/ask. A
+                # later semantically-overlapping recall ("what's the strongest
+                # read you've formed") matched the prior recall query's OWN
+                # text (it shares "told you"/"molted") and echoed it verbatim ->
+                # a recursive recall loop (the "you mentioned my tarantula
+                # before, remind me..." echo). Generalize the skip to ANY
+                # recall-scaffold query: remember/recall/remind/what i
+                # told|said|mentioned|asked you, so a query is never retrieved
+                # AS content. Structural (regex on recall syntax), not a
+                # per-topic guard.
+                if re.search(
+                    r"\b(remember|recall|remind(?: me)?)\b"
+                    r".*\b(told|said|ask|mention|tell|said you|mentioned|asked)\b",
+                    _t) or re.search(
+                    r"\b(what|do you remember|remind)\b.*\b(i|you)\b.*"
+                    r"\b(told|said|mentioned|asked|tell|remember|recall)\b", _t):
                     continue  # skip prior recall queries (no content)
-                # count how many cue tokens appear verbatim in this episode
-                _hit = sum(1 for _c in _cue_tokens if _c in _t)
+                # Count how many cue tokens' STEMS appear in this episode's
+                # stemmed token stream (morphology-invariant match).
+                _t_stems = {_stem(w) for w in re.findall(r"[a-z']+", _t)}
+                _hit = sum(1 for _cs in _cue_stems if _cs in _t_stems)
                 # weight by fraction of cue tokens present (a focused match
                 # beats a scattered one)
-                _frac = _hit / len(_cue_tokens)
+                _frac = _hit / len(_cue_stems)
                 if _hit > 0 and _frac >= 0.34 and _hit > _best_cue_score:
                     _best_cue_score = _hit
                     _best_cue = rec
             if _best_cue is not None:
-                return self._reconstruct_gist(_best_cue)
+                # ROUND 2026-08-12T0613Z RELEVANCE FLOOR (source-monitoring
+                # fix). The stem-match above can score an episode purely on
+                # generic deictic/temporal filler that any prior turn shares
+                # ("came"/"back" in "if i never came back" matched "the relief
+                # boat went down ... i still hear ... in my sleep" via "back"),
+                # surfacing an UNRELATED memory as "you mentioned: <wrong turn>"
+                # (measured this round: T69 "if i never came back, what would
+                # you do with what i told you" echoed the boat-crash episode).
+                # Require the matched episode to contain at least one query
+                # cue token that is NOT a universal generic deictic/temporal
+                # filler (came/back/went/gone/thing/nothing/never/away...). This
+                # is a tiny universal seed set, NOT a per-topic deny-list — a
+                # genuine cued recall ("what did i tell you about the radio")
+                # carries a real content cue (radio) that still matches.
+                _GENERIC_CUE = {
+                    "came", "come", "back", "went", "gone", "go", "going",
+                    "thing", "things", "nothing", "never", "away", "still",
+                    "something", "everything", "anything", "everyone", "someone",
+                    "told", "tell", "said", "say", "mention", "mentioned",
+                    "ask", "asked", "what", "did", "do", "you", "your", "i",
+                    "my", "we", "our", "me", "about", "before", "earlier",
+                }
+                _match_text = (_best_cue.get("text", "") or "").lower()
+                _real_cue = [
+                    c for c in _cue_tokens
+                    if c not in _GENERIC_CUE
+                    and re.search(r"(?<![a-z])" + re.escape(c) + r"(?![a-z])",
+                                  _match_text)
+                ]
+                if not _real_cue:
+                    # only generic-filler overlapped -> do NOT echo an
+                    # unrelated episode; fall through to the semantic pass /
+                    # fail-closed below.
+                    _best_cue = None
+                else:
+                    return self._reconstruct_gist(_best_cue)
         # (a) fact-slot cue match — highest precision.
         for rec in store:
             facts = rec.get("facts", {})
@@ -558,7 +738,13 @@ class MemoryMixin:
             # "remember what I told you") — they carry no shareable content and
             # would otherwise be retrieved by semantic overlap with a new recall
             # query, producing a confabulated self-reference. Fail-closed instead.
-            if re.search(r"\b(remember|recall|what did i|what was i)\b.*\b(told|said|ask|mention|tell)\b", text.lower()):
+            if re.search(
+                r"\b(remember|recall|remind(?: me)?)\b"
+                r".*\b(told|said|ask|mention|tell|said you|mentioned|asked)\b",
+                text.lower()) or re.search(
+                r"\b(what|do you remember|remind)\b.*\b(i|you)\b.*"
+                r"\b(told|said|mentioned|asked|tell|remember|recall)\b",
+                text.lower()):
                 continue
             score = 0.0
             _strong_link = False
@@ -599,7 +785,33 @@ class MemoryMixin:
         # memory that wasn't there.
         if best is not None and self._adaptive_gate("recall_gist", best_score):
             _best_text = (best.get("text", "") or "").lower()
-            _verbatim = any(c in _best_text for c in qwords)
+            # ROUND 2026-08-12T0613Z: require a WORD-BOUNDARY match, not a
+            # naive substring. A substring check ("own" in "down", "art" in
+            # "start") produced false-positive verbatim hits that let an
+            # unrelated episode pass the recall gate (measured this round: the
+            # query "my own callsign-ish — what did i tell you about the radio"
+            # matched the boat-crash memory because "own" is a substring of
+            # "down" in "...went down off the point..."). Word-boundary match
+            # is structural (regex), not a per-topic list. AND exclude the same
+            # universal generic deictic/temporal filler set (_GENERIC_CUE) used
+            # by the stem-match path above: a generic word like "back"/"came"
+            # that appears in BOTH the query and an unrelated episode must not
+            # anchor a recall (measured this round: "if i never came back..."
+            # matched the boat memory via "back"). A genuine cued recall
+            # ("about the radio") carries a real content cue that still
+            # matches.
+            _GENERIC_CUE = {
+                "came", "come", "back", "went", "gone", "go", "going",
+                "thing", "things", "nothing", "never", "away", "still",
+                "something", "everything", "anything", "everyone", "someone",
+                "told", "tell", "said", "say", "mention", "mentioned",
+                "ask", "asked", "what", "did", "do", "you", "your", "i",
+                "my", "we", "our", "me", "about", "before", "earlier",
+            }
+            _verbatim = any(
+                re.search(r"(?<![a-z])" + re.escape(c) + r"(?![a-z])", _best_text)
+                and c not in _GENERIC_CUE
+                for c in qwords)
             if _verbatim:
                 return self._reconstruct_gist(best)
         return None
@@ -1340,19 +1552,35 @@ class MemoryMixin:
         # self-recall (strategy=memory_recall) and never reach the stored name.
         if re.search(r"\b(?:my name|who am i)\b", t):
             return None
-        # D3 (round v3): AGENT-self-recall. "what did you say about who you are",
-        # "earlier you described yourself", "what was your answer about X" ask
-        # for RAVANA's OWN prior claim, NOT a user fact. Route to the
-        # agent-claim store (populated from RAVANA's real generated replies) so
-        # these don't get swallowed by the user-episode recall below and return
-        # a user utterance (the D-C bug). Content comes from verbatim engine
-        # output, never authored prose.
-        if re.search(
-            r"\b(what did you (?:say|tell me|answer|describe|say about)|"
-            r"earlier you (?:described|said|told me|mentioned)|"
-            r"you described yourself|your answer about|what was your answer|"
-            r"you (?:said|mentioned|told me) something about what you (?:are|were)|"
-            r"remind me what you (?:said|told me) (?:about|you are))\b", t):
+        # D-fix (round 2026-08-08b): the agent-claim recall below must fire ONLY
+        # when the user is asking about RAVANA's OWN self-description ("what did
+        # you say about who you are", "earlier you described yourself"). It must
+        # NOT fire on a user-fact recall like "earlier you said something about
+        # how I see cities" — that is the user asking about THEIR OWN stance, and
+        # routing it to the agent-claim store returns RAVANA's self-intro (a
+        # self/other boundary breach: D-C class). Gate the "earlier you said/
+        # mentioned/told me" and "you said something about" branches on the
+        # recalled content being about the AGENT (yourself / who you are / what
+        # you are / your nature), so a query containing any first-person USER
+        # reference (i / my / me) falls through to the genuine user-episode
+        # recall instead. Structural (regex), not a per-topic guard.
+        _user_ref = bool(re.search(r"\b(i|my|me|we)\b", t))
+        _agent_self_recall = (
+            bool(re.search(
+                r"\bwhat did you (?:say|tell me|answer|describe|say about)\b", t))
+            and not _user_ref
+        ) or bool(re.search(
+            r"\bearlier you (?:described|said|told me|mentioned) "
+            r"(?:yourself|who you are|what you are|your nature)\b", t)
+        ) or bool(re.search(r"\byou described yourself\b", t)
+        ) or (bool(re.search(r"\byour answer about\b|\bwhat was your answer\b", t))
+              and not bool(re.search(r"\b(i|my|we)\b", t))
+        ) or bool(re.search(
+            r"\byou (?:said|mentioned|told me) something about what you "
+            r"(?:are|were)\b", t)
+        ) or bool(re.search(
+            r"\bremind me what you (?:said|told me) (?:about|you are)\b", t))
+        if _agent_self_recall:
             _claim = getattr(self, "_agent_claims", {}).get("self")
             if _claim:
                 return _claim
@@ -1515,8 +1743,27 @@ class MemoryMixin:
                 # must render as natural first/second-person statements, never
                 # as "your i's name is X".
                 _is_user = (str(_ent).lower() in ("i", "me", "my", "you"))
+                # D6 (round 2026-08-10T0813Z): the learned-profile summary must
+                # read as a BIOGRAPHY, not a raw activity/event log. 'event'
+                # facts are transient lived-experiences (a kestrel died, a jar
+                # dropped) and were the dominant noise in "what have you told
+                # me" dumps ("your event is got muddled; you do mix"). Skip them
+                # here; keep only stable biographical attributes (name,
+                # location, role, pet, likes, is, and a capped sample of
+                # 'does' activities). 'does' is capped so a long chat does not
+                # enumerate dozens of micro-activities. This is a rendering
+                # filter over the live store — no fact is deleted, recall of a
+                # specific activity still works via the A2 path below.
+                _does_shown = 0
+                _DOES_CAP = 4
                 for _attr, _vals in _facts.items():
                     for _val in _vals:
+                        if _attr == "event":
+                            continue
+                        if _attr == "does":
+                            if _does_shown >= _DOES_CAP:
+                                continue
+                            _does_shown += 1
                         if _attr == "favorite":
                             _bits.append(f"your favorite {_val}")
                         elif _attr == "likes":
@@ -1531,7 +1778,18 @@ class MemoryMixin:
                             # reflects what the user told us they do.
                             _bits.append(f"you do {_val}")
                         elif _attr == "name":
-                            _bits.append(f"your name is {_val}")
+                            # D6 (round 2026-08-08b-d): a possessive NAME fact
+                            # (partner, pet, ...) must keep its OWNER in the
+                            # render, never collapse onto the user's "your name
+                            # is X". The old code rendered every name attr as
+                            # "your name is X" regardless of entity, so a
+                            # partner's/pet's name was reported as the USER's own
+                            # name — a self/other boundary breach. Only the user
+                            # entity (i/me/my/you) uses "your name is"; any other
+                            # entity keeps "{ent}'s name".
+                            _bits.append(
+                                f"your name is {_val}" if _is_user
+                                else f"your {_ent}'s name is {_val}")
                         elif _attr == "location":
                             _bits.append(f"you live in {_val}")
                         elif _attr == "role":
@@ -1610,8 +1868,22 @@ class MemoryMixin:
                         _val = str(getattr(_v, "value", _v) or "").lower()
                         _attr = (_k[1] if isinstance(_k, (tuple, list)) and len(_k) >= 3 else _k) or ""
                         # Match on a value token OR the cued attribute word.
+                        # R6 fix (round 2026-08-11T0521Z): the 'name' attribute
+                        # must NOT match a passing mention of the word "name"
+                        # (e.g. "did i name them" in a count/possession question)
+                        # — that collapsed "how many pigeons did i name" into
+                        # "your name is esa". Only match the name attr when the
+                        # query is a genuine name-target question; otherwise the
+                        # bare attribute-word match skips 'name'.
                         _val_tokens = {t for t in re.findall(r"[a-z']+", _val)}
-                        if _val_tokens & _q_tokens or _attr.lower() in _q_tokens:
+                        _attr_in_q = _attr.lower() in _q_tokens
+                        if _attr.lower() == "name":
+                            _name_target = bool(re.search(
+                                r"\b(what'?s|what\s+is)\s+my\s+name\b|\bmy\s+name\s*\?|"
+                                r"who\s+am\s+i\b|\btell\s+me\s+(?:about|who)\s+(?:myself|me)\b",
+                                (user_input or "").lower()))
+                            _attr_in_q = _name_target
+                        if _val_tokens & _q_tokens or _attr_in_q:
                             _matched.append((_attr, getattr(_v, "value", _v)))
                     if _matched:
                         _bits = []
@@ -1671,29 +1943,32 @@ class MemoryMixin:
         # specificity), not the verbatim question. The miner already extracted
         # the self-disclosed facts, so surface those.
         if re.search(r"\bwhat did i (?:just )?(?:tell|say|mention)\b", t):
-            # B-fix (round v-aug04): a TOPIC-CUED variant ("what did i say
-            # about open source", "what did i tell you about my cats") asks
-            # about a SPECIFIC subject, not the literally-previous turn. The old
-            # code always echoed the last turn, so "what did i say about open
-            # source" returned "what's my favorite color?" — wrong episode.
-            # Now: extract the cue after "about/that", search the transcript for
-            # the episode whose TEXT contains that cue, and return its gist.
-            # Only when there is NO cue do we default to the immediately-preceding
-            # turn (genuine "what did i just say?").
+            # B-fix (round v-aug04) + ROUND 2026-08-09i: a TOPIC-CUED
+            # variant ("what did i say about swarm", "what did i tell you
+            # about my cats") asks about a SPECIFIC subject, not the
+            # literally-preceding turn. The old code did a strict substring
+            # scan of the cue against each episode's text, which MISSED
+            # morphology variants ("swarm" vs the stored "swarmed",
+            # "die" vs "died") and fell through to the previous turn — so
+            # "what did i say about the swarm" returned the trailer fact
+            # instead of the swarm episode. Delegate to _retrieve_episodic,
+            # which now does morphology-invariant (Porter-stem) cue matching
+            # and returns the episode actually containing the cue. Only when
+            # there is NO cue do we default to the immediately-preceding turn
+            # (genuine "what did i just say?").
             _cue = ""
             _m = re.search(r"\b(?:about|that|regarding|on)\s+([a-z']+)", t)
             if _m:
                 _cue = _m.group(1).lower().strip(".,!?")
             if _cue and len(_cue) >= 3:
-                _cued = None
-                for _r in reversed(self._episodic_transcript):
-                    if _cue in (_r.get("text", "") or "").lower():
-                        _cued = _r
-                        break
-                if _cued is not None:
-                    _cg = self._reconstruct_gist(_cued)
-                    if _cg:
-                        return _cg
+                # Delegate to _retrieve_episodic with the ORIGINAL query — it now
+                # does morphology-invariant (Porter-stem) cue matching and returns
+                # the episode actually containing the cue. Rewriting the query
+                # (e.g. "what did i tell you about swarm") changes the cue shape
+                # and can miss; the original user_input is what was proven to work.
+                _cued = self._retrieve_episodic(user_input)
+                if _cued:
+                    return _cued
             last_turn = prior[-1].strip()
             # Pull the matching transcript record (highest turn_index = prev).
             matching = [r for r in self._episodic_transcript
