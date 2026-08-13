@@ -24,6 +24,7 @@ truth; every claim here was checked against `ravana/`, `ravana_ml/`, and
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Repo layout, the test suite, how to run it, the path shims, and contribution conventions. |
 | [API_REFERENCE.md](API_REFERENCE.md) | Comprehensive class/function reference for all three packages. |
 | [STANCE_REVERSAL.md](STANCE_REVERSAL.md) | How the user changing their mind recodes a held stance (first-person reversal / retraction cues), verified against the live engine. |
+| [RELATIONSHIP_RECALL.md](RELATIONSHIP_RECALL.md) | Answering relation-word questions ("what does my brother do for work?", "what is my sister's job?") from the structured fact store, not an episode echo. |
 | [FAQ.md](FAQ.md) | Troubleshooting: installation, runtime, development issues. |
 
 ## Quick orientation
