@@ -92,3 +92,16 @@ def test_stative_verb_not_mined_as_activity():
     # open-class miner must NOT pollute the 'does' store with stative verbs.
     caps = _capture("i love the ocean and the sound of rain")
     assert ("i", "does") not in caps, caps
+
+
+def test_achieve_comm_verb_excluded_from_activity():
+    # The _STATIVE_DENY closed list also excludes achieve-comm / echo verbs
+    # (got/made/said/took/...) which would otherwise store garbage activity
+    # facts ("made a chair", "took the train"). They must NOT land in 'does'.
+    for utt in (
+        "i made a chair out of oak",
+        "i took the train to the coast",
+        "i got a dog from the shelter",
+    ):
+        caps = _capture(utt)
+        assert ("i", "does") not in caps, (utt, caps)
