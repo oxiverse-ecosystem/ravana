@@ -1285,6 +1285,12 @@ class UserModel:
             "probably", "possibly", "maybe", "certainly", "definitely",
             "really", "truly", "actually", "basically", "simply", "quite",
             "very", "also", "even", "rather", "instead",
+            # modality / auxiliaries (never a mined activity): "i should
+            # handle" / "i can lift" / "i will finish" are modality, not a
+            # sustained activity, and questions like "how do you think i
+            # should handle that?" must not leak "should handle" as a 'does'.
+            "should", "would", "could", "can", "may", "might", "must",
+            "shall", "will", "ought",
         })
 
         def _norm_verb(v: str) -> str:
@@ -1319,6 +1325,19 @@ class UserModel:
                          "soon", "then", "next", "again"}
             return o not in _OBJ_STOP
 
+        def _is_question(t: str) -> bool:
+            # A first-person activity/event can ONLY be mined from a
+            # DECLARATIVE self-report, never from a question. Mining a
+            # question ("how do you think i should handle that?") leaks
+            # modality tails ("should handle") as garbage 'does' facts.
+            t = (t or "").strip()
+            if t.endswith("?"):
+                return True
+            return bool(re.match(
+                r"^(what|who|when|where|why|how|which|is|are|do|does|did|"
+                r"can|could|would|should|will|may|might|am|have|has|had)",
+                t, re.IGNORECASE))
+
         _act_pat = re.compile(
             r"\bi\s+(?:also\s+|really\s+|even\s+|just\s+|now\s+|still\s+|"
             r"often\s+|sometimes\s+|usually\s+)?"
@@ -1333,6 +1352,8 @@ class UserModel:
             re.IGNORECASE)
         for _am in _act_pat.finditer(q_clean):
             _verb = _am.group(1).lower()
+            if _is_question(q_clean):
+                continue
             if not _verb_ok(_verb):
                 continue
             _obj = self._opinion_topic(_am.group(2).strip().lower())
@@ -1357,6 +1378,8 @@ class UserModel:
             re.IGNORECASE)
         for _em in _evt_pat.finditer(q_clean):
             _verb = _em.group(1).lower()
+            if _is_question(q_clean):
+                continue
             if not _verb_ok(_verb):
                 continue
             _obj = self._opinion_topic(_em.group(2).strip().lower())
@@ -1399,6 +1422,8 @@ class UserModel:
             re.IGNORECASE)
         for _gm in _gen_verb_pat.finditer(q_clean):
             _verb = _gm.group(1).lower()
+            if _is_question(q_clean):
+                continue
             if not _verb_ok(_verb):
                 continue
             _obj = self._opinion_topic(_gm.group(2).strip().lower())

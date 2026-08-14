@@ -40,6 +40,12 @@ def test_framer_words_not_stored_as_activity():
         ("i used to love the smell of wet clay but the damp is now wrecking my hands.", "used"),
         ("seriously, if a photo isn't on film i probably won't print it.", "probably"),
         ("this november marks eight years since i first lit a kiln.", "first"),
+        # modality / auxiliaries must never become a 'does' activity
+        ("i should handle the firing schedule myself.", "should handle"),
+        ("i can lift the kiln shelf when it's cool.", "can lift"),
+        ("i will finish the dinner set by friday.", "will finish"),
+        # questions must not leak modality tails as garbage 'does' facts
+        ("how do you think i should handle that?", "should handle"),
     ]
     for t, bad in cases:
         got = _does(t)
