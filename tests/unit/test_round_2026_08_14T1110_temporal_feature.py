@@ -2,17 +2,24 @@
 
 Date-grounded temporal recall for a LEARNED activity. Two gaps closed:
 
-  Fix A — SEMANTIC activity matching. The prior resolver scored the query only
-  by literal token overlap against the stored dated activity. A rotated,
-  paraphrased query ("all this volcano stuff") that shares NO token with the
-  stored activity ("study basaltic eruptions") failed closed and fell through
-  to a generic episodic echo. The resolver now ALSO scores each stored activity
-  via GloVe cosine (the same embedding RAVANA uses everywhere — no LLM), so a
-  semantic paraphrase still recalls the right dated fact.
+  Fix A — STEM-LINKED activity matching (NOT semantic/GloVe). The prior resolver
+  linked a `does`/`event` fact to the dated `since` activity ONLY by identical
+  leading verb ("study" == "study"). A rotated, paraphrased query ("all this
+  volcano stuff") that shares NO token with the stored activity ("study basaltic
+  eruptions") failed closed and fell through to a generic episodic echo — because
+  the word "volcano" lived in a SEPARATE `does` fact ("start studying volcanoes
+  back") that the verb-identity link never connected. The resolver now links every
+  `does`/`event` fact to each `since` activity it shares a MORPHOLOGICAL STEM with
+  ("volcanoes" == "volcano", "studying" == "study"), so the distinctive words
+  still reach the match context and the paraphrase recalls the right dated fact.
+  Data-driven, generalizes to any phrasing, fails closed (no shared stem -> no
+  link -> zero overlap -> None).
 
   Fix B — NATURAL gerund display. The reply previously emitted the bare stored
   verb ("you started study basaltic eruptions in 2015") — broken English. It now
-  realizes the activity as a grammatical gerund ("studying basaltic eruptions").
+  realizes the activity as a grammatical gerund ("studying basaltic eruptions"),
+  and drops a redundant inceptive verb ("started studying volcanoes" -> "studying
+  volcanoes") to avoid "started starting studying".
 
 No hardcoded reply; every answer slot is read from the PersonalFactStore and
 morphologically generated. Fail-closed: an unrelated "when did i...?" (no
