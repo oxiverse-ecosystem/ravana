@@ -538,7 +538,7 @@ class UserModel:
         # trigger shapes, no per-toponym table; the same _put_fact("location")
         # path is reused so recall stays consistent by construction.
         _m_loc_based = re.search(
-            r"\b(?:i(?:'m| am)|he|she|they|we|you)\s+(?:a|an|the\s+\w+\s+)?"
+            r"\b(?:i(?:'m| am)|he|she|they|we|you)\s+(?:[a-z]+['\-]?\s+){0,8}?"
             r"(?:based|located|stationed|situated)\s+(?:in|on|at|near)\s+"
             r"([A-Za-z][A-Za-z'\\-]*(?:\s+[A-Za-z][A-Za-z'\\-]*){0,2})",
             q_clean, re.IGNORECASE)
