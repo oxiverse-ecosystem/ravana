@@ -697,7 +697,63 @@ class UserModel:
                          "confused", "scared", "afraid", "excited",
                          "nervous", "calm", "what", "who", "why", "how",
                          "where", "when", "not", "no", "yes", "maybe")
-            if name_cand and name_cand.lower() not in _NON_NAME:
+            # DESCRIPTOR-NOUN deny set (round 2026-08-14T0103Z). "i'm
+            # vegetarian" / "i'm vegan" / "i'm a ceramicist" / "i'm an
+            # atheist" / "i'm a teacher" all reach the bare-copula name
+            # candidate path and were stored as the user's NAME (name
+            # poisoning: a later "what's my name" answered "Vegetarian" /
+            # "Ceramicist"). A name is a PROPER NOUN (mira, wren, tobias),
+            # never a common descriptor noun. This deny set covers the broad
+            # CATEGORIES of self-descriptor nouns (diet, religion/identity,
+            # occupation, nationality, orientation, family-role, political) as
+            # SEED vocabulary — RAVANA-expandable, not a per-name allowlist,
+            # so it generalizes to any descriptor the user might self-apply.
+            # Removing entries degrades gracefully (only loses one guard).
+            _NAME_REJECT_DESCRIPTOR = {
+                # diet / lifestyle
+                "vegetarian", "vegan", "omnivore", "pescatarian", "flexitarian",
+                "carnivore", "meat-eater", "teetotaler", "teetotaller",
+                # religion / belief / identity
+                "atheist", "agnostic", "christian", "muslim", "islamist",
+                "hindu", "buddhist", "jew", "jewish", "sikh", "pagan",
+                "catholic", "protestant", "mormon", "spiritual", "humanist",
+                "skeptic", "sceptic", "nihilist", "stoic", "optimist",
+                "pessimist", "realist", "idealist", "pragmatist",
+                # occupation / role
+                "ceramicist", "ceramist", "artist", "painter", "sculptor",
+                "writer", "author", "poet", "musician", "teacher", "student",
+                "engineer", "doctor", "nurse", "lawyer", "chef", "baker",
+                "programmer", "developer", "designer", "architect", "scientist",
+                "researcher", "farmer", "fisherman", "sailor", "soldier",
+                "officer", "clerk", "cashier", "waiter", "waitress", "barista",
+                "driver", "pilot", "carpenter", "plumber", "electrician",
+                "mechanic", "gardener", "librarian", "journalist", "editor",
+                "actor", "singer", "dancer", "photographer", "printmaker",
+                "potter", "weaver", "smith", "tailor", "cook", "builder",
+                # nationality / origin
+                "indian", "american", "british", "english", "scottish",
+                "welsh", "irish", "french", "german", "spanish", "italian",
+                "canadian", "australian", "chinese", "japanese", "korean",
+                "russian", "mexican", "brazilian", "dutch", "swiss", "swede",
+                "norwegian", "dane", "fin", "polish", "greek", "turk",
+                # orientation / identity
+                "straight", "gay", "lesbian", "bisexual", "transgender",
+                "queer", "cisgender", "pansexual", "asexual", "demisexual",
+                # family role (relative nouns can follow "i'm", e.g. "i'm a
+                # father" / "i'm someone's sister") — these are roles, never names
+                "father", "mother", "parent", "son", "daughter", "brother",
+                "sister", "uncle", "aunt", "auntie", "cousin", "grandfather",
+                "grandmother", "grandparent", "nephew", "niece",
+                # political / affiliation
+                "democrat", "republican", "socialist", "communist", "liberal",
+                "conservative", "anarchist", "centrist", "libertarian",
+                # general descriptors
+                "introvert", "extrovert", "ambivert", "minimalist",
+                "maximalist", "environmentalist", "feminist", "activist",
+            }
+            _nc_low = name_cand.lower()
+            if (name_cand and _nc_low not in _NON_NAME
+                    and _nc_low not in _NAME_REJECT_DESCRIPTOR):
                 name_cap = " ".join(w.capitalize() for w in name_cand.split())
                 self.user_name = name_cap
                 _put_fact("name", name_cap, 0.6)
