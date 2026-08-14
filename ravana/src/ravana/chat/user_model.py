@@ -538,18 +538,21 @@ class UserModel:
         # trigger shapes, no per-toponym table; the same _put_fact("location")
         # path is reused so recall stays consistent by construction.
         _m_loc_based = re.search(
-            r"\b(?:i(?:'m| am)|he|she|they|we|you)\s+(?:[a-z]+['\-]?\s+){0,8}?"
+            r"\b(i(?:'m| am)|we)\s+(?:[a-z]+['\-]?\s+){0,8}?"
             r"(?:based|located|stationed|situated)\s+(?:in|on|at|near)\s+"
-            r"([A-Za-z][A-Za-z'\\-]*(?:\s+[A-Za-z][A-Za-z'\\-]*){0,2})",
+            r"([A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z][A-Za-z'\-]*){0,2})",
             q_clean, re.IGNORECASE)
         _m_loc_feat = re.search(
             r"\b(?:in|on|at|near|off)\s+the\s+(?:isle|island|coast|shore|"
             r"headland|peninsula|cove|bay|fjord|valley|dale|glen|beach)\s+"
-            r"of\s+([A-Za-z][A-Za-z'\\-]*)",
+            r"of\s+([A-Za-z][A-Za-z'\-]*)",
             q_clean, re.IGNORECASE)
         _loc_cand = None
         if _m_loc_based:
-            _loc_cand = _m_loc_based.group(1).strip().strip(" .,!")
+            _subj = _m_loc_based.group(1).lower().strip()
+            # Only extract location for first-person subjects
+            if _subj.startswith("i") or _subj == "we":
+                _loc_cand = _m_loc_based.group(2).strip().strip(" .,!")
         elif _m_loc_feat:
             _loc_cand = _m_loc_feat.group(1).strip().strip(" .,!")
         if _loc_cand and len(_loc_cand.split()) <= 5 and _loc_cand.lower() not in _VALUE_STOP:
@@ -679,10 +682,33 @@ class UserModel:
                 # exhaustive without enumerating every emotion word. SEED
                 # data, RAVANA-expandable; removing entries degrades
                 # gracefully, it is not content RAVANA cannot change.
+                _COMMON_VERBS_ED = {
+                    "worked", "played", "called", "asked", "helped", "moved",
+                    "lived", "turned", "started", "walked", "talked", "looked",
+                    "wanted", "needed", "seemed", "changed", "opened", "closed",
+                    "tried", "failed", "passed", "waited", "loved", "liked",
+                    "hated", "watched", "listened", "learned", "taught", "studied",
+                    "created", "formed", "joined", "served", "faced", "based",
+                    "placed", "raised", "caused", "shared", "offered", "showed",
+                    "allowed", "used", "appeared", "happened", "followed", "reached",
+                    "decided", "provided", "included", "continued", "increased",
+                    "added", "arrived", "realized", "believed", "received", "stayed",
+                    "occurred", "expected", "remembered", "developed", "produced",
+                    "involved", "supported", "supposed", "finished", "stopped",
+                }
+                def _is_verb_form(word: str) -> bool:
+                    w = word.lower()
+                    if len(w) < 5:
+                        return False
+                    if w.endswith("ing"):
+                        return True
+                    if w.endswith("ed") and w in _COMMON_VERBS_ED:
+                        return True
+                    return False
                 _any_state = any(
                     w.lower() in _NAME_REJECT_AFFECT
                     or w.lower() in _NAME_REJECT_FUNCTION
-                    or (len(w) >= 5 and (w.endswith("ing") or w.endswith("ed")))
+                    or _is_verb_form(w)
                     for w in _nw)
                 if len(_nw) > 2 or _has_closed or _any_state:
                     name_cand = ""
@@ -1167,16 +1193,13 @@ class UserModel:
         # so the prior fact-mining tests (throw pots, grow air plants,
         # repot juniper, lost favia coral, reef tank) stay GREEN.
         _ACHIEVE_COMM_VERBS = frozenset({
-            "got", "get", "said", "say", "made", "make", "gave", "give",
+            "got", "get", "said", "say", "gave", "give",
             "told", "tell", "came", "come", "went", "go", "did", "do",
-            "saw", "see", "met", "meet", "sold", "sell", "paid", "pay",
-            "sent", "send", "spent", "spend", "bought", "buy", "caught",
-            "catch", "brought", "bring", "ate", "eat", "drank", "drink",
-            "knew", "know", "wore", "wear", "led", "lead", "read", "fly",
-            "flew", "swam", "swim", "rode", "ride", "drove", "drive",
-            "broke", "break", "spoke", "speak", "woke", "wake", "froze",
-            "freeze", "chose", "choose", "slept", "sleep", "felt", "feel",
-            "held", "hold", "took", "take", "set", "put", "cut", "hit",
+            "met", "meet", "sold", "sell", "paid", "pay",
+            "sent", "send", "spent", "spend", "bought", "buy",
+            "brought", "bring", "ate", "eat", "drank", "drink",
+            "knew", "know", "wore", "wear", "led", "lead",
+            "spoke", "speak", "woke", "wake",
             "fed", "feed", "bled", "bleed",
         })
         # Closed VERB SEED vocabulary (RAVANA-expandable; feeds the same
@@ -1255,20 +1278,18 @@ class UserModel:
             "hope", "guess", "suppose", "mean", "wonder", "agree", "disagree",
             "doubt", "fear", "regret", "suspect", "realize", "realise",
             "remember", "recall", "imagine", "mind", "care",
+            "enjoy", "adore", "detest", "cherish", "miss",
             # possession (handled by 'my X is Y' / have patterns)
             "have", "has", "had", "own", "possess",
             # communication / achievement utterances (echo verbatim as garbage;
             # seeded out just like _ACHIEVE_COMM_VERBS above)
-            "got", "get", "said", "say", "made", "make", "gave", "give",
+            "got", "get", "said", "say", "gave", "give",
             "told", "tell", "came", "come", "went", "go", "did", "do",
-            "saw", "see", "met", "meet", "sold", "sell", "paid", "pay",
-            "sent", "send", "spent", "spend", "bought", "buy", "caught",
-            "catch", "brought", "bring", "ate", "eat", "drank", "drink",
-            "knew", "know", "wore", "wear", "led", "lead", "read", "fly",
-            "flew", "swam", "swim", "rode", "ride", "drove", "drive",
-            "broke", "break", "spoke", "speak", "woke", "wake", "froze",
-            "freeze", "chose", "choose", "slept", "sleep", "felt", "feel",
-            "held", "hold", "took", "take", "set", "put", "cut", "hit",
+            "met", "meet", "sold", "sell", "paid", "pay",
+            "sent", "send", "spent", "spend", "bought", "buy",
+            "brought", "bring", "ate", "eat", "drank", "drink",
+            "knew", "wore", "wear", "led", "lead",
+            "spoke", "speak", "woke", "wake",
             "fed", "feed", "bled", "bleed",
         })
         _VERB_FRAME_DENY = frozenset({
@@ -1335,7 +1356,7 @@ class UserModel:
                 return True
             return bool(re.match(
                 r"^(what|who|when|where|why|how|which|is|are|do|does|did|"
-                r"can|could|would|should|will|may|might|am|have|has|had)",
+                r"can|could|would|should|will|may|might|am|have|has|had)\b",
                 t, re.IGNORECASE))
 
         _act_pat = re.compile(
@@ -1413,7 +1434,7 @@ class UserModel:
             # handled by the seeded ACTIVITY_VERBS/EVENT_VERBS blocks above
             # (those keep their higher-confidence 0.55/0.5 paths). Only the
             # base form + 's/es' is captured here as the open-class fallback.
-            r"((?:[a-z']+(?:-[a-z']+)*)(?:s|es)?)"
+            r"((?:[a-z']+(?:-[a-z']+)*)(?:s|es)?(?<!ing)(?<!ed))"
             r"\s+(?:my\s+|a\s+|an\s+|the\s+|some\s+|two\s+|three\s+|four\s+|"
             r"five\s+|six\s+|seven\s+|eight\s+|nine\s+|ten\s+)?"
             r"(.+?)(?:\s*(?:\.|!|\?|,|-{1,3}|$|"
@@ -2292,6 +2313,7 @@ class UserModel:
             'emotional_state': self.emotional_state,
             'belief_state': self.belief_state,
             'interaction_history': self.interaction_history,
+            '_learned_relations': list(getattr(self, '_learned_relations', set())),
         }
 
     def set_state(self, state: Dict):
@@ -2315,6 +2337,7 @@ class UserModel:
         self.user_location = state.get('user_location', '')
         self.user_background = state.get('user_background', '')
         self.preferences = state.get('preferences', {})
+        self._learned_relations = set(state.get('_learned_relations', []))
         _pf = state.get('personal_facts')
         if _pf:
             self.personal_facts.set_state(_pf)

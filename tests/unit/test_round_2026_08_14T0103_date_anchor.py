@@ -83,6 +83,15 @@ def test_year_start_anchor_no_cue_is_none():
     _check("'random 1999 sentence' (no cue) -> None", r is None)
 
 
+def test_year_start_anchor_no_first_person_is_none():
+    g = DateGrounder()
+    sd = datetime(2026, 8, 14)
+    # Third-person or general statements should not create a date anchor
+    # even if they have a temporal cue word.
+    r = g.resolve_year_start_anchor("the museum was built in 1990", sd)
+    _check("'the museum was built in 1990' (no first-person) -> None", r is None)
+
+
 def test_ground_utterance_returns_year():
     g = DateGrounder()
     sd = datetime(2026, 8, 14)
@@ -159,6 +168,7 @@ if __name__ == "__main__":
         test_year_start_anchor_since, test_year_start_anchor_started_in,
         test_year_start_anchor_leading_since, test_year_start_anchor_in_and_back_in,
         test_year_start_anchor_quantity_guard, test_year_start_anchor_no_cue_is_none,
+        test_year_start_anchor_no_first_person_is_none,
         test_ground_utterance_returns_year,
         test_ground_utterance_month_precision_preserved,
         test_dated_fact_stored_and_retrievable,

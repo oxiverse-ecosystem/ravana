@@ -53,7 +53,7 @@ from the round's own probe run (turn 51):
 
 > `i tide-pool at low water and catalogue the anemones and limpets.`
 
-was misrouted as a **knowledge query** about "tide-pool low water" — RAVNA
+was misrouted as a **knowledge query** about "tide-pool low water" — RAVANA
 replied with an uncertainty ack ("honestly, tide-pool low water is a bit outside
 what i know right now") and stored **NO** personal fact.
 
@@ -84,7 +84,7 @@ hyphenated compound verbs:
 ```python
 # engine_reasoning.py:2070 — GENERALISED (round 2026-08-13T2059Z)
 _gen_act = re.compile(
-    r"\bi\s+([a-z']+(?:-[a-z']+)*)(?:\s+[a-z'\\-]+)+", re.IGNORECASE)
+    r"\bi\s+([a-z']+(?:-[a-z']+)*)(?:\s+[a-z'\-]+)+", re.IGNORECASE)
 _m = _gen_act.search(q)
 _is_activity = bool(_m) and _m.group(1).lower() not in _STATIVE_VERBS
 ```
@@ -169,7 +169,7 @@ The five tests assert on **stored state**, never on authored reply strings:
   (a stance), NOT an activity fact; the open-class miner does **not** pollute the
   `does` store with stative verbs.
 
-The feature card's run also confirmed the 150 prior fact/recall/self-disclosure
+The feature card's run also confirmed the 178 prior fact/recall/self-disclosure
 regression suites stay green (fact_mining 27, same_turn_profile 20,
 aug07+stance 9, chat/recall 94+1skip, memory/identity 27).
 

@@ -269,7 +269,8 @@ class DateGrounder:
         """Resolve a first-person temporal start anchor carrying only a year.
 
         Returns None (fail-open) when no temporal cue + year is found, when the
-        year is actually a quantity unit, or when no session anchor is given.
+        year is actually a quantity unit, when no first-person marker is present,
+        or when no session anchor is given.
         """
         if not text or session_date is None:
             return None
@@ -279,6 +280,11 @@ class DateGrounder:
             return None
         year = int(m.group("yr"))
         if not (1900 <= year <= 2099):
+            return None
+        # First-person guard: require a nearby first-person marker
+        # (I, we, my, our) to ensure this is a personal disclosure, not
+        # a third-person or general statement about an entity/event.
+        if not re.search(r"\b(i|we|my|our)\b", tl):
             return None
         # Quantity guard: a year that is really a scalar (e.g. "in 2015
         # dollars", "scored 2015 points") must not anchor a date. Peek the

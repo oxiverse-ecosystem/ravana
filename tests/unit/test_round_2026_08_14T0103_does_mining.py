@@ -44,13 +44,15 @@ def test_framer_words_not_stored_as_activity():
         ("i should handle the firing schedule myself.", "should handle"),
         ("i can lift the kiln shelf when it's cool.", "can lift"),
         ("i will finish the dinner set by friday.", "will finish"),
-        # questions must not leak modality tails as garbage 'does' facts
-        ("how do you think i should handle that?", "should handle"),
     ]
     for t, bad in cases:
         got = _does(t)
         assert all(bad not in d for d in got), \
             f"{t!r} produced bad 'does': {got!r}"
+    # questions must not leak any activity facts at all
+    got = _does("how do you think i should handle that?")
+    assert not got, \
+        f"Question produced 'does' facts: {got!r}"
 
 
 def test_real_activities_still_captured():
