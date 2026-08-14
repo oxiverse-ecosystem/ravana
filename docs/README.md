@@ -24,6 +24,8 @@ truth; every claim here was checked against `ravana/`, `ravana_ml/`, and
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Repo layout, the test suite, how to run it, the path shims, and contribution conventions. |
 | [API_REFERENCE.md](API_REFERENCE.md) | Comprehensive class/function reference for all three packages. |
 | [STANCE_REVERSAL.md](STANCE_REVERSAL.md) | How the user changing their mind recodes a held stance (first-person reversal / retraction cues), verified against the live engine. |
+| [CAPABILITY_DURATION_MINING.md](CAPABILITY_DURATION_MINING.md) | How "i've been brewing beer for a decade" / "a few years" become a dated `since` fact recallable by `when did you start…` — four duration-mining blocks, verified against the live engine. |
+| [CAPABILITY_DATE_RECALL_PARAPHRASE.md](CAPABILITY_DATE_RECALL_PARAPHRASE.md) | How rotated/paraphrased date queries ("all this volcano stuff") still recall the right `since` fact (stem-linked `does`/`event` facts) and reply grammatically (morphological gerund), verified against the live engine. |
 | [FAQ.md](FAQ.md) | Troubleshooting: installation, runtime, development issues. |
 
 ## Quick orientation
