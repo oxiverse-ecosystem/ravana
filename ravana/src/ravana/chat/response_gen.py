@@ -4829,20 +4829,23 @@ class ResponseGenMixin(ChainWalkerMixin):
             while len(_ftw) > 1 and _ftw[0] in _CLOSED:
                 _ftw = _ftw[1:]
             _ft = " ".join(_ftw)
-            # Only accept the copula label if it is a REAL affect/state word.
-            # A bare "i am <word>" where <word> is NOT an affect term (e.g. a
-            # name "i am noor", or a topic "i am tired of X") must NOT be
-            # forced into the empathy frame — doing so produced the regression
-            # "feeling noor is hard". The vocabulary is the engine's own affect
-            # lexicon (user_model._AFFECT_STATE_LEXICON), sourced lazily to
-            # avoid an import cycle at module load. This is seed vocabulary,
-            # not an authored per-topic list.
+            # Accept the copula label as the felt term only when it is a
+            # RECOGNIZED affect/state word. A bare "i am <word>" where <word>
+            # is NOT an affect term (e.g. a name "i am noor", or a topic "i am
+            # tired of X") must NOT be forced into the empathy frame — doing so
+            # produced the regression "feeling noor is hard". The vocabulary is
+            # the shared broad affect-term lexicon (user_model.is_affect_term),
+            # sourced lazily to avoid an import cycle at module load. This is
+            # seed vocabulary, not an authored per-topic list. Generalized in
+            # round 2026-08-14T1110Z to a BROAD affect set (so rotated probes
+            # like "terrified" are caught) rather than the narrow prior
+            # lexicon that missed them.
             try:
-                from .user_model import _AFFECT_STATE_LEXICON as _AFFECT
+                from .user_model import is_affect_term as _is_affect
             except Exception:
-                _AFFECT = set()
-            _is_affect = _ft in _AFFECT or (_ft.split() and _ft.split()[0] in _AFFECT)
-            if _is_affect:
+                _is_affect = lambda w: False
+            _is_affect_word = _is_affect(_ft)
+            if _is_affect_word:
                 affect_term = _ft
         felt = f"feeling {affect_term}" if affect_term else f"feeling {val_word}"
 
