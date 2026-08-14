@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..",
 
 from ravana.core.temporal_grounding import DateGrounder
 from ravana.core.hippocampal_buffer import HippocampalBuffer, HippocampalConfig
+from ravana.chat.engine import CognitiveChatEngine
 
 
 def _check(name, cond):
@@ -119,6 +120,40 @@ def test_dated_fact_stored_and_retrievable():
            dated[0].absolute_date == datetime(2017, 1, 1))
 
 
+def test_engine_stores_year_anchor_dated_fact(tmp_path):
+    # Full-engine closed loop: the disclosure must store the resolved
+    # absolute_date on the buffer (guards the engine.py:2047-2159 wiring).
+    # A session date MUST be established first — every temporal-grounding
+    # feature is gated on it (temporal_grounding.py:445 session_date short-circuit).
+    eng = CognitiveChatEngine(dim=64, seed=42, baby_mode=True,
+                              data_dir=str(tmp_path), user_suffix="q59e1")
+    # Establish the session anchor via the LoCoMo/LongMemEval marker format.
+    eng.process_turn("(Session 1, dated 8 May, 2023)")
+    _check("session date established", eng._current_session_date is not None)
+    eng.process_turn("i have been firing my kiln since 2017")
+    dated = eng.hippocampal_buffer.retrieve_dated("firing")
+    _check("engine stored a dated fact for 'firing'",
+           dated is not None and len(dated) >= 1)
+    _check("stored absolute_date == 2017-01-01 (Q59 anchor, end-to-end)",
+           dated[0].absolute_date == datetime(2017, 1, 1))
+
+
+def test_engine_recalls_year_anchor_date(tmp_path):
+    # Full-engine closed loop: "when did i start firing" must route to the
+    # temporal-recall path and return the GROUNDED date, not a plain episodic
+    # echo. Guards against a regression where the anchor fails to reach either
+    # the stored fact or the temporal-recall dispatch.
+    eng = CognitiveChatEngine(dim=64, seed=42, baby_mode=True,
+                              data_dir=str(tmp_path), user_suffix="q59e2")
+    eng.process_turn("(Session 1, dated 8 May, 2023)")
+    eng.process_turn("i have been firing my kiln since 2017")
+    ans = eng.process_turn("when did i start firing")
+    _check("recall routed to temporal_recall strategy",
+           getattr(eng, "_last_strategy", None) == "temporal_recall")
+    _check("recall answer contains the grounded date '1 january 2017'",
+           "1 january 2017" in (ans or "").lower())
+
+
 if __name__ == "__main__":
     tests = [
         test_year_start_anchor_since, test_year_start_anchor_started_in,
@@ -127,6 +162,8 @@ if __name__ == "__main__":
         test_ground_utterance_returns_year,
         test_ground_utterance_month_precision_preserved,
         test_dated_fact_stored_and_retrievable,
+        test_engine_stores_year_anchor_dated_fact,
+        test_engine_recalls_year_anchor_date,
     ]
     print("Round 2026-08-14T0103 — date-grounded recall (Q59)")
     failed = []
