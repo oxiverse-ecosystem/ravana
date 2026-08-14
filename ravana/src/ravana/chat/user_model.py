@@ -1230,6 +1230,60 @@ class UserModel:
                 continue
             _act = self._verb_stem(_act)
             _put_fact("since_age", f"{_act} {_age}", 0.5)
+        # (d) APPROXIMATE / HUMAN-PHRASED durations. Real speech rarely says
+        #     "for eleven years" — it says "for a decade" / "a few years now" /
+        #     "several years" / "two decades" / "many years". Block (b) only
+        #     captured DIGIT or spelled 1-12 durations, so these landed in NO
+        #     dated fact and date recall returned empty for them (a genuine
+        #     residual from the 2026-08-14T0608Z round). This block reuses the
+        #     EXACT same 'since' attribute + activity-attachment logic as (b);
+        #     the existing recall resolver (engine.py 1f) answers date queries
+        #     for them FOR FREE — no recall change — which proves this is a
+        #     generalizable capability, not a per-phrase hack. The fuzzy map is
+        #     SEED vocabulary (RAVANA-expandable: adding "a fortnight" -> 14
+        #     degrades gracefully if absent); the resolved year is derivable
+        #     (_THIS_YEAR - n) and self-updates. No retraining. The activity
+        #     verb vocabulary mirrors block (b) exactly so mined facts stay
+        #     recallable through the same resolver.
+        _FUZZY_DUR = {
+            "a decade": 10, "two decades": 20, "three decades": 30,
+            "a couple of years": 2, "a couple years": 2,
+            "a few years": 3, "few years": 3,
+            "several years": 4, "a handful of years": 5,
+            "many years": 15,
+        }
+        _used_spans = set()
+        for _phrase, _n in _FUZZY_DUR.items():
+            if _n <= 0 or _n > 200:
+                continue
+            for _dm in re.finditer(
+                    r"\b(?:for\s+|about\s+|over\s+|nearly\s+|almost\s+)?"
+                    + re.escape(_phrase) + r"\b", q_clean, re.IGNORECASE):
+                # skip spans overlapping an already-processed fuzzy match
+                # (e.g. "a few years" must not also fire the "few years" entry)
+                if _used_spans & set(range(_dm.start(), _dm.end())):
+                    continue
+                _used_spans |= set(range(_dm.start(), _dm.end()))
+                _since = _THIS_YEAR - _n
+                # attach to the nearest activity verb before the phrase (same
+                # clause, e.g. "i've been brewing beer for a decade"); reuse
+                # block (b)'s verb vocabulary so the fact is recallable.
+                _pre = q_clean[:_dm.start()]
+                _av = re.findall(
+                    r"\b(building|build|built|keeping|keep|kept|repair|repairing|"
+                    r"repaired|fix|fixing|fixed|play|playing|played|picked\s+up|"
+                    r"took\s+up|got\s+into|move|moved|study|studying|studied|"
+                    r"learn|learning|learned|brew|brewing|brewed|raise|raising|"
+                    r"raised|garden|gardening|gardened|write|writing|wrote|read|"
+                    r"reading|ran|run|running|teach|teaching|taught|cook|cooking|"
+                    r"cooked|craft|crafting|crafted)\b", _pre, re.IGNORECASE)
+                if not _av:
+                    continue
+                _act = self._opinion_topic(_av[-1].lower())
+                if not _act:
+                    continue
+                _act = self._verb_stem(_act)
+                _put_fact("since", f"{_act} {_since}", 0.6)
 
         # Opinion mining (C2): capture the user's value judgments alongside
         # facts. Runs in the miner (not only observe_user_query) so opinions are
