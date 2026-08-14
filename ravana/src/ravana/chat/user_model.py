@@ -58,6 +58,31 @@ _AFFECT_STATE_LEXICON = {
     "fine", "good", "bad", "ok", "okay", "well", "ready", "done", "sure",
     "certain", "right", "wrong", "sorry", "here", "there", "home", "awake",
     "asleep", "late", "early", "busy",
+    # Round 2026-08-14T0608Z: broaden the affect/state noun set so a bare
+    # self-description ("i'm quiet", "i'm gutted", "i'm obsessed", "i'm
+    # devastated") is NEVER stored as the user's NAME. These are genuine
+    # affect/state words a real persona uses to describe a mood, not a proper
+    # noun. Seed vocabulary (RAVANA-expandable: shares the role of the affect
+    # lexicon the empathy gate uses; removing an entry degrades gracefully to
+    # one less guard). Covers the words the chat probe actually poisoned plus
+    # common synonyms so the next round's rotated probe can't re-expose them.
+    "quiet", "gutted", "devastated", "obsessed", "content", "peaceful",
+    "restless", "uneasy", "wound", "wounded", "broken", "crushed", "crush",
+    "freaked", "spent", "drained", "fried", "wired", "zinged", "giddy",
+    "bashful", "shy", "bold", "brave", "fearful", "moody", "snappy",
+    "bitter", "sour", "warm", "cold", "soft", "hard", "still", "silent",
+    "speechless", "numbed", "aching", "sore", "woozy", "faint", "weak",
+    "strong", "alive", "dead", "deadened", "flat", "blank", "void",
+    "comfortable", "uncomfortable", "safe", "unsafe", "free", "trapped",
+    "stuck", "lost", "found", "clear", "cloudy", "sharp", "dull",
+    "bright", "dim", "heavy", "light", "open", "closed", "honest",
+    "dishonest", "real", "fake", "true", "false", "certain", "uncertain",
+    "zen", "chill", "chilled", "mellow", "hyper", "wound", "upset",
+    "gleeful", "cheerful", "mournful", "somber", "sober", "tipsy", "drunk",
+    "soaked", "drenched", "freezing", "freezing", "boiling", "burning",
+    "melting", "shaking", "trembling", "quivering", "shivering", "sweating",
+    "ashamed", "guilty", "innocent", "proud", "humble", "vain", "jealous",
+    "envious", "furious", "livid", "irritated", "annoyed", "bothered",
     # stative / cognitive / feeling verbs (incl. participles + infinitives)
     "feeling", "felt", "feel", "love", "like", "hate", "dislike", "prefer",
     "think", "thinking", "believing", "believe", "guess", "guessing",
@@ -71,6 +96,55 @@ _AFFECT_STATE_LEXICON = {
     "running", "falling", "breaking", "caring", "waiting", "working",
     "learning", "growing", "changing", "feeling",
 }
+
+# Round 2026-08-14T0608Z: ACTIVITY / EVENT verb deny set. The open-class
+# miner (and the seeded whitelist blocks) treat ANY word after "i" as the
+# verb, so emotion verbs ("felt"), achievement/communication utterances
+# ("said", "took", "got"), and framer/negation words ("take back", "now",
+# "already") were captured as garbage 'does'/'event' facts ("felt crushed",
+# "said careless ones", "keep now"). This is seed knowledge (RAVANA-expandable;
+# removing an entry degrades gracefully to one less guard), applied to ALL
+# THREE capture blocks so the seeded whitelist and the open-class fallback
+# agree by construction. No per-verb answer table, no authored reply.
+_ACTIVITY_DENY = frozenset({
+    # emotion / cognition / volition (handled by opinion/empathy paths)
+    "feel", "feels", "felt", "feeling", "love", "like", "hate", "dislike",
+    "prefer", "think", "believe", "know", "understand", "want", "need",
+    "wish", "hope", "guess", "suppose", "mean", "wonder", "agree",
+    "disagree", "doubt", "fear", "regret", "suspect", "realize", "care",
+    "mind",
+    # achievement / communication utterances (echo verbatim as garbage)
+    "got", "get", "said", "say", "made", "make", "gave", "give", "told",
+    "tell", "came", "come", "went", "go", "did", "do", "saw", "see",
+    "met", "meet", "sold", "sell", "paid", "pay", "sent", "send",
+    "spent", "spend", "bought", "buy", "caught", "catch", "brought",
+    "bring", "ate", "eat", "drank", "drink", "knew", "know", "wore",
+    "wear", "led", "lead", "read", "led", "took", "take", "set", "put",
+    "cut", "hit", "fed", "feed", "bled", "bleed", "kept", "keep",
+    # framer / negation / temporal words that precede the real activity verb
+    "used", "first", "last", "then", "next", "once", "twice", "again",
+    "finally", "recently", "lately", "soon", "already", "just", "still",
+    "now", "earlier", "later", "today", "tonight", "yesterday",
+    "tomorrow", "sometimes", "often", "usually", "always", "never",
+    "occasionally", "rarely", "mis-spoke", "misspoke", "meant", "admit",
+    "confess", "probably", "possibly", "maybe", "certainly", "definitely",
+    "really", "truly", "actually", "basically", "simply", "quite", "very",
+    "also", "even", "rather", "instead", "back", "started", "start",
+    "began", "begin",
+})
+
+
+def _activity_verb_ok(verb: str) -> bool:
+    """True if `verb` is a legitimate activity/experience verb (not an
+    emotion/achieve-comm/framer word). Used by all three capture blocks so
+    'does'/'event' facts only store real activities RAVANA learned."""
+    v = (verb or "").strip().lower().lstrip("'").rstrip("'")
+    if "'" in v:           # contraction artifact ("won't", "don't")
+        return False
+    if v.startswith("n't") or v == "not":
+        return False
+    return v not in _ACTIVITY_DENY
+
 
 
 
@@ -797,6 +871,8 @@ class UserModel:
                        "weld", "forge", "carve", "compose", "record",
                        "perform", "coach", "train", "compete", "spin",
                        "weave", "mount", "trade", "sell", "host", "guide"):
+            if not _activity_verb_ok(_verb):
+                continue
             _m = re.search(
                 r"\bi\s+(?:also\s+|really\s+|even\s+|just\s+|now\s+|still\s+"
                 r"|often\s+|sometimes\s+|usually\s+)?"
@@ -825,12 +901,14 @@ class UserModel:
                     _put_fact("does", f"{_verb} {_obj}", 0.55)
         # "i've been <verb>-ing <object> for <duration>" (ongoing activity)
         _cont = re.search(
-            r"\bi(?:'ve| have)\s+been\s+(\w+ing)\s+(.+?)(?:\bfor\b|\bsince\b|\.|\!|\?|$|,)",
+            r"\bi(?:'ve| have)\s+been\s+(\w+ing)\s+(.+?)(?:\bfor\b|\bsince\b|\.|\!|\?|\$|,)",
             q_clean, re.IGNORECASE)
         if _cont:
-            _obj = self._opinion_topic(_cont.group(2).strip().lower())
-            if _obj and len(_obj.split()) <= 5:
-                _put_fact("does", _obj, 0.55)
+            _cverb = _cont.group(1).lower()
+            if _activity_verb_ok(_cverb):
+                _obj = self._opinion_topic(_cont.group(2).strip().lower())
+                if _obj and len(_obj.split()) <= 5:
+                    _put_fact("does", f"{_cverb} {_obj}", 0.55)
 
         # FIX (round 2026-08-09T1953Z): general first-person activity +
         # experience capture. The D3 activity loop above only matches BARE
@@ -929,6 +1007,8 @@ class UserModel:
             re.IGNORECASE)
         for _am in _act_pat.finditer(q_clean):
             _verb = _am.group(1).lower()
+            if not _activity_verb_ok(_verb):
+                continue
             _obj = self._opinion_topic(_am.group(2).strip().lower())
             if _obj and 1 <= len(_obj.split()) <= 5:
                 _put_fact("does", f"{_verb} {_obj}", 0.55)
@@ -950,6 +1030,8 @@ class UserModel:
             re.IGNORECASE)
         for _em in _evt_pat.finditer(q_clean):
             _verb = _em.group(1).lower()
+            if not _activity_verb_ok(_verb):
+                continue
             _obj = self._opinion_topic(_em.group(2).strip().lower())
             if _obj and 1 <= len(_obj.split()) <= 5:
                 _put_fact("event", f"{_verb} {_obj}", 0.5)
