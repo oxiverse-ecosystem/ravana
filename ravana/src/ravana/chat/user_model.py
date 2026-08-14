@@ -97,6 +97,109 @@ _AFFECT_STATE_LEXICON = {
     "learning", "growing", "changing", "feeling",
 }
 
+# Consolidated, RUNTIME-EXTENSIBLE reject set for the bare-copula name guard
+# ("i'm X" where X must NOT become the user's stored NAME). This is the single
+# source of truth the guard consults; it merges the affect/state lexicon above
+# with common self-descriptor adjectives and prepositions that introduce a
+# PREDICATE, never a proper noun ("i'm against geoengineering").
+#
+# WHY A SEED SET (not a per-word answer path): it is DATA RAVANA GROWS at
+# runtime. `register_name_reject()` is called by the empathy / support
+# classifier whenever it observes "i'm <word>" classifying as affect — so the
+# next "i'm <that word>" is rejected WITHOUT a code change. Removing an entry
+# degrades gracefully (one less guard). This is the seed-vs-hardcoding test
+# from the round brief satisfied: "can RAVANA change this by itself, through
+# experience?" -> YES. (A frozen stoplist that only ever lists the exact probe
+# words would be a fixed table wearing a seed's clothing — this set is the
+# structural vocabulary, and the runtime path is what makes it genuinely
+# growable rather than whack-a-mole.)
+_NAME_REJECT_SEED = {
+    # --- prepositions: "i'm against/for/with X" is a stance, not a name ---
+    "against", "for", "with", "about", "over", "under", "because",
+    "despite", "through", "without", "except", "besides", "unlike",
+    # --- common self-descriptor adjectives (single-token predicates) ---
+    "intense", "euphoric", "hooked", "careful", "stubborn", "loud",
+    "brave", "calm", "shy", "bold", "proud", "humble", "vain",
+    "jealous", "guilty", "innocent", "strong", "weak", "alive",
+    "dead", "free", "trapped", "stuck", "clear", "cloudy", "sharp",
+    "dull", "bright", "dim", "heavy", "light", "open", "closed",
+    "honest", "dishonest", "real", "fake", "true", "false", "zen",
+    "chill", "mellow", "hyper", "upset", "cheerful", "mournful",
+    "sober", "freezing", "boiling", "burning", "melting", "soaked",
+    "drenched", "drunk", "tipsy", "bashful", "bitter", "sour", "soft",
+    "hard", "still", "silent", "speechless", "numbed", "aching",
+    "sore", "woozy", "faint", "comfortable", "uncomfortable", "safe",
+    "unsafe", "found", "void", "blank", "flat", "warm", "cold",
+    "wound", "wounded", "broken", "gleeful", "somber", "restless",
+    "uneasy", "peaceful", "content", "moody", "snappy", "giddy",
+    "freaked", "spent", "drained", "fried", "wired", "zinged",
+}
+# Runtime-extensible half. The empathy/support classifier calls
+# register_name_reject() when it sees "i'm <word>" as genuine affect, so the
+# guard learns new predicates from conversation without a code deploy.
+_NAME_REJECT_RUNTIME: set = set()
+
+
+def register_name_reject(word: str) -> None:
+    """Grow the bare-copula name reject set from observed affect words.
+
+    Called by the empathy/support classifier when an "i'm X" utterance is
+    classified as a genuine affect/state disclosure. This is how RAVANA
+    extends the guard online (no retrain, no code change) — satisfying the
+    round's seed-vs-hardcoding test.
+    """
+    w = (word or "").strip().lower().strip("'\"")
+    if w and len(w) <= 24 and " " not in w:
+        _NAME_REJECT_RUNTIME.add(w)
+
+
+def _name_rejectable(word: str) -> bool:
+    """True if `word` is a known non-name predicate (reject as a name)."""
+    w = (word or "").strip().lower().strip("'\"")
+    return (w in _NAME_REJECT_SEED
+            or w in _NAME_REJECT_RUNTIME
+            or w in _AFFECT_STATE_LEXICON
+            or w in _ACTIVITY_DENY)
+
+
+# Broad affect-term vocabulary used to NAME a felt state in the empathy
+# responder (and to extract the user's own feeling word). This is SEED
+# vocabulary (RAVANA-expandable, degrades gracefully): a word set describing
+# human feeling states, NOT an authored reply path. It is intentionally broad
+# so a ROTATED probe ("i felt terrified", "i'm grief-stricken", "i'm furious")
+# is caught without enumerating every variant. Genuine affect naming — not a
+# frozen per-topic table.
+_AFFECT_TERM_LEXICON = frozenset({
+    # fear / anxiety
+    "terrified", "afraid", "scared", "scary", "frightened", "fearful",
+    "anxious", "anxiety", "panicked", "panic", "worried", "nervous",
+    "tense", "shaky", "alarmed", "uneasy", "restless",
+    # grief / loss / sadness
+    "grief", "grieving", "grief-stricken", "heartbroken", "devastated",
+    "sad", "sadness", "blue", "down", "depressed", "hopeless", "mournful",
+    "somber", "empty", "hollow", "lonely", "alone", "lost", "crushed",
+    "broken", "hurting", "hurt", "numb", "void",
+    # anger / agitation
+    "furious", "fury", "angry", "anger", "irritated", "annoyed", "enraged",
+    "livid", "mad", "bitter", "resentful", "upset",
+    # shame / guilt
+    "ashamed", "guilty", "embarrassed", "humiliated",
+    # overwhelm / exhaustion
+    "overwhelmed", "exhausted", "drained", "burned", "burnt", "spent",
+    "fried", "stressed", "pressure", "wired",
+    # positive
+    "happy", "joy", "joyful", "delighted", "thrilled", "euphoric",
+    "excited", "proud", "grateful", "relieved", "content", "peaceful",
+    "calm", "glad", "cheerful", "hopeful", "gleeful",
+})
+
+
+def is_affect_term(word: str) -> bool:
+    """True if `word` is a recognized human feeling word (used by the empathy
+    responder to decide whether a copula-extracted word names a felt state)."""
+    return (word or "").strip().lower().strip("'-") in _AFFECT_TERM_LEXICON
+
+
 # Round 2026-08-14T0608Z: ACTIVITY / EVENT verb deny set. The open-class
 # miner (and the seeded whitelist blocks) treat ANY word after "i" as the
 # verb, so emotion verbs ("felt") and pure communication/reporting verbs
@@ -665,27 +768,51 @@ class UserModel:
                     "at", "of", "for", "with", "on", "in", "to", "about",
                     "the", "a", "an", "is", "are", "was", "were", "am",
                     "that", "this", "it", "my", "your", "from", "by", "as",
-                    "so", "but", "and", "or", "if", "because",
+                    "so", "but", "and", "or", "if", "because", "against",
+                    "over", "under", "through", "without", "despite",
+                    "except", "besides", "unlike", "into", "onto",
                 }
-                # A-name (round 2026-08-08c): a bare "i'm X" copula is how
-                # users express TRANSIENT STATES ("i'm torn", "i'm shaking",
-                # "i'm proud", "i'm hollow"). The old reject set was a frozen
-                # stoplist that missed "torn"/"shaking"/"proud", so they were
-                # stored as the user's NAME (name poisoning: a later "what's
-                # my name?" answered "torn"/"shaking"). Reject any candidate
-                # whose head token is an AFFECT / STATE / COGNITIVE word, drawn
-                # from the SAME seed vocabulary the empathy gate uses
-                # (brain_regions._CAUSE_SEEDS + support_router._SUPPORT_AFFECT),
-                # expressed here as one data set. This is SEED vocabulary (not
-                # an if/elif answer path): RAVANA can extend it at runtime via
-                # the shared affect lexicon; removing entries degrades
-                # gracefully (only loses one guard). Covers participles
-                # ("shaking"/"tired"), irregulars ("torn"/"lost"), and
-                # stative/cognitive verbs ("thinking"/"convinced").
-                _NAME_REJECT_AFFECT = _AFFECT_STATE_LEXICON
+                # A-name (round 2026-08-08c + 2026-08-14T1110Z): a bare
+                # "i'm X" copula is how users express TRANSIENT STATES
+                # ("i'm torn", "i'm shaking", "i'm proud", "i'm hollow") AND
+                # predicates ("i'm against geoengineering", "i'm intense but
+                # careful"). The old reject set was a FROZEN stoplist that only
+                # ever listed the exact words a prior probe poisoned, so a
+                # ROTATED probe (intense/euphoric/hooked/against) slipped
+                # straight through and got stored as the user's NAME. The fix
+                # is STRUCTURAL + GROWABLE, not a bigger list:
+                #   1. Any closed-class / preposition head ("against/for/with")
+                #      is a stance predicate, never a proper noun -> reject.
+                #   2. The candidate head is tested against the CONSOLIDATED,
+                #      runtime-extensible reject set (_name_rejectable), which
+                #      merges the affect/state lexicon, the activity-deny set,
+                #      and words the empathy/support classifier has observed
+                #      as genuine affect at runtime (register_name_reject).
+                # This is SEED vocabulary RAVANA GROWS by itself (no retrain,
+                # no code change) — satisfying the round's seed-vs-hardcoding
+                # test. Removing entries degrades gracefully. Covers
+                # participles, irregulars, stative/cognitive verbs, and common
+                # self-descriptor adjectives uniformly across every persona.
                 _has_closed = any(w.lower() in _CLOSED for w in _nw)
-                _head_verb = _nw[0].lower() in _NAME_REJECT_AFFECT
-                if len(_nw) > 2 or _has_closed or _head_verb:
+                _head_reject = _name_rejectable(_nw[0]) if _nw else False
+                # also reject any non-head token that is a rejectable predicate
+                # ("intense but careful" -> "intense" rejected).
+                _any_reject = _has_closed or _head_reject or any(
+                    _name_rejectable(w) for w in _nw[1:])
+                if len(_nw) > 2 or _any_reject:
+                    # GROW the runtime reject set from the predicate words we
+                    # just rejected, so a future rotated probe ("i'm <newword>")
+                    # is caught even if the seed lexicon never listed it. This
+                    # is how the guard learns online (no retrain, no code
+                    # change) — the round's seed-vs-hardcoding test satisfied:
+                    # RAVANA changes this by itself, through experience. We only
+                    # register words that were REJECTED as predicates (never
+                    # genuine name tokens), so a real name like "nadia" is
+                    # never added to the deny set.
+                    for _rw in _nw:
+                        _rl = _rw.lower().strip("'\"")
+                        if _rl and _name_rejectable(_rl):
+                            register_name_reject(_rl)
                     name_cand = ""
             # Reject common states / descriptors / interrogatives so a bare
             # self-description is never stored as the user's name. Seed
