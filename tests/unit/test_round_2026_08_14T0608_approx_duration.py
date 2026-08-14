@@ -12,6 +12,7 @@ reply, no per-phrase table. Seed map (_FUZZY_DUR) is RAVANA-expandable.
 import os
 import sys
 import datetime as _dt
+import pytest
 
 os.environ.setdefault("RAVANA_OFFLINE", "1")
 PROJ = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -89,3 +90,33 @@ def test_approx_duration_recall_resolver():
             _os.remove(_p)
     except Exception:
         pass
+
+
+# Every documented _FUZZY_DUR entry must resolve to the expected start year,
+# attached to its activity verb. Covers the map rows not exercised above.
+_FUZZY_CASES = [
+    ("i've been teaching piano for three decades", "teach", 30),
+    ("i've kept a journal for a handful of years", "keep", 5),
+    ("i've been cooking for few years now", "cook", 3),
+    ("i've been running for a couple years", "run", 2),
+    ("i've studied law for many years", "study", 15),
+]
+
+
+def _activity_head(text):
+    um = UserModel()
+    um.personal_facts.facts.clear()
+    um.mine_personal_facts(text.lower(), run_correction=True)
+    out = {}
+    for (a, b, c), f in um.personal_facts.facts.items():
+        if b in ("since", "since_age") and not getattr(f, "superseded", False):
+            out.setdefault(c.split()[0], c.split()[-1])
+    return out
+
+
+@pytest.mark.parametrize("text,head,delta", _FUZZY_CASES)
+def test_fuzzy_dur_map_entries(text, head, delta):
+    facts = _activity_head(text)
+    assert head in facts, f"expected since({head} <year>), got {facts}"
+    assert int(facts[head]) == _THIS_YEAR - delta, \
+        f"{head} not resolved to year-{delta}: {facts}"
