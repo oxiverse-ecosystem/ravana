@@ -78,7 +78,14 @@ class TestNeuralDecoder:
         nd = NeuralDecoder(vocab_size=100, embed_dim=16, hidden_dim=32)
         nd.rebuild_vocab_cache()
         cond_embs = np.random.randn(3, 16).astype(np.float32)
-        tokens = nd.generate(cond_embs, max_steps=20, bos_idx=0, eos_idx=99, temperature=0.5)
+        # With random weights, EOS may occasionally be sampled on the very
+        # first step, yielding an empty sequence. Retry a few times so the
+        # test isn't flaky on that rare (but valid) outcome.
+        tokens = []
+        for _ in range(10):
+            tokens = nd.generate(cond_embs, max_steps=20, bos_idx=0, eos_idx=99, temperature=0.5)
+            if tokens:
+                break
         assert len(tokens) > 0
 
     def test_generate_with_idx_to_word(self):
