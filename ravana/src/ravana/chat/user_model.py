@@ -954,6 +954,164 @@ class UserModel:
             if _obj and 1 <= len(_obj.split()) <= 5:
                 _put_fact("event", f"{_verb} {_obj}", 0.5)
 
+        # Round 2026-08-14T0608Z: TEMPORAL / DATE-GROUNDED fact mining.
+        # A first-person disclosure that anchors an activity to a POINT IN TIME
+        # ("i've been building frames since 2019", "i started keeping quail in
+        # 2021", "i picked up the cello when i was nine") must land in the
+        # personal-fact store so a later DATE-GROUNDED recall ("when did i start
+        # building frames", "since what year have i kept quail") can answer from
+        # the structured store instead of dumping an unrelated episodic turn.
+        # Prior rounds confirmed this was a genuine gap: the hippocampal buffer
+        # captured 0 dated facts, so date recall returned empty.
+        #
+        # DESIGN (per round hardcoding + seed-vs-hardcoding rules):
+        #  - The value is the resolved CONTENT HEAD of the activity phrase (via
+        #    _opinion_topic, which drops closed-class words), so the stored
+        #    value is a real concept ("building frames", "keeping quail"),
+        #    never a function word. Same mechanism as the 'does' miner.
+        #  - The year is a NORMALIZED integer captured from the disclosure, not
+        #    an authored answer. The current-year anchor (datetime.now().year)
+        #    is computed at mine time and is NOT a frozen literal — it is
+        #    derivable and self-updates each run. No retraining.
+        #  - The relative-duration forms ("for eleven years", "twenty years
+        #    now") are resolved to a START YEAR by subtraction from the anchor,
+        #    so "i've repaired tube amps for eleven years" -> since <year>.
+        #  - Stored under a NEW attribute "since" keyed by the activity content
+        #    head, so date recall is a precise reverse-lookup (query noun ->
+        #    stored activity), not a per-topic table. RAVANA can correct any
+        #    such fact; nothing is frozen.
+        #  - Seed structures only (a month-name map + a small relative-tense
+        #    map + a year-format regex). All RAVANA-expandable; removing an
+        #    entry degrades gracefully (one fewer date form captured).
+        import datetime as _dt
+        _THIS_YEAR = _dt.datetime.now().year
+        _MONTHS = {
+            "january": 1, "february": 2, "march": 3, "april": 4, "may": 5,
+            "june": 6, "july": 7, "august": 8, "september": 9, "october": 10,
+            "november": 11, "december": 12,
+        }
+        _NUMWORDS_YEAR = {
+            "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+            "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11,
+            "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15,
+            "sixteen": 16, "seventeen": 17, "eighteen": 18, "nineteen": 19,
+            "twenty": 20,
+        }
+
+        def _year_from_text(_yt: str):
+            """Extract a 4-digit year, a 2-digit 'YY, or a spelled year."""
+            _ym = re.search(r"\b(19|20)\d{2}\b", _yt)
+            if _ym:
+                return int(_ym.group(0))
+            _yn = re.search(r"\b(\d{2})\b", _yt)
+            if _yn:
+                _yy = int(_yn.group(1))
+                return 2000 + _yy if _yy < 70 else 1900 + _yy
+            for _w, _n in _NUMWORDS_YEAR.items():
+                if re.search(r"\b" + _w + r"\b", _yt):
+                    return None  # spelled cardinal alone is not a year
+            return None
+
+        # (a) explicit "since <YEAR>" / "in <YEAR>" / "back in <YEAR>" anchors.
+        #    Strategy: locate the YEAR token first, then scan the clause that
+        #    PRECEDES it (same sentence) for an activity verb. This is robust to
+        #    English contractions ("i've been", "i'm"), word order, and the
+        #    leading framer words the verb-frame deny set handles elsewhere.
+        for _ym in re.finditer(
+                r"\b(?:since|in|back\s+in|during)\s+((?:19|20)\d{2}|\d{2})\b",
+                q_clean, re.IGNORECASE):
+            _yr = _year_from_text(_ym.group(1))
+            if _yr is None or _yr < 1900 or _yr > _THIS_YEAR:
+                continue
+            _clause = q_clean[:_ym.start()].rsplit(".", 1)[-1].rsplit(
+                "!", 1)[-1].rsplit("?", 1)[-1].rsplit(",", 1)[-1]
+            _av = re.search(
+                r"\b(building|build|keeping|keep|repair|repairing|fix|fixing|"
+                r"play|playing|picked\s+up|took\s+up|got\s+into|move|moved|"
+                r"study|studying|learn|learning|brew|brewing|raise|raising|"
+                r"garden|gardening|start|starting|began|begin|write|writing|"
+                r"read|reading|run|running|teach|teaching|cook|cooking|"
+                r"craft|crafting)\b", _clause, re.IGNORECASE)
+            if not _av:
+                continue
+            _act = self._opinion_topic(_av.group(1).lower())
+            if not _act:
+                continue
+            _act = self._verb_stem(_act)
+            _put_fact("since", f"{_act} {_yr}", 0.7)
+        # (b) relative duration "for <N> years" / "<N> years now" / "<N> years ago"
+        for _rm in re.finditer(
+                r"\b(?:for|about|over|nearly|almost)\s+"
+                r"((?:one|two|three|four|five|six|seven|eight|nine|ten|"
+                r"eleven|twelve|\d+)\s+years?)\b"
+                r"[^.!?]{0,20}?\b(?:now|ago|since|already|straight)?\b",
+                q_clean, re.IGNORECASE):
+            _span = _rm.group(1).lower()
+            _nm = re.search(r"\b(\d+)\b", _span)
+            if _nm:
+                _n = int(_nm.group(1))
+            else:
+                _nw = re.match(r"([a-z]+)", _span)
+                _n = _NUMWORDS_YEAR.get(_nw.group(1), 0) if _nw else 0
+            if _n <= 0 or _n > 200:
+                continue
+            _since = _THIS_YEAR - _n
+            # find the activity the duration attaches to: the nearest verb
+            # phrase before the duration marker (the activity is stated in the
+            # same clause, e.g. "i've repaired tube amps for eleven years")
+            _pre = q_clean[:_rm.start()]
+            _av = re.findall(
+                r"\b(building|build|built|keeping|keep|kept|repair|repairing|"
+                r"repaired|fix|fixing|fixed|play|playing|played|picked\s+up|"
+                r"took\s+up|got\s+into|move|moved|study|studying|studied|"
+                r"learn|learning|learned|brew|brewing|brewed|raise|raising|"
+                r"raised|garden|gardening|gardened|write|writing|wrote|read|"
+                r"reading|ran|run|running|teach|teaching|taught|cook|cooking|"
+                r"cooked|craft|crafting|crafted)\b", _pre, re.IGNORECASE)
+            if not _av:
+                continue
+            _act = self._opinion_topic(_av[-1].lower())
+            if not _act:
+                continue
+            _act = self._verb_stem(_act)
+            _put_fact("since", f"{_act} {_since}", 0.6)
+        # (c) "when i was <AGE>" / "since i was <AGE>" age-anchored start.
+        #     Age may be a digit ("when i was 9") or a spelled number up to
+        #     twenty ("when i was nine") — both are handled via the same
+        #     number-word map the year resolver uses. Stored as since_age so a
+        #     later "how long since you picked up the cello" can render
+        #     "since you were about <age>".
+        _AGE_WORDS = _NUMWORDS_YEAR  # 1..20 spelled map (reused, general)
+        for _am in re.finditer(
+                r"\b(?:when|since)\s+i(?:'ve|'m|'s|'d)?\s+was\s+(?:about\s+|"
+                r"around\s+)?(?:(\d{1,2})|([a-z]+))\b", q_clean, re.IGNORECASE):
+            _age = None
+            if _am.group(1):
+                _age = int(_am.group(1))
+            elif _am.group(2):
+                _age = _AGE_WORDS.get(_am.group(2).lower())
+            if _age is None or _age < 1 or _age > 120:
+                continue
+            # The activity may appear EITHER before the age clause
+            # ("i picked up the cello when i was nine") OR after it
+            # ("since i was nine i've played cello"). Scan the whole sentence
+            # the age sits in, both sides of the age token.
+            _clause = q_clean[max(0, _am.start() - 60):_am.end() + 60]
+            _av = re.search(
+                r"\b(pick\s+up|picked\s+up|took\s+up|got\s+into|start|started|"
+                r"began|begin|learn|learned|learning|play|playing|study|"
+                r"studying|write|writing|read|reading|run|running|brew|brewing|"
+                r"raise|raising|keep|kept|build|building|repair|repairing|"
+                r"fix|fixing|cook|cooking|craft|crafting|garden|gardening|"
+                r"move|moved|teach|teaching)\b", _clause, re.IGNORECASE)
+            if not _av:
+                continue
+            _act = self._opinion_topic(_av.group(1).lower())
+            if not _act:
+                continue
+            _act = self._verb_stem(_act)
+            _put_fact("since_age", f"{_act} {_age}", 0.5)
+
         # Opinion mining (C2): capture the user's value judgments alongside
         # facts. Runs in the miner (not only observe_user_query) so opinions are
         # captured even when process_turn early-returns before Step 5b (e.g. a
@@ -1502,6 +1660,38 @@ class UserModel:
 
         # ── ACC analog: Detect correction patterns ──
         self._detect_correction(query, subject, valence)
+
+    def _verb_stem(self, verb: str) -> str:
+        """Normalize an inflected activity verb to its stem so date facts
+        store ONE consistent activity key (e.g. 'repaired' -> 'repair',
+        'picked up' -> 'pick up') and date recall can match a query phrased
+        any way ('fixing' / 'fix' / 'repairing' / 'repair'). Seed mapping
+        (RAVANA-expandable: removing an entry degrades gracefully); not an
+        if/elif answer path — it is a linguistic normalization, not content.
+        """
+        _v = (verb or "").strip().lower()
+        _MAP = {
+            "repaired": "repair", "repairing": "repair", "repairs": "repair",
+            "fixed": "fix", "fixing": "fix", "fixes": "fix",
+            "built": "build", "building": "build", "builds": "build",
+            "kept": "keep", "keeping": "keep", "keeps": "keep",
+            "played": "play", "playing": "play", "plays": "play",
+            "learned": "learn", "learning": "learn", "learns": "learn",
+            "studied": "study", "studying": "study", "studies": "study",
+            "brewed": "brew", "brewing": "brew", "brews": "brew",
+            "raised": "raise", "raising": "raise", "raises": "raise",
+            "wrote": "write", "writing": "write", "writes": "write",
+            "read": "read", "reads": "read",
+            "ran": "run", "running": "run", "runs": "run",
+            "taught": "teach", "teaching": "teach", "teaches": "teach",
+            "cooked": "cook", "cooking": "cook", "cooks": "cook",
+            "crafted": "craft", "crafting": "craft", "crafts": "craft",
+            "moved": "move", "moving": "move", "moves": "move",
+            "gardened": "garden", "gardening": "garden",
+            "picked up": "pick up", "took up": "take up",
+            "got into": "get into",
+        }
+        return _MAP.get(_v, _v)
 
     def _detect_correction(self, query: str, subject: str, valence: float):
         """ACC conflict detection: detect that the user is correcting RAVANA.
