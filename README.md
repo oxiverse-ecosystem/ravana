@@ -54,6 +54,13 @@ on this codebase:
   `from what you've told me, you live in berlin; your cat is rex; …`
 - **Recalls what you told it.** *"what do you remember about me?"* surfaces the
   learned facts/stances (location, pet, likes) drawn from the durable stores.
+- **Mines activity durations into dated facts.** Told *"i've been brewing beer
+  for a decade"* (or *"a few years"*, *"two decades"*, *"several years"*, *"many
+  years"*) it resolves the fuzzy span to a start year (`now − n`) and stores a
+  `since` fact — then answers date queries through the **same** resolver as
+  explicit years: `when did i start brewing beer` → `you started brew in 2016.`
+  No per-phrase code; the resolver already knows how to read a `since` fact.
+  See `docs/CAPABILITY_DURATION_MINING.md`.
 - **Abstains when it has no settled view.** Asked *"what do you think about
   coffee?"* before forming its own position, it returns an honest non-answer
   rather than fabricating one:
