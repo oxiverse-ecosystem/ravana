@@ -1226,60 +1226,25 @@ class UserModel:
         # fragment (e.g. "i repotted the juniper and found a root..." ->
         # "juniper", not "juniper and found a root"). The verb is matched
         # with optional inflection so gerunds/continuous tenses are caught.
-        _act_pat = re.compile(
-            r"\bi\s+(?:also\s+|really\s+|even\s+|just\s+|now\s+|still\s+|"
-            r"often\s+|sometimes\s+|usually\s+)?"
-            r"(?:have\s+been\s+|has\s+been\s+|am\s+|was\s+|were\s+)?"
-            r"(?:been\s+)?"
-            r"(" + "|".join(_ACTIVITY_VERBS) + r")(?:s|es|ing|ed|[a-z]ed|[a-z]d)?"
-            r"\s+(?:my\s+|a\s+|an\s+|the\s+|some\s+|two\s+|three\s+|four\s+|"
-            r"five\s+|six\s+|seven\s+|eight\s+|nine\s+|ten\s+)?"
-            r"(.+?)(?:\s*(?:\.|\!|\?|,|-{1,3}|$|"
-            r"\s+and\s+|\s+but\s+|\s+because\s+|\s+so\s+|\s+which\s+|"
-            r"\s+that\s+|\s+when\s+|\s+where\s+|\s+while\s+))",
-            re.IGNORECASE)
-        for _am in _act_pat.finditer(q_clean):
-            _verb = _am.group(1).lower()
-            _obj = self._opinion_topic(_am.group(2).strip().lower())
-            if _obj and 1 <= len(_obj.split()) <= 5:
-                _put_fact("does", f"{_verb} {_obj}", 0.55)
-        # Experience / event capture: first-person "i <event-verb> <object>"
-        # describing something that happened to the user's world. Captured
-        # under attr "event" so it is recallable as a lived experience (not
-        # conflated with ongoing activity). Same clause-boundary + content-head
-        # rules as the activity capture above.
-        _evt_pat = re.compile(
-            r"\bi\s+(?:also\s+|really\s+|even\s+|just\s+|now\s+|still\s+|"
-            r"often\s+|sometimes\s+|usually\s+)?"
-            r"(?:have\s+|has\s+|had\s+)?(?:almost\s+|nearly\s+)?"
-            r"(" + "|".join(_EVENT_VERBS) + r")(?:s|es|ing|ed|[a-z]ed|[a-z]d)?"
-            r"\s+(?:my\s+|a\s+|an\s+|the\s+|some\s+|two\s+|three\s+|four\s+|"
-            r"five\s+|six\s+|seven\s+|eight\s+|nine\s+|ten\s+)?"
-            r"(.+?)(?:\s*(?:\.|\!|\?|,|-{1,3}|$|"
-            r"\s+and\s+|\s+but\s+|\s+because\s+|\s+so\s+|\s+which\s+|"
-            r"\s+that\s+|\s+when\s+|\s+where\s+|\s+while\s+))",
-            re.IGNORECASE)
-        for _em in _evt_pat.finditer(q_clean):
-            _verb = _em.group(1).lower()
-            _obj = self._opinion_topic(_em.group(2).strip().lower())
-            if _obj and 1 <= len(_obj.split()) <= 5:
-                _put_fact("event", f"{_verb} {_obj}", 0.5)
-
-        # OPEN-CLASS activity/event capture (round 2026-08-13T2059Z). The two
-        # frozen-verb blocks above (ACTIVITY_VERBS / EVENT_VERBS) only cover a
-        # seeded whitelist, so first-person disclosures using a NOVEL or
-        # HYPHENATED-COMPOUND verb ("i count meteor showers", "i tide-pool at
-        # low water", "i astrophotograph the milky way") captured NO personal
-        # fact and were even misrouted as knowledge queries. This block makes
-        # capture GENERAL: any first-person "i <verb> <object>" whose verb is
-        # NOT a stative/copula/achieve-comm verb is mined as a 'does' fact. The
-        # verb vocabulary is now OPEN-CLASS (a closed deny-list), so RAVANA
-        # learns the verb from experience instead of requiring the whitelist to
-        # enumerate every possible activity. This is SEED structure (deny-list
-        # + the learnable PersonalFactStore), NOT a per-verb answer dictionary
-        # and NOT authored reply prose. Removing the deny-list degrades to
-        # "capture everything" (still not a regression of capability), so it is
-        # seed knowledge, not hardcoding.
+        # Round 2026-08-14T0103Z: GENERAL verb-frame guard (defined BEFORE the
+        # seeded ACTIVITY/EVENT blocks so they can all use it). The open-class
+        # miner (and the seeded blocks) treat ANY word after "i" as the verb,
+        # so framer / temporal / negation words preceding the real activity
+        # verb were captured as the verb and stored as garbage 'does' facts:
+        # "i won't buy fish" -> does="won't buy fish"; "i used to love..." ->
+        # does="used love"; "i first lit a kiln" -> does="first lit";
+        # "i mis-spoke earlier" -> does="mis-spoke earlier". These are NOT
+        # activities RAVANA learned. Fix structurally: (a) NORMALISE the
+        # captured verb — strip an apostrophe contraction artifact and drop a
+        # leading "n't"/"not" so negations are not stored as the activity;
+        # (b) reject verbs that are FRAME / TEMPORAL / DISCOURSE words (used,
+        # first, mis-spoke, probably, still, just, really, also ...) — these
+        # precede the real verb and must never be the mined activity; (c) reject
+        # objects that are PURELY temporal/discourse tails ("earlier", "now",
+        # "today") or empty. Seed deny-sets (RAVANA-expandable, removing entries
+        # degrades gracefully), applied to ALL THREE capture blocks so the
+        # seeded whitelist and the open-class fallback agree by construction.
+        # No per-verb answer table, no hardcoded reply.
         _STATIVE_DENY = frozenset({
             # copula / existence
             "am", "are", "is", "was", "were", "be", "been", "being",
@@ -1306,6 +1271,114 @@ class UserModel:
             "held", "hold", "took", "take", "set", "put", "cut", "hit",
             "fed", "feed", "bled", "bleed",
         })
+        _VERB_FRAME_DENY = frozenset({
+            # temporal / aspectual framers (not activities)
+            "used", "first", "last", "then", "next", "once", "twice",
+            "again", "finally", "recently", "lately", "soon", "already",
+            "just", "still", "now", "earlier", "later", "today", "tonight",
+            "yesterday", "tomorrow", "sometimes", "often", "usually",
+            "always", "never", "occasionally", "rarely",
+            # discourse / correction / stance framers
+            "mis-spoke", "misspoke", "meant", "suppose", "guess", "wonder",
+            "realize", "realise", "mean", "admit", "confess",
+            # modal-ish framers that are not the activity itself
+            "probably", "possibly", "maybe", "certainly", "definitely",
+            "really", "truly", "actually", "basically", "simply", "quite",
+            "very", "also", "even", "rather", "instead",
+        })
+
+        def _norm_verb(v: str) -> str:
+            v = v.strip().lower().lstrip("'").rstrip("'")
+            # A captured verb containing an apostrophe is a CONTRACTION
+            # artifact ("won't", "can't", "don't", "isn't") — not a clean
+            # activity verb. Negation is better expressed via the
+            # opinion/stance path, so we normalize to empty and let _verb_ok
+            # reject it rather than storing "won't buy fish" as a 'does' fact.
+            if "'" in v:
+                return ""
+            if v.startswith("n't"):
+                v = v[3:] or v
+            elif v == "not":
+                v = ""
+            return v
+
+        def _verb_ok(v: str) -> bool:
+            v = _norm_verb(v)
+            if not v:
+                return False
+            if v in _STATIVE_DENY or v in _VERB_FRAME_DENY:
+                return False
+            return True
+
+        def _obj_ok(obj: str) -> bool:
+            o = (obj or "").strip().lower()
+            if not o:
+                return False
+            _OBJ_STOP = {"earlier", "later", "now", "today", "tonight",
+                         "yesterday", "tomorrow", "recently", "lately",
+                         "soon", "then", "next", "again"}
+            return o not in _OBJ_STOP
+
+        _act_pat = re.compile(
+            r"\bi\s+(?:also\s+|really\s+|even\s+|just\s+|now\s+|still\s+|"
+            r"often\s+|sometimes\s+|usually\s+)?"
+            r"(?:have\s+been\s+|has\s+been\s+|am\s+|was\s+|were\s+)?"
+            r"(?:been\s+)?"
+            r"(" + "|".join(_ACTIVITY_VERBS) + r")(?:s|es|ing|ed|[a-z]ed|[a-z]d)?"
+            r"\s+(?:my\s+|a\s+|an\s+|the\s+|some\s+|two\s+|three\s+|four\s+|"
+            r"five\s+|six\s+|seven\s+|eight\s+|nine\s+|ten\s+)?"
+            r"(.+?)(?:\s*(?:\.|\!|\?|,|-{1,3}|$|"
+            r"\s+and\s+|\s+but\s+|\s+because\s+|\s+so\s+|\s+which\s+|"
+            r"\s+that\s+|\s+when\s+|\s+where\s+|\s+while\s+))",
+            re.IGNORECASE)
+        for _am in _act_pat.finditer(q_clean):
+            _verb = _am.group(1).lower()
+            if not _verb_ok(_verb):
+                continue
+            _obj = self._opinion_topic(_am.group(2).strip().lower())
+            if not _obj or not _obj_ok(_obj) or len(_obj.split()) > 5:
+                continue
+            _put_fact("does", f"{_norm_verb(_verb)} {_obj}", 0.55)
+        # Experience / event capture: first-person "i <event-verb> <object>"
+        # describing something that happened to the user's world. Captured
+        # under attr "event" so it is recallable as a lived experience (not
+        # conflated with ongoing activity). Same clause-boundary + content-head
+        # rules as the activity capture above.
+        _evt_pat = re.compile(
+            r"\bi\s+(?:also\s+|really\s+|even\s+|just\s+|now\s+|still\s+|"
+            r"often\s+|sometimes\s+|usually\s+)?"
+            r"(?:have\s+|has\s+|had\s+)?(?:almost\s+|nearly\s+)?"
+            r"(" + "|".join(_EVENT_VERBS) + r")(?:s|es|ing|ed|[a-z]ed|[a-z]d)?"
+            r"\s+(?:my\s+|a\s+|an\s+|the\s+|some\s+|two\s+|three\s+|four\s+|"
+            r"five\s+|six\s+|seven\s+|eight\s+|nine\s+|ten\s+)?"
+            r"(.+?)(?:\s*(?:\.|\!|\?|,|-{1,3}|$|"
+            r"\s+and\s+|\s+but\s+|\s+because\s+|\s+so\s+|\s+which\s+|"
+            r"\s+that\s+|\s+when\s+|\s+where\s+|\s+while\s+))",
+            re.IGNORECASE)
+        for _em in _evt_pat.finditer(q_clean):
+            _verb = _em.group(1).lower()
+            if not _verb_ok(_verb):
+                continue
+            _obj = self._opinion_topic(_em.group(2).strip().lower())
+            if not _obj or not _obj_ok(_obj) or len(_obj.split()) > 5:
+                continue
+            _put_fact("event", f"{_norm_verb(_verb)} {_obj}", 0.5)
+
+        # OPEN-CLASS activity/event capture (round 2026-08-13T2059Z). The two
+        # frozen-verb blocks above (ACTIVITY_VERBS / EVENT_VERBS) only cover a
+        # seeded whitelist, so first-person disclosures using a NOVEL or
+        # HYPHENATED-COMPOUND verb ("i count meteor showers", "i tide-pool at
+        # low water", "i astrophotograph the milky way") captured NO personal
+        # fact and were even misrouted as knowledge queries. This block makes
+        # capture GENERAL: any first-person "i <verb> <object>" whose verb is
+        # NOT a stative/copula/achieve-comm verb is mined as a 'does' fact. The
+        # verb vocabulary is now OPEN-CLASS (a closed deny-list), so RAVANA
+        # learns the verb from experience instead of requiring the whitelist to
+        # enumerate every possible activity. This is SEED structure (deny-list
+        # + the learnable PersonalFactStore), NOT a per-verb answer dictionary
+        # and NOT authored reply prose. Removing the deny-list degrades to
+        # "capture everything" (still not a regression of capability), so it is
+        # seed knowledge, not hardcoding.
         _gen_verb_pat = re.compile(
             r"\bi\s+"
             r"(?:also\s+|really\s+|even\s+|just\s+|now\s+|still\s+|"
@@ -1326,11 +1399,12 @@ class UserModel:
             re.IGNORECASE)
         for _gm in _gen_verb_pat.finditer(q_clean):
             _verb = _gm.group(1).lower()
-            if _verb in _STATIVE_DENY:
+            if not _verb_ok(_verb):
                 continue
             _obj = self._opinion_topic(_gm.group(2).strip().lower())
-            if _obj and 1 <= len(_obj.split()) <= 5:
-                _put_fact("does", f"{_verb} {_obj}", 0.5)
+            if not _obj or not _obj_ok(_obj) or len(_obj.split()) > 5:
+                continue
+            _put_fact("does", f"{_norm_verb(_verb)} {_obj}", 0.5)
 
         # Opinion mining (C2): capture the user's value judgments alongside
         # facts. Runs in the miner (not only observe_user_query) so opinions are
