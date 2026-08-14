@@ -512,6 +512,17 @@ class MemoryMixin:
             "do", "you", "your", "i", "my", "we", "our", "me", "about",
             "on", "of", "the", "a", "an", "that", "this", "is", "are",
             "was", "were", "have", "has", "had", "name", "color", "colour",
+            # Round 2026-08-14T0103Z: question-scaffold words that are NOT
+            # content. A cued recall "remember when i told you about the
+            # commission" carries the real cue "commission" plus the
+            # interrogatives "when"/"for". Leaving them in _CUE_STOP's inverse
+            # dilute the content cue (1 real token of 3 -> frac 0.33 fails the
+            # 0.34 match bar -> _retrieve_episodic returns None and the query
+            # falls through to an adjacent-turn echo). Excluding the
+            # question scaffolds leaves the pure content cue ("commission") so
+            # the targeted episode is retrieved. Structural, generalizes across
+            # every recall query phrasing.
+            "when", "where", "why", "which", "how", "for", "from", "with",
         }
         _cue_tokens = [w.strip(".,!?") for w in re.findall(r"[a-z']+", q.lower())
                        if len(w) >= 3 and w not in _CUE_STOP]
@@ -1760,7 +1771,16 @@ class MemoryMixin:
             # there is NO cue do we default to the immediately-preceding turn
             # (genuine "what did i just say?").
             _cue = ""
-            _m = re.search(r"\b(?:about|that|regarding|on)\s+([a-z']+)", t)
+            # Round 2026-08-14T0103Z: capture the CONTENT word after the
+            # preposition, not the leading determiner. The old pattern
+            # `[a-z']+` grabbed "the" from "about the commission", so the
+            # topic-cued branch delegated to _retrieve_episodic with the cue
+            # "the" and the recall mis-targeted an adjacent turn. Skip an
+            # optional leading determiner so "about the commission" yields
+            # "commission". Structural (determiner strip), not a per-topic fix.
+            _m = re.search(
+                r"\b(?:about|that|regarding|on)\s+(?:(?:the|that|this|these|"
+                r"those|a|an|my|your|our|their|his|her)\s+)?([a-z']+)", t)
             if _m:
                 _cue = _m.group(1).lower().strip(".,!?")
             if _cue and len(_cue) >= 3:
