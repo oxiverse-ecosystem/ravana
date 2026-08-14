@@ -59,5 +59,8 @@ def test_verb_ok_helper():
     assert _activity_verb_ok("build") is True
     assert _activity_verb_ok("felt") is False
     assert _activity_verb_ok("said") is False
-    assert _activity_verb_ok("take") is False
+    # legitimate activity verbs are NOT denied (denying them breaks the
+    # correction detector and loses real activities like "took up the cello")
+    assert _activity_verb_ok("take") is True
+    assert _activity_verb_ok("keep") is True
     assert _activity_verb_ok("won't") is False  # contraction artifact

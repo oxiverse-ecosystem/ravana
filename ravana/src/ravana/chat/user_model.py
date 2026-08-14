@@ -99,51 +99,78 @@ _AFFECT_STATE_LEXICON = {
 
 # Round 2026-08-14T0608Z: ACTIVITY / EVENT verb deny set. The open-class
 # miner (and the seeded whitelist blocks) treat ANY word after "i" as the
-# verb, so emotion verbs ("felt"), achievement/communication utterances
-# ("said", "took", "got"), and framer/negation words ("take back", "now",
-# "already") were captured as garbage 'does'/'event' facts ("felt crushed",
-# "said careless ones", "keep now"). This is seed knowledge (RAVANA-expandable;
-# removing an entry degrades gracefully to one less guard), applied to ALL
-# THREE capture blocks so the seeded whitelist and the open-class fallback
-# agree by construction. No per-verb answer table, no authored reply.
+# verb, so emotion verbs ("felt") and pure communication/reporting verbs
+# ("said", "told") were captured as garbage 'does'/'event' facts
+# ("felt crushed", "said careless ones"). This set is NARROW by design: it
+# only contains verbs that are NEVER a real user activity or life event
+# (emotion/cognition/volition are handled by the opinion/empathy paths;
+# said/told are reporting utterances that echo verbatim). It deliberately does
+# NOT deny legitimate activity verbs like keep/start/take/build — those are
+# real things the user does, and denying them would also break the correction
+# detector (which mines the 'does' fact to supersede a prior count). Framer /
+# temporal words ("now", "just", "already", "take back") are handled at the
+# regex / object level (see _FRAMER_SKIP, _FRAMER_OBJ, retraction guard), not
+# here, so the real verb behind them is still captured. Seed vocabulary
+# (RAVANA-expandable; removing an entry degrades gracefully). No per-verb
+# answer table, no authored reply.
 _ACTIVITY_DENY = frozenset({
-    # emotion / cognition / volition (handled by opinion/empathy paths)
-    "feel", "feels", "felt", "feeling", "love", "like", "hate", "dislike",
-    "prefer", "think", "believe", "know", "understand", "want", "need",
-    "wish", "hope", "guess", "suppose", "mean", "wonder", "agree",
-    "disagree", "doubt", "fear", "regret", "suspect", "realize", "care",
-    "mind",
-    # achievement / communication utterances (echo verbatim as garbage)
-    "got", "get", "said", "say", "made", "make", "gave", "give", "told",
-    "tell", "came", "come", "went", "go", "did", "do", "saw", "see",
-    "met", "meet", "sold", "sell", "paid", "pay", "sent", "send",
-    "spent", "spend", "bought", "buy", "caught", "catch", "brought",
-    "bring", "ate", "eat", "drank", "drink", "knew", "know", "wore",
-    "wear", "led", "lead", "read", "led", "took", "take", "set", "put",
-    "cut", "hit", "fed", "feed", "bled", "bleed", "kept", "keep",
-    # framer / negation / temporal words that precede the real activity verb
-    "used", "first", "last", "then", "next", "once", "twice", "again",
-    "finally", "recently", "lately", "soon", "already", "just", "still",
-    "now", "earlier", "later", "today", "tonight", "yesterday",
-    "tomorrow", "sometimes", "often", "usually", "always", "never",
-    "occasionally", "rarely", "mis-spoke", "misspoke", "meant", "admit",
-    "confess", "probably", "possibly", "maybe", "certainly", "definitely",
-    "really", "truly", "actually", "basically", "simply", "quite", "very",
-    "also", "even", "rather", "instead", "back", "started", "start",
-    "began", "begin",
+    # emotion / cognition / volition (opinion + empathy paths handle these)
+    "feel", "feels", "felt", "feeling",
+    "love", "like", "hate", "dislike", "prefer",
+    "think", "thinks", "thought", "believe", "believes", "believed",
+    "know", "knows", "understand", "want", "wants", "need", "needs",
+    "wish", "hope", "guess", "suppose", "mean", "means", "meant",
+    "wonder", "agree", "disagree", "doubt", "fear", "fears",
+    "regret", "regrets", "suspect", "realize", "realises", "care", "mind",
+    # pure reporting / communication utterances (echo verbatim as garbage)
+    "said", "say", "says", "told", "tell", "tells",
+})
+
+# Framer / temporal / degree words that may immediately precede the REAL
+# activity verb ("i just started building", "i recently took up the cello").
+# Added to the capture-regex skip groups so the genuine verb is matched, not
+# the framer.
+_FRAMER_SKIP = (
+    "also|really|even|just|now|still|often|sometimes|usually|"
+    "already|recently|lately|soon|first|last|then|next|once|twice|again|"
+    "finally|today|tonight|yesterday|tomorrow|occasionally|rarely|"
+    "simply|quite|very|truly|actually|basically|probably|possibly|maybe|"
+    "certainly|definitely|rather|instead|"
+)
+
+# Words that may LEAK into the captured OBJECT as a trailing framer
+# ("how many quail do i keep now" -> object "now"). Stripped from the resolved
+# object head so 'does'/'event' facts store a real concept, never a framer.
+_FRAMER_OBJ = frozenset({
+    "now", "already", "still", "just", "recently", "lately", "soon",
+    "today", "tonight", "yesterday", "tomorrow", "earlier", "later",
+    "currently", "right", "then", "here",
 })
 
 
 def _activity_verb_ok(verb: str) -> bool:
     """True if `verb` is a legitimate activity/experience verb (not an
-    emotion/achieve-comm/framer word). Used by all three capture blocks so
-    'does'/'event' facts only store real activities RAVANA learned."""
+    emotion/achieve-comm verb). Used by all three capture blocks so
+    'does'/'event' facts only store real activities RAVANA learned. Framer
+    words are NOT denied here — they are skipped at the regex level so the
+    real verb behind them is still captured."""
     v = (verb or "").strip().lower().lstrip("'").rstrip("'")
     if "'" in v:           # contraction artifact ("won't", "don't")
         return False
     if v.startswith("n't") or v == "not":
         return False
     return v not in _ACTIVITY_DENY
+
+
+def _strip_obj_framers(obj: str) -> str:
+    """Drop leading/trailing framer words so 'keep now' -> 'keep' and a real
+    object survives. Returns '' if nothing real remains."""
+    _toks = (obj or "").split()
+    while _toks and _toks[0] in _FRAMER_OBJ:
+        _toks.pop(0)
+    while _toks and _toks[-1] in _FRAMER_OBJ:
+        _toks.pop()
+    return " ".join(_toks)
 
 
 
@@ -874,8 +901,7 @@ class UserModel:
             if not _activity_verb_ok(_verb):
                 continue
             _m = re.search(
-                r"\bi\s+(?:also\s+|really\s+|even\s+|just\s+|now\s+|still\s+"
-                r"|often\s+|sometimes\s+|usually\s+)?"
+                r"\bi\s+(?:" + _FRAMER_SKIP + r")?"
                 r"(?:have\s+been\s+)?(?:been\s+)?(?:keep\s+|grind\s+|race\s+)?"
                 + _verb +
                 # D3 (round 2026-08-08b-d): the article alternative `a` had NO
@@ -891,7 +917,11 @@ class UserModel:
                 r"\bbecause\b|\band\b|\.|\!|\?|$|,)",
                 q_clean, re.IGNORECASE)
             if _m:
+                # retraction cue ("i take back what i said") is not an activity
+                if _verb in ("take", "took", "taking") and "back" in _m.group(1).lower():
+                    continue
                 _obj = self._opinion_topic(_m.group(1).strip().lower())
+                _obj = _strip_obj_framers(_obj)
                 if _obj and len(_obj.split()) <= 5:
                     # Store the verb WITH the object ("keep homing pigeons")
                     # so activity recall ("what do i keep?") can match the
@@ -907,6 +937,7 @@ class UserModel:
             _cverb = _cont.group(1).lower()
             if _activity_verb_ok(_cverb):
                 _obj = self._opinion_topic(_cont.group(2).strip().lower())
+                _obj = _strip_obj_framers(_obj)
                 if _obj and len(_obj.split()) <= 5:
                     _put_fact("does", f"{_cverb} {_obj}", 0.55)
 
@@ -994,8 +1025,7 @@ class UserModel:
         # "juniper", not "juniper and found a root"). The verb is matched
         # with optional inflection so gerunds/continuous tenses are caught.
         _act_pat = re.compile(
-            r"\bi\s+(?:also\s+|really\s+|even\s+|just\s+|now\s+|still\s+|"
-            r"often\s+|sometimes\s+|usually\s+)?"
+            r"\bi\s+(?:" + _FRAMER_SKIP + r")?"
             r"(?:have\s+been\s+|has\s+been\s+|am\s+|was\s+|were\s+)?"
             r"(?:been\s+)?"
             r"(" + "|".join(_ACTIVITY_VERBS) + r")(?:s|es|ing|ed|[a-z]ed|[a-z]d)?"
@@ -1009,7 +1039,11 @@ class UserModel:
             _verb = _am.group(1).lower()
             if not _activity_verb_ok(_verb):
                 continue
+            # retraction cue ("i take back ...") is not an activity
+            if _verb in ("take", "took", "taking") and "back" in _am.group(2).lower():
+                continue
             _obj = self._opinion_topic(_am.group(2).strip().lower())
+            _obj = _strip_obj_framers(_obj)
             if _obj and 1 <= len(_obj.split()) <= 5:
                 _put_fact("does", f"{_verb} {_obj}", 0.55)
         # Experience / event capture: first-person "i <event-verb> <object>"
@@ -1018,8 +1052,7 @@ class UserModel:
         # conflated with ongoing activity). Same clause-boundary + content-head
         # rules as the activity capture above.
         _evt_pat = re.compile(
-            r"\bi\s+(?:also\s+|really\s+|even\s+|just\s+|now\s+|still\s+|"
-            r"often\s+|sometimes\s+|usually\s+)?"
+            r"\bi\s+(?:" + _FRAMER_SKIP + r")?"
             r"(?:have\s+|has\s+|had\s+)?(?:almost\s+|nearly\s+)?"
             r"(" + "|".join(_EVENT_VERBS) + r")(?:s|es|ing|ed|[a-z]ed|[a-z]d)?"
             r"\s+(?:my\s+|a\s+|an\s+|the\s+|some\s+|two\s+|three\s+|four\s+|"
@@ -1032,7 +1065,11 @@ class UserModel:
             _verb = _em.group(1).lower()
             if not _activity_verb_ok(_verb):
                 continue
+            # retraction cue ("i took back ...") is not an event
+            if _verb in ("take", "took", "taking") and "back" in _em.group(2).lower():
+                continue
             _obj = self._opinion_topic(_em.group(2).strip().lower())
+            _obj = _strip_obj_framers(_obj)
             if _obj and 1 <= len(_obj.split()) <= 5:
                 _put_fact("event", f"{_verb} {_obj}", 0.5)
 
@@ -1744,17 +1781,17 @@ class UserModel:
         self._detect_correction(query, subject, valence)
 
     def _verb_stem(self, verb: str) -> str:
-        """Normalize an inflected activity verb to its stem so date facts
-        store ONE consistent activity key (e.g. 'repaired' -> 'repair',
-        'picked up' -> 'pick up') and date recall can match a query phrased
-        any way ('fixing' / 'fix' / 'repairing' / 'repair'). Seed mapping
-        (RAVANA-expandable: removing an entry degrades gracefully); not an
-        if/elif answer path — it is a linguistic normalization, not content.
-        """
+        """Normalize an inflected activity verb to its stem, and collapse common
+        synonyms to ONE canonical form, so date facts store ONE consistent
+        activity key (e.g. 'repaired' -> 'repair', 'picked up' -> 'pick up',
+        'fixing' -> 'repair') and date recall can match a query phrased any way
+        ('fixing' / 'fix' / 'repairing' / 'repair'). Seed mapping (RAVANA-
+        expandable: removing an entry degrades gracefully); not an if/elif answer
+        path — it is a linguistic normalization, not content."""
         _v = (verb or "").strip().lower()
         _MAP = {
             "repaired": "repair", "repairing": "repair", "repairs": "repair",
-            "fixed": "fix", "fixing": "fix", "fixes": "fix",
+            "fixed": "repair", "fixing": "repair", "fixes": "repair", "fix": "repair",
             "built": "build", "building": "build", "builds": "build",
             "kept": "keep", "keeping": "keep", "keeps": "keep",
             "played": "play", "playing": "play", "plays": "play",
@@ -1773,7 +1810,13 @@ class UserModel:
             "picked up": "pick up", "took up": "take up",
             "got into": "get into",
         }
-        return _MAP.get(_v, _v)
+        _v = _MAP.get(_v, _v)
+        # canonical synonym collapse (separate from inflection stemming)
+        _SYN = {
+            "fix": "repair", "repair": "repair",
+            "frame": "build", "frame-build": "build", "framebuild": "build",
+        }
+        return _SYN.get(_v, _v)
 
     def _detect_correction(self, query: str, subject: str, valence: float):
         """ACC conflict detection: detect that the user is correcting RAVANA.
