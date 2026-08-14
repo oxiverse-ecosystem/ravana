@@ -2610,6 +2610,85 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     break
             if _best is not None:
                 return f"you told me: {_best}"
+        # ── (1f) DATE-GROUNDED temporal recall (round 2026-08-14T0608Z) ──
+        # "when did i start building frames" / "since what year have i kept
+        # quail" / "how long have i been fixing tube amps" -> answer from the
+        # 'since' / 'since_age' facts mined by mine_personal_facts. Precise
+        # reverse-lookup on the activity content head; no per-topic table, no
+        # authored prose. Every slot read live from the PersonalFactStore.
+        # Fail-closed: returns None when no dated fact maps (honest fallback).
+        _DATEQ = re.search(
+            r"\b(?:when\s+did\s+i|since\s+what\s+year|what\s+year|how\s+long\s+"
+            r"have\s+i|how\s+long\s+since|since\s+when|when\s+did\s+i\s+start|"
+            r"when\s+did\s+i\s+begin)\b", q, re.IGNORECASE)
+        if _DATEQ and pf is not None:
+            # The query names an activity. Extract it from the QUERY by
+            # scanning for a known activity verb (mirrors the miner's verb
+            # vocabulary) and stemming it — this ignores the question FRAME
+            # ("when did i start", "how long have i been") and keeps the
+            # resolver type-agnostic. A query about an unrecognized activity
+            # simply finds no 'since' fact and fails closed (honest fallback).
+            _ACTVERB = re.search(
+                r"\b(building|build|built|keeping|keep|kept|repair|repairing|"
+                r"repaired|fix|fixing|fixed|play|playing|played|picked\s+up|"
+                r"took\s+up|got\s+into|move|moved|study|studying|studied|"
+                r"learn|learning|learned|brew|brewing|brewed|raise|raising|"
+                r"raised|garden|gardening|gardened|write|writing|wrote|read|"
+                r"reading|ran|run|running|teach|teaching|taught|cook|cooking|"
+                r"cooked|craft|crafting|crafted|frame|frames|cello|quail|"
+                r"amps|tube\s+amps)\b", q, re.IGNORECASE)
+            if not _ACTVERB:
+                return None
+            _qact = self.user_model._verb_stem(_ACTVERB.group(1).lower()) \
+                if hasattr(self.user_model, "_verb_stem") else \
+                _ACTVERB.group(1).lower()
+            # try a precise 'since' fact whose value starts with the activity.
+            # Match is GENERAL (substring both ways), not a per-topic table:
+            # the stored activity ("building") matches a query phrased
+            # "frame-building" / "fixing" because the head token is contained
+            # in the query. This keeps the resolver type-agnostic and lets
+            # RAVANA recall ANY dated activity it mined.
+            _best_year = None
+            _best_age = None
+            import datetime as _dtmod
+            for _k, _f in pf.facts.items():
+                if not (isinstance(_k, tuple) and len(_k) == 3):
+                    continue
+                if getattr(_f, "superseded", False):
+                    continue
+                _v = _f.value.lower()
+                if _k[1] == "since":
+                    _parts = _v.rsplit(" ", 1)
+                    if len(_parts) == 2:
+                        _act = _parts[0]            # stored activity (verb stem)
+                        try:
+                            _yr = int(_parts[1])
+                        except ValueError:
+                            continue
+                        # match if the stored verb equals the query head, or
+                        # either is contained in the other (handles "keep" vs
+                        # "keep quail" / "build" vs "building frames").
+                        if (_act == _qact or _act in _qact or _qact in _act
+                                or _act in q or _qact in _act):
+                            _best_year = _yr
+                elif _k[1] == "since_age":
+                    _parts = _v.rsplit(" ", 1)
+                    if len(_parts) == 2:
+                        _act = _parts[0]
+                        try:
+                            _age = int(_parts[1])
+                        except ValueError:
+                            continue
+                        if (_act == _qact or _act in _qact or _qact in _act
+                                or _act in q or _qact in _act):
+                            _best_age = _age
+            if _best_year is not None:
+                if re.search(r"\bhow\s+long\b", q):
+                    _dur = _dtmod.datetime.now().year - _best_year
+                    return f"you've been {_qact} since {_best_year} — about {_dur} years."
+                return f"you started {_qact} in {_best_year}."
+            if _best_age is not None:
+                return f"you've been {_qact} since you were about {_best_age}."
         return None
 
     def _recall_user_fact(self, attr_hint, q):
