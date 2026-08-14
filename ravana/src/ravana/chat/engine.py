@@ -74,6 +74,19 @@ def _extract_user_affect_word(text: str) -> str:
     return ""
 
 
+def _stem(t: str) -> str:
+    # crude but sufficient morphological normalization for short English
+    # content words (handles plural -s/-es, -ing, -ed, -er). Shared by the
+    # date-recall overlap scorer AND the activity-context linker so both treat
+    # "study"/"studying"/"studied" as one stem.
+    if len(t) <= 3:
+        return t
+    for suf in ("ies", "es", "s", "ing", "ed", "er"):
+        if t.endswith(suf) and len(t) - len(suf) >= 3:
+            return t[: len(t) - len(suf)]
+    return t
+
+
 def _activity_query_overlap(stored_act: str, query: str, query_tokens) -> int:
     """Score how well a stored dated-activity (`stored_act`, e.g. 'study
     volcano') matches a date-recall query (`query`, e.g. 'what year did i
@@ -96,22 +109,93 @@ def _activity_query_overlap(stored_act: str, query: str, query_tokens) -> int:
         "when", "what", "how", "about", "around", "into", "from", "up",
     }
 
-    def _stem(t: str) -> str:
-        # crude but sufficient morphological normalization for short English
-        # content words (handles plural -s/-es, -ing, -ed, -er).
-        if len(t) <= 3:
-            return t
-        for suf in ("ies", "es", "s", "ing", "ed", "er"):
-            if t.endswith(suf) and len(t) - len(suf) >= 3:
-                return t[: len(t) - len(suf)]
-        return t
-
     _act_tokens = {_stem(t) for t in re.findall(r"[a-z']+", (stored_act or "").lower())}
     _act_tokens -= _STOP
     _q = {_stem(t) for t in query_tokens} - _STOP
     if not _act_tokens or not _q:
         return 0
     return len(_act_tokens & _q)
+
+
+# Morphological gerund map for activity verbs that English does NOT form with a
+# regular -ing suffix. This is a SEED (small, closed-class, structural — like
+# the irregular-verb table a child is born with), NOT a per-topic answer table.
+# RAVANA still learns the USER's own phrasing at runtime; this only governs how
+# a stored bare verb is realized when it stands in for the activity in a reply.
+# Can be extended online by adding entries; it never answers a question.
+_IRREGULAR_GERUND = {
+    "be": "being", "are": "being", "is": "being", "am": "being",
+    "have": "having", "has": "having", "do": "doing", "does": "doing",
+    "go": "going", "goes": "going",
+    "study": "studying", "studies": "studying",
+    "carry": "carrying", "carries": "carrying",
+    "cry": "crying", "cries": "crying",
+    "fly": "flying", "flies": "flying",
+    "try": "trying", "tries": "trying",
+    "die": "dying", "dies": "dying",
+    "lie": "lying", "lies": "lying",
+    "see": "seeing", "saw": "seeing", "sees": "seeing",
+    "flee": "fleeing", "fled": "fleeing",
+}
+
+
+def _gerund_of(verb: str) -> str:
+    """Return the -ing form of a single English verb.
+
+    Rule order: irregular seed table → C/V/e-stem consonant doubling (e.g.
+    'run' -> 'running') → silent-e drop (e.g. 'make' -> 'making') → default
+    '-ing' append (e.g. 'paint' -> 'painting'). Pure morphology — it reads a
+    live verb string and produces its gerund; it never invents an answer.
+    """
+    _v = (verb or "").lower().strip()
+    if not _v:
+        return _v
+    if _v in _IRREGULAR_GERUND:
+        return _IRREGULAR_GERUND[_v]
+    if len(_v) >= 3 and _v[-1] in "bcdfgklmnprstvz" and _v[-2] in "aeiou" \
+            and _v[-3] in "bcdfgklmnprstvz" and _v[-1] != _v[-2] \
+            and _v[-2] != _v[-3]:
+        return _v + _v[-1] + "ing"
+    if _v.endswith("e") and not _v.endswith("ee") and len(_v) >= 3:
+        return _v[:-1] + "ing"
+    return _v + "ing"
+
+
+def _verb_phrase_to_gerund(phrase: str) -> str:
+    """Turn a stored activity phrase into a natural gerund realization for
+    date-recall replies, WITHOUT an LLM and WITHOUT a per-topic phrase list.
+
+    Examples:
+        "study basaltic eruptions"   -> "studying basaltic eruptions"
+        "start studying volcanoes"   -> "studying volcanoes"   (a leading
+            inceptive verb "start/began" in front of an ALREADY-gerund verb is
+            redundant in a "you started <gerund>" reply, so it is dropped and
+            the real gerund verb kept — avoids "started starting studying".)
+        "keep three tarantulas"      -> "keeping three tarantulas"
+
+    Strategy: morphology-convert the leading verb; if that already yields an
+    -ing word, nothing more is needed. If a SECOND token is also a verb ending
+    in -ing, the leading inceptive verb was scaffolding and the -ing verb is the
+    real activity, so keep only the -ing verb. This generalizes to EVERY stored
+    activity (no authored per-topic reply). If the phrase has no recognizable
+    leading verb, return it unchanged (honest fallback).
+    """
+    _p = (phrase or "").strip()
+    if not _p:
+        return _p
+    _parts = _p.split()
+    _head = _parts[0].lower()
+    _base = _head[:-1] if (_head.endswith("s") and len(_head) > 3) else _head
+    _ger = _gerund_of(_base)
+    _rest = _parts[1:]
+    # Detect a redundant inceptive leading verb ("start/begin/began") in front
+    # of a gerund — keep only the gerund as the activity head.
+    _INCEPTIVE = {"start", "started", "begin", "began", "begins", "beginning"}
+    if _base in _INCEPTIVE and _rest and _rest[0].endswith("ing"):
+        # already a gerund head; the reply frame supplies "started", so drop
+        # the inceptive scaffolding entirely.
+        return " ".join(_rest)
+    return (_ger + " " + " ".join(_rest)) if _rest else _ger
 
 
 from collections import deque, Counter
@@ -2704,41 +2788,66 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # query against a FROZEN allowlist of activity verbs
             # (building/keep/repair/cello/quail/...). A rotated probe
             # ("what year did i start all this volcano stuff again") contained
-            # NONE of those verbs, so _ACTVERB was None, the resolver failed
-            # closed, and the turn fell through to a verbatim episodic echo.
-            # That is phrase-tuning — the WRONG shape. The right design: derive
-            # the queried activity from RAVANA's OWN mined `since`/`since_age`
-            # facts (the live store it grew from conversation), not from a
-            # hardcoded verb list. We take every stored dated activity and test
-            # whether its head appears in the query (token overlap both ways),
-            # picking the best-matching fact. This recalls ANY activity RAVANA
-            # actually learned — it is data-driven and grows online (no
-            # retrain, no per-topic table). Fail-closed: if no stored dated
-            # fact matches the query, return None (honest fallback).
+            # NONE of those verbs, so the resolver failed closed and the turn
+            # fell through to a verbatim episodic echo. That is phrase-tuning.
+            # Fix A (round 2026-08-14T1110Z feature): the resolver derives the
+            # queried activity from RAVANA's OWN mined `since`/`since_age` facts
+            # (the live store it grew from conversation), not a hardcoded verb
+            # list. The remaining gap: a `does`/`event` fact that DESCRIBES the
+            # same activity as a `since` fact but with a DIFFERENT leading verb
+            # was not linked in, so its activity words never joined the match
+            # context. Example from the probe: the since-fact is "study 2015"
+            # but the user also mined "start studying volcanoes back" — that
+            # `does` fact CONTAINS "volcanoes", yet the prior code linked `does`
+            # facts to the since activity ONLY by identical leading verb
+            # ("study" != "start"), so "volcanoes" never entered the context and
+            # "what year did i start all this volcano stuff" scored 0 and fell
+            # through to a verbatim echo. Fix: link a `does`/`event` fact to the
+            # since activity when they SHARE a salient token (data-driven,
+            # generalizes to any phrasing, fails closed — no shared token means
+            # no link). Now "volcanoes" reaches the match context and the
+            # paraphrase recalls the right dated fact.
             import datetime as _dtmod
             _q_tokens = {t for t in re.findall(r"[a-z']+", q.lower())}
             _q_tokens.discard("")
-            # Build a per-activity-verb context: the `since` activity verb maps
-            # to its OWN value PLUS any `does`/`event` facts sharing that verb
-            # (e.g. since="study 2015" + does="studying volcanoes"). This lets a
-            # rotated query ("all this volcano stuff") match the dated activity
-            # via its associated objects, not just the bare verb "study" — the
-            # previous token-overlap-on-the-verb-alone design missed it.
+            # Build a per-activity context: each `since` activity key (`_act`,
+            # the bare verb, e.g. "study") gathers the value of EVERY `does`/
+            # `event` fact that shares a salient token with it. This lets an
+            # activity described under a different leading verb (e.g. "start
+            # studying volcanoes") still contribute its distinctive words
+            # ("volcanoes") to the match context for the "study" dated fact.
+            # Token sharing is tested on MORPHOLOGICAL STEMS (e.g. "studying"
+            # == "study", "volcanoes" == "volcano"), so the linkage is robust
+            # to tense/aspect variation, not a brittle exact-string match.
             _verb_ctx = {}
+            _since_acts = set()
             for _k, _f in pf.facts.items():
                 if not (isinstance(_k, tuple) and len(_k) == 3):
                     continue
                 if getattr(_f, "superseded", False):
                     continue
-                _attr = _k[1]
-                if _attr in ("does", "event"):
-                    _verb = _f.value.lower().split()[0] if _f.value else ""
-                    if _verb:
-                        _verb_ctx.setdefault(_verb, []).append(
-                            _f.value.lower())
+                if _k[1] == "since":
+                    _p = _f.value.lower().rsplit(" ", 1)
+                    if len(_p) == 2 and _p[0]:
+                        _since_acts.add(_p[0])
+            for _k, _f in pf.facts.items():
+                if not (isinstance(_k, tuple) and len(_k) == 3):
+                    continue
+                if getattr(_f, "superseded", False):
+                    continue
+                if _k[1] in ("does", "event") and _f.value:
+                    _val = _f.value.lower()
+                    _stems = {_stem(t) for t in re.findall(r"[a-z']+", _val)}
+                    # attach this `does`/`event` value to every since activity
+                    # it shares a salient stem with (or an exact leading-verb
+                    # match on the bare verb).
+                    for _act in _since_acts:
+                        if _stem(_act) in _stems or _act == _val.split()[0]:
+                            _verb_ctx.setdefault(_act, []).append(_val)
             _best_year = None
             _best_age = None
             _best_score = 0
+            _best_act = None
             for _k, _f in pf.facts.items():
                 if not (isinstance(_k, tuple) and len(_k) == 3):
                     continue
@@ -2759,9 +2868,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     if _score > _best_score:
                         _best_score = _score
                         _best_year = _yr
-                        # prefer the richer `does`/`event` phrasing for display
-                        # ("studying volcanoes") over the bare verb ("study").
-                        _qact = (_verb_ctx.get(_act) or [_act])[0] or _act
+                        _best_act = _act
                 elif _k[1] == "since_age":
                     _parts = _v.rsplit(" ", 1)
                     if len(_parts) != 2:
@@ -2776,14 +2883,19 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     if _score > _best_score:
                         _best_score = _score
                         _best_age = _age
-                        # prefer the richer `does`/`event` phrasing for display
-                        # ("studying volcanoes") over the bare verb ("study").
-                        _qact = (_verb_ctx.get(_act) or [_act])[0] or _act
+                        _best_act = _act
             # Require at least one meaningful token overlap so an unrelated
             # "when did i...?" query (no dated activity in it) fails closed
             # rather than echoing the first stored fact.
             if _best_score == 0:
                 return None
+            # Display phrasing: the richer `does`/`event` value when available
+            # ("studying volcanoes"), else the bare `since` activity verb. Realize
+            # it as a natural gerund ("studying ...") for grammatical replies
+            # (Fix B, round 2026-08-14T1110Z feature) — previously the bare verb
+            # produced broken English ("you started study basaltic eruptions").
+            _qact = (_verb_ctx.get(_best_act) or [_best_act])[0] or _best_act
+            _qact = _verb_phrase_to_gerund(_qact)
             if _best_year is not None:
                 if re.search(r"\bhow\s+long\b", q):
                     _dur = _dtmod.datetime.now().year - _best_year
