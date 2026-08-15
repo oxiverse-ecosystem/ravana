@@ -6302,7 +6302,6 @@ class ResponseGenMixin(ChainWalkerMixin):
                     hedge_frame("ignorance", "related_strong" if _strong else "related_weak",
                                 subj=subj, rel=_rel0) + f" and {_rel1}",
                     f"i don't have a clean definition for {subj_cap}, but {pron} {be} tied to {_rel0} and {_rel1} to me.",
-                    f"{subj_cap} {be} fuzzy for me — i mostly connect {pron_obj} to {_rel0} and {_rel1}.",
                 ]
         closers = [
             " what does it mean to you?",
