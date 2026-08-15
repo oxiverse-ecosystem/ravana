@@ -4933,10 +4933,18 @@ class ResponseGenMixin(ChainWalkerMixin):
         # copula-affect fallback at round 2026-08-15T0830Z routes "i felt
         # electrified" here with kind=neutral, word='electrified'). Replying with
         # just "how are you feeling, really?" discards the word the user gave us
-        # and reads as hollow. Use the user's word as the acknowledged feeling;
-        # the content comes from the disclosure, not authored prose. Fail-closed:
-        # when no word was surfaced, fall back to the open question.
+        # and reads as hollow. Combine the user's word with RAVANA's measured
+        # valence band (val_word, computed above from self.emotion.state.valence)
+        # WHEN valence signals clear affect (val_word != "mixed") — so the ack is
+        # state-reflective rather than a hollow echo. The content still comes
+        # from the disclosure (the user's word) plus the state-derived valence
+        # word; nothing authored. Hold the open question only when the state is
+        # genuinely ambiguous ("mixed"). Fail-closed: when no word was surfaced,
+        # fall back to the open question.
         if isinstance(word, str) and word and not word.startswith("loss:"):
+            if val_word != "mixed":
+                return (f"i hear you — feeling {word} is a lot, and it sounds "
+                        f"{val_word}.", "emotional_empathy")
             return (f"i hear you — feeling {word} is a lot. how are you feeling, "
                     f"really?", "emotional_empathy")
         return (f"i hear you. how are you feeling, really?",
