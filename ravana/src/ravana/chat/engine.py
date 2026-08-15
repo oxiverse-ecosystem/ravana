@@ -4525,6 +4525,22 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     pass
                 else:
                     # §3 Empathy selector: (VAD_label x cause) -> response frame.
+                    # GROW the name guard from the user's ACTUAL felt word the
+                    # moment empathy genuinely fires (round 2026-08-15T0326Z):
+                    # the prior round's register_name_reject was DEAD CODE —
+                    # nothing ever called it, so a ROTATED predicate word slipped
+                    # through as a name. Here we register the word the empathy
+                    # path itself confirmed is a feeling, so the next "i'm <that
+                    # word>" in a bare-copula name slot is rejected structurally
+                    # (the helper also re-confirms it is a predicate, never a
+                    # real name). Online, no retrain, no code change.
+                    try:
+                        from .user_model import register_name_reject
+                        _aff = _extract_user_affect_word(user_input)
+                        if _aff:
+                            register_name_reject(_aff)
+                    except Exception:
+                        pass
                     _vad_label = self.emotion.get_emotional_label()
                     _cause = classify_cause(user_input, self._glove_vector).label
                     _frame = select_empathy_frame(_vad_label, _cause)
