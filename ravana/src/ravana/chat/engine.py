@@ -2373,6 +2373,30 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         opinions = getattr(um, "opinions", None) if um else None
         beliefs = getattr(self, "belief_store", None)
 
+        # ── (0) META-IDENTITY query: answer from RAVANA's LIVE model of the
+        # USER (Bug 5, round 2026-08-15T1537Z). Queries like "do i seem like
+        # a real person to you" / "what am i to you" / "tell me something
+        # true about who i am" / "what have you learned about me" ask RAVANA
+        # to reflect on its accumulated model of the user — NOT for a
+        # biographical fact (name/location) and NOT an episodic echo. The
+        # prior behavior fell through to an authored "real is fuzzy for me..."
+        # frame (probe-tuned) or a verbatim remembered turn. Fix: detect the
+        # meta-identity intent and answer from identity state + the real
+        # stance/fact stores. Every slot is read from runtime state RAVANA
+        # grew autonomously; no hardcoded reply string, no per-topic table,
+        # no retraining. Fail-closed: returns None when no meta signal is
+        # present, so factual/biographical queries stay on their own paths.
+        _meta = re.search(
+            r"\b(do\s+i\s+seem\s+(?:like|to\s+be)\s+(?:a|an)?\s*real|"
+            r"am\s+i\s+(?:a|an)?\s*real|"
+            r"what\s+am\s+i\s+to\s+you|who\s+am\s+i\s+to\s+you|"
+            r"tell\s+me\s+(?:something\s+true|about|more)\s+(?:about\s+)?who\s+i\s+am|"
+            r"what\s+(?:have|do)\s+you\s+(?:learned|know)\s+about\s+me|"
+            r"how\s+(?:real|human)\s+(?:do\s+)?i\s+(?:seem|appear)|"
+            r"am\s+i\s+(?:even\s+)?real\s+to\s+you)\b", q)
+        if _meta:
+            return self._meta_identity_reply()
+
         # ── (1) Biographical self-fact recall ──────────────────────────────
         # "what's my name" / "where do i live/work" / "what do i keep/have on
         # my rooftop" / "what's my favorite ..." — answered from the structured
@@ -2957,6 +2981,62 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             if _best_age is not None:
                 return f"you've been {_qact} since you were about {_best_age}."
         return None
+
+    def _meta_identity_reply(self) -> str:
+        """State-driven answer to a meta-identity query about the user
+        (Bug 5, round 2026-08-15T1537Z).
+
+        Renders RAVANA's accumulated model of the user from LIVE durable
+        state — the user's real name, stance count + topics, fact count, and
+        RAVANA's own identity strength/trend. No authored prose, no per-topic
+        answer table, no retraining. All content is read from runtime stores
+        RAVANA grows autonomously (the user can correct any fact/stance; the
+        stores merge on correction).
+        """
+        um = getattr(self, "user_model", None)
+        name = (getattr(um, "user_name", "") or "").strip()
+        _pf = getattr(um, "personal_facts", None) if um else None
+        n_facts = len(getattr(_pf, "facts", {}) or {}) if _pf is not None else 0
+        opinions = getattr(um, "opinions", None) if um else None
+        stances = getattr(opinions, "stances", {}) or {}
+        n_stances = len(stances)
+        ident = self.identity.state.strength
+        trend = self.identity.get_trend()
+
+        if trend > 0.01:
+            _trend_word = "steadily getting clearer"
+        elif trend < -0.01:
+            _trend_word = "still shifting"
+        else:
+            _trend_word = "holding steady"
+
+        _parts = []
+        if name:
+            _parts.append(f"i know you as {name}")
+        else:
+            _parts.append("i'm still learning who you are")
+
+        _learned = []
+        if n_stances:
+            _learned.append(f"{n_stances} stances you've shared")
+        if n_facts:
+            _learned.append(f"{n_facts} facts about your life")
+        if _learned:
+            _parts.append(
+                "and from what you've told me i've picked up "
+                + " and ".join(_learned))
+
+        _topics = list(stances.keys())[:3]
+        if _topics:
+            _parts.append(
+                "you've let me see where you stand on things like "
+                + ", ".join(_topics))
+
+        _parts.append(
+            f"my own sense of self is still forming — my self-coherence sits "
+            f"around {ident:.2f} and is {_trend_word}")
+
+        return ". ".join(_parts) + "."
 
     def _recall_user_fact(self, attr_hint, q):
         """Helpers for _structured_recall: read a personal_fact by attribute."""
