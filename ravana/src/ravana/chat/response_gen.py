@@ -4549,6 +4549,54 @@ class ResponseGenMixin(ChainWalkerMixin):
                     self._tmp_signed["neg"] = (av, w)
 
         if not vals:
+            # Copula-affect fallback (round 2026-08-15T0830Z): the VAD lexicon
+            # is a closed seed and does NOT contain every feeling word a human
+            # rotates in ("electrified", "giddy", "hollow", "terrified"...). A
+            # first-person feeling disclosure whose explicit affect word is absent
+            # from the VAD lexicon was returning None here and falling through to
+            # the degenerate "noted." ack — losing the empathic response entirely.
+            # Fix: if the utterance is a first-person FEELING-COPULA
+            # ("i felt/am/feel/get <word>"), treat the user's OWN felt word as the
+            # disclosure so the empathy responder can meet it. We accept ANY
+            # non-stopword head after the copula (not just a curated lexicon),
+            # because "i felt <x>" is structurally a self-report of a feeling
+            # regardless of whether <x> is in a seed list — expanding the lexicon
+            # per rotated probe would be whack-a-mole. The empathy responder
+            # already falls back to the cause-label signal to NAME the feeling
+            # when the word is unrecognized, so no authored reply is needed.
+            # Fails closed: ONLY fires on a genuine feeling-copula ("feel/felt/
+            # am/'m/get/got" as an affective state), so factual/action disclosures
+            # ("i keep bees", "i moved to X") still reach storage untouched.
+            try:
+                from ravana.chat.engine import _extract_user_affect_word
+                _aff = _extract_user_affect_word(text)
+            except Exception:
+                _aff = ""
+            if not _aff:
+                # Genuine feeling-copula only. The alternation puts the longer
+                # forms first so "i felt"/"i feel" win over bare "i".
+                _cop = re.search(
+                    r"\b(i\s+felt|i\s+feel|i\s+am|i'm|i\s+get|i\s+got)\s+"
+                    r"(?:so|really|very|quite|a\s+little\s+|kind\s+of\s+|"
+                    r"pretty\s+)?([a-z]+(?:[-][a-z]+)?)", text)
+                if _cop:
+                    _w = _cop.group(2).strip("'-")
+                    # The felt word is the token AFTER the copula. Reject the
+                    # copula word itself (e.g. "felt") and closed-class/action
+                    # verbs so only a real feeling attribution is captured.
+                    _STOP = {"it", "the", "a", "an", "this", "that", "to", "of",
+                             "in", "on", "for", "my", "your", "his", "her",
+                             "their", "you", "me", "we", "they", "he", "she",
+                             "and", "or", "but", "i", "am", "was", "were",
+                             "been", "like", "love", "hate", "think", "feel",
+                             "felt", "good", "bad", "keep", "kept", "move",
+                             "moved", "want", "need", "have", "had", "do", "did"}
+                    if _w not in _STOP and len(_w) > 2:
+                        _aff = _w
+            if _aff and re.search(
+                    r"\b(i\s+felt|i\s+feel|i\s+am|i'm|i\s+get|i\s+got)\b", text):
+                self._tmp_signed = None
+                return ("neutral", _aff)
             return None
         V_lex = float(np.average(vals, weights=weights))
 
@@ -4881,6 +4929,16 @@ class ResponseGenMixin(ChainWalkerMixin):
                     "emotional_empathy")
 
         # neutral / unspecified affect
+        # Name the user's OWN felt word when the detector surfaced one (the
+        # copula-affect fallback at round 2026-08-15T0830Z routes "i felt
+        # electrified" here with kind=neutral, word='electrified'). Replying with
+        # just "how are you feeling, really?" discards the word the user gave us
+        # and reads as hollow. Use the user's word as the acknowledged feeling;
+        # the content comes from the disclosure, not authored prose. Fail-closed:
+        # when no word was surfaced, fall back to the open question.
+        if isinstance(word, str) and word and not word.startswith("loss:"):
+            return (f"i hear you — feeling {word} is a lot. how are you feeling, "
+                    f"really?", "emotional_empathy")
         return (f"i hear you. how are you feeling, really?",
                 "emotional_empathy")
 

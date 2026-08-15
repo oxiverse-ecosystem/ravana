@@ -75,8 +75,10 @@ def _reflective_ack_from_vad(engine) -> str:
     except Exception:
         _v = 0.0
     # The ONLY authored tokens are single valence words derived from the live
-    # band; the number rendered is the real measured valence. No sentence is
-    # authored per topic — if no word fits the band, emit the bare frame.
+    # band; NO internal measurement number is shown to the user (that would leak
+    # RAVANA's private VAD state into product-facing text). If no word fits the
+    # band, emit the bare neutral acknowledgement. No sentence is authored per
+    # topic.
     _word = ""
     if _v <= -0.3:
         _word = "heavy"
@@ -87,8 +89,8 @@ def _reflective_ack_from_vad(engine) -> str:
     elif _v >= 0.1:
         _word = "open"
     if not _word:
-        return f"noted (valence {_v:+.2f})."
-    return f"it sounds {_word} (valence {_v:+.2f})."
+        return "noted."
+    return f"it sounds {_word}."
 
 
 # ── Attribute-predicate → value vocabulary (C1, LoCoMo gap fix) ─────────────
