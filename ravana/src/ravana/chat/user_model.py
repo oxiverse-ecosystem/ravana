@@ -1321,6 +1321,16 @@ class UserModel:
         #    PRECEDES it (same sentence) for an activity verb. This is robust to
         #    English contractions ("i've been", "i'm"), word order, and the
         #    leading framer words the verb-frame deny set handles elsewhere.
+        #    Round 2026-08-15T0326Z GENERALIZE: the old code matched a FROZEN
+        #    verb allowlist (building|keep|repair|...). A rotated persona verb
+        #    outside that list ("i've kept the light since 2019" -> "kept" is
+        #    past-tense and was absent) was silently dropped, so the date fact
+        #    never landed and "what year did i start the light" failed. Fix:
+        #    extract the FIRST verb in the clause STRUCTURALLY (any \w+ that is
+        #    not closed-class), then accept it iff it is a legitimate activity
+        #    verb (_activity_verb_ok) — reusing the SAME discriminator the D3
+        #    'does' miner uses, so the captured fact stays recallable through
+        #    the identical 'since' resolver. No per-topic verb list to exhaust.
         for _ym in re.finditer(
                 r"\b(?:since|in|back\s+in|during)\s+((?:19|20)\d{2}|\d{2})\b",
                 q_clean, re.IGNORECASE):
@@ -1330,18 +1340,22 @@ class UserModel:
             _clause = q_clean[:_ym.start()].rsplit(".", 1)[-1].rsplit(
                 "!", 1)[-1].rsplit("?", 1)[-1].rsplit(",", 1)[-1]
             _av = re.search(
-                r"\b(building|build|keeping|keep|repair|repairing|fix|fixing|"
-                r"play|playing|picked\s+up|took\s+up|got\s+into|move|moved|"
-                r"study|studying|learn|learning|brew|brewing|raise|raising|"
-                r"garden|gardening|start|starting|began|begin|write|writing|"
-                r"read|reading|run|running|teach|teaching|cook|cooking|"
-                r"craft|crafting)\b", _clause, re.IGNORECASE)
+                r"\b([a-z][a-z']+)\b", _clause, re.IGNORECASE)
             if not _av:
                 continue
-            _act = self._opinion_topic(_av.group(1).lower())
+            _verb = _av.group(1).lower()
+            # skip leading framers / auxiliaries ("i've", "i", "been", "the")
+            if _verb in ("i", "i've", "i'm", "been", "have", "had", "the",
+                         "a", "an", "my", "we", "they", "you"):
+                _av2 = re.search(
+                    r"\b([a-z][a-z']+)\b",
+                    _clause[_av.end():], re.IGNORECASE)
+                _verb = _av2.group(1).lower() if _av2 else _verb
+            if not _activity_verb_ok(_verb):
+                continue
+            _act = self._verb_stem(_verb)
             if not _act:
                 continue
-            _act = self._verb_stem(_act)
             _put_fact("since", f"{_act} {_yr}", 0.7)
         # (b) relative duration "for <N> years" / "<N> years now" / "<N> years ago"
         for _rm in re.finditer(
@@ -1362,19 +1376,23 @@ class UserModel:
             _since = _THIS_YEAR - _n
             # find the activity the duration attaches to: the nearest verb
             # phrase before the duration marker (the activity is stated in the
-            # same clause, e.g. "i've repaired tube amps for eleven years")
+            # same clause, e.g. "i've repaired tube amps for eleven years").
+            # Round 2026-08-15T0326Z GENERALIZE: extract the last verb in the
+            # preceding clause structurally and accept it iff it is a
+            # legitimate activity verb (_activity_verb_ok) — replaces the
+            # frozen verb allowlist so rotated-persona activities land too.
             _pre = q_clean[:_rm.start()]
             _av = re.findall(
-                r"\b(building|build|built|keeping|keep|kept|repair|repairing|"
-                r"repaired|fix|fixing|fixed|play|playing|played|picked\s+up|"
-                r"took\s+up|got\s+into|move|moved|study|studying|studied|"
-                r"learn|learning|learned|brew|brewing|brewed|raise|raising|"
-                r"raised|garden|gardening|gardened|write|writing|wrote|read|"
-                r"reading|ran|run|running|teach|teaching|taught|cook|cooking|"
-                r"cooked|craft|crafting|crafted)\b", _pre, re.IGNORECASE)
+                r"\b([a-z][a-z']+)\b", _pre, re.IGNORECASE)
+            _av = [_v for _v in _av
+                   if _v.lower() not in ("i", "i've", "i'm", "been", "have",
+                                          "had", "the", "a", "an", "my", "we",
+                                          "they", "you", "for", "about", "over",
+                                          "nearly", "almost")]
+            _av = [_v for _v in _av if _activity_verb_ok(_v)]
             if not _av:
                 continue
-            _act = self._opinion_topic(_av[-1].lower())
+            _act = self._verb_stem(_av[-1].lower())
             if not _act:
                 continue
             _act = self._verb_stem(_act)
@@ -1400,20 +1418,27 @@ class UserModel:
             # ("i picked up the cello when i was nine") OR after it
             # ("since i was nine i've played cello"). Scan the whole sentence
             # the age sits in, both sides of the age token.
+            # Round 2026-08-15T0326Z GENERALIZE: structural first-verb
+            # extraction validated by _activity_verb_ok, replacing the frozen
+            # verb allowlist so any activity verb (e.g. a rotated-persona
+            # verb) anchors the age fact.
             _clause = q_clean[max(0, _am.start() - 60):_am.end() + 60]
             _av = re.search(
-                r"\b(pick\s+up|picked\s+up|took\s+up|got\s+into|start|started|"
-                r"began|begin|learn|learned|learning|play|playing|study|"
-                r"studying|write|writing|read|reading|run|running|brew|brewing|"
-                r"raise|raising|keep|kept|build|building|repair|repairing|"
-                r"fix|fixing|cook|cooking|craft|crafting|garden|gardening|"
-                r"move|moved|teach|teaching)\b", _clause, re.IGNORECASE)
+                r"\b([a-z][a-z']+)\b", _clause, re.IGNORECASE)
             if not _av:
                 continue
-            _act = self._opinion_topic(_av.group(1).lower())
+            _verb = _av.group(1).lower()
+            if _verb in ("i", "i've", "i'm", "was", "were", "been", "have",
+                         "had", "the", "a", "an", "my", "when", "since", "about",
+                         "around"):
+                _av2 = re.search(
+                    r"\b([a-z][a-z']+)\b", _clause[_av.end():], re.IGNORECASE)
+                _verb = _av2.group(1).lower() if _av2 else _verb
+            if not _activity_verb_ok(_verb):
+                continue
+            _act = self._verb_stem(_verb)
             if not _act:
                 continue
-            _act = self._verb_stem(_act)
             _put_fact("since_age", f"{_act} {_age}", 0.5)
         # (d) APPROXIMATE / HUMAN-PHRASED durations. Real speech rarely says
         #     "for eleven years" — it says "for a decade" / "a few years now" /
@@ -1452,22 +1477,21 @@ class UserModel:
                 _since = _THIS_YEAR - _n
                 # attach to the nearest activity verb before the phrase (same
                 # clause, e.g. "i've been brewing beer for a decade"); reuse
-                # block (b)'s verb vocabulary so the fact is recallable.
+                # block (b)'s structural verb extraction so the fact is
+                # recallable and rotated-persona verbs land too.
                 _pre = q_clean[:_dm.start()]
                 _av = re.findall(
-                    r"\b(building|build|built|keeping|keep|kept|repair|repairing|"
-                    r"repaired|fix|fixing|fixed|play|playing|played|picked\s+up|"
-                    r"took\s+up|got\s+into|move|moved|study|studying|studied|"
-                    r"learn|learning|learned|brew|brewing|brewed|raise|raising|"
-                    r"raised|garden|gardening|gardened|write|writing|wrote|read|"
-                    r"reading|ran|run|running|teach|teaching|taught|cook|cooking|"
-                    r"cooked|craft|crafting|crafted)\b", _pre, re.IGNORECASE)
+                    r"\b([a-z][a-z']+)\b", _pre, re.IGNORECASE)
+                _av = [_v for _v in _av
+                       if _v.lower() not in ("i", "i've", "i'm", "been",
+                                              "have", "had", "the", "a", "an",
+                                              "my", "we", "they", "you")]
+                _av = [_v for _v in _av if _activity_verb_ok(_v)]
                 if not _av:
                     continue
-                _act = self._opinion_topic(_av[-1].lower())
+                _act = self._verb_stem(_av[-1].lower())
                 if not _act:
                     continue
-                _act = self._verb_stem(_act)
                 _put_fact("since", f"{_act} {_since}", 0.6)
 
         # Opinion mining (C2): capture the user's value judgments alongside
