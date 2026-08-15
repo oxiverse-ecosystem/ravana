@@ -4754,20 +4754,59 @@ class ResponseGenMixin(ChainWalkerMixin):
         # 0.0<=v<0.4 band and produced "what's got you feeling so MIXED?" — a
         # wrong affect tag on a happy moment. The disclosure kind is the ground
         # truth; RAVANA's own valence only fills in when kind is unspecified.
+        #
+        # ROUND 2026-08-15T1537Z FIX (D1): the neutral/copula-affect branch
+        # (kind == "neutral", e.g. "i felt buoyant" / "i'm unmoored") used to
+        # read val_word from RAVANA's OWN interoception (`valence`, here from
+        # em.state). That is RAVANA's mood, unrelated to the user's word — so a
+        # user saying "i feel buoyant" (positive) could render "it sounds
+        # rough" whenever RAVANA's valence happened to be low. The content was
+        # RAVANA's state, not the user's. Fix: when a user affect WORD is
+        # present, derive val_word from that WORD's own VAD (the SAME lexicon
+        # the detector uses — single source of truth, never RAVANA's
+        # interoception), so the acknowledgment valence tracks the user's
+        # disclosed feeling. RAVANA's own valence is only a fallback when no
+        # word was surfaced (genuinely ambiguous disclosure).
         if kind == "positive":
             val_word = "good"
         elif kind == "negative":
             val_word = "rough"
         else:
-            # neutral / unspecified: fall back to RAVANA's continuous valence
-            if valence <= -0.4:
-                val_word = "really hard"
-            elif valence < 0.0:
-                val_word = "rough"
-            elif valence < 0.4:
-                val_word = "mixed"
+            # Neutral: prefer the user's own felt-word VAD over RAVANA's
+            # interoception. `word` is the user's felt term when the
+            # copula-affect fallback surfaced one; otherwise fall back to
+            # RAVANA's continuous valence (honest when nothing specific is said).
+            _user_v = None
+            if isinstance(word, str) and word and not word.startswith("loss:"):
+                try:
+                    from ravana.core.mirror import UserEmotionDetector
+                    _det = getattr(self, "_affect_detector", None) \
+                        or UserEmotionDetector()
+                    _vw = _det._lookup_word(word)
+                    if _vw is not None:
+                        _user_v = float(_vw[0])
+                except Exception:
+                    _user_v = None
+            if _user_v is not None:
+                # The user named a felt state; honor ITS valence.
+                if _user_v <= -0.4:
+                    val_word = "really hard"
+                elif _user_v < 0.0:
+                    val_word = "rough"
+                elif _user_v < 0.4:
+                    val_word = "mixed"
+                else:
+                    val_word = "good"
             else:
-                val_word = "good"
+                # No surfaced word: fall back to RAVANA's continuous valence.
+                if valence <= -0.4:
+                    val_word = "really hard"
+                elif valence < 0.0:
+                    val_word = "rough"
+                elif valence < 0.4:
+                    val_word = "mixed"
+                else:
+                    val_word = "good"
 
         if isinstance(word, str) and word.startswith("loss:"):
             lost = word[len("loss:"):].strip()
