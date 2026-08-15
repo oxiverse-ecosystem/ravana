@@ -313,6 +313,33 @@ class MemoryMixin:
             idx[attr] = val
         return facts
 
+    def _specific_recall_entity(self, q: str):
+        """Return the SPECIFIC possessive/referred entity a cued recall names
+        (e.g. 'my cat', 'our dog', "partner's", 'my brother'), or None for a
+        generic self-attribute recall ('what is my name', 'where do i live') or
+        a bare self-recall ('what have you learned about me').
+
+        Implements the specific-entity-before-generic rule: a cued recall that
+        names a CONCRETE entity the user may have disclosed must resolve from
+        THAT entity's store, never be aliased onto the user's own 'i' profile
+        (which would dump unrelated facts — the documented confabulation
+        defect: 'remember my cat's name' -> 'your favorite book is dune').
+        """
+        _ATTR = ("live", "lives", "from", "city", "town", "country", "born",
+                 "grew", "located", "location", "origin", "name")
+        _STOP = ("i", "you", "me", "my", "your", "we", "our", "what", "who",
+                 "where", "when", "why", "how", "it", "that", "this", "he",
+                 "she", "they", "one", "some", "any", "its")
+        _m = re.search(r"\b(?:my|our|your)\s+([a-z']+?)(?:'s)?\b", q) or \
+             re.search(r"\b([a-z']+?)'s\b", q)
+        if not _m:
+            return None
+        _cand = _m.group(1)
+        _cand = _cand[:-2] if _cand.endswith("'s") else _cand
+        if _cand in _ATTR or _cand in _STOP:
+            return None
+        return _cand
+
     def _retrieve_episodic(self, query: str,
                            transcript: Optional[List[Dict[str, Any]]] = None) -> Optional[str]:
         """Brain-faithful episodic recall (Tulving encoding specificity).
@@ -507,6 +534,28 @@ class MemoryMixin:
                 # asks about a biographical attribute
                 if any(w in q for w in _LOC_WORDS) or "name" in q:
                     _generic_self = True
+        # SPECIFIC-ENTITY-BEFORE-GENERIC GUARD (round 2026-08-15T0830Z audit fix).
+        # When the query names a CONCRETE possessive/referred entity (e.g. "my
+        # cat", "partner's name", "our dog") the recall is about THAT entity, not
+        # the user's own profile. If that entity is NOT in the store, the user
+        # never disclosed it, so fail CLOSED (honest miss) — do NOT alias the
+        # named entity onto the user's "i" profile. The old alias let "remember
+        # my cat's name" (cat unstored) resolve the user's own "i" biographical
+        # profile and dump an unrelated fact ("your favorite book is dune") —
+        # the documented source-monitoring / confabulation defect. Only a
+        # genuinely GENERIC self-attribute recall ("what is my name", "where do
+        # i live") may use the "i" profile; a generic self-recall with no entity
+        # at all is handled separately by the caller's profile-summary path.
+        _named = self._specific_recall_entity(q)
+        if _named is not None:
+            _named_sp = _pet_slots.species_of(_named)
+            _named_key = _named_sp if _named_sp is not None else _named
+            if _named_key not in _entity_idx:
+                # Specific entity the user never disclosed -> nothing to
+                # retrieve. Return None so the caller fails closed (never
+                # confabulate a profile that wasn't the query's target).
+                _ent_hit = None
+                _generic_self = False
         if _ent_hit is None and _generic_self:
             _ent_hit = "i"
         if _ent_hit is not None:
@@ -1543,6 +1592,24 @@ class MemoryMixin:
                 if _t in _LOC_WORDS or _t == "name":
                     _cue = True
                     break
+            # SPECIFIC-ENTITY-BEFORE-GENERIC GUARD (round 2026-08-15T0830Z audit
+            # fix). The cue loop above matches the bare word "name" even when a
+            # CONCRETE entity the user named (here "cat") is unstored. Routing
+            # such a query into _retrieve_episodic's loose semantic matcher (or
+            # its "i"-profile alias) returns an unrelated stored fact — the
+            # documented confabulation ("remember my cat's name" -> "your
+            # favorite book is dune"). If the query names a specific (non-self,
+            # non-attribute) entity that the user never disclosed, do NOT treat
+            # it as a generic self-recall cue; fall through to the honest
+            # generic self-profile summary (which fail-closes for an unknown cat)
+            # rather than entering the confabulating matcher. This preserves the
+            # honest "you haven't told me about your cat" behavior.
+            _named = self._specific_recall_entity((user_input or "").lower())
+            if _named is not None:
+                _named_sp = _pet_slots.species_of(_named)
+                _named_key = _named_sp if _named_sp is not None else _named
+                if _named_key not in _idx:
+                    _cue = False
             if _cue:
                 _ep = self._retrieve_episodic(user_input)
                 if _ep is not None:
