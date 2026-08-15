@@ -175,19 +175,47 @@ except Exception as _wn_err:  # pragma: no cover - optional dependency
 
 def _is_predicate_word(word: str) -> bool:
     """Structural test: is `word` an English predicate (adjective/participle),
-    rather than a proper-noun name? True iff WordNet has an adjective sense for
-    it. Real names have no adjective sense, so they are NOT rejected."""
+    rather than a proper-noun name?
+
+    A real name has NO adjectival or verbal WordNet sense and NO predicate
+    morphology, so it is never rejected. A transient self-state ("i'm unmoored",
+    "i'm gut-punched", "i'm lit-up") is a verb participle / hyphenated emotion
+    compound and IS rejected.
+
+    ROUND 2026-08-15T1537Z FIX (D6): the previous test only checked WordNet
+    `pos="a"` (adjective). Verb participles ("unmoored" = unmoor+ed) and
+    hyphenated emotion compounds ("gut-punched", "lit-up") have NO adjective
+    sense, so a ROTATED probe word like "unmoored" slipped through and got
+    stored as the user's NAME ("your name is unmoored"). Fix: also accept a
+    verb-participle WordNet sense (`pos="v"`) AND the morphological fallback
+    (which already covers -ed/-ing participle and hyphenated compounds). This is
+    STRUCTURAL — it keys on predicate morphology, not a frozen list of feeling
+    words, so any future rotated self-state word is caught without a code change.
+    Real names (corvin/maren/nadia) have neither sense and are left accepted.
+    """
     w = (word or "").strip().lower().strip("'\"")
     if not w or " " in w or len(w) > 24:
         return False
+    # Reject hyphenated emotion compounds outright ("gut-punched", "lit-up"):
+    # no proper noun is hyphenated, and every such compound is a predicate.
+    if "-" in w and len(w) <= 24:
+        return True
     if _WN_AVAILABLE:
         try:
-            return bool(_WN.synsets(w, pos="a"))
+            _syns = _WN.synsets(w, pos="a") or _WN.synsets(w, pos="v")
+            if _syns:
+                return True
+            # WordNet only indexes base lemmas (not every inflection), so a
+            # participle like "unmoored" (unmoor+ed) has no direct sense. Fall
+            # through to the morphological heuristic below rather than returning
+            # False here — otherwise ROTATED predicate words with no WordNet
+            # entry ("unmoored", "gut-punched") slip through and become names.
         except Exception:
-            return False
-    # Fail-closed fallback: a small structural heuristic for the no-WordNet
-    # case — common adjective morphology (-ed/-ing participle or -y/-ful/-ive
-    # suffix) is still a predicate signal even without the lexicon.
+            pass
+    # Structural heuristic: common adjective/participle morphology (-ed/-ing
+    # participle or -y/-ful/-ive/-ous suffix) is a predicate signal even when
+    # WordNet is absent or has no entry. Real proper-noun names ("corvin",
+    # "maren", "nadia") have none of these suffixes, so they stay accepted.
     return w.endswith(("ed", "ing", "ful", "ive", "ous", "y", "less", "ish"))
 
 
