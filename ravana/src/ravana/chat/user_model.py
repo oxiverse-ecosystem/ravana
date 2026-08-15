@@ -323,6 +323,59 @@ _ASPECTUAL_VERBS = frozenset({
 # "pick up" (not just "pick"). Structural; generalizes across any phrasal verb.
 _PARTICLES = frozenset({"up", "on", "in", "out", "off", "down", "with", "into"})
 
+# Closed-class words that CLOSE the activity-object span (the object is the
+# verb's patient; prepositions / time / clause words end it). SEED vocabulary
+# (RAVANA-expandable): a word added here only changes where the object span
+# ends, never the answer. Generalizes across phrasal/time adjuncts.
+_OBJECT_STOP = frozenset({
+    "since", "in", "on", "at", "for", "from", "to", "by", "of",
+    "about", "around", "into", "during", "after", "before", "when", "while",
+    "where", "because", "but", "and", "or", "so", "that", "which", "what",
+    "who", "how", "why", "over", "near", "under", "with",
+})
+# Determiners / particles to SKIP (not close the span) before/within the
+# object, so "building THE cabinets" -> "cabinets" and "build UP the frame" ->
+# "frame". Also SEED vocabulary; expanding it only changes which leading
+# function words are ignored.
+_OBJECT_SKIP = frozenset({
+    "the", "a", "an", "my", "your", "our", "their", "his", "her", "its",
+    "this", "these", "those", "some", "every", "all", "each",
+    "up", "out", "off", "down", "in", "on", "into", "back",
+})
+
+
+def _activity_object(clause_tokens, verb_idx) -> str:
+    """Extract the activity object following the verb at verb_idx in a token
+    list (the verb patient, e.g. (frames) in (building frames since 2019)).
+
+    Structural, no per-topic table: skip leading determiners/particles
+    (_OBJECT_SKIP), collect the run of content words, and stop at the first
+    span-closing word in _OBJECT_STOP (prepositions / time / clause words like
+    (since)/(for)/(when)). Bounded to 5 tokens so a runaway clause cannot
+    swallow the whole sentence. The result is concatenated onto the mined
+    since/since_age value so a later DATE-GROUNDED recall can DISAMBIGUATE two
+    activities that share a verb head but differ by object (building frames vs
+    building cabinets) - the object is exactly what the user query names.
+    Returns empty string when there is no object (bare activity), so the
+    existing value shape (build 2019) is preserved for verb-only disclosures.
+    Fail-closed: out-of-range index returns empty.
+    """
+    if verb_idx < 0 or verb_idx + 1 >= len(clause_tokens):
+        return ""
+    _obj = []
+    for _t in clause_tokens[verb_idx + 1:]:
+        _tl = _t.lower()
+        if _tl in _OBJECT_STOP:
+            break
+        if _tl in _OBJECT_SKIP:
+            continue
+        if not _tl or _tl.startswith("'") or _tl.isdigit():
+            break
+        _obj.append(_tl)
+        if len(_obj) >= 5:
+            break
+    return " ".join(_obj)
+
 
 def _activity_verb_ok(verb: str) -> bool:
     """True if `verb` is a legitimate activity/experience verb (not an
@@ -1444,18 +1497,29 @@ class UserModel:
             _verbs = [v.lower() for v in re.findall(
                 r"\b([a-z][a-z']+)\b", _clause, re.IGNORECASE)]
             _verb = None
-            for v in _verbs:
+            _vidx = -1
+            for _i, v in enumerate(_verbs):
                 if v in _ASPECTUAL_VERBS:
                     continue
                 if _activity_verb_ok(v):
                     _verb = v
+                    _vidx = _i
                     break
             if _verb is None:
                 continue
             _act = self._verb_stem(_verb)
             if not _act:
                 continue
-            _put_fact("since", f"{_act} {_yr}", 0.7)
+            # Capture the activity OBJECT so two activities that share a verb
+            # head but differ by object ('building frames' vs 'building
+            # cabinets') store DISTINCT facts and a later DATE-GROUNDED query
+            # ('when did i start building frames') can pick the right one. The
+            # object is sliced STRUCTURALLY (closed-class / time-adjunct words
+            # close the span), so verb-only disclosures ('i've been restoring
+            # since 2018') store the bare 'restore 2018' shape unchanged.
+            _obj = _activity_object(_verbs, _vidx)
+            _act_full = f"{_act} {_obj}".strip() if _obj else _act
+            _put_fact("since", f"{_act_full} {_yr}", 0.7)
         # (b) relative duration "for <N> years" / "<N> years now" / "<N> years ago"
         for _rm in re.finditer(
                 r"\b(?:for|about|over|nearly|almost)\s+"
@@ -1487,19 +1551,26 @@ class UserModel:
             _av = re.findall(
                 r"\b([a-z][a-z']+)\b", _pre, re.IGNORECASE)
             _verb = None
-            for _v in _av:
+            _vidx = -1
+            for _i, _v in enumerate(_av):
                 _vl = _v.lower()
                 if _vl in _ASPECTUAL_VERBS:
                     continue
                 if _activity_verb_ok(_vl):
                     _verb = _vl
+                    _vidx = _i
                     break
             if _verb is None:
                 continue
             _act = self._verb_stem(_verb)
             if not _act:
                 continue
-            _put_fact("since", f"{_act} {_since}", 0.6)
+            # Capture the activity OBJECT (mirrors block (a)) so overlapping
+            # verb heads differ by object are stored as distinct dated facts
+            # and disambiguated at recall.
+            _obj = _activity_object(_av, _vidx)
+            _act_full = f"{_act} {_obj}".strip() if _obj else _act
+            _put_fact("since", f"{_act_full} {_since}", 0.6)
         # (c) "when i was <AGE>" / "since i was <AGE>" age-anchored start.
         #     Age may be a digit ("when i was 9") or a spelled number up to
         #     twenty ("when i was nine") — both are handled via the same
@@ -1552,7 +1623,12 @@ class UserModel:
             _act = self._verb_stem(_verb)
             if not _act:
                 continue
-            _put_fact("since_age", f"{_act} {_age}", 0.6)
+            # Capture the activity OBJECT (mirrors blocks (a)/(b)) so a later
+            # age-anchored recall can disambiguate by object when two verb heads
+            # overlap.
+            _obj = _activity_object(_toks, _vidx)
+            _act_full = f"{_act} {_obj}".strip() if _obj else _act
+            _put_fact("since_age", f"{_act_full} {_age}", 0.6)
         # (d) APPROXIMATE / HUMAN-PHRASED durations. Real speech rarely says
         #     "for eleven years" — it says "for a decade" / "a few years now" /
         #     "several years" / "two decades" / "many years". Block (b) only
@@ -1596,19 +1672,25 @@ class UserModel:
                 _av = re.findall(
                     r"\b([a-z][a-z']+)\b", _pre, re.IGNORECASE)
                 _verb = None
-                for _v in _av:
+                _vidx = -1
+                for _i, _v in enumerate(_av):
                     _vl = _v.lower()
                     if _vl in _ASPECTUAL_VERBS:
                         continue
                     if _activity_verb_ok(_vl):
                         _verb = _vl
+                        _vidx = _i
                         break
                 if _verb is None:
                     continue
                 _act = self._verb_stem(_verb)
                 if not _act:
                     continue
-                _put_fact("since", f"{_act} {_since}", 0.6)
+                # Capture the activity OBJECT (mirrors blocks (a)/(b)/(c)) so
+                # fuzzy-duration facts also disambiguate by object at recall.
+                _obj = _activity_object(_av, _vidx)
+                _act_full = f"{_act} {_obj}".strip() if _obj else _act
+                _put_fact("since", f"{_act_full} {_since}", 0.6)
 
         # Opinion mining (C2): capture the user's value judgments alongside
         # facts. Runs in the miner (not only observe_user_query) so opinions are
