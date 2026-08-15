@@ -1,16 +1,16 @@
 {
   "pools": {
     "user_leads": [
-      "got it \u2014 so you're {topic}.",
-      "ah, i see \u2014 you're {topic}.",
-      "nice, so you're {topic}.",
-      "makes sense. you're {topic}."
+      "got it.",
+      "ah, i see.",
+      "nice, noted.",
+      "makes sense."
     ],
     "other_leads": [
-      "right, {topic}.",
-      "got it \u2014 {topic}.",
-      "ok, noted: {topic}.",
-      "yeah, {topic}."
+      "right.",
+      "yeah.",
+      "ok, noted.",
+      "got it."
     ],
     "user_leads_notopic": [
       "got it.",

@@ -33,12 +33,10 @@ _FIT_PATH = os.path.join(_DATA_DIR, "realizer_lexicon.json")
 # Seed exemplar pools — the former inline typed lists, demoted to data.
 _SEED_POOLS: Dict[str, List[str]] = {
     "user_leads": [
-        "got it — so you're {topic}.", "ah, i see — you're {topic}.",
-        "nice, so you're {topic}.", "makes sense. you're {topic}.",
+        "got it.", "ah, i see.", "nice, noted.", "makes sense.",
     ],
     "other_leads": [
-        "right, {topic}.", "got it — {topic}.", "ok, noted: {topic}.",
-        "yeah, {topic}.",
+        "right.", "yeah.", "ok, noted.", "got it.",
     ],
     "user_leads_notopic": ["got it.", "ah, i see.", "nice, noted.", "makes sense."],
     "other_leads_notopic": ["right.", "got it.", "ok, noted.", "yeah."],
