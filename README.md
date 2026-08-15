@@ -91,9 +91,19 @@ on this codebase:
   at runtime (`learn_material`) — no code change, no retraining, no LLM. See
   `docs/CAPABILITY_POSSESSION_ATTRIBUTE_MINING.md`.
 - **Abstains when it has no settled view.** Asked *"what do you think about
-  coffee?"* before forming its own position, it returns an honest non-answer
+  coffee?*" before forming its own position, it returns an honest non-answer
   rather than fabricating one:
   `i'm still figuring that out. i don't have a settled view on that yet — what do you think?`
+- **Reflects on its model of you (meta-identity).** Asked *"do i seem like a
+  real person to you"*, *"what am i to you"*, or *"what have you learned about
+  me"*, it answers from its **live** accumulated model of you — your real name,
+  the stances and facts it has picked up, and its own self-coherence — instead
+  of a biographical fact lookup or an episodic echo:
+  `i know you as Corvin. and from what you've told me i've picked up 2 stances you've shared and 1 facts about your life. you've let me see where you stand on things like oysters, surveillance. my own sense of self is still forming — my self-coherence sits around 0.25 and is holding steady.`
+  Every word of content is read from runtime stores (no authored prose; the
+  prior probe-tuned "feeling-real" frame was deleted). Fail-closed: a plain
+  *"what's my name"* is not intercepted and still resolves from its own path. See
+  `docs/CAPABILITY_META_IDENTITY.md`.
 
 These capabilities are backed by four durable stores — an **identity model**
 (`IdentityEngine`), **stances** (`UserStanceStore`), **personal facts**
