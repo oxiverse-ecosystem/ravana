@@ -523,6 +523,14 @@ class UserModel:
             "name", "age", "breed", "job", "work", "is", "does", "location",
             "live", "color", "type", "kind", "favorite", "gender", "role",
         }
+        # A leading qualifier that marks a SELF-FACT attribute (not an entity).
+        # "my favorite color is ochre" must stay subject 'i' (attr 'favorite
+        # color'), not be split into entity 'favorite' / relation 'color' — the
+        # head is a quantifier, not a relation the user named. Guarded in the
+        # splitter so genuine self-facts survive.
+        _SELF_QUALIFIER = {
+            "favorite", "favourite", "least", "most", "best", "worst",
+        }
 
         # D3 (round v4): name-correction detection MUST run here, not only in
         # UserModel._extract_correction_fact (which observe_user_query calls at
@@ -678,14 +686,21 @@ class UserModel:
             # 'daughter name'. The trailing token is a relation word; the head
             # is the entity. Reused _REL_WORDS (the same relation vocabulary the
             # recaller keys on) so miner and recaller stay in sync.
+            # GUARD: a head that is a SELF-FACT QUALIFIER ('favorite', 'least',
+            # 'most', ...) is NOT an entity — 'my favorite color is ochre'
+            # stays a genuine self-fact (attr 'favorite color', subject 'i'),
+            # not an entity 'favorite' with relation 'color'. Without this guard
+            # the tail-relation test wrongly entity-scoped 'favorite color' and
+            # broke its recall (round 2026-08-15T0326Z regression check).
+            # Only a multi-word attr is split; a single-token attr ('cat',
+            # 'daughter', 'name') is left as-is so pet/self-fact mining keeps
+            # its existing subject='i' key (the single-token branch was removed:
+            # it entity-scoped 'my cat is pixel' as ('cat','is','pixel') and
+            # broke pet mining).
             _toks = attr.split()
-            if len(_toks) >= 2 and _toks[-1] in _REL_WORDS:
+            if len(_toks) >= 2 and _toks[-1] in _REL_WORDS \
+                    and _toks[0] not in _SELF_QUALIFIER:
                 return " ".join(_toks[:-1]).strip(), _toks[-1]
-            # 'my daughter is petra' -> attr 'daughter' (single token, relation
-            # implied 'is'). Keep entity-scoped so 'who is petra to me' resolves.
-            if len(_toks) == 1 and _toks[0] not in _REL_WORDS \
-                    and _toks[0] not in _VALUE_STOP:
-                return _toks[0], "is"
             return None, attr
 
         def _put_fact_ent(entity: str, attr: str, val: str, conf: float) -> None:
