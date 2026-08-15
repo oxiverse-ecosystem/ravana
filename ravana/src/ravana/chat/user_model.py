@@ -308,6 +308,21 @@ _FRAMER_OBJ = frozenset({
     "currently", "right", "then", "here",
 })
 
+# Aspectual / framer verbs that LEAD an activity but are not the activity head
+# themselves ("i've BEEN building", "i STARTED keeping", "i got into"). When
+# extracting the activity verb for date mining, skip these and take the lexical
+# verb that follows. Defined once (round 2026-08-15T0326Z) so the date-miner
+# blocks (a)/(b)/(c) stay in sync instead of each hardcoding its own skip list.
+_ASPECTUAL_VERBS = frozenset({
+    "been", "have", "has", "had", "start", "starts", "started", "begin",
+    "begins", "began", "get", "gets", "got", "go", "goes", "went",
+})
+
+# Particles that turn a verb into a phrasal ("pick up", "took up", "got into").
+# Appended to the captured head verb so "i picked up the cello" stores
+# "pick up" (not just "pick"). Structural; generalizes across any phrasal verb.
+_PARTICLES = frozenset({"up", "on", "in", "out", "off", "down", "with", "into"})
+
 
 def _activity_verb_ok(verb: str) -> bool:
     """True if `verb` is a legitimate activity/experience verb (not an
@@ -1414,19 +1429,28 @@ class UserModel:
                 continue
             _clause = q_clean[:_ym.start()].rsplit(".", 1)[-1].rsplit(
                 "!", 1)[-1].rsplit("?", 1)[-1].rsplit(",", 1)[-1]
-            _av = re.search(
-                r"\b([a-z][a-z']+)\b", _clause, re.IGNORECASE)
-            if not _av:
-                continue
-            _verb = _av.group(1).lower()
-            # skip leading framers / auxiliaries ("i've", "i", "been", "the")
-            if _verb in ("i", "i've", "i'm", "been", "have", "had", "the",
-                         "a", "an", "my", "we", "they", "you"):
-                _av2 = re.search(
-                    r"\b([a-z][a-z']+)\b",
-                    _clause[_av.end():], re.IGNORECASE)
-                _verb = _av2.group(1).lower() if _av2 else _verb
-            if not _activity_verb_ok(_verb):
+            # Round 2026-08-15T0326Z GENERALIZE: take the FIRST legitimate
+            # activity verb in the clause, skipping aspectual/framer verbs
+            # ("i've BEEN building" -> build; "i STARTED keeping" -> keep). A
+            # verb precedes its object in English, so the FIRST activity-ok
+            # verb (after dropping aspectuals) is the activity head — not the
+            # auxiliary ("been"/"started") that led, and not a trailing noun
+            # ("tube amps") that happens to pass _activity_verb_ok. Structural
+            # (no frozen verb list); reuses _activity_verb_ok so rotated-persona
+            # verbs (kept/raced/...) still land. Restored the content-head
+            # behaviour the old miner had (regression vs
+            # test_round_2026_08_14T0608_temporal when the first raw word was
+            # taken).
+            _verbs = [v.lower() for v in re.findall(
+                r"\b([a-z][a-z']+)\b", _clause, re.IGNORECASE)]
+            _verb = None
+            for v in _verbs:
+                if v in _ASPECTUAL_VERBS:
+                    continue
+                if _activity_verb_ok(v):
+                    _verb = v
+                    break
+            if _verb is None:
                 continue
             _act = self._verb_stem(_verb)
             if not _act:
@@ -1452,25 +1476,29 @@ class UserModel:
             # find the activity the duration attaches to: the nearest verb
             # phrase before the duration marker (the activity is stated in the
             # same clause, e.g. "i've repaired tube amps for eleven years").
-            # Round 2026-08-15T0326Z GENERALIZE: extract the last verb in the
-            # preceding clause structurally and accept it iff it is a
-            # legitimate activity verb (_activity_verb_ok) — replaces the
+            # Round 2026-08-15T0326Z GENERALIZE: extract the activity verb
+            # STRUCTURALLY (any word that passes _activity_verb_ok), skipping
+            # aspectual/framer verbs, and take the FIRST such verb — a verb
+            # precedes its object, so the first activity-ok verb is the head
+            # ("i've REPAIRED tube amps" -> repair), not a trailing noun
+            # ("amps") that merely passes _activity_verb_ok. Replaces the
             # frozen verb allowlist so rotated-persona activities land too.
             _pre = q_clean[:_rm.start()]
             _av = re.findall(
                 r"\b([a-z][a-z']+)\b", _pre, re.IGNORECASE)
-            _av = [_v for _v in _av
-                   if _v.lower() not in ("i", "i've", "i'm", "been", "have",
-                                          "had", "the", "a", "an", "my", "we",
-                                          "they", "you", "for", "about", "over",
-                                          "nearly", "almost")]
-            _av = [_v for _v in _av if _activity_verb_ok(_v)]
-            if not _av:
+            _verb = None
+            for _v in _av:
+                _vl = _v.lower()
+                if _vl in _ASPECTUAL_VERBS:
+                    continue
+                if _activity_verb_ok(_vl):
+                    _verb = _vl
+                    break
+            if _verb is None:
                 continue
-            _act = self._verb_stem(_av[-1].lower())
+            _act = self._verb_stem(_verb)
             if not _act:
                 continue
-            _act = self._verb_stem(_act)
             _put_fact("since", f"{_act} {_since}", 0.6)
         # (c) "when i was <AGE>" / "since i was <AGE>" age-anchored start.
         #     Age may be a digit ("when i was 9") or a spelled number up to
@@ -1498,23 +1526,33 @@ class UserModel:
             # verb allowlist so any activity verb (e.g. a rotated-persona
             # verb) anchors the age fact.
             _clause = q_clean[max(0, _am.start() - 60):_am.end() + 60]
-            _av = re.search(
-                r"\b([a-z][a-z']+)\b", _clause, re.IGNORECASE)
-            if not _av:
+            # Round 2026-08-15T0326Z GENERALIZE: take the FIRST legitimate
+            # activity verb, skipping aspectual/framer verbs ("i", "was",
+            # "been", ...), and append a trailing particle ("up"/"on"/...) so
+            # a phrasal verb ("picked UP the cello") stores "pick up" — not
+            # just "pick". Structural; reuses _activity_verb_ok + _ASPECTUAL_VERBS
+            # + _PARTICLES so rotated-persona verbs land too (replaces the
+            # frozen verb allowlist that missed inflected/phrasal forms).
+            _toks = re.findall(r"\b([a-z][a-z']+)\b", _clause, re.IGNORECASE)
+            _verb = None
+            _vidx = -1
+            for _i, _tk in enumerate(_toks):
+                _tl = _tk.lower()
+                if _tl in _ASPECTUAL_VERBS:
+                    continue
+                if _activity_verb_ok(_tl):
+                    _verb = _tl
+                    _vidx = _i
+                    break
+            if _verb is None:
                 continue
-            _verb = _av.group(1).lower()
-            if _verb in ("i", "i've", "i'm", "was", "were", "been", "have",
-                         "had", "the", "a", "an", "my", "when", "since", "about",
-                         "around"):
-                _av2 = re.search(
-                    r"\b([a-z][a-z']+)\b", _clause[_av.end():], re.IGNORECASE)
-                _verb = _av2.group(1).lower() if _av2 else _verb
-            if not _activity_verb_ok(_verb):
-                continue
+            # phrasal: include a following particle ("pick up", "took up")
+            if _vidx + 1 < len(_toks) and _toks[_vidx + 1].lower() in _PARTICLES:
+                _verb = f"{_verb} {_toks[_vidx + 1].lower()}"
             _act = self._verb_stem(_verb)
             if not _act:
                 continue
-            _put_fact("since_age", f"{_act} {_age}", 0.5)
+            _put_fact("since_age", f"{_act} {_age}", 0.6)
         # (d) APPROXIMATE / HUMAN-PHRASED durations. Real speech rarely says
         #     "for eleven years" — it says "for a decade" / "a few years now" /
         #     "several years" / "two decades" / "many years". Block (b) only
@@ -1557,14 +1595,17 @@ class UserModel:
                 _pre = q_clean[:_dm.start()]
                 _av = re.findall(
                     r"\b([a-z][a-z']+)\b", _pre, re.IGNORECASE)
-                _av = [_v for _v in _av
-                       if _v.lower() not in ("i", "i've", "i'm", "been",
-                                              "have", "had", "the", "a", "an",
-                                              "my", "we", "they", "you")]
-                _av = [_v for _v in _av if _activity_verb_ok(_v)]
-                if not _av:
+                _verb = None
+                for _v in _av:
+                    _vl = _v.lower()
+                    if _vl in _ASPECTUAL_VERBS:
+                        continue
+                    if _activity_verb_ok(_vl):
+                        _verb = _vl
+                        break
+                if _verb is None:
                     continue
-                _act = self._verb_stem(_av[-1].lower())
+                _act = self._verb_stem(_verb)
                 if not _act:
                     continue
                 _put_fact("since", f"{_act} {_since}", 0.6)
