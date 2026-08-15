@@ -513,6 +513,17 @@ class UserModel:
             "am", "be", "been", "being", "to", "of", "in", "on", "at", "for",
             "with", "my", "your", "i", "you", "it", "this", "that", "me"}
 
+        # Relation words for the HEADLESS possessive splitter (round
+        # 2026-08-15T0326Z). The SAME vocabulary _structured_recall._ENT_ATTR
+        # keys on, so the miner and the recaller stay in sync by construction.
+        # A multi-word attr whose final token is one of these resolves to
+        # (entity=<head>, relation=<word>); anything else stays a genuine
+        # self-fact (e.g. "favorite color" -> (None, attr)).
+        _REL_WORDS = {
+            "name", "age", "breed", "job", "work", "is", "does", "location",
+            "live", "color", "type", "kind", "favorite", "gender", "role",
+        }
+
         # D3 (round v4): name-correction detection MUST run here, not only in
         # UserModel._extract_correction_fact (which observe_user_query calls at
         # engine.py:4193 — AFTER the self-disclosure early-return at :3392). A
@@ -647,10 +658,34 @@ class UserModel:
             'my cat's name is whiskers' -> entity=cat, attr=name). This is
             structural: any 'my <X>'s <Y> is Z' is stored under entity X, never
             under the user's 'i' subject. Generic — no per-entity table. The
-            entity grows from experience (the user can name any relation)."""
+            entity grows from experience (the user can name any relation).
+
+            Round 2026-08-15T0326Z GENERALIZE: also handle the HEADLESS
+            possessive 'my <entity> <relation> is Z' (no apostrophe), e.g.
+            'my daughter name is petra' -> attr 'daughter name'. The old code
+            only matched the '<entity>'s <relation>' form, so 'daughter name'
+            fell through to subject 'i' (attr 'daughter name') and a later
+            'what's my daughter's name' echoed the USER's name instead. Now any
+            attr whose LAST token is a relation word resolves to
+            (entity=<head>, relation=<word>), so the miner agrees with the
+            recaller (_structured_recall._ENT_ATTR) by construction for BOTH
+            possessive shapes. Still returns (None, attr) for genuine self-facts
+            like 'favorite color' (neither head nor tail is a relation word)."""
             _am = re.match(r"^([\w'-]+)'s\s+(.+)$", attr)
             if _am:
                 return _am.group(1).strip().lower(), _am.group(2).strip().lower()
+            # Headless possessive: 'my daughter name is petra' -> attr
+            # 'daughter name'. The trailing token is a relation word; the head
+            # is the entity. Reused _REL_WORDS (the same relation vocabulary the
+            # recaller keys on) so miner and recaller stay in sync.
+            _toks = attr.split()
+            if len(_toks) >= 2 and _toks[-1] in _REL_WORDS:
+                return " ".join(_toks[:-1]).strip(), _toks[-1]
+            # 'my daughter is petra' -> attr 'daughter' (single token, relation
+            # implied 'is'). Keep entity-scoped so 'who is petra to me' resolves.
+            if len(_toks) == 1 and _toks[0] not in _REL_WORDS \
+                    and _toks[0] not in _VALUE_STOP:
+                return _toks[0], "is"
             return None, attr
 
         def _put_fact_ent(entity: str, attr: str, val: str, conf: float) -> None:
