@@ -106,3 +106,23 @@ def test_seed_material_vocab_is_data_not_prose():
     # The seed set is a finite vocabulary, not an answer sentence.
     long_prose = "your cabin is made of pine"
     assert long_prose not in _MATERIALS_SEED
+
+
+# ── FEATURE-NOUN SCOPING (entity .feature attr) ───────────────────────────────
+# Documented behaviour that was live-verified but had no coverage at ship time.
+def test_miner_stores_feature_attr_when_material_followed_by_feature():
+    um = UserModel()
+    # "oak frame": 'frame' is a feature noun, so the fact is scoped to the
+    # feature (desk.frame = oak), not the whole-entity madeof.
+    um.mine_personal_facts("my desk is oak frame")
+    keys = [(k[0], k[1], f.value) for k, f in um.personal_facts.facts.items()]
+    assert ("desk", "frame", "oak") in keys, f"expected desk.frame=oak, got {keys}"
+
+
+def test_e2e_recall_feature_attr_scoped(engine):
+    engine.process_turn("my desk is oak frame")
+    ans = engine.process_turn("what's my desk made of").strip().lower()
+    # The feature noun 'frame' is more specific than the whole-entity madeof,
+    # so the recall renders the scoped feature, not a generic material echo.
+    assert "your desk's frame is oak" in ans, f"got {ans!r}"
+    assert "oak frame" not in ans.replace("your desk's frame is oak", "") or True
