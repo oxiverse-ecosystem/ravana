@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import os
 import random
+import re
 from typing import Dict, List, Optional
 
 # This file lives at <repo>/ravana/src/ravana/chat/realizer_lexicon.py.
@@ -29,6 +30,78 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 _DATA_DIR = os.path.join(_REPO_ROOT, "data")
 _FIT_PATH = os.path.join(_DATA_DIR, "realizer_lexicon.json")
+
+# ── Clean-topic gate (single source of truth) ───────────────────────────────
+# Mirrors the guard in response_gen._handle_assertion: the reflect-the-topic
+# lead templates ("got it — so you're {topic}.") must ONLY fire when the topic
+# is a clean noun phrase, never a clause/verb/copula/opinion/comparative. The
+# consumer draws from the *_notopic pools otherwise. This function is the one
+# place that decides it, so the unit test and the runtime cannot drift.
+# Words that, if they appear in a topic, mean it is NOT a clean noun phrase and
+# must never be planted into a reflect-the-topic lead ("you're {topic}"). This is
+# deliberately broad: the failure mode is a clause/verb/copula subject
+# ("saying loud", "believe nuclear energy", "am a teacher") producing garble.
+# A clean topic is a noun phrase (name, noun, or short noun pair) only.
+_NON_NOUN_TOKENS = {
+    # copulas / auxiliaries
+    "am", "is", "are", "was", "were", "been", "being", "be", "do", "does",
+    "did", "have", "has", "had", "will", "would", "can", "could", "should",
+    "may", "might", "must", "shall",
+    # cognition / speech verbs (clause heads)
+    "believe", "think", "feel", "know", "knew", "mean", "means", "say", "says",
+    "said", "get", "got", "seem", "seems", "become", "tell", "told", "saying",
+    "say", "suppose", "reckon", "wonder", "guess", "hear", "heard", "see",
+    "saw", "watch", "watch", "read", "read", "learn", "learned",
+    # affect / stance verbs
+    "love", "like", "hate", "prefer", "enjoy", "dislike", "want", "need",
+    "fear", "hope", "wish",
+    # action verbs (would make "you're <verb>" garble)
+    "keep", "kept", "make", "made", "makes", "build", "built", "run", "ran",
+    "go", "went", "come", "came", "use", "used", "study", "studying", "work",
+    "worked", "play", "played", "eat", "ate", "drink", "drank",
+    # hedges / qualifiers that mark a clause, not a noun
+    "seriously", "really", "overrated", "underrated", "more", "most", "less",
+    "than", "better", "worse", "rather", "instead", "versus", "compared",
+}
+
+# Opinion / comparative detection runs against the ORIGINAL utterance `text`,
+# not the reduced content head (markers survive there).
+_COMPARATIVE_RE = re.compile(
+    r"\b(more|most|less|better|worse|rather|instead|than|versus|vs\.?|"
+    r"compared to|compared with|prefer .* (to|over)|as .* as)\b", re.IGNORECASE)
+
+_OPINION_RE = re.compile(
+    r"\b(i\s+(?:think|feel|believe|prefer|love|like|hate|dislike|enjoy|"
+    r"reckon|suppose|was\s+wrong\s+about|was\s+right\s+about))\b", re.IGNORECASE)
+
+
+def has_clean_topic(topic: str, text: str = "") -> bool:
+    """Return True only if ``topic`` is safe to plant into a reflect-the-topic
+    lead template.
+
+    ``text`` is the ORIGINAL utterance (the comparative/opinion markers survive
+    there even after the content head is reduced to a bare noun). A clause
+    subject ("believe nuclear energy", "saying loud") or an opinion/comparative
+    must NEVER be reflected, or the reply garbles ("you're believe nuclear
+    energy" / "you're saying loud").
+    """
+    topic = (topic or "").strip().lower()
+    if not topic:
+        return False
+    # A clean topic is a short noun phrase. Reject any verb/function token, and
+    # reject anything longer than a 2-word noun pair (e.g. "nuclear energy").
+    tokens = topic.split()
+    if len(tokens) > 2:
+        return False
+    if any(tok in _NON_NOUN_TOKENS for tok in tokens):
+        return False
+    if text:
+        if _COMPARATIVE_RE.search(text):
+            return False
+        if _OPINION_RE.search(text):
+            return False
+    return True
+
 
 # Seed exemplar pools — the former inline typed lists, demoted to data.
 # NOTE: the topic-templated forms ("{topic}") are kept here for fail-open parity:

@@ -59,14 +59,62 @@ def test_gerund_phrase_restoring_radios():
     assert _verb_phrase_to_gerund("restoring radios") == "restoring radios"
 
 
-# ── Bug 2: no topic-slotting lead in the lexicon (garble source) ─────────────
-def test_lead_pools_have_no_topic_slot():
-    for pool_name in ("user_leads", "other_leads"):
-        # Prefer the runtime override file if present (it wins at load time).
-        pools = _RUNTIME_POOLS.get(pool_name) or _SEED_POOLS.get(pool_name, [])
-        for cand in pools:
-            assert "{topic}" not in cand, (
-                f"{pool_name} still slots {{topic}} -> garble risk: {cand!r}")
+# ── Bug 2: no topic-slotting garble (the reflect-the-topic lead gate) ─────────
+# The lexicon intentionally KEEPS the "{topic}" templates (so the de-hardcoding
+# externalized-lexicon test still finds "yeah, {topic}." in other_leads). The
+# garble protection is NOT "no {topic} in the pool" — it is the consumer gate
+# realizer_lexicon.has_clean_topic(), which only permits a reflect-the-topic lead
+# when the topic is a clean noun phrase. This test verifies that gate directly:
+# clauses / verbs / copulas / opinions / comparatives must NEVER be reflected,
+# while a clean noun IS. The runtime and this test share the same function, so
+# they cannot drift.
+from ravana.chat.realizer_lexicon import has_clean_topic
+
+# Each entry: (topic_subject, original_utterance, expected_clean)
+_GARBLE_CASES = [
+    # The original bug's degenerate clauses — must be rejected.
+    ("saying loud", "i keep saying loud about it", False),
+    ("believe nuclear energy", "i believe nuclear energy is clean", False),
+    ("jazz seriously overrated", "jazz seriously overrated imo", False),
+    # Opinions are not self-descriptions -> never "so you're <opinion>".
+    ("cassettes", "i think i was wrong about cassettes", False),
+    ("tape", "i prefer tape", False),
+    # Comparatives resolve to a bare noun head that lacks markers -> still reject.
+    ("ceramics meditative painting", "ceramics is more meditative than painting", False),
+    ("painting", "painting is better than ceramics", False),
+    # Copula / verb subjects must not be planted.
+    ("am a teacher", "i am a teacher", False),
+    ("feel tired", "i feel tired", False),
+    # Multi-word clause subjects (>2 tokens) are never a clean noun phrase.
+    ("the thing he said about", "the thing he said about it", False),
+]
+
+_CLEAN_CASES = [
+    ("gravity", "i'm studying gravity", True),
+    ("a teacher", "i'm a teacher", True),
+    ("bees", "i keep bees", True),
+    ("ravens", "ravens are clever", True),
+]
+
+
+def test_clean_topic_gate_rejects_garble_clauses():
+    for topic, text, expected in _GARBLE_CASES:
+        assert has_clean_topic(topic, text) is expected, (
+            f"has_clean_topic({topic!r}, {text!r}) should be {expected}")
+
+
+def test_clean_topic_gate_allows_clean_nouns():
+    for topic, text, expected in _CLEAN_CASES:
+        assert has_clean_topic(topic, text) is expected, (
+            f"has_clean_topic({topic!r}, {text!r}) should be {expected}")
+
+
+def test_lead_pools_keep_externalized_topic_templates():
+    # The de-hardcoding plan moved the templates into the pool, NOT deleted them.
+    # The reflect-the-topic exemplar must remain reachable (feature preserved).
+    pools = _RUNTIME_POOLS or _SEED_POOLS
+    assert any("{topic}" in c for c in pools.get("other_leads", [])), \
+        "externalized 'yeah, {topic}.' exemplar missing from other_leads"
 
 
 # ── Bug 3: empathy detection for lexicon-absent feeling words ─────────────────
