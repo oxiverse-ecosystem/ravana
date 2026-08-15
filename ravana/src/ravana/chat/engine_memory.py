@@ -73,6 +73,8 @@ from .constants import (TEEN_CONCEPTS, WEB_GARBAGE, STOP_WORDS, ConceptPosDict,
 from .web_learning import WebLearningMixin
 from ravana._import_guard import report_missing  # non-silent import-guard logging
 from . import pet_slots as _pet_slots
+from . import possession_attrs as _poss_attrs
+
 # Defect F: learned structural-PE snippet model (contrastive gap). Imported
 # lazily-safe so a missing module degrades gracefully (the gate stays None and
 # the old heuristic floor remains the backstop, never weakened).
@@ -391,6 +393,20 @@ class MemoryMixin:
                             _m_idx = re.search(r"_(\d+)$", str(_attr))
                             _idxnum = _m_idx.group(1) if _m_idx else "1"
                             _entity_idx.setdefault(_sp, {})[_idxnum] = _val
+                        # Possession-attribute facts (round 2026-08-15T0830Z,
+                        # Bug 4) are stored under the ENTITY key (cabin / sword)
+                        # with attributes 'madeof' / a feature noun (roof/wall/..),
+                        # mirroring the pet folding above. Without this fold a
+                        # "what's my cabin made of" recall cannot resolve the
+                        # structured fact and falls through to a whole-sentence
+                        # echo. The render site (_reconstruct_entity) already
+                        # knows how to phrase 'madeof' / feature attrs via
+                        # possession_attrs.render, so folding here is sufficient
+                        # for a clean recall answer.
+                        elif _attr and _attr not in ("name", "location", "does",
+                                                     "event", "is", "favorite",
+                                                     "likes", "background"):
+                            _entity_idx.setdefault(_key[0], {})[_attr] = _val
         except Exception:
             pass
 
@@ -436,6 +452,16 @@ class MemoryMixin:
                     bits.append(f"you live in {val}")
                 elif attr == "background":
                     bits.append(f"{val}")
+                # Possession-attribute facts (round 2026-08-15T0830Z, Bug 4):
+                # render 'madeof' as a natural clause and feature nouns
+                # (roof/wall/...) via the shared possession_attrs renderer, so a
+                # cued recall of a material fact reads cleanly ("your cabin is
+                # made of pine" / "your cabin's roof is sod") instead of the
+                # bare-slot form "your cabin's madeof is pine".
+                elif attr == "madeof":
+                    bits.append(f"your {ent} is made of {val}")
+                elif _poss_attrs.is_feature_noun(attr):
+                    bits.append(_poss_attrs.render(ent, attr, val))
                 # Pets are stored under a species-keyed slot (entity "cat",
                 # attr "1"/"2"). Render as a natural clause rather than
                 # "your cat's 1 is pixel".
