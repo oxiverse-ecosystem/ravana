@@ -186,8 +186,17 @@ def _verb_phrase_to_gerund(phrase: str) -> str:
     _parts = _p.split()
     _head = _parts[0].lower()
     _base = _head[:-1] if (_head.endswith("s") and len(_head) > 3) else _head
-    _ger = _gerund_of(_base)
     _rest = _parts[1:]
+    # Already-gerund head: the stored activity may come from a `does`/`event`
+    # fact whose leading verb is ALREADY a gerund ("building frames", "studying
+    # volcanoes"). Re-gerunding it would produce a broken double-gerund
+    # ("buildinging frames"). Detect a regular gerund head (its -ing form is
+    # exactly the head itself) and pass the phrase through unchanged — this is
+    # the natural realization a date-recall reply needs ("you started building
+    # frames in 2019"), no morphology needed.
+    if _head.endswith("ing") and len(_head) >= 5 and _gerund_of(_base) == _head:
+        return _p
+    _ger = _gerund_of(_base)
     # Detect a redundant inceptive leading verb ("start/begin/began") in front
     # of a gerund — keep only the gerund as the activity head.
     _INCEPTIVE = {"start", "started", "begin", "began", "begins", "beginning"}
