@@ -748,8 +748,24 @@ class UserModel:
         if not m_name:
             m_name = re.search(r"\b(?:do\s+you\s+know\s+my\s+name|know\s+my\s+name|is\s+my\s+name)\s+is\s+(.+)", q_clean, re.IGNORECASE)
         m_loc = re.search(
-            r"\bi\s+(?:live|lives|am|was|were|grew\s+up)\s+(?:in|near|at|from)\s+"
+            r"\bi\s+(?:live|lives|am|was|were|grew\s+up|moved|move|stay|stayed)\s+"
+            r"(?:in|near|at|from|to|onto)\s+"
             r"([A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z][A-Za-z'\-]*){0,7})",
+            q_clean, re.IGNORECASE)
+        # Round 2026-08-15T0326Z: also capture "i keep <thing> on <place>" /
+        # "i have my studio on <place>" — a common way users state WHERE they
+        # are (lighthouse keeper, boat restorer, ...). The main m_loc verb set
+        # only covered live/am/was/grew-up, so "i keep the lighthouse on hollis
+        # rock" was stored as a 'does' activity with NO location fact, and a
+        # later "where do i live" fell through to an over-broad self-profile
+        # dump (echoing the user's name). Generic: any "keep/have <noun> on
+        # <Place>" captures the place head. The place is the token after "on";
+        # capped at 4 words so a trailing clause ("on hollis rock, it's tiny")
+        # is trimmed.
+        m_loc_on = re.search(
+            r"\bi\s+(?:keep|have|kept|had)\s+(?:the\s+|a\s+|an\s+|my\s+)?"
+            r"[A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z][A-Za-z'\-]*){0,3}\s+"
+            r"on\s+([A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z][A-Za-z'\-]*){0,3})",
             q_clean, re.IGNORECASE)
         # FIX (round v-aug06b): when the location clause NAMES a place via
         # "called/named" (e.g. "i live in a small town called hollow creek"),
@@ -774,6 +790,15 @@ class UserModel:
             m_loc = type("_Loc", (), {"group": lambda self, n: _named_loc.group(1)})()
             # store the named toponym directly (reuse m_loc handling below)
             _loc = _named_loc.group(1).strip().strip(" .,!")
+            if _loc and len(_loc.split()) <= 4:
+                self.user_location = _loc
+                _put_fact("location", _loc, 0.6)
+        elif m_loc_on and not m_loc:
+            # Round 2026-08-15T0326Z: "i keep the lighthouse on hollis rock"
+            # -> capture the place head after "on". Trim a trailing clause at a
+            # comma/period so "hollis rock, it's tiny" -> "hollis rock".
+            _loc = m_loc_on.group(1).strip().strip(" .,!")
+            _loc = re.split(r"\s+(?:and|but|,|\.)\s*", _loc)[0].strip()
             if _loc and len(_loc.split()) <= 4:
                 self.user_location = _loc
                 _put_fact("location", _loc, 0.6)
