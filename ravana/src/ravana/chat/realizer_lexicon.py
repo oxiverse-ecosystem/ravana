@@ -31,12 +31,17 @@ _DATA_DIR = os.path.join(_REPO_ROOT, "data")
 _FIT_PATH = os.path.join(_DATA_DIR, "realizer_lexicon.json")
 
 # Seed exemplar pools — the former inline typed lists, demoted to data.
+# NOTE: the topic-templated forms ("{topic}") are kept here for fail-open parity:
+# if data/realizer_lexicon.json is absent, RealizerLexicon() must still carry the
+# reflect-the-topic templates so realize() can fill {topic} (see realize()).
 _SEED_POOLS: Dict[str, List[str]] = {
     "user_leads": [
-        "got it.", "ah, i see.", "nice, noted.", "makes sense.",
+        "got it — so you're {topic}.", "ah, i see — you're {topic}.",
+        "nice, so you're {topic}.", "makes sense. you're {topic}.",
     ],
     "other_leads": [
-        "right.", "yeah.", "ok, noted.", "got it.",
+        "right, {topic}.", "got it — {topic}.",
+        "ok, noted: {topic}.", "yeah, {topic}.",
     ],
     "user_leads_notopic": ["got it.", "ah, i see.", "nice, noted.", "makes sense."],
     "other_leads_notopic": ["right.", "got it.", "ok, noted.", "yeah."],
