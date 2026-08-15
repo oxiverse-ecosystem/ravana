@@ -152,6 +152,16 @@ def _gerund_of(verb: str) -> str:
         return _v
     if _v in _IRREGULAR_GERUND:
         return _IRREGULAR_GERUND[_v]
+    # A stem already ending in -ing (e.g. "restoring", "building") is ALREADY a
+    # gerund; re-appending -ing would produce a broken double-gerund
+    # ("restoringing"). This is the root cause of the "you started restoringing
+    # radios" defect (round 2026-08-15T0830Z): the date-recall realizer called
+    # _gerund_of on a bare stem that was itself already a gerund. Pass it through
+    # unchanged. (The leading-verb "building frames" case is handled separately
+    # in _verb_phrase_to_gerund, but every other caller feeds a bare stem here,
+    # so the guard belongs at the lowest level too.)
+    if _v.endswith("ing") and len(_v) >= 5:
+        return _v
     if len(_v) >= 3 and _v[-1] in "bcdfgklmnprstvz" and _v[-2] in "aeiou" \
             and _v[-3] in "bcdfgklmnprstvz" and _v[-1] != _v[-2] \
             and _v[-2] != _v[-3]:
