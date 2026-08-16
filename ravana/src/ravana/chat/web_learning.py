@@ -2054,6 +2054,24 @@ class WebLearningMixin(ResponseGenMixin):
         """Signal that the user is idle (resume background learning)."""
         self._bg_idle_event.set()  # thread will wake and process
         self._curiosity_cycles_this_session = 0  # fresh curiosity budget per idle period
+        # AgentReplyStore capture (round 2026-08-16, D1 source-monitoring fix).
+        # This is the SINGLE chokepoint all early conversational replies pass
+        # through (called at every reply-return site). Recording the last emitted
+        # reply here guarantees the store is populated regardless of which
+        # handler produced it. The post-generation path in process_turn also
+        # calls _record_own_reply directly, so the _generate_response route is
+        # covered too. Topic is derived from the grounded subject / user query by
+        # the helper; replies to self-recall queries are skipped. The stored text
+        # is the REAL generated reply (never authored prose), and RAVANA can
+        # revise it at runtime, so it is seed-like state, not frozen code.
+        try:
+            _ui = getattr(self, "_last_user_input", None)
+            _replies = getattr(self, "_last_responses", None)
+            if _replies:
+                self._record_own_reply(_ui, _replies[-1],
+                                       getattr(self, "_last_subject", None))
+        except Exception:
+            pass
 
     # --- Phase 18: Curiosity Drive - Autonomous Topic Selection ---
     # Based on: Berlyne epistemic curiosity, Loewenstein information-gap theory,

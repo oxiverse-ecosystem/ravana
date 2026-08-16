@@ -1216,6 +1216,19 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # passes the hardcoding line; it is a memory of real output, grown from
         # conversation, and the user can correct/override it like any store.
         self._agent_claims = {}
+        # AgentReplyStore (round 2026-08-16 — source-monitoring fix for D1).
+        # RAVANA records its OWN generated replies, keyed by topic, so a cued
+        # recall that asks about the AGENT's own prior speech
+        # ("what did you say about music") can answer from RAVANA's own output
+        # instead of echoing a USER utterance back in second person — the
+        # source-monitoring inversion the audit flagged. Each entry is real
+        # generated text (not authored prose), tagged with the grounded topic
+        # and turn index. RAVANA can overwrite/extend it at runtime (when asked
+        # to re-state a view it replaces the stored reply), so it is seed-like
+        # state, never frozen code. Persisted + repaired on load like the
+        # other runtime stores.
+        self._own_replies = {}  # topic(str) -> list[dict(text, turn, t)]
+        self._own_reply_topic_idx = {}  # topic -> 1 (presence index for content lookup)
 
         # P6: one epistemic register (roadmap #12) toggling confidence /
         # verbosity / curiosity in a single place, instead of scattering
@@ -3052,6 +3065,196 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 return _f.value
         return None
 
+    def _record_own_reply(self, user_input: str, response: str, subject: str) -> None:
+        """Record RAVANA's OWN emitted reply into the AgentReplyStore so a later
+        cued recall about the agent's own speech can answer from RAVANA's output
+        instead of echoing the user (D1 source-monitoring fix).
+
+        Called from every reply-producing path in process_turn (the
+        _generate_response tail AND the early self-model return sites) so no
+        reply is missed. The stored text is the REAL generated response, never
+        authored prose, so this passes the no-hardcoding line by construction.
+        RAVANA can overwrite/extend the store at runtime (re-stating a view
+        replaces the stored reply), so it is seed-like state, not frozen code.
+        Replies to self-recall queries are NOT stored (they have no genuine
+        topic of the agent's own).
+        """
+        try:
+            _rt = (response or "").strip()
+            if not _rt or len(_rt) < 12:
+                return
+            _q_low = (user_input or "").lower()
+            _is_recall_q = bool(re.search(
+                r"\b(what did you say|what did you tell|earlier you said|"
+                r"did you (say|tell|form|mention|state)|you said about|"
+                r"you told me about|what were you|recall what you)\b", _q_low))
+            if _is_recall_q:
+                return  # skip; the recall gate reads the store instead
+            # Key by the grounded concept for this turn; fall back to the LAST
+            # content word of the user query when the subject is a non-content
+            # word (hello/how/bye/ravana). Prefer the last content word because in
+            # a recall query the real topic follows the scaffold ("earlier you
+            # said something about music" -> "music").
+            _topic = (subject or "").strip().lower()
+            if not _topic or _topic in ("hello", "how", "bye", "ravana"):
+                _skip = ("who are you", "what are you", "what do you want",
+                         "are you alive", "do you have a sense", "hello",
+                         "hi ", "how are you", "what do you care")
+                if any(_s in _q_low for _s in _skip):
+                    return
+                _words = [w for w in re.findall(r"[a-z']+", _q_low)
+                          if len(w) >= 4 and w not in (
+                              "about", "think", "feel", "what", "tell",
+                              "like", "love", "hate", "do", "you", "your",
+                              "again", "really", "something", "music",
+                              "earlier", "before", "said", "say", "told",
+                              "tellme", "anything", "mention", "mentioned",
+                              "form", "formed", "opinion", "remember",
+                              "recall", "answer", "answered", "reply",
+                              "replied", "state", "stated", "still",
+                              "wonder", "wondering", "asked", "ask")]
+                if not _words:
+                    return
+                _topic = _words[-1]
+            if not _topic or _topic in ("hello", "how", "bye"):
+                return
+            self._own_replies.setdefault(_topic, [])
+            # Replace any prior reply on the same topic so re-stating a view keeps
+            # the store current (incremental self-revision).
+            self._own_replies[_topic] = [{
+                "text": _rt,
+                "turn": int(getattr(self, "turn_count", 0) or 0),
+                "t": time.time(),
+            }]
+            self._own_reply_topic_idx[_topic] = 1
+        except Exception:
+            pass
+
+    def _route_agent_own_recall(self, user_input: str) -> Optional[str]:
+        """Answer a cued recall about RAVANA's OWN prior speech from the
+        AgentReplyStore (_own_replies), never from the user transcript.
+
+        SOURCE-MONITORING FIX (round 2026-08-16, defect D1). A query that asks
+        about the AGENT's own earlier words — "what did you say about music",
+        "earlier you said something about X", "did you tell me you were ...",
+        "did you form an opinion about privacy" — was being answered by echoing a
+        USER utterance back in second person ("you told me earlier: ..."). That is
+        a source-monitoring inversion: the engine retrieved an episode but
+        misattributed the speaker and rendered the USER's line as if the user had
+        said it. Root cause: RAVANA had NO store of its own replies, so the only
+        retrievable trace was the user's.
+
+        This gate fires ONLY when the query clearly asks about the agent's own
+        speech (deictic "you/your" + a recall verb + a topic), and answers from
+        _own_replies keyed by that topic. It is fail-open: when the topic has no
+        stored agent reply, it returns None and the turn proceeds to honest
+        uncertainty / other stores. No authored prose, no per-topic table — the
+        content is whatever RAVANA actually generated and stored at runtime.
+        """
+        _q = (user_input or "").lower().strip()
+        if not _q:
+            return None
+        # Agent-self-speech recall: must reference the agent ("you/your") AND a
+        # recall/reference verb, so plain world/opinion questions are untouched.
+        _agent_ref = bool(re.search(r"\b(you|your|yourself)\b", _q))
+        _recall_v = bool(re.search(
+            r"\b(said|tell|told|say|mention|mentioned|formed|opinion|"
+            r"stated|answered|replied|remember|recall|earlier|before|"
+            r"said about|say about|tell me about what you)\b", _q))
+        if not (_agent_ref and _recall_v):
+            return None
+        # Do NOT intercept USER-disclosure recalls. "what did I tell you about my
+        # sister", "what do I think of X", "what have I said about Y" ask about the
+        # USER's own facts/stances, which live in the user stores — not RAVANA's
+        # speech. Intercepting them here would misroute to the agent-reply store
+        # and surface the wrong speaker (a self/other boundary inversion). Let them
+        # fall through to the user-fact / stance recall paths. Structural
+        # (first-person + disclosure verb), no per-topic table.
+        _user_disclosure_recall = bool(re.search(
+            r"\b(what did i (tell|say|mention|share)|what (do|did) i (think|feel|like|"
+            r"love|hate|believe|know|remember|recall|tell you)|what have i (said|"
+            r"told|mentioned|shared)|what (am|was) i|how (do|did) i (feel|think)|"
+            r"do you remember (what|when) i|my (sister|brother|mom|dad|pet|friend))\b", _q))
+        if _user_disclosure_recall:
+            return None
+        # Extract the topic: drop recall scaffolding + question words, keep
+        # content nouns. Reuse the same stopword philosophy as the existing
+        # recall paths (no per-topic synonym table).
+        _stop = {
+            "what", "did", "do", "you", "your", "yourself", "say", "said", "says",
+            "tell", "told", "telling", "me", "about", "earlier", "before", "again",
+            "something", "anything", "the", "a", "an", "is", "are", "was", "were",
+            "have", "has", "had", "i", "my", "we", "our", "it", "this", "that",
+            "form", "formed", "opinion", "think", "feel", "feel", "mention",
+            "mentioned", "remember", "recall", "answer", "answered", "reply",
+            "replied", "state", "stated", "still", "now", "then", "how", "why",
+            "who", "when", "where", "which", "any", "some", "thing", "things",
+            "yes", "no", "ask", "asked", "wonder", "wondering", "tellme",
+        }
+        _cands = [w for w in re.findall(r"[a-z']+", _q)
+                  if len(w) >= 3 and w not in _stop]
+        if not _cands:
+            return None
+        # Exact topic hit first, then GloVe-neighbor fallback over stored topics.
+        _store = getattr(self, "_own_replies", {}) or {}
+        if not _store:
+            return None
+        _topic_hit = None
+        for _c in _cands:
+            if _c in _store:
+                _topic_hit = _c
+                break
+        if _topic_hit is None:
+            # Cheap substring containment (e.g. "data" matches "dataownership").
+            for _c in _cands:
+                for _k in _store:
+                    if _c in _k or _k in _c:
+                        _topic_hit = _k
+                        break
+                if _topic_hit:
+                    break
+        if _topic_hit is None:
+            # GloVe neighbor fallback — DISTRIBUTION-DRIVEN but STRICTLY bounded so
+            # it never returns an unrelated stored topic (that would be a
+            # source-monitoring error: answering "about music" with the "coralhaven"
+            # reply). Only accept a neighbor at a HIGH cosine (>= 0.60), and only when
+            # the query carries a real content word. Below that bar we return None and
+            # the turn falls through to honest uncertainty — an honest "i don't have
+            # that stored" beats a confident wrong-topic reply (the no-fake-depth rule).
+            try:
+                for _c in _cands:
+                    _cv = self._glove_vector(_c)
+                    if _cv is None:
+                        continue
+                    _best = None
+                    _best_s = 0.0
+                    for _k in _store:
+                        _kv = self._glove_vector(_k)
+                        if _kv is None:
+                            continue
+                        _s = float(np.dot(_cv, _kv))
+                        if _s > _best_s:
+                            _best_s = _s
+                            _best = _k
+                    if _best is not None and _best_s >= 0.60:
+                        _topic_hit = _best
+                        break
+            except Exception:
+                pass
+        if _topic_hit is None:
+            return None
+        _entries = _store.get(_topic_hit) or []
+        if not _entries:
+            return None
+        _latest = _entries[-1]
+        _text = (_latest.get("text") if isinstance(_latest, dict) else None) or ""
+        _text = _text.strip()
+        if not _text:
+            return None
+        # Render in FIRST person (it is RAVANA's own prior speech), with a
+        # light source tag so the boundary is explicit and honest.
+        return f"i said: {_text}"
+
     def _try_fact_reasoning(self, user_input: str) -> Optional[str]:
         """Answer question-shaped input from the hippocampal buffer's stored
         fact texts via ravana.core.fact_reasoning (lexical-closure replay).
@@ -3483,6 +3686,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # carries the extracted event span ("lost half the colony"). Consumed
         # by _appraised_affective_reply's copula scan as the authoritative text.
         self._last_user_input = user_input
+        self._last_subject = None  # set once grounded below
         # Reset the prior turn's stance-reversal marker so a retraction recorded
         # this turn is consumed/acked the SAME turn and cannot leak into the next
         # turn's acknowledgment (attitude change is a within-turn valuation
@@ -3521,6 +3725,25 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     self._last_responses = self._last_responses[-10:]
                 self.notify_user_idle()
                 return _sr_top
+        except Exception:
+            pass
+
+        # Agent-own-speech recall gate (round 2026-08-16, D1 source-monitoring
+        # fix). Runs AFTER structured (user-fact) recall so user-profile queries
+        # are still answered from the user stores, but BEFORE fact-reasoning /
+        # episodic echo. When the query asks about RAVANA's OWN prior speech,
+        # answer from the AgentReplyStore in first person instead of echoing a
+        # user utterance. Fail-open: returns None when no matching agent reply
+        # exists, letting the turn proceed to honest uncertainty.
+        try:
+            _own_res = self._route_agent_own_recall(user_input)
+            if _own_res is not None:
+                self._last_strategy = "agent_own_recall"
+                self._last_responses.append(_own_res)
+                if len(self._last_responses) > 10:
+                    self._last_responses = self._last_responses[-10:]
+                self.notify_user_idle()
+                return _own_res
         except Exception:
             pass
 
@@ -3815,6 +4038,10 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     if len(self._last_responses) > 10:
                         self._last_responses = self._last_responses[-10:]
                     self.notify_user_idle()
+                    try:
+                        self._record_own_reply(user_input, _exp_first, subject)
+                    except Exception:
+                        pass
                     return _exp_first
                 _sersp = self._route_self_query(user_input)
                 if _sersp is not None:
@@ -3823,6 +4050,10 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     if len(self._last_responses) > 10:
                         self._last_responses = self._last_responses[-10:]
                     self.notify_user_idle()
+                    try:
+                        self._record_own_reply(user_input, _sersp, subject)
+                    except Exception:
+                        pass
                     return _sersp
         except Exception:
             pass
@@ -3848,6 +4079,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 if len(self._last_responses) > 10:
                     self._last_responses = self._last_responses[-10:]
                 self.notify_user_idle()
+                # AgentReplyStore capture (D1): record the agent's own reply so a
+                # later "what did you say about X" answers from RAVANA's speech.
+                try:
+                    self._record_own_reply(user_input, _exp, subject)
+                except Exception:
+                    pass
                 return _exp
         except Exception:
             pass
@@ -5283,6 +5520,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
 
         # Step 2: Extract topic with multi-strategy grounding
         subject, obj = self._extract_topic(user_input, activated)
+        self._last_subject = subject  # for AgentReplyStore capture (D1)
         # Recover the real concept from the raw subject phrase. This strips
         # conditional frames ("if the sun disappeared" -> "sun") AND trailing
         # light verbs / question-frame words ("how do black holes form" ->
@@ -5646,6 +5884,10 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             if len(self._last_responses) > 10:
                 self._last_responses = self._last_responses[-10:]
             self.notify_user_idle()
+            try:
+                self._record_own_reply(user_input, _self_resp, subject)
+            except Exception:
+                pass
             return _self_resp
 
         # ─── W4: Creative-writing request pre-router ───
@@ -6146,6 +6388,17 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     "i'm a brain", "i am a brain")
                 if any(_m in _rl for _m in _self_markers):
                     self._agent_claims["self"] = (response or "").strip()
+            except Exception:
+                pass
+            # AgentReplyStore capture (round 2026-08-16, D1 source-monitoring
+            # fix). Record RAVANA's OWN final emitted reply, keyed by the grounded
+            # topic, so a later "what did YOU say about X" answers from the
+            # agent's own speech instead of echoing the user's turn. This site
+            # catches the _generate_response path; the early self-model return
+            # sites (self_experience / self_reference) call the same helper before
+            # their returns so no reply-producing path is missed.
+            try:
+                self._record_own_reply(user_input, response, subject)
             except Exception:
                 pass
         finally:
@@ -6727,6 +6980,10 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 # reference what the agent previously said about itself instead
                 # of recomputing a fresh transient opinion every boot.
                 'agent_claims': dict(getattr(self, '_agent_claims', {}) or {}),
+                # AgentReplyStore (round 2026-08-16, D1): RAVANA's own recorded
+                # replies keyed by topic, so self-speech recall answers from the
+                # agent's OWN output instead of echoing the user (source-monitoring).
+                'own_replies': dict(getattr(self, '_own_replies', {}) or {}),
                 # Per-topic self-opinion cache (A1): stance:{target} -> the
                 # grounded stance+reason the agent computed for each concept it
                 # has been asked about. Persisted so self-opinion recall stays
@@ -6938,6 +7195,22 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # autonoetic claim, not a confabulation. Flag it once; process_turn
             # consumes it on the first turn and never re-emits mid-session.
             self._session_resumed = True
+
+            # Restore AgentReplyStore (round 2026-08-16, D1). Repair on load
+            # exactly like the other runtime stores: if the snapshot is missing or
+            # malformed, fall back to an empty store rather than crashing the boot.
+            try:
+                _or = state.get('own_replies', {})
+                if isinstance(_or, dict):
+                    self._own_replies = {k: v for k, v in _or.items()
+                                         if isinstance(k, str) and isinstance(v, list)}
+                    self._own_reply_topic_idx = {k: 1 for k in self._own_replies}
+                else:
+                    self._own_replies = {}
+                    self._own_reply_topic_idx = {}
+            except Exception:
+                self._own_replies = {}
+                self._own_reply_topic_idx = {}
 
             # Restore decoder vocab mapping
             self._decoder_word_to_idx = state.get('decoder_word_to_idx', {})
