@@ -2420,6 +2420,41 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         if _meta:
             return self._meta_identity_reply()
 
+        # ── (0b) USER-MODEL AGGREGATION (new capability, feature t_3d147353)
+        # Queries that ask RAVANA to REPORT the accumulated CONTENT of its model
+        # of the user — "what have you picked up about me", "what stands out
+        # about me", "tell me about myself", "everything you know about me",
+        # "what's your read on me", "describe me", "what do you remember me
+        # telling you". These are NOT the existential realness questions handled
+        # by _meta_identity_reply (which only reports counts + topics). Previously
+        # they fell through to the graceful-uncertainty fallback and produced
+        # degenerate output ("i don't really have a solid grasp on picked far so
+        # far" — measured T48 of round 2026-08-16T1241Z). Now they render the
+        # REAL stored facts / stances / beliefs. Fully store-driven, no authored
+        # reply, no per-topic table, no retraining. Fail-closed: returns None
+        # (honest uncertainty) when nothing is stored, so a brand-new user gets a
+        # clean "still learning who you are" instead of garbage.
+        _agg = re.search(
+            r"\b("
+            r"what have you picked up about me|"
+            r"what(?:'s| is| do| did) your (?:read|take) on me|"
+            r"what do you (?:make|think) of me|"
+            r"tell me about myself|"
+            r"tell me (?:everything|all|what) you (?:know|remember|learned|"
+            r"picked up|gathered) about me|"
+            r"summ?ar?y? (?:up )?(?:what you(?:'ve| have) (?:learned|picked up|"
+            r"gathered) about me|your (?:read|take) on me)|"
+            r"describe me|"
+            r"how would you describe me|"
+            r"what do you remember me (?:telling|saying|sharing)|"
+            r"everything you know about me|"
+            r"what stands out (?:about|to you)? ?(?:me|about me)|"
+            r"who do you think i am|"
+            r"give me your (?:read|take|impression) (?:of|on) me"
+            r")\b", q)
+        if _agg:
+            return self._aggregate_user_model()
+
         # ── (1) Biographical self-fact recall ──────────────────────────────
         # "what's my name" / "where do i live/work" / "what do i keep/have on
         # my rooftop" / "what's my favorite ..." — answered from the structured
@@ -3167,6 +3202,143 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             f"around {ident:.2f} and is {_trend_word}")
 
         return ". ".join(_parts) + "."
+
+    def _aggregate_user_model(self) -> Optional[str]:
+        """AGGREGATION capability (feature t_3d147353, round 2026-08-16T1241Z).
+
+        A user-model aggregation query ("what have you picked up about me",
+        "what stands out about me", "tell me about myself", "everything you
+        know about me", "describe me", "what do you remember me telling you")
+        asks RAVANA to REPORT the accumulated CONTENT of its model of the user
+        — not just counts/topics (that is _meta_identity_reply's job) and not
+        an existential realness frame.
+
+        Root cause it fixes: these queries were not recognized as a distinct
+        intent, so they fell through to the graceful-uncertainty fallback,
+        which resolved the subject to a closed-class/garbage token and emitted
+        degenerate text (round 2026-08-16T1241Z, T48: "i don't really have a
+        solid grasp on picked far so far"). The engine in fact held 9 facts +
+        4 stances but had no path to render them.
+
+        Design (passes the no-hardcoding line by construction):
+        - Every returned sentence is grounded in a runtime store RAVANA grows
+          autonomously (personal_facts, opinions.stances, belief_store). No
+          authored prose, no per-topic answer table, no retraining.
+        - The user can correct any fact/stance; the stores merge on correction,
+          so the aggregate always reflects the latest state.
+        - Rendering picks ONE word for polarity band (single lexicon token, a
+          vocabulary entry — not a scripted sentence) and slots in the REAL
+          topic and value from state.
+        - Fail-closed: when nothing is stored, returns None so the honest
+          uncertainty path answers — a new user gets "still learning who you
+          are" rather than garbage.
+        """
+        um = getattr(self, "user_model", None)
+        if um is None:
+            return None
+        pf = getattr(um, "personal_facts", None)
+        opinions = getattr(um, "opinions", None)
+        beliefs = getattr(self, "belief_store", None)
+
+        # Collect NON-SUPERSEDED store content (the real learned profile).
+        # A single disclosure can be mined into several overlapping facts
+        # (e.g. "i grew up in aldermoor" -> does:"grew" AND
+        # does:"grew village called aldermoor"). Dedupe by exact value and,
+        # for facts sharing one attribute, keep the LONGEST value (the most
+        # complete disclosure) so the aggregate isn't a list of fragments.
+        _fact_by_attr = {}
+        if pf is not None:
+            for _k, _f in (getattr(pf, "facts", {}) or {}).items():
+                if not (isinstance(_k, tuple) and len(_k) == 3):
+                    continue
+                if getattr(_f, "superseded", False):
+                    continue
+                _subj, _attr, _val = _k
+                if _subj.lower() != "i":
+                    continue
+                _v = (_f.value or "").strip()
+                if not _v:
+                    continue
+                _cur = _fact_by_attr.get(_attr)
+                if _cur is None or len(_v) > len(_cur[0]):
+                    _fact_by_attr[_attr] = (_v, getattr(_f, "confidence", 0.5))
+        facts = [(a, v, c) for a, (v, c) in _fact_by_attr.items()]
+        # General dedupe of mined fragments: one disclosure is frequently
+        # mined into several OVERLAPPING facts (e.g. "i grew up in a village
+        # called aldermoor in the hills" -> location:"aldermoor in the hills"
+        # AND grew:"grew village called aldermoor", and the grew fact can be
+        # stored twice under the same attribute). Keep one complete rendering
+        # and drop: (a) exact-duplicate values even when stored under
+        # DIFFERENT attributes (this collapsed the doubled
+        # "you grew village called aldermoor" line measured here); (b) a
+        # value that is a strict substring of another retained value. General
+        # — keyed by value content, no per-entity special-casing.
+        _kept = []
+        _seen_vals = set()
+        for _attr, _val, _conf in facts:
+            _n = _val.lower().strip()
+            if _n in _seen_vals:
+                continue
+            if any((_n != _o and (_n in _o or _o in _n))
+                   for _oa, _o, _oc in _kept):
+                continue
+            _seen_vals.add(_n)
+            _kept.append((_attr, _val, _conf))
+        facts = _kept
+        stances = []
+        if opinions is not None:
+            for _topic, _s in (getattr(opinions, "stances", {}) or {}).items():
+                _pol = getattr(_s, "polarity", 0.0)
+                _conf = getattr(_s, "confidence", 0.5)
+                stances.append((_topic, _pol, _conf))
+        belief_items = []
+        if beliefs is not None:
+            for (_sid, _pred), _triple in (getattr(beliefs, "beliefs", {}) or {}).items():
+                if _sid.lower() != "i":
+                    continue
+                _val, _conf, _turn = _triple if isinstance(_triple, tuple) else (_triple, 0.5, 0)
+                belief_items.append((_pred, _val, _conf))
+
+        if not facts and not stances and not belief_items:
+            # Nothing learned yet — fail-closed to honest uncertainty.
+            return None
+
+        parts = []
+        # ── Facts: render each as a clean statement. ──
+        for _attr, _val, _conf in facts:
+            _attr_d = _attr.replace("_", " ").strip()
+            if _attr_d in ("location", "live in", "grew"):
+                parts.append(f"you're from {_val}")
+            elif _attr_d.startswith("favorite"):
+                parts.append(f"your {_attr_d.replace('favorite ', '')} is {_val}")
+            elif _attr_d == "name":
+                parts.append(f"your name is {_val}")
+            else:
+                parts.append(f"you {_val}")
+        # ── Beliefs: the user's stated positions. ──
+        for _pred, _val, _conf in belief_items:
+            parts.append(f"you've held that {_pred} {_val}")
+        # ── Stances: pick ONE polarity word (vocabulary, not a script). ──
+        _stance_bits = []
+        for _topic, _pol, _conf in stances:
+            if _pol >= 0.6:
+                _w = "strongly for"
+            elif _pol > 0.1:
+                _w = "for"
+            elif _pol <= -0.6:
+                _w = "strongly against"
+            elif _pol < -0.1:
+                _w = "against"
+            else:
+                _w = "uncertain about"
+            _stance_bits.append(f"you're {_w} {_topic}")
+        if _stance_bits:
+            parts.append("on how you feel about things: " + "; ".join(_stance_bits))
+
+        if not parts:
+            return None
+        _lead = "here's what i've picked up about you so far"
+        return _lead + ": " + "; ".join(parts) + "."
 
     def _recall_user_fact(self, attr_hint, q):
         """Helpers for _structured_recall: read a personal_fact by attribute."""
