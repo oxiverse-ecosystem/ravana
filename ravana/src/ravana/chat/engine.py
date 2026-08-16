@@ -3025,6 +3025,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         opinions = getattr(um, "opinions", None) if um else None
         stances = getattr(opinions, "stances", {}) or {}
         n_stances = len(stances)
+        strength = self.identity.state.strength
         trend = self.identity.get_trend()
 
         if trend > 0.01:
@@ -3057,7 +3058,8 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 + ", ".join(_topics))
 
         _parts.append(
-            f"my own sense of self is still forming — it's {_trend_word}")
+            f"my own sense of self is still forming — my self-coherence "
+            f"sits around {strength:.2f} and is {_trend_word}")
 
         return ". ".join(_parts) + "."
 
