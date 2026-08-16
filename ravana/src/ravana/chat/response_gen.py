@@ -4552,6 +4552,7 @@ class ResponseGenMixin(ChainWalkerMixin):
                     r"pretty\s+)?([a-z]+(?:[-][a-z]+)?)", text)
                 if _cop:
                     _w = _cop.group(2).strip("'-")
+                    _copula_verb = _cop.group(1).strip().lower()
                     # The felt word is the token AFTER the copula. Reject the
                     # copula word itself (e.g. "felt") and closed-class/action
                     # verbs so only a real feeling attribution is captured.
@@ -4563,7 +4564,17 @@ class ResponseGenMixin(ChainWalkerMixin):
                              "felt", "good", "bad", "keep", "kept", "move",
                              "moved", "want", "need", "have", "had", "do", "did"}
                     if _w not in _STOP and len(_w) > 2:
-                        _aff = _w
+                        # Restrict "I am" / "I'm" forms to approved affect terms
+                        # to prevent arbitrary identity statements ("I am Noor")
+                        # from being treated as affective disclosures. "I feel" /
+                        # "I felt" are always allowed as they explicitly signal
+                        # affect disclosure.
+                        from ravana.chat.user_model import is_affect_term
+                        if _copula_verb in ("i am", "i'm"):
+                            if is_affect_term(_w):
+                                _aff = _w
+                        else:
+                            _aff = _w
             if _aff and re.search(
                     r"\b(i\s+felt|i\s+feel|i\s+am|i'm|i\s+get|i\s+got)\b", text):
                 self._tmp_signed = None

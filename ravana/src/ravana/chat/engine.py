@@ -2620,27 +2620,45 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # fact fell through to the episodic echo. Resolve the entity noun and
         # render from the live store via possession_attrs (single source of
         # truth); honest None fallback when nothing matches (never fabricate).
-        _MATQ = re.search(
-            r"\b(?:what'?s|what\s+is|what\s+material\s+is|what\s+is\s+the\s+material\s+of)\s+"
-            r"(?:my|the|our|your|a|an)?\s*([a-z][a-z]+)(?:'s)?\s+"
-            r"(?:made\s+of|made\s+from|material|built\s+of|built\s+from)\b", q)
-        if _MATQ and pf is not None:
+        # Try the alternative "what is the material of my X" form first
+        _MATQ_ALT = re.search(
+            r"\bwhat\s+is\s+the\s+material\s+of\s+"
+            r"(?:my|the|our|your|a|an)?\s*([a-z][a-z]+)\b", q)
+        if _MATQ_ALT:
+            _MATQ = _MATQ_ALT
             _ent = _MATQ.group(1).lower().strip()
+            _feat_query = None
+        else:
+            _MATQ = re.search(
+                r"\b(?:what'?s|what\s+is|what\s+material\s+is)\s+"
+                r"(?:my|the|our|your|a|an)?\s*([a-z][a-z]+)(?:'s)?\s+"
+                r"(?:([a-z][a-z]+)\s+)?"  # optional feature between entity and "made of"
+                r"(?:made\s+of|made\s+from|material|built\s+of|built\s+from)\b", q)
+            if _MATQ:
+                _ent = _MATQ.group(1).lower().strip()
+                _feat_query = _MATQ.group(2).lower().strip() if _MATQ.group(2) else None
+            else:
+                _ent = None
+                _feat_query = None
+        if _MATQ and pf is not None:
             _cand = None
+            from . import possession_attrs as _pa
             for _k, _f in pf.facts.items():
                 if not (isinstance(_k, tuple) and len(_k) == 3):
                     continue
                 if _k[0] == _ent and not getattr(_f, "superseded", False):
                     _attr = _k[1]
-                    # 'madeof' is the primary material fact; a feature noun
-                    # (roof/wall/.., per possession_attrs._FEATURE_NOUNS) is more
-                    # specific when the query names that part.
-                    if _attr == "madeof":
-                        _cand = _f
-                    elif _cand is None:
-                        from . import possession_attrs as _pa
-                        if _pa.is_feature_noun(_attr):
+                    # If the query named a specific feature ("what's my desk frame
+                    # made of"), prefer an exact feature match; otherwise fall back
+                    # to madeof or any feature noun.
+                    if _feat_query and _pa.is_feature_noun(_feat_query):
+                        if _attr == _feat_query:
                             _cand = _f
+                            break
+                    elif _attr == "madeof":
+                        _cand = _f
+                    elif _cand is None and _pa.is_feature_noun(_attr):
+                        _cand = _f
             if _cand is not None:
                 _attr, _v = _cand.attribute, _cand.value
                 if _attr == "madeof":
@@ -2945,6 +2963,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     if _score > _best_score:
                         _best_score = _score
                         _best_year = _yr
+                        _best_age = None  # clear the other candidate
                         _best_act = _act
                 elif _k[1] == "since_age":
                     _parts = _v.rsplit(" ", 1)
@@ -2959,6 +2978,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     _score = _activity_query_overlap(_ctx, q, _q_tokens)
                     if _score > _best_score:
                         _best_score = _score
+                        _best_year = None  # clear the other candidate
                         _best_age = _age
                         _best_act = _act
             # Require at least one meaningful token overlap so an unrelated
@@ -2996,11 +3016,15 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         um = getattr(self, "user_model", None)
         name = (getattr(um, "user_name", "") or "").strip()
         _pf = getattr(um, "personal_facts", None) if um else None
-        n_facts = len(getattr(_pf, "facts", {}) or {}) if _pf is not None else 0
+        # Compute n_facts from active, non-superseded entries only
+        n_facts = 0
+        if _pf is not None:
+            for _f in (getattr(_pf, "facts", {}) or {}).values():
+                if not getattr(_f, "superseded", False):
+                    n_facts += 1
         opinions = getattr(um, "opinions", None) if um else None
         stances = getattr(opinions, "stances", {}) or {}
         n_stances = len(stances)
-        ident = self.identity.state.strength
         trend = self.identity.get_trend()
 
         if trend > 0.01:
@@ -3033,8 +3057,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 + ", ".join(_topics))
 
         _parts.append(
-            f"my own sense of self is still forming — my self-coherence sits "
-            f"around {ident:.2f} and is {_trend_word}")
+            f"my own sense of self is still forming — it's {_trend_word}")
 
         return ". ".join(_parts) + "."
 
