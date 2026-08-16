@@ -420,6 +420,16 @@ from .engine_self_query import SelfQueryMixin
 from .engine_persistence import PersistenceMixin
 from .engine_monitor import MonitorMixin
 
+
+class _SkipEpisodicEcho(Exception):
+    """Control-flow signal: a general KNOWLEDGE question must not be answered
+    by echoing an unrelated autobiographical memory (residual limitation #3).
+    Raised inside the episodic-recall try/except block; the enclosing
+    ``except Exception: pass`` swallows it so the turn falls through to
+    internal-knowledge / web / honest-uncertainty. Fail-open by construction.
+    """
+
+
 class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMixin, WebSearchMixin, GenerationMixin, SelfQueryMixin, PersistenceMixin, MonitorMixin):
     """RAVANA cognitive chat engine -- starts as a baby, learns from the web.
 
@@ -3689,6 +3699,59 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         except Exception:
             pass
 
+    # ── Query-intent disambiguation (residual limitation #3) ────────────────
+    def _is_autobiographical_recall_query(self, user_input: str) -> bool:
+        """Classify whether ``user_input`` is a question about the USER's
+        disclosed life (an autobiographical-recall query) versus a general
+        world-knowledge question.
+
+        This is the intent gate that prevents the episodic echo block from
+        surfacing an UNRELATED stored fact for a plain knowledge question
+        (e.g. \"what is cooking oil made of?\" must NOT echo \"you enjoy cooking
+        pasta on weekends\"). The gate is a distribution-driven intent
+        classifier -- explicit recall markers + a personal-possessive reference
+        to the user's own entity -- NOT a frozen topic list, so it
+        generalizes across every subject and never needs retraining.
+
+        Returns True when the query is genuinely about the user's prior
+        disclosures (so the episodic echo may fire); False for general
+        knowledge / definitional / how-does questions (so they fall through to
+        internal-knowledge / web / honest-uncertainty and never echo memory).
+
+        Fail-open design: any malformed/empty input is treated as NON-recall
+        (False) so it is never answered by an autobiographical echo -- matching
+        the RAVANA bar (honest uncertainty beats confident confabulation).
+        """
+        t = (user_input or "").lower().strip()
+        if not t or not t.endswith("?") and not re.match(
+                r"^(who|what|when|where|which|why|how|did|do|does|is|are|"
+                r"was|were|had|has|have|will|would|could|can)\b", t):
+            return False
+        # 1) Explicit recall markers: "what did you say about X",
+        #    "do you remember when I ...", "what do you know about me", etc.
+        if re.search(
+            r"\b(did you (say|tell|mention|write)|do you (remember|recall|know)|"
+            r"what (did|do) you|tell me (what|about)|remember when|recall when|"
+            r"have you (forgotten|forgot)|anything i (told|said|shared))\b", t):
+            return True
+        # 2) Personal-possessive reference to the user's OWN entity:
+        #    "what is wrong with MY car", "when was MY sister born". This is a
+        #    question about a disclosed attribute of the user/their life, not
+        #    encyclopedic knowledge of the bare subject word.
+        if re.search(
+            r"\b(my|mine|i|me|we|our|myself)\b", t) and re.search(
+                r"\b(wrong|broken|happened|when|where|born|live|lives|from|"
+                r"name|named|called|age|height|weight|work|study|studied|"
+                r"grew up|went to school|favorite|favourite|think|feel|like|"
+                r"love|hate|car|dog|cat|sister|brother|mom|mother|dad|father|"
+                r"friend|wife|husband|partner|kid|child|son|daughter|pet|"
+                r"job|house|home|phone|computer|laptop|gps|car's|cars)\b", t):
+            return True
+        # 3) Everything else (bare world-knowledge: "what is cooking oil made
+        #    of", "what is a decorator", "how does a black hole form") is NOT a
+        #    recall query -> False.
+        return False
+
     def process_turn(self, user_input: str) -> str:
         """Process input and generate a response, auto-learning when needed."""
         # C-fix (round 2026-08-08b): stash the FULL user utterance on the engine
@@ -5616,6 +5679,26 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     self._pending_learning_queue.append(_grounded_subj)
         relation = "is"
 
+        # ── Query-intent disambiguation gate (residual limitation #3 fix) ─
+        # The broad stem-matching inside _try_hippocampal_retrieval pools ANY
+        # stored fact whose buffer key stem-matches a question token. That is
+        # correct for questions genuinely about the user's disclosed life, but
+        # it ALSO fires for plain world-knowledge questions whose a token
+        # coincidentally stem-matches an unrelated autobiographical fact -- so
+        # "what is cooking oil made of?" used to echo "you enjoy cooking pasta
+        # on weekends" (a confident confabulation). We distinguish the two
+        # intents up front: only an AUTOBIOGRAPHICAL-RECALL question ("what did
+        # you say about X", "do you remember when I ...", "what is wrong with
+        # MY X") may reach the episodic echo. A general knowledge question is
+        # NOT a recall query and must fall through to honest uncertainty (the
+        # RAVANA bar) -- it is answered from internal knowledge/web, never by
+        # echoing the user's life. Structural + fail-open: when offline with no
+        # internal definition, the knowledge question reaches honest-uncertainty
+        # instead of a memory echo. The gate is a distribution-driven intent
+        # classifier (explicit recall markers + personal-possessive reference),
+        # not a frozen topic list, so it generalizes across all subjects.
+        _is_recall_intent = self._is_autobiographical_recall_query(user_input)
+
         # ── Episodic recall (LoCoMo / LongMemEval root-cause fix) ──────────
         # If the user is ASKING about a subject they told us about earlier in
         # this conversation, surface the remembered fact BEFORE the generic
@@ -5623,7 +5706,8 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # with a dictionary entry instead of recalling "my car's GPS is
         # broken"). Only fires for interrogatives with a subject that has a
         # stored episodic fact; fail-open otherwise, so fresh-engine benchmarks
-        # (empty buffer) are unaffected.
+        # (empty buffer) are unaffected. Gated by _is_recall_intent so a
+        # general knowledge question can never echo an unrelated life fact.
         try:
             _is_question = user_input.strip().endswith("?") or bool(re.match(
                 r"^\s*(who|what|when|where|which|why|how|did|do|does|is|are|"
@@ -5666,6 +5750,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         self._last_responses = self._last_responses[-10:]
                     self.notify_user_idle()
                     return _mh
+                # GATE (limitation #3): only echo memory when the query is
+                # actually a question about the user's disclosed life. A general
+                # world-knowledge question skips the episodic echo entirely and
+                # falls through to internal-knowledge / web / honest-uncertainty.
+                if not _is_recall_intent:
+                    raise _SkipEpisodicEcho
                 _mem = self._try_hippocampal_retrieval(
                     type("Ctx", (), {"subject": subject})(), user_input)
                 if _mem:
