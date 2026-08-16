@@ -3198,6 +3198,29 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             r"do you remember (what|when) i|my (sister|brother|mom|dad|pet|friend))\b", _q))
         if _user_disclosure_recall:
             return None
+        # User-attribute recall must NOT be answered from the agent-reply
+        # store. A query like "can you recall my name?" / "do you remember my
+        # sister" asks RAVANA to recall the USER's OWN fact/identity (resolved
+        # by the user_identity detector and user stores further down), not the
+        # agent's prior speech. Without this guard the agent-reply store —
+        # which is seeded by RAVANA's OWN user_identity answers — preempts the
+        # user_identity detector for recall-framed user queries (round
+        # regression: test_identity_questions_detected expected user_identity
+        # but got agent_own_recall). Structural: 1st-person possessive +
+        # user-attribute noun + (already-required) recall verb; no per-topic
+        # table, consistent with _is_autobiographical_recall_query's attribute
+        # vocabulary. Fail-open: when no possessive+attribute pair is present
+        # the query is treated as genuine agent-own speech. This only affects
+        # the agent-own-speech gate and leaves the lim#3 episodic-echo gate
+        # (_is_autobiographical_recall_query) untouched.
+        if (re.search(
+                r"\b(my|mine|me|i|we|our|myself)\b", _q)
+                and re.search(
+                    r"\b(name|named|called|age|live|lives|from|work|study|"
+                    r"studied|grew up|sister|brother|mom|mother|dad|father|"
+                    r"friend|wife|husband|partner|kid|child|son|daughter|pet|"
+                    r"job|house|home|phone|computer|laptop|car|cat|dog)\b", _q)):
+            return None
         # Extract the topic: drop recall scaffolding + question words, keep
         # content nouns. Reuse the same stopword philosophy as the existing
         # recall paths (no per-topic synonym table).
