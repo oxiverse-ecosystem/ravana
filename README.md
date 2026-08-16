@@ -54,10 +54,56 @@ on this codebase:
   `from what you've told me, you live in berlin; your cat is rex; …`
 - **Recalls what you told it.** *"what do you remember about me?"* surfaces the
   learned facts/stances (location, pet, likes) drawn from the durable stores.
+- **Mines activity durations into dated facts.** Told *"i've been brewing beer
+  for a decade"* (or *"a few years"*, *"two decades"*, *"several years"*, *"many
+  years"*) it resolves the fuzzy span to a start year (`now − n`) and stores a
+  `since` fact — then answers date queries through the **same** resolver as
+  explicit years: `when did i start brewing beer` → `you started brew in 2016.`
+  No per-phrase code; the resolver already knows how to read a `since` fact.
+  See `docs/CAPABILITY_DURATION_MINING.md`.
+- **Recalls the right dated fact even when you paraphrase.** A rotated query that
+  shares no word with the stored activity still recalls it — *"what year did i
+  start all this volcano stuff again"* → *"you started studying volcanoes back in
+  2015."* — because the resolver links each `does`/`event` fact to the dated
+  `since` activity by **morphological stem** (so *volcano* in a separate
+  `start studying volcanoes` fact reaches the `study 2015` fact). The reply is
+  also grammatical: the stored verb is realized as a **gerund** ("started
+  **studying** volcanoes", not "started **study**"), and a redundant inceptive
+  ("started studying…") is collapsed to the gerund. No LLM, no per-topic reply
+  table. See `docs/CAPABILITY_DATE_RECALL_PARAPHRASE.md`.
+- **Tells two activities apart when they share a verb but differ by object.**
+  Told *"i've been building frames since 2019"* and *"i started building cabinets
+  in 2021"*, it mines the object (`frames` / `cabinets`) into each dated fact and
+  recalls the right one: *"when did i start building frames"* → *"you started
+  building frames in 2019."*, and *"since what year have i been building
+  cabinets"* → *"you started building cabinets in 2021."* Previously both returned
+  the same (wrong) year because only the verb head was stored. No LLM, no
+  per-topic reply table. See `docs/CAPABILITY_OBJECT_DISAMBIGUATED_DATE_RECALL.md`.
+- **Mines possession-attribute disclosures into structured, correctable facts.**
+  Told *"the cabin is a hand-hewn pine lodge with a sod roof"* it stores the
+  material under the **entity** (`cabin.madeof = pine`), not a whole-sentence
+  echo of you — so a later *"what's my cabin made of"* returns the clean
+  structured answer *"your cabin is made of pine."* A feature noun after the
+  material scopes the fact (*"my desk is oak frame"* → `desk.frame = oak`,
+  recalled as *"your desk's frame is oak."*). A possession with no recognised
+  material (*"the river is a fast mountain stream"*) is correctly **not** mined
+  (fail-closed, no echo). The material/kind vocabulary is seed data that grows
+  at runtime (`learn_material`) — no code change, no retraining, no LLM. See
+  `docs/CAPABILITY_POSSESSION_ATTRIBUTE_MINING.md`.
 - **Abstains when it has no settled view.** Asked *"what do you think about
-  coffee?"* before forming its own position, it returns an honest non-answer
+  coffee?*" before forming its own position, it returns an honest non-answer
   rather than fabricating one:
   `i'm still figuring that out. i don't have a settled view on that yet — what do you think?`
+- **Reflects on its model of you (meta-identity).** Asked *"do i seem like a
+  real person to you"*, *"what am i to you"*, or *"what have you learned about
+  me"*, it answers from its **live** accumulated model of you — your real name,
+  the stances and facts it has picked up, and its own self-coherence — instead
+  of a biographical fact lookup or an episodic echo:
+  `i know you as Corvin. and from what you've told me i've picked up 2 stances you've shared and 1 facts about your life. you've let me see where you stand on things like oysters, surveillance. my own sense of self is still forming — my self-coherence sits around 0.25 and is holding steady.`
+  Every word of content is read from runtime stores (no authored prose; the
+  prior probe-tuned "feeling-real" frame was deleted). Fail-closed: a plain
+  *"what's my name"* is not intercepted and still resolves from its own path. See
+  `docs/CAPABILITY_META_IDENTITY.md`.
 
 These capabilities are backed by four durable stores — an **identity model**
 (`IdentityEngine`), **stances** (`UserStanceStore`), **personal facts**

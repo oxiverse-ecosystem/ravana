@@ -36,6 +36,187 @@ import numpy as np
 from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional, Tuple, Set
 
+# ── Module-level helpers (round 2026-08-14T1110Z) ─────────────────────────
+# Kept at module scope (NOT inside the class) so they never perturb the class
+# body. Both are pure/data-driven: they read RAVANA's own learned state or the
+# user's real words, never authored reply prose.
+
+
+def _extract_user_affect_word(text: str) -> str:
+    """Extract the user's OWN affect/suffering word from an utterance, so the
+    empathy responder names the feeling the user actually expressed (not a
+    misclassified classifier label).
+
+    Data-driven: scans the real input for a recognized affect term (the shared
+    broad affect-term lexicon, user_model.is_affect_term). Covers the broad set
+    of human feeling words (fear, grief, anger, sadness, shame, joy...) so a
+    ROTATED probe ("i felt terrified", "i'm grief-stricken", "i'm furious") is
+    caught. Returns '' when the user named no explicit feeling word, in which
+    case the caller falls back to the (noisier) cause-label signal. The word
+    set is SEED vocabulary (RAVANA-expandable, degrades gracefully) — not an
+    authored reply path.
+    """
+    try:
+        from .user_model import is_affect_term
+    except Exception:
+        is_affect_term = lambda w: False
+    _m = re.search(
+        r"\b(i\s*(?:feel|feeling|felt|am|'m|get|got|was|were|been)\s+"
+        r"(?:so|really|very|quite|a\s+little\s+|kind\s+of\s+|pretty\s+)?)"
+        r"([a-z]+(?:[-][a-z]+)?)", (text or "").lower())
+    if _m:
+        _w = _m.group(2).strip("'-")
+        if is_affect_term(_w):
+            return _w
+    for _tok in re.findall(r"[a-z]+(?:[-][a-z]+)?", (text or "").lower()):
+        if is_affect_term(_tok):
+            return _tok
+    return ""
+
+
+def _stem(t: str) -> str:
+    # crude but sufficient morphological normalization for short English
+    # content words (handles plural -s/-es, -ing, -ed, -er). Shared by the
+    # date-recall overlap scorer AND the activity-context linker so both treat
+    # "study"/"studying"/"studied" as one stem.
+    if len(t) <= 3:
+        return t
+    for suf in ("ies", "es", "s", "ing", "ed", "er"):
+        if t.endswith(suf) and len(t) - len(suf) >= 3:
+            return t[: len(t) - len(suf)]
+    return t
+
+
+def _activity_query_overlap(stored_act: str, query: str, query_tokens) -> int:
+    """Score how well a stored dated-activity (`stored_act`, e.g. 'study
+    volcano') matches a date-recall query (`query`, e.g. 'what year did i
+    start all this volcano stuff again').
+
+    Data-driven (no frozen verb allowlist): we count meaningful token overlap
+    between the stored activity and the query, ignoring closed-class words. A
+    higher score = better match, so a multi-activity user gets the right dated
+    fact for their question. Morphology is tolerated (singular/plural, -ing,
+    -ed) via a short prefix test, so "volcano" matches "volcanoes" and "study"
+    matches "studying". Returns 0 when there is no overlap, which makes the
+    resolver fail closed (honest fallback) for unrelated queries.
+    """
+    _STOP = {
+        "i", "a", "an", "the", "this", "that", "my", "me", "you", "your",
+        "do", "did", "does", "have", "has", "had", "been", "be", "am", "is",
+        "are", "was", "were", "to", "of", "in", "on", "at", "for", "with",
+        "and", "or", "but", "all", "stuff", "again", "start",
+        "starting", "began", "begin", "year", "years", "long", "since",
+        "when", "what", "how", "about", "around", "into", "from", "up",
+    }
+
+    _act_tokens = {_stem(t) for t in re.findall(r"[a-z']+", (stored_act or "").lower())}
+    _act_tokens -= _STOP
+    _q = {_stem(t) for t in query_tokens} - _STOP
+    if not _act_tokens or not _q:
+        return 0
+    return len(_act_tokens & _q)
+
+
+# Morphological gerund map for activity verbs that English does NOT form with a
+# regular -ing suffix. This is a SEED (small, closed-class, structural — like
+# the irregular-verb table a child is born with), NOT a per-topic answer table.
+# RAVANA still learns the USER's own phrasing at runtime; this only governs how
+# a stored bare verb is realized when it stands in for the activity in a reply.
+# Can be extended online by adding entries; it never answers a question.
+_IRREGULAR_GERUND = {
+    "be": "being", "are": "being", "is": "being", "am": "being",
+    "have": "having", "has": "having", "do": "doing", "does": "doing",
+    "go": "going", "goes": "going",
+    "study": "studying", "studies": "studying",
+    "carry": "carrying", "carries": "carrying",
+    "cry": "crying", "cries": "crying",
+    "fly": "flying", "flies": "flying",
+    "try": "trying", "tries": "trying",
+    "die": "dying", "dies": "dying",
+    "lie": "lying", "lies": "lying",
+    "see": "seeing", "saw": "seeing", "sees": "seeing",
+    "flee": "fleeing", "fled": "fleeing",
+}
+
+
+def _gerund_of(verb: str) -> str:
+    """Return the -ing form of a single English verb.
+
+    Rule order: irregular seed table → C/V/e-stem consonant doubling (e.g.
+    'run' -> 'running') → silent-e drop (e.g. 'make' -> 'making') → default
+    '-ing' append (e.g. 'paint' -> 'painting'). Pure morphology — it reads a
+    live verb string and produces its gerund; it never invents an answer.
+    """
+    _v = (verb or "").lower().strip()
+    if not _v:
+        return _v
+    if _v in _IRREGULAR_GERUND:
+        return _IRREGULAR_GERUND[_v]
+    # A stem already ending in -ing (e.g. "restoring", "building") is ALREADY a
+    # gerund; re-appending -ing would produce a broken double-gerund
+    # ("restoringing"). This is the root cause of the "you started restoringing
+    # radios" defect (round 2026-08-15T0830Z): the date-recall realizer called
+    # _gerund_of on a bare stem that was itself already a gerund. Pass it through
+    # unchanged. (The leading-verb "building frames" case is handled separately
+    # in _verb_phrase_to_gerund, but every other caller feeds a bare stem here,
+    # so the guard belongs at the lowest level too.)
+    if _v.endswith("ing") and len(_v) >= 5:
+        return _v
+    if len(_v) >= 3 and _v[-1] in "bcdfgklmnprstvz" and _v[-2] in "aeiou" \
+            and _v[-3] in "bcdfgklmnprstvz" and _v[-1] != _v[-2] \
+            and _v[-2] != _v[-3]:
+        return _v + _v[-1] + "ing"
+    if _v.endswith("e") and not _v.endswith("ee") and len(_v) >= 3:
+        return _v[:-1] + "ing"
+    return _v + "ing"
+
+
+def _verb_phrase_to_gerund(phrase: str) -> str:
+    """Turn a stored activity phrase into a natural gerund realization for
+    date-recall replies, WITHOUT an LLM and WITHOUT a per-topic phrase list.
+
+    Examples:
+        "study basaltic eruptions"   -> "studying basaltic eruptions"
+        "start studying volcanoes"   -> "studying volcanoes"   (a leading
+            inceptive verb "start/began" in front of an ALREADY-gerund verb is
+            redundant in a "you started <gerund>" reply, so it is dropped and
+            the real gerund verb kept — avoids "started starting studying".)
+        "keep three tarantulas"      -> "keeping three tarantulas"
+
+    Strategy: morphology-convert the leading verb; if that already yields an
+    -ing word, nothing more is needed. If a SECOND token is also a verb ending
+    in -ing, the leading inceptive verb was scaffolding and the -ing verb is the
+    real activity, so keep only the -ing verb. This generalizes to EVERY stored
+    activity (no authored per-topic reply). If the phrase has no recognizable
+    leading verb, return it unchanged (honest fallback).
+    """
+    _p = (phrase or "").strip()
+    if not _p:
+        return _p
+    _parts = _p.split()
+    _head = _parts[0].lower()
+    _base = _head[:-1] if (_head.endswith("s") and len(_head) > 3) else _head
+    _rest = _parts[1:]
+    # Already-gerund head: the stored activity may come from a `does`/`event`
+    # fact whose leading verb is ALREADY a gerund ("building frames", "studying
+    # volcanoes"). Re-gerunding it would produce a broken double-gerund
+    # ("buildinging frames"). Detect a regular gerund head (its -ing form is
+    # exactly the head itself) and pass the phrase through unchanged — this is
+    # the natural realization a date-recall reply needs ("you started building
+    # frames in 2019"), no morphology needed.
+    if _head.endswith("ing") and len(_head) >= 5 and _gerund_of(_base) == _head:
+        return _p
+    _ger = _gerund_of(_base)
+    # Detect a redundant inceptive leading verb ("start/begin/began") in front
+    # of a gerund — keep only the gerund as the activity head.
+    _INCEPTIVE = {"start", "started", "begin", "began", "begins", "beginning"}
+    if _base in _INCEPTIVE and _rest and _rest[0].endswith("ing"):
+        # already a gerund head; the reply frame supplies "started", so drop
+        # the inceptive scaffolding entirely.
+        return " ".join(_rest)
+    return (_ger + " " + " ".join(_rest)) if _rest else _ger
+
+
 from collections import deque, Counter
 
 # Import constants from shared module
@@ -2192,6 +2373,30 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         opinions = getattr(um, "opinions", None) if um else None
         beliefs = getattr(self, "belief_store", None)
 
+        # ── (0) META-IDENTITY query: answer from RAVANA's LIVE model of the
+        # USER (Bug 5, round 2026-08-15T1537Z). Queries like "do i seem like
+        # a real person to you" / "what am i to you" / "tell me something
+        # true about who i am" / "what have you learned about me" ask RAVANA
+        # to reflect on its accumulated model of the user — NOT for a
+        # biographical fact (name/location) and NOT an episodic echo. The
+        # prior behavior fell through to an authored "real is fuzzy for me..."
+        # frame (probe-tuned) or a verbatim remembered turn. Fix: detect the
+        # meta-identity intent and answer from identity state + the real
+        # stance/fact stores. Every slot is read from runtime state RAVANA
+        # grew autonomously; no hardcoded reply string, no per-topic table,
+        # no retraining. Fail-closed: returns None when no meta signal is
+        # present, so factual/biographical queries stay on their own paths.
+        _meta = re.search(
+            r"\b(do\s+i\s+seem\s+(?:like|to\s+be)\s+(?:a|an)?\s*real|"
+            r"am\s+i\s+(?:a|an)?\s*real|"
+            r"what\s+am\s+i\s+to\s+you|who\s+am\s+i\s+to\s+you|"
+            r"tell\s+me\s+(?:something\s+true|about|more)\s+(?:about\s+)?who\s+i\s+am|"
+            r"what\s+(?:have|do)\s+you\s+(?:learned|know)\s+about\s+me|"
+            r"how\s+(?:real|human)\s+(?:do\s+)?i\s+(?:seem|appear)|"
+            r"am\s+i\s+(?:even\s+)?real\s+to\s+you)\b", q)
+        if _meta:
+            return self._meta_identity_reply()
+
         # ── (1) Biographical self-fact recall ──────────────────────────────
         # "what's my name" / "where do i live/work" / "what do i keep/have on
         # my rooftop" / "what's my favorite ..." — answered from the structured
@@ -2407,6 +2612,58 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     if _eattr == "is":
                         return f"your {_ent} is {_v}."
                     return f"your {_ent}'s {_eattr} is {_v}."
+        # Possession-attribute (material) recall (Bug 4, round 2026-08-15T0830Z):
+        # "what's my cabin made of" / "what material is my sword" / "what's my
+        # roof made of" reads the ENTITY-scoped 'madeof' / feature fact mined by
+        # mine_personal_facts. The existing possessive branch (above) only
+        # matched a fixed attribute whitelist (name/age/breed/...), so a material
+        # fact fell through to the episodic echo. Resolve the entity noun and
+        # render from the live store via possession_attrs (single source of
+        # truth); honest None fallback when nothing matches (never fabricate).
+        # Try the alternative "what is the material of my X" form first
+        _MATQ_ALT = re.search(
+            r"\bwhat\s+is\s+the\s+material\s+of\s+"
+            r"(?:my|the|our|your|a|an)?\s*([a-z][a-z]+)\b", q)
+        if _MATQ_ALT:
+            _MATQ = _MATQ_ALT
+            _ent = _MATQ.group(1).lower().strip()
+            _feat_query = None
+        else:
+            _MATQ = re.search(
+                r"\b(?:what'?s|what\s+is|what\s+material\s+is)\s+"
+                r"(?:my|the|our|your|a|an)?\s*([a-z][a-z]+)(?:'s)?\s+"
+                r"(?:([a-z][a-z]+)\s+)?"  # optional feature between entity and "made of"
+                r"(?:made\s+of|made\s+from|material|built\s+of|built\s+from)\b", q)
+            if _MATQ:
+                _ent = _MATQ.group(1).lower().strip()
+                _feat_query = _MATQ.group(2).lower().strip() if _MATQ.group(2) else None
+            else:
+                _ent = None
+                _feat_query = None
+        if _MATQ and pf is not None:
+            _cand = None
+            from . import possession_attrs as _pa
+            for _k, _f in pf.facts.items():
+                if not (isinstance(_k, tuple) and len(_k) == 3):
+                    continue
+                if _k[0] == _ent and not getattr(_f, "superseded", False):
+                    _attr = _k[1]
+                    # If the query named a specific feature ("what's my desk frame
+                    # made of"), prefer an exact feature match; otherwise fall back
+                    # to madeof or any feature noun.
+                    if _feat_query and _pa.is_feature_noun(_feat_query):
+                        if _attr == _feat_query:
+                            _cand = _f
+                            break
+                    elif _attr == "madeof":
+                        _cand = _f
+                    elif _cand is None and _pa.is_feature_noun(_attr):
+                        _cand = _f
+            if _cand is not None:
+                _attr, _v = _cand.attribute, _cand.value
+                if _attr == "madeof":
+                    return f"your {_ent} is made of {_v}."
+                return f"your {_ent}'s {_attr} is {_v}."
         # Count / quantity recall: "how many X do i have / keep / raise" ->
         # scan 'does' facts whose value contains a leading cardinal number
         # and the cue noun; or a dedicated count attribute. Honest fallback
@@ -2610,7 +2867,201 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     break
             if _best is not None:
                 return f"you told me: {_best}"
+        # ── (1f) DATE-GROUNDED temporal recall (round 2026-08-14T0608Z) ──
+        # "when did i start building frames" / "since what year have i kept
+        # quail" / "how long have i been fixing tube amps" -> answer from the
+        # 'since' / 'since_age' facts mined by mine_personal_facts. Precise
+        # reverse-lookup on the activity content head; no per-topic table, no
+        # authored prose. Every slot read live from the PersonalFactStore.
+        # Fail-closed: returns None when no dated fact maps (honest fallback).
+        _DATEQ = re.search(
+            r"\b(?:when\s+did\s+i|since\s+what\s+year|what\s+year|how\s+long\s+"
+            r"have\s+i|how\s+long\s+since|since\s+when|when\s+did\s+i\s+start|"
+            r"when\s+did\s+i\s+begin)\b", q, re.IGNORECASE)
+        if _DATEQ and pf is not None:
+            # GENERALIZE (round 2026-08-14T1110Z): the old resolver matched the
+            # query against a FROZEN allowlist of activity verbs
+            # (building/keep/repair/cello/quail/...). A rotated probe
+            # ("what year did i start all this volcano stuff again") contained
+            # NONE of those verbs, so the resolver failed closed and the turn
+            # fell through to a verbatim episodic echo. That is phrase-tuning.
+            # Fix A (round 2026-08-14T1110Z feature): the resolver derives the
+            # queried activity from RAVANA's OWN mined `since`/`since_age` facts
+            # (the live store it grew from conversation), not a hardcoded verb
+            # list. The remaining gap: a `does`/`event` fact that DESCRIBES the
+            # same activity as a `since` fact but with a DIFFERENT leading verb
+            # was not linked in, so its activity words never joined the match
+            # context. Example from the probe: the since-fact is "study 2015"
+            # but the user also mined "start studying volcanoes back" — that
+            # `does` fact CONTAINS "volcanoes", yet the prior code linked `does`
+            # facts to the since activity ONLY by identical leading verb
+            # ("study" != "start"), so "volcanoes" never entered the context and
+            # "what year did i start all this volcano stuff" scored 0 and fell
+            # through to a verbatim echo. Fix: link a `does`/`event` fact to the
+            # since activity when they SHARE a salient token (data-driven,
+            # generalizes to any phrasing, fails closed — no shared token means
+            # no link). Now "volcanoes" reaches the match context and the
+            # paraphrase recalls the right dated fact.
+            import datetime as _dtmod
+            _q_tokens = {t for t in re.findall(r"[a-z']+", q.lower())}
+            _q_tokens.discard("")
+            # Build a per-activity context: each `since` activity key (`_act`,
+            # the bare verb, e.g. "study") gathers the value of EVERY `does`/
+            # `event` fact that shares a salient token with it. This lets an
+            # activity described under a different leading verb (e.g. "start
+            # studying volcanoes") still contribute its distinctive words
+            # ("volcanoes") to the match context for the "study" dated fact.
+            # Token sharing is tested on MORPHOLOGICAL STEMS (e.g. "studying"
+            # == "study", "volcanoes" == "volcano"), so the linkage is robust
+            # to tense/aspect variation, not a brittle exact-string match.
+            _verb_ctx = {}
+            _since_acts = set()
+            for _k, _f in pf.facts.items():
+                if not (isinstance(_k, tuple) and len(_k) == 3):
+                    continue
+                if getattr(_f, "superseded", False):
+                    continue
+                if _k[1] == "since":
+                    _p = _f.value.lower().rsplit(" ", 1)
+                    if len(_p) == 2 and _p[0]:
+                        _since_acts.add(_p[0])
+            for _k, _f in pf.facts.items():
+                if not (isinstance(_k, tuple) and len(_k) == 3):
+                    continue
+                if getattr(_f, "superseded", False):
+                    continue
+                if _k[1] in ("does", "event") and _f.value:
+                    _val = _f.value.lower()
+                    _stems = {_stem(t) for t in re.findall(r"[a-z']+", _val)}
+                    # attach this `does`/`event` value to every since activity
+                    # it shares a salient stem with (or an exact leading-verb
+                    # match on the bare verb).
+                    for _act in _since_acts:
+                        if _stem(_act) in _stems or _act == _val.split()[0]:
+                            _verb_ctx.setdefault(_act, []).append(_val)
+            _best_year = None
+            _best_age = None
+            _best_score = 0
+            _best_act = None
+            for _k, _f in pf.facts.items():
+                if not (isinstance(_k, tuple) and len(_k) == 3):
+                    continue
+                if getattr(_f, "superseded", False):
+                    continue
+                _v = _f.value.lower()
+                if _k[1] == "since":
+                    _parts = _v.rsplit(" ", 1)
+                    if len(_parts) != 2:
+                        continue
+                    _act = _parts[0]
+                    try:
+                        _yr = int(_parts[1])
+                    except ValueError:
+                        continue
+                    _ctx = _v + " " + " ".join(_verb_ctx.get(_act, ""))
+                    _score = _activity_query_overlap(_ctx, q, _q_tokens)
+                    if _score > _best_score:
+                        _best_score = _score
+                        _best_year = _yr
+                        _best_age = None  # clear the other candidate
+                        _best_act = _act
+                elif _k[1] == "since_age":
+                    _parts = _v.rsplit(" ", 1)
+                    if len(_parts) != 2:
+                        continue
+                    _act = _parts[0]
+                    try:
+                        _age = int(_parts[1])
+                    except ValueError:
+                        continue
+                    _ctx = _v + " " + " ".join(_verb_ctx.get(_act, ""))
+                    _score = _activity_query_overlap(_ctx, q, _q_tokens)
+                    if _score > _best_score:
+                        _best_score = _score
+                        _best_year = None  # clear the other candidate
+                        _best_age = _age
+                        _best_act = _act
+            # Require at least one meaningful token overlap so an unrelated
+            # "when did i...?" query (no dated activity in it) fails closed
+            # rather than echoing the first stored fact.
+            if _best_score == 0:
+                return None
+            # Display phrasing: the richer `does`/`event` value when available
+            # ("studying volcanoes"), else the bare `since` activity verb. Realize
+            # it as a natural gerund ("studying ...") for grammatical replies
+            # (Fix B, round 2026-08-14T1110Z feature) — previously the bare verb
+            # produced broken English ("you started study basaltic eruptions").
+            _qact = (_verb_ctx.get(_best_act) or [_best_act])[0] or _best_act
+            _qact = _verb_phrase_to_gerund(_qact)
+            if _best_year is not None:
+                if re.search(r"\bhow\s+long\b", q):
+                    _dur = _dtmod.datetime.now().year - _best_year
+                    return f"you've been {_qact} since {_best_year} — about {_dur} years."
+                return f"you started {_qact} in {_best_year}."
+            if _best_age is not None:
+                return f"you've been {_qact} since you were about {_best_age}."
         return None
+
+    def _meta_identity_reply(self) -> str:
+        """State-driven answer to a meta-identity query about the user
+        (Bug 5, round 2026-08-15T1537Z).
+
+        Renders RAVANA's accumulated model of the user from LIVE durable
+        state — the user's real name, stance count + topics, fact count, and
+        RAVANA's own identity strength/trend. No authored prose, no per-topic
+        answer table, no retraining. All content is read from runtime stores
+        RAVANA grows autonomously (the user can correct any fact/stance; the
+        stores merge on correction).
+        """
+        um = getattr(self, "user_model", None)
+        name = (getattr(um, "user_name", "") or "").strip()
+        _pf = getattr(um, "personal_facts", None) if um else None
+        # Compute n_facts from active, non-superseded entries only
+        n_facts = 0
+        if _pf is not None:
+            for _f in (getattr(_pf, "facts", {}) or {}).values():
+                if not getattr(_f, "superseded", False):
+                    n_facts += 1
+        opinions = getattr(um, "opinions", None) if um else None
+        stances = getattr(opinions, "stances", {}) or {}
+        n_stances = len(stances)
+        strength = self.identity.state.strength
+        trend = self.identity.get_trend()
+
+        if trend > 0.01:
+            _trend_word = "steadily getting clearer"
+        elif trend < -0.01:
+            _trend_word = "still shifting"
+        else:
+            _trend_word = "holding steady"
+
+        _parts = []
+        if name:
+            _parts.append(f"i know you as {name}")
+        else:
+            _parts.append("i'm still learning who you are")
+
+        _learned = []
+        if n_stances:
+            _learned.append(f"{n_stances} stances you've shared")
+        if n_facts:
+            _learned.append(f"{n_facts} facts about your life")
+        if _learned:
+            _parts.append(
+                "and from what you've told me i've picked up "
+                + " and ".join(_learned))
+
+        _topics = list(stances.keys())[:3]
+        if _topics:
+            _parts.append(
+                "you've let me see where you stand on things like "
+                + ", ".join(_topics))
+
+        _parts.append(
+            f"my own sense of self is still forming — my self-coherence "
+            f"sits around {strength:.2f} and is {_trend_word}")
+
+        return ". ".join(_parts) + "."
 
     def _recall_user_fact(self, attr_hint, q):
         """Helpers for _structured_recall: read a personal_fact by attribute."""
@@ -4011,17 +4462,35 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                               or "fear" in _cause_fb.label)
                              or _suffering_word)
                         and _cause_fb.confidence >= 0.22):
-                    # Translate the cause label into a natural-feeling noun the
-                    # existing empathy responder can slot in (it interpolates
-                    # `{word}` as the feeling). Keeps the response human, never
-                    # the raw category token.
-                    _feeling_phrase = {
-                        "other_suffering": "going through something hard",
-                        "loss": "hurting",
-                        "fear": "afraid",
-                        "loneliness": "lonely",
-                        "frustration": "frustrated",
-                    }.get(_cause_fb.label, "hurting")
+                    # GENERALIZE (round 2026-08-14T1110Z): the old code mapped
+                    # the NOISY GloVe *cause label* to a feeling phrase
+                    # (loneliness -> "lonely", fear -> "afraid"). The classifier
+                    # mis-labels freely ("i felt terrified" -> cause "loneliness"
+                    # -> "feeling lonely is hard"), so the reply named a feeling
+                    # the user NEVER expressed. Root cause: the feeling phrase
+                    # was derived from a misclassified label, not the user's own
+                    # words. Fix: derive the feeling from the USER'S ACTUAL
+                    # affect/suffering word in the utterance (data-driven, reads
+                    # real input), and only fall back to the cause-label map when
+                    # no explicit affect word is present. This is honest
+                    # cognition, not authored prose.
+                    _user_affect = _extract_user_affect_word(user_input)
+                    if _user_affect:
+                        _feeling_phrase = _user_affect
+                    else:
+                        # Translate the cause label into a natural-feeling noun
+                        # the existing empathy responder can slot in (it
+                        # interpolates `{word}` as the feeling). Keeps the
+                        # response human, never the raw category token. Only used
+                        # when the user named no explicit affect word of their
+                        # own (the classifier is then the best available signal).
+                        _feeling_phrase = {
+                            "other_suffering": "going through something hard",
+                            "loss": "hurting",
+                            "fear": "afraid",
+                            "loneliness": "lonely",
+                            "frustration": "frustrated",
+                        }.get(_cause_fb.label, "hurting")
                     _disc = ("negative", _feeling_phrase)
             # R3 (round v3): BENIGN-SELF-DESCRIPTION GUARD MUST RUN
             # UNCONDITIONALLY. Previously the benign/self-desc exclusion lived
@@ -4214,6 +4683,22 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     pass
                 else:
                     # §3 Empathy selector: (VAD_label x cause) -> response frame.
+                    # GROW the name guard from the user's ACTUAL felt word the
+                    # moment empathy genuinely fires (round 2026-08-15T0326Z):
+                    # the prior round's register_name_reject was DEAD CODE —
+                    # nothing ever called it, so a ROTATED predicate word slipped
+                    # through as a name. Here we register the word the empathy
+                    # path itself confirmed is a feeling, so the next "i'm <that
+                    # word>" in a bare-copula name slot is rejected structurally
+                    # (the helper also re-confirms it is a predicate, never a
+                    # real name). Online, no retrain, no code change.
+                    try:
+                        from .user_model import register_name_reject
+                        _aff = _extract_user_affect_word(user_input)
+                        if _aff:
+                            register_name_reject(_aff)
+                    except Exception:
+                        pass
                     _vad_label = self.emotion.get_emotional_label()
                     _cause = classify_cause(user_input, self._glove_vector).label
                     _frame = select_empathy_frame(_vad_label, _cause)

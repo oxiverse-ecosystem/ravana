@@ -75,8 +75,10 @@ def _reflective_ack_from_vad(engine) -> str:
     except Exception:
         _v = 0.0
     # The ONLY authored tokens are single valence words derived from the live
-    # band; the number rendered is the real measured valence. No sentence is
-    # authored per topic — if no word fits the band, emit the bare frame.
+    # band; NO internal measurement number is shown to the user (that would leak
+    # RAVANA's private VAD state into product-facing text). If no word fits the
+    # band, emit the bare neutral acknowledgement. No sentence is authored per
+    # topic.
     _word = ""
     if _v <= -0.3:
         _word = "heavy"
@@ -87,8 +89,8 @@ def _reflective_ack_from_vad(engine) -> str:
     elif _v >= 0.1:
         _word = "open"
     if not _word:
-        return f"noted (valence {_v:+.2f})."
-    return f"it sounds {_word} (valence {_v:+.2f})."
+        return "noted."
+    return f"it sounds {_word}."
 
 
 # ── Attribute-predicate → value vocabulary (C1, LoCoMo gap fix) ─────────────
@@ -2373,7 +2375,30 @@ class ReasoningMixin:
                     # ("cat", "cat_2"); render naturally ("your cat is gravy").
                     _phrase = _pet_slots.render(attr, val)
                 if _phrase is None:
-                    _phrase = f"your {attr} is {val}"
+                    # ROUND 2026-08-15T1537Z FIX (D2): a `since`/`since_age`
+                    # fact stores its value as "<activity> <year>" (e.g. "move
+                    # 2009") for date-grounded recall. The generic
+                    # `"your {attr} is {val}"` fallback would ack it as
+                    # "your since is move 2009" — ungrammatical and leaks the
+                    # internal fact-shape. Render it as a natural
+                    # acknowledgement of a dated activity instead, mirroring the
+                    # recall phrasing ("you started <activity> in <year>"). The
+                    # content still comes from the stored fact, not authored
+                    # prose; the activity is realized via the SAME gerund helper
+                    # the recall path uses so ack and recall agree.
+                    if attr in ("since", "since_age") and " " in str(val):
+                        _act, _, _yr = str(val).rpartition(" ")
+                        try:
+                            from ravana.chat.engine import _verb_phrase_to_gerund
+                            _act_g = _verb_phrase_to_gerund(_act)
+                        except Exception:
+                            _act_g = _act
+                        if attr == "since_age":
+                            _phrase = f"you've been {_act_g} since you were about {_yr}"
+                        else:
+                            _phrase = f"you started {_act_g} in {_yr}"
+                    else:
+                        _phrase = f"your {attr} is {val}"
             else:
                 _ent = _subj
                 _phrase = {
