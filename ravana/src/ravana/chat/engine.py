@@ -2440,8 +2440,18 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 return f"your name is {_v.value}."
             return None
         # "where do i live / work" / "what do i do"
-        if re.search(r"\b(where do i live|what city|what town|where am i from)\b", q) and \
-                re.search(r"\b(live|from)\b", q):
+        # GENERALIZE (round 2026-08-16): the old branch only matched the
+        # disclosure verbs "live"/"from", so "where did i grow up" — a
+        # different verb naming the SAME location fact — fell through to the
+        # episodic echo (measured this round: T30 "where did i grow up" ->
+        # "i don't really have a solid grasp on grow"). Location is location
+        # regardless of which first-person verb the user used to disclose it
+        # ("i live in X" / "i grew up in X" / "i'm from X"). Accept the verb
+        # set {live, from, grew, grow} so any place-anchored disclosure is
+        # recallable from the one 'location' fact. Structural (one verb set,
+        # not a per-place table).
+        if re.search(r"\b(where do i live|what city|what town|where am i (?:from|grew up)|where did i grow up|where (?:was|were) i (?:from|born|raised))\b", q) and \
+                re.search(r"\b(live|from|grew|grow)\b", q):
             _v = pf.get("i", "location") if pf else None
             if _v is not None and not getattr(_v, "superseded", False):
                 return f"you live in {_v.value}."
@@ -2522,14 +2532,28 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # stored STANCE TOPIC (the user's own attitudes) or to a personal
         # fact. This is the precise replacement for the old loose
         # enumerate_matching dump that concatenated unrelated turns.
+        # GENERALIZE (round 2026-08-16): topic-cued autobiographical recall
+        # also arrives as "do you remember what i said/mentioned about X" /
+        # "anything i (told|said) you about X" / "do you recall what i shared
+        # about X". The OLD matcher only caught the "what did i tell you about
+        # X" root form, so the "do you remember what i said about X" shape
+        # fell through to the whole-profile fact dump (measured this round:
+        # T23 concatenated every stored fact). The generalization is a
+        # grammatical one (optional recall matrix + said/mentioned/shared
+        # verbs), NOT a per-topic phrase list — so it generalizes across every
+        # topic the user might ask about.
         _TOLD = re.search(
-            r"\b(?:what\s+(?:did|do)\s+i\s+(?:tell|say)\s+(?:you|me)\s+about|"
-            r"what\s+(?:do|did)\s+i\s+(?:think|feel)\s+(?:of|about)|"
-            r"how\s+(?:do|did)\s+i\s+feel\s+about|"
-            r"what'?s\s+my\s+(?:opinion|stance)\s+(?:on|about|of))\b"
-            r"\s+([a-z][a-z \-]{1,40})", q)
+            r"\b("
+            r"what\s+(?:did|do)\s+i\s+(?:tell|say)\s+(?:you|me)\s+about\s+"
+            r"|what\s+(?:do|did)\s+i\s+(?:think|feel)\s+(?:of|about)\s+"
+            r"|how\s+(?:do|did)\s+i\s+feel\s+about\s+"
+            r"|what'?s\s+my\s+(?:opinion|stance)\s+(?:on|about|of)\s+"
+            r"|do\s+you\s+(?:remember|recall)\s+what\s+(?:i\s+)?(?:said|mentioned|told|shared)\s+(?:you\s+)?about\s+"
+            r"|anything\s+i\s+(?:told|said|shared|mentioned)\s+(?:you\s+)?about\s+"
+            r"|remember\s+what\s+i\s+(?:said|told|mentioned|shared)\s+about\s+"
+            r")([a-z][a-z \-]{1,40})", q)
         if _TOLD and pf is not None:
-            _cue = _TOLD.group(1).strip().strip("?.!").lower()
+            _cue = _TOLD.group(2).strip().strip("?.!").lower()
             # (a) resolve to a stance topic the user holds
             if opinions is not None:
                 _topic = opinions.resolve_topic(_cue) or _cue
@@ -2590,6 +2614,31 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     if _attr == "does":
                         return f"you {_v}."
                     return f"your {_attr} is {_v}."
+            # (c) GENERALIZE (round 2026-08-16): the cue may be a RELATIONSHIP
+            # ENTITY ("my niece", "my cousin", "my sister"), not a bare topic
+            # word. The miner stores "my niece priya is X" as a COMBINED attr
+            # ("niece priya") under subject "i", so the cue "my niece" neither
+            # appears verbatim in the value NOR shares >=2 tokens with it (the
+            # value is "an astronomer who studies pulsars"). Without this, "what
+            # did i tell you about my niece" fell through to an episodic/own
+            # echo (measured this round: T51/T52). Fix: also resolve the cue as
+            # an entity by scanning subject=="i" facts whose attr BEGINS with
+            # the cue's salient head word (so "niece priya" is reachable from
+            # cue "my niece" -> head "niece"). Same combined-attr lookup the
+            # _ENT_ATTR branch (b) uses, kept in sync by construction. No
+            # per-entity table; generalizes to ANY relationship the user named.
+            _cue_head = next(iter(_cnouns)) if _cnouns else None
+            if _cue_head:
+                for _k, _f in pf.facts.items():
+                    if not (isinstance(_k, tuple) and len(_k) == 3):
+                        continue
+                    if _k[0] != "i" or getattr(_f, "superseded", False):
+                        continue
+                    _attr = _k[1].lower()
+                    if _attr == _cue_head or _attr.startswith(_cue_head + " ") \
+                            or _attr.startswith(_cue_head + "'"):
+                        _v = _f.value
+                        return f"your {_attr} is {_v}."
             return None
 
         # ── (1c) Possessive-entity + count + activity biographical recall ──
@@ -2613,28 +2662,86 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # from the possessive and read the matching entity-scoped fact.
         _ENT_ATTR = re.search(
             r"\bmy\s+([a-z][a-z]+)(?:'s)?\s+(name|age|breed|job|work|is|"
-            r"does|location|live|color|type|kind|favorite)\b", q)
+            r"does|location|live|color|type|kind|favorite)?\b", q)
         if _ENT_ATTR and pf is not None:
             _ent = _ENT_ATTR.group(1).lower().strip()
-            # fold the spoken attribute to the store's relation key
-            _eattr_raw = _ENT_ATTR.group(2).lower()
+            # fold the spoken attribute to the store's relation key (only when
+            # a rel-word is present; a bare "my <entity>" has no rel-word and
+            # routes straight to branch (b) which scans combined-attr facts).
+            _eattr_raw = (_ENT_ATTR.group(2) or "").lower()
             _eattr = ("does" if _eattr_raw == "does"
                       else "is" if _eattr_raw == "is"
                       else "name" if _eattr_raw == "name"
                       else _eattr_raw)
-            for _k, _f in pf.facts.items():
-                if not (isinstance(_k, tuple) and len(_k) == 3):
-                    continue
-                if _k[0] == _ent and _k[1] == _eattr \
-                        and not getattr(_f, "superseded", False):
-                    _v = _f.value
-                    if _eattr == "name":
-                        return f"your {_ent}'s name is {_v}."
-                    if _eattr == "does":
-                        return f"your {_ent} does {_v}."
-                    if _eattr == "is":
-                        return f"your {_ent} is {_v}."
-                    return f"your {_ent}'s {_eattr} is {_v}."
+            if _eattr:
+                # (a) entity-scoped fact (subject == entity), the canonical
+                #     possessive shape ("my partner's name is theo" -> partner).
+                for _k, _f in pf.facts.items():
+                    if not (isinstance(_k, tuple) and len(_k) == 3):
+                        continue
+                    if _k[0] == _ent and _k[1] == _eattr \
+                            and not getattr(_f, "superseded", False):
+                        _v = _f.value
+                        if _eattr == "name":
+                            return f"your {_ent}'s name is {_v}."
+                        if _eattr == "does":
+                            return f"your {_ent} does {_v}."
+                        if _eattr == "is":
+                            return f"your {_ent} is {_v}."
+                        return f"your {_ent}'s {_eattr} is {_v}."
+            # (b) GENERALIZE (round 2026-08-16): the miner stores a
+            #     single-token-entity disclosure like "my niece Priya is an
+            #     astronomer" as a COMBINED attr ("niece priya") under subject
+            #     "i" (the possessive splitter only entity-scopes a multi-word
+            #     attr whose LAST token is a relation word; "priya" is not one,
+            #     so "my niece priya is X" stays attr="niece priya",
+            #     subject="i"). A later "what's my niece's name / what does my
+            #     niece study / does my cousin have a craft" therefore misses
+            #     branch (a) (subject=="niece" never exists; or no rel-word was
+            #     spoken so branch (a) is skipped) and falls through to an
+            #     episodic echo (measured this round: T29 "what's my niece's
+            #     name" -> "you told me you do grew"; T32 "does my cousin have a
+            #     craft" -> "cousin craft is a bit outside what i know"). This
+            #     is the same recall/miner storage-shape disagreement as the
+            #     round-2026-08-15T0326Z possessive fix, just for the
+            #     combined-attr / bare-entity case. Fix: also scan subject=="i"
+            #     facts whose attr BEGINS with the entity word (so "niece priya"
+            #     is reachable from entity "niece") and render the whole stored
+            #     value. No per-entity table; generalizes to ANY relationship
+            #     the user disclosed this way (niece/cousin/aunt/uncle/...).
+            #     SAFETY (round 2026-08-16 regression guard): branch (b) is a
+            #     RECALL resolver. It must NOT fire on a declarative disclosure
+            #     ("my favorite movie is inception" -> _ent="favorite") — that
+            #     would answer the statement instead of recording it, breaking
+            #     episodic capture (test_c_record_episode_captures_facts). And
+            #     it must NOT hijack a MATERIAL query ("what's my desk made of")
+            #     which _MATQ handles below. Gate on a genuine INTERROGATIVE
+            #     frame: the query either ends with "?" OR begins with an
+            #     interrogative word (what/who/where/.../do/does/...). A bare
+            #     copula "is" inside a declarative "my X is Y" is NOT a question,
+            #     so a naive "contains is" test wrongly fired on disclosures —
+            #     the structural fix is to require sentence-initial inversion or
+            #     a trailing "?". Not a per-topic table.
+            _is_question = bool(
+                re.search(r"\?$", q.strip())
+                or re.match(
+                    r"^(what|who|which|where|when|why|how|is|are|was|were|"
+                    r"do|does|did|has|have|had|can|could|would|will|tell|"
+                    r"said|say|recall|remember|know|mention)\b", q.strip()))
+            _is_material = bool(re.search(
+                r"\b(made of|made from|made out of|built of|built from|"
+                r"material|composed of)\b", q))
+            if _is_question and not _is_material:
+                for _k, _f in pf.facts.items():
+                    if not (isinstance(_k, tuple) and len(_k) == 3):
+                        continue
+                    if _k[0] != "i" or getattr(_f, "superseded", False):
+                        continue
+                    _attr = _k[1].lower()
+                    if _attr == _ent or _attr.startswith(_ent + " ") \
+                            or _attr.startswith(_ent + "'"):
+                        _v = _f.value
+                        return f"your {_attr} is {_v}."
         # Possession-attribute (material) recall (Bug 4, round 2026-08-15T0830Z):
         # "what's my cabin made of" / "what material is my sword" / "what's my
         # roof made of" reads the ENTITY-scoped 'madeof' / feature fact mined by
@@ -3112,8 +3219,30 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                          "hi ", "how are you", "what do you care")
                 if any(_s in _q_low for _s in _skip):
                     return
+                # GENERALIZE (round 2026-08-16): the old floor required words
+                # >=4 chars, so a 3-letter (or shorter) salient topic — "sea",
+                # "dog", "art", "sky", "war", "ice" — was never stored as a
+                # reply key. A later "what did you say about the sea" then had
+                # NO exact topic and fell to the GloVe neighbor fallback, which
+                # returned an UNRELATED stored reply (measured this round: the
+                # sea reply was dropped, and "earlier you said something about
+                # the sea" returned the cold reply). Real topics are often short
+                # (everything a person talks about). Lower the floor to >=2 and
+                # keep a small seed ALLOWLIST of genuine short content words so a
+                # 2-3 letter token that is real concept (sea/sky/dog/cat/...) is
+                # stored, while function words (do/be/it/up/so) stay excluded.
+                # The allowlist is seed vocabulary (RAVANA-expandable in
+                # principle, degrades gracefully), not per-topic authored prose.
+                _SHORT_OK = {
+                    "sea", "sky", "dog", "cat", "art", "war", "ice", "fog",
+                    "sun", "moon", "star", "rain", "snow", "wind", "fire",
+                    "love", "hate", "calm", "pain", "joy", "hope", "fear",
+                    "code", "data", "mind", "self", "free", "true", "song",
+                    "book", "film", "food", "wine", "tea", "city", "town",
+                    "bird", "fish", "tree", "wall", "road", "time", "life",
+                }
                 _words = [w for w in re.findall(r"[a-z']+", _q_low)
-                          if len(w) >= 4 and w not in (
+                          if (len(w) >= 4 or w in _SHORT_OK) and w not in (
                               "about", "think", "feel", "what", "tell",
                               "like", "love", "hate", "do", "you", "your",
                               "again", "really", "something", "music",
