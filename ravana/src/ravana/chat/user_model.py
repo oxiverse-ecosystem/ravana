@@ -2546,6 +2546,30 @@ class UserModel:
         toks = [t for t in re.findall(r"[a-z'][a-z']*", phrase.lower())]
         if not toks:
             return None
+        # REJECT directional PARTICLE heads (round 2026-08-16). A disclosure
+        # like "i grew up in a village called aldermoor" has the verb object
+        # span begin with the particle "up" ("up in a village called
+        # aldermoor"). The particle is NOT a content head — it is a closed-class
+        # framer. The old code returned "up" as the salient head, and the
+        # activity/event miners then stored a bare-verb junk fact ("does=grew",
+        # "event=grew") because _strip_obj_framers trimmed the trailing "up" and
+        # left only the verb. Those junk facts poisoned every does-keyed recall
+        # ("where did i grow up" -> "you do grew"; "what have you learned about
+        # me" -> "your does is grew"). Treating a particle as a content head is
+        # the same class of error as a function word being kept — particles are
+        # closed-class framers. Drop them so the real content head ("village")
+        # surfaces. Structural: a small closed particle set, generalizes to any
+        # "i <verb> <particle> <object>" disclosure (grew up / came back /
+        # went out / sat down / fell over / turned around). No per-topic table,
+        # no retraining; removing an entry only loses one particle shape.
+        _PARTICLES = {
+            "up", "down", "off", "out", "in", "on", "away", "back", "over",
+            "under", "around", "through", "along", "by", "past", "upon",
+        }
+        while toks and toks[0] in _PARTICLES:
+            toks.pop(0)
+        if not toks:
+            return None
         # Drop leading closed-class words (determiners/prepositions).
         while toks and toks[0] in self._OPINION_STOP:
             toks.pop(0)
