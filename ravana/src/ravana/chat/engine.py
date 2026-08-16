@@ -3831,7 +3831,8 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # optional matrix prefix and an optional auxiliary before the embedded
         # clause — a grammatical generalization, not a phrase list.
         _us_q = re.search(
-            r"(?:"
+            r"(?:what\s+(?:do|did|does)\s+(?:you|we)\s+(?:know|remember|"
+            r"recall|think)\s+(?:about|of)\s+)?(?:"
             r"what\s+(?:do\s+)?i\s+think\s+(?:about|of)\s+"
             r"|how\s+(?:do\s+)?i\s+feel\s+about\s+"
             r"|what\s+(?:do\s+)?i\s+feel\s+about\s+"
@@ -4625,13 +4626,34 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     r"\b(i am (?:a|an) \w+|i have been \w+ing|i am \w+ing)\b",
                     _low))
                 _benign_condition = _benign_condition or _self_desc
+                # D2 (round 2026-08-16): a first-person PREFERENCE / ATTITUDE
+                # ("i hate being interrupted", "i love rainy mornings", "i can't
+                # stand loud bars") is an evaluative stance, not a distress
+                # disclosure. The noisy GloVe cause classifier can misfire a
+                # suffering label on it (e.g. "hate" -> other_suffering), which
+                # then satisfies the 4672 suffering check and routes it to grief
+                # empathy ("feeling hate is hard, what happened?") -- stealing the
+                # attitude the user actually expressed and dropping it from stance
+                # storage. Fix: detect a pure first-person preference and force it
+                # out of the empathy branch (let it fall through to stance
+                # storage). Structural (verb + object), no per-topic table; only
+                # treated as distress when a GENUINE suffering word is also present.
+                _preference_stmt = bool(re.search(
+                    r"\b(i\s+(?:hate|love|like|prefer|enjoy|adore|loathe|dislike|"
+                    r"fear|dread|can'?t stand|can't bear|appreciate|tolerate)\b"
+                    r"[^.?!]*\b|\bi'?m (?:not )?a fan of\b|\bi (?:really )?"
+                    r"(?:am|feel) (?:into|against)\b)", _low))
                 _suffering_word = bool(re.search(
                     r"\b(hurt|hurts|pain|ache|suffering|suffer|grief|grieving|"
                     r"lonely|alone|scared|afraid|terrified|anxious|panic|"
                     r"devastated|broken|dying|dead|miserable|hopeless|"
                     r"overwhelmed|exhausted|furious|angry|cry|cried|crying|"
                     r"empty|numb|hollow|blue|gutted|meh|low|down|wrecked|"
-                    r"crushed|sad|unhappy|worthless|lost)\b", _low))
+                    r"crushed|sad|unhappy|worthless|lost)\\b", _low))
+                if _preference_stmt and not _suffering_word:
+                    # Pure attitude, not distress -> fall through to stance
+                    # storage, never empathy.
+                    _disc = None
                 # ELI5 / simile self-reference ("like i'm five", "as if i'm ...")
                 # is a request framing, not a state disclosure.
                 _eli5_simile = bool(re.search(
