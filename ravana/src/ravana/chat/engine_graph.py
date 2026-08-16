@@ -1241,6 +1241,18 @@ class GraphMixin:
         # Remove markdown-ish wiki artifacts
         text = re.sub(r"\{\{[^}]*\}\}", "", text)
         text = re.sub(r"<[^>]+>", "", text)
+        # D3 (round 2026-08-16): strip markdown code fences (```lang ... ```) and
+        # inline backticks from a snippet before it is surfaced as chat prose.
+        # Web/code snippets frequently arrive with a literal ```python ... ```
+        # fence (e.g. a "what is a decorator" answer), and leaving it in renders
+        # the raw fence markers as text in chat instead of clean prose. This is
+        # morphological markup cleanup (like the HTML-tag strip above), NOT a
+        # content edit: the inner code words are preserved as plain text, only
+        # the fence delimiters are removed. General rule over all snippets, not
+        # tuned to one query.
+        text = re.sub(r"```[^\n`]*\n?", " ", text)   # opening fence + optional lang
+        text = re.sub(r"```", " ", text)             # closing fence
+        text = text.replace("`", " ")                 # inline backticks
         # Remove dangling identifiers / reference handles that leak into answers
         # (observed: "according to an official source, doi: 10." — a truncated
         # DOI/identifier fragment from the source markup that is NOT part of any

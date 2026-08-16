@@ -50,6 +50,13 @@ def _clean_snippet(s: str) -> str:
         except Exception:
             pass
     s = re.sub(r"<[^>]+>", " ", s)          # any residual tags
+    # D3 (round 2026-08-16): strip markdown code fences (```lang ... ```) and
+    # inline backticks from a snippet before it is surfaced as chat prose, so a
+    # code/definition snippet does not render the raw fence markers as text.
+    # morphological markup cleanup, not a content edit (inner code preserved).
+    s = re.sub(r"```[^\n`]*\n?", " ", s)     # opening fence + optional lang
+    s = re.sub(r"```", " ", s)             # closing fence
+    s = s.replace("`", " ")                 # inline backticks
     s = re.sub(r"\s+", " ", s).strip()
     # Drop trailing ellipses / boilerplate markers.
     s = s.strip(" .…-").strip()
