@@ -104,8 +104,19 @@ on this codebase:
   prior probe-tuned "feeling-real" frame was deleted). Fail-closed: a plain
   *"what's my name"* is not intercepted and still resolves from its own path. See
   `docs/CAPABILITY_META_IDENTITY.md`.
+- **Separates world-knowledge questions from autobiographical recall.** Asked
+  *"what is cooking oil made of?"* it does **not** echo an unrelated stored fact
+  about you (*"you enjoy cooking pasta on weekends"*) — the query is classified
+  as a general-knowledge question and falls through to internal-knowledge / web /
+  honest-uncertainty. The same phrase *"what is wrong with my car?"*, because it
+  references your **own** disclosed entity (*my* car), is still answered from
+  episodic memory (`gps`, `reboot`). The gate is a distribution-driven intent
+  classifier (explicit recall markers + a personal-possessive reference), not a
+  frozen topic list, so it generalizes across every subject and needs no
+  retraining. Fail-open: a general knowledge question can never be answered by an
+  autobiographical echo. See `docs/CAPABILITY_QUERY_INTENT_GATE.md`.
 
-These capabilities are backed by four durable stores — an **identity model**
+These capabilities are backed by four durable stores
 (`IdentityEngine`), **stances** (`UserStanceStore`), **personal facts**
 (`PersonalFactStore`), and **beliefs** (`BeliefStore`) — plus a **ConceptGraph**
 world-model. The README's benchmark and architecture sections describe the
