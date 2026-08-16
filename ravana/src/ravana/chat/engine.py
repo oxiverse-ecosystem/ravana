@@ -3118,11 +3118,22 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 _topic = _words[-1]
             if not _topic or _topic in ("hello", "how", "bye"):
                 return
+            # D1 regression guard: a reply produced BY the agent-own-recall gate
+            # itself is prefixed ("i said: ..."). If we store that prefixed form,
+            # the next recall re-prefixes it -> "i said: i said: ...". Strip any
+            # leading recall frame so the store holds RAVANA's ORIGINAL generated
+            # reply, not the recall wrapper. Honest, general (no per-topic table).
+            _store_text = _rt
+            _store_text = re.sub(
+                r"^(i (?:said|told you)|you (?:said|told me)|earlier (?:you said|i said))\s*[:\-]\s*",
+                "", _store_text, flags=re.IGNORECASE).strip()
+            if not _store_text:
+                return
             self._own_replies.setdefault(_topic, [])
             # Replace any prior reply on the same topic so re-stating a view keeps
             # the store current (incremental self-revision).
             self._own_replies[_topic] = [{
-                "text": _rt,
+                "text": _store_text,
                 "turn": int(getattr(self, "turn_count", 0) or 0),
                 "t": time.time(),
             }]
@@ -7226,6 +7237,24 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 if isinstance(_or, dict):
                     self._own_replies = {k: v for k, v in _or.items()
                                          if isinstance(k, str) and isinstance(v, list)}
+                    # D1 regression guard on load: a persisted store from a build
+                    # BEFORE the capture-strip fix may contain recall-wrapped text
+                    # ("i said: ..."). Strip any leading recall frame so a resume
+                    # can't reintroduce the "i said: i said:" recursion. Same rule
+                    # as _record_own_reply; honest cleanup, not content editing.
+                    _frame_re = re.compile(
+                        r"^(i (?:said|told you)|you (?:said|told me)|earlier (?:you said|i said))\s*[:\-]\s*",
+                        re.IGNORECASE)
+                    for _k in list(self._own_replies.keys()):
+                        _entries = self._own_replies[_k]
+                        if isinstance(_entries, list):
+                            for _e in _entries:
+                                if isinstance(_e, dict):
+                                    _t = _e.get("text")
+                                    if isinstance(_t, str):
+                                        _clean = _frame_re.sub("", _t).strip()
+                                        if _clean:
+                                            _e["text"] = _clean
                     self._own_reply_topic_idx = {k: 1 for k in self._own_replies}
                 else:
                     self._own_replies = {}
