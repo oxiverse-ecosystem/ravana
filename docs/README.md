@@ -28,6 +28,7 @@ truth; every claim here was checked against `ravana/`, `ravana_ml/`, and
 | [CAPABILITY_POSSESSION_ATTRIBUTE_MINING.md](CAPABILITY_POSSESSION_ATTRIBUTE_MINING.md) | How "the cabin is a hand-hewn pine lodge with a sod roof" becomes a structured `cabin.madeof = pine` fact recallable as "your cabin is made of pine" (entity-scoped, fail-closed, seed-vocab), verified against the live engine. |
 | [CAPABILITY_DATE_RECALL_PARAPHRASE.md](CAPABILITY_DATE_RECALL_PARAPHRASE.md) | How rotated/paraphrased date queries ("all this volcano stuff") still recall the right `since` fact (stem-linked `does`/`event` facts) and reply grammatically (morphological gerund), verified against the live engine. |
 | [CAPABILITY_META_IDENTITY.md](CAPABILITY_META_IDENTITY.md) | How "do I seem like a real person to you" / "what am I to you" / "what have you learned about me" are answered from RAVANA's LIVE model of the user (name, stances, facts, identity strength/trend) — not a biographical fact or an episodic echo, verified against the live engine. |
+| [CAPABILITY_USER_MODEL_AGGREGATION.md](CAPABILITY_USER_MODEL_AGGREGATION.md) | How "what have you picked up about me" / "describe me" / "what stands out about me" report the REAL learned profile (name, facts, beliefs, stance polarities) from the live durable stores — not degenerate uncertainty text, verified against the live engine. |
 | [FAQ.md](FAQ.md) | Troubleshooting: installation, runtime, development issues. |
 
 ## Quick orientation

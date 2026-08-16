@@ -104,6 +104,19 @@ on this codebase:
   prior probe-tuned "feeling-real" frame was deleted). Fail-closed: a plain
   *"what's my name"* is not intercepted and still resolves from its own path. See
   `docs/CAPABILITY_META_IDENTITY.md`.
+- **Reports the actual learned profile (content aggregation).** Asked *"what
+  have you picked up about me"*, *"describe me"*, *"what stands out about me"*,
+  *"tell me about myself"*, or *"what's your read on me"*, it surfaces the
+  **real content** of its model of you — your name, where you're from, disclosed
+  facts, stated beliefs, and the polarity of each stance it holds — read live
+  from the durable stores:
+  `here's what i've picked up about you so far: your name is corvin; you're from aldermoor in the hills; you grew village called aldermoor; you an astronomer who studies pulsars; on how you feel about things: you're strongly for sea; you're strongly against put.`
+  This is distinct from meta-identity (which reports *counts + topics*, not the
+  facts themselves). Previously these queries fell through to the
+  graceful-uncertainty path and emitted degenerate text despite real facts being
+  stored. Fail-closed: a brand-new user returns `None` and the honest path
+  answers. No LLM, no per-topic reply table, no retraining. See
+  `docs/CAPABILITY_USER_MODEL_AGGREGATION.md`.
 - **Separates world-knowledge questions from autobiographical recall.** Asked
   *"what is cooking oil made of?"* it does **not** echo an unrelated stored fact
   about you (*"you enjoy cooking pasta on weekends"*) — the query is classified
