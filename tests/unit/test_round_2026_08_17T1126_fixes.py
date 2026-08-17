@@ -82,15 +82,31 @@ def test_reverse_name_resolver_pet_does_path():
     assert "pet parrot" in r, r
 
 
-def test_miner_stores_named_relationship_lowercase_name():
-    # D7 miner regression (feature t_1a4a3938): the old regex required the
-    # disclosed Name to be CAPITALIZED, so a lowercase chat name ("indira") never
-    # matched -> the fact was never stored -> open-ended recall had nothing to
-    # recall. The token-based fix finds the activity verb by membership, so the
-    # named-relationship fact is stored regardless of name casing.
-    caps = _capture("my grandmother indira bakes sourdough bread every sunday")
-    assert ("i", "grandmother indira") in caps, caps
-    assert "bakes sourdough bread" in caps[("i", "grandmother indira")], caps
+def test_miner_stores_nonkin_role_with_irregular_verb():
+    # Round 2026-08-17T1730Z: the named-relationship miner previously only
+    # accepted blood-kin heads and activity verbs from a narrow inflection set,
+    # so "my mentor Dr. Okonkwo taught me..." (mentor is not kin; "taught" is
+    # an irregular verb) was DROPPED and a later "who is my mentor?" had nothing
+    # to recall. The miner now accepts any relationship head (kin / non-kin
+    # ROLE lexicon / runtime-learned via learn_relation) and recognizes
+    # irregular activity verbs, so the fact is stored and recallable.
+    caps = _capture("my mentor Dr. Okonkwo taught me astronomy when i was a teenager")
+    assert ("i", "mentor dr. okonkwo") in caps, caps
+    assert "taught astronomy" in caps[("i", "mentor dr. okonkwo")], caps
+
+
+def test_open_ended_recall_nonkin_role():
+    # The shared relationship vocabulary grows from the live disclosure
+    # (learn_relation), so the open-ended recaller (engine.py 1c/1d) resolves
+    # a NON-kin role ("my mentor") without a per-role branch. Content read
+    # from the live store; no authored reply.
+    eng = CognitiveChatEngine(dim=64, seed=42, baby_mode=True,
+                              user_suffix="test_1730z_role_recall")
+    eng.process_turn("my mentor Dr. Okonkwo taught me astronomy when i was a teenager")
+    assert "your mentor dr. okonkwo taught astronomy" in \
+        eng._structured_recall("who is my mentor?"), "non-kin role recall failed"
+    assert "your mentor dr. okonkwo taught astronomy" in \
+        eng._structured_recall("tell me about my mentor"), "open 'tell me about' role failed"
 
 
 def test_open_ended_relationship_recall():

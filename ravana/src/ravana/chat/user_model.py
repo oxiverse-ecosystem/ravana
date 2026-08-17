@@ -49,14 +49,14 @@ _CORRECTION_FACT_PATTERNS = [
 # correct; removing entries degrades gracefully (one fewer verb-form recognized
 # for grammar). NOT a per-topic reply dictionary and NOT authored prose.
 _ACTIVITY_VERB_LEXICON = {
-    "run", "own", "operate", "play", "teach", "study", "manage", "drive",
-    "build", "make", "sell", "restore", "grow", "watch", "raise", "tend",
-    "brew", "bake", "write", "read", "learn", "practice", "collect", "fix",
+    "run", "own", "operate", "play", "teach", "taught", "study", "manage", "drive",
+    "build", "built", "make", "made", "sell", "restore", "grow", "grew", "watch", "raise", "tend",
+    "brew", "bake", "write", "wrote", "read", "learn", "learned", "learnt", "practice", "collect", "fix",
     "paint", "code", "design", "craft", "volunteer", "cook", "fish", "hike",
-    "garden", "farm", "lead", "organize", "keep", "grind", "race", "sail",
+    "garden", "farm", "lead", "organize", "keep", "kept", "grind", "race", "sail",
     "knit", "sew", "weld", "forge", "carve", "compose", "record",
     "perform", "coach", "train", "compete", "spin", "weave", "mount",
-    "trade", "host", "guide", "climb", "repair", "work",
+    "trade", "host", "guide", "climb", "repair", "work", "draw", "drew",
 }
 
 
@@ -1366,12 +1366,54 @@ class UserModel:
         _mk = re.search(r"\bmy\s+([a-z][a-z]+)\b\s*(.*)", q_clean)
         if _mk:
             _kin = _mk.group(1).lower()
-            if _kin in _KIN:
+            # GENERALIZE (round 2026-08-17T1730Z): a relationship disclosure is
+            # not restricted to blood kin. Mentors, teachers, coaches, friends,
+            # neighbors, bosses, colleagues, roommates, landlords, and any
+            # RAVANA-learned relation word all count as a NAMED RELATIONSHIP the
+            # user disclosed about themselves, and must be mined + recallable
+            # the same way. The old gate only checked the local _KIN set, so
+            # "my mentor Dr. Okonkwo taught me astronomy" and "my grandmother
+            # taught me to slow-cook" were DROPPED (mentor is not kin; "taught"
+            # is an irregular verb absent from _REL_ACTIVITY_VERB_FORMS) and a
+            # later "who is my mentor" / "what did my grandmother pass down"
+            # had nothing to recall. Now the head word is accepted if it is (a)
+            # in the seed _KIN set, (b) a non-kin ROLE in the shared
+            # relationship vocabulary (relation_of + ROLE lexicon), or (c)
+            # already learned at runtime via learn_relation — so the miner and
+            # the recaller (engine.py 1c/1d, relation_attrs) agree on what a
+            # relationship word is. Generic, no per-role table.
+            _role = False
+            try:
+                from .relation_attrs import relation_of as _ra_of
+                from .relation_attrs import learn_relation as _ra_learn
+            except Exception:
+                _ra_of = lambda w: None
+                _ra_learn = lambda w: ""
+            _ROLE_WORDS = {
+                "mentor", "mentor's", "teacher", "coach", "tutor", "friend",
+                "bestfriend", "best", "neighbor", "neighbour", "boss",
+                "manager", "supervisor", "colleague", "coworker", "roommate",
+                "housemate", "landlord", "landlady", "rival", "enemy",
+                "godparent", "godbother", "guardian", "carer", "caregiver",
+            }
+            if _kin in _KIN or _kin in _ROLE_WORDS or _ra_of(_kin) is not None:
+                _role = True
+                # GROW the shared relationship vocabulary (relation_attrs)
+                # from the live disclosure, so the recaller (engine.py 1c/1d),
+                # which already consults relation_of / is_relation_attribute /
+                # base_relation, generalizes to this role WITHOUT a per-role
+                # branch. This is the runtime-growth design: RAVANA learns its
+                # own relationship words from conversation. Online, no retrain.
+                try:
+                    _ra_learn(_kin)
+                except Exception:
+                    pass
+            if _role:
                 _rest = _mk.group(2)
                 _toks = _rest.split()
                 _vidx = None
                 for _i, _t in enumerate(_toks):
-                    if _t.lower().strip(".,!?") in _REL_ACTIVITY_VERB_FORMS:
+                    if is_activity_verb(_t.lower().strip(".,!?")):
                         _vidx = _i
                         break
                 if _vidx is not None:
@@ -1386,12 +1428,12 @@ class UserModel:
                     _obj = self._opinion_topic(_obj_raw.lower()) or ""
                     _obj = _strip_obj_framers(_obj)
                     if _obj and len(_obj.split()) <= 5:
-                        # COMBINED-attr storage: ("i", "<kin> <name>",
+                        # COMBINED-attr storage: ("i", "<rel> <name>",
                         # "<verb> <object>") — reachable from recall branch
                         # (c) / the open-ended recaller by the relation head
-                        # "kin". A name-less disclosure ("my sister climbs
+                        # "rel". A name-less disclosure ("my sister climbs
                         # rocks") stores attr="sister"; still reachable from
-                        # "my sister".
+                        # "my sister". Content from the user's own words.
                         _attr = f"{_kin} {_name}".strip() if _name else _kin
                         _put_fact(_attr, f"{_verb} {_obj}", 0.6)
 
