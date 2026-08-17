@@ -4904,9 +4904,29 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             pass
 
         try:
-            _fr_resp = self._try_fact_reasoning(user_input)
-            if _fr_resp:
-                self._last_strategy = "fact_reasoning"
+            # ── D1 (round 2026-08-17T1126Z): world-knowledge / definitional
+            # questions must NOT be answered from the hippocampal USER-DISCLOSURE
+            # buffer. _try_fact_reasoning replays the user's stored fact TEXTS, so
+            # a plain knowledge question ("can you explain what CRISPR does") was
+            # echoing an UNRELATED prior utterance (measured: "yes — you told me:
+            # actually no, i hate the cold now..."). The buffer holds the USER's
+            # autobiographical disclosures, not encyclopedic facts — answering a
+            # general-knowledge query from it is a source-monitoring error.
+            # Gate: only let fact_reasoning run for queries the autobiographical
+            # recall classifier accepts (questions genuinely about the user's own
+            # disclosed life). Anything else (explain/why/how/what-is world
+            # knowledge) falls through to honest metacognitive uncertainty.
+            # Fail-open: if the classifier errors, we still TRY fact_reasoning
+            # (the original behavior) rather than silently dropping it.
+            _fr_allowed = True
+            try:
+                _fr_allowed = self._is_autobiographical_recall_query(user_input)
+            except Exception:
+                _fr_allowed = True
+            if _fr_allowed:
+                _fr_resp = self._try_fact_reasoning(user_input)
+                if _fr_resp:
+                    self._last_strategy = "fact_reasoning"
                 self._last_responses.append(_fr_resp)
                 if len(self._last_responses) > 10:
                     self._last_responses = self._last_responses[-10:]
