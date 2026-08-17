@@ -318,6 +318,29 @@ _AFFECT_TERM_LEXICON = frozenset({
     "calm", "glad", "cheerful", "hopeful", "gleeful",
 })
 
+# Round 2026-08-17T1126Z: affective-object guard for the EVENT miner. A
+# first-person "i <event-verb> <object>" where the object is a SENTIMENT
+# adjective ("i find it fascinating", "i found that surprising") is a
+# cognitive-affective COPULA, not a discovery event — storing it as
+# `event: find fascinating` is garbage (measured: T16 of this round produced
+# exactly that). The verb "find" legitimately means find-a-lost-object
+# ("i found my keys"), so the verb must stay in _EVENT_VERBS; the guard is on
+# the OBJECT. This is seed vocabulary: sentiment adjectives RAVANA encounters.
+# Removing one only loses that one shape, never content RAVANA can't change. It
+# is not a per-topic answer table and not authored reply prose. RAVANA can
+# extend it at runtime the same way it extends the verb lexicons.
+_AFFECTIVE_OBJECT_ADJ = frozenset({
+    "fascinating", "interesting", "boring", "amazing", "amazed",
+    "surprising", "surprised", "strange", "odd", "weird", "wonderful",
+    "terrible", "awful", "beautiful", "ugly", "funny", "sad", "happy",
+    "annoying", "comforting", "disturbing", "delightful", "disappointing",
+    "exciting", "calming", "confusing", "clear", "obvious", "mysterious",
+    "scary", "frightening", "moving", "touching", "inspiring", "refreshing",
+    "reassuring", "overwhelming", "eye-opening", "mind-blowing", "deep",
+    "profound", "meaningful", "pointless", "useless", "helpful",
+    "rewarding", "worthwhile", "enjoyable", "pleasant", "unpleasant",
+})
+
 
 def is_affect_term(word: str) -> bool:
     """True if `word` is a recognized human feeling word (used by the empathy
@@ -1563,6 +1586,15 @@ class UserModel:
                 continue
             _obj = self._opinion_topic(_em.group(2).strip().lower())
             _obj = _strip_obj_framers(_obj)
+            # Affective-object guard (round 2026-08-17T1126Z): "i find it
+            # fascinating" / "i found that surprising" is a cognitive-affective
+            # copula, not a discovery event. The object is a SENTIMENT
+            # adjective, so skip storing `event: <verb> <adj>` (which is
+            # garbage). A genuine discovery ("i found my keys") has a real
+            # content object and still stores. Seed vocabulary (_AFFECTIVE_OBJECT_ADJ),
+            # no authored prose, no retraining.
+            if _obj and _obj.split()[0] in _AFFECTIVE_OBJECT_ADJ:
+                continue
             if _obj and 1 <= len(_obj.split()) <= 5:
                 _put_fact("event", f"{_verb} {_obj}", 0.5)
 
@@ -2755,8 +2787,6 @@ class UserModel:
             'dominance': emotion_vad[2],
             'turn': len(self.interaction_history),
         })
-        if len(self.interaction_history) > 100:
-            self.interaction_history = self.interaction_history[-100:]
 
     def infer_user_goal(self, query: str) -> str:
         q = query.lower().strip()
