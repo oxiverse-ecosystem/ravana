@@ -1346,39 +1346,52 @@ class UserModel:
         # (IGNORECASE made [A-Z] also match lowercase and the name group
         # greedily swallowed the verb.) kin/verb are lowercased after
         # matching, so casing in the source is irrelevant.
-        _rel_m = re.search(
-            r"\bmy\s+([a-z][a-z]+)\s+"          # relation word (kin)
-            r"([A-Z][A-Za-z]*(?:\s+[A-Z][A-Za-z]*)?)?\s*"  # optional Name (capitalized, 1-2 tokens)
-            r"([a-z][a-z]+)\s+"                   # activity verb (lowercase)
-            r"(.+?)(?:\bwhen\b|\bbut\b|\bbecause\b|\band\b|\.|\!|\?|$|,)",  # object phrase
-            q_clean)
-        if not _rel_m:
-            # Fallback: name-less disclosure ("my sister climbs rocks")
-            # — the word right after the relation is the verb. No name
-            # token is captured, so the attr is just the relation word
-            # (still reachable from "my sister").
-            _rel_m = re.search(
-                r"\bmy\s+([a-z][a-z]+)\s+([a-z][a-z]+)\s+"
-                r"(.+?)(?:\bwhen\b|\bbut\b|\bbecause\b|\band\b|\.|\!|\?|$|,)",
-                q_clean)
-            _rel_name_is_none = True
-        else:
-            _rel_name_is_none = False
-        if _rel_m:
-            _kin = _rel_m.group(1).lower()
+        # FIX (feature t_1a4a3938, round 2026-08-17T1126Z): the OLD regex
+        # required the Name to be CAPITALIZED ([A-Z][A-Za-z]*) so it could be
+        # told apart from the lowercase activity verb. But in real chat the name
+        # is usually lowercase ("my grandmother indira bakes bread"), so the
+        # capitalized group matched nothing, the name-less fallback fired, and
+        # its kin+verb slot ("indira") was not an activity verb -> the fact was
+        # NEVER stored. That silently broke every later open-ended recall of that
+        # relative (the residual "tell me about my grandmother" gap logged at the
+        # end of round 2026-08-17T1126Z).
+        #
+        # Fix: find the activity verb by MEMBERSHIP, not by position or
+        # capitalization. After "my <kin>" we scan the remaining tokens
+        # left-to-right for the FIRST token that is an activity verb; the tokens
+        # before it (if any) are the Name, the tokens after it are the object.
+        # This is structural — one verb lexicon, no per-name table, no case
+        # assumption — and generalizes to any name casing/length. Content comes
+        # from the user's own words; no authored reply, no retraining.
+        _mk = re.search(r"\bmy\s+([a-z][a-z]+)\b\s*(.*)", q_clean)
+        if _mk:
+            _kin = _mk.group(1).lower()
             if _kin in _KIN:
-                _name = "" if _rel_name_is_none else (_rel_m.group(2) or "").strip().lower()
-                _verb = _rel_m.group(2 if _rel_name_is_none else 3).lower()
-                if _verb in _REL_ACTIVITY_VERB_FORMS:
-                    _obj = self._opinion_topic(_rel_m.group(3 if _rel_name_is_none else 4).strip().lower()) or ""
+                _rest = _mk.group(2)
+                _toks = _rest.split()
+                _vidx = None
+                for _i, _t in enumerate(_toks):
+                    if _t.lower().strip(".,!?") in _REL_ACTIVITY_VERB_FORMS:
+                        _vidx = _i
+                        break
+                if _vidx is not None:
+                    _name = " ".join(_toks[:_vidx]).lower()
+                    _verb = _toks[_vidx].lower().strip(".,!?")
+                    _obj_rest = " ".join(_toks[_vidx + 1:])
+                    # trim at a framer conjunction so trailing framing ("every
+                    # sunday") doesn't bloat the stored object — mirrors the old
+                    # regex object boundary.
+                    _obj_raw = re.split(
+                        r"\b(?:when|but|because|and)\b", _obj_rest)[0].strip(" ,.!?")
+                    _obj = self._opinion_topic(_obj_raw.lower()) or ""
                     _obj = _strip_obj_framers(_obj)
                     if _obj and len(_obj.split()) <= 5:
                         # COMBINED-attr storage: ("i", "<kin> <name>",
                         # "<verb> <object>") — reachable from recall branch
-                        # (c) by the relation head "kin". A genuine
-                        # self-fact fallback when no name token: attr is
-                        # just the relation word (e.g. "my sister climbs" ->
-                        # attr "sister"); still reachable from "my sister".
+                        # (c) / the open-ended recaller by the relation head
+                        # "kin". A name-less disclosure ("my sister climbs
+                        # rocks") stores attr="sister"; still reachable from
+                        # "my sister".
                         _attr = f"{_kin} {_name}".strip() if _name else _kin
                         _put_fact(_attr, f"{_verb} {_obj}", 0.6)
 
