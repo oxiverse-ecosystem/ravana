@@ -130,6 +130,20 @@ on this codebase:
   *"you haven't told me about any family or pets yet."* instead of a fabricated
   list. No LLM, no per-topic reply table, no retraining. See
   `docs/CAPABILITY_CATEGORY_ENUMERATION_RECALL.md`.
+- **Reads the USER's own held stance on a third-person query (self/other
+  boundary).** Asked *"do you think i like spicy food or not?"* — where *you* are
+  the attitude holder — it answers from **your** stored preference, not its own:
+  `from what you've told me, you're strongly for spicy food.` (a disclosure of
+  *"i hate cold coffee"* is later recalled the same way: *"you're strongly against
+  cold coffee."*). Previously these matched the broad self-opinion gate and RAVANA
+  answered from its *own* (empty) stance — the generic *"still figuring that out"*
+  hedge — a self/other confusion. The topic is resolved the **same way the stance
+  miner resolves it**, so a paraphrase (*"i adore jazz"* → query *"do you think i
+  love jazz"*) still links to the held stance; the polarity is rendered as ONE word
+  from the live store. Fail-closed: a topic you never stated a preference on, or a
+  genuine question about *RAVANA's* own view, falls through to the normal path and
+  is **not** answered with a fabricated stance. No LLM, no per-topic reply table,
+  no retraining. See `docs/CAPABILITY_USER_STANCE_RECALL.md`.
 - **Separates world-knowledge questions from autobiographical recall.** Asked
   *"what is cooking oil made of?"* it does **not** echo an unrelated stored fact
   about you (*"you enjoy cooking pasta on weekends"*) — the query is classified
