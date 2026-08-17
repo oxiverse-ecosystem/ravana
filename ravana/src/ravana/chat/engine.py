@@ -3624,8 +3624,29 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     "book", "film", "food", "wine", "tea", "city", "town",
                     "bird", "fish", "tree", "wall", "road", "time", "life",
                 }
+                # ADDITION (round 2026-08-17): exclude tail-scaffold words from
+                # being a retrieval key. Keying a reply by the question's LAST
+                # content word produced junk keys ("most", "behind", "would",
+                # "view", "start", "change", "first", "live", "does", "will",
+                # "been", "conversation") that later collided with unrelated recall
+                # queries sharing that tail word (e.g. "what will you remember
+                # most about me" -> a reply keyed under "most" about social
+                # media). These are structural question-tail tokens, not concepts,
+                # so they must never be a key or match. Seed vocabulary (function
+                # words), RAVANA-expandable, NOT authored content.
+                _TAIL_SCAFFOLD = {
+                    "most", "behind", "would", "view", "start", "change",
+                    "first", "live", "does", "will", "been", "conversation",
+                    "good", "really", "something", "anything", "thing",
+                    "things", "everything", "nothing", "me", "myself",
+                    "yourself", "itself", "them", "they", "us", "one", "way",
+                    "else", "rather", "instead", "that", "this", "these",
+                    "those", "ever", "even", "also", "too", "back",
+                }
                 _words = [w for w in re.findall(r"[a-z']+", _q_low)
-                          if (len(w) >= 4 or w in _SHORT_OK) and w not in (
+                          if (len(w) >= 4 or w in _SHORT_OK)
+                          and w not in _TAIL_SCAFFOLD
+                          and w not in (
                               "about", "think", "feel", "what", "tell",
                               "like", "love", "hate", "do", "you", "your",
                               "again", "really", "something", "music",
@@ -3735,7 +3756,18 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             return None
         # Extract the topic: drop recall scaffolding + question words, keep
         # content nouns. Reuse the same stopword philosophy as the existing
-        # recall paths (no per-topic synonym table).
+        # recall paths (no per-topic synonym table). Tail-scaffold tokens
+        # (most/behind/would/view/...) are excluded so a junk stored key can
+        # never be matched by coincidence (round 2026-08-17 source-monitoring
+        # fix — see _record_own_reply).
+        _TAIL_SCAFFOLD_REC = {
+            "most", "behind", "would", "view", "start", "change", "first",
+            "live", "does", "will", "been", "conversation", "good", "really",
+            "something", "anything", "thing", "things", "everything",
+            "nothing", "me", "myself", "yourself", "itself", "them", "they",
+            "us", "one", "way", "else", "rather", "instead", "that", "this",
+            "these", "those", "ever", "even", "also", "too", "back",
+        }
         _stop = {
             "what", "did", "do", "you", "your", "yourself", "say", "said", "says",
             "tell", "told", "telling", "me", "about", "earlier", "before", "again",
@@ -3748,7 +3780,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             "yes", "no", "ask", "asked", "wonder", "wondering", "tellme",
         }
         _cands = [w for w in re.findall(r"[a-z']+", _q)
-                  if len(w) >= 3 and w not in _stop]
+                  if len(w) >= 3 and w not in _stop and w not in _TAIL_SCAFFOLD_REC]
         if not _cands:
             return None
         # Exact topic hit first, then GloVe-neighbor fallback over stored topics.
@@ -3770,34 +3802,19 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 if _topic_hit:
                     break
         if _topic_hit is None:
-            # GloVe neighbor fallback — DISTRIBUTION-DRIVEN but STRICTLY bounded so
-            # it never returns an unrelated stored topic (that would be a
-            # source-monitoring error: answering "about music" with the "coralhaven"
-            # reply). Only accept a neighbor at a HIGH cosine (>= 0.60), and only when
-            # the query carries a real content word. Below that bar we return None and
-            # the turn falls through to honest uncertainty — an honest "i don't have
-            # that stored" beats a confident wrong-topic reply (the no-fake-depth rule).
-            try:
-                for _c in _cands:
-                    _cv = self._glove_vector(_c)
-                    if _cv is None:
-                        continue
-                    _best = None
-                    _best_s = 0.0
-                    for _k in _store:
-                        _kv = self._glove_vector(_k)
-                        if _kv is None:
-                            continue
-                        _s = float(np.dot(_cv, _kv))
-                        if _s > _best_s:
-                            _best_s = _s
-                            _best = _k
-                    if _best is not None and _best_s >= 0.60:
-                        _topic_hit = _best
-                        break
-            except Exception:
-                pass
-        if _topic_hit is None:
+            # REMOVED: unbounded GloVe-neighbor fallback (round 2026-08-17).
+            # It returned the NEAREST-EMBEDDING stored reply whenever no exact/
+            # substring topic matched — a source-monitoring confabulation (e.g.
+            # "what did you say about music?" -> the Brindlehollow reply at
+            # sim 0.699; "you mentioned being unsure whether you understand"
+            # -> the social-media reply at sim 0.751). The recalled reply had NO
+            # real connection to the asked-about topic, so it was a confident
+            # wrong-topic answer. Per the no-fake-depth rule and the
+            # source-monitoring doctrine, an honest "i don't have that stored"
+            # beats a confident wrong-topic reply. Retrieval is now anchored ONLY
+            # to a word the user actually typed (exact or substring containment),
+            # both of which are content-anchored. If the asked-about topic was
+            # never stored, we fall through to honest uncertainty below.
             return None
         _entries = _store.get(_topic_hit) or []
         if not _entries:
