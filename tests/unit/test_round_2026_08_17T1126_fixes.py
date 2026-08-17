@@ -121,3 +121,24 @@ def test_open_ended_relationship_recall():
     assert eng._structured_recall("tell me about my uncle fred") is None, \
         "unknown relative must fail closed"
 
+
+def test_open_ended_recall_includes_pet_path():
+    # Branch (1d) `(c)` in _structured_recall also keys on a stored pet
+    # attribute (not the relationship lexicon). A pet disclosed as "my <species>
+    # is <name>" mines into the pet-name slot ('cat'/'dog'); an open phrasing
+    # ("tell me about my cat") or a bare-name query ("who is my cat?") must
+    # resolve it from the live store. Verified live during the docs pass for
+    # feature t_1a4a3938. Declarative disclosure ("my cat is pixel") must NOT
+    # be hijacked (interrogative-gate, same as relationship recall).
+    eng = CognitiveChatEngine(dim=64, seed=42, baby_mode=True,
+                              user_suffix="test_openrel_pet")
+    eng.process_turn("my cat is pixel")
+    eng.process_turn("my dog is biscuit")
+    assert "your cat is pixel." in \
+        eng._structured_recall("tell me about my cat"), "pet open-phrasing failed"
+    assert "your cat is pixel." in \
+        eng._structured_recall("who is my cat?"), "pet bare-name failed"
+    # declarative disclosure is left to fact-mining, not echoed
+    assert eng._structured_recall("my cat is pixel") is None, \
+        "declarative pet disclosure must not be hijacked"
+
