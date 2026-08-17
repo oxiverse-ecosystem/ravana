@@ -2903,7 +2903,34 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         # combined-attr "<kin> <name>": match when a cue word is
                         # exactly the name token (last token).
                         if len(_attr_toks) >= 2 and _attr_toks[-1] in _qcn:
-                            return f"your {_attr_toks[0]}."
+                            # Reverse-name lookup matched a combined-attr fact
+                            # ("sister lena"). Render the FULL relationship (not
+                            # just the kinship head — round 2026-08-17 defect E:
+                            # "who is Lena to me and what does she do?" returned
+                            # only "your sister." and dropped both the name and
+                            # the stored activity "paints huge murals"). When the
+                            # query also asks what the person DOES (do/does/do
+                            # for a living/work), append the stored activity
+                            # value, dropping the copula for verb-phrase values
+                            # via the shared D7 seed lexicon (is_activity_verb) —
+                            # same render rule as branch (c) above and the D7
+                            # ack/recall paths. Content comes entirely from the
+                            # store; no authored prose.
+                            _rel = " ".join(_attr_toks[:-1])
+                            _ans = f"your {_rel}."
+                            if re.search(r"\b(do|does|did|work|live|for a living|hobby|like to)\b", q.lower()):
+                                _v = (getattr(_f, "value", "") or "").strip()
+                                if _v:
+                                    try:
+                                        from .user_model import is_activity_verb as _is_act
+                                    except Exception:
+                                        _is_act = lambda w: False
+                                    _vv = _v.split()
+                                    if _vv and _is_act(_vv[0]):
+                                        _ans = f"your {_rel} {_v}."
+                                    else:
+                                        _ans = f"your {_rel} is {_v}."
+                            return _ans
         # "what's my cabin made of" / "what material is my sword" / "what's my
         # roof made of" reads the ENTITY-scoped 'madeof' / feature fact mined by
         # mine_personal_facts. The existing possessive branch (above) only
