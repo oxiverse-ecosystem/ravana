@@ -2364,6 +2364,33 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         except Exception:
             pass
 
+    # ── Shared reverse-name resolver helper (round 2026-08-17T1126Z, D-B) ──
+    # TYPE-AGNOSTIC "who is X to me" resolution. A query names an entity by NAME;
+    # the relationship label is reverse-derived from the fact store, whatever the
+    # fact's shape (combined-attr, attr=relation+value=name, or attr='does' with
+    # the name buried in the value). One shared path covers kin, pets, and any
+    # runtime-learned relationship — no per-entity-type branch. Content comes from
+    # the store; no authored prose, no per-name table.
+    @staticmethod
+    def _strip_entity_from_does(value: str, name: str) -> str:
+        """From a 'does' fact value like 'keep pet parrot named mango', recover the
+        entity type ('pet parrot') by removing the trailing 'named <name>' (or bare
+        name) and any leading possession verb / article. The name is supplied by the
+        query, so this is pure string-shaping of store content — no fabrication."""
+        v = (value or "").lower().strip()
+        if not v:
+            return ""
+        # drop 'named <name>' / 'name is <name>' / 'called <name>'
+        v = re.sub(r"\b(named|name is|called|called the)\s+" + re.escape(name) + r"\b", " ", v)
+        v = re.sub(r"\b" + re.escape(name) + r"\b", " ", v)  # bare-name fallback
+        # strip a leading possession verb and article
+        v = re.sub(r"^(keep|keep on|have|has|have on|own|owns|raise|raises|grow|grows|"
+                   r"feed|feeds|got|get|getting|raise up|rear|breed|breeds)\b", " ", v).strip()
+        v = re.sub(r"^(a|an|the|my|our|your)\b", " ", v).strip()
+        v = re.sub(r"\s+", " ", v).strip()
+        return v
+
+
     def _structured_recall(self, user_input: str) -> Optional[str]:
         """Structured-first biographical / stance recall (round 2026-08-08).
 
@@ -2893,44 +2920,81 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     "remember", "mention", "name", "relation",
                 }
                 if _qcn:
+                    # relation_of is the runtime-extensible relationship-word test
+                    # from relation_attrs (same vocabulary the miner uses), so the
+                    # resolver generalizes to any kin/pet word RAVANA has learned.
+                    try:
+                        from .relation_attrs import relation_of as _relation_of
+                    except Exception:
+                        def _relation_of(w):
+                            return None
+                    # TYPE-AGNOSTIC reverse-name resolver (round 2026-08-17T1126Z,
+                    # D-B). A "who is X to me" / "who is X" query names an entity
+                    # by NAME, and the relationship must be reverse-derived from
+                    # the fact store, whatever the fact's shape:
+                    #   (1) combined-attr  ('i','sister lena','...')  -> name is
+                    #       the LAST attr token (the D7 form).
+                    #   (2) attr=relationship, name in VALUE
+                    #       ('i','sister','wren')  -> rel='sister', name='wren'.
+                    #   (3) attr='does', name in VALUE
+                    #       ('i','does','keep pet parrot named mango') -> entity
+                    #       'pet parrot', name 'mango'.
+                    # One shared reverse-index path covers kin, pets, and any
+                    # runtime-learned relationship the user named — NOT a second
+                    # narrow branch per entity type (that was the regression this
+                    # round's heartbeat flagged). Content comes entirely from the
+                    # store; no authored prose, no per-name table.
+                    # Honest None fallback when no fact carries that name.
                     for _k, _f in pf.facts.items():
                         if not (isinstance(_k, tuple) and len(_k) == 3):
                             continue
                         if _k[0] != "i" or getattr(_f, "superseded", False):
                             continue
                         _attr = _k[1].lower()
+                        _val = (getattr(_f, "value", "") or "").lower().strip()
                         _attr_toks = _attr.split()
-                        # combined-attr "<kin> <name>": match when a cue word is
-                        # exactly the name token (last token).
+                        _rel = None          # relationship/entity label to render
+                        _act = None          # optional activity value to append
+                        # (1) combined-attr "<kin> <name>"
                         if len(_attr_toks) >= 2 and _attr_toks[-1] in _qcn:
-                            # Reverse-name lookup matched a combined-attr fact
-                            # ("sister lena"). Render the FULL relationship (not
-                            # just the kinship head — round 2026-08-17 defect E:
-                            # "who is Lena to me and what does she do?" returned
-                            # only "your sister." and dropped both the name and
-                            # the stored activity "paints huge murals"). When the
-                            # query also asks what the person DOES (do/does/do
-                            # for a living/work), append the stored activity
-                            # value, dropping the copula for verb-phrase values
-                            # via the shared D7 seed lexicon (is_activity_verb) —
-                            # same render rule as branch (c) above and the D7
-                            # ack/recall paths. Content comes entirely from the
-                            # store; no authored prose.
                             _rel = " ".join(_attr_toks[:-1])
-                            _ans = f"your {_rel}."
-                            if re.search(r"\b(do|does|did|work|live|for a living|hobby|like to)\b", q.lower()):
-                                _v = (getattr(_f, "value", "") or "").strip()
-                                if _v:
-                                    try:
-                                        from .user_model import is_activity_verb as _is_act
-                                    except Exception:
-                                        _is_act = lambda w: False
-                                    _vv = _v.split()
-                                    if _vv and _is_act(_vv[0]):
-                                        _ans = f"your {_rel} {_v}."
-                                    else:
-                                        _ans = f"your {_rel} is {_v}."
-                            return _ans
+                            _act = _val
+                        # (2) attr is a relationship word, name is the value
+                        elif _relation_of(_attr) is not None and _val in _qcn:
+                            _rel = _attr
+                        # (3) attr='does', name is inside the value
+                        #     (e.g. 'keep pet parrot named mango')
+                        elif _attr == "does" and _val.split() and _val.split()[-1] in _qcn:
+                            # entity = value with the trailing 'named <name>'
+                            # (or bare name) stripped, then the leading
+                            # possession verb/article removed.
+                            _entity = self._strip_entity_from_does(_val, list(_qcn)[0])
+                            _rel = _entity or "pet"
+                        if _rel is None:
+                            continue
+                        # Reverse-name match. Render the FULL relationship (not
+                        # just a kinship head — round 2026-08-17 defect E:
+                        # "who is Lena to me and what does she do?" dropped both
+                        # the name and the stored activity). When the query also
+                        # asks what the person/entity DOES (do/does/work/live/...),
+                        # append the stored activity value, dropping the copula
+                        # for verb-phrase values via the shared D7 seed lexicon
+                        # (is_activity_verb) — same render rule as the D7
+                        # ack/recall paths. Content comes entirely from the store.
+                        _ans = f"your {_rel}."
+                        if re.search(r"\b(do|does|did|work|live|for a living|hobby|like to)\b", q.lower()):
+                            _v = (_act or _val or "").strip()
+                            if _v:
+                                try:
+                                    from .user_model import is_activity_verb as _is_act
+                                except Exception:
+                                    _is_act = lambda w: False
+                                _vv = _v.split()
+                                if _vv and _is_act(_vv[0]):
+                                    _ans = f"your {_rel} {_v}."
+                                else:
+                                    _ans = f"your {_rel} is {_v}."
+                        return _ans
         # "what's my cabin made of" / "what material is my sword" / "what's my
         # roof made of" reads the ENTITY-scoped 'madeof' / feature fact mined by
         # mine_personal_facts. The existing possessive branch (above) only
