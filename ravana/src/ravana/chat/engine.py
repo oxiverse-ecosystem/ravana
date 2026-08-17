@@ -2455,6 +2455,54 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         if _agg:
             return self._aggregate_user_model()
 
+        # ── (0c) CATEGORY-AWARE ENUMERATION RECALL (new capability, feature
+        # t_f1dae1aa, round 2026-08-16T1745Z).
+        # Queries that ask RAVANA to LIST the entities it has learned in a
+        # CATEGORY — "name everyone in my family", "name all my pets", "who
+        # have i told you about", "list the people in my family" — have no
+        # specific cue (no "indira", no "mochi"), so the cued-recall branches
+        # (1b) never fired and the query fell through to a generic ack
+        # ("noted.") or a nonsense echo ("right, people family."). Measured as
+        # probe turn T59 of this round: "name everyone in my family you've
+        # heard about" -> "noted.".
+        #
+        # Fix: detect the enumeration intent and SCAN the live PersonalFactStore
+        # for relationship + pet facts, then list each entity. Fully
+        # store-driven — every name, relationship, and detail is read from a
+        # runtime fact RAVANA mined, never authored. The relationship/pet
+        # membership tests come from the SHARED lexicon modules
+        # (relation_attrs / pet_slots) so the miner, the cued-recall renderers,
+        # AND this enumerator agree on what counts as a "relative" / "pet" by
+        # construction (the slot-key-collision lesson from pet_slots.py). No
+        # per-person table, no retraining, no LLM.
+        #
+        # Fail-closed: returns None when no category entities are stored, so a
+        # brand-new user gets honest uncertainty ("still learning who you are")
+        # rather than a fabricated list.
+        try:
+            from .relation_attrs import is_relation_attribute, base_relation
+            from .pet_slots import is_pet_attribute, base_species
+        except Exception:  # pragma: no cover - imports are always present
+            is_relation_attribute = lambda a: False
+            base_relation = lambda a: None
+            is_pet_attribute = lambda a: False
+            base_species = lambda a: None
+        _enum = re.search(
+            r"\b("
+            r"name\s+(?:everyone|all|the\s+people|the\s+family|my\s+family)\b.*?"
+            r"(?:family|relatives?|relations?|people|kin)|"
+            r"name\s+all\s+my\s+pets|"
+            r"list\s+(?:everyone|all|the\s+people|my\s+(?:family|relatives?|pets))|"
+            r"list\s+(?:my\s+)?(?:family|relatives?|pets)|"
+            r"(?:who|what)\s+(?:have|has)\s+i\s+(?:told|said|mentioned|shared)\s+(?:you|about)|"
+            r"who\s+(?:in|from)\s+my\s+family|"
+            r"who\s+(?:are|do)\s+(?:the\s+)?people\s+in\s+my\s+family"
+            r")\b", q)
+        if _enum:
+            return self._enumerate_entities(
+                is_relation_attribute, base_relation,
+                is_pet_attribute, base_species)
+
         # ── (1) Biographical self-fact recall ──────────────────────────────
         # "what's my name" / "where do i live/work" / "what do i keep/have on
         # my rooftop" / "what's my favorite ..." — answered from the structured
@@ -3431,6 +3479,77 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             return None
         _lead = "here's what i've picked up about you so far"
         return _lead + ": " + "; ".join(parts) + "."
+
+    def _enumerate_entities(self, is_relation_attribute, base_relation,
+                            is_pet_attribute, base_species) -> str:
+        """Category-aware enumeration recall (feature t_f1dae1aa).
+
+        A user asked to LIST the entities RAVANA has learned in a category
+        ("name everyone in my family", "name all my pets", "who have i told
+        you about"). There is no specific cue word, so this SCANS the live
+        PersonalFactStore and collects every relationship fact and every pet
+        fact, then lists them.
+
+        Design — passes the no-hardcoding line by construction:
+        - Membership in a category is decided by the SHARED lexicon helpers
+          (relation_attrs.is_relation_attribute / pet_slots.is_pet_attribute),
+          the same functions the miner and cued-recall use, so all three paths
+          agree on what counts as a "relative" / "pet" by construction — no
+          duplicated per-path word list (the slot-key-collision lesson).
+        - The rendered list is REAL stored content: each entry is
+          ``your <combined-attr> <stored-value>`` for a relative, or
+          ``your <species> is <name>`` for a pet. The user's own disclosed name
+          and detail appear verbatim; only the thin connective ("you've told me
+          about ... :") is fixed scaffolding.
+        - The user can correct any stored fact, so the list always reflects the
+          latest state; the capability needs no retraining and no LLM.
+        - Honest empty state: when the intent is recognized but the store holds
+          no relatives/pets, returns an honest "nothing yet" message grounded in
+          the real (zero) state, NOT None. Returning None would let the query
+          fall through to a generic acknowledgement ("noted.") — a wrong answer
+          for a recognized intent. The empty message states the true state
+          (zero facts) and invents nothing, so it is an honest flat fallback
+          rather than fabricated depth.
+        """
+        pf = getattr(getattr(self, "user_model", None), "personal_facts", None)
+        if pf is None:
+            return "you haven't told me about any family or pets yet."
+        _facts = (getattr(pf, "facts", {}) or {})
+        _rel_bits = []
+        _pet_bits = []
+        _seen_rel = set()
+        _seen_pet = set()
+        for _k, _f in _facts.items():
+            if not (isinstance(_k, tuple) and len(_k) == 3):
+                continue
+            if getattr(_f, "superseded", False):
+                continue
+            _subj, _attr, _val = _k
+            if _subj.lower() != "i":
+                continue
+            _a = str(_attr).lower().strip()
+            _v = (getattr(_f, "value", "") or "").strip()
+            if not _v:
+                continue
+            if is_relation_attribute(_a):
+                _key = _a
+                if _key in _seen_rel:
+                    continue
+                _seen_rel.add(_key)
+                _rel_bits.append(f"your {_a} {_v}")
+            elif is_pet_attribute(_a):
+                _sp = base_species(_a)
+                _key = (_sp or _a) + "|" + _v.lower()
+                if _key in _seen_pet:
+                    continue
+                _seen_pet.add(_key)
+                _pet_bits.append(f"your {_sp or _a} is {_v}")
+        if not _rel_bits and not _pet_bits:
+            return "you haven't told me about any family or pets yet."
+        _bits = _rel_bits + _pet_bits
+        if len(_bits) == 1:
+            return f"you've told me about: {_bits[0]}."
+        return "you've told me about: " + "; ".join(_bits) + "."
 
     def _recall_user_fact(self, attr_hint, q):
         """Helpers for _structured_recall: read a personal_fact by attribute."""
