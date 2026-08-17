@@ -2637,6 +2637,15 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         return f"you work as {_v}."
                     if _attr == "does":
                         return f"you {_v}."
+                    # D7 (round 2026-08-16T1745Z): verb-phrase values (from the
+                    # relationship-activity miner) render without a copula.
+                    try:
+                        from .user_model import is_activity_verb as _is_act
+                    except Exception:
+                        _is_act = lambda w: False
+                    _vv = (_v or "").strip()
+                    if _vv and _vv.split() and _is_act(_vv.split()[0]):
+                        return f"your {_attr} {_v}."
                     return f"your {_attr} is {_v}."
                 # weak match: require >=2 salient cue tokens to co-occur in the
                 # value (a single shared stop-word like "the"/"ocean" is not
@@ -2648,6 +2657,9 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         return f"you work as {_v}."
                     if _attr == "does":
                         return f"you {_v}."
+                    _vvw = (_v or "").strip()
+                    if _vvw and _vvw.split() and _is_act(_vvw.split()[0]):
+                        return f"your {_attr} {_v}."
                     return f"your {_attr} is {_v}."
             # (c) GENERALIZE (round 2026-08-16): the cue may be a RELATIONSHIP
             # ENTITY ("my niece", "my cousin", "my sister"), not a bare topic
@@ -2673,6 +2685,22 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     if _attr == _cue_head or _attr.startswith(_cue_head + " ") \
                             or _attr.startswith(_cue_head + "'"):
                         _v = _f.value
+                        # D7 (round 2026-08-16T1745Z): a relationship-activity
+                        # fact stores a VERB PHRASE value ("weaves baskets"),
+                        # not a noun phrase. Render it WITHOUT a copula so the
+                        # reply is grammatical ("your grandmother indira weaves
+                        # baskets") instead of "your grandmother indira is weaves
+                        # baskets". Noun-phrase values ("an astronomer who
+                        # studies pulsars") keep the copula. The verb test is the
+                        # shared SEED lexicon (user_model.is_activity_verb), not
+                        # a per-topic table and not authored prose.
+                        try:
+                            from .user_model import is_activity_verb as _is_act
+                        except Exception:
+                            _is_act = lambda w: False
+                        _vv = (_v or "").strip()
+                        if _vv and _vv.split() and _is_act(_vv.split()[0]):
+                            return f"your {_attr} {_v}."
                         return f"your {_attr} is {_v}."
             return None
 
@@ -2776,8 +2804,58 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     if _attr == _ent or _attr.startswith(_ent + " ") \
                             or _attr.startswith(_ent + "'"):
                         _v = _f.value
+                        # D7 (round 2026-08-16T1745Z): verb-phrase values
+                        # (relationship-activity miner) render without a copula.
+                        try:
+                            from .user_model import is_activity_verb as _is_act
+                        except Exception:
+                            _is_act = lambda w: False
+                        _vv = (_v or "").strip()
+                        if _vv and _vv.split() and _is_act(_vv.split()[0]):
+                            return f"your {_attr} {_v}."
                         return f"your {_attr} is {_v}."
         # Possession-attribute (material) recall (Bug 4, round 2026-08-15T0830Z):
+        # D7 (round 2026-08-16T1745Z): reverse NAME lookup (top-level). A query
+        # naming ONLY the person's name ("who is indira to me", "who is priya")
+        # has no kin HEAD token, so the relationship-entity resolver (above)
+        # misses it and the query fell through to an identity blurb (measured:
+        # T61 -> "you live in bramblewick"). The combined-attr fact ("grandmother
+        # indira") stores BOTH the relationship and the name, so when a salient
+        # cue word equals the attr's trailing NAME token, report the
+        # relationship ("your grandmother"). Generalizes across every
+        # relationship the user named (no per-name table); honest None fallback
+        # when no fact carries that name. Gated on an interrogative frame so it
+        # does not hijack a declarative mention of the name. Not authored prose
+        # — the relationship word is the stored attr's head; content from store.
+        if pf is not None:
+            _name_is_q = bool(
+                re.search(r"\?$", q.strip())
+                or re.match(
+                    r"^(what|who|which|where|when|why|how|is|are|was|were|"
+                    r"do|does|did|has|have|had|can|could|would|will|tell|"
+                    r"said|say|recall|remember|know|mention)\b", q.strip()))
+            if _name_is_q:
+                _qcn = set(re.findall(r"[a-z']+", q.lower())) - {
+                    "the", "a", "an", "of", "about", "on", "my", "i", "you",
+                    "what", "who", "which", "where", "when", "why", "how",
+                    "is", "are", "was", "were", "to", "in", "for", "with",
+                    "that", "this", "it", "and", "or", "but", "from", "by",
+                    "as", "at", "me", "do", "does", "did", "have", "has",
+                    "whom", "tell", "know", "say", "said", "recall",
+                    "remember", "mention", "name", "relation",
+                }
+                if _qcn:
+                    for _k, _f in pf.facts.items():
+                        if not (isinstance(_k, tuple) and len(_k) == 3):
+                            continue
+                        if _k[0] != "i" or getattr(_f, "superseded", False):
+                            continue
+                        _attr = _k[1].lower()
+                        _attr_toks = _attr.split()
+                        # combined-attr "<kin> <name>": match when a cue word is
+                        # exactly the name token (last token).
+                        if len(_attr_toks) >= 2 and _attr_toks[-1] in _qcn:
+                            return f"your {_attr_toks[0]}."
         # "what's my cabin made of" / "what material is my sword" / "what's my
         # roof made of" reads the ENTITY-scoped 'madeof' / feature fact mined by
         # mine_personal_facts. The existing possessive branch (above) only
@@ -3314,7 +3392,21 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             elif _attr_d == "name":
                 parts.append(f"your name is {_val}")
             else:
-                parts.append(f"you {_val}")
+                # D7 (round 2026-08-16T1745Z): a combined-attr relationship fact
+                # ("grandmother indira" -> "weaves baskets") must render as
+                # "your grandmother indira weaves baskets" (verb phrase, no
+                # copula) or "your niece priya is an astronomer" (noun phrase).
+                # The verb test uses the shared SEED lexicon
+                # (user_model.is_activity_verb); content comes from the store.
+                try:
+                    from .user_model import is_activity_verb as _is_act
+                except Exception:
+                    _is_act = lambda w: False
+                _kv = (_val or "").strip()
+                if _kv and _kv.split() and _is_act(_kv.split()[0]):
+                    parts.append(f"your {_attr_d} {_val}")
+                else:
+                    parts.append(f"your {_attr_d} is {_val}")
         # ── Beliefs: the user's stated positions. ──
         for _pred, _val, _conf in belief_items:
             parts.append(f"you've held that {_pred} {_val}")

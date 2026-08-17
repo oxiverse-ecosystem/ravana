@@ -39,6 +39,44 @@ _CORRECTION_FACT_PATTERNS = [
     r"([\w\s]+?)\s+are\s+(\w+)[,.]*\s+not\s+(\w+)",
 ]
 
+
+# Activity-verb seed lexicon (shared by the relationship-activity miner D7 and
+# the cued-recall grammar fix). Used to tell a VERB-PHRASE personal fact
+# ("weaves baskets") from a NOUN-PHRASE fact ("an astronomer") so recall can
+# render "your grandmother indira weaves baskets" (no copula) vs "your niece
+# priya is an astronomer" (copula). This is SEED vocabulary (a data set, not an
+# answer path) — RAVANA-expandable by the same PersonalFactStore the user can
+# correct; removing entries degrades gracefully (one fewer verb-form recognized
+# for grammar). NOT a per-topic reply dictionary and NOT authored prose.
+_ACTIVITY_VERB_LEXICON = {
+    "run", "own", "operate", "play", "teach", "study", "manage", "drive",
+    "build", "make", "sell", "restore", "grow", "watch", "raise", "tend",
+    "brew", "bake", "write", "read", "learn", "practice", "collect", "fix",
+    "paint", "code", "design", "craft", "volunteer", "cook", "fish", "hike",
+    "garden", "farm", "lead", "organize", "keep", "grind", "race", "sail",
+    "knit", "sew", "weld", "forge", "carve", "compose", "record",
+    "perform", "coach", "train", "compete", "spin", "weave", "mount",
+    "trade", "host", "guide", "climb", "repair", "work",
+}
+
+
+def is_activity_verb(word: str) -> bool:
+    """Return True if `word` is a (possibly inflected) activity verb from the
+    seed lexicon. Used by cued recall to render verb-phrase personal facts
+    without a spurious copula. Pure vocabulary lookup — no content."""
+    w = (word or "").strip().lower().strip(".,!?;:'\"")
+    if not w:
+        return False
+    if w in _ACTIVITY_VERB_LEXICON:
+        return True
+    # base-form recovery for inflected tokens not pre-listed
+    for suf in ("ing", "ed", "s", "es"):
+        if w.endswith(suf) and w[: -len(suf)] in _ACTIVITY_VERB_LEXICON:
+            return True
+    return False
+
+
+
 # real affect categories in brain_regions._CAUSE_SEEDS and
 # support_router._SUPPORT_AFFECT). Used by the bare-copula name guard: a
 # first-person "i'm X" where X is any of these is a TRANSIENT STATE, never a
@@ -1223,8 +1261,106 @@ class UserModel:
                     else:
                         _put_fact(_attr, _val, 0.6)
 
+
+        # D7 (round 2026-08-16T1745Z): relationship-ACTIVITY disclosures were
+        # never mined. "my X is Y" (equational) was captured, but the dominant
+        # real-world shape "my <relation> <Name> <verb> <object>" (e.g. "my
+        # grandmother Indira weaves baskets", "my brother Arjun climbs mountains")
+        # fell through entirely — only an incidental match happened when a
+        # conjoined-pet pattern accidentally grabbed "cousin". Consequently every
+        # cued recall of that family member (T29 "what's my grandmother's name",
+        # T32 "does my brother have a hobby", T51 "what did i tell you about my
+        # grandmother", T52 "my brother", T61 "who is indira") had nothing to
+        # recall and echoed an unrelated fact. This is the recurring L2 residual
+        # limitation, now closed GENERALIZABLY.
+        #
+        # Fix: capture ANY "my <kin> <Name> <verb> <object>" disclosure as a
+        # COMBINED-attr fact (attr = "<kin> <name>", subject "i", value = the
+        # verb+object HEAD) — the EXACT storage shape the recall branch (c) in
+        # engine.py:_structured_recall already resolves ("my niece priya" ->
+        # attr "niece priya"). So miner and recaller agree by construction; no
+        # per-relationship table. The relationship vocabulary is SEED structure
+        # (RAVANA-expandable: it feeds the same PersonalFactStore the user can
+        # correct; removing a word degrades gracefully), NOT authored reply
+        # prose and NOT a per-topic answer dictionary. The verb set is the SAME
+        # closed activity-verb seed the self-activity loop uses, so a disclosure
+        # like "my brother Arjun climbs mountains" stores ("i", "brother arjun",
+        # "climbs mountains") and a later "does my brother have a hobby?" /
+        # "what did i tell you about my brother" resolves it correctly.
+        _KIN = {
+            "grandmother", "grandfather", "grandma", "grandpa", "granny",
+            "granddad", "nana", "papa", "mum", "mom", "mother", "dad",
+            "father", "aunt", "auntie", "uncle", "sister", "brother",
+            "cousin", "niece", "nephew", "daughter", "son", "wife",
+            "husband", "spouse", "partner", "stepmother", "stepfather",
+            "stepsister", "stepbrother", "halfsister", "halfbrother",
+            "grandson", "granddaughter", "motherinlaw", "fatherinlaw",
+        }
+        _REL_ACTIVITY_VERBS = (
+            "run", "own", "operate", "play", "teach", "study", "manage",
+            "drive", "build", "make", "sell", "restore", "grow", "watch",
+            "raise", "tend", "brew", "bake", "write", "read", "learn",
+            "practice", "collect", "fix", "paint", "code", "design",
+            "craft", "volunteer", "cook", "fish", "hike", "garden",
+            "farm", "lead", "organize", "keep", "grind", "race", "sail",
+            "fly", "knit", "sew", "weld", "forge", "carve", "compose",
+            "record", "perform", "coach", "train", "compete", "spin",
+            "weave", "mount", "trade", "host", "guide", "climb", "repair", "work",
+        )
+        # Accept inflected verb forms (3rd-person -s, -es, -ing) so
+        # disclosures like "weaves / climbs / grows / paints" match the
+        # base seed verb. The base set is the SEED; inflections are
+        # derived mechanically (no per-form list), so adding a base verb
+        # auto-covers its forms. Not authored prose.
+        _REL_ACTIVITY_VERB_FORMS = set(_REL_ACTIVITY_VERBS)
+        for _vb in _REL_ACTIVITY_VERBS:
+            _REL_ACTIVITY_VERB_FORMS.add(_vb + "s")
+            _REL_ACTIVITY_VERB_FORMS.add(_vb + "es")
+            _REL_ACTIVITY_VERB_FORMS.add(_vb + "ing")
+        # NO re.IGNORECASE here: kin + verb are always lowercase in the
+        # input, while the Name is capitalized, so the capitalized-name
+        # token cleanly separates from the lowercase activity verb.
+        # (IGNORECASE made [A-Z] also match lowercase and the name group
+        # greedily swallowed the verb.) kin/verb are lowercased after
+        # matching, so casing in the source is irrelevant.
+        _rel_m = re.search(
+            r"\bmy\s+([a-z][a-z]+)\s+"          # relation word (kin)
+            r"([A-Z][A-Za-z]*(?:\s+[A-Z][A-Za-z]*)?)?\s*"  # optional Name (capitalized, 1-2 tokens)
+            r"([a-z][a-z]+)\s+"                   # activity verb (lowercase)
+            r"(.+?)(?:\bwhen\b|\bbut\b|\bbecause\b|\band\b|\.|\!|\?|$|,)",  # object phrase
+            q_clean)
+        if not _rel_m:
+            # Fallback: name-less disclosure ("my sister climbs rocks")
+            # — the word right after the relation is the verb. No name
+            # token is captured, so the attr is just the relation word
+            # (still reachable from "my sister").
+            _rel_m = re.search(
+                r"\bmy\s+([a-z][a-z]+)\s+([a-z][a-z]+)\s+"
+                r"(.+?)(?:\bwhen\b|\bbut\b|\bbecause\b|\band\b|\.|\!|\?|$|,)",
+                q_clean)
+            _rel_name_is_none = True
+        else:
+            _rel_name_is_none = False
+        if _rel_m:
+            _kin = _rel_m.group(1).lower()
+            if _kin in _KIN:
+                _name = "" if _rel_name_is_none else (_rel_m.group(2) or "").strip().lower()
+                _verb = _rel_m.group(2 if _rel_name_is_none else 3).lower()
+                if _verb in _REL_ACTIVITY_VERB_FORMS:
+                    _obj = self._opinion_topic(_rel_m.group(3 if _rel_name_is_none else 4).strip().lower()) or ""
+                    _obj = _strip_obj_framers(_obj)
+                    if _obj and len(_obj.split()) <= 5:
+                        # COMBINED-attr storage: ("i", "<kin> <name>",
+                        # "<verb> <object>") — reachable from recall branch
+                        # (c) by the relation head "kin". A genuine
+                        # self-fact fallback when no name token: attr is
+                        # just the relation word (e.g. "my sister climbs" ->
+                        # attr "sister"); still reachable from "my sister".
+                        _attr = f"{_kin} {_name}".strip() if _name else _kin
+                        _put_fact(_attr, f"{_verb} {_obj}", 0.6)
+
+
         # D3 (round v3): capture self-disclosed ACTIVITIES / possessions that the
-        # existing "my X is Y" / "i am a role" miners miss — e.g. "i run a chai
         # stall near the mysore palace", "i play the tabla when the stall is
         # closed", "i've been watching the night sky for twelve years". These are
         # first-person disclosures of what the user DOES / has, and must land in
