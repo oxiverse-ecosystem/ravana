@@ -3507,6 +3507,99 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         _lead = "here's what i've picked up about you so far"
         return _lead + ": " + "; ".join(parts) + "."
 
+    def _user_stance_reply(self, user_input: str) -> Optional[str]:
+        """USER-STANCE recall (Limitation H, feature t_d6e10e53, round 2026-08-17T0622Z).
+
+        A query that asks RAVANA whether the USER likes/loves/hates/dislikes/
+        cares-for something ("do you think i like spicy food or not?", "do you
+        think i love jazz?") is about the USER's own stated preference — NOT
+        RAVANA's. Previously these matched the broad self-opinion gate in
+        process_turn and routed to _route_self_query, which computed RAVANA's
+        OWN (empty) stance on the topic and fell through to the generic
+        "still figuring that out" hedge. That is a self/other boundary error:
+        the verb's subject is the user, so the valuation lives in
+        user_model.opinions.stances, not in RAVANA's value system.
+
+        Root cause / fix: detect the same-subject-attitude frame structurally
+        (i/we/you + think/feel/believe + like/love/hate/dislike/prefer/care
+        for/loathe/detest/enjoy), extract the topic the SAME way the stance
+        MINER does (user_model._opinion_topic, so the key matches what was
+        stored), then consult the LIVE UserStanceStore via resolve_topic (the
+        same content-word resolver the reversal/mining paths use). When a held
+        stance is found, render ONE polarity word (a lexicon token — vocabulary,
+        not a scripted sentence) plus the real topic from state. Fail-closed:
+        returns None when (a) the frame doesn't match (so genuine self-opinion
+        questions still route to _route_self_query), or (b) no stance is held
+        (so a third-person question about a topic the user never stated a
+        preference on honestly abstains downstream).
+
+        No authored reply prose, no per-topic answer table, no retraining. The
+        capability is entirely store-driven: the user can state or reverse a
+        preference at runtime and this path reflects it. RAVANA can revise any
+        stored stance through normal conversation, satisfying the seed +
+        online-learning constraints.
+        """
+        q = (user_input or "").lower().strip()
+        if not q:
+            return None
+        # Same-subject attitude frame (the user is the attitude holder). The
+        # object clause after the attitude verb carries the topic.
+        _m = re.search(
+            r"\b(i|we|you)\b\s+(?:think|feel|believe|figure|reckon|guess|"
+            r"suppose)\s+(?:i|we|you|he|she|they)\s+"
+            r"(like|love|hate|dislike|prefer|enjoy|adore|care\s+for|"
+            r"loathe|detest|can'?t\s+stand|cant\s+stand)\b\s+(.+)", q)
+        if not _m:
+            return None
+        _obj = _m.group(3).strip(" .!?")
+        if not _obj:
+            return None
+        um = getattr(self, "user_model", None)
+        opinions = getattr(um, "opinions", None) if um else None
+        if opinions is None:
+            return None
+        # Resolve the topic the SAME way stances are MINED, so the key matches
+        # stored keys ("spicy food", "quiet libraries", ...). Reuse the live
+        # UserStanceStore resolver (exact → substring → content-word Jaccard)
+        # so a paraphrase still links to the held stance.
+        try:
+            _topic = getattr(um, "_opinion_topic", None)
+            if callable(_topic):
+                _resolved = _topic(_obj)
+            else:
+                _resolved = _obj.split()[0] if _obj.split() else _obj
+        except Exception:
+            _resolved = _obj
+        _key = None
+        if _resolved:
+            _key = opinions.resolve_topic(_resolved)
+        if _key is None:
+            # Last resort: try resolving from the raw object directly.
+            _key = opinions.resolve_topic(_obj)
+        if _key is None:
+            return None
+        _s = opinions.stances.get(_key)
+        if _s is None:
+            return None
+        _pol = getattr(_s, "polarity", 0.0)
+        _conf = getattr(_s, "confidence", 0.5)
+        # ONE polarity word — a lexicon token, never a scripted sentence.
+        if _pol >= 0.6:
+            _w = "strongly for"
+        elif _pol > 0.1:
+            _w = "for"
+        elif _pol <= -0.6:
+            _w = "strongly against"
+        elif _pol < -0.1:
+            _w = "against"
+        else:
+            _w = "uncertain about"
+        # Confidence is real state too — surface it honestly rather than pretend
+        # total certainty. Single token / short frame, content from the store.
+        if _conf >= 0.6:
+            return f"from what you've told me, you're {_w} {_key}."
+        return f"i think you're {_w} {_key}, though i'm not totally sure yet."
+
     def _enumerate_entities(self, is_relation_attribute, base_relation,
                             is_pet_attribute, base_species) -> str:
         """Category-aware enumeration recall (feature t_f1dae1aa).
@@ -4639,6 +4732,34 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # abstention). Fail-open: any None result falls through to the normal
         # pipeline. Runs BEFORE the harm gate's generative fallbacks because
         # these are pure retrieval answers over user-provided content.
+        # ── USER-STANCE recall (Limitation H, feature t_d6e10e53, round
+        # 2026-08-17T0622Z) FIRST: a question that asks RAVANA whether the USER
+        # likes/loves/hates something ("do you think i like spicy food or
+        # not?") is about the USER's OWN stated preference, not RAVANA's. The
+        # broad self-opinion gate below matches the same surface shape ("do you
+        # think i like ...") and would route to _route_self_query, which
+        # computes RAVANA's OWN (empty) stance on the topic and returns the
+        # generic "still figuring that out" hedge — a self/other boundary
+        # error. This guard consults the LIVE user_model.opinions.stances
+        # (the store the stance MINER populates) and answers from the user's
+        # real valuation when one is held. Fail-closed: returns None when the
+        # same-subject-attitude frame is absent or no stance is held, so
+        # genuine agent-self questions still reach _route_self_query unchanged.
+        try:
+            _ustance = self._user_stance_reply(user_input)
+            if _ustance is not None:
+                self._last_strategy = "user_stance_recall"
+                self._last_responses.append(_ustance)
+                if len(self._last_responses) > 10:
+                    self._last_responses = self._last_responses[-10:]
+                self.notify_user_idle()
+                try:
+                    self._record_own_reply(user_input, _ustance, self._last_subject)
+                except Exception:
+                    pass
+                return _ustance
+        except Exception:
+            pass
         # SELF-OPINION RECALL first: "are you still cautious about X" is a
         # question about the AGENT's own prior valuation, so the self/other
         # boundary must beat the episodic echo — otherwise fact-reasoning would
