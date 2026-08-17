@@ -4926,11 +4926,21 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             if _fr_allowed:
                 _fr_resp = self._try_fact_reasoning(user_input)
                 if _fr_resp:
+                    # A genuine autobiographical fact was retrieved — return it
+                    # directly (short-circuit), as the original path intended.
                     self._last_strategy = "fact_reasoning"
-                self._last_responses.append(_fr_resp)
-                if len(self._last_responses) > 10:
-                    self._last_responses = self._last_responses[-10:]
-                return _fr_resp
+                    self._last_responses.append(_fr_resp)
+                    if len(self._last_responses) > 10:
+                        self._last_responses = self._last_responses[-10:]
+                    return _fr_resp
+                # No autobiographical fact matched. CRITICAL (round 2026-08-17T1126Z):
+                # do NOT `return _fr_resp` here — that returns None and kills the
+                # entire turn, leaking a literal empty reply into the transcript
+                # (measured: 6 of 68 turns returned None in this round). Fall
+                # through to the rest of process_turn (honest metacognitive
+                # uncertainty / generative fallback) so the user always gets a
+                # real, non-empty reply. The classifier answering "yes" only means
+                # the query is *about the user*, not that a stored fact exists.
         except Exception:
             pass
 
