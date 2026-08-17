@@ -284,7 +284,8 @@ class GraphMixin:
 
         Search order for the cache:
         1. self._glove_cache_path (may be data_dir-specific, e.g. a temp dir)
-        2. _proj_root/data/ravana_glove_cache.npz (repo-level, committed via LFS)
+        2. _proj_root/data/ravana_glove_cache.npz (repo-level cache; not committed,
+           rebuilt on first boot if absent)
         """
         # Phase 2.3: Try warm-start cache first.
         # Check the instance path first, then fall back to the repo-level cache
