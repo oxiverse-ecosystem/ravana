@@ -117,6 +117,19 @@ on this codebase:
   stored. Fail-closed: a brand-new user returns `None` and the honest path
   answers. No LLM, no per-topic reply table, no retraining. See
   `docs/CAPABILITY_USER_MODEL_AGGREGATION.md`.
+- **Enumerates the entities it has learned in a category.** Asked *"name everyone
+  in my family"*, *"name all my pets"*, or *"who have i told you about"* — queries
+  with **no specific cue word** — it **scans its live PersonalFactStore** and
+  lists every relative and pet it mined, drawn from the real stored facts:
+  `you've told me about: your grandmother indira weaves baskets; your brother arjun climbs mountains; your cat is mochi; your dog is biscuit.`
+  Previously these fell through to a generic acknowledgement (*"noted."*) because
+  the cued-recall paths require a named entity. Category membership is decided by
+  the **shared** lexicon helpers the miner and cued-recall already use, so all
+  three paths agree on what counts as a relative/pet by construction (no
+  duplicated word list). A brand-new user with nothing disclosed gets an honest
+  *"you haven't told me about any family or pets yet."* instead of a fabricated
+  list. No LLM, no per-topic reply table, no retraining. See
+  `docs/CAPABILITY_CATEGORY_ENUMERATION_RECALL.md`.
 - **Separates world-knowledge questions from autobiographical recall.** Asked
   *"what is cooking oil made of?"* it does **not** echo an unrelated stored fact
   about you (*"you enjoy cooking pasta on weekends"*) — the query is classified
