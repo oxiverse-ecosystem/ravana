@@ -80,3 +80,44 @@ def test_reverse_name_resolver_pet_does_path():
     r = eng.process_turn("who is Mango?")
     assert r is not None, "reverse-name resolver returned None / crashed"
     assert "pet parrot" in r, r
+
+
+def test_miner_stores_named_relationship_lowercase_name():
+    # D7 miner regression (feature t_1a4a3938): the old regex required the
+    # disclosed Name to be CAPITALIZED, so a lowercase chat name ("indira") never
+    # matched -> the fact was never stored -> open-ended recall had nothing to
+    # recall. The token-based fix finds the activity verb by membership, so the
+    # named-relationship fact is stored regardless of name casing.
+    caps = _capture("my grandmother indira bakes sourdough bread every sunday")
+    assert ("i", "grandmother indira") in caps, caps
+    assert "bakes sourdough bread" in caps[("i", "grandmother indira")], caps
+
+
+def test_open_ended_relationship_recall():
+    # New capability (feature t_1a4a3938): RAVANA recalls what it knows about a
+    # named relationship/person from OPEN-ENDED phrasings, not just a bare "who
+    # is X". Every answer slot is read from the live PersonalFactStore; no
+    # authored reply string, no per-person table.
+    eng = CognitiveChatEngine(dim=64, seed=42, baby_mode=True,
+                              user_suffix="test_openrel_recall")
+    for s in [
+        "my grandmother indira bakes sourdough bread every sunday",
+        "my brother theo fixes bicycles for the neighborhood kids",
+    ]:
+        eng.process_turn(s)
+    # relationship-word keyed, open phrasing
+    assert "your grandmother indira bakes sourdough bread" in \
+        eng._structured_recall("tell me about my grandmother"), "open 'tell me about' failed"
+    # interrogative relationship key
+    assert "your grandmother indira bakes sourdough bread" in \
+        eng._structured_recall("who is my grandmother?"), "interrogative rel failed"
+    # activity-asking phrasing
+    assert "your grandmother indira bakes sourdough bread" in \
+        eng._structured_recall("what does my grandmother do?"), "activity phrasing failed"
+    # bare name (no relationship word in query)
+    assert "your brother theo fixes bicycles" in \
+        eng._structured_recall("who is theo?"), "bare-name recall failed"
+    # unknown relative fails closed (honest None, not a fabricated bio)
+    assert eng._structured_recall("tell me about my uncle fred") is None, \
+        "unknown relative must fail closed"
+

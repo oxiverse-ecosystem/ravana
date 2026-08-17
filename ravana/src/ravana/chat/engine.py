@@ -2889,6 +2889,128 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         if _vv and _vv.split() and _is_act(_vv.split()[0]):
                             return f"your {_attr} {_v}."
                         return f"your {_attr} is {_v}."
+        # ── (1d) OPEN-ENDED RELATIONSHIP / PERSON RECALL (new capability,
+        # feature t_1a4a3938, round 2026-08-17T1126Z) ───────────────────────
+        # Queries that name a relationship (kin) or a specific person/entity and
+        # ask RAVANA to REPORT what it knows about them in the OPEN — "tell me
+        # about my grandmother", "who is my grandmother?", "what does my
+        # grandmother do?", "what do you know about my brother", "describe my
+        # niece priya" — previously returned None / metacognitive-uncertainty
+        # because every resolver keyed on a BARE name ("who is indira") or a
+        # specific verb ("what does X do"), never on the relationship word when
+        # phrased openly. That was the residual limitation logged at the end of
+        # round 2026-08-17T1126Z (#1), and it was made worse by the D7 miner
+        # bug (same round) that failed to STORE named-relationship facts when the
+        # name was lowercase. Both are now fixed end-to-end.
+        #
+        # Fix: detect a relationship word (via the SHARED relation_attrs lexicon,
+        # so the miner, the enumerator, and this recaller agree on what a
+        # "relative" is by construction) and/or a name token and/or a pet entity
+        # in the query, then scan the live PersonalFactStore for EVERY
+        # subject=="i" fact that (a) is a relationship attribute whose base
+        # relation matches, (b) carries the named person, or (c) is a pet of the
+        # queried species. Render all matches with the D7 copula rule
+        # (verb-phrase values drop the copula; noun-phrase values keep it).
+        # Fully store-driven; no authored reply; no per-person table; no
+        # retraining. Fail-closed: returns None when nothing maps, so an unknown
+        # relative gets honest uncertainty instead of a fabricated bio.
+        if pf is not None:
+            try:
+                from .relation_attrs import (
+                    relation_of as _or_rel_of,
+                    is_relation_attribute as _or_is_rel,
+                    base_relation as _or_base_rel,
+                )
+                from .pet_slots import (
+                    is_pet_attribute as _or_is_pet,
+                    base_species as _or_base_sp,
+                )
+                from .user_model import is_activity_verb as _or_is_act
+            except Exception:  # pragma: no cover - imports are always present
+                _or_rel_of = lambda w: None
+                _or_is_rel = lambda a: False
+                _or_base_rel = lambda a: None
+                _or_is_pet = lambda a: False
+                _or_base_sp = lambda a: None
+                _or_is_act = lambda w: False
+            _QR_STOP = {
+                "the", "a", "an", "of", "about", "on", "my", "i", "you", "what",
+                "who", "which", "where", "when", "why", "how", "is", "are", "was",
+                "were", "to", "in", "for", "with", "that", "this", "it", "and",
+                "or", "but", "from", "by", "as", "at", "me", "do", "does", "did",
+                "have", "has", "tell", "show", "know", "think", "feel", "describe",
+                "everything", "all", "anything", "something", "stands", "out",
+                "your", "read", "take", "impression", "picked", "up", "learned",
+                "learnt", "remember", "said", "told", "shared", "mention", "ravana",
+            }
+            _qr_salient = [t for t in re.findall(r"[a-z']+", q.lower())
+                           if t not in _QR_STOP]
+            # GATE on an interrogative / recall frame. This resolver REPORTS
+            # stored knowledge, so it must only fire when the user is ASKING
+            # about a relationship/person ("tell me about my X", "who is my X",
+            # "what does my X do"). A declarative disclosure ("my friend is
+            # hurting", "my grandmother bakes bread") is NOT a query — it must
+            # reach the empathy / fact-mining paths untouched. The empathy router
+            # owns genuine distress; a recall branch that answers every
+            # "my <relation>" utterance as a fact echo would swallow grief and
+            # other-suffering (regression: test_genuine_distress_still_routes_
+            # to_empathy). Same frame guard the reverse-name resolver and the
+            # _ENT_ATTR branch use, by construction.
+            _or_is_q = bool(
+                re.search(r"\?$", q.strip())
+                or re.match(
+                    r"^(what|who|which|where|when|why|how|is|are|was|were|"
+                    r"do|does|did|has|have|had|can|could|would|will|tell|"
+                    r"said|say|recall|remember|know|mention|describe|"
+                    r"everything|all|name|list|show)\b", q.strip()))
+            _qr_rel = None
+            _qr_name = None
+            _qr_pet = None
+            for _t in _qr_salient:
+                if _qr_rel is None and _or_rel_of(_t) is not None:
+                    _qr_rel = _or_rel_of(_t)
+                elif _qr_name is None and _or_rel_of(_t) is None \
+                        and _t not in ("me", "you", "i"):
+                    _qr_name = _t
+                if _qr_pet is None and _or_base_sp(_t) is not None:
+                    _qr_pet = _or_base_sp(_t)
+            if (_qr_rel is not None or _qr_name is not None or _qr_pet is not None) \
+                    and _or_is_q:
+                _bits = []
+                for _k, _f in pf.facts.items():
+                    if not (isinstance(_k, tuple) and len(_k) == 3):
+                        continue
+                    if _k[0] != "i" or getattr(_f, "superseded", False):
+                        continue
+                    _attr = _k[1].lower()
+                    _val = (getattr(_f, "value", "") or "").strip()
+                    _matched = False
+                    # (a) relationship attribute whose base relation matches.
+                    if not _matched and _qr_rel is not None and _or_is_rel(_attr):
+                        if _or_base_rel(_attr) == _qr_rel:
+                            _matched = True
+                    # (b) name match: the query's name token is the trailing
+                    #     name of a combined-attr fact, or appears in the value.
+                    if not _matched and _qr_name is not None:
+                        _at = _attr.split()
+                        if _at and _at[-1] == _qr_name:
+                            _matched = True
+                        elif _qr_name in _val.lower().split():
+                            _matched = True
+                    # (c) pet match.
+                    if not _matched and _qr_pet is not None and _or_is_pet(_attr):
+                        if _or_base_sp(_attr) == _qr_pet:
+                            _matched = True
+                    if not _matched:
+                        continue
+                    _vv = _val.lower().strip()
+                    if _vv and _vv.split() and _or_is_act(_vv.split()[0]):
+                        _bits.append(f"your {_attr} {_val}.")
+                    else:
+                        _bits.append(f"your {_attr} is {_val}.")
+                if _bits:
+                    return " ".join(_bits)
+
         # Possession-attribute (material) recall (Bug 4, round 2026-08-15T0830Z):
         # D7 (round 2026-08-16T1745Z): reverse NAME lookup (top-level). A query
         # naming ONLY the person's name ("who is indira to me", "who is priya")
