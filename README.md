@@ -144,6 +144,22 @@ on this codebase:
   genuine question about *RAVANA's* own view, falls through to the normal path and
   is **not** answered with a fabricated stance. No LLM, no per-topic reply table,
   no retraining. See `docs/CAPABILITY_USER_STANCE_RECALL.md`.
+- **Recalls what it knows about a named relationship or person from open
+  phrasing.** Asked *"tell me about my grandmother"*, *"who is my grandmother?"*,
+  *"what does my grandmother do?"*, *"what do you know about my brother"*, or
+  *"describe my niece priya"* — it reports the stored relationship/pet fact from
+  the **same** open phrasing, not just a bare *"who is X"*:
+  `your grandmother indira bakes sourdough bread.` (and *"who is theo?"* → *"your
+  brother theo fixes bicycles."*). Pets are covered too (*"tell me about my cat"*
+  → *"your cat is pixel."*). This needed two fixes: the relationship miner now
+  stores the named fact regardless of name casing (it previously required a
+  CAPITALIZED name and silently dropped lowercase chat names), and a new
+  recall branch keys on the relationship word itself when phrased openly. The
+  branch is gated on an interrogative frame so declarative disclosures (*"my
+  friend is hurting"*) still reach the empathy router, and an unknown relative
+  fails closed with honest uncertainty rather than a fabricated bio. No LLM, no
+  per-person reply table, no retraining. See
+  `docs/CAPABILITY_OPEN_ENDED_RELATIONSHIP_RECALL.md`.
 - **Separates world-knowledge questions from autobiographical recall.** Asked
   *"what is cooking oil made of?"* it does **not** echo an unrelated stored fact
   about you (*"you enjoy cooking pasta on weekends"*) — the query is classified
