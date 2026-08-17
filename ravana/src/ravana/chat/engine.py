@@ -2970,7 +2970,11 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 if _qr_rel is None and _or_rel_of(_t) is not None:
                     _qr_rel = _or_rel_of(_t)
                 elif _qr_name is None and _or_rel_of(_t) is None \
+                        and not _or_is_act(_t) \
                         and _t not in ("me", "you", "i"):
+                    # An activity verb (start/study/keep/...) is never a person's
+                    # NAME token. Treating it as one latched "when did i start X"
+                    # onto a `does`/activity fact (round 2026-08-17 bug). Skip it.
                     _qr_name = _t
                 if _qr_pet is None and _or_base_sp(_t) is not None:
                     _qr_pet = _or_base_sp(_t)
@@ -2984,6 +2988,19 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         continue
                     _attr = _k[1].lower()
                     _val = (getattr(_f, "value", "") or "").strip()
+                    # Activity / date facts are owned by the activity (1b/1c) and
+                    # date-grounded (1f) resolvers. Branch (1d) is the
+                    # relationship/person/pet recall path; letting it answer from
+                    # `does`/`event`/`since`/`since_age` facts hijacks temporal
+                    # and activity queries (round 2026-08-17 bug: "when did i
+                    # start building frames" -> "your does is ..."). The SAME
+                    # name-match rule (b) that latched a `does` fact also latches
+                    # a `since` fact ("... your since is study volcanoes 2015."),
+                    # so `since`/`since_age` MUST be excluded here too, not just
+                    # `does`/`event`. This only NARROWS the matcher; no reply
+                    # string is added.
+                    if _attr in ("does", "event", "since", "since_age"):
+                        continue
                     _matched = False
                     # (a) relationship attribute whose base relation matches.
                     if not _matched and _qr_rel is not None and _or_is_rel(_attr):
@@ -3074,6 +3091,43 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                             continue
                         _attr = _k[1].lower()
                         _val = (getattr(_f, "value", "") or "").lower().strip()
+                        # Activity / date facts are owned by the activity (1b/1c)
+                        # and date-grounded (1f) resolvers. This reverse-name
+                        # resolver is for RELATIONSHIPS / PEOPLE / PETS — letting
+                        # it answer from a PURE-ACTIVITY `does`/`event`/`since`/
+                        # `since_age` fact hijacks temporal and activity queries
+                        # (round 2026-08-17 bug: "when did i start building
+                        # frames" -> "your building frames ..." because the
+                        # `does` value's LAST token ("frames") matched a salient
+                        # query word and was treated as a person's NAME).
+                        # A PET `does` fact ("keep pet parrot named mango") is
+                        # NOT an activity — it carries a real named entity, so
+                        # the reverse-name path below must still resolve it
+                        # ("who is mango?" -> "your pet parrot."). Only exclude
+                        # activity/date facts that are NOT pet-bearing, keyed on
+                        # the shared pet lexicon (a pet `does` value names a
+                        # species or uses "named <name>"); no authored table.
+                        if _attr in ("does", "event", "since", "since_age"):
+                            # A PET `does`/`event` fact carries a real named
+                            # entity ("keep pet parrot named mango" / "i have a
+                            # cat named pixel") — the reverse-name path below
+                            # must still resolve it ("who is mango?" ->
+                            # "your pet parrot."). A PURE-ACTIVITY fact
+                            # ("building frames", "start studying volcanoes")
+                            # is owned by the activity (1b/1c) / date-grounded
+                            # (1f) resolvers; treating its value's last token as
+                            # a person's NAME hijacks temporal/activity queries
+                            # (round 2026-08-17 bug: "when did i start building
+                            # frames" -> "your building frames ..."). Discriminate
+                            # on the pet markers "named"/"pet" — a bare noun like
+                            # "frames" is NOT a pet, so the activity fact is
+                            # excluded. (NOTE: pet_slots.base_species is a
+                            # near-identity resolver for arbitrary nouns, so it
+                            # cannot be used to test "is this a pet" here; the
+                            # explicit markers are the reliable signal.)
+                            _is_pet = ("named" in _val) or ("pet" in _val)
+                            if not _is_pet:
+                                continue
                         _attr_toks = _attr.split()
                         _rel = None          # relationship/entity label to render
                         _act = None          # optional activity value to append
