@@ -6244,6 +6244,40 @@ class ResponseGenMixin(ChainWalkerMixin):
         related.sort(key=lambda x: -x[1])
         top = [l for l, _ in related[:2]]
 
+        # GUARD (round 2026-08-17T1730Z): the metacognitive-ignorance openers
+        # splice the strongest related association as `{rel}` into a hedge
+        # frame ("that reminds me of {rel} — ..."). When the top association
+        # resolves to a NON-CONTENT filler word — a discourse marker, pronoun,
+        # or generic qualifier that survived the coherence gate only by virtue
+        # of being co-activated with the subject — the opener reads as
+        # confabulation ("that reminds me of really ... and lot what's your
+        # take on it?"). A human being asked about their own mind does not
+        # answer with a nonsense association; they admit the gap. Fail CLOSED
+        # to None (honest "i don't know yet") so the caller falls through to a
+        # cleaner uncertainty path rather than emitting garbled filler. This is
+        # a structural content gate (closed-class seed set), NOT authored
+        # prose and NOT a per-topic table; removing an entry only changes
+        # which low-value associations are suppressed. No retraining.
+        _NON_CONTENT_ASSOC = {
+            "really", "lot", "lots", "bit", "thing", "things", "way", "ways",
+            "kind", "kinds", "sort", "sorts", "type", "types", "stuff",
+            "something", "anything", "nothing", "everything", "somewhat",
+            "quite", "rather", "mostly", "mostly", "actually", "basically",
+            "generally", "usually", "often", "sometimes", "maybe", "perhaps",
+            "probably", "possibly", "definitely", "certainly", "truly",
+            "simply", "just", "even", "also", "too", "very", "more", "most",
+            "much", "many", "such", "like", "liking", "feel", "feels",
+            "feeling", "think", "thinks", "thought", "know", "knows",
+            "mean", "means", "sense", "idea", "ideas", "notion", "concept",
+            "concepts", "word", "words", "term", "terms", "part", "parts",
+            "piece", "pieces", "amount", "number", "level", "point", "points",
+            "good", "bad", "big", "small", "large", "little", "high", "low",
+            "new", "old", "own", "same", "other", "another", "different",
+        }
+        if top and all(
+                (t.lower().strip(".,!?") in _NON_CONTENT_ASSOC) for t in top):
+            return None
+
         # ── P3: source the hedged answer with KB / retrieved evidence ──
         # Instead of an empty "I don't have a definition but it's tied to X",
         # fetch a KB-grounded snippet for the strongest related concept and

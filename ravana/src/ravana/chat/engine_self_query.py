@@ -667,7 +667,9 @@ class SelfQueryMixin:
         _self_introspect = re.search(
             r"\b(your|you)\b.*\b(read|line|take|view|mind|thinking|thought|"
             r"opinion|stance|self|who you are|what you (?:are|were)|how you "
-            r"(?:see|feel|think))\b", t)
+            r"(?:see|feel|think)|want|wants|wanted|desire|desires|aim|aims|"
+            r"goal|goals|hope|hopes|said|told|spoke|mentioned|recall|remember"
+            r")\b", t)
         if _self_introspect:
             # This is a question about RAVANA itself. Answer from the
             # self-model's identity state (real, growing state — strength,
