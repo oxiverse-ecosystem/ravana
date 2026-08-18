@@ -28,7 +28,11 @@ from typing import Dict, Optional
 import re
 
 # Seed relationship vocabulary: surface form -> canonical relation.
-# Extended at runtime via learn_relation(); never a source of reply text.
+# Covers blood kin AND non-kin ROLE words (mentor, teacher, coach, friend,
+# neighbour, boss, colleague, ...). Extended at runtime via learn_relation();
+# never a source of reply text. Single source of truth shared by the miner,
+# the pet miner's relation_of() guard, and the recaller so all three agree on
+# what counts as a relationship by construction.
 _RELATION_SEED: Dict[str, str] = {
     "grandmother": "grandmother", "grandma": "grandmother", "granny": "grandmother",
     "nan": "grandmother", "nana": "grandmother", "nani": "grandmother",
@@ -58,6 +62,42 @@ _RELATION_SEED: Dict[str, str] = {
     "grandson": "grandson", "granddaughter": "granddaughter",
     "motherinlaw": "motherinlaw", "mother in law": "motherinlaw",
     "fatherinlaw": "fatherinlaw", "father in law": "fatherinlaw",
+    # Non-kin ROLE words (mentors, teachers, coaches, friends, neighbours,
+    # bosses, colleagues, ...). These are RELATIONSHIPS the user discloses
+    # about themselves, exactly like kin — "my mentor Dr. Okonkwo taught
+    # me astronomy" must mine + recall the SAME way as "my brother Arjun".
+    # They live in the SHARED relationship seed (not a second local list in
+    # the miner) so the pet miner's relation_of() guard, the role miner, and
+    # the recaller ALL agree on what counts as a relationship by
+    # construction. This closes the slot-collision bug where a non-kin role
+    # word was unknown to relation_of at pet-mining time and got mis-stored
+    # as a pet species ("my mentor Dr..." -> ('i','mentor','dr')), which
+    # then polluted recall with a truncated "your mentor is dr." and a
+    # double-output. Seed structure: RAVANA also grows its own via
+    # learn_relation at runtime; removing any entry degrades gracefully.
+    "mentor": "mentor", "mentors": "mentor", "mentor's": "mentor",
+    "teacher": "teacher", "teachers": "teacher",
+    "coach": "coach", "coaches": "coach",
+    "tutor": "tutor",
+    "friend": "friend", "friends": "friend",
+    "bestfriend": "friend", "bestie": "friend",
+    "neighbor": "neighbor", "neighbour": "neighbor",
+    "neighbors": "neighbor", "neighbours": "neighbor",
+    "boss": "boss", "bosses": "boss",
+    "manager": "manager", "managers": "manager",
+    "supervisor": "supervisor",
+    "colleague": "colleague", "colleagues": "colleague",
+    "coworker": "coworker", "co-worker": "coworker",
+    "roommate": "roommate", "roommates": "roommate",
+    "housemate": "housemate",
+    "landlord": "landlord", "landlords": "landlord",
+    "landlady": "landlady",
+    "rival": "rival", "rivals": "rival",
+    "enemy": "enemy", "enemies": "enemy",
+    "godparent": "godparent", "godparents": "godparent",
+    "guardian": "guardian", "guardians": "guardian",
+    "carer": "carer", "carers": "carer",
+    "caregiver": "caregiver", "caregivers": "caregiver",
 }
 
 # Runtime-grown extension of the seed table.

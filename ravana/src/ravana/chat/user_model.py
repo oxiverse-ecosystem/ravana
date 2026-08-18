@@ -1478,14 +1478,7 @@ class UserModel:
             except Exception:
                 _ra_of = lambda w: None
                 _ra_learn = lambda w: ""
-            _ROLE_WORDS = {
-                "mentor", "mentor's", "teacher", "coach", "tutor", "friend",
-                "bestfriend", "best", "neighbor", "neighbour", "boss",
-                "manager", "supervisor", "colleague", "coworker", "roommate",
-                "housemate", "landlord", "landlady", "rival", "enemy",
-                "godparent", "godbother", "guardian", "carer", "caregiver",
-            }
-            if _kin in _KIN or _kin in _ROLE_WORDS or _ra_of(_kin) is not None:
+            if _kin in _KIN or _ra_of(_kin) is not None:
                 _role = True
                 # GROW the shared relationship vocabulary (relation_attrs)
                 # from the live disclosure, so the recaller (engine.py 1c/1d),
@@ -1493,6 +1486,13 @@ class UserModel:
                 # base_relation, generalizes to this role WITHOUT a per-role
                 # branch. This is the runtime-growth design: RAVANA learns its
                 # own relationship words from conversation. Online, no retrain.
+                # The role word itself is now part of the SHARED seed in
+                # relation_attrs (single source of truth), which also means the
+                # appositive-pet miner (which runs BEFORE this block) rejects it
+                # via its relation_of() guard instead of mis-storing it as a pet
+                # species (the round 2026-08-17T1730Z feature bug: "my mentor
+                # Dr. Okonkwo..." produced a bogus ('i','mentor','dr') pet fact
+                # that truncated recall to "your mentor is dr.").
                 try:
                     _ra_learn(_kin)
                 except Exception:

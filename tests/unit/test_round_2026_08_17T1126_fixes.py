@@ -247,3 +247,57 @@ def test_appositive_pet_no_false_positive_on_common_nouns():
                  and k[1] in ("rock", "question", "park", "pet", "dog")}
     assert pet_attrs == set(), f"false-positive pet storage: {pet_attrs}"
 
+
+def test_role_word_not_misstored_as_pet_species():
+    # Round 2026-08-17T1730Z feature (handoff limitation #2): a non-kin ROLE
+    # disclosure "my mentor Dr. Okonkwo taught me astronomy" was matched by the
+    # appositive-pet miner (which runs BEFORE the role miner) as
+    # <species=mentor> <ProperNoun=Dr.>, producing a BOGUS fact
+    # ('i','mentor','dr') that truncated recall to "your mentor is dr." and
+    # doubled the open-ended output. Root cause: "mentor" (a non-kin role) was
+    # only known to the role miner's LOCAL word list, not to relation_of(), so
+    # the pet miner's relation_of() guard could not reject it. The role words
+    # now live in the SHARED relation_attrs seed (single source of truth), so
+    # the pet miner rejects the role word and NO bogus pet/species fact is
+    # created — the ONLY stored mentor fact is the correct combined-attr one.
+    um = UserModel()
+    um.personal_facts.facts.clear()
+    um.mine_personal_facts(
+        "my mentor Dr. Okonkwo taught me astronomy when i was a teenager",
+        run_correction=True)
+    stored = {
+        (k[0], k[1], f.value)
+        for k, f in um.personal_facts.facts.items()
+        if isinstance(k, tuple) and len(k) == 3 and not getattr(f, "superseded", False)
+    }
+    # the bogus pet/species fact must NOT exist
+    assert ("i", "mentor", "dr") not in stored, f"bogus mentor pet fact stored: {stored}"
+    # exactly the correct combined-attr fact must be present
+    assert ("i", "mentor dr. okonkwo", "taught astronomy") in stored, \
+        f"correct mentor fact missing: {stored}"
+
+
+def test_combined_attr_role_recall_full_name_and_activity():
+    # The same handoff limitation: an OPEN combined-attr query ("who is my
+    # mentor and what did they teach?") must render the FULL relationship label
+    # (name + activity) and must NOT truncate to "your mentor is dr." (the
+    # symptom of the bogus pet fact) nor emit a doubled answer. Content comes
+    # entirely from the single correct stored fact.
+    eng = CognitiveChatEngine(dim=64, seed=42, baby_mode=True,
+                              user_suffix="test_role_combattr_recall")
+    eng.process_turn("my mentor Dr. Okonkwo taught me astronomy when i was a teenager")
+    for q in ("who is my mentor?",
+              "tell me about my mentor",
+              "what does my mentor do?",
+              "who is my mentor and what did they teach?",
+              "who is my mentor and what did they teach me?"):
+        r = eng._structured_recall(q)
+        assert r is not None, f"recall returned None for {q!r}"
+        assert "dr. okonkwo" in r, f"name dropped in {q!r} -> {r!r}"
+        assert "taught astronomy" in r, f"activity dropped in {q!r} -> {r!r}"
+        assert "your mentor is dr" not in r.replace(".", " "), \
+            f"truncated 'your mentor is dr' in {q!r} -> {r!r}"
+        # no doubled output (two 'your mentor' clauses in one reply)
+        assert r.count("your mentor") == 1, f"doubled output in {q!r} -> {r!r}"
+
+
