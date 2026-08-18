@@ -408,17 +408,48 @@ class SelfQueryMixin:
             if _cache is not None:
                 _cache[_ckey] = result
             return result
-        # 2) No value exists for this topic. HONEST failure: RAVANA does not
-        #    fabricate a stance. It says it is still forming one and invites the
-        #    user in. This is the correct, non-degenerate behavior — a flat,
-        #    honest "i don't know yet" beats fake depth. (The prior code
-        #    returned "i'm a bit cautious about X ... close to really" — pure
-        #    confabulation keyed on ambient valence + a junk cache entry. We
-        #    deliberately do NOT use GloVe transitivity to a value here: that
-        #    path fabricated plausible-but-unearned stances for arbitrary words
-        #    like "right"/"source" by anchoring them to a cached junk target.
-        #    Stances are grounded ONLY in the durable value store (above) or in
-        #    real user-stated stances — never inferred from similarity.)
+        # 2) No value exists for this topic. HONEST failure by default — RAVANA
+        #    does not fabricate a per-topic stance (the prior code returned
+        #    "i'm a bit cautious about X ... close to really", pure
+        #    confabulation keyed on ambient valence). BUT a personality that
+        #    answers EVERY opinion question with the identical "still figuring
+        #    — what do you think?" is itself the degenerate-fallback class
+        #    (repetitive, no voice). So instead of a flat deflection, RAVANA
+        #    expresses a PROVISIONAL, VALUE-ANCHORED orientation drawn from its
+        #    REAL constitutive values (curiosity / learning / honesty) and its
+        #    current affect — the topic word is the user's, the orientation is
+        #    RAVANA's own state, so the answer content always comes from
+        #    cognition rather than an authored per-topic sentence. It records
+        #    the provisional stance so it stays consistent and can be revised
+        #    by experience (online, no retraining). No GloVe transitivity: the
+        #    orientation is picked from the seeded value store, never inferred
+        #    by similarity to an arbitrary word.
+        _orient = None
+        for _ok, _ov in _values.items():
+            _ow = _ov[0]
+            if any(_w in _ow for _w in
+                   ("love", "value", "care", "strongly value", "value above")):
+                _oconf = _ov[1]
+                if _orient is None or _oconf > _orient[2]:
+                    _orient = (_ok, _ow, _oconf, _ov[2])
+        if _orient is not None:
+            _oconcept, _oword, _oconf, _oreason = _orient
+            # valence-derived hedge so affect still colors but never invents
+            _mood = 0.5
+            if hasattr(self, "emotion") and hasattr(self.emotion, "state"):
+                try:
+                    _mood = float(getattr(self.emotion.state, "valence", 0.5))
+                except Exception:
+                    _mood = 0.5
+            _hedge = "i'm drawn to" if _mood >= 0.5 else "i lean toward"
+            stance = (f"i don't have a fixed view on {target} yet — {_hedge} "
+                      f"{_oword} {_oconcept}")
+            result = (stance,
+                      f"my first instinct is curiosity: {_oreason} "
+                      f"what's pulling you toward it?")
+            if _cache is not None:
+                _cache[_ckey] = result
+            return result
         return ("i'm still figuring that out",
                 "i don't have a settled view on that yet — what do you think?")
 
@@ -710,6 +741,19 @@ class SelfQueryMixin:
             r"(?:see|feel|think)|want|wants|wanted|desire|desires|aim|aims|"
             r"goal|goals|hope|hopes|said|told|spoke|mentioned|recall|remember"
             r")\b", t)
+        # GUARD (round 2026-08-18T1340Z): a TOPIC-OPINION frame ("what's your
+        # take/view/opinion/stance ON <topic>", "your thoughts about X") is NOT
+        # self-introspection — it asks RAVANA's view on a subject, which must
+        # reach the opinion handler (_agent_stance_on), not the identity
+        # coherence blurb. Without this, "what's your take on eating insects"
+        # matched `your ... take` and answered with "i'm still quite unsettled
+        # about who i am" (a self/other boundary error + incoherent reply).
+        # Genuine identity questions ("who are you", "what are you") have no
+        # "on/about/of <topic>" object, so they still route to the self-model.
+        if _self_introspect and re.search(
+                r"\b(your|you)\s+(take|view|opinion|stance|read|thoughts?)\s+"
+                r"(on|about|of|regarding|toward)\b", t):
+            _self_introspect = None
         if _self_introspect:
             # R2 (round 2026-08-18T0937Z): do NOT deflect a genuine USER-recall
             # query into RAVANA's self-coherence frame. A question like "what
