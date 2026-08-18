@@ -389,6 +389,30 @@ _FRAMER_SKIP = (
     "certainly|definitely|rather|instead|"
 )
 
+# Non-content object heads: an activity/event object that resolves to ONLY
+# these words is not a real thing RAVANA learned (it is an aspectual/particle
+# verb residue, a bare timeframe, or a generic noun) and must not be stored as
+# a `does`/`event` fact. Seed vocabulary (RAVANA-expandable): removing an entry
+# only re-admits one low-value object shape. Used by the shared
+# _opinion_topic gate so both the activity and event miners reject junk via
+# the same chokepoint (rule 6g — extend existing logic, not per-verb branches).
+_OBJ_NONCONTENT = frozenset({
+    # aspectual / particle verb residues
+    "coming", "going", "keep", "keeping", "got", "went", "start", "started",
+    "starting", "found", "read", "said", "cared", "burned", "burning",
+    "ringing", "took", "taking", "made", "making", "did", "done",
+    # particles / framers
+    "out", "back", "up", "down", "off", "on", "in", "away", "over", "really",
+    "just", "only", "also", "even", "still", "already",
+    # bare timeframes
+    "last", "tonight", "yesterday", "today", "tomorrow", "now", "then",
+    "here", "there", "morning", "evening", "night", "day",
+    # generic nouns with no recallable content
+    "project", "projects", "thing", "things", "stuff", "lot", "lots",
+    "side", "way", "ways", "part", "bit", "it",
+})
+
+
 # Words that may LEAK into the captured OBJECT as a trailing framer
 # ("how many quail do i keep now" -> object "now"). Stripped from the resolved
 # object head so 'does'/'event' facts store a real concept, never a framer.
@@ -2749,7 +2773,7 @@ class UserModel:
         "really", "very", "just", "only", "also", "too", "quite", "more",
         "most", "much", "many", "such", "own", "same", "other", "another",
         "is", "are", "was", "were", "be", "been", "being", "am",
-        "not", "don't", "dont", "do", "does", "did", "can", "cannot", "cant",
+        "has", "have", "had", "not", "don't", "dont", "do", "does", "did", "can", "cannot", "cant",
         "it", "they're", "im", "i'm", "you're", "we're", "there",
     }
 
@@ -2812,6 +2836,22 @@ class UserModel:
         while len(head) > 1 and head[-1] in self._OPINION_STOP:
             head.pop()
         if not head:
+            return None
+        # CONTENT-ADEQUACY GATE (round 2026-08-17T1730Z): a resolved activity/
+        # event object that consists ENTIRELY of non-content words — an
+        # aspectual/particle verb residue ("coming back", "started keeping",
+        # "got burned", "found out"), a bare timeframe ("went last night"), or a
+        # generic noun ("found project") — is not a real thing RAVANA learned
+        # and must NOT be stored as a `does`/`event` fact (it later echoes in
+        # "what have you learned about me" dumps and pollutes recall). Reject
+        # the head only when NO content-bearing word survives, so genuine
+        # activities that happen to contain one of these words (e.g. "night
+        # sky", "side project", "last harvest") are still kept. This is the
+        # SAME shared chokepoint the activity/event miners already route
+        # through, so the gate generalizes across both blocks (rule 6g) with
+        # one addition, not per-verb branches. Seed vocabulary: removing an
+        # entry only re-admits one low-value object shape. No retraining.
+        if all(t in _OBJ_NONCONTENT for t in head):
             return None
         return " ".join(head)
 

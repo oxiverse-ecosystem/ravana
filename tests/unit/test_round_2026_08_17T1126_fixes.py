@@ -158,3 +158,52 @@ def test_open_ended_recall_includes_pet_path():
     assert eng._structured_recall("my cat is pixel") is None, \
         "declarative pet disclosure must not be hijacked"
 
+
+def test_garbage_does_facts_rejected():
+    # Round 2026-08-17T1730Z: vague first-person disclosures were mined as
+    # junk `does`/`event` facts (phrasal/aspectual verb residue, bare
+    # timeframes, generic nouns) and later echoed in "what have you learned
+    # about me" dumps. The shared _opinion_topic content-adequacy gate rejects
+    # objects that resolve to ONLY non-content words, while real activities
+    # (which always contain a content noun) survive.
+    um = UserModel()
+    um.personal_facts.facts.clear()
+    for s in [
+        "i read that sumo has this whole ritual side i never appreciated.",
+        "i keep coming back to tidal energy, i really believe in it.",
+        "i started keeping a vinyl record collection, mostly jazz.",
+        "i got burned by an open source project last year.",
+        "i went last night and my ears are ringing.",
+        "i found out a project i cared about got cancelled.",
+    ]:
+        um.mine_personal_facts(s, run_correction=True)
+    junk = {
+        f.value for (a, b, c), f in um.personal_facts.facts.items()
+        if b in ("does", "event") and not getattr(f, "superseded", False)
+    }
+    # the aspectual/particle/timeframe/generic residues must be gone
+    for bad in ("keep coming back", "started keeping", "got burned",
+                "went last night", "found project", "read sumo has"):
+        assert bad not in {j.lower() for j in junk}, f"junk fact stored: {junk}"
+
+
+def test_real_activity_still_captured_after_gate():
+    # The content-adequacy gate must NOT swallow genuine activities that
+    # contain a real content noun.
+    um = UserModel()
+    um.personal_facts.facts.clear()
+    um.mine_personal_facts("i build bicycle frames by hand.", run_correction=True)
+    caps = {
+        f.value for (a, b, c), f in um.personal_facts.facts.items()
+        if b == "does" and not getattr(f, "superseded", False)
+    }
+    assert any("build" in c and "frame" in c for c in caps), f"real activity lost: {caps}"
+    um2 = UserModel()
+    um2.personal_facts.facts.clear()
+    um2.mine_personal_facts("i keep homing pigeons.", run_correction=True)
+    caps2 = {
+        f.value for (a, b, c), f in um2.personal_facts.facts.items()
+        if b == "does" and not getattr(f, "superseded", False)
+    }
+    assert any("pigeon" in c for c in caps2), f"real activity lost: {caps2}"
+
