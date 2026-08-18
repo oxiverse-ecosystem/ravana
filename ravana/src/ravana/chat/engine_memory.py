@@ -341,6 +341,100 @@ class MemoryMixin:
             return None
         return _cand
 
+    # ── R1 (2026-08-18T1340Z round): cross-lemma entity linking ──────────────
+    # A cued recall may paraphrase the user's own entity ("sourdough culture")
+    # with DIFFERENT surface words than the stored key ("sourdough starter").
+    # The single-token scan below only links when a query token equals a store
+    # key verbatim, so multi-word / paraphrased entities silently fail and the
+    # recall falls through to the wrong stored fact. This pass is a genuine
+    # entity-linker: it scores the QUERY'S multi-word entity phrase against
+    # every stored entity key via GloVe cosine (the SAME seed embeddings the
+    # rest of the engine reasons over — no synonym table, no LLM, no retrain),
+    # and returns the best-linked key when it clears the bar. The embedding
+    # space is learned/online: as the user teaches RAVANA new words, the
+    # projector (already acquired at runtime) produces vecs for them, so the
+    # linker generalizes to entities RAVANA has never seen hard-coded.
+    _RECALL_ENTITY_LINK_COS = 0.30  # bar; measured above noise floor (see probe)
+
+    def _link_recall_entity(self, q: str,
+                            entity_keys: Set[str]) -> Optional[str]:
+        """Resolve a (possibly paraphrased, multi-word) query entity to a stored
+        entity key by SEMANTIC similarity, not string matching.
+
+        Returns the best-linked key, or None if nothing clears the bar (so the
+        caller fails CLOSED — the RAVANA confabulation bar stands). Verbatim
+        single-token hits are handled separately by the caller's exact scan;
+        this is the fallback for when that scan misses.
+        """
+        if not entity_keys:
+            return None
+        # build the query's candidate entity phrase: the longest run of content
+        # words (excluding pronouns/determiners) preceding a query noun like
+        # 'culture'/'thing'/'one'/'starter'/'pet' — but simplest robust choice
+        # is to score EVERY maximal multi-word window of the query against keys.
+        _qwords = [w for w in re.findall(r"[a-z']+", (q or "").lower())
+                   if w not in ("i", "you", "me", "my", "your", "we", "our",
+                                "what", "who", "where", "when", "why", "how",
+                                "it", "that", "this", "the", "a", "an", "is",
+                                "are", "was", "were", "on", "in", "of", "to",
+                                "do", "did", "name", "named")]
+        if len(_qwords) < 2:
+            return None
+        # score each stored key phrase against the query phrase windows
+        _best_key, _best_score = None, -1.0
+        for _key in entity_keys:
+            _key_words = [w for w in re.findall(r"[a-z']+", _key.lower())
+                          if w not in ("i", "you", "my", "your")]
+            if not _key_words:
+                continue
+            # SAFETY GATE (RAVANA confabulation bar): only consider a key whose
+            # head word appears VERBATIM in the query. This prevents binding a
+            # query that names Entity A onto a stored Entity B just because a
+            # tail word is loosely similar (e.g. "...sourdough counter" must not
+            # resolve to an unrelated 'starter' fact). The shared head word is
+            # the genuine lexical common ground; the tail word is what the
+            # cosine linker then bridges across paraphrase.
+            if not any(_kw == _qw for _kw in _key_words for _qw in _qwords):
+                continue
+            # phrase vector = mean of token vecs (handles multi-word keys too)
+            _kv = self._mean_vec(_key_words)
+            if _kv is None:
+                continue
+            # score against each query window of the same span length (and any
+            # window) using the max mean-cosine over all query word-windows.
+            _score = self._phrase_sim_to_query(_kv, _qwords)
+            if _score > _best_score:
+                _best_score, _best_key = _score, _key
+        if _best_key is not None and _best_score >= self._RECALL_ENTITY_LINK_COS:
+            return _best_key
+        return None
+
+    def _mean_vec(self, words):
+        _vecs = [self._glove_vector(w) for w in words]
+        _vecs = [v for v in _vecs if v is not None]
+        if not _vecs:
+            return None
+        return np.mean(_vecs, axis=0)
+
+    def _phrase_sim_to_query(self, key_vec, qwords) -> float:
+        """Max mean-cosine of key_vec against any query window (1..len words),
+        pooling per-window max so a shared head word ('sourdough') lifts the
+        score even when the tail word is paraphrased."""
+        _best = -1.0
+        _n = len(qwords)
+        # also include the full-query mean (catches 'sourdough culture' ~
+        # 'sourdough starter' via shared sourdough)
+        _qv_full = self._mean_vec(qwords)
+        if _qv_full is not None:
+            _best = max(_best, float(np.dot(key_vec, _qv_full)))
+        for _span in range(1, _n + 1):
+            for _i in range(0, _n - _span + 1):
+                _wv = self._mean_vec(qwords[_i:_i + _span])
+                if _wv is None:
+                    continue
+                _best = max(_best, float(np.dot(key_vec, _wv)))
+        return _best
+
     def _retrieve_episodic(self, query: str,
                            transcript: Optional[List[Dict[str, Any]]] = None) -> Optional[str]:
         """Brain-faithful episodic recall (Tulving encoding specificity).
@@ -415,12 +509,25 @@ class MemoryMixin:
                         if getattr(_fact, "superseded", False):
                             continue
                         _attr = _key[1] if isinstance(_key, (tuple, list)) and len(_key) > 1 else None
+                        _ent = _key[0] if isinstance(_key, (tuple, list)) and len(_key) > 0 else None
                         _val = getattr(_fact, "value", _fact)
                         if _attr and _pet_slots.is_pet_attribute(_attr):
                             _sp = _pet_slots.base_species(_attr)
                             _m_idx = re.search(r"_(\d+)$", str(_attr))
                             _idxnum = _m_idx.group(1) if _m_idx else "1"
                             _entity_idx.setdefault(_sp, {})[_idxnum] = _val
+                        # Possession-NAME facts (round 2026-08-18T1340Z, R1 fix):
+                        # a named possession like ('sourdough starter','name',
+                        # 'doris') or ('best friend','name','tomas') is keyed
+                        # under the ENTITY, not the 'i' profile. It MUST be
+                        # folded into the entity index so a paraphrased cued
+                        # recall ("sourdough culture") can resolve to it via the
+                        # entity linker and render as "your <ent>'s name is X".
+                        # The old skip tuple excluded 'name' for ALL entities,
+                        # which silently dropped these possession-name facts from
+                        # the index and was the TRUE root cause of R1.
+                        elif _ent and _ent != "i" and _attr == "name":
+                            _entity_idx.setdefault(_ent, {})[_attr] = _val
                         # Possession-attribute facts (round 2026-08-15T0830Z,
                         # Bug 4) are stored under the ENTITY key (cabin / sword)
                         # with attributes 'madeof' / a feature noun (roof/wall/..),
@@ -430,11 +537,13 @@ class MemoryMixin:
                         # echo. The render site (_reconstruct_entity) already
                         # knows how to phrase 'madeof' / feature attrs via
                         # possession_attrs.render, so folding here is sufficient
-                        # for a clean recall answer.
-                        elif _attr and _attr not in ("name", "location", "does",
-                                                     "event", "is", "favorite",
-                                                     "likes", "background"):
-                            _entity_idx.setdefault(_key[0], {})[_attr] = _val
+                        # for a clean recall answer. The 'i' biographical profile
+                        # attrs (name/location/does/...) are handled separately by
+                        # the self-profile path and must NOT be folded here.
+                        elif _ent and _ent != "i" and _attr and _attr not in (
+                                "location", "does", "event", "is", "favorite",
+                                "likes", "background"):
+                            _entity_idx.setdefault(_ent, {})[_attr] = _val
         except Exception:
             pass
 
@@ -582,6 +691,21 @@ class MemoryMixin:
                 # confabulate a profile that wasn't the query's target).
                 _ent_hit = None
                 _generic_self = False
+        # R1 (2026-08-18T1340Z round): cross-lemma entity linking. The verbatim
+        # scan above only links when a query token EQUALS a stored key, so a
+        # PARAPHRASED entity ("sourdough culture" for stored "sourdough starter")
+        # slips past it and the recall falls through to the wrong fact. When the
+        # query named a specific entity (_named is not None) but it did NOT
+        # verbatim match the store, try GloVe cosine linking across the whole
+        # entity index before the generic-self fallback. If even the linker
+        # cannot resolve it, leave _ent_hit None so we fail CLOSED (never alias
+        # a specific-but-unresolved query onto the "i" profile). We do NOT link
+        # when _named is None (the query names no specific entity at all) — doing
+        # so would be confabulation, not recall.
+        if _ent_hit is None and _named is not None:
+            _linked = self._link_recall_entity(q, set(_entity_idx.keys()))
+            if _linked is not None:
+                _ent_hit = _linked
         if _ent_hit is None and _generic_self:
             _ent_hit = "i"
         if _ent_hit is not None:
