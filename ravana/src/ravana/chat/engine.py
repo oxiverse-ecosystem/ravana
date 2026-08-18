@@ -3706,6 +3706,22 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 parts.append(f"your {_attr_d.replace('favorite ', '')} is {_val}")
             elif _attr_d == "name":
                 parts.append(f"your name is {_val}")
+            elif _attr_d == "does":
+                # Self-disclosed ACTIVITY stored as a verb-phrase clause
+                # (e.g. "spent whole childhood", "got promoted last month").
+                # The miner keeps the user's own words verbatim, so render as a
+                # first-person predicate ("you spent whole childhood"). The
+                # prior fall-through produced the garbled "your does spent whole
+                # childhood" (round 2026-08-18T0937Z). Mirrors the engine_memory.py
+                # self-profile render fix.
+                _sv = (_val or "").strip()
+                parts.append(f"you {_sv}")
+            elif _attr_d == "event":
+                # Self-disclosed EVENT (mined as event=<verb phrase>, e.g.
+                # "lose appetite"). Render as an honest "you mentioned <clause>"
+                # — the prior fall-through produced "your event is lose
+                # appetite" (round 2026-08-18T0937Z).
+                parts.append(f"you mentioned {_val}")
             else:
                 # D7 (round 2026-08-16T1745Z): a combined-attr relationship fact
                 # ("grandmother indira" -> "weaves baskets") must render as
@@ -4110,9 +4126,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 r"\b(my|mine|me|i|we|our|myself)\b", _q)
                 and re.search(
                     r"\b(name|named|called|age|live|lives|from|work|study|"
-                    r"studied|grew up|sister|brother|mom|mother|dad|father|"
-                    r"friend|wife|husband|partner|kid|child|son|daughter|pet|"
-                    r"job|house|home|phone|computer|laptop|car|cat|dog)\b", _q)):
+                    r"studied|grew up|sister|brother|mother|father|mom|dad|"
+                    r"family|relative|kin|grandmother|grandfather|grandma|"
+                    r"grandpa|aunt|uncle|cousin|niece|nephew|grandchild|"
+                    r"wife|husband|partner|kid|child|son|daughter|pet|"
+                    r"friend|job|house|home|phone|computer|laptop|car|"
+                    r"cat|dog|crow|bird|fish|petname|pet name)\b", _q)):
             return None
         # Extract the topic: drop recall scaffolding + question words, keep
         # content nouns. Reuse the same stopword philosophy as the existing
