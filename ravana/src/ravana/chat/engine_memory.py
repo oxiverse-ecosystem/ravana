@@ -1700,11 +1700,28 @@ class MemoryMixin:
                             _bits.append(f"your {_ent} is {_val}" if not _is_user
                                          else f"your {_attr} is {_val}")
                         elif _attr == "does":
-                            # D3 (round v3): self-disclosed activity
-                            # ("i run a chai stall" -> does=chai stall). Render
-                            # as "you do X" so the learned-profile summary
-                            # reflects what the user told us they do.
-                            _bits.append(f"you do {_val}")
+                            # D3 (round v3): self-disclosed activity. The mined
+                            # value is a full VERB-PHRASE clause ("spent whole
+                            # childhood", "got promoted last month", "read fish",
+                            # "learning jazz piano") — RAVANA stores the user's
+                            # own words verbatim, not a stripped object. Render it
+                            # as a first-person predicate ("you spent whole
+                            # childhood") so the learned-profile summary reads
+                            # naturally. The previous "you do X" frame produced
+                            # the garbled "you do spent whole childhood" (measured
+                            # round 2026-08-18T0937Z) because the value already
+                            # leads with a verb. Store-driven, no authored prose.
+                            _sv = (str(_val) or "").strip()
+                            _bits.append(f"you {_sv}")
+                        elif _attr == "event":
+                            # Self-disclosed EVENT the user experienced (mined
+                            # as event=<verb phrase>, e.g. "lose appetite",
+                            # "got promoted last month"). Render as an honest
+                            # "you mentioned <clause>" — the prior fall-through
+                            # produced the garbled "your event is lose appetite"
+                            # (round 2026-08-18T0937Z). Content comes from the
+                            # live fact store, no authored string.
+                            _bits.append(f"you mentioned {_val}")
                         elif _attr == "name":
                             # D6 (round 2026-08-08b-d): a possessive NAME fact
                             # (partner, pet, ...) must keep its OWNER in the
