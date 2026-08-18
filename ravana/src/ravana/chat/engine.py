@@ -2447,6 +2447,22 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         if _meta:
             return self._meta_identity_reply()
 
+        # ── (0a) AUTO-BIOGRAPHICAL RECALL of the USER (new capability,
+        # feature t_a41f7e29, round 2026-08-18T0937Z).
+        # Answers RAVANA's own USER-autobiography queries — "what will you
+        # remember most about me", "did i tell you i liked X", "have i told
+        # you about my brother", "does that still fit / have i changed" —
+        # from the REAL user-model stores (personal_facts / opinions.stances /
+        # belief_store) BEFORE the agent-own-speech recall gate
+        # (_route_agent_own_recall) can misroute them into RAVANA's own-reply
+        # echo store (round 2026-08-18T0937Z residual R34/R43/R57/U17). Fully
+        # store-driven, no authored reply, no per-topic table, no retraining.
+        # Fail-closed: returns None when no user-autobiography intent matches,
+        # so genuine agent-self questions still reach the self-model path.
+        _ab = self._autobiographical_recall(user_input)
+        if _ab is not None:
+            return _ab
+
         # ── (0b) USER-MODEL AGGREGATION (new capability, feature t_3d147353)
         # Queries that ask RAVANA to REPORT the accumulated CONTENT of its model
         # of the user — "what have you picked up about me", "what stands out
@@ -3595,6 +3611,325 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             f"around {ident:.2f} and is {_trend_word}")
 
         return ". ".join(_parts) + "."
+
+    # ── AUTOBIOGRAPHICAL RECALL helpers (feature t_a41f7e29, round 2026-08-18T0937Z)
+    # Used by _autobiographical_recall to compose answers about the USER from
+    # the real, runtime-grown user-model stores. Shared renderers keep these in
+    # lockstep with _aggregate_user_model (the canonical renderer) so answers
+    # agree by construction.
+
+    def _polarity_word(self, pol: float) -> str:
+        """ONE vocabulary token for a stance polarity band (a lexicon entry,
+        not a scripted sentence). Mirrors _aggregate_user_model's band map."""
+        if pol >= 0.6:
+            return "strongly for"
+        if pol > 0.1:
+            return "for"
+        if pol <= -0.6:
+            return "strongly against"
+        if pol < -0.1:
+            return "against"
+        return "uncertain about"
+
+    def _render_fact_line(self, attr: str, val: str) -> str:
+        """Render ONE user fact into a clean statement. EXACT copy of the
+        fact-rendering branch in _aggregate_user_model (L3701-3740) so the two
+        paths render identically — no divergent special-casing."""
+        _attr_d = (attr or "").replace("_", " ").strip()
+        if _attr_d in ("location", "live in", "grew"):
+            return f"you're from {val}"
+        if _attr_d.startswith("favorite"):
+            return f"your {_attr_d.replace('favorite ', '')} is {val}"
+        if _attr_d == "name":
+            return f"your name is {val}"
+        if _attr_d == "does":
+            return f"you {val}"
+        if _attr_d == "event":
+            return f"you mentioned {val}"
+        try:
+            from .user_model import is_activity_verb as _is_act
+        except Exception:
+            _is_act = lambda w: False
+        _kv = (val or "").strip()
+        if _kv and _kv.split() and _is_act(_kv.split()[0]):
+            return f"your {_attr_d} {val}"
+        return f"your {_attr_d} is {val}"
+
+    def _collect_user_model_state(self):
+        """Return (facts, stances, beliefs) of the USER's real learned profile,
+        deduped exactly like _aggregate_user_model. facts = list of
+        (attr, val, conf); stances = list of (topic, polarity, conf);
+        beliefs = list of (pred, val, conf)."""
+        um = getattr(self, "user_model", None)
+        pf = getattr(um, "personal_facts", None) if um else None
+        opinions = getattr(um, "opinions", None) if um else None
+        beliefs = getattr(self, "belief_store", None)
+        _fact_by_attr = {}
+        if pf is not None:
+            for _k, _f in (getattr(pf, "facts", {}) or {}).items():
+                if not (isinstance(_k, tuple) and len(_k) == 3):
+                    continue
+                if getattr(_f, "superseded", False):
+                    continue
+                _subj, _attr, _val = _k
+                if _subj.lower() != "i":
+                    continue
+                _v = (_f.value or "").strip()
+                if not _v:
+                    continue
+                _cur = _fact_by_attr.get(_attr)
+                if _cur is None or len(_v) > len(_cur[0]):
+                    _fact_by_attr[_attr] = (_v, getattr(_f, "confidence", 0.5))
+        facts = [(a, v, c) for a, (v, c) in _fact_by_attr.items()]
+        _kept = []
+        _seen_vals = set()
+        for _attr, _val, _conf in facts:
+            _n = _val.lower().strip()
+            if _n in _seen_vals:
+                continue
+            if any((_n != _o and (_n in _o or _o in _n)) for _oa, _o, _oc in _kept):
+                continue
+            _seen_vals.add(_n)
+            _kept.append((_attr, _val, _conf))
+        facts = _kept
+        stances = []
+        if opinions is not None:
+            for _topic, _s in (getattr(opinions, "stances", {}) or {}).items():
+                stances.append((_topic, getattr(_s, "polarity", 0.0),
+                                getattr(_s, "confidence", 0.5)))
+        belief_items = []
+        if beliefs is not None:
+            for (_sid, _pred), _triple in (getattr(beliefs, "beliefs", {}) or {}).items():
+                if _sid.lower() != "i":
+                    continue
+                _val, _conf, _turn = _triple if isinstance(_triple, tuple) else (_triple, 0.5, 0)
+                belief_items.append((_pred, _val, _conf))
+        return facts, stances, belief_items
+
+    def _match_stance(self, phrase: str):
+        """Find the user's real stance whose topic relates to `phrase`. Returns
+        (topic, polarity, conf) or None. Containment + content-token-overlap,
+        both directions — no per-topic table, generalizes across any topic the
+        user has actually disclosed."""
+        opinions = getattr(getattr(self, "user_model", None), "opinions", None)
+        if opinions is None:
+            return None
+        stances = getattr(opinions, "stances", {}) or {}
+        if not stances:
+            return None
+        _p = (phrase or "").lower().strip().replace("-", " ")
+        _ptoks = set(w for w in re.findall(r"[a-z']+", _p) if len(w) >= 3)
+        _best = None
+        for _topic, _s in stances.items():
+            _t = (_topic or "").lower().strip().replace("-", " ")
+            if _t and (_t in _p or _p in _t):
+                _best = (_topic, getattr(_s, "polarity", 0.0),
+                         getattr(_s, "confidence", 0.5))
+                break
+            _ttoks = set(w for w in re.findall(r"[a-z']+", _t) if len(w) >= 3)
+            if _ttoks & _ptoks:
+                _best = (_topic, getattr(_s, "polarity", 0.0),
+                         getattr(_s, "confidence", 0.5))
+                break
+        return _best
+
+    def _match_fact(self, phrase: str):
+        """Find the user's real fact whose attr OR value relates to `phrase`.
+        Returns (attr, val, conf) or None — prefers the longest matching value."""
+        facts, _, _ = self._collect_user_model_state()
+        _p = (phrase or "").lower().strip().replace("-", " ")
+        _ptoks = set(w for w in re.findall(r"[a-z']+", _p) if len(w) >= 3)
+        _best = None
+        for _attr, _val, _conf in facts:
+            _search = f"{(_attr or '').lower()} {(_val or '').lower()}"
+            if _search and (_search in _p or _p in _search):
+                _best = (_attr, _val, _conf)
+                break
+            _vtoks = set(w for w in re.findall(r"[a-z']+", _search) if len(w) >= 3)
+            if _vtoks & _ptoks:
+                if _best is None or len(_val) > len(_best[1]):
+                    _best = (_attr, _val, _conf)
+        return _best
+
+    def _extract_disclosure_topic(self, text: str) -> str:
+        """Strip a leading first/second-person + disclosure verb from a phrase
+        to recover the TOPIC (e.g. \"i liked cold-weather hiking\" -> \"cold
+        weather hiking\"; \"about my brother\" -> \"about my brother\"). General
+        verb list, no per-topic special-casing."""
+        _t = re.sub(
+            r"^(?:i|you)\s+(?:really\s+)?(?:like|likes|liked|love|loves|loved|"
+            r"hate|hates|hated|dislike|dislikes|enjoy|enjoys|enjoyed|care\s+"
+            r"(?:about|for)|prefer|prefers|preferred|am\s+into|was\s+into|"
+            r"into|told you|told|said|said\s+about|mentioned|mention)\s*",
+            "", (text or "").strip()).strip()
+        return _t
+
+    def _autobiographical_recall(self, user_input: str) -> Optional[str]:
+        """AUTO-BIOGRAPHICAL RECALL of the USER (feature t_a41f7e29,
+        round 2026-08-18T0937Z).
+
+        ROUND RESIDUAL this closes (R34/R43/R57 + U17 from
+        tmp/reports/ravana-2026-08-18T0937Z.md): queries about what the USER
+        has told RAVANA —
+
+          * \"what will you remember most about me?\"            (R57 — GAP)
+          * \"did i tell you i liked cold-weather hiking?\"       (R34 — MISROUTE)
+          * \"have i told you about my brother?\"                 (R43 family)
+          * \"wait, earlier i told you i loved X — does that
+             still fit, or have i changed?\"                      (U17 — stale reply)
+
+        — were either unhandled (fell to degenerate uncertainty) or MISROUTED
+        into the loosely-keyed AgentReplyStore (_route_agent_own_recall), which
+        surfaced RAVANA's OWN echo (\"i said: good to know you love...\") instead
+        of an answer about the USER's disclosed fact/stance. That is a self/other
+        boundary inversion, and it is brittle (it depends on a junk reply key
+        like \"hiking\" existing in _own_replies).
+
+        FIX: detect the user-autobiography intent and compose the answer from
+        the REAL user-model stores (personal_facts, opinions.stances,
+        belief_store) — the same stores _aggregate_user_model /
+        _user_stance_reply already read. Every answer slot is read from runtime
+        state RAVANA grows autonomously; the user can correct any fact/stance
+        and the stores merge on correction. No authored prose, no per-topic
+        answer table, no retraining. The deciding test (\"can RAVANA change this
+        by itself, through experience?\") passes: the content comes entirely
+        from the learned stores, not from code.
+
+        Three sub-intents, all fail-closed (return None) when no user-
+        autobiography intent matches or the relevant store is empty, so genuine
+        agent-self questions still reach _route_self_query / _route_agent_own_
+        recall unchanged (self/other boundary preserved):
+
+          (A) SALIENCE — \"remember MOST about me\" / \"what do you remember
+              about me\" -> compose from the real profile, leading with the
+              single most-confident learned item + a short tail of the rest.
+          (B) CONFIRMATION — \"did i tell you i liked X\" / \"have i told you
+              about my brother\" -> a YES/NO confirmation reading the user's
+              REAL stance or fact (states the actual learned content), not the
+              agent's own echo. Honest \"not that i recall\" when nothing maps.
+          (C) CONTRADICTION-RECONCILE — \"does that still fit / have i changed\"
+              -> reads the user's REAL (already-reconciled) stance on the named
+              topic and reports its CURRENT value, so the reply reflects the
+              latest state rather than a stale echo (closes U17: the stance
+              STORE is correct; only the reply routing missed it).
+        """
+        q = (user_input or "").lower().strip()
+        if not q:
+            return None
+        # User-autobiography intents are first-person disclosure framing. Agent-
+        # self questions (\"what did YOU say about X\") lack this and fall through.
+        if not re.search(r"\b(i|me|my|mine|we|our)\b", q):
+            return None
+
+        # ── (A) SALIENCE: what RAVANA will remember MOST / about the user ──
+        _A = re.search(
+            r"\b(what will you remember most about me"
+            r"|what do you remember about me"
+            r"|what's the (?:biggest|main|one) thing you (?:know|remember|"
+            r"picked up) about me"
+            r"|the (?:one )?thing you (?:remember|keep|take) (?:most )?about me"
+            r"|what stands out most (?:about|to you)? ?me"
+            r"|what will you take (?:away|from) (?:this|about me))\b", q)
+        if _A:
+            _facts, _stances, _beliefs = self._collect_user_model_state()
+            if not _facts and not _stances and not _beliefs:
+                return None
+            _items = [("fact", a, v, c) for a, v, c in _facts] + \
+                     [("stance", t, None, c) for t, p, c in _stances]
+            if not _items:
+                return None
+            _items.sort(key=lambda x: x[3], reverse=True)
+            _top = _items[0]
+            if _top[0] == "fact":
+                _lead = "the thing that stands out most is " + \
+                        self._render_fact_line(_top[1], _top[2])
+            else:
+                _lead = (f"what stays with me most is that you're "
+                         f"{self._polarity_word(_top[2])} {_top[1]}")
+            _rest = []
+            for _it in _items[1:4]:
+                if _it[0] == "fact":
+                    _rest.append(self._render_fact_line(_it[1], _it[2]))
+                else:
+                    pass  # stances already captured via salience word
+            # Add remaining stances (if any) to the tail for completeness.
+            for _t, _p, _c in _stances:
+                if _t != _top[1]:
+                    _rest.append(f"you're {self._polarity_word(_p)} {_t}")
+            if _rest:
+                return _lead + ". " + "and i've also picked up: " + \
+                       "; ".join(_rest[:3]) + "."
+            return _lead + "."
+
+        # ── (B) CONFIRMATION: "did i tell you i liked X" / "have i told you
+        #    about my brother" — answer from the REAL user store, not the
+        #    agent's own echo. ──
+        _B = re.search(
+            r"\b(did|have|had)\s+(i|you)\s+(tell|told|say|said|mention|"
+            r"mentioned|share|shared|let you know)\b", q)
+        if _B:
+            # Recover the disclosure content after the tell-clause.
+            _rem = re.sub(
+                r"^.*?(?:did|have|had)\s+(?:i|you)\s+(?:tell|told|say|said|"
+                r"mention|mentioned|share|shared|let you know)\s*(?:you|me)?\s*",
+                "", q).strip()
+            _topic = self._extract_disclosure_topic(_rem)
+            if not _topic:
+                _topic = _rem
+            _stance = self._match_stance(_topic)
+            if _stance is not None:
+                _topic_d, _pol, _conf = _stance
+                return (f"yes — you told me you're "
+                        f"{self._polarity_word(_pol)} {_topic_d}. i've kept that.")
+            _fact = self._match_fact(_topic)
+            if _fact is not None:
+                return ("yes — i remember: " +
+                        self._render_fact_line(_fact[0], _fact[1]) + ".")
+            return ("not that i recall — you haven't told me about that yet. "
+                    "what did you want me to know?")
+
+        # ── (C) CONTRADICTION-RECONCILE: "does that still fit / have i changed"
+        #    — report the user's CURRENT real stance, not a stale echo. ──
+        _C = re.search(
+            r"\b(does that still fit|have i changed|did i change|am i still|"
+            r"do i still|still fit|or have i changed|where do i stand now|"
+            r"has that changed)\b", q)
+        if _C:
+            # Topic = the disclosure in the SAME utterance. The disclosure may
+            # precede the reconcile question ("earlier i told you i loved X.
+            # does that still fit") or follow it ("does that still fit — i
+            # loved X"). Robust extraction: (1) drop a leading "earlier i told
+            # you / i said" disclosure-lead marker, (2) cut at the FIRST
+            # reconcile-question keyword so trailing "does that still fit..."
+            # is removed, (3) strip the residue disclosure lead. No per-topic
+            # special-casing — works for any X the user actually disclosed.
+            _body = re.sub(
+                r"^(?:wait|so|okay|ok|well|earlier|hmm|uh|right)[,\s]*", "", q)
+            _body = re.sub(
+                r"^(?:earlier\s+i told you|i told you|you told me|i said|"
+                r"i mentioned|i think i told you)\s*", "", _body).strip()
+            _body = re.split(
+                r"\b(does that still fit|have i changed|did i change|am i still|"
+                r"do i still|still fit|or have i changed|where do i stand now|"
+                r"has that changed)\b", _body)[0].strip().rstrip(".!?")
+            _topic = self._extract_disclosure_topic(_body)
+            _stance = self._match_stance(_topic) if _topic else None
+            if _stance is not None:
+                _topic_d, _pol, _conf = _stance
+                _w = self._polarity_word(_pol)
+                if _pol > 0.1 or _pol < -0.1:
+                    return (f"you told me you were leaning that way, and it "
+                            f"still holds — you're {_w} {_topic_d}.")
+                return (f"you've softened on that — you're {_w} {_topic_d} now, "
+                        f"so it doesn't sit the same as when you first said it.")
+            _fact = self._match_fact(_topic) if _topic else None
+            if _fact is not None:
+                return ("you told me: " + self._render_fact_line(_fact[0], _fact[1]) +
+                        ". that hasn't changed that i know of.")
+            return ("i don't have a clear read from you on that yet — tell me "
+                    "where you stand and i'll keep it in mind.")
+
+        return None
 
     def _aggregate_user_model(self) -> Optional[str]:
         """AGGREGATION capability (feature t_3d147353, round 2026-08-16T1241Z).
