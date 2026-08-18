@@ -505,6 +505,14 @@ class MemoryMixin:
                 # "your cat's 1 is pixel".
                 elif (_pet := _pet_slots.render_pair(ent, attr, val)):
                     bits.append(_pet)
+                elif attr == "name" or (attr.startswith("name_") and attr[5:].isdigit()):
+                    # A named-entity fact (friend / pet / relation) whose
+                    # attribute resolved to "name" (possibly a disambiguated
+                    # "name_N" multi-instance slot). Render as a natural
+                    # possessive clause. Never emit the raw internal key
+                    # (e.g. "name_1"); strip the trailing "_<n>" so the reply
+                    # stays clean.
+                    bits.append(f"your {ent}'s name is {val}")
                 else:
                     # verb-phrase value: drop the copula (same rule as the
                     # self-profile dump above + D7 cued recall) so a mined

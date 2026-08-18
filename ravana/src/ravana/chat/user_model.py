@@ -1189,7 +1189,7 @@ class UserModel:
             # er nurse") — the previous pattern required them contiguous and
             # silently dropped "i work <adv> as X".
             r"\bi\s+work\b.*?\b(?:as|for)\s+(?:a\s+|an\s+|the\s+)?([\w'-]+(?:\s+[\w'-]+){0,4})",
-            r"\bi\s+(?:have|keep)\s+(?:a|an|the)\s+([\w'-]+)\s+(?:named|called)\s+([\w'-]+)",
+            r"\bi\s+(?:have|keep)\s+(?:a|an|the)\s+([\w'-]+(?:\s+[\w'-]+){0,3})\s+(?:that|which|i|we)?\s*(?:named|called)\s+([\w'-]+)",
             # FIX (round v-aug06b): conjoined multi-pet disclosures
             # ("i have a ferret named pim and a parrot called coco"). The single
             # pattern above only captures the FIRST animal; the rest are lost.
@@ -1308,6 +1308,29 @@ class UserModel:
                     # prepositions/conjunctions ("of the", "before the") are
                     # kept so a genuine multi-word value stays whole.
                     _val = re.split(r"(?<=[.!?])\s+|\s*[.!?]\s*$", _val)[0].strip()
+                    # NAME-BRIDGE route (round 2026-08-18T1340Z): patterns like
+                    # "i keep a sourdough starter i named doris" capture the
+                    # possessed NOUN as _attr and the NAME as _val. Store it as an
+                    # entity-keyed name fact (entity=_attr, attr="name") so a later
+                    # "what did i name my <thing>" recalls the name cleanly, instead
+                    # of a bare "sourdough starter -> doris" slot that renders as
+                    # "your sourdough starter is doris". Only fire when the match
+                    # text actually contains a name keyword and the value is
+                    # name-shaped (single token, alpha) — never for a pet (those
+                    # are handled by the dedicated pet paths above).
+                    if re.search(r"\b(?:named|called)\b", _m.group(0), re.IGNORECASE) \
+                            and _val.isalpha() and " " not in _val \
+                            and _pet_slots.species_of(_attr) is None:
+                        # The noun group can greedily swallow the bridge pronoun
+                        # ("sourdough starter i" from "...starter i named doris"),
+                        # so strip a trailing bridge word before storing.
+                        _attr_clean = re.sub(
+                            r"\s+(?:i|we|that|which)$", "", _attr,
+                            flags=re.IGNORECASE).strip()
+                        if _attr_clean:
+                            _attr = _attr_clean
+                        _put_fact_ent(_attr, "name", _val, 0.6)
+                        continue
                 elif _m.lastindex == 1:
                     # Single-group patterns: "i am a/an <noun>" / "i am
                     # allergic to <noun>" — the one group is the VALUE; the
@@ -1351,21 +1374,42 @@ class UserModel:
                     # can ask about one species, and a correction ("no, my cat
                     # is milo") finds the prior value under the same key the
                     # user's own word resolves to.
+                    #
+                    # GUARD (round 2026-08-18T1340Z): the value-split must only
+                    # fire for a genuine NAME relation whose parts are all
+                    # name-shaped. The old code split ANY value on "and", so
+                    # "my best friend's name is tomas and he's a chef in lisbon"
+                    # produced a bogus second fact "best friend's name_2 = he's
+                    # a chef in lisbon" (the conjunction joined a NAME and an
+                    # UNRELATED occupation clause). Now: only split when the
+                    # attribute is a name relation AND every part is a short
+                    # name token (single word or Capitalized proper noun, no
+                    # verb/closed-class word). Otherwise store the whole value
+                    # as ONE fact so no fabricated second slot is created.
+                    _is_name_rel = _attr == "name" or _attr.endswith("_name") \
+                        or _attr.endswith(" name")
                     _names = re.split(r"\s+(?:and|,|&)\s*", _val)
+                    _names = [_n.strip().strip(".,!?") for _n in _names if _n.strip()]
+                    _name_shaped = _is_name_rel and len(_names) > 1 and all(
+                        (len(_n.split()) <= 2
+                         and not re.search(r"\b(he|she|it|is|are|was|were|"
+                                           r"do|does|did|have|has|i|you|a|an|the)\b",
+                                           _n, re.IGNORECASE))
+                        for _n in _names)
                     _species = _pet_slots.species_of(_attr)
-                    if _species is None and len(_names) >= 1 and _attr.isalpha():
+                    if _species is None and _name_shaped and _attr.isalpha():
                         # An unknown animal word in a "named/called" possession
                         # frame is a species RAVANA has not met yet — learn it
                         # so later recalls address the same slot.
                         if re.search(r"\b(?:named|called)\b", _m.group(0), re.IGNORECASE):
                             _species = _pet_slots.learn_species(_attr)
-                    if _species is not None:
+                    if _species is not None and _name_shaped:
                         for _i, _nm in enumerate(_names, 1):
                             _nm = _nm.strip().strip(".,!?")
                             if _nm:
                                 _put_fact(_pet_slots.slot_for(_species, _i),
                                           _nm, 0.6)
-                    elif len(_names) > 1:
+                    elif _name_shaped:
                         for _i, _nm in enumerate(_names, 1):
                             _nm = _nm.strip().strip(".,!?")
                             if _nm:
@@ -1589,6 +1633,22 @@ class UserModel:
                     # of a bare noun. The verb is part of the mined disclosure,
                     # not an authored label.
                     _put_fact("does", f"{_verb} {_obj}", 0.55)
+                    # NAME-BRIDGE (round 2026-08-18T1340Z): when the captured
+                    # activity object contains "named/called <Name>" (e.g. "i
+                    # keep a sourdough starter i named doris"), ALSO store the
+                    # possessed thing's NAME as an entity-keyed name fact. The
+                    # `does` miner runs BEFORE the equational name patterns, so
+                    # without this it swallows the whole disclosure and the name
+                    # is never stored — a later "what did i name my <thing>"
+                    # would have nothing to recall. Generic: any "named/called
+                    # <ProperNoun>" tail, entity = the resolved object noun,
+                    # never a pet (those use the dedicated pet paths). No
+                    # authored reply; the fact is real state RAVANA can recall.
+                    _nm = re.search(
+                        r"\b(?:named|called)\s+([A-Za-z][\w'-]*)\b",
+                        _m.group(1))
+                    if _nm and _pet_slots.species_of(_obj) is None:
+                        _put_fact_ent(_obj, "name", _nm.group(1).lower(), 0.6)
         # "i've been <verb>-ing <object> for <duration>" (ongoing activity)
         _cont = re.search(
             r"\bi(?:'ve| have)\s+been\s+(\w+ing)\s+(.+?)(?:\bfor\b|\bsince\b|\.|\!|\?|\$|,)",
