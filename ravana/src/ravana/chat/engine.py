@@ -3876,6 +3876,13 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             _topic = self._extract_disclosure_topic(_rem)
             if not _topic:
                 _topic = _rem
+            # No real disclosure topic (e.g. "who have i told you ABOUT" — an
+            # enumeration request) -> fall through to the (0c) enumeration
+            # recall path instead of claiming it as a confirmation. Also bail on
+            # a bare "about" so genuine enumerations aren't answered with "not
+            # that i recall".
+            if not _topic or _topic.strip() in ("about", "about you", "about me"):
+                return None
             _stance = self._match_stance(_topic)
             if _stance is not None:
                 _topic_d, _pol, _conf = _stance
