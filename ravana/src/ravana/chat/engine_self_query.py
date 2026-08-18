@@ -180,6 +180,34 @@ from ravana.language.register import RegisterController
 
 
 
+def _is_user_identity_query(t: str) -> bool:
+    """Structural detector for USER-identity recall questions.
+
+    Mirrors the identity-query shape used by the user_identity handler in
+    engine.process_turn (is_identity_query) so the two stay in lockstep. Used
+    by _route_self_query to fail-open on user-identity queries (let the
+    dedicated user_identity detector win) instead of swallowing them as agent
+    introspection. No per-topic table — the same shape drives both.
+    """
+    t = t.lower().strip(" ?!.")
+    _qa_shape = (t.endswith("?")
+                 or re.search(r"^(what|who|where|when|why|how|do|does|did|"
+                              r"is|are|can|could|would|will|should|have|has)\b",
+                              t) is not None)
+    _name_q = bool(re.search(r"\bmy name\b", t))
+    return (
+        t in ("what is my name", "what's my name", "do you know my name",
+              "who am i", "tell me my name", "who i am")
+        or t.endswith("who am i")
+        or t.endswith("what is my name")
+        or re.search(r"\bwho am i\b", t) is not None
+        or re.search(r"\bwhat(?:'s| is) my name\b", t) is not None
+        or re.search(r"\b(do|did|can|could|would|will|have|has)\b.{0,15}"
+                     r"\b(remember|know|recall|forget)\b.{0,15}\bmy name\b", t) is not None
+        or (_name_q and _qa_shape)
+    )
+
+
 class SelfQueryMixin:
     """Self-model & agent-stance mixin — favourite/pick, agent stance, self-query routing, counterfactuals."""
 
@@ -647,6 +675,18 @@ class SelfQueryMixin:
         """
         t = (user_input or "").lower().strip()
         if not t:
+            return None
+        # USER-IDENTITY GUARD (round 2026-08-17T1730Z regression fix): a
+        # user-identity recall question ("do you remember my name?", "who am
+        # i?") must NOT be swallowed by the agent-self introspection gate
+        # below. The _self_introspect regex matches "you remember"/"you
+        # recall", so without this guard an identity-recall query routes to
+        # self_model and preempts the dedicated user_identity detector in
+        # process_turn (test_identity_questions_detected expected
+        # user_identity but got self_model). Fail-open: return None so the
+        # query flows to the user_identity handler. Structural — mirrors that
+        # handler's is_identity_query shape exactly (no per-topic table).
+        if _is_user_identity_query(t):
             return None
         # 0.0) SELF-INTROSPECTION gate (round 2026-08-09g). A question that
         #     asks RAVANA about ITS OWN prior statement / opinion / mind /
