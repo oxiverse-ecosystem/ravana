@@ -2423,6 +2423,50 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         opinions = getattr(um, "opinions", None) if um else None
         beliefs = getattr(self, "belief_store", None)
 
+        # (0a) R1 (2026-08-18T1340Z round): ENTITY-SCOPED NAME recall with
+        # cross-lemma linking. A possession named by the user is stored under
+        # the ENTITY key (e.g. ('sourdough starter','name','doris'),
+        # ('best friend','name','tomas')), NOT under the "i" profile. When the
+        # query asks for a NAME and names a specific entity (a possessive
+        # "my X" or a paraphrase "that sourdough culture"), resolve the query's
+        # entity PHRASE to the stored entity key by GloVe cosine (the same seed
+        # embeddings the rest of the engine reasons over — no synonym table, no
+        # LLM, no retraining) and read the entity-scoped name fact. This is the
+        # genuine R1 capability: it links "sourdough culture" -> "sourdough
+        # starter" and reports "your sourdough starter's name is doris". The
+        # linker is store-driven and generalizes to any entity RAVANA has
+        # learned; it fails CLOSED (returns None) when no stored entity clears
+        # the bar, so an unknown possession gets honest uncertainty instead of a
+        # confabulated fact. It runs BEFORE branch (1d) below, which only scans
+        # subject=="i" facts and would otherwise wrongly answer a
+        # possession-name query with an unrelated "i"-scoped name fact.
+        _name_q = bool(re.search(
+            r"\b(name|named|called)\b", q)) and bool(
+            re.search(r"\?$|\b(what|who|which|tell|do|does|did|how)\b", q))
+        if _name_q and pf is not None:
+            try:
+                # candidate stored ENTITY-scoped name facts (subject != 'i').
+                # pf.facts is { (subject, attr, val): PersonalFact }; iterate
+                # keys, not (k, v) pairs.
+                _ent_name_keys = [
+                    _k for _k in pf.facts.keys()
+                    if isinstance(_k, tuple) and len(_k) == 3
+                    and _k[0] not in ("i", "me", "my", "you")
+                    and _k[1] == "name"
+                    and not getattr(pf.facts[_k], "superseded", False)
+                ]
+                if _ent_name_keys:
+                    _stored_entities = {_k[0] for _k in _ent_name_keys}
+                    _linked_ent = self._link_recall_entity(q, _stored_entities)
+                    if _linked_ent is not None:
+                        # pick the (possibly multi-instance) name fact for it
+                        for _k in _ent_name_keys:
+                            if _k[0] == _linked_ent:
+                                _v = getattr(pf.facts[_k], "value", _k[2])
+                                return f"your {_linked_ent}'s name is {_v}."
+            except Exception:
+                pass
+
         # ── (0) META-IDENTITY query: answer from RAVANA's LIVE model of the
         # USER (Bug 5, round 2026-08-15T1537Z). Queries like "do i seem like
         # a real person to you" / "what am i to you" / "tell me something
@@ -2995,7 +3039,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 if _qr_pet is None and _or_base_sp(_t) is not None:
                     _qr_pet = _or_base_sp(_t)
             if (_qr_rel is not None or _qr_name is not None or _qr_pet is not None) \
-                    and _or_is_q:
+                        and _or_is_q:
                 _bits = []
                 for _k, _f in pf.facts.items():
                     if not (isinstance(_k, tuple) and len(_k) == 3):
