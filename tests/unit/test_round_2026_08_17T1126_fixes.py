@@ -207,3 +207,43 @@ def test_real_activity_still_captured_after_gate():
     }
     assert any("pigeon" in c for c in caps2), f"real activity lost: {caps2}"
 
+
+def test_appositive_pet_mined_and_recalled():
+    # Round 2026-08-17T1730Z (6f generalization): the pet miner only stored
+    # names via an EXPLICIT "named"/"called" keyword, so the appositive form
+    # ("my pet raccoon Pip steals...", "my cat Mochi sleeps", "i have a dog Rex
+    # barks") was DROPPED, and a later "who is Pip to me?" had nothing to recall
+    # (measured T49 in the 58-turn chat -> identity blurb). Now the appositive
+    # form is mined through the SAME shared pet_slots path (slot_for /
+    # learn_species) the "named"/"called" branch and the recaller use, so the
+    # miner and the reverse-name resolver agree on the key by construction.
+    # Generic across every species; species grown at runtime (raccoon/axolotl
+    # not in the seed table); name is a Capitalized proper noun.
+    eng = CognitiveChatEngine(dim=64, seed=42, baby_mode=True,
+                              user_suffix="test_appos_pet")
+    eng.process_turn("my pet raccoon Pip steals every shiny thing he can find, it's chaos.")
+    assert ("i", "raccoon") in {
+        (k[0], k[1]) for k, f in eng.user_model.personal_facts.facts.items()
+        if isinstance(k, tuple) and len(k) == 3
+        and not getattr(f, "superseded", False)
+    }, "appositive pet not mined"
+    assert "your raccoon is pip." in eng._structured_recall("who is Pip to me?"), \
+        "reverse-name recall of appositive pet failed"
+
+
+def test_appositive_pet_no_false_positive_on_common_nouns():
+    # A Capitalized name is required; common-noun objects ("my pet rock
+    # collection", "i have a question") must NOT be stored as pets, and a
+    # lowercased trailing word ("my dog likes the park", "my cat is mochi")
+    # is not a proper-noun name so it is not captured by this branch.
+    um = UserModel()
+    um.personal_facts.facts.clear()
+    for s in ["my pet rock collection is huge.",
+              "i have a question about the router.",
+              "my dog likes the park."]:
+        um.mine_personal_facts(s, run_correction=True)
+    pet_attrs = {k[1] for k, f in um.personal_facts.facts.items()
+                 if isinstance(k, tuple) and len(k) == 3 and k[0] == "i"
+                 and k[1] in ("rock", "question", "park", "pet", "dog")}
+    assert pet_attrs == set(), f"false-positive pet storage: {pet_attrs}"
+

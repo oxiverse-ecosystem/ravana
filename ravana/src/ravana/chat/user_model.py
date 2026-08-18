@@ -598,8 +598,25 @@ _SOFTENING_CUES = (
 # fail to match the spoken words.
 _CONJOINED_PET_PAT = (
     r"\bi\s+have\s+(?:\d+\s+|(?:a|an|the|some|several|two|three|four|five|six|seven|eight|nine|ten)\s+)?"
-    r"((?:(?:a|an|the|my|our|their|his|her)?\s*[\w\'-]+\s+(?:named|called)\s+[\w\'-]+"
+    r"((?:(?:a|an|the|my|our|their|his|her)?\s*[\w'-]+\s+(?:named|called)\s+[\w'-]+"
     r"\s*(?:,?\s*(?:and|&|,)\s*(?:a|an|the)?\s*)?)+)"
+)
+# Appositive pet disclosure (round 2026-08-17T1730Z, 6f generalization): a
+# species immediately followed by a Capitalized proper-noun NAME, with NO
+# "named"/"called" keyword. Two realizations of the SAME class:
+#   "my [pet] <species> <Name>"     e.g. "my pet raccoon Pip steals..."
+#   "i have a/an/the [pet]? <species> <Name>"  e.g. "i have a dog Rex barks"
+# The name group is Capitalized, so common-noun objects ("my pet rock
+# collection", "i have a question") never match. Species resolves through the
+# SAME pet_slots path (species_of / learn_species / slot_for) the "named"/
+# "called" branch and the recaller already use, so miner + recall agree on the
+# key by construction. Generic across EVERY species (no per-animal table);
+# species grown at runtime; no authored reply; no retraining. Handled in the
+# pet-mining block (object-identity check == _APPOSITIVE_PET_PAT).
+_APPOSITIVE_PET_PAT = (
+    r"\b(?:my\s+(?:pet\s+)?([A-Za-z][\w'-]*)\s+([A-Z][\w'-]+)"
+    r"|i\s+have\s+(?:a|an|the)\s+(?:pet\s+)?([A-Za-z][\w'-]*)\s+([A-Z][\w'-]+))\b"
+    r"(?=[\s,.;!?]|$)"
 )
 @dataclass
 class UserModel:
@@ -1196,6 +1213,22 @@ class UserModel:
             r"([\w'-]+)\s+(?:named|called|named\s+called)\s+"
             r"([\w'-]+(?:\s+(?:and|,|&)\s*[\w'-]+)*)",
             r"\bmy\s+([\w'-]+)\s+(?:named|called)\s+([\w'-]+)",
+            # APPOSITIVE PET DISCLOSURE (round 2026-08-17T1730Z, 6f generalization):
+            # "my pet raccoon Pip steals...", "my dog Rex barks", "my cat Mochi
+            # sleeps on the router". The existing pet patterns only fire on an
+            # EXPLICIT "named"/"called" keyword, so this appositive form
+            # ("my <species> <ProperNoun>") was DROPPED and a later "who is Pip
+            # to me?" had nothing to recall (measured T49 -> identity blurb).
+            # Capture the species + the Capitalized proper-noun name and store it
+            # through the SAME shared pet_slots path (slot_for / learn_species /
+            # is_pet_attribute) the "named"/"called" branch and the recaller
+            # already use, so the miner, the cued-recall renderers, and the
+            # reverse-name resolver agree on the key by construction. Generic
+            # across EVERY species (no per-animal table); species learned at
+            # runtime via learn_species; name is a proper noun (capitalized),
+            # so common-noun objects ("my pet rock collection") never match.
+            # Handled below in the pet-mining block (object-identity check).
+            _APPOSITIVE_PET_PAT,
             # D2: "i am a/an <noun>" self-descriptions (vegetarian, pilot,
             # teacher, ...) captured as a durable identity/role fact. Generic
             # structural capture — the noun becomes the attribute value, no
@@ -1233,6 +1266,38 @@ class UserModel:
                             while _pet_slots.slot_for(_species, _i) in self.personal_facts.facts:
                                 _i += 1
                             _put_fact(_pet_slots.slot_for(_species, _i), _nm, 0.6)
+                    continue
+                # APPOSITIVE PET (round 2026-08-17T1730Z, 6f): "my pet raccoon
+                # Pip steals..." / "my dog Rex barks" / "my cat Mochi sleeps".
+                # The name capture group (group 2) is a Capitalized proper noun,
+                # so common-noun objects ("my pet rock collection") never reach
+                # here. Resolve the species through the SAME pet_slots path the
+                # "named"/"called" branch uses (species_of / learn_species /
+                # slot_for), then store the name in the species-keyed slot — so
+                # the miner and the recaller (reverse-name resolver + cued recall)
+                # agree on the key by construction. Generic across every species;
+                # no per-animal table; species grown at runtime. No authored
+                # reply; no retraining.
+                if _pat is _APPOSITIVE_PET_PAT:
+                    _raw_nm = (_m.group(2) or _m.group(4) or "")
+                    _sp = (_m.group(1) or _m.group(3) or "").strip().lower()
+                    _nm = _raw_nm.strip().strip(".,!?")
+                    if not _sp or not _nm or not _nm[:1].isupper():
+                        continue
+                    try:
+                        from .relation_attrs import relation_of as _app_rel_of
+                    except Exception:
+                        _app_rel_of = lambda w: None
+                    if _app_rel_of(_sp) is not None:
+                        continue
+                    _species = _pet_slots.species_of(_sp)
+                    if _species is None and _sp.isalpha():
+                        _species = _pet_slots.learn_species(_sp)
+                    if _species is not None:
+                        _i = 1
+                        while _pet_slots.slot_for(_species, _i) in self.personal_facts.facts:
+                            _i += 1
+                        _put_fact(_pet_slots.slot_for(_species, _i), _nm, 0.6)
                     continue
                 if _m.lastindex is not None and _m.lastindex >= 2:
                     _attr, _val = _m.group(1).strip().lower(), _m.group(2).strip()
