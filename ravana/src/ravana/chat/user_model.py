@@ -2304,6 +2304,66 @@ class UserModel:
                 _best = _k
         return _best
 
+    def _stance_key_in_text_stem(self, text: str):
+        """Like `_stance_key_in_text` but ALSO binds a held stance when the
+        utterance's content word is a VERB-STEM match of a key token (or vice
+        versa). Resolves "hike" in "i can't really hike the way i used to" to
+        the stored "cold weather hiking" stance, which whole-word matching
+        misses ("hiking" is not a prefix of "hike" and vice versa — they share
+        only the stem "hik"). Generic: the stem is computed by stripping common
+        verb suffixes (ing/ed/s/e), a small morphological rule, not a per-topic
+        table; we still prefer the most token-overlapping key. Used by the
+        first-person limitation branch in mine_stance_reversal (round
+        2026-08-18T0937Z).
+        """
+        if not text:
+            return None
+        _words = [t for t in re.findall(r"[a-z']+", text.lower()) if len(t) >= 3]
+        if not _words:
+            return None
+
+        def _stem(w):
+            # Lightweight verb-stem normalization: strip the most common
+            # English inflection suffixes so "hike"/"hiking"/"hiked" collapse to
+            # "hik" and "run"/"running" to "run". Bounded, no external stemmer.
+            w = w.rstrip("'s").rstrip("s")
+            for _suf in ("ing", "ed", "er", "ly"):
+                if w.endswith(_suf) and len(w) - len(_suf) >= 3:
+                    w = w[: -len(_suf)]
+                    break
+            if w.endswith("e") and len(w) >= 4:
+                w = w[:-1]
+            return w
+
+        _best = None
+        _best_score = 0
+        for _k in self.opinions.stances:
+            if not _k:
+                continue
+            _ktoks = [t for t in re.findall(r"[a-z']+", _k.lower()) if len(t) >= 3]
+            if not _ktoks:
+                continue
+            _score = 0
+            for _t in _ktoks:
+                _ts = _stem(_t)
+                for _w in _words:
+                    _ws = _stem(_w)
+                    # whole-word match (most reliable) OR stem overlap of
+                    # length >=3 so "hike"/"hiking"/"hiked" all bind (they share
+                    # stem "hik") but "art" doesn't bind "start".
+                    if _t == _w:
+                        _score += 2
+                    elif _ts and _ws and len(_ts) >= 3 and (_ts == _ws
+                                                         or _ts.startswith(_ws)
+                                                         or _ws.startswith(_ts)):
+                        _score += 1
+            if _score > _best_score:
+                _best_score = _score
+                _best = _k
+        # Require at least a stem overlap so we never soften a stance the
+        # utterance doesn't actually reference (bounded false positives).
+        return _best if _best_score > 0 else None
+
     def mine_stance_reversal(self, text: str) -> None:
         """Detect a stance-reversal/retraction and recode the stored stance.
 
@@ -2378,6 +2438,38 @@ class UserModel:
                     # sea was X but Y"); still scope to the pre-connector span so
                     # the new preference Y can never be the resolved target.
                     _target = self._stance_key_in_text(q[:_concession.start()])
+                if _target is not None:
+                    try:
+                        self.opinions._soft_reversal = True
+                        self.opinions.reverse_stance(_target, utterance=text)
+                    except Exception:
+                        pass
+                    return
+            # R3 (round 2026-08-18T0937Z): FIRST-PERSON LIMITATION / AVERSION
+            # disclosure. A user can walk a stance back WITHOUT a retraction or
+            # concession keyword: "my knee's been acting up ... i can't really
+            # hike the way i used to", "loud music wrecks me now", "i can't
+            # handle that volume". These are sensory/affective LIMITATION
+            # statements about a topic RAVANA already holds a positive stance
+            # on. Previously they fell through to a hollow "noted." and the
+            # stale stance persisted (residual limitation #1 of round
+            # 2026-08-17T1730Z). Detect the limitation shape structurally
+            # (first person + a can't/can-not/cannot/wrecks-me/anymore cue) and
+            # resolve the topic against the LIVE stance store — including
+            # verb-stem matching so "hike" in the disclosure binds the stored
+            # "cold weather hiking" stance (whole-word match misses it). When a
+            # held stance is found, SOFTEN it toward neutral (a limitation is a
+            # relaxation, not an inversion). Generic: the topic is resolved, not
+            # hardcoded, so any held positive stance the user limits gets
+            # softened. No retraining, no per-topic table.
+            _limitation = re.search(
+                r"\b(i\b|my|me|we|us)\b.{0,40}?\b("
+                r"can'?t|can not|cannot|couldn'?t|no longer|anymore|"
+                r"wrecks? me|wears? me (?:down|out)|i can't handle|"
+                r"can't really|can't stand|harder than it used to|"
+                r"the way i used to|too much for me)\b", q)
+            if _limitation is not None:
+                _target = self._stance_key_in_text_stem(q)
                 if _target is not None:
                     try:
                         self.opinions._soft_reversal = True
