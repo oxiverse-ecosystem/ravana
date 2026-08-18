@@ -160,6 +160,7 @@ on this codebase:
   fails closed with honest uncertainty rather than a fabricated bio. No LLM, no
   per-person reply table, no retraining. See
   `docs/CAPABILITY_OPEN_ENDED_RELATIONSHIP_RECALL.md`.
+- **Recalls non-kin relationships (mentor / teacher / coach / friend) from open phrasing.** After a disclosure like *"my mentor Dr. Okonkwo taught me astronomy"*, asked *"who is my mentor?"*, *"tell me about my mentor"*, or *"what does my mentor do?"* — it reports the **full** relationship fact (`your mentor dr. okonkwo taught astronomy.`) from the same open phrasing as kin, with the full name + activity and no truncation. This needed a seed-vocabulary fix: non-kin role words (mentor, teacher, coach, friend, neighbour, boss, …) now live in the **shared** `relation_attrs` lexicon (single source of truth) instead of a duplicate local list, so the appositive-pet miner rejects them via its `relation_of()` guard instead of mis-storing *"my mentor Dr…"* as a bogus pet fact (`('i','mentor','dr')`) that truncated recall to *"your mentor is dr."* The role vocabulary is seed and grows at runtime via `learn_relation`. No LLM, no per-role reply table, no retraining. See `docs/CAPABILITY_NONKIN_ROLE_RECALL.md`.
 - **Separates world-knowledge questions from autobiographical recall.** Asked
   *"what is cooking oil made of?"* it does **not** echo an unrelated stored fact
   about you (*"you enjoy cooking pasta on weekends"*) — the query is classified

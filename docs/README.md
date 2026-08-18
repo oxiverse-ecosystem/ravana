@@ -32,6 +32,7 @@ truth; every claim here was checked against `ravana/`, `ravana_ml/`, and
 | [CAPABILITY_CATEGORY_ENUMERATION_RECALL.md](CAPABILITY_CATEGORY_ENUMERATION_RECALL.md) | How "name everyone in my family" / "name all my pets" / "who have i told you about" SCAN the live PersonalFactStore and enumerate every relative + pet it mined — not a `noted.` ack, verified against the live engine. |
 | [CAPABILITY_USER_STANCE_RECALL.md](CAPABILITY_USER_STANCE_RECALL.md) | How "do you think i like spicy food or not?" reads the USER's own held stance (self/other boundary) — not RAVANA's empty stance — verified against the live engine. |
 | [CAPABILITY_OPEN_ENDED_RELATIONSHIP_RECALL.md](CAPABILITY_OPEN_ENDED_RELATIONSHIP_RECALL.md) | How "tell me about my grandmother" / "who is my grandmother?" / "describe my niece priya" recall the stored relationship/pet fact from OPEN phrasings (case-insensitive miner fix + new recall branch, fail-closed, shared-lexicon), verified against the live engine. |
+| [CAPABILITY_NONKIN_ROLE_RECALL.md](CAPABILITY_NONKIN_ROLE_RECALL.md) | How "my mentor Dr. Okonkwo taught me astronomy" is mined into one correct combined-attr fact and recalled in full (non-kin ROLE words folded into the shared `relation_attrs` seed so the pet miner's `relation_of()` guard rejects them instead of mis-storing a bogus pet fact), verified against the live engine. |
 | [FAQ.md](FAQ.md) | Troubleshooting: installation, runtime, development issues. |
 
 ## Quick orientation
