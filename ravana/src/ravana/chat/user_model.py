@@ -2471,6 +2471,22 @@ class UserModel:
             if _limitation is not None:
                 _target = self._stance_key_in_text_stem(q)
                 if _target is not None:
+                    # R3 fix (round 2026-08-18T0937Z): a limitation/aversion
+                    # disclosure SOFTENS a stance the user ALREADY HELD in a
+                    # PRIOR turn. It must NOT fire on the VERY turn the user
+                    # first states the aversion (e.g. "i can't stand cilantro"
+                    # is mined fresh at -0.8 by mine_stance and must stay there
+                    # — the limitation branch was relaxing it to -0.333). Guard:
+                    # require the resolved stance to PREDATE the current turn (
+                    # strictly before, so a just-mined stance with
+                    # turn_number == turn_num is skipped). This preserves the
+                    # real feature — a HELD positive stance later limited by the
+                    # user ("i love hiking" -> "my knee's acting up, i can't
+                    # really hike anymore") still softens — while leaving fresh
+                    # first-person aversions at full strength.
+                    _existing = self.opinions.stances.get(_target)
+                    if _existing is None or _existing.turn_number >= self.opinions.turn_num:
+                        return  # freshly-mined this turn (or absent) -> not a limitation of a HELD stance
                     try:
                         self.opinions._soft_reversal = True
                         self.opinions.reverse_stance(_target, utterance=text)

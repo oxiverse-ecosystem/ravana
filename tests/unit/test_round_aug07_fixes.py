@@ -69,6 +69,32 @@ def test_descriptor_name_not_stored(eng):
         eng2.stop_background_learning()
 
 
+# ── R3 (round 2026-08-18T0937Z): fresh first-person aversion must NOT be
+#    relaxed by the limitation branch. The "can't stand X" disclosure mines X
+#    at strong negative via mine_stance; the limitation/aversion softening
+#    branch must leave it untouched on the SAME turn it is first stated.
+def test_fresh_aversion_not_relaxed_same_turn(eng):
+    eng.process_turn("i can't stand cilantro, it tastes like soap to me")
+    s_cil = eng.user_model.opinions.stances["cilantro"]
+    assert s_cil.polarity < -0.5, \
+        f"fresh 'can't stand' disclosure must stay strong negative, got {s_cil.polarity}"
+
+
+# ── R3 (round 2026-08-18T0937Z): a HELD positive stance later limited by the
+#    user MUST still soften (the real f176713 feature). The guard only blocks
+#    softening when the stance was freshly mined THIS turn.
+def test_held_stance_softens_on_later_limitation(eng):
+    eng.process_turn("i love cold-weather hiking, it clears my head")
+    s_hike = eng.user_model.opinions.stances["cold weather hiking"]
+    assert s_hike.polarity > 0.5, f"hiking should start positive, got {s_hike.polarity}"
+    before = s_hike.polarity
+    eng.process_turn("my knee's been acting up, i can't really hike the way i used to")
+    s_hike2 = eng.user_model.opinions.stances["cold weather hiking"]
+    # SOFTENED (moved toward 0), not inverted to negative
+    assert -0.5 < s_hike2.polarity < before, \
+        f"held hiking stance should soften toward neutral on later limitation, got {s_hike2.polarity}"
+
+
 # ── D6: softening relaxes; scope-widening does not flip ─────────────────────
 def test_softening_relaxes_then_narrowing_keeps(eng):
     eng.process_turn("i can't stand cilantro, it tastes like soap to me")
