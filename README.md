@@ -185,6 +185,17 @@ on this codebase:
   frozen topic list, so it generalizes across every subject and needs no
   retraining. Fail-open: a general knowledge question can never be answered by an
   autobiographical echo. See `docs/CAPABILITY_QUERY_INTENT_GATE.md`.
+- **Withholds word salad about a subject it has never learned (D4).** The
+  Situation-Model free-decode path used to restate a query's own near-neighbours
+  as a "fact" about a subject RAVANA has *no* durable knowledge of (e.g. *"tired"*
+  — no definition, no web source, not in the concept graph), and the grounding
+  monitor accepted it because those neighbours are all GloVe-similar. Now an
+  **unknown** subject — not in the concept graph / no definition / no web source
+  — can no longer be grounded by free-association similarity alone: its utterance
+  is withheld and the path falls back to honest uncertainty. A **known** concept
+  (already learned, or with a seeded definition) still grounds a genuine answer,
+  and a subject learned later online is re-admitted. No LLM, no per-topic reply
+  table. See `docs/CAPABILITY_SM_UNKNOWN_SUBJECT_GROUNDING.md`.
 
 These capabilities are backed by four durable stores
 (`IdentityEngine`), **stances** (`UserStanceStore`), **personal facts**
