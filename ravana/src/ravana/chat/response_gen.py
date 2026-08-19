@@ -4019,23 +4019,44 @@ class ResponseGenMixin(ChainWalkerMixin):
             elif subject in getattr(self, "_concept_sources", {}):
                 has_verified_fact = True
             else:
-                subj_vec = self._glove_vector(subject) if hasattr(self, "_glove_vector") else None
-                if subj_vec is None:
-                    # No embedding to judge by: weak grounding from graph presence.
-                    has_verified_fact = (
-                        subject in getattr(self, "_concept_keywords", {})
-                        or subject in getattr(self, "_concept_labels", {})
-                    )
+                # D4 (round 2026-08-19T1026Z): an UNKNOWN subject — not in the
+                # concept graph, no definition, no web-learned source — must NOT
+                # be grounded by free-association similarity alone. The SM path's
+                # associated_concepts are often the QUERY'S OWN near-neighbours
+                # (e.g. "tired" -> 'ever','lot','really'), all of which pass the
+                # >=0.30 GloVe check, so the old code accepted pure free-decode
+                # word salad for a subject RAVANA knows nothing durable about.
+                # Mirror the brain's source-monitoring (Johnson 1993) and the
+                # decomposition path's own D2 guard (_decomp_grounded): loose
+                # association may only LEAN on spreading activation for concepts
+                # that are ALREADY in the concept graph (a known concept RAVANA
+                # has actually learned). An unknown subject has no source for a
+                # claim, so it is withheld → honest metacognitive uncertainty.
+                # This is seed vocabulary (the concept-graph membership test),
+                # not authored content; RAVANA grows the graph online from chat
+                # and web learning, so a concept it later learns IS re-admitted.
+                _known = (
+                    subject in getattr(self, "_concept_keywords", {})
+                    or subject in getattr(self, "_concept_labels", {})
+                )
+                if not _known:
+                    has_verified_fact = False
                 else:
-                    best = -1.0
-                    for label, _score in (ctx.associated_concepts or [])[:12]:
-                        v = self._glove_vector(label)
-                        if v is None:
-                            continue
-                        sim = float(np.dot(subj_vec, v))
-                        if sim > best:
-                            best = sim
-                    has_verified_fact = best >= 0.30
+                    subj_vec = self._glove_vector(subject) if hasattr(self, "_glove_vector") else None
+                    if subj_vec is None:
+                        # No embedding to judge by: graph presence already
+                        # confirmed above → weak grounding holds.
+                        has_verified_fact = True
+                    else:
+                        best = -1.0
+                        for label, _score in (ctx.associated_concepts or [])[:12]:
+                            v = self._glove_vector(label)
+                            if v is None:
+                                continue
+                            sim = float(np.dot(subj_vec, v))
+                            if sim > best:
+                                best = sim
+                        has_verified_fact = best >= 0.30
 
         if not has_verified_fact:
             # Nothing verified to anchor the utterance to → ungrounded.
