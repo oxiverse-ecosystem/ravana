@@ -1581,20 +1581,32 @@ class UserModel:
                         break
                 # GENERALIZE (round 2026-08-19T1026Z): a relationship disclosure
                 # establishes the RELATIONSHIP + NAME regardless of whether an
-                # activity verb is recognised. The old code only stored when an
-                # activity verb was found (is_activity_verb), so disclosures
-                # using verbs the lexicon lacks (sends, knocks, left/gave,
-                # named, passes) were DROPPED entirely and later recall had
-                # nothing to retrieve (measured T33/T58/T68 this round). The
-                # relationship+name is the PRIMARY fact; the verb+object is a
-                # bonus when present. Mine the name even with no verb found.
+                # activity verb is recognised. When NO activity verb is found,
+                # only a LEADING CAPITALIZED token counts as a name (mirrors the
+                # appositive-pet branch's isupper() guard) so a temporal/activity
+                # phrase ("last spring") is never stored as the name. If there is
+                # neither a name nor a verb, skip — no informative fact to store.
                 # No per-role table: the head word is the user's own relation
                 # word, the name the user's own noun, the verb (when present)
                 # real content from the user's words.
-                _name = (" ".join(_toks[:_vidx]).lower()
-                         if _vidx is not None
-                         else " ".join(_toks).lower())
-                _name = _strip_obj_framers(_name).strip(" .,!?")
+                _put_fact_done = False
+                if _vidx is None:
+                    _name_toks = []
+                    for _t in _toks:
+                        _clean = _t.strip(".,!?")
+                        if _clean[:1].isupper():
+                            _name_toks.append(_clean.lower())
+                        else:
+                            break
+                    _name = " ".join(_name_toks)
+                    if not _name:
+                        # Neither a recognized verb nor a proper-noun name:
+                        # nothing informative to store (e.g. "my grandmother
+                        # last spring") — skip to avoid a bogus fact.
+                        _put_fact_done = True
+                else:
+                    _name = " ".join(_toks[:_vidx]).lower()
+                    _name = _strip_obj_framers(_name).strip(" .,!?")
                 _val = ""
                 if _vidx is not None:
                     _verb = _toks[_vidx].lower().strip(".,!?")
@@ -1618,7 +1630,8 @@ class UserModel:
                     _attr = f"{_kin} {_name}".strip()
                 else:
                     _attr = _kin
-                _put_fact(_attr, _val if _val else _kin, 0.6)
+                if not _put_fact_done:
+                    _put_fact(_attr, _val if _val else _kin, 0.6)
 
 
         # D3 (round v3): capture self-disclosed ACTIVITIES / possessions that the
