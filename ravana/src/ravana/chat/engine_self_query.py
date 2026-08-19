@@ -897,7 +897,28 @@ class SelfQueryMixin:
                                   "with", "to", "we", "should", "could", "would",
                                   "is", "are", "do", "does", "you", "i", "it",
                                   "that", "this", "and", "or")]
-            _target = _toks[-1] if _toks else ""
+            # DEFECT A (round 2026-08-19T0625Z) TOPIC FIX: the prior code took
+            # _toks[-1] (the LAST content token) as the stance target. That is
+            # only correct for imperative frames like "do you think we should
+            # protect mangroves" (topic follows the verb scaffolding). For the
+            # dominant "what do you think about X" / "your take on X" / "how do
+            # you feel about X" frames the topic is the FIRST content noun after
+            # the cue ("people tracking each other online without asking" ->
+            # "people"), so the last-word heuristic produced garbled targets
+            # ("asking", "now", "hobbyists", "yards") and the agent answered
+            # about the wrong subject. Fix: take the FIRST content noun after
+            # the cue as the topic; strip a small closed-class verb-scaffold at
+            # the head so imperative frames ("should protect mangroves") still
+            # resolve to the real object ("mangroves"). The target is the user's
+            # actual topic (real state), so the reply names the right subject —
+            # no authored per-topic sentence.
+            _VERB_SCAFFOLD = ("protect", "save", "keep", "stop", "ban", "allow",
+                               "support", "defend", "fund", "build", "make",
+                               "change", "help", "avoid", "prevent")
+            _i = 0
+            while _i < len(_toks) and _toks[_i] in _VERB_SCAFFOLD:
+                _i += 1
+            _target = _toks[_i] if _i < len(_toks) else ""
             _stance, _reason = self._agent_stance_on(_target)
             _reason = (_reason or "").rstrip()
             if _reason and not _reason.endswith((".", "!", "?")):

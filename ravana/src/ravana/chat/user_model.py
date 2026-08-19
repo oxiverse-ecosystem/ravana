@@ -1041,13 +1041,19 @@ class UserModel:
             # e.g. "a converted mill in a valley called ashcombe" where the
             # named-toponym lexicon missed the feature word — prefer the proper
             # noun after called/named over the filler leading up to it.
+            # DEFECT B FIX (round 2026-08-19T0625Z): the trailing toponym scan
+            # must run on the ALREADY relative-clause-trimmed _loc (above), NOT
+            # on the raw m_loc.group(1). Otherwise the "called <name>" grep
+            # re-grabs the relative clause that follows the toponym ("...called
+            # greyport where the fog comes in thick most mornings" -> "greyport
+            # where the fog"), re-introducing the truncation we just cut.
             _trailing = re.search(
                 r"\b(?:in|near|at|from)\s+([A-Za-z][A-Za-z]+(?:\s+[A-Za-z][A-Za-z]+){0,2})\s*$",
-                m_loc.group(1), re.IGNORECASE)
+                _loc, re.IGNORECASE)
             if not _trailing:
                 _trailing = re.search(
                     r"\b(?:called|named|spelled)\s+([A-Za-z][A-Za-z]+(?:\s+[A-Za-z][A-Za-z]+){0,3})",
-                    m_loc.group(1), re.IGNORECASE)
+                    _loc, re.IGNORECASE)
             if _trailing:
                 _loc = _trailing.group(1).strip()
             # Round 2026-08-08f: a long location clause with a trailing
