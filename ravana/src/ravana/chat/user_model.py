@@ -825,7 +825,7 @@ class UserModel:
             # prepositions, reject it (no content to store).
             _PREP = ("up", "down", "from", "at", "in", "on", "with", "to",
                      "of", "by", "for", "about", "into", "onto", "over",
-                     "under", "near", "behind", "beside", "off")
+                     "under", "near", "behind", "beside", "off", "out")
             _vwords = _val.split()
             if _vwords and _vwords[-1] in _PREP:
                 # drop trailing prepositions and any words following the first
@@ -909,7 +909,7 @@ class UserModel:
                 return
             _PREP = ("up", "down", "from", "at", "in", "on", "with", "to",
                      "of", "by", "for", "about", "into", "onto", "over",
-                     "under", "near", "behind", "beside", "off")
+                     "under", "near", "behind", "beside", "off", "out")
             _vwords = _val.split()
             if _vwords and _vwords[-1] in _PREP:
                 _cut = len(_vwords)
@@ -1019,6 +1019,17 @@ class UserModel:
         elif m_loc:
             _loc = m_loc.group(1).strip().strip(" .,!")
             _loc = re.split(r"\s+(?:and|but|,|\.)\s*", _loc)[0].strip()
+            # DEFECT B FIX (round 2026-08-19T0625Z): a location clause with a
+            # trailing relative clause ("i live in a small coastal town called
+            # greyport where the fog comes in thick most mornings") was captured
+            # whole; the prior trims only cut at comma/period/measure words, so
+            # the relative clause led by "where/that/which" survived and the
+            # stored value became "greyport where the". A toponym must not
+            # include a relative clause — strip any trailing "where/that/which
+            # <...>" so the real place head is stored. Generic: cuts at a
+            # closed-class relative pronoun, never invents a place; degrades
+            # gracefully if nothing remains.
+            _loc = re.split(r"\s+(?:where|that|which)\b", _loc)[0].strip()
             # FIX (round v-aug06c): a location clause like "a small apartment
             # near the river in porto" caps the 5-word capture at "a small
             # apartment near the" and silently drops the real toponym "porto".

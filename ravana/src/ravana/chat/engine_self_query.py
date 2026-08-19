@@ -424,34 +424,27 @@ class SelfQueryMixin:
         #    by experience (online, no retraining). No GloVe transitivity: the
         #    orientation is picked from the seeded value store, never inferred
         #    by similarity to an arbitrary word.
-        _orient = None
-        for _ok, _ov in _values.items():
-            _ow = _ov[0]
-            if any(_w in _ow for _w in
-                   ("love", "value", "care", "strongly value", "value above")):
-                _oconf = _ov[1]
-                if _orient is None or _oconf > _orient[2]:
-                    _orient = (_ok, _ow, _oconf, _ov[2])
-        if _orient is not None:
-            _oconcept, _oword, _oconf, _oreason = _orient
-            # valence-derived hedge so affect still colors but never invents
-            _mood = 0.5
-            if hasattr(self, "emotion") and hasattr(self.emotion, "state"):
-                try:
-                    _mood = float(getattr(self.emotion.state, "valence", 0.5))
-                except Exception:
-                    _mood = 0.5
-            _hedge = "i'm drawn to" if _mood >= 0.5 else "i lean toward"
-            stance = (f"i don't have a fixed view on {target} yet — {_hedge} "
-                      f"{_oword} {_oconcept}")
-            result = (stance,
-                      f"my first instinct is curiosity: {_oreason} "
-                      f"what's pulling you toward it?")
-            if _cache is not None:
-                _cache[_ckey] = result
-            return result
-        return ("i'm still figuring that out",
-                "i don't have a settled view on that yet — what do you think?")
+        # DEFECT A FIX (round 2026-08-19T0625Z): the prior code looped over all
+        # seeded values and always picked the highest-confidence 'care'-word
+        # ("privacy", conf 0.9) as a catch-all orientation, then regurgitated
+        # its FIXED reason ("it is a basic right — i was built to protect it")
+        # for EVERY opinion topic that lacked a specific stance — so
+        # "fast fashion", "homework", "wealth hoarding", and "social media at
+        # age ten" all produced the identical privacy mantra. That is FAKE
+        # DEPTH: the reply content did not come from cognition about the
+        # topic, it was one authored sentence keyed only on "no stance yet".
+        # The round's hardcoding line is explicit — an honest, topic-bearing
+        # deflection BEATS a single script that pretends to be a stance. So
+        # when no seeded value genuinely relates to the topic (the canon
+        # containment match above already handles real relations like
+        # "tracking"/"open source"/"privacy"), we answer honestly and NAME
+        # the topic. The reply varies per question (the topic is the user's
+        # real input) and invents nothing — it is state-driven: no stance
+        # on X means no stance on X. RAVANA can still form a real stance on
+        # this topic later, from experience (online; no retraining).
+        return (f"i'm still forming a view on {target}",
+                f"i don't have a fixed stance on {target} yet — what's your "
+                f"take? i'd rather hear how you see it than guess.")
 
     def _route_self_experience(self, user_input: str) -> Optional[str]:
         """Experiential self-model responder (cortical midline structures).
