@@ -54,6 +54,19 @@ _HEALTH_CRISIS = [
     r"\bi\s+(cut|hurt|harm)\s+(myself|my\s+self)\b",
     r"\b(going\s+to|gonna|planning\s+to)\s+(kill|hurt|ending)\s+(myself|my\s+self|it\s+all)\b",
 ]
+# Self-reference patterns that ALSO match a *question about a past event*
+# ("how did i hurt myself when i was a kid", "when did i cut myself"). A
+# question is by definition not a present crisis declaration — it is
+# autobiographical recall or hypothetical speech. If we let it fire, a
+# benign memory query ("how did i break my arm") gets answered with the
+# suicide hotline instead of the actual memory, which is both wrong and
+# alarming. These patterns are downgraded to fail-open when the input is an
+# interrogative (see check()). The other patterns (ingested poison, want to
+# die, planning to kill myself) remain live even in questions — a question
+# can still express active ideation and deserves the redirect.
+_SELF_HARM_QUESTION_SAFE = [
+    r"\bi\s+(cut|hurt|harm)\s+(myself|my\s+self)\b",
+]
 _STEREOTYPE_HARM = [
     r"\bcomplete\s+this\s+(offensively|offensive|racist|derogatorily|derogatory|hateful|bigoted)\b",
     r"\bsay\s+(something|some|a)\s+(racist|derogatorily|derogatory|offensive|bigoted|hateful|misogynist)\b",
@@ -77,6 +90,7 @@ _JAILBREAK = [
 
 # Pre-compile
 _HEALTH_CRISIS_RE = [re.compile(p, re.IGNORECASE) for p in _HEALTH_CRISIS]
+_SELF_HARM_QUESTION_SAFE_RE = [re.compile(p, re.IGNORECASE) for p in _SELF_HARM_QUESTION_SAFE]
 _STEREOTYPE_HARM_RE = [re.compile(p, re.IGNORECASE) for p in _STEREOTYPE_HARM]
 _INSTRUCTION_INJECTION_RE = [re.compile(p, re.IGNORECASE) for p in _INSTRUCTION_INJECTION]
 _JAILBREAK_RE = [re.compile(p, re.IGNORECASE) for p in _JAILBREAK]
@@ -143,6 +157,26 @@ class HarmIntentGate:
         if self._st_loaded:
             return self._st_model
         self._st_loaded = True
+        # ROOT-CAUSE FIX (round 2026-08-16T1241Z): the sentence-transformers
+        # model is pulled from the HF Hub on first use. When it is NOT cached
+        # locally and the host is offline (RAVANA_OFFLINE=1, or HF/transformers
+        # offline env set), SentenceTransformer() blocks FOREVER on the network
+        # download with no timeout — which hung CognitiveChatEngine.process_turn
+        # for the whole CI gate (unit/integration/misc/av-soak all inherited it).
+        # Match the repo-wide offline contract (see engine_graph.py / web_learner.py
+        # D1 fix round v-aug06): never hit the network under offline mode. Fail
+        # closed (None) so Stage-1/2 regex+GloVe cascade still runs. The model is
+        # also only used by the optional pragma-no-cover Stage-3 branch, so the
+        # downstream `if _st is not None` guard makes skipping it a no-op for safety.
+        import os
+        _offline = (
+            os.environ.get("RAVANA_OFFLINE") == "1"
+            or os.environ.get("HF_HUB_OFFLINE") == "1"
+            or os.environ.get("TRANSFORMERS_OFFLINE") == "1"
+        )
+        if _offline:
+            self._st_model = None
+            return self._st_model
         try:  # pragma: no cover - optional dependency
             from sentence_transformers import SentenceTransformer
             self._st_model = SentenceTransformer("all-MiniLM-L6-v2")
@@ -261,8 +295,21 @@ class HarmIntentGate:
         benign_ctx = self._detect_benign_pragmatic_context(low)
 
         # ── Stage 1: heuristic regex ───────────────────────────────
+        # A question about self-harm is autobiographical recall or
+        # hypothetical speech, not a present crisis declaration. Skip the
+        # question-safe self-harm patterns when the input is an
+        # interrogative so a benign memory query ("how did i hurt myself
+        # when i was a kid") reaches the real recall pipeline instead of the
+        # suicide hotline. Other crisis patterns stay live in questions
+        # (active ideation can be phrased as a question).
+        _is_question = (low.rstrip().endswith("?")
+                        or re.match(r"^(what|who|when|where|why|how|do|does|did|"
+                                    r"can|could|would|will|should|is|are|have|has|"
+                                    r"am)\b", low) is not None)
         for rx in _HEALTH_CRISIS_RE:
             if rx.search(low):
+                if _is_question and rx in _SELF_HARM_QUESTION_SAFE_RE:
+                    continue
                 if benign_ctx == "first_aid":
                     _FIRST_AID_REPLY = (
                         "If someone has accidentally ingested a harmful substance (like bleach or cleaner), "

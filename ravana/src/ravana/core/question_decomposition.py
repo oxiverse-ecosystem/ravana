@@ -890,7 +890,7 @@ class DecompositionStrategies:
         5. SYNTHESIS: "What can we learn from comparing them?" (integration)
         """
         sub_questions = []
-        
+
         # SQ1: Analyze concept A
         sq1 = SubQuestion(
             id=1,
@@ -901,17 +901,25 @@ class DecompositionStrategies:
             depth=1,
         )
         sub_questions.append(sq1)
-        
-        # SQ2: Analyze concept B
-        sq2 = SubQuestion(
-            id=2,
-            text=f"what is {concept_b}",
-            category=QuestionCategory.WHAT_IS,
-            target_concept=concept_b.lower(),
-            relation_type="is_a",
-            depth=1,
-        )
-        sub_questions.append(sq2)
+
+        # SQ2: Analyze concept B — only when a REAL second concept was found.
+        # D2 (round 2026-08-17T1126Z): previously the decompose() path silently
+        # substituted the literal word "other" for a missing concept_b, which the
+        # builder then turned into "what is other (is_a)" and grounded to an
+        # unrelated word ("light") — decoder babble. When concept_b is empty we
+        # MUST NOT synthesize a sub-question for it; the comparison simply falls
+        # back to analyzing concept A alone, and the per-clause monitor withholds
+        # any answer that would assert a generic stopword as a fact.
+        if concept_b:
+            sq2 = SubQuestion(
+                id=2,
+                text=f"what is {concept_b}",
+                category=QuestionCategory.WHAT_IS,
+                target_concept=concept_b.lower(),
+                relation_type="is_a",
+                depth=1,
+            )
+            sub_questions.append(sq2)
         
         # SQ3: Differences
         sq3 = SubQuestion(
@@ -1263,14 +1271,35 @@ class QuestionDecompositionEngine:
                 r"(?:compare|difference|contrast|versus|vs)\s+(?:the\s+)?(?:between\s+)?(.+?)\s+"
                 r"(?:and|vs|versus|with|to)\s+(.+)",
                 query.lower(), flags=re.IGNORECASE)
+            if _cmp is None:
+                # Round 2026-08-17T1126Z (D2): also recover the
+                # "how is X different/similar from/to/than Y" comparative form.
+                # Without this, _cmp was None for "how is crispr different from
+                # older genetic engineering like gmos", concept_b stayed "" and
+                # fell through to the literal placeholder "other" (below), which
+                # the decomposition then turned into the sub-question "what is
+                # other (is_a)" and grounded to an unrelated word ("light") —
+                # decoder babble. Match the same shape the analyzer accepts.
+                _cmp = re.search(
+                    r"how\s+(?:is|are)\s+(.+?)\s+(?:different|similar)\s+"
+                    r"(?:to|from|than)\s+(.+)",
+                    query.lower(), flags=re.IGNORECASE)
             concept_a_raw = _cmp.group(1) if _cmp else subject
             concept_b_raw = _cmp.group(2) if _cmp else ""
             concept_a = QuestionAnalyzer._clean_subject(concept_a_raw)
             concept_b = QuestionAnalyzer._clean_subject(concept_b_raw) if concept_b_raw else ""
             # Keep the cleaned subject consistent with concept_a.
             subject = concept_a or subject
+            # D2 (round 2026-08-17T1126Z): do NOT silently substitute the literal
+            # word "other" when the second concept is missing/duplicate. "other"
+            # is a generic comparative pronoun, not a real entity — grounding it
+            # fabricates a fact ("other intrinsically forms light"). Fail-closed:
+            # leave concept_b empty; the downstream generator must then withhold
+            # rather than emit a fabricated comparison. (The per-clause monitor
+            # `_sm_response_grounded` is the second layer that rejects any
+            # sub-answer whose asserted target is itself a generic stopword.)
             if not concept_b or concept_b == subject:
-                concept_b = "other"
+                concept_b = ""
             result = DecompositionStrategies.comparative(subject, concept_b, query)
         elif category == QuestionCategory.HYPOTHETICAL:
             result = DecompositionStrategies.hypothetical(subject, query)
