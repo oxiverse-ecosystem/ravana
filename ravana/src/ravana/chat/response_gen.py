@@ -4376,10 +4376,27 @@ class ResponseGenMixin(ChainWalkerMixin):
         # guard so "tell me about someone who died" (third-entity, not the
         # user's own loss) does not fire. The noun is capped at 2 words so
         # "my dear old dog" still resolves to the entity.
-        _self_possessive_loss = bool(re.search(
-            r"\b(my|our)\s+\w*(?:\s+\w+)?\s+"
-            r"(died|dies|death|dead|passed|lost|losing|grief|grieving|"
-            r"mourn|mourning|suicide|funeral)\b", text))
+        # GENERALIZE (round 2026-08-19T1026Z): the self-possessive loss
+        # detector only matched the NOUN-FIRST shape "my <noun> <loss-term>"
+        # (my dog died). The VERB-FIRST shape "<loss-term> my <noun>"
+        # (i lost my grandmother) did NOT match, so a genuine bereavement
+        # routed to the generic "feeling lost is hard" frame (T15 this round:
+        # "i lost my grandmother" -> "feeling lost is hard"). The loss-term
+        # "lost" was treated as a felt-state word, not a possession-loss event.
+        # Fix: cover BOTH word orders with one alternation; the entity is the
+        # self-possessive noun in either case. No per-relation word list — any
+        # "my|our <noun>" co-occurring with a loss-term is bereavement, which is
+        # the broad class the original generalization intended.
+        _LOSS_VERB = (r"(?:died|dies|death|dead|passed|lost|losing|grief|"
+                      r"grieving|mourn|mourning|suicide|funeral)")
+        # Capture the self-possessive ENTITY in BOTH word orders so the
+        # extractor below reads one clean group. noun-first: g2; verb-first: g4.
+        _poss_loss_pat = re.compile(
+            r"\b(?:"
+            r"(my|our)\s+(\w+(?:\s+\w+)?)\s+" + _LOSS_VERB + r"|"
+            r"\b" + _LOSS_VERB + r"\s+(my|our)\s+(\w+(?:\s+\w+)?)"
+            r")\b")
+        _self_possessive_loss = bool(_poss_loss_pat.search(text))
         if any(t in text for t in _LOSS_TERMS):
             if _has_narrative_frame and not _self_possessive_loss:
                 # Loss word lives in a story/request frame, not a self-disclosure.
@@ -4399,15 +4416,36 @@ class ResponseGenMixin(ChainWalkerMixin):
                 # "hurting". The hippocampus retrieves the specific relationship;
                 # a human never uses one word for every loss. Encode as
                 # "loss:<entity>" so _emotional_response can specialize.
-                _ent_m = re.search(
-                    r"\b(?:my|our)\s+(\w+(?:\s+\w+)?)\s+"
-                    r"(?:died|dies|death|dead|passed|lost|losing|grief|"
-                    r"grieving|mourn|mourning|suicide|funeral)\b", text)
+                # Matches BOTH word orders (noun-first AND verb-first) so the
+                # entity is captured whichever shape the disclosure takes.
+                _ent_m = _poss_loss_pat.search(text)
                 _lost = ""
                 if _ent_m:
-                    _lost = _ent_m.group(1).strip()
-                    # drop a leading possessive/filler ("dear old dog" -> keep dog)
+                    # verb-first branch captured entity in group(4);
+                    # noun-first branch captured entity in group(2).
+                    _vf = _ent_m.group(4)
+                    if _vf:
+                        _lost = _vf.strip()
+                    else:
+                        _nf = _ent_m.group(2)
+                        if _nf:
+                            _lost = _nf.strip()
+                    # Drop leading/trailing filler (possessive or temporal
+                    # adjectives) so the named entity is the head noun, not a
+                    # bleeding word from the rest of the clause. "my grandmother
+                    # last" (from "last spring") -> "grandmother"; "my dear old
+                    # dog" -> "dog". The filler set is a small seed vocabulary
+                    # (not a per-entity table); removing one entry only loses
+                    # that one shape.
+                    _FILLER = {"dear", "old", "little", "late", "beloved",
+                               "last", "past", "this", "that", "next",
+                               "former", "poor", "sweet", "young", "big",
+                               "small", "our", "my"}
                     _lw = _lost.split()
+                    while len(_lw) > 1 and _lw[0].lower() in _FILLER:
+                        _lw = _lw[1:]
+                    while len(_lw) > 1 and _lw[-1].lower() in _FILLER:
+                        _lw = _lw[:-1]
                     if _lw:
                         _lost = _lw[-1]
                 return ("negative", f"loss:{_lost}" if _lost else "hurting")
