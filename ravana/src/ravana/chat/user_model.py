@@ -1299,20 +1299,39 @@ class UserModel:
                     continue
                 # APPOSITIVE PET (round 2026-08-17T1730Z, 6f): "my pet raccoon
                 # Pip steals..." / "my dog Rex barks" / "my cat Mochi sleeps".
-                # The name capture group (group 2) is a Capitalized proper noun,
-                # so common-noun objects ("my pet rock collection") never reach
-                # here. Resolve the species through the SAME pet_slots path the
-                # "named"/"called" branch uses (species_of / learn_species /
-                # slot_for), then store the name in the species-keyed slot — so
-                # the miner and the recaller (reverse-name resolver + cued recall)
-                # agree on the key by construction. Generic across every species;
-                # no per-animal table; species grown at runtime. No authored
-                # reply; no retraining.
+                # The name capture group (group 2) is a proper noun. The
+                # isupper() guard rejects common-noun objects ("my pet rock
+                # collection"), but casual chat also writes names lowercase
+                # ("my cat mochi"). GENERALIZE (round 2026-08-19T1026Z): accept a
+                # lowercase name too, but ONLY when the species is a SEED animal
+                # (cat/dog/...), so "my cat mochi" mines while "my pet rock
+                # collection" is still rejected (rock is not a seed species, so
+                # learn_species never fires on the lowercase path). Resolve the
+                # species through the SAME pet_slots path the "named"/"called"
+                # branch uses (species_of / learn_species / slot_for), then store
+                # the name in the species-keyed slot — so the miner and the
+                # recaller (reverse-name resolver + cued recall) agree on the
+                # key by construction. Generic across every species; no
+                # per-animal table; species grown at runtime. No authored reply;
+                # no retraining.
                 if _pat is _APPOSITIVE_PET_PAT:
                     _raw_nm = (_m.group(2) or _m.group(4) or "")
                     _sp = (_m.group(1) or _m.group(3) or "").strip().lower()
                     _nm = _raw_nm.strip().strip(".,!?")
-                    if not _sp or not _nm or not _nm[:1].isupper():
+                    if not _sp or not _nm:
+                        continue
+                    # GENERALIZE: a name is accepted if it is Capitalized OR
+                    # (lowercase AND the species is a seed animal). This keeps the
+                    # common-noun guard (rejects "my pet rock collection") while
+                    # allowing casual lowercase names ("my cat mochi").
+                    _name_ok = _nm[:1].isupper()
+                    if not _name_ok:
+                        try:
+                            from .pet_slots import _SPECIES_SEED as _PS_SEED
+                        except Exception:
+                            _PS_SEED = {}
+                        _name_ok = _sp in _PS_SEED
+                    if not _name_ok:
                         continue
                     try:
                         from .relation_attrs import relation_of as _app_rel_of

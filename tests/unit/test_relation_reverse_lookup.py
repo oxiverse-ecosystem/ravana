@@ -34,6 +34,7 @@ def run():
     disclosures = [
         "my sister Pora sends me postcards from the steppe",
         "my cat Mochi knocks my pottery off the shelf on purpose",
+        "my cat mochi sleeps on the router",  # lowercase name (6f generalization)
         "my grandmother Indira left me her brass compass",
         "my grandmother left me her brass compass",
     ]
@@ -45,6 +46,7 @@ def run():
         ("what did my grandmother give me?",
          ("grandmother", "brass compass")),
         ("who is Mochi to me?", ("cat", "mochi")),
+        ("who is mochi to me?", ("cat", "mochi")),  # lowercase query too
         ("who is Pora and where is she?", ("sister", "pora")),
     ]
     for q, (needle1, needle2) in checks:
@@ -63,6 +65,17 @@ def run():
             fails += 1
             continue
         print(f"[OK] '{q}' -> {reply!r}")
+
+    # Negative: a common-noun object must NOT be mined as a pet name.
+    eng.user_model.personal_facts.facts.clear()
+    eng.user_model.mine_personal_facts("my pet rock collection sits on the shelf")
+    _bad = [(s, a, v) for (s, a, v), f in eng.user_model.personal_facts.facts.items()
+            if not f.superseded and a.startswith("cat") or "rock" in (s + a + v)]
+    if _bad:
+        print(f"[FAIL] common-noun 'rock collection' wrongly mined as pet: {_bad!r}")
+        fails += 1
+    else:
+        print("[OK] 'my pet rock collection' not mined as a pet name")
 
     if fails:
         print(f"\n{fails} FAILED")
