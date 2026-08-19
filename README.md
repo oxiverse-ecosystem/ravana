@@ -43,6 +43,17 @@ on this codebase:
 - **Forms and recalls stances.** Told *"i love coffee"* it records a stance
   (`coffee` polarity +1.0, confidence 0.65) and acknowledges:
   `good to know — you love coffee. i'll keep that in mind.`
+- **Records its own opinions and answers "do you still feel that way?" from the
+  record.** Asked its own view — *"what do you think about open source"* — it
+  replies *"i strongly value open source. knowledge should be shared, not locked
+  away."* and **records that stance durably** (survives save/load). A later
+  *"do you still feel that way about open source?"* is answered **from that
+  recorded stance** — *"yeah, i still strongly value open source — that hasn't
+  shifted for me. knowledge should be shared, not locked away"* — not recomputed
+  fresh. A revisit on a topic it never stated a view on is answered honestly
+  (*"i don't actually have a recorded view on … from before"*) instead of
+  fabricated. No LLM, no per-topic reply table. See
+  `docs/CAPABILITY_AGENT_OWN_STANCE_PERSISTENCE.md`.
 - **Reverses a held stance.** If you later change your mind — *"i flipped, the
   reef tank is more work than joy"* — it **recodes** the stance you already held
   toward the opposite pole (`reef tank` +0.95 → −0.665) instead of leaving the
