@@ -1046,6 +1046,16 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         self._episodic_indexer = None
         self._epistemic_new_tags: Dict[str, int] = {}  # B8: concept -> turn learned (decays)
         self._agent_preferences: Dict[str, str] = {}  # grounded self-preference store (A1)
+        # RAVANA's own RECORDED stances (round 2026-08-19T0625Z limitation #2 fix):
+        # a durable store of the opinions RAVANA has actually EXPRESSED about
+        # topics it was asked about. Keyed by canonical topic (lowercased); value
+        # is (polarity_word, confidence, reason, turn_recorded). Distinct from
+        # _agent_values (the innate constitution) — this is the *experiential*
+        # record of what RAVANA has said before, so a later "do you still feel
+        # that way about X?" can be answered from a REAL recorded stance rather
+        # than recomputing fresh or echoing. Runtime-expandable (every stance
+        # _agent_stance_on computes is written here) and persisted below.
+        self._agent_own_stances: Dict[str, Tuple[str, float, str, int]] = {}
         # RAVANA's own constitutive values (seed knowledge, NOT hardcoding):
         # these are the self-defining commitments a privacy-first, open-source
         # cognitive architecture is *born* with — analogous to a brain's innate
@@ -6734,6 +6744,19 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # correction side-effects and runs later with the real subject).
         self.user_model.mine_personal_facts(user_input)
 
+        # Round 2026-08-19T0625Z limitation #2: a revisit query ("do you still
+        # feel that way about X?" / "have you changed your mind about X?") must be
+        # answered from RAVANA's RECORDED own stance, not recomputed fresh nor
+        # echoed. Check this BEFORE the opinion/identity gates so a recorded
+        # stance takes precedence over a re-derived provisional one.
+        _revisit_ans = self._route_own_stance_revisit(user_input)
+        if _revisit_ans is not None:
+            self._last_strategy = "own_stance_revisit"
+            self._last_responses.append(_revisit_ans)
+            if len(self._last_responses) > 10:
+                self._last_responses = self._last_responses[-10:]
+            return _revisit_ans.lower()
+
         if is_identity_query or is_likes_query or is_interests_query or m_fav_q or m_agent_fav or m_agent_likes or m_agent_likes_yesno or m_agent_stance or m_agent_interests:
             response = ""
             if is_identity_query:
@@ -8509,6 +8532,13 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 # values RAVANA forms/revises at runtime SURVIVE reload — the
                 # "can change this by itself through experience" guarantee.
                 'agent_values': dict(getattr(self, '_agent_values', {}) or {}),
+                # RAVANA's own RECORDED stances (round 2026-08-19T0625Z): the
+                # opinions it has expressed about topics it was asked, so a
+                # later "do you still feel that way about X?" is answered from a
+                # real recorded stance across sessions. Persisted because a
+                # reload that wiped this would make the agent "forget" its own
+                # prior opinions (limitation #2).
+                'agent_own_stances': dict(getattr(self, '_agent_own_stances', {}) or {}),
             }
             state['state_checksum'] = self._checksum_state(state)
             # Phase 1: Write graph to SQLite database for ACID persistence
@@ -8826,6 +8856,24 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     _seed = getattr(self, '_agent_values', {}) or {}
                     _seed.update({k: tuple(v) for k, v in _av.items()})
                     self._agent_values = _seed
+            except Exception:
+                pass
+            # Restore RAVANA's own RECORDED stances (round 2026-08-19T0625Z).
+            # Guarded so a bad shape never wipes the store or breaks boot.
+            try:
+                _aos = state.get('agent_own_stances', {})
+                if isinstance(_aos, dict):
+                    _restored = {}
+                    for _k, _v in _aos.items():
+                        if not isinstance(_k, str):
+                            continue
+                        # Accept (word, conf, reason, turn) only; drop bad rows.
+                        if (isinstance(_v, (list, tuple)) and len(_v) == 4
+                                and isinstance(_v[0], str)
+                                and isinstance(_v[1], (int, float))):
+                            _restored[_k.lower().strip()] = (str(_v[0]), float(_v[1]),
+                                                             str(_v[2]), int(_v[3]))
+                    self._agent_own_stances = _restored
             except Exception:
                 pass
             self._free_energy = state['free_energy']

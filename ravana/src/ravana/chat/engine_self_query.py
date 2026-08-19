@@ -407,6 +407,18 @@ class SelfQueryMixin:
             result = (stance, _reason)
             if _cache is not None:
                 _cache[_ckey] = result
+            # DURABLY RECORD the stance RAVANA just expressed (round
+            # 2026-08-19T0625Z limitation #2). The docstring claims every real
+            # stance is "recorded" — previously it was only cached in-memory in
+            # _agent_preferences (which is purged of stance: keys on load). Now it
+            # is written to the persisted _agent_own_stances store so a later
+            # "do you still feel that way about X?" answers from the real record.
+            # Keyed by canonical concept so "open source" / "source" both map back.
+            try:
+                self._agent_own_stances[_canon.lower().strip()] = (
+                    _word, float(_conf), _reason, int(getattr(self, "turn_count", 0)))
+            except Exception:
+                pass
             return result
         # 2) No value exists for this topic. HONEST failure by default — RAVANA
         #    does not fabricate a per-topic stance (the prior code returned
@@ -442,9 +454,81 @@ class SelfQueryMixin:
         # real input) and invents nothing — it is state-driven: no stance
         # on X means no stance on X. RAVANA can still form a real stance on
         # this topic later, from experience (online; no retraining).
-        return (f"i'm still forming a view on {target}",
-                f"i don't have a fixed stance on {target} yet — what's your "
-                f"take? i'd rather hear how you see it than guess.")
+        _stance = f"i'm still forming a view on {target}"
+        _reason = (f"i don't have a fixed stance on {target} yet — what's your "
+                  f"take? i'd rather hear how you see it than guess.")
+        # Record the provisional stance too (low confidence) so a revisit query
+        # about a topic RAVANA was still "forming a view" on is answered from
+        # the record — not recomputed fresh (round 2026-08-19T0625Z #2).
+        try:
+            self._agent_own_stances[target.lower().strip()] = (
+                "am still forming a view on", 0.2, _reason,
+                int(getattr(self, "turn_count", 0)))
+        except Exception:
+            pass
+        return (_stance, _reason)
+
+    def _route_own_stance_revisit(self, user_input: str) -> Optional[str]:
+        """Answer 'do you still feel that way about X?' / 'have you changed
+        your mind about X?' from RAVANA's RECORDED own stances.
+
+        Round 2026-08-19T0625Z limitation #2: opinion questions were answered
+        but never persisted, so a later revisit could only be answered from the
+        echo store (C/D), never from a recorded stance. This is the missing
+        capability: it consults `_agent_own_stances` (the durable record written
+        by `_agent_stance_on`) and reports what RAVANA actually said before.
+
+        State-driven, not hardcoded: the reply is built from the recorded
+        (polarity_word, confidence, reason) tuple — the topic is the user's real
+        query target; the orientation is RAVANA's own stored stance. If no stance
+        was ever recorded on that topic, it answers honestly (it has no record),
+        never fabricates one. No LLM.
+        """
+        t = (user_input or "").lower().strip()
+        # Revisit cue: "still feel that way", "still think that", "changed your
+        # mind", "feel the same about", "still feel the same about".
+        _revisit = re.search(
+            r"\b(still\s+(feel|think|feel\s+the\s+same)|changed\s+your\s+mind|"
+            r"feel\s+the\s+same\s+about|still\s+the\s+same\s+about|"
+            r"do\s+you\s+still)\b", t)
+        if not _revisit:
+            return None
+        # Extract the topic target — the noun phrase after "about".
+        _about = re.search(r"\babout\s+([a-z][a-z\s'-]{1,40})", t)
+        target = ""
+        if _about:
+            # Whole phrase up to the next punctuation / end, then clip trailing
+            # closed-class noise. Captures multiword topics ("open source").
+            _raw = _about.group(1).rstrip(" .!?'")
+            # Keep the longest meaningful head: drop a trailing "?" remnant and
+            # any single trailing closed-class word that snuck in.
+            _raw = _raw.strip()
+            target = _raw.lower()
+        if not target:
+            return None
+        # Look up the durable record. Exact key, then containment so clipped
+        # targets ("source") resolve to the canonical recorded stance.
+        _rec = self._agent_own_stances.get(target)
+        if _rec is None:
+            for _k in self._agent_own_stances:
+                if target and (target in _k.split() or _k in target.split() or _k == target):
+                    _rec = self._agent_own_stances[_k]
+                    target = _k
+                    break
+        if _rec is None:
+            # No recorded stance on this topic — be honest, do not invent.
+            return (f"i don't actually have a recorded view on {target} from "
+                    f"before — i'd be guessing. what made you bring it up again?")
+        _word, _conf, _reason, _turn = _rec
+        # High-confidence recorded stance -> affirm continuity. The orientation
+        # word is the ACTUAL recorded polarity word, not an authored sentence.
+        if _conf >= 0.5 and "still forming" not in _word and "still forming" not in _reason:
+            return (f"yeah, i still {_word} {target} — that hasn't shifted for me. "
+                    f"{_reason}")
+        # Low / provisional confidence (e.g. "still forming a view") -> honest
+        # that it was tentative, invite the user's take.
+        return (f"i hadn't settled on {target} — last i said i was still forming "
+                f"a view. has your sense of it changed? i'm happy to land one.")
 
     def _route_self_experience(self, user_input: str) -> Optional[str]:
         """Experiential self-model responder (cortical midline structures).
