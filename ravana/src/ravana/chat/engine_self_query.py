@@ -919,13 +919,35 @@ class SelfQueryMixin:
         #     per-topic table), so the reply content still comes from RAVANA's
         #     cognition. Fail-open: if no target is found, fall through so a
         #     genuine world query is still answered normally.
+        # GENERALIZE (round 2026-08-19T1026Z): the topic-opinion frame set was
+        # too narrow — "what do you make of X" / "what's your read on X" /
+        # "what's your take on X" / "your opinion of X" all ask RAVANA's view on
+        # a SUBJECT but only the "...about/on" shapes matched. The unmatched
+        # frames fell through to _try_hippocampal_retrieval, which echoed an
+        # UNRELATED stored user utterance ("you told me earlier: actual second
+        # thought makes me uneasy..." — measured T20/T56/T66 this round: "what
+        # do you make of the bronze age collapse" → that echo). That is a
+        # self/other boundary violation (the reply is the USER's words, not
+        # RAVANA's stance) and reads as a bug, not a personality.
+        # Fix: extend the opinion frame to cover the "...of" / "read of" shapes
+        # (make of / take of / read of / think of / opinion of), so they route to
+        # the EXISTING state-driven _agent_stance_on resolver (real cognitive
+        # state, no authored prose). The downstream FIRST-content-noun topic
+        # extraction already handles "...make of X" correctly (topic = X, the
+        # word after the cue). No per-topic table — adding "make of" does not
+        # special-case any subject, it just recognizes another syntactic way to
+        # ask "what do you think about X". Fail-open: a genuine world query
+        # ("what do you make of paris" with no agent-opinion intent) still
+        # falls through because _agent_stance_on returns the honest
+        # topic-named deflection when it holds no value there.
         _agent_opinion = re.search(
             r"\b(do\s+you\s+(think|feel|believe|have|care)\b"
-            r"|what\s+do\s+you\s+(think|feel|believe)\s+about\b"
+            r"|what\s+do\s+you\s+(think|feel|believe|make)\s+(about|of)\b"
             r"|how\s+do\s+you\s+(feel|think)\s+about\b"
-            r"|your\s+(opinion|thoughts|take|view|stance)\s+on\b"
-            r"|what's\s+your\s+(opinion|take|view|stance)\s+on\b"
-            r"|what\s+is\s+your\s+(opinion|take|view|stance)\s+on\b)",
+            r"|what's\s+your\s+(opinion|take|read|view|stance)\s+(on|of)\b"
+            r"|your\s+(opinion|thoughts|take|read|view|stance)\s+(on|of)\b"
+            r"|what\s+is\s+your\s+(opinion|take|read|view|stance)\s+(on|of)\b"
+            r"|what\s+do\s+you\s+make\s+of\b)",
             t)
         # Self-opinion RECALL: a follow-up that asks whether the agent STILL
         # holds a stance it previously computed ("are you still cautious about
