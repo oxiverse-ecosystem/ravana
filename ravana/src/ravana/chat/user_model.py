@@ -1191,6 +1191,27 @@ class UserModel:
                 name_cap = " ".join(w.capitalize() for w in name_cand.split())
                 self.user_name = name_cap
                 _put_fact("name", name_cap, 0.6)
+        # PRE-SCAN (Finding 5 fix): learn runtime relationship roles BEFORE the
+        # appositive pet pattern processes them, so "my bhabhi NAME" doesn't get
+        # mis-stored as a pet species. Check for "my <word> <Proper>" pattern
+        # and learn the role word if it's not already a known pet species.
+        try:
+            from .relation_attrs import relation_of as _prescan_ra_of
+            from .relation_attrs import learn_relation as _prescan_ra_learn
+            from .pet_slots import species_of as _prescan_pet_of
+        except Exception:
+            _prescan_ra_of = lambda w: None
+            _prescan_ra_learn = lambda w: ""
+            _prescan_pet_of = lambda w: None
+        _prescan_mk = re.search(r"\bmy\s+([a-z][a-z]+)\b\s+([A-Z][\w'-]*)", q_clean)
+        if _prescan_mk:
+            _prescan_word = _prescan_mk.group(1).lower()
+            # Learn it as a relationship role if it's not a known pet species
+            if _prescan_pet_of(_prescan_word) is None and _prescan_ra_of(_prescan_word) is None:
+                try:
+                    _prescan_ra_learn(_prescan_word)
+                except Exception:
+                    pass
         for _pat in (
             # D2 (round v2): tolerate an optional "name" word between the
             # relation and "is" so "my daughter name is ingrid" stores

@@ -20,9 +20,11 @@ The reply content is driven by REAL mined state (the disclosed entity + name +
 activity), never authored prose.
 """
 import os, sys, io, contextlib
+from pathlib import Path
 os.environ["RAVANA_OFFLINE"] = "1"
-PROJ = r"C:\Users\Likhith\Documents\Projects\ravana"
-for p in (PROJ, f"{PROJ}\\ravana_ml\\src", f"{PROJ}\\ravana\\src"):
+# Derive repo root from this test file's location
+PROJ = Path(__file__).resolve().parent.parent.parent
+for p in (str(PROJ), str(PROJ / "ravana_ml" / "src"), str(PROJ / "ravana" / "src")):
     sys.path.insert(0, p)
 from ravana.chat.engine import CognitiveChatEngine
 

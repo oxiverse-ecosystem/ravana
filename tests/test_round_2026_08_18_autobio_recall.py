@@ -53,7 +53,11 @@ def test_salience_most_about_me_is_store_driven():
     profile, NOT be None (the old gap) and NOT be an agent-own echo."""
     e = _eng()
     _seed_user(e)
-    out = e._autobiographical_recall("what will you remember most about me")
+    out = e.process_turn("what will you remember most about me")
+    out = out if isinstance(out, str) else str(out)
+    strat = getattr(e, "_last_strategy", None)
+    assert strat == "autobiographical_recall", \
+        f"expected autobiographical_recall strategy, got {strat}"
     assert out is not None, "expected a composed answer, got None"
     assert out.startswith("the thing that stands out most is "
                            ) or "what stays with me most is" in out
@@ -71,7 +75,11 @@ def test_confirmation_liked_topic_reads_real_user_stance():
     real stance, NOT echo RAVANA's own reply about 'hiking'."""
     e = _eng()
     _seed_user(e)
-    out = e._autobiographical_recall("did i tell you i liked cold-weather hiking?")
+    out = e.process_turn("did i tell you i liked cold-weather hiking?")
+    out = out if isinstance(out, str) else str(out)
+    strat = getattr(e, "_last_strategy", None)
+    assert strat == "autobiographical_recall", \
+        f"expected autobiographical_recall strategy, got {strat}"
     assert out is not None, "expected a confirmation, got None"
     assert "yes" in out.lower()
     assert "cold weather hiking" in out, \
@@ -85,7 +93,11 @@ def test_confirmation_unknown_returns_honest_no():
     fabricated yes."""
     e = _eng()
     _seed_user(e)
-    out = e._autobiographical_recall("did i tell you i liked underwater basket weaving?")
+    out = e.process_turn("did i tell you i liked underwater basket weaving?")
+    out = out if isinstance(out, str) else str(out)
+    strat = getattr(e, "_last_strategy", None)
+    assert strat == "autobiographical_recall", \
+        f"expected autobiographical_recall strategy, got {strat}"
     assert "not that i recall" in out, f"expected honest no, got: {out!r}"
 
 
@@ -94,7 +106,11 @@ def test_family_mention_confirmation_reads_fact():
     fact (theo restores vintage radios)."""
     e = _eng()
     _seed_user(e)
-    out = e._autobiographical_recall("have i told you about my brother?")
+    out = e.process_turn("have i told you about my brother?")
+    out = out if isinstance(out, str) else str(out)
+    strat = getattr(e, "_last_strategy", None)
+    assert strat == "autobiographical_recall", \
+        f"expected autobiographical_recall strategy, got {strat}"
     assert out is not None and "theo" in out, \
         f"expected brother fact, got: {out!r}"
 
@@ -106,8 +122,12 @@ def test_contradiction_reconcile_reports_current_stance():
     _seed_user(e)
     # Simulate the user softening the stance, then reconciling.
     e.process_turn("wait, my knee's been acting up — i can't really hike like i used to")
-    out = e._autobiographical_recall(
+    out = e.process_turn(
         "earlier i told you i loved cold-weather hiking. does that still fit, or have i changed?")
+    out = out if isinstance(out, str) else str(out)
+    strat = getattr(e, "_last_strategy", None)
+    assert strat == "autobiographical_recall", \
+        f"expected autobiographical_recall strategy, got {strat}"
     assert out is not None, "expected a reconcile answer, got None"
     assert "cold weather hiking" in out, \
         f"reconcile did not cite the real topic: {out!r}"
@@ -125,8 +145,11 @@ def test_agent_self_question_still_falls_through():
     e = _eng()
     _seed_user(e)
     e._record_own_reply("what do you think about music", "i think music is a way i process the day.", "music")
-    out = e._autobiographical_recall("what did you say about music?")
-    assert out is None, f"autobiographical gate wrongly intercepted agent-self query: {out!r}"
+    out = e.process_turn("what did you say about music?")
+    out = out if isinstance(out, str) else str(out)
+    strat = getattr(e, "_last_strategy", None)
+    assert strat != "autobiographical_recall", \
+        f"autobiographical gate wrongly intercepted agent-self query (strategy={strat}): {out!r}"
 
 
 def teardown_module(module):

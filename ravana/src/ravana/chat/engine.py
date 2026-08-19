@@ -2596,9 +2596,15 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             r"who\s+(?:are|do)\s+(?:the\s+)?people\s+in\s+my\s+family"
             r")\b", q)
         if _enum:
+            # Detect category: pets-only vs relations-only vs both
+            _cat = None
+            if re.search(r"\bpets?\b", q):
+                _cat = "pets"
+            elif re.search(r"\b(family|relatives?|relations?|people|kin)\b", q):
+                _cat = "relations"
             return self._enumerate_entities(
                 is_relation_attribute, base_relation,
-                is_pet_attribute, base_species)
+                is_pet_attribute, base_species, category=_cat)
 
         # ── (1) Biographical self-fact recall ──────────────────────────────
         # "what's my name" / "where do i live/work" / "what do i keep/have on
@@ -3549,6 +3555,30 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     for _act in _since_acts:
                         if _stem(_act) in _stems or _act == _val.split()[0]:
                             _verb_ctx.setdefault(_act, []).append(_val)
+            # Extract query object (if any) for object-disambiguated matching.
+            # When the query explicitly names an object ("building widgets"),
+            # require the stored activity to match that object, not just the verb.
+            _query_obj = None
+            _ACTIVITY_VERBS = {
+                "building", "build", "builds", "built",
+                "keeping", "keep", "keeps", "kept",
+                "restoring", "restore", "restores", "restored",
+                "fixing", "fix", "fixes", "fixed",
+                "studying", "study", "studies", "studied",
+                "making", "make", "makes", "made",
+                "working", "work", "works", "worked",
+                "teaching", "teach", "teaches", "taught",
+                "learning", "learn", "learns", "learned",
+                "playing", "play", "plays", "played",
+            }
+            _qtoks_list = [t for t in re.findall(r"[a-z']+", q.lower())]
+            for _i, _qt in enumerate(_qtoks_list):
+                if _qt in _ACTIVITY_VERBS and _i + 1 < len(_qtoks_list):
+                    _next = _qtoks_list[_i + 1]
+                    _STOP_QUERY_OBJ = {"the", "a", "an", "my", "this", "that"}
+                    if _next not in _STOP_QUERY_OBJ:
+                        _query_obj = _stem(_next)
+                        break
             _best_year = None
             _best_age = None
             _best_score = 0
@@ -3568,6 +3598,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         _yr = int(_parts[1])
                     except ValueError:
                         continue
+                    # Object-disambiguated matching: if query has an explicit object,
+                    # require the stored activity to contain that object (stem match).
+                    if _query_obj is not None:
+                        _act_stems = {_stem(t) for t in re.findall(r"[a-z']+", _act)}
+                        if _query_obj not in _act_stems:
+                            continue
                     _ctx = _v + " " + " ".join(_verb_ctx.get(_act, ""))
                     _score = _activity_query_overlap(_ctx, q, _q_tokens)
                     if _score > _best_score:
@@ -3583,6 +3619,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         _age = int(_parts[1])
                     except ValueError:
                         continue
+                    # Object-disambiguated matching: if query has an explicit object,
+                    # require the stored activity to contain that object (stem match).
+                    if _query_obj is not None:
+                        _act_stems = {_stem(t) for t in re.findall(r"[a-z']+", _act)}
+                        if _query_obj not in _act_stems:
+                            continue
                     _ctx = _v + " " + " ".join(_verb_ctx.get(_act, ""))
                     _score = _activity_query_overlap(_ctx, q, _q_tokens)
                     if _score > _best_score:
@@ -4253,7 +4295,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         return f"i think you're {_w} {_key}, though i'm not totally sure yet."
 
     def _enumerate_entities(self, is_relation_attribute, base_relation,
-                            is_pet_attribute, base_species) -> str:
+                            is_pet_attribute, base_species, category=None) -> str:
         """Category-aware enumeration recall (feature t_f1dae1aa).
 
         A user asked to LIST the entities RAVANA has learned in a category
@@ -4261,6 +4303,9 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         you about"). There is no specific cue word, so this SCANS the live
         PersonalFactStore and collects every relationship fact and every pet
         fact, then lists them.
+
+        Args:
+            category: Optional filter — "relations", "pets", or None (both).
 
         Design — passes the no-hardcoding line by construction:
         - Membership in a category is decided by the SHARED lexicon helpers
@@ -4285,7 +4330,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         """
         pf = getattr(getattr(self, "user_model", None), "personal_facts", None)
         if pf is None:
-            return "you haven't told me about any family or pets yet."
+            if category == "relations":
+                return "you haven't told me about any family yet."
+            elif category == "pets":
+                return "you haven't told me about any pets yet."
+            else:
+                return "you haven't told me about any family or pets yet."
         _facts = (getattr(pf, "facts", {}) or {})
         _rel_bits = []
         _pet_bits = []
@@ -4303,13 +4353,13 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             _v = (getattr(_f, "value", "") or "").strip()
             if not _v:
                 continue
-            if is_relation_attribute(_a):
+            if is_relation_attribute(_a) and category != "pets":
                 _key = _a
                 if _key in _seen_rel:
                     continue
                 _seen_rel.add(_key)
                 _rel_bits.append(f"your {_a} {_v}")
-            elif is_pet_attribute(_a):
+            elif is_pet_attribute(_a) and category != "relations":
                 _sp = base_species(_a)
                 _key = (_sp or _a) + "|" + _v.lower()
                 if _key in _seen_pet:
@@ -4317,7 +4367,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 _seen_pet.add(_key)
                 _pet_bits.append(f"your {_sp or _a} is {_v}")
         if not _rel_bits and not _pet_bits:
-            return "you haven't told me about any family or pets yet."
+            if category == "relations":
+                return "you haven't told me about any family yet."
+            elif category == "pets":
+                return "you haven't told me about any pets yet."
+            else:
+                return "you haven't told me about any family or pets yet."
         _bits = _rel_bits + _pet_bits
         if len(_bits) == 1:
             return f"you've told me about: {_bits[0]}."
