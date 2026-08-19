@@ -4352,6 +4352,69 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 r"you told me about|what were you|recall what you)\b", _q_low))
             if _is_recall_q:
                 return  # skip; the recall gate reads the store instead
+            # Salient content tokens of the ELICITING utterance. These are the
+            # words that describe what the user was actually talking about — used
+            # both to pick a topic key AND (DEFECT C/D FIX) to require a later
+            # recall query to reference the SAME subject before its stored reply
+            # is echoed. Storing the full token set (not a single last word)
+            # lets retrieval demand genuine topical overlap, killing the
+            # incidental-word collision that produced wrong-topic echoes.
+            # GENERALIZE (round 2026-08-16): the old floor required words
+            # >=4 chars, so a 3-letter (or shorter) salient topic — "sea",
+            # "dog", "art", "sky", "war", "ice" — was never stored as a
+            # reply key. A later "what did you say about the sea" then had
+            # NO exact topic and fell to the GloVe neighbor fallback, which
+            # returned an UNRELATED stored reply (measured this round: the
+            # sea reply was dropped, and "earlier you said something about
+            # the sea" returned the cold reply). Real topics are often short
+            # (everything a person talks about). Lower the floor to >=2 and
+            # keep a small seed ALLOWLIST of genuine short content words so a
+            # 2-3 letter token that is real concept (sea/sky/dog/cat/...) is
+            # stored, while function words (do/be/it/up/so) stay excluded.
+            # The allowlist is seed vocabulary (RAVANA-expandable in
+            # principle, degrades gracefully), not per-topic authored prose.
+            _SHORT_OK = {
+                "sea", "sky", "dog", "cat", "art", "war", "ice", "fog",
+                "sun", "moon", "star", "rain", "snow", "wind", "fire",
+                "love", "hate", "calm", "pain", "joy", "hope", "fear",
+                "code", "data", "mind", "self", "free", "true", "song",
+                "book", "film", "food", "wine", "tea", "city", "town",
+                "bird", "fish", "tree", "wall", "road", "time", "life",
+            }
+            # ADDITION (round 2026-08-17): exclude tail-scaffold words from
+            # being a retrieval key. Keying a reply by the question's LAST
+            # content word produced junk keys ("most", "behind", "would",
+            # "view", "start", "change", "first", "live", "does", "will",
+            # "been", "conversation") that later collided with unrelated recall
+            # queries sharing that tail word (e.g. "what will you remember
+            # most about me" -> a reply keyed under "most" about social
+            # media). These are structural question-tail tokens, not concepts,
+            # so they must never be a key or match. Seed vocabulary (function
+            # words), RAVANA-expandable, NOT authored content.
+            _TAIL_SCAFFOLD = {
+                "most", "behind", "would", "view", "start", "change",
+                "first", "live", "does", "will", "been", "conversation",
+                "good", "really", "something", "anything", "thing",
+                "things", "everything", "nothing", "me", "myself",
+                "yourself", "itself", "them", "they", "us", "one", "way",
+                "else", "rather", "instead", "that", "this", "these",
+                "those", "ever", "even", "also", "too", "back",
+            }
+            _words = [w for w in re.findall(r"[a-z']+", _q_low)
+                      if (len(w) >= 4 or w in _SHORT_OK)
+                      and w not in _TAIL_SCAFFOLD
+                      and w not in (
+                          "about", "think", "feel", "what", "tell",
+                          "like", "love", "hate", "do", "you", "your",
+                          "again", "really", "something", "music",
+                          "earlier", "before", "said", "say", "told",
+                          "tellme", "anything", "mention", "mentioned",
+                          "form", "formed", "opinion", "remember",
+                          "recall", "answer", "answered", "reply",
+                          "replied", "state", "stated", "still",
+                          "wonder", "wondering", "asked", "ask")]
+            if not _words:
+                return
             # Key by the grounded concept for this turn; fall back to the LAST
             # content word of the user query when the subject is a non-content
             # word (hello/how/bye/ravana). Prefer the last content word because in
@@ -4363,62 +4426,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                          "are you alive", "do you have a sense", "hello",
                          "hi ", "how are you", "what do you care")
                 if any(_s in _q_low for _s in _skip):
-                    return
-                # GENERALIZE (round 2026-08-16): the old floor required words
-                # >=4 chars, so a 3-letter (or shorter) salient topic — "sea",
-                # "dog", "art", "sky", "war", "ice" — was never stored as a
-                # reply key. A later "what did you say about the sea" then had
-                # NO exact topic and fell to the GloVe neighbor fallback, which
-                # returned an UNRELATED stored reply (measured this round: the
-                # sea reply was dropped, and "earlier you said something about
-                # the sea" returned the cold reply). Real topics are often short
-                # (everything a person talks about). Lower the floor to >=2 and
-                # keep a small seed ALLOWLIST of genuine short content words so a
-                # 2-3 letter token that is real concept (sea/sky/dog/cat/...) is
-                # stored, while function words (do/be/it/up/so) stay excluded.
-                # The allowlist is seed vocabulary (RAVANA-expandable in
-                # principle, degrades gracefully), not per-topic authored prose.
-                _SHORT_OK = {
-                    "sea", "sky", "dog", "cat", "art", "war", "ice", "fog",
-                    "sun", "moon", "star", "rain", "snow", "wind", "fire",
-                    "love", "hate", "calm", "pain", "joy", "hope", "fear",
-                    "code", "data", "mind", "self", "free", "true", "song",
-                    "book", "film", "food", "wine", "tea", "city", "town",
-                    "bird", "fish", "tree", "wall", "road", "time", "life",
-                }
-                # ADDITION (round 2026-08-17): exclude tail-scaffold words from
-                # being a retrieval key. Keying a reply by the question's LAST
-                # content word produced junk keys ("most", "behind", "would",
-                # "view", "start", "change", "first", "live", "does", "will",
-                # "been", "conversation") that later collided with unrelated recall
-                # queries sharing that tail word (e.g. "what will you remember
-                # most about me" -> a reply keyed under "most" about social
-                # media). These are structural question-tail tokens, not concepts,
-                # so they must never be a key or match. Seed vocabulary (function
-                # words), RAVANA-expandable, NOT authored content.
-                _TAIL_SCAFFOLD = {
-                    "most", "behind", "would", "view", "start", "change",
-                    "first", "live", "does", "will", "been", "conversation",
-                    "good", "really", "something", "anything", "thing",
-                    "things", "everything", "nothing", "me", "myself",
-                    "yourself", "itself", "them", "they", "us", "one", "way",
-                    "else", "rather", "instead", "that", "this", "these",
-                    "those", "ever", "even", "also", "too", "back",
-                }
-                _words = [w for w in re.findall(r"[a-z']+", _q_low)
-                          if (len(w) >= 4 or w in _SHORT_OK)
-                          and w not in _TAIL_SCAFFOLD
-                          and w not in (
-                              "about", "think", "feel", "what", "tell",
-                              "like", "love", "hate", "do", "you", "your",
-                              "again", "really", "something", "music",
-                              "earlier", "before", "said", "say", "told",
-                              "tellme", "anything", "mention", "mentioned",
-                              "form", "formed", "opinion", "remember",
-                              "recall", "answer", "answered", "reply",
-                              "replied", "state", "stated", "still",
-                              "wonder", "wondering", "asked", "ask")]
-                if not _words:
                     return
                 _topic = _words[-1]
             if not _topic or _topic in ("hello", "how", "bye"):
@@ -4441,6 +4448,16 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 "text": _store_text,
                 "turn": int(getattr(self, "turn_count", 0) or 0),
                 "t": time.time(),
+                # DEFECT C/D FIX: the full salient token set of the ELICITING
+                # utterance. Retrieval (see _route_agent_own_recall) requires a
+                # later recall query to share >=2 of these content tokens before
+                # echoing this reply, so incidental shared words (e.g. "people"
+                # appearing in both "are you the same ravana that talks to other
+                # people" and "earlier you said about tracking people") do NOT
+                # trigger a wrong-topic echo. Genuine same-subject recalls
+                # ("you talked about neuromorphic computing" vs src {neuromorphic,
+                # computing}) overlap on 2 and recall correctly.
+                "src_tokens": list(_words),
             }]
             self._own_reply_topic_idx[_topic] = 1
         except Exception:
@@ -4548,44 +4565,43 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                   if len(w) >= 3 and w not in _stop and w not in _TAIL_SCAFFOLD_REC]
         if not _cands:
             return None
-        # Exact topic hit first, then GloVe-neighbor fallback over stored topics.
+        # DEFECT C/D FIX (round 2026-08-19T0625Z): retrieve by TOPICAL OVERLAP
+        # with the stored reply's source utterance, not by substring match of the
+        # query against the stored KEY. The prior code matched query tokens
+        # against key strings (e.g. "people" in key "ravana talks people"), so an
+        # unrelated recall ("earlier you said about tracking people") echoed a
+        # reply that had nothing to do with the topic. Now we score every stored
+        # entry by how many content tokens the query shares with that entry's
+        # src_tokens (the salient words of the utterance that produced the reply),
+        # and only echo when the best overlap is >=2 — i.e. the user is asking
+        # about the SAME subject they raised before. A single incidental shared
+        # word (people/talk/about...) no longer triggers a wrong-topic echo; the
+        # query falls through to honest uncertainty instead. Genuine same-topic
+        # recalls ("you talked about neuromorphic computing" vs src
+        # {neuromorphic, computing}) overlap on 2 and recall correctly. Fully
+        # store-driven; no authored prose; no retraining.
         _store = getattr(self, "_own_replies", {}) or {}
         if not _store:
             return None
-        _topic_hit = None
-        for _c in _cands:
-            if _c in _store:
-                _topic_hit = _c
-                break
-        if _topic_hit is None:
-            # Cheap substring containment (e.g. "data" matches "dataownership").
-            for _c in _cands:
-                for _k in _store:
-                    if _c in _k or _k in _c:
-                        _topic_hit = _k
-                        break
-                if _topic_hit:
-                    break
-        if _topic_hit is None:
-            # REMOVED: unbounded GloVe-neighbor fallback (round 2026-08-17).
-            # It returned the NEAREST-EMBEDDING stored reply whenever no exact/
-            # substring topic matched — a source-monitoring confabulation (e.g.
-            # "what did you say about music?" -> the Brindlehollow reply at
-            # sim 0.699; "you mentioned being unsure whether you understand"
-            # -> the social-media reply at sim 0.751). The recalled reply had NO
-            # real connection to the asked-about topic, so it was a confident
-            # wrong-topic answer. Per the no-fake-depth rule and the
-            # source-monitoring doctrine, an honest "i don't have that stored"
-            # beats a confident wrong-topic reply. Retrieval is now anchored ONLY
-            # to a word the user actually typed (exact or substring containment),
-            # both of which are content-anchored. If the asked-about topic was
-            # never stored, we fall through to honest uncertainty below.
+        _q_set = set(_cands)
+        _best = None
+        _best_overlap = 0
+        for _k, _entries in _store.items():
+            if not _entries:
+                continue
+            _e = _entries[-1]
+            if not isinstance(_e, dict):
+                continue
+            _src = set(_e.get("src_tokens", []) or [])
+            if not _src:
+                continue
+            _ov = len(_q_set & _src)
+            if _ov > _best_overlap:
+                _best_overlap = _ov
+                _best = _e
+        if _best is None or _best_overlap < 2:
             return None
-        _entries = _store.get(_topic_hit) or []
-        if not _entries:
-            return None
-        _latest = _entries[-1]
-        _text = (_latest.get("text") if isinstance(_latest, dict) else None) or ""
+        _text = (_best.get("text") if isinstance(_best, dict) else None) or ""
         _text = _text.strip()
         if not _text:
             return None
