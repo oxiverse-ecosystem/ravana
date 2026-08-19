@@ -56,8 +56,14 @@ def test_salience_most_about_me_is_store_driven():
     out = e.process_turn("what will you remember most about me")
     out = out if isinstance(out, str) else str(out)
     strat = getattr(e, "_last_strategy", None)
-    assert strat == "autobiographical_recall", \
-        f"expected autobiographical_recall strategy, got {strat}"
+    # round 2026-08-19T1026Z (F1): _autobiographical_recall is invoked from
+    # WITHIN _structured_recall, and the caller labels every answer it
+    # returns (including this nested sub-path) "structured_recall" — there
+    # is no separate "autobiographical_recall" strategy label anywhere in
+    # the engine. See test_human_likeness_fixes.py's updated fail-closed
+    # label assertion for the same routing change.
+    assert strat == "structured_recall", \
+        f"expected structured_recall strategy, got {strat}"
     assert out is not None, "expected a composed answer, got None"
     assert out.startswith("the thing that stands out most is "
                            ) or "what stays with me most is" in out
@@ -78,8 +84,10 @@ def test_confirmation_liked_topic_reads_real_user_stance():
     out = e.process_turn("did i tell you i liked cold-weather hiking?")
     out = out if isinstance(out, str) else str(out)
     strat = getattr(e, "_last_strategy", None)
-    assert strat == "autobiographical_recall", \
-        f"expected autobiographical_recall strategy, got {strat}"
+    # round 2026-08-19T1026Z (F1): see note in
+    # test_salience_most_about_me_is_store_driven above.
+    assert strat == "structured_recall", \
+        f"expected structured_recall strategy, got {strat}"
     assert out is not None, "expected a confirmation, got None"
     assert "yes" in out.lower()
     assert "cold weather hiking" in out, \
@@ -96,8 +104,10 @@ def test_confirmation_unknown_returns_honest_no():
     out = e.process_turn("did i tell you i liked underwater basket weaving?")
     out = out if isinstance(out, str) else str(out)
     strat = getattr(e, "_last_strategy", None)
-    assert strat == "autobiographical_recall", \
-        f"expected autobiographical_recall strategy, got {strat}"
+    # round 2026-08-19T1026Z (F1): see note in
+    # test_salience_most_about_me_is_store_driven above.
+    assert strat == "structured_recall", \
+        f"expected structured_recall strategy, got {strat}"
     assert "not that i recall" in out, f"expected honest no, got: {out!r}"
 
 
@@ -109,8 +119,10 @@ def test_family_mention_confirmation_reads_fact():
     out = e.process_turn("have i told you about my brother?")
     out = out if isinstance(out, str) else str(out)
     strat = getattr(e, "_last_strategy", None)
-    assert strat == "autobiographical_recall", \
-        f"expected autobiographical_recall strategy, got {strat}"
+    # round 2026-08-19T1026Z (F1): see note in
+    # test_salience_most_about_me_is_store_driven above.
+    assert strat == "structured_recall", \
+        f"expected structured_recall strategy, got {strat}"
     assert out is not None and "theo" in out, \
         f"expected brother fact, got: {out!r}"
 
@@ -126,8 +138,10 @@ def test_contradiction_reconcile_reports_current_stance():
         "earlier i told you i loved cold-weather hiking. does that still fit, or have i changed?")
     out = out if isinstance(out, str) else str(out)
     strat = getattr(e, "_last_strategy", None)
-    assert strat == "autobiographical_recall", \
-        f"expected autobiographical_recall strategy, got {strat}"
+    # round 2026-08-19T1026Z (F1): see note in
+    # test_salience_most_about_me_is_store_driven above.
+    assert strat == "structured_recall", \
+        f"expected structured_recall strategy, got {strat}"
     assert out is not None, "expected a reconcile answer, got None"
     assert "cold weather hiking" in out, \
         f"reconcile did not cite the real topic: {out!r}"

@@ -997,12 +997,15 @@ class SelfQueryMixin:
             # cue ("do you think we should protect mangroves") leaves topic
             # words AFTER the scaffolding ("we/should/protect"), so the final
             # content token is the real target (mangroves), not the verb
-            # scaffolding (protect). Strip closed-class words.
-            _toks = [w for w in re.findall(r"[a-z']+", _tail)
-                     if w not in ("about", "on", "the", "a", "an", "of", "for",
-                                  "with", "to", "we", "should", "could", "would",
-                                  "is", "are", "do", "does", "you", "i", "it",
-                                  "that", "this", "and", "or")]
+            # scaffolding (protect). Strip closed-class words. Hyphens are
+            # kept INSIDE a token ("ultra-processed") so a compound topic is
+            # echoed back exactly as the user phrased it, not split apart.
+            _CLOSED_CLASS = ("about", "on", "the", "a", "an", "of", "for",
+                              "with", "to", "we", "should", "could", "would",
+                              "is", "are", "do", "does", "you", "i", "it",
+                              "that", "this", "and", "or")
+            _raw_toks = re.findall(r"[a-z]+(?:[-'][a-z]+)*", _tail)
+            _toks = [w for w in _raw_toks if w not in _CLOSED_CLASS]
             # DEFECT A (round 2026-08-19T0625Z) TOPIC FIX: the prior code took
             # _toks[-1] (the LAST content token) as the stance target. That is
             # only correct for imperative frames like "do you think we should
@@ -1024,7 +1027,25 @@ class SelfQueryMixin:
             _i = 0
             while _i < len(_toks) and _toks[_i] in _VERB_SCAFFOLD:
                 _i += 1
-            _target = _toks[_i] if _i < len(_toks) else ""
+            # GENERALIZE (round 2026-08-19T1026Z, DEFECT B): the target was a
+            # SINGLE token (_toks[_i]), so a compound topic ("bronze age
+            # collapse", "tidal marsh restoration", "ultra-processed food",
+            # "bioluminescent fungi") was clipped to its first word only
+            # ("bronze", "tidal", "ultra", "bioluminescent") and the stance
+            # reply named the wrong (truncated) subject. Fix: keep consuming
+            # content tokens after the head until a clause-boundary word ends
+            # the noun phrase — either a closed-class connective ("as", which
+            # introduces a comparison clause: "silence AS a response" ->
+            # topic is just "silence") or a verb that FOLLOWS the topic
+            # ("ultra-processed food MATTERS to me"). This is a small,
+            # structural boundary set (not a per-topic table) so it
+            # generalizes to any multiword subject the user names.
+            _PHRASE_END = _CLOSED_CLASS + ("as", "matters", "matter", "seems",
+                                            "feels", "sounds", "looks", "means")
+            _j = _i
+            while _j < len(_toks) and _toks[_j] not in _PHRASE_END:
+                _j += 1
+            _target = " ".join(_toks[_i:_j])
             _stance, _reason = self._agent_stance_on(_target)
             _reason = (_reason or "").rstrip()
             if _reason and not _reason.endswith((".", "!", "?")):
