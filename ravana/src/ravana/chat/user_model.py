@@ -57,6 +57,19 @@ _ACTIVITY_VERB_LEXICON = {
     "knit", "sew", "weld", "forge", "carve", "compose", "record",
     "perform", "coach", "train", "compete", "spin", "weave", "mount",
     "trade", "host", "guide", "climb", "repair", "work", "draw", "drew",
+    # Round 2026-08-19T1026Z: broaden the seed verb vocabulary with common
+    # activity verbs the relationship/pet miner needs to split name/verb/object.
+    # Previously absent, so disclosures using them ("my sister Pora SENDS
+    # postcards", "my cat Mochi KNOCKS the vase", "my grandmother LEFT me a
+    # compass", "my aunt NAMED the gull Greywing", "the steppe PASSES through
+    # her letters") were dropped or had the whole clause merged into the name
+    # (measured T33/T58/T68 this round). Seed data, RAVANA-expandable; adding
+    # a verb only widens recognition, never reply content.
+    "send", "sent", "knock", "knocked", "give", "gave", "given", "leave",
+    "left", "name", "named", "pass", "passed", "passes", "bring", "brought",
+    "show", "showed", "told", "say", "said", "call", "called", "visit",
+    "visited", "help", "helped", "love", "loved", "like", "hate", "hated",
+    "feed", "fed", "walk", "walked", "care", "cared", "protect", "protected",
 }
 
 
@@ -1566,26 +1579,46 @@ class UserModel:
                     if is_activity_verb(_t.lower().strip(".,!?")):
                         _vidx = _i
                         break
+                # GENERALIZE (round 2026-08-19T1026Z): a relationship disclosure
+                # establishes the RELATIONSHIP + NAME regardless of whether an
+                # activity verb is recognised. The old code only stored when an
+                # activity verb was found (is_activity_verb), so disclosures
+                # using verbs the lexicon lacks (sends, knocks, left/gave,
+                # named, passes) were DROPPED entirely and later recall had
+                # nothing to retrieve (measured T33/T58/T68 this round). The
+                # relationship+name is the PRIMARY fact; the verb+object is a
+                # bonus when present. Mine the name even with no verb found.
+                # No per-role table: the head word is the user's own relation
+                # word, the name the user's own noun, the verb (when present)
+                # real content from the user's words.
+                _name = (" ".join(_toks[:_vidx]).lower()
+                         if _vidx is not None
+                         else " ".join(_toks).lower())
+                _name = _strip_obj_framers(_name).strip(" .,!?")
+                _val = ""
                 if _vidx is not None:
-                    _name = " ".join(_toks[:_vidx]).lower()
                     _verb = _toks[_vidx].lower().strip(".,!?")
                     _obj_rest = " ".join(_toks[_vidx + 1:])
-                    # trim at a framer conjunction so trailing framing ("every
-                    # sunday") doesn't bloat the stored object — mirrors the old
-                    # regex object boundary.
                     _obj_raw = re.split(
                         r"\b(?:when|but|because|and)\b", _obj_rest)[0].strip(" ,.!?")
                     _obj = self._opinion_topic(_obj_raw.lower()) or ""
                     _obj = _strip_obj_framers(_obj)
                     if _obj and len(_obj.split()) <= 5:
-                        # COMBINED-attr storage: ("i", "<rel> <name>",
-                        # "<verb> <object>") — reachable from recall branch
-                        # (c) / the open-ended recaller by the relation head
-                        # "rel". A name-less disclosure ("my sister climbs
-                        # rocks") stores attr="sister"; still reachable from
-                        # "my sister". Content from the user's own words.
-                        _attr = f"{_kin} {_name}".strip() if _name else _kin
-                        _put_fact(_attr, f"{_verb} {_obj}", 0.6)
+                        _val = f"{_verb} {_obj}"
+                # COMBINED-attr storage: (i, "<rel> <name>", "<verb> <object>").
+                # Reachable from recall branch (c) / open-ended recaller by the
+                # relation head. A name-less disclosure (e.g. "my grandmother
+                # left me her brass compass" — no name given) stores the
+                # relationship itself as the attr so the fact still exists and is
+                # recallable; the value carries the verb+object. When no activity
+                # verb is present, value is the relation word so the triple still
+                # exists. Content from the user's own words; no authored reply,
+                # no retraining.
+                if _name:
+                    _attr = f"{_kin} {_name}".strip()
+                else:
+                    _attr = _kin
+                _put_fact(_attr, _val if _val else _kin, 0.6)
 
 
         # D3 (round v3): capture self-disclosed ACTIVITIES / possessions that the
