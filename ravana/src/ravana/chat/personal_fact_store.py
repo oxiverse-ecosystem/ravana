@@ -235,6 +235,19 @@ class Stance:
     arousal: float = 0.0      # emotional arousal at expression time
     turn_number: int = 0
     rehearsal_count: int = 1
+    # PROVENANCE (round 2026-08-20T0701Z-followup, residual limitation #1):
+    # the salient content nouns of the utterance that PRODUCED this stance. The
+    # keyed `topic` is often a SUBORDINATE concept ("silence", "kindness") while
+    # the user's intent named a SALIENT broader concept ("winter", "people")
+    # that also occurs in the same sentence. Recording the salient nouns lets the
+    # resolver + reversal miner bridge a LATER co-mention of that broader concept
+    # back to the stance, so "am i for or against winter" / a reversal about
+    # "street art" now link even though the stored key is a different word. Seed
+    # is an EMPTY set per stance (nothing hardwired); it is grown ONLINE from the
+    # live utterance's real content words, and RAVANA can revise it by further
+    # talk (express_stance merges provenance across encounters). No per-topic
+    # table, no retraining.
+    provenance: List[str] = field(default_factory=list)
 
 
 class UserStanceStore:
@@ -292,19 +305,30 @@ class UserStanceStore:
 
     def express_stance(self, topic: str, polarity: float,
                        confidence: float = 0.5, valence: float = 0.0,
-                       arousal: float = 0.0, source: str = "seed_regex") -> None:
+                       arousal: float = 0.0, source: str = "seed_regex",
+                       provenance: Optional[List[str]] = None) -> None:
         """Store or weighted-merge a stance on `topic`.
 
         Repeats shift polarity toward the new signal and raise confidence
         (running mean), mirroring how repeated expression entrenches attitude.
+
+        `provenance` (optional) carries the salient content nouns of the
+        utterance that produced this stance (see the Stance.provenance field
+        doc). When supplied it is MERGED into the stance's provenance set
+        (online growth — the second encounter's nouns add to the first's),
+        so the resolver/reversal miner can later bridge a broader co-mention
+        back to this stance. Seed is an empty set; RAVANA grows it from real
+        input and can revise it. No per-topic table, no retraining.
         """
         key = topic.lower().strip()
+        _prov = [w.lower() for w in (provenance or []) if w]
         existing = self.stances.get(key)
         if existing is None:
             self.stances[key] = Stance(
                 topic=topic, polarity=float(polarity), confidence=float(confidence),
                 valence=valence, arousal=arousal,
-                turn_number=self.turn_num, rehearsal_count=1)
+                turn_number=self.turn_num, rehearsal_count=1,
+                provenance=list(_prov))
             return
         _n = existing.rehearsal_count + 1
         _w_old = existing.confidence * existing.rehearsal_count
@@ -315,6 +339,10 @@ class UserStanceStore:
         existing.arousal = (existing.arousal * existing.rehearsal_count + arousal) / _n
         existing.rehearsal_count = _n
         existing.turn_number = self.turn_num
+        # Online merge: union the new provenance nouns into the held stance.
+        _seen = set(existing.provenance)
+        _seen.update(_prov)
+        existing.provenance = list(_seen)
 
     def query_stance(self, topic: str) -> Optional[Stance]:
         return self.stances.get(topic.lower().strip())
@@ -327,6 +355,21 @@ class UserStanceStore:
         exact key, substring, then content-word overlap, returning the strongest
         link. Returns None when no stored stance plausibly matches — so recall
         and reversal never fabricate a read on a topic the user has no stance on.
+
+        PROVENANCE BRIDGE (round 2026-08-20T0701Z-followup, residual limitation
+        #1): when the phrase co-mentions a SALIENT concept that was part of the
+        UTTERANCE that produced a stance but is NOT the keyed topic (e.g. the
+        user said "i love the silence of deep winter" -> stance keyed "silence"
+        with provenance {"silence","deep","winter"}), a later "am i for or
+        against winter" must still resolve to that stance. The exact/substring/
+        Jaccard passes above miss this because the phrase word ("winter") is
+        neither the key ("silence") nor a token of it. This final pass checks
+        each held stance's PROVENANCE set: when the phrase shares a content noun
+        with a stance's provenance (and NOT merely with a different stance's
+        key), bridge to THAT stance. Generic and store-driven: the link is
+        derived from the real provenance recorded at mining time, no per-topic
+        table, no retraining. Prefers the stance with the strongest provenance
+        overlap; falls back to None when nothing connects.
         """
         stances = self.stances
         if not stances:
@@ -346,7 +389,27 @@ class UserStanceStore:
             j = len(hw & kw) / len(hw | kw)
             if j > best_j:
                 best, best_j = k, j
-        return best if best_j >= 0.4 else None
+        if best is not None:
+            return best if best_j >= 0.4 else None
+        # PROVENANCE BRIDGE: phrase word co-occurs with a stance's recorded
+        # provenance but not its key. Bridge to the stance whose provenance
+        # best overlaps the phrase's content nouns.
+        if hw:
+            _best, _best_score = None, 0.0
+            for k, s in stances.items():
+                _prov = getattr(s, "provenance", None) or []
+                if not _prov:
+                    continue
+                _overlap = len(hw & set(_prov))
+                if _overlap <= 0:
+                    continue
+                # Strength = overlap count, slightly preferring the more
+                # confident stance on ties (a real read beats a weak one).
+                _score = _overlap + 0.001 * s.confidence
+                if _score > _best_score:
+                    _best, _best_score = k, _score
+            return _best
+        return None
 
     def reinforce(self, topic: str) -> None:
         s = self.stances.get(topic.lower().strip())
@@ -433,7 +496,8 @@ class UserStanceStore:
     def get_state(self) -> Dict:
         return {
             'stances': {k: (v.topic, v.polarity, v.confidence, v.valence,
-                            v.arousal, v.turn_number, v.rehearsal_count)
+                            v.arousal, v.turn_number, v.rehearsal_count,
+                            list(v.provenance))
                        for k, v in self.stances.items()},
             'turn_num': self.turn_num,
         }
@@ -441,8 +505,10 @@ class UserStanceStore:
     def set_state(self, state: Dict) -> None:
         self.stances = {}
         for k, v in state.get('stances', {}).items():
-            topic, pol, conf, val, aro, tn, rc = v
+            topic, pol, conf, val, aro, tn, rc = v[:7]
+            prov = list(v[7]) if len(v) > 7 else []
             self.stances[k.lower().strip()] = Stance(
                 topic=topic, polarity=pol, confidence=conf, valence=val,
-                arousal=aro, turn_number=tn, rehearsal_count=rc)
+                arousal=aro, turn_number=tn, rehearsal_count=rc,
+                provenance=prov)
         self.turn_num = state.get('turn_num', 0)
