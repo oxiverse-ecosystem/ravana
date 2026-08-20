@@ -2890,7 +2890,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     # D7 (round 2026-08-16T1745Z): verb-phrase values (from the
                     # relationship-activity miner) render without a copula.
                     try:
-                        from .user_model import is_activity_verb as _is_act
+                        from .user_model import is_verb_phrase as _is_act
                     except Exception:
                         _is_act = lambda w: False
                     _vv = (_v or "").strip()
@@ -2945,7 +2945,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         # shared SEED lexicon (user_model.is_activity_verb), not
                         # a per-topic table and not authored prose.
                         try:
-                            from .user_model import is_activity_verb as _is_act
+                            from .user_model import is_verb_phrase as _is_act
                         except Exception:
                             _is_act = lambda w: False
                         _vv = (_v or "").strip()
@@ -3057,7 +3057,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         # D7 (round 2026-08-16T1745Z): verb-phrase values
                         # (relationship-activity miner) render without a copula.
                         try:
-                            from .user_model import is_activity_verb as _is_act
+                            from .user_model import is_verb_phrase as _is_act
                         except Exception:
                             _is_act = lambda w: False
                         _vv = (_v or "").strip()
@@ -3100,7 +3100,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     is_pet_attribute as _or_is_pet,
                     base_species as _or_base_sp,
                 )
-                from .user_model import is_activity_verb as _or_is_act
+                from .user_model import is_verb_phrase as _or_is_act
             except Exception:  # pragma: no cover - imports are always present
                 _or_rel_of = lambda w: None
                 _or_is_rel = lambda a: False
@@ -3337,7 +3337,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                             _v = (_act or _val or "").strip()
                             if _v:
                                 try:
-                                    from .user_model import is_activity_verb as _is_act
+                                    from .user_model import is_verb_phrase as _is_act
                                 except Exception:
                                     _is_act = lambda w: False
                                 _vv = _v.split()
@@ -3806,7 +3806,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         if _attr_d == "event":
             return f"you mentioned {val}"
         try:
-            from .user_model import is_activity_verb as _is_act
+            from .user_model import is_verb_phrase as _is_act
         except Exception:
             _is_act = lambda w: False
         _kv = (val or "").strip()
@@ -4282,7 +4282,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 # The verb test uses the shared SEED lexicon
                 # (user_model.is_activity_verb); content comes from the store.
                 try:
-                    from .user_model import is_activity_verb as _is_act
+                    from .user_model import is_verb_phrase as _is_act
                 except Exception:
                     _is_act = lambda w: False
                 _kv = (_val or "").strip()
