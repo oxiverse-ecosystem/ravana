@@ -998,10 +998,24 @@ class SelfQueryMixin:
             # words AFTER the scaffolding ("we/should/protect"), so the final
             # content token is the real target (mangroves), not the verb
             # scaffolding (protect). Strip closed-class words.
+            # DEFECT B (round 2026-08-19T1628Z) PRONOUN-LEAK FIX: the closed-class
+            # strip list excluded "i" but NOT the first/second-person pronouns and
+            # their contractions, so a user-referential opinion frame
+            # ("what do you make of MY lutefisk habit", "how do you feel about ME
+            # leaving the water", "do you think I'M contradictory") set the stance
+            # target to the pronoun itself -> "i'm still forming a view on my" /
+            # "on me" / "on i'm" (measured T38/T66/T70). The topic is the real
+            # noun the pronoun modifies, not the pronoun. Extend the exclusion to
+            # all person pronouns + contractions so the extractor skips them and
+            # lands on the actual subject (lutefisk / leaving / contradictory).
+            # Structural (a closed-class vocabulary), no per-topic table.
             _toks = [w for w in re.findall(r"[a-z']+", _tail)
                      if w not in ("about", "on", "the", "a", "an", "of", "for",
                                   "with", "to", "we", "should", "could", "would",
-                                  "is", "are", "do", "does", "you", "i", "it",
+                                  "is", "are", "do", "does", "you", "your",
+                                  "i", "i'm", "i've", "i'd", "i'll", "my", "me",
+                                  "we're", "our", "us", "they", "them", "he",
+                                  "she", "his", "her", "its", "their", "it",
                                   "that", "this", "and", "or")]
             # DEFECT A (round 2026-08-19T0625Z) TOPIC FIX: the prior code took
             # _toks[-1] (the LAST content token) as the stance target. That is
@@ -1025,7 +1039,14 @@ class SelfQueryMixin:
             while _i < len(_toks) and _toks[_i] in _VERB_SCAFFOLD:
                 _i += 1
             _target = _toks[_i] if _i < len(_toks) else ""
-            _stance, _reason = self._agent_stance_on(_target)
+            if not _target:
+                # DEFECT B guard: after stripping closed-class + pronoun tokens the
+                # query named no real topic (e.g. "how do you feel about me?" with
+                # no object). Don't answer "a view on <empty>"; fall through so the
+                # next handler (or honest uncertainty) deals with it. Fail-open.
+                _agent_opinion = None
+            else:
+                _stance, _reason = self._agent_stance_on(_target)
             _reason = (_reason or "").rstrip()
             if _reason and not _reason.endswith((".", "!", "?")):
                 _reason += "."
