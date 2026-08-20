@@ -17,8 +17,11 @@ dist/
 *.tar.gz
 
 # ── Runtime Data (auto-saved model weights, caches) ──
-# NOTE: data/ravana_glove_cache.npz is tracked via git-lfs (critical CI dep),
-# and data/*.json are committed config. Everything else under data/ is ignored.
+# NOTE: data/ravana_glove_cache.npz is a regenerable GloVe projection cache.
+# It is NOT committed (was previously tracked via git-lfs and burned the repo's
+# 10GB LFS bandwidth quota on every CI run). The engine rebuilds it on first
+# boot from the raw GloVe file, so it must stay out of version control.
+# data/*.json are committed config. Everything else under data/ is ignored.
 #
 # Use `data/*` (contents), NOT `data/` (the directory). Ignoring the directory
 # itself means git never descends into it, so the `!data/...` re-includes below
@@ -28,7 +31,6 @@ dist/
 # away from being committed.
 data/*
 !data/*.json
-!data/ravana_glove_cache.npz
 !data/common_facts.json
 weights/
 user_models/
