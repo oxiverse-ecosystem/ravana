@@ -1064,7 +1064,15 @@ class SelfQueryMixin:
             _VERB_SCAFFOLD = ("protect", "save", "keep", "stop", "ban", "allow",
                                "support", "defend", "fund", "build", "make",
                                "change", "help", "avoid", "prevent",
-                               "leaving", "feel", "think", "believe")
+                               "leaving", "feel", "think", "believe",
+                               # attitude verbs (round 2026-08-20T0701Z regression
+                               # t_a9ce2550): 'do you think i LIKE X' must resolve
+                               # the topic to X, not 'like X'. Structural verb
+                               # vocabulary — generalizes to any preference verb.
+                               "like", "likes", "liked", "love", "loves",
+                               "loved", "hate", "hates", "hated", "prefer",
+                               "prefers", "preferred", "dislike",
+                               "dislikes", "disliked")
             _i = 0
             while _i < len(_toks) and (_toks[_i] in _PRON_OR_CLOSED
                                        or _toks[_i] in _VERB_SCAFFOLD
