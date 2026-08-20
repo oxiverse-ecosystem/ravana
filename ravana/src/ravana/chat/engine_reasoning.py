@@ -75,8 +75,10 @@ def _reflective_ack_from_vad(engine) -> str:
     except Exception:
         _v = 0.0
     # The ONLY authored tokens are single valence words derived from the live
-    # band; the number rendered is the real measured valence. No sentence is
-    # authored per topic — if no word fits the band, emit the bare frame.
+    # band; NO internal measurement number is shown to the user (that would leak
+    # RAVANA's private VAD state into product-facing text). If no word fits the
+    # band, emit the bare neutral acknowledgement. No sentence is authored per
+    # topic.
     _word = ""
     if _v <= -0.3:
         _word = "heavy"
@@ -87,8 +89,8 @@ def _reflective_ack_from_vad(engine) -> str:
     elif _v >= 0.1:
         _word = "open"
     if not _word:
-        return f"noted (valence {_v:+.2f})."
-    return f"it sounds {_word} (valence {_v:+.2f})."
+        return "noted."
+    return f"it sounds {_word}."
 
 
 # ── Attribute-predicate → value vocabulary (C1, LoCoMo gap fix) ─────────────
@@ -2140,7 +2142,30 @@ class ReasoningMixin:
                     # it stores "crazed glaze" and a later contradiction
                     # ("i prefer a clean uniform one now") is handled by the
                     # opinion/stance circuit rather than polluting the fact.
-                    parsed = ("like", ml.group(1).lower(), ml.group(2).strip(" .!?"))
+                    # FIX B2 (round 2026-08-20T1229Z): trim a trailing discourse
+                    # connector ("though"/"although"/"yet"/"however"/...) from the
+                    # captured object so "i love small jazz clubs though" stores
+                    # "small jazz clubs" (clean), not "small jazz clubs though".
+                    # Without this the connector leaked into both the liked-object
+                    # fact AND the reply text ("good to know — you love small
+                    # jazz clubs though"). The connector set is reused from
+                    # UserModel._OPINION_STOP so the topic-key and the reply agree
+                    # by construction. Structural closed-class set; generalizes to
+                    # any connector the user rotates in, no per-topic rule, no
+                    # authored reply. Fail-open: if the import fails we keep the
+                    # raw object (prior behavior).
+                    _raw_obj = ml.group(2).strip(" .!?")
+                    try:
+                        from .user_model import UserModel as _UM
+                        _CONN = getattr(_UM, "_OPINION_STOP", set())
+                    except Exception:
+                        _CONN = set()
+                    _raw_obj = re.sub(
+                        r"\s+(?:though|although|yet|however|nevertheless|"
+                        r"nonetheless|still|anyway|besides|meanwhile|otherwise)"
+                        r"[\.\!\?\,]*$",
+                        "", _raw_obj, flags=re.IGNORECASE)
+                    parsed = ("like", ml.group(1).lower(), _raw_obj)
 
         # Persist via the existing UserModel store (single source of truth).
         try:
@@ -2373,7 +2398,47 @@ class ReasoningMixin:
                     # ("cat", "cat_2"); render naturally ("your cat is gravy").
                     _phrase = _pet_slots.render(attr, val)
                 if _phrase is None:
-                    _phrase = f"your {attr} is {val}"
+                    # D7 (round 2026-08-16T1745Z): a relationship-activity fact
+                    # stores a VERB-PHRASE value ("weaves baskets"), not a noun
+                    # phrase. Render WITHOUT a copula so the ack is grammatical
+                    # ("your grandmother indira weaves baskets") instead of
+                    # "your grandmother indira is weaves baskets". The verb test
+                    # uses the shared SEED lexicon user_model.is_activity_verb
+                    # (same one the cued-recall grammar fix uses), so ack and
+                    # recall agree by construction. Content comes from the
+                    # PersonalFactStore, never authored prose.
+                    try:
+                        from .user_model import is_activity_verb as _is_act
+                    except Exception:
+                        _is_act = lambda w: False
+                    _vv = (str(val) or "").strip().split()
+                    if _vv and _is_act(_vv[0]):
+                        _phrase = f"your {attr} {val}"
+                    else:
+                        # ROUND 2026-08-15T1537Z FIX (D2): a `since`/`since_age`
+                        # fact stores its value as "<activity> <year>" (e.g. "move
+                        # 2009") for date-grounded recall. The generic
+                        # `"your {attr} is {val}"` fallback would ack it as
+                        # "your since is move 2009" — ungrammatical and leaks the
+                        # internal fact-shape. Render it as a natural
+                        # acknowledgement of a dated activity instead, mirroring the
+                        # recall phrasing ("you started <activity> in <year>"). The
+                        # content still comes from the stored fact, not authored
+                        # prose; the activity is realized via the SAME gerund helper
+                        # the recall path uses so ack and recall agree.
+                        if attr in ("since", "since_age") and " " in str(val):
+                            _act, _, _yr = str(val).rpartition(" ")
+                            try:
+                                from ravana.chat.engine import _verb_phrase_to_gerund
+                                _act_g = _verb_phrase_to_gerund(_act)
+                            except Exception:
+                                _act_g = _act
+                            if attr == "since_age":
+                                _phrase = f"you've been {_act_g} since you were about {_yr}"
+                            else:
+                                _phrase = f"you started {_act_g} in {_yr}"
+                        else:
+                            _phrase = f"your {attr} is {val}"
             else:
                 _ent = _subj
                 _phrase = {
@@ -2387,7 +2452,20 @@ class ReasoningMixin:
                     "is": f"your {_ent} is {val}",
                 }.get(attr, None)
                 if _phrase is None:
-                    _phrase = f"your {_ent}'s {attr} is {val}"
+                    # D7 (round 2026-08-16T1745Z): mirror the self-subject
+                    # verb-phrase rule for entity-keyed facts so possessive /
+                    # relationship activity disclosures ("my partner runs a
+                    # bakery") ack without a spurious copula. Shared seed
+                    # lexicon; content from the store.
+                    try:
+                        from .user_model import is_activity_verb as _is_act
+                    except Exception:
+                        _is_act = lambda w: False
+                    _ev = (str(val) or "").strip().split()
+                    if _ev and _is_act(_ev[0]):
+                        _phrase = f"your {_ent}'s {attr} {val}"
+                    else:
+                        _phrase = f"your {_ent}'s {attr} is {val}"
             # Return the rendered relation phrase only (e.g. "you do chai
             # stall"); the caller wraps it in the "noted — i'll remember ..."
             # frame. Returning a ready-made ack string here caused a tuple-
