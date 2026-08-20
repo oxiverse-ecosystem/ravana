@@ -1407,19 +1407,76 @@ class UserModel:
                     if _sp in _pet_slots._PRONOUN_STOP:
                         continue
                     _species = _pet_slots.species_of(_sp)
+                    _species_is_seed = _species is not None
                     if _species is None and _sp.isalpha():
                         _species = _pet_slots.learn_species(_sp)
                     elif _species is None:
                         _species = _sp
                     if _species is not None:
+                        # PRESERVE THE SURFACE SPECIES PHRASE (round
+                        # 2026-08-20T1229Z, pet-resolver hardening). The catch-all
+                        # is greedy: a disclosure like "i keep a pet parrot named
+                        # Mango" has TWO species words before "named" ("pet" then
+                        # "parrot"). The REGEX only captures the word IMMEDIATELY
+                        # before "named" — "parrot" — and species_of('parrot')
+                        # collapses it to its seed CANON 'bird', storing the bare
+                        # ('i','bird',<name>) fact. But the possession pattern
+                        # (r"\bi\s+(?:have|keep)\s+(?:a|an|the)\s+<species phrase>
+                        # \s+(?:named|called)\s+<name>") captures the FULL surface
+                        # "pet parrot" and stores the entity-keyed
+                        # ('pet parrot','name',<name>) fact. The two miners then
+                        # DISAGREE on the key ("bird" vs "pet parrot"), and the
+                        # pet/relationship recaller (engine.py 1d branch) only
+                        # scans subject-'i' facts — so it surfaces the bare canon
+                        # "your bird is mango." instead of the user's own words
+                        # "your pet parrot is mango." Fix: when the captured token
+                        # is a SEED canon (parrot->bird) AND the same surface
+                        # species phrase was ALSO stored by the possession pattern
+                        # (i.e. the prior-token word is 'pet' / a known species and
+                        # it forms a compound "<prior> <captured>"), keep the FULL
+                        # surface compound as the slot key instead of collapsing to
+                        # the canon. This makes the catch-all and the possession
+                        # pattern AGREE on the key by construction, so the recaller
+                        # renders the surface phrase the user actually said. The
+                        # compound is still resolved through pet_slots (every
+                        # component is a seed/learned species), so no per-animal
+                        # table, no authored reply. A lone non-compound capture
+                        # (e.g. "i got a border collie named Biscuit" -> species
+                        # 'dog' but no 'pet' prefix) still collapses to the canon
+                        # exactly as before, so legit pet capture is unchanged.
+                        _surface = _sp
+                        # Look at the ORIGINAL text before the match to find the
+                        # word immediately preceding the captured species token
+                        # (group(0) only spans "<species> named <name>", so its
+                        # own prefix is empty). A disclosure like
+                        # "i keep a pet parrot named Mango" leaves "pet" right
+                        # before "parrot"; capture it so the compound surface key
+                        # can be reconstructed.
+                        _pre = q_clean[: _m.start()].rstrip()
+                        _prior = _pre.split()[-1].lower() if _pre else ""
+                        # When the captured token collapses to a SEED canon AND
+                        # the word immediately before it ("pet"/a known species)
+                        # forms a compound surface phrase, prefer keeping the FULL
+                        # surface compound as the slot key. The possession pattern
+                        # stores the entity-keyed ('<compound>','name',<name>)
+                        # fact; aligning the catch-all to the same surface key
+                        # makes miner + recaller agree by construction instead of
+                        # emitting the bare canon ('bird') that the recaller
+                        # renders as "your bird". Single-token captures (no
+                        # qualifying prior word) keep collapsing to the canon, so
+                        # legit pet capture is unchanged.
+                        if (_species_is_seed
+                                and _prior in ("pet",)
+                                and _pet_slots.species_of(_prior) is not None):
+                            _surface = f"{_prior} {_sp}"
                         for _nm in _names:
                             _nm = _nm.strip().strip(".,!?")
                             if not _nm:
                                 continue
                             _i = 1
-                            while _pet_slots.slot_for(_species, _i) in self.personal_facts.facts:
+                            while _pet_slots.slot_for(_surface, _i) in self.personal_facts.facts:
                                 _i += 1
-                            _put_fact(_pet_slots.slot_for(_species, _i), _nm, 0.6)
+                            _put_fact(_pet_slots.slot_for(_surface, _i), _nm, 0.6)
                     continue
                 # APPOSITIVE PET (round 2026-08-17T1730Z, 6f): "my pet raccoon
                 # Pip steals..." / "my dog Rex barks" / "my cat Mochi sleeps".
