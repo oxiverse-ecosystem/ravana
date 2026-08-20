@@ -3394,6 +3394,21 @@ class UserModel:
         # generalizes to any connector the user rotates in, no per-topic rule.
         "though", "although", "yet", "however", "nevertheless", "nonetheless",
         "still", "anyway", "besides", "meanwhile", "otherwise",
+        # Round 2026-08-20T1935Z FRAGMENT FIX: a simile connector ("like")
+        # and a sequence connector ("after" / "before") left DANGLING
+        # PREPOSITION/CONNECTIVE fragments in mined topics. Observed: "i keep
+        # grinning like an idiot" -> topic "keep grinning like"; "petrichor
+        # after a storm is my favorite" -> topic "petrichor after"; the same
+        # class would dangle "the silence before sleep" -> "silence before".
+        # Both are open-class-looking heads that are actually closed-class
+        # connectives the cut-loop should have terminated on. "like" is
+        # already excluded from being a STANCE VERB (the like/love detector
+        # names the verb explicitly), so adding it here only affects topic
+        # normalization, never preference detection. Structural closed-class
+        # set; no per-topic rule. Cuts at the connector so "keep grinning like
+        # an idiot" -> "keep grinning", "petrichor after a storm" ->
+        # "petrichor", "silence before sleep" -> "silence".
+        "like", "after", "before",
 
         "really", "very", "just", "only", "also", "too", "quite", "more",
         "most", "much", "many", "such", "own", "same", "other", "another",
