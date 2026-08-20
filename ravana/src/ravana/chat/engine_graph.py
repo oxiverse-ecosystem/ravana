@@ -199,6 +199,9 @@ class GraphMixin:
         """
         if getattr(self, "_glove_proj", None) is None:
             return False
+        if getattr(self, "_glove_vecs_proj", None) is not None \
+                and getattr(self, "_glove_word_index", None) is not None:
+            return True
         if getattr(self, "_glove_raw_vecs", None) is not None \
                 and getattr(self, "_glove_word_index", None) is not None:
             return True
@@ -319,12 +322,21 @@ class GraphMixin:
                 # actually queried, not with the whole vocabulary.
                 self._glove_words = words
                 self._glove_word_index = {w: i for i, w in enumerate(words)}
-                # Raw vectors kept once; projection is deferred to lookup.
+                # Raw vectors (n_words, glove_dim=100) are only needed to build
+                # the projected (n_words, dim=64) array. Project the WHOLE
+                # vocabulary ONCE here and drop the raw 100-D array so it is not
+                # kept resident in every pytest-xdist worker. At -n 4 that frees
+                # ~58 MB/worker (~230 MB total) of OOM-crash pressure, and
+                # _glove_vector then slices an already-projected row instead of
+                # doing a 64x100 matmul per lookup (cheaper AND correct — no
+                # per-key memo that could be poisoned during __init__).
+                self._glove_vecs_proj = (proj @ vecs.T).T.astype(np.float32)  # (n_words, dim)
+                del vecs
                 # `glove_ready` is the availability predicate — callers must
                 # not test `_glove_vecs` directly, so this stays an empty
                 # dict purely as the file-read fallback's own store.
                 self._glove_vecs = {}
-                self._glove_raw_vecs = vecs  # (n_words, glove_dim) float32
+                self._glove_raw_vecs = None  # raw 100-D no longer resident
                 # Only the per-key memo from _glove_vector; not the full 400k map.
                 self._glove_vector_cache = {}
 
@@ -521,21 +533,20 @@ class GraphMixin:
     def _glove_vector(self, label: str) -> Optional[np.ndarray]:
         """Look up a label in GloVe, project to self.dim, return unit vector.
 
-        The projection is computed FRESH on every call. The array-backed store
-        (``_glove_raw_vecs`` + ``_glove_word_index``) keeps the full vocabulary
-        as one ``(n_words, glove_dim)`` array instead of two 400k-entry dicts,
-        so a cold engine boots light (≈0 projected memory; the original eager
-        dicts cost ~330 MB/engine and multiplied by the pytest-xdist worker
-        count they OOM-killed workers on a memory-tight CI box).
+        The projection is computed ONCE at boot (the whole vocabulary is
+        projected into ``_glove_vecs_proj``, a single (n_words, dim) array) and
+        the raw 100-D vectors are discarded, so a cold engine boots light and
+        each pytest-xdist worker holds only the projected array. This replaced
+        the earlier lazy per-call 64x100 matmul (and before that, two eager
+        400k-entry dicts that cost ~330 MB/engine and OOM-killed workers on a
+        memory-tight CI box under -n 4).
 
         We deliberately do NOT memoize the per-key projection. A memo seeded
         during ``__init__`` (e.g. the decoder-vocab build calls _glove_vector
         before/while glove state settles) would persist a vector projected with
-        a not-yet-final ``_glove_proj``/``_glove_raw_vecs`` and silently poison
-        later lookups (the intent router anchors flipped, regression in
-        test_self_directed_promoted_pre_admit_no_empty_regression). The
-        projection is a 64×100 matmul — microseconds — so computing it eagerly
-        per call is correct and cheap, and always reflects the live glove state.
+        a not-yet-final ``_glove_proj`` and silently poison later lookups. The
+        projected array is precomputed once at boot (after glove state is
+        final), so lookups are both cheap and always correct.
 
         Defensive: a bare engine constructed via ``__new__`` (e.g. in unit
         tests that skip ``__init__``) has no GloVe state. Treat a missing glove
@@ -543,9 +554,9 @@ class GraphMixin:
         raising AttributeError — callers already branch on a None result.
         """
         # Fast path: array-backed store (the memory-efficient cache path).
-        raw_vecs = getattr(self, "_glove_raw_vecs", None)
+        proj_vecs = getattr(self, "_glove_vecs_proj", None)
         word_index = getattr(self, "_glove_word_index", None)
-        if raw_vecs is not None and word_index is not None:
+        if proj_vecs is not None and word_index is not None:
             w = label.lower().strip()
             idx = word_index.get(w)
             if idx is None and len(w) > 1:
@@ -553,14 +564,11 @@ class GraphMixin:
             if idx is None and len(w) > 2:
                 idx = word_index.get(w[:-1])
             if idx is not None:
-                proj = getattr(self, "_glove_proj", None)
-                if proj is None:
-                    return None
-                pv = proj @ raw_vecs[idx]
+                pv = proj_vecs[idx].astype(np.float32)
                 norm = np.linalg.norm(pv)
                 if norm > 0:
                     pv /= norm
-                return pv.astype(np.float32)
+                return pv
             return None
         # Legacy / file-read fallback: self._glove_vecs is a dict.
         vecs = getattr(self, "_glove_vecs", None)
