@@ -4927,12 +4927,32 @@ class ResponseGenMixin(ChainWalkerMixin):
         # valence band. Root cause of the identical-reply defect: appraisal
         # computes valence x arousal x dominance and the realizer consumed
         # only valence, so every negative disclosure collapsed to one string.
-        affect_term = (word or "").strip() if isinstance(word, str) else ""
-        if affect_term.startswith("loss:") or len(affect_term.split()) != 1:
-            # Only a single lexical affect term names a felt state; a phrase
-            # ("going through something hard") is a cause description and would
-            # read as broken grammar in the "feeling X" frame.
+        # Only seed `affect_term` from `word` when `word` is a RECOGNIZED
+        # affect/state word. The affect detector's top-scored token is NOT
+        # always a felt state — it can be an EVENT/ACTIVITY noun ("racing",
+        # "burnt") or a discourse word ("sure", "literally"), because the
+        # detector scores semantic associates of the utterance too. Seeding
+        # affect_term from a non-affect `word` produced the broken
+        # "feeling racing is hard" / "feeling literally is a lot" replies.
+        # The copula scan below still OVERRIDES with the user's own "i feel X"
+        # word when present (validated by is_affect_term at line ~4981), so a
+        # real named feeling is never lost. Validation vocabulary is the shared
+        # broad affect-term lexicon (user_model.is_affect_term) — seed
+        # vocabulary, not an authored per-topic list. No retraining.
+        try:
+            from .user_model import is_affect_term as _is_affect_term
+        except Exception:
+            _is_affect_term = lambda w: False
+        _aw = (word or "").strip() if isinstance(word, str) else ""
+        if (_aw.startswith("loss:") or len(_aw.split()) != 1
+                or not _is_affect_term(_aw)):
+            # Only a single recognized affect term names a felt state; a phrase
+            # ("going through something hard") or a non-affect word is cleared
+            # so the reply falls back to the valence band, not a broken
+            # "feeling <noun>" frame.
             affect_term = ""
+        else:
+            affect_term = _aw
         # C-fix (round 2026-08-08b): when the user EXPLICITLY names a felt state
         # via a feeling-copula ("i feel hollow", "i'm scared"), prefer that word
         # over a co-occurring EVENT word the detector scored higher. Otherwise
@@ -5044,12 +5064,18 @@ class ResponseGenMixin(ChainWalkerMixin):
         # word; nothing authored. Hold the open question only when the state is
         # genuinely ambiguous ("mixed"). Fail-closed: when no word was surfaced,
         # fall back to the open question.
-        if isinstance(word, str) and word and not word.startswith("loss:"):
+        # The content comes from the user's OWN felt word (validated
+        # affect_term, not the raw detector token which can be a non-affect
+        # noun) plus the state-derived valence word; nothing authored. Hold the
+        # open question only when the state is genuinely ambiguous ("mixed").
+        # Fail-closed: when no validated affect word was surfaced, fall back to
+        # the open question.
+        if affect_term:
             if val_word != "mixed":
-                return (f"i hear you — feeling {word} is a lot, and it sounds "
-                        f"{val_word}.", "emotional_empathy")
-            return (f"i hear you — feeling {word} is a lot. how are you feeling, "
-                    f"really?", "emotional_empathy")
+                return (f"i hear you — feeling {affect_term} is a lot, and it "
+                        f"sounds {val_word}.", "emotional_empathy")
+            return (f"i hear you — feeling {affect_term} is a lot. how are you "
+                    f"feeling, really?", "emotional_empathy")
         return (f"i hear you. how are you feeling, really?",
                 "emotional_empathy")
 

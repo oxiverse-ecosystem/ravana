@@ -1664,8 +1664,19 @@ class UserModel:
                     _attr = f"{_kin} {_name}".strip()
                 else:
                     _attr = _kin
-                if not _put_fact_done:
-                    _put_fact(_attr, _val if _val else _kin, 0.6)
+                # GENERALIZE (round 2026-08-20T0701Z): never store a DEGENERATE
+                # relationship fact whose value is just the relationship word
+                # itself (e.g. ('i','grandmother','grandmother') from "my
+                # grandmother" with neither a recognized name nor activity verb).
+                # Such a fact carries no information and renders as the broken
+                # "your grandmother is grandmother." at recall. Only store when
+                # there is real content: a name was captured, OR an activity
+                # verb produced a value, AND the value is not identical to the
+                # relationship word. Content comes from the user's own words;
+                # honest skip when there is nothing informative to store.
+                _final_val = _val if _val else _kin
+                if not _put_fact_done and _final_val != _kin and (_name or _val):
+                    _put_fact(_attr, _final_val, 0.6)
 
 
         # D3 (round v3): capture self-disclosed ACTIVITIES / possessions that the
@@ -2085,6 +2096,32 @@ class UserModel:
             elif _am.group(2):
                 _age = _AGE_WORDS.get(_am.group(2).lower())
             if _age is None or _age < 1 or _age > 120:
+                continue
+            # GENERALIZE (round 2026-08-20T0701Z): the age-anchored-start miner
+            # must only capture the USER'S OWN activity-start ("i picked up the
+            # cello when i was nine"), NOT a "when i was N" clause that merely
+            # dates an event done TO the user by someone else ("my grandmother
+            # taught me to fold paper cranes when i was four"). The old code
+            # scanned the whole clause for any activity verb and stored
+            # since_age="taught fold paper cranes 4" — a junk fact that later
+            # leaks into recall ("since_age is my grandmother yuki taught me 4").
+            # Fix: skip when the sentence describes a RELATIONSHIP/third-party
+            # activity — i.e. it contains a "my <kin/role>" possessive (the
+            # activity's actor is the relative, not the user). The relationship
+            # vocabulary is the shared relation_attrs.relation_of lexicon
+            # (RAVANA-expandable, single source of truth) — no per-name table,
+            # no retraining. A genuine first-person age-start ("i was nine when
+            # i started dancing") has no such possessive and is still mined.
+            try:
+                from .relation_attrs import relation_of as _ra_of_d3
+            except Exception:
+                _ra_of_d3 = lambda w: None
+            _has_relative_actor = False
+            for _wt in re.findall(r"\bmy\s+([a-z][a-z]+)\b", q_clean, re.IGNORECASE):
+                if _ra_of_d3(_wt.lower()) is not None:
+                    _has_relative_actor = True
+                    break
+            if _has_relative_actor:
                 continue
             # The activity may appear EITHER before the age clause
             # ("i picked up the cello when i was nine") OR after it
