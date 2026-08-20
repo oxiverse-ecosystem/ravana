@@ -59,6 +59,16 @@ on this codebase:
   toward the opposite pole (`reef tank` +0.95 → −0.665) instead of leaving the
   stale one or stacking a contradiction. A flip on a topic you never stated an
   attitude about is a harmless no-op. See `docs/STANCE_REVERSAL.md`.
+- **Recodes a held stance on a FREE-FORM contradiction (no retraction keyword).**
+  You don't have to say *"i flipped"* — an opposed restatement with no retraction
+  cue still recodes the stance you hold: *"not all street art is good"* after
+  *"i love street art"* moves `street art` from +0.95 to −0.275; *"actually i've
+  gone off winter"* recodes the `silence` stance it already holds (the broader
+  co-mention bridges via provenance). Detection is a seed reassessment-affect
+  lexicon + `recode_stance_toward` (decisive blend toward the new value); a
+  same-sign reassessment or a neutral utterance leaves the stance untouched, and
+  there is no guessed reversal. No LLM, no retraining. See
+  `docs/CAPABILITY_FREE_FORM_CONTRADICTION_RECODE.md`.
 - **Links a broader-concept co-mention back to a held stance (provenance
   bridge).** Told *"i love the silence of deep winter"* it records the stance
   keyed on the subordinate head *silence* **and** keeps the salient broader
