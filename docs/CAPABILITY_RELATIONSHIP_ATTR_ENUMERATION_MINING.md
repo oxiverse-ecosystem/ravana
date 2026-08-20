@@ -229,7 +229,7 @@ online/incremental.
 | Relation-verb value capture (enumeration + connective preserved, ≤12 tok) | `ravana/src/ravana/chat/user_model.py:1929-1966` |
 | Combined-attr store key `("<rel> <name>", "<verb> <object>")` | `ravana/src/ravana/chat/user_model.py:1974` |
 | Recall/ack copula rule → `is_verb_phrase` (engine.py) | `ravana/src/ravana/chat/engine.py:2893, 2948, 3060, 3103, 3340, 4285` |
-| Recall/ack copula rule → `is_verb_phrase` (engine_reasoning.py) | `ravana/src/ravana/chat/engine_reasoning.py:2408, 2458` |
+| Recall/ack copula rule → `is_verb_phrase` (engine_reasoning.py) | `ravana/src/ravana/chat/engine_reasoning.py:2411, 2461` |
 | Self-profile dump → `is_verb_phrase` (engine_memory.py) | `ravana/src/ravana/chat/engine_memory.py:170` |
 
 ## Test coverage
