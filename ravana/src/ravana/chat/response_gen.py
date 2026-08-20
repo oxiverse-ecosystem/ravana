@@ -15,7 +15,7 @@ from collections import deque, Counter
 from .constants import STOP_WORDS, WEB_GARBAGE, TEEN_CONCEPT_LABELS
 from .constants import junk_score as _junk_score  # Round 4 (C1) read-time gate
 from .chain_walker import ChainWalkerMixin
-from .realizer_lexicon import RealizerLexicon, default_lexicon
+from .realizer_lexicon import RealizerLexicon, default_lexicon, has_clean_topic
 from ravana.language.surface_realizer import DiscourseState
 
 # Self-referential / meta tokens that should not be treated as ordinary
@@ -2543,30 +2543,12 @@ class ResponseGenMixin(ChainWalkerMixin):
         # was grounded; otherwise fall back to a light social acknowledgment.
         topic = (subject or "").strip().lower()
         is_about_user = bool(re.match(r"^(i|i'm|im|i am|we|we're|my|me)\b", t))
-        # FIX (round v-aug06b): a comparative/contrastive statement
-        # ("ceramics is more meditative than painting") resolves its CONTENT
-        # HEAD to a bare noun ("ceramics meditative painting") that no longer
-        # contains the markers "more/than", so the clean-topic test below
-        # misses it and the topic gets planted into "you're {topic}" as garble.
-        # Detect the comparative from the ORIGINAL utterance instead (the
-        # markers survive there) and force the topic-less acknowledgment.
-        _is_comparative = bool(re.search(
-            r"\b(more|most|less|better|worse|rather|instead|than|versus|vs\.?|"
-            r"compared to|compared with|prefer .* (to|over)|as .* as)\b", t, re.IGNORECASE))
-        # D2 (round 2026-08-08b-d): the "you're {topic}" lead templates are for
-        # SELF-DESCRIPTIONS ("i'm a teacher" -> "so you're a teacher"). An
-        # OPINION statement ("i think i was wrong about cassettes", "i prefer
-        # tape") is not an identity claim, so planting the opinion topic into
-        # "so you're {topic}" produces garble ("so you're cassettes"). Force the
-        # topic-less acknowledgment whenever the turn leads with an
-        # opinion/belief verb (think/feel/believe/prefer/love/like/hate/wrong
-        # about...) — the reflect-the-topic template only fits a copula
-        # self-description. Structural: an opinion-lead regex, not a per-topic
-        # guard; generalizes across every opinion the user can state.
-        _is_opinion = bool(re.search(
-            r"\b(i\s+(?:think|feel|believe|prefer|love|like|hate|dislike|enjoy|"
-            r"reckon|suppose|was\s+wrong\s+about|was\s+right\s+about))\b",
-            t, re.IGNORECASE))
+        # Clean-topic gating (comparative / opinion / clause detection) now lives
+        # in realizer_lexicon.has_clean_topic(topic, t) — called below when
+        # composing the lead. Detecting these from the ORIGINAL utterance `t`
+        # (not the reduced content head) is what stops "you're {topic}" garble
+        # for clauses like "believe nuclear energy" or opinions like
+        # "i think i was wrong about cassettes".
 
 
         # Affective self-disclosure ("i am sad", "i'm tired") must reach the
@@ -2608,21 +2590,10 @@ class ResponseGenMixin(ChainWalkerMixin):
         # subject carries no single reflectable noun, so we fall back to the
         # topic-less lead ("got it." / "nice.") which needs no slot and can
         # never garble. Only the clean-noun case uses the reflect-the-topic
-        # template. Generic: the clean-noun test is a small verb/copula set
-        # (closed-class, universal), not a per-topic table.
-        _has_clean_topic = bool(topic) and not re.search(
-            r"\b(believe|think|feel|am|is|are|was|were|been|being|love|like|"
-            r"hate|prefer|enjoy|dislike|mean|means|want|need|have|has|had|"
-            r"made|makes|say|says|got|get|know|knew|seem|seems|become|"
-            r"seriously|really|overrated|underrated|more|most|less|than|"
-            r"versus|vs\b|compared|rather|instead|better|worse)\b", topic)
-        if _is_comparative:
-            _has_clean_topic = False
-        if _is_opinion:
-            # An opinion ("i think i was wrong about cassettes") is not a
-            # self-description, so the "you're {topic}" template does not apply
-            # (it would yield "so you're cassettes"). Use the topic-less lead.
-            _has_clean_topic = False
+        # template. The gate itself lives in realizer_lexicon.has_clean_topic
+        # (single source of truth, shared with the unit test) so the runtime and
+        # the regression test cannot drift apart.
+        _has_clean_topic = has_clean_topic(topic, t)
         if is_about_user:
             _lead_pool = "user_leads" if _has_clean_topic else "user_leads_notopic"
         else:
@@ -4010,6 +3981,26 @@ class ResponseGenMixin(ChainWalkerMixin):
         subject = (ctx.subject or "").lower().strip()
         if not subject:
             return False
+        # D2 (round 2026-08-17T1126Z): reject generic comparative/null pronouns as
+        # a sub-answer target. Words like "other", "the former", "the latter",
+        # "one", "something", "this", "that", "it" are not real entities — a
+        # sub-answer that asserts a FACT about them ("other intrinsically forms
+        # light") is grounded to nothing and is decoder babble. This is the
+        # backstop for the decompose()/comparative() fix that already refuses to
+        # synthesize a "what is other" sub-question; here we also reject the case
+        # where such a stopword still reaches the monitor as the clause subject.
+        # The set is seed vocabulary (linguistic function words), not authored
+        # content; RAVANA cannot learn a "fact" about "other", so withholding is
+        # always correct here. Fail-closed: a real concept (>=3 chars, not in the
+        # set) passes untouched.
+        _GENERIC_CONCEPTS = {
+            "other", "others", "the former", "the latter", "former", "latter",
+            "one", "ones", "something", "anything", "everything", "nothing",
+            "this", "that", "these", "those", "it", "they", "them", "the same",
+            "another", "such", "which", "what", "who", "whom", "whose",
+        }
+        if subject in _GENERIC_CONCEPTS or subject.strip(" .") in _GENERIC_CONCEPTS:
+            return False
 
         # (1) Verified factual anchor for the subject — reuse the SAME evidence
         # the decomposition path trusts, so the two monitors share one notion of
@@ -4028,23 +4019,44 @@ class ResponseGenMixin(ChainWalkerMixin):
             elif subject in getattr(self, "_concept_sources", {}):
                 has_verified_fact = True
             else:
-                subj_vec = self._glove_vector(subject) if hasattr(self, "_glove_vector") else None
-                if subj_vec is None:
-                    # No embedding to judge by: weak grounding from graph presence.
-                    has_verified_fact = (
-                        subject in getattr(self, "_concept_keywords", {})
-                        or subject in getattr(self, "_concept_labels", {})
-                    )
+                # D4 (round 2026-08-19T1026Z): an UNKNOWN subject — not in the
+                # concept graph, no definition, no web-learned source — must NOT
+                # be grounded by free-association similarity alone. The SM path's
+                # associated_concepts are often the QUERY'S OWN near-neighbours
+                # (e.g. "tired" -> 'ever','lot','really'), all of which pass the
+                # >=0.30 GloVe check, so the old code accepted pure free-decode
+                # word salad for a subject RAVANA knows nothing durable about.
+                # Mirror the brain's source-monitoring (Johnson 1993) and the
+                # decomposition path's own D2 guard (_decomp_grounded): loose
+                # association may only LEAN on spreading activation for concepts
+                # that are ALREADY in the concept graph (a known concept RAVANA
+                # has actually learned). An unknown subject has no source for a
+                # claim, so it is withheld → honest metacognitive uncertainty.
+                # This is seed vocabulary (the concept-graph membership test),
+                # not authored content; RAVANA grows the graph online from chat
+                # and web learning, so a concept it later learns IS re-admitted.
+                _known = (
+                    subject in getattr(self, "_concept_keywords", {})
+                    or subject in getattr(self, "_concept_labels", {})
+                )
+                if not _known:
+                    has_verified_fact = False
                 else:
-                    best = -1.0
-                    for label, _score in (ctx.associated_concepts or [])[:12]:
-                        v = self._glove_vector(label)
-                        if v is None:
-                            continue
-                        sim = float(np.dot(subj_vec, v))
-                        if sim > best:
-                            best = sim
-                    has_verified_fact = best >= 0.30
+                    subj_vec = self._glove_vector(subject) if hasattr(self, "_glove_vector") else None
+                    if subj_vec is None:
+                        # No embedding to judge by: graph presence already
+                        # confirmed above → weak grounding holds.
+                        has_verified_fact = True
+                    else:
+                        best = -1.0
+                        for label, _score in (ctx.associated_concepts or [])[:12]:
+                            v = self._glove_vector(label)
+                            if v is None:
+                                continue
+                            sim = float(np.dot(subj_vec, v))
+                            if sim > best:
+                                best = sim
+                        has_verified_fact = best >= 0.30
 
         if not has_verified_fact:
             # Nothing verified to anchor the utterance to → ungrounded.
@@ -4385,10 +4397,27 @@ class ResponseGenMixin(ChainWalkerMixin):
         # guard so "tell me about someone who died" (third-entity, not the
         # user's own loss) does not fire. The noun is capped at 2 words so
         # "my dear old dog" still resolves to the entity.
-        _self_possessive_loss = bool(re.search(
-            r"\b(my|our)\s+\w*(?:\s+\w+)?\s+"
-            r"(died|dies|death|dead|passed|lost|losing|grief|grieving|"
-            r"mourn|mourning|suicide|funeral)\b", text))
+        # GENERALIZE (round 2026-08-19T1026Z): the self-possessive loss
+        # detector only matched the NOUN-FIRST shape "my <noun> <loss-term>"
+        # (my dog died). The VERB-FIRST shape "<loss-term> my <noun>"
+        # (i lost my grandmother) did NOT match, so a genuine bereavement
+        # routed to the generic "feeling lost is hard" frame (T15 this round:
+        # "i lost my grandmother" -> "feeling lost is hard"). The loss-term
+        # "lost" was treated as a felt-state word, not a possession-loss event.
+        # Fix: cover BOTH word orders with one alternation; the entity is the
+        # self-possessive noun in either case. No per-relation word list — any
+        # "my|our <noun>" co-occurring with a loss-term is bereavement, which is
+        # the broad class the original generalization intended.
+        _LOSS_VERB = (r"(?:died|dies|death|dead|passed|lost|losing|grief|"
+                      r"grieving|mourn|mourning|suicide|funeral)")
+        # Capture the self-possessive ENTITY in BOTH word orders so the
+        # extractor below reads one clean group. noun-first: g2; verb-first: g4.
+        _poss_loss_pat = re.compile(
+            r"\b(?:"
+            r"(my|our)\s+(\w+(?:\s+\w+)?)\s+" + _LOSS_VERB + r"|"
+            r"\b" + _LOSS_VERB + r"\s+(my|our)\s+(\w+(?:\s+\w+)?)"
+            r")\b")
+        _self_possessive_loss = bool(_poss_loss_pat.search(text))
         if any(t in text for t in _LOSS_TERMS):
             if _has_narrative_frame and not _self_possessive_loss:
                 # Loss word lives in a story/request frame, not a self-disclosure.
@@ -4408,15 +4437,36 @@ class ResponseGenMixin(ChainWalkerMixin):
                 # "hurting". The hippocampus retrieves the specific relationship;
                 # a human never uses one word for every loss. Encode as
                 # "loss:<entity>" so _emotional_response can specialize.
-                _ent_m = re.search(
-                    r"\b(?:my|our)\s+(\w+(?:\s+\w+)?)\s+"
-                    r"(?:died|dies|death|dead|passed|lost|losing|grief|"
-                    r"grieving|mourn|mourning|suicide|funeral)\b", text)
+                # Matches BOTH word orders (noun-first AND verb-first) so the
+                # entity is captured whichever shape the disclosure takes.
+                _ent_m = _poss_loss_pat.search(text)
                 _lost = ""
                 if _ent_m:
-                    _lost = _ent_m.group(1).strip()
-                    # drop a leading possessive/filler ("dear old dog" -> keep dog)
+                    # verb-first branch captured entity in group(4);
+                    # noun-first branch captured entity in group(2).
+                    _vf = _ent_m.group(4)
+                    if _vf:
+                        _lost = _vf.strip()
+                    else:
+                        _nf = _ent_m.group(2)
+                        if _nf:
+                            _lost = _nf.strip()
+                    # Drop leading/trailing filler (possessive or temporal
+                    # adjectives) so the named entity is the head noun, not a
+                    # bleeding word from the rest of the clause. "my grandmother
+                    # last" (from "last spring") -> "grandmother"; "my dear old
+                    # dog" -> "dog". The filler set is a small seed vocabulary
+                    # (not a per-entity table); removing one entry only loses
+                    # that one shape.
+                    _FILLER = {"dear", "old", "little", "late", "beloved",
+                               "last", "past", "this", "that", "next",
+                               "former", "poor", "sweet", "young", "big",
+                               "small", "our", "my"}
                     _lw = _lost.split()
+                    while len(_lw) > 1 and _lw[0].lower() in _FILLER:
+                        _lw = _lw[1:]
+                    while len(_lw) > 1 and _lw[-1].lower() in _FILLER:
+                        _lw = _lw[:-1]
                     if _lw:
                         _lost = _lw[-1]
                 return ("negative", f"loss:{_lost}" if _lost else "hurting")
@@ -4549,6 +4599,54 @@ class ResponseGenMixin(ChainWalkerMixin):
                     self._tmp_signed["neg"] = (av, w)
 
         if not vals:
+            # Copula-affect fallback (round 2026-08-15T0830Z): the VAD lexicon
+            # is a closed seed and does NOT contain every feeling word a human
+            # rotates in ("electrified", "giddy", "hollow", "terrified"...). A
+            # first-person feeling disclosure whose explicit affect word is absent
+            # from the VAD lexicon was returning None here and falling through to
+            # the degenerate "noted." ack — losing the empathic response entirely.
+            # Fix: if the utterance is a first-person FEELING-COPULA
+            # ("i felt/am/feel/get <word>"), treat the user's OWN felt word as the
+            # disclosure so the empathy responder can meet it. We accept ANY
+            # non-stopword head after the copula (not just a curated lexicon),
+            # because "i felt <x>" is structurally a self-report of a feeling
+            # regardless of whether <x> is in a seed list — expanding the lexicon
+            # per rotated probe would be whack-a-mole. The empathy responder
+            # already falls back to the cause-label signal to NAME the feeling
+            # when the word is unrecognized, so no authored reply is needed.
+            # Fails closed: ONLY fires on a genuine feeling-copula ("feel/felt/
+            # am/'m/get/got" as an affective state), so factual/action disclosures
+            # ("i keep bees", "i moved to X") still reach storage untouched.
+            try:
+                from ravana.chat.engine import _extract_user_affect_word
+                _aff = _extract_user_affect_word(text)
+            except Exception:
+                _aff = ""
+            if not _aff:
+                # Genuine feeling-copula only. The alternation puts the longer
+                # forms first so "i felt"/"i feel" win over bare "i".
+                _cop = re.search(
+                    r"\b(i\s+felt|i\s+feel|i\s+am|i'm|i\s+get|i\s+got)\s+"
+                    r"(?:so|really|very|quite|a\s+little\s+|kind\s+of\s+|"
+                    r"pretty\s+)?([a-z]+(?:[-][a-z]+)?)", text)
+                if _cop:
+                    _w = _cop.group(2).strip("'-")
+                    # The felt word is the token AFTER the copula. Reject the
+                    # copula word itself (e.g. "felt") and closed-class/action
+                    # verbs so only a real feeling attribution is captured.
+                    _STOP = {"it", "the", "a", "an", "this", "that", "to", "of",
+                             "in", "on", "for", "my", "your", "his", "her",
+                             "their", "you", "me", "we", "they", "he", "she",
+                             "and", "or", "but", "i", "am", "was", "were",
+                             "been", "like", "love", "hate", "think", "feel",
+                             "felt", "good", "bad", "keep", "kept", "move",
+                             "moved", "want", "need", "have", "had", "do", "did"}
+                    if _w not in _STOP and len(_w) > 2:
+                        _aff = _w
+            if _aff and re.search(
+                    r"\b(i\s+felt|i\s+feel|i\s+am|i'm|i\s+get|i\s+got)\b", text):
+                self._tmp_signed = None
+                return ("neutral", _aff)
             return None
         V_lex = float(np.average(vals, weights=weights))
 
@@ -4735,20 +4833,59 @@ class ResponseGenMixin(ChainWalkerMixin):
         # 0.0<=v<0.4 band and produced "what's got you feeling so MIXED?" — a
         # wrong affect tag on a happy moment. The disclosure kind is the ground
         # truth; RAVANA's own valence only fills in when kind is unspecified.
+        #
+        # ROUND 2026-08-15T1537Z FIX (D1): the neutral/copula-affect branch
+        # (kind == "neutral", e.g. "i felt buoyant" / "i'm unmoored") used to
+        # read val_word from RAVANA's OWN interoception (`valence`, here from
+        # em.state). That is RAVANA's mood, unrelated to the user's word — so a
+        # user saying "i feel buoyant" (positive) could render "it sounds
+        # rough" whenever RAVANA's valence happened to be low. The content was
+        # RAVANA's state, not the user's. Fix: when a user affect WORD is
+        # present, derive val_word from that WORD's own VAD (the SAME lexicon
+        # the detector uses — single source of truth, never RAVANA's
+        # interoception), so the acknowledgment valence tracks the user's
+        # disclosed feeling. RAVANA's own valence is only a fallback when no
+        # word was surfaced (genuinely ambiguous disclosure).
         if kind == "positive":
             val_word = "good"
         elif kind == "negative":
             val_word = "rough"
         else:
-            # neutral / unspecified: fall back to RAVANA's continuous valence
-            if valence <= -0.4:
-                val_word = "really hard"
-            elif valence < 0.0:
-                val_word = "rough"
-            elif valence < 0.4:
-                val_word = "mixed"
+            # Neutral: prefer the user's own felt-word VAD over RAVANA's
+            # interoception. `word` is the user's felt term when the
+            # copula-affect fallback surfaced one; otherwise fall back to
+            # RAVANA's continuous valence (honest when nothing specific is said).
+            _user_v = None
+            if isinstance(word, str) and word and not word.startswith("loss:"):
+                try:
+                    from ravana.core.mirror import UserEmotionDetector
+                    _det = getattr(self, "_affect_detector", None) \
+                        or UserEmotionDetector()
+                    _vw = _det._lookup_word(word)
+                    if _vw is not None:
+                        _user_v = float(_vw[0])
+                except Exception:
+                    _user_v = None
+            if _user_v is not None:
+                # The user named a felt state; honor ITS valence.
+                if _user_v <= -0.4:
+                    val_word = "really hard"
+                elif _user_v < 0.0:
+                    val_word = "rough"
+                elif _user_v < 0.4:
+                    val_word = "mixed"
+                else:
+                    val_word = "good"
             else:
-                val_word = "good"
+                # No surfaced word: fall back to RAVANA's continuous valence.
+                if valence <= -0.4:
+                    val_word = "really hard"
+                elif valence < 0.0:
+                    val_word = "rough"
+                elif valence < 0.4:
+                    val_word = "mixed"
+                else:
+                    val_word = "good"
 
         if isinstance(word, str) and word.startswith("loss:"):
             lost = word[len("loss:"):].strip()
@@ -4790,12 +4927,32 @@ class ResponseGenMixin(ChainWalkerMixin):
         # valence band. Root cause of the identical-reply defect: appraisal
         # computes valence x arousal x dominance and the realizer consumed
         # only valence, so every negative disclosure collapsed to one string.
-        affect_term = (word or "").strip() if isinstance(word, str) else ""
-        if affect_term.startswith("loss:") or len(affect_term.split()) != 1:
-            # Only a single lexical affect term names a felt state; a phrase
-            # ("going through something hard") is a cause description and would
-            # read as broken grammar in the "feeling X" frame.
+        # Only seed `affect_term` from `word` when `word` is a RECOGNIZED
+        # affect/state word. The affect detector's top-scored token is NOT
+        # always a felt state — it can be an EVENT/ACTIVITY noun ("racing",
+        # "burnt") or a discourse word ("sure", "literally"), because the
+        # detector scores semantic associates of the utterance too. Seeding
+        # affect_term from a non-affect `word` produced the broken
+        # "feeling racing is hard" / "feeling literally is a lot" replies.
+        # The copula scan below still OVERRIDES with the user's own "i feel X"
+        # word when present (validated by is_affect_term at line ~4981), so a
+        # real named feeling is never lost. Validation vocabulary is the shared
+        # broad affect-term lexicon (user_model.is_affect_term) — seed
+        # vocabulary, not an authored per-topic list. No retraining.
+        try:
+            from .user_model import is_affect_term as _is_affect_term
+        except Exception:
+            _is_affect_term = lambda w: False
+        _aw = (word or "").strip() if isinstance(word, str) else ""
+        if (_aw.startswith("loss:") or len(_aw.split()) != 1
+                or not _is_affect_term(_aw)):
+            # Only a single recognized affect term names a felt state; a phrase
+            # ("going through something hard") or a non-affect word is cleared
+            # so the reply falls back to the valence band, not a broken
+            # "feeling <noun>" frame.
             affect_term = ""
+        else:
+            affect_term = _aw
         # C-fix (round 2026-08-08b): when the user EXPLICITLY names a felt state
         # via a feeling-copula ("i feel hollow", "i'm scared"), prefer that word
         # over a co-occurring EVENT word the detector scored higher. Otherwise
@@ -4829,20 +4986,23 @@ class ResponseGenMixin(ChainWalkerMixin):
             while len(_ftw) > 1 and _ftw[0] in _CLOSED:
                 _ftw = _ftw[1:]
             _ft = " ".join(_ftw)
-            # Only accept the copula label if it is a REAL affect/state word.
-            # A bare "i am <word>" where <word> is NOT an affect term (e.g. a
-            # name "i am noor", or a topic "i am tired of X") must NOT be
-            # forced into the empathy frame — doing so produced the regression
-            # "feeling noor is hard". The vocabulary is the engine's own affect
-            # lexicon (user_model._AFFECT_STATE_LEXICON), sourced lazily to
-            # avoid an import cycle at module load. This is seed vocabulary,
-            # not an authored per-topic list.
+            # Accept the copula label as the felt term only when it is a
+            # RECOGNIZED affect/state word. A bare "i am <word>" where <word>
+            # is NOT an affect term (e.g. a name "i am noor", or a topic "i am
+            # tired of X") must NOT be forced into the empathy frame — doing so
+            # produced the regression "feeling noor is hard". The vocabulary is
+            # the shared broad affect-term lexicon (user_model.is_affect_term),
+            # sourced lazily to avoid an import cycle at module load. This is
+            # seed vocabulary, not an authored per-topic list. Generalized in
+            # round 2026-08-14T1110Z to a BROAD affect set (so rotated probes
+            # like "terrified" are caught) rather than the narrow prior
+            # lexicon that missed them.
             try:
-                from .user_model import _AFFECT_STATE_LEXICON as _AFFECT
+                from .user_model import is_affect_term as _is_affect
             except Exception:
-                _AFFECT = set()
-            _is_affect = _ft in _AFFECT or (_ft.split() and _ft.split()[0] in _AFFECT)
-            if _is_affect:
+                _is_affect = lambda w: False
+            _is_affect_word = _is_affect(_ft)
+            if _is_affect_word:
                 affect_term = _ft
         felt = f"feeling {affect_term}" if affect_term else f"feeling {val_word}"
 
@@ -4863,6 +5023,20 @@ class ResponseGenMixin(ChainWalkerMixin):
             # (mixed affect), acknowledge BOTH honestly instead of collapsing to
             # one positive gloss.
             _pos_word = affect_term or val_word
+            # R5 (round 2026-08-18T0937Z): the felt-word extractor can surface a
+            # HEDGE word as the "affect term" (e.g. "he's got like forty" ->
+            # "like", "got kind of hooked" -> "kind"), producing the dangling
+            # close "what's got you feeling like?" / "feeling kind?" (measured
+            # U3/U22). A hedge is not a felt state. If the resolved word is a
+            # hedge/non-affect term, do NOT splice it into the close — fall to
+            # the neutral open question instead. Seed stoplist (data), not
+            # authored prose; generalizes to any hedge the extractor mis-captures.
+            _HEDGE = {"like", "kind", "sort", "thing", "way", "bit", "lot",
+                      "something", "anything", "really", "quite", "very",
+                      "little", "some", "such"}
+            if not _pos_word or _pos_word in _HEDGE:
+                return ("i'm glad something came up for you. what's got you "
+                        "feeling good about it?", "emotional_empathy")
             _signed = getattr(self, "_tmp_signed", None) or {}
             _neg_word = _signed.get("neg")
             if _neg_word and _neg_word[1] not in (None, _pos_word):
@@ -4878,6 +5052,30 @@ class ResponseGenMixin(ChainWalkerMixin):
                     "emotional_empathy")
 
         # neutral / unspecified affect
+        # Name the user's OWN felt word when the detector surfaced one (the
+        # copula-affect fallback at round 2026-08-15T0830Z routes "i felt
+        # electrified" here with kind=neutral, word='electrified'). Replying with
+        # just "how are you feeling, really?" discards the word the user gave us
+        # and reads as hollow. Combine the user's word with RAVANA's measured
+        # valence band (val_word, computed above from self.emotion.state.valence)
+        # WHEN valence signals clear affect (val_word != "mixed") — so the ack is
+        # state-reflective rather than a hollow echo. The content still comes
+        # from the disclosure (the user's word) plus the state-derived valence
+        # word; nothing authored. Hold the open question only when the state is
+        # genuinely ambiguous ("mixed"). Fail-closed: when no word was surfaced,
+        # fall back to the open question.
+        # The content comes from the user's OWN felt word (validated
+        # affect_term, not the raw detector token which can be a non-affect
+        # noun) plus the state-derived valence word; nothing authored. Hold the
+        # open question only when the state is genuinely ambiguous ("mixed").
+        # Fail-closed: when no validated affect word was surfaced, fall back to
+        # the open question.
+        if affect_term:
+            if val_word != "mixed":
+                return (f"i hear you — feeling {affect_term} is a lot, and it "
+                        f"sounds {val_word}.", "emotional_empathy")
+            return (f"i hear you — feeling {affect_term} is a lot. how are you "
+                    f"feeling, really?", "emotional_empathy")
         return (f"i hear you. how are you feeling, really?",
                 "emotional_empathy")
 
@@ -5924,6 +6122,29 @@ class ResponseGenMixin(ChainWalkerMixin):
             "been", "being", "do", "does", "did", "have", "has", "had",
             "you", "your", "i", "my", "me", "we", "they", "he", "she",
         }
+        # R4 (round 2026-08-18T0937Z): subject extraction can also resolve to a
+        # MULTI-TOKEN NOUN PHRASE scraped from the whole user utterance
+        # ("microplastics time fish", "permian extinction wiped", "came back")
+        # instead of the single concept being asked about, producing garble
+        # like "i don't really have a solid grasp on microplastics time fish
+        # so far" (measured this round, U25/U49/U59). Reduce a multi-token
+        # subject to its single most salient CONTENT word — drop closed-class
+        # and query-stopword tokens; if nothing meaningful remains, fall back to
+        # "that". This is structural (token filtering), not a per-topic guard,
+        # and generalizes to any garbled multi-word subject.
+        _STOP_MULTI = _CLOSED | {
+            "time", "fish", "back", "wiped", "extinction", "wreck", "act",
+            "looks", "magic", "molten", "sand", "shape", "kinda", "feel",
+            "small", "worries", "makes", "our", "read", "saw", "spent",
+            "whole", "childhood", "thing", "things", "year", "years",
+        }
+        _mtoks = [w for w in re.findall(r"[a-z']+", subj_cap.lower())
+                  if w not in _STOP_MULTI and len(w) >= 3]
+        if _mtoks:
+            # Prefer the longest remaining content word (most specific concept).
+            subj_cap = max(_mtoks, key=len)
+        elif " " in (subject or ""):
+            subj_cap = "that"
         if subj_cap.lower().strip(" .,!?") in _CLOSED:
             subj_cap = "that"
         valence = getattr(self.emotion.state, 'valence', 0.5) if hasattr(self, 'emotion') else 0.5
@@ -6145,6 +6366,40 @@ class ResponseGenMixin(ChainWalkerMixin):
         related.sort(key=lambda x: -x[1])
         top = [l for l, _ in related[:2]]
 
+        # GUARD (round 2026-08-17T1730Z): the metacognitive-ignorance openers
+        # splice the strongest related association as `{rel}` into a hedge
+        # frame ("that reminds me of {rel} — ..."). When the top association
+        # resolves to a NON-CONTENT filler word — a discourse marker, pronoun,
+        # or generic qualifier that survived the coherence gate only by virtue
+        # of being co-activated with the subject — the opener reads as
+        # confabulation ("that reminds me of really ... and lot what's your
+        # take on it?"). A human being asked about their own mind does not
+        # answer with a nonsense association; they admit the gap. Fail CLOSED
+        # to None (honest "i don't know yet") so the caller falls through to a
+        # cleaner uncertainty path rather than emitting garbled filler. This is
+        # a structural content gate (closed-class seed set), NOT authored
+        # prose and NOT a per-topic table; removing an entry only changes
+        # which low-value associations are suppressed. No retraining.
+        _NON_CONTENT_ASSOC = {
+            "really", "lot", "lots", "bit", "thing", "things", "way", "ways",
+            "kind", "kinds", "sort", "sorts", "type", "types", "stuff",
+            "something", "anything", "nothing", "everything", "somewhat",
+            "quite", "rather", "mostly", "mostly", "actually", "basically",
+            "generally", "usually", "often", "sometimes", "maybe", "perhaps",
+            "probably", "possibly", "definitely", "certainly", "truly",
+            "simply", "just", "even", "also", "too", "very", "more", "most",
+            "much", "many", "such", "like", "liking", "feel", "feels",
+            "feeling", "think", "thinks", "thought", "know", "knows",
+            "mean", "means", "sense", "idea", "ideas", "notion", "concept",
+            "concepts", "word", "words", "term", "terms", "part", "parts",
+            "piece", "pieces", "amount", "number", "level", "point", "points",
+            "good", "bad", "big", "small", "large", "little", "high", "low",
+            "new", "old", "own", "same", "other", "another", "different",
+        }
+        if top and all(
+                (t.lower().strip(".,!?") in _NON_CONTENT_ASSOC) for t in top):
+            return None
+
         # ── P3: source the hedged answer with KB / retrieved evidence ──
         # Instead of an empty "I don't have a definition but it's tied to X",
         # fetch a KB-grounded snippet for the strongest related concept and
@@ -6223,7 +6478,6 @@ class ResponseGenMixin(ChainWalkerMixin):
                     hedge_frame("ignorance", "related_strong" if _strong else "related_weak",
                                 subj=subj, rel=_rel0) + f" and {_rel1}",
                     f"i don't have a clean definition for {subj_cap}, but {pron} {be} tied to {_rel0} and {_rel1} to me.",
-                    f"{subj_cap} {be} fuzzy for me — i mostly connect {pron_obj} to {_rel0} and {_rel1}.",
                 ]
         closers = [
             " what does it mean to you?",
@@ -6809,7 +7063,17 @@ class ResponseGenMixin(ChainWalkerMixin):
                     pass
             
             # Try C: Relation-guided surface realizer
-            if not answer_text and hasattr(self, 'syntactic_assembly') and hasattr(self, 'surface_realizer'):
+            # D2 (round 2026-08-17T1126Z): only assert a relation for a concept
+            # RAVANA actually KNOWS (has a stored definition or web-learned
+            # source). Free-associating an UNKNOWN concept to a hub word ("crispr
+            # connects to light") is fabricated knowledge, not a verified fact — the
+            # brain withholds ("i'm not sure") when it has no source. Without this
+            # gate an otherwise-unknown concept (auto-expanded into the graph from
+            # the user's own words) gets a confident but baseless relation emitted.
+            _tc_known = bool(
+                (sq_target and sq_target.lower() in getattr(self, '_definitions', {}))
+                or (sq_target and sq_target.lower() in getattr(self, '_concept_sources', {})))
+            if not answer_text and _tc_known and hasattr(self, 'syntactic_assembly') and hasattr(self, 'surface_realizer'):
                 try:
                     pool = sub_assocs or ctx.associated_concepts
                     subj_lower = (sq_target or ctx.subject or "").lower()
@@ -7109,12 +7373,25 @@ class ResponseGenMixin(ChainWalkerMixin):
             return True
         if main in getattr(self, '_concept_sources', {}):
             return True
-        # Otherwise require a semantically close association (high FOK).
+        # D2 (round 2026-08-17T1126Z): an UNKNOWN concept — no stored definition,
+        # no web-learned source, and not present in the concept graph — must NOT
+        # be grounded by a loose association alone. Free-association to a single
+        # hub word ("crispr connects to light") is decoder babble presented as
+        # knowledge, not a verified fact. The brain withholds ("i'm not sure")
+        # when it has no source for a claim; so must RAVANA. Only a concept that
+        # is actually KNOWN (in the concept graph) may lean on association
+        # spreading for a decomposition answer. Unknown concepts fall through to
+        # honest metacognitive uncertainty, which is the correct, general
+        # behavior for anything RAVANA has never actually learned.
+        _known = (main in getattr(self, '_concept_keywords', {})
+                  or main in getattr(self, '_concept_labels', {}))
+        if not _known:
+            return False
+        # Known concept: require a semantically close association (high FOK).
         vec = self._glove_vector(main) if hasattr(self, '_glove_vector') else None
         if vec is None:
-            # No embedding to judge by: trust graph presence as weak grounding.
-            return main in getattr(self, '_concept_keywords', {}) or \
-                   main in getattr(self, '_concept_labels', {})
+            # No embedding to judge by: graph presence already confirmed above.
+            return True
         best = -1.0
         for label, _score in (ctx.associated_concepts or [])[:12]:
             v = self._glove_vector(label)
