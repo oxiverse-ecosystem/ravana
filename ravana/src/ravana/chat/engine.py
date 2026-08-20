@@ -2420,7 +2420,66 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         except Exception:
             pass
 
-    # ── Shared reverse-name resolver helper (round 2026-08-17T1126Z, D-B) ──
+    def mine_user_belief(self, user_input: str) -> None:
+        """Capture a first-person CONVICTION statement into the user-belief store.
+
+        Round 2026-08-20T1229Z, FIX D (root cause): the only belief-store write
+        lived INSIDE `_handle_assertion`, but conviction statements ("i really
+        believe urban rooftop gardens are the future", "i think we should protect
+        mangrove forests") are routed to the reasoning pipeline (which returns the
+        hollow "noted." ack) and never reach that handler — so `n_beliefs` stayed
+        0 across the whole 75-turn round. The user's explicit beliefs were
+        therefore invisible to the "what do i believe about X" recall path.
+
+        Fix: detect a first-person conviction frame and write the proposition to
+        `self.belief_store` under the SAME key shape the recall path already
+        expects (`("user", "told:<turn>")`, matched on belief TEXT). Structural
+        detection: a small set of conviction cue phrases + first-person check +
+        question-rejection; generalizes to any topic the user rotates in, RAVANA
+        can revise the belief by talking (the store merges on re-assertion), no
+        per-topic table, no authored reply, no retraining. Fail-open: any
+        exception is swallowed so this never blocks the main reply.
+        """
+        try:
+            from .belief_store import BeliefStore  # ensure importable
+        except Exception:
+            BeliefStore = None
+        if not hasattr(self, "belief_store") or self.belief_store is None:
+            return
+        _t = (user_input or "").strip()
+        if not _t or _t.endswith("?"):
+            return
+        _tl = _t.lower()
+        if not re.match(r"^(i|i'm|i am|we|we're|we are)\b", _tl):
+            return
+        # Conviction cue phrases -> capture the proposition that follows.
+        _CUES = (
+            r"\bi\s+(?:really\s+)?believe\s+(?:that\s+)?(.+)$",
+            r"\bi\s+think\s+(?:that\s+)?(.+)$",
+            r"\bi\s+(?:am|'m)\s+convinced\s+(?:that\s+)?(.+)$",
+            r"\bi\s+hold\s+(?:that\s+)?(.+)$",
+            r"\bi\s+(?:firmly\s+)?feel\s+(?:that\s+)?(.+)$",
+            r"\bwe\s+should\s+(.+)$",
+            r"\bwe\s+must\s+(.+)$",
+            r"\bwe\s+need\s+to\s+(.+)$",
+        )
+        _prop = None
+        for _c in _CUES:
+            _m = re.search(_c, _tl, re.IGNORECASE | re.DOTALL)
+            if _m:
+                _prop = _m.group(1).strip().strip(".,!?;:")
+                break
+        if not _prop or len(_prop) < 3:
+            return
+        # Key by a monotonic index so two convictions in the same turn_count
+        # don't collide and overwrite each other (turn_count only advances once
+        # per process_turn, but a single turn can assert several beliefs, and a
+        # later recall matches on BELIEF TEXT not key, so the key only needs to
+        # be unique). The recall path queries by matching the stored proposition.
+        _idx = len(self.belief_store.beliefs)
+        self.belief_store.assert_belief(
+            "user", f"told:{_idx}", _prop, confidence=0.8)
+
     # TYPE-AGNOSTIC "who is X to me" resolution. A query names an entity by NAME;
     # the relationship label is reverse-derived from the fact store, whatever the
     # fact's shape (combined-attr, attr=relation+value=name, or attr='does' with
@@ -5545,6 +5604,18 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # and dedupes, so this is idempotent with the per-branch calls.
         try:
             self._ingest_episodic(user_input)
+        except Exception:
+            pass
+        # FIX D (round 2026-08-20T1229Z): capture first-person conviction
+        # statements ("i believe/think X", "we should protect X") into the
+        # user-belief store. The unconditional episodic ingest above only writes
+        # the hippocampal buffer; the belief store (recalled by the
+        # "what do i believe about X" path) was never populated for these
+        # statements because they route to the reasoning pipeline, not
+        # _handle_assertion. This runs unconditionally so the belief is stored
+        # regardless of which downstream branch forms the reply. Fail-open.
+        try:
+            self.mine_user_belief(user_input)
         except Exception:
             pass
 
