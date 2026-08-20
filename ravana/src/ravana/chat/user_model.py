@@ -1370,6 +1370,8 @@ class UserModel:
                         _sp, _nm = _sp.strip().lower(), _nm.strip().strip(".,!?")
                         if not _sp or not _nm:
                             continue
+                        if _sp in _pet_slots._PRONOUN_STOP:
+                            continue
                         _species = _pet_slots.species_of(_sp)
                         if _species is None and _sp.isalpha():
                             _species = _pet_slots.learn_species(_sp)
@@ -1394,6 +1396,15 @@ class UserModel:
                     _names = re.split(r"\s+(?:and|,|&)\s*",
                                       (_m.group(2) or "").strip())
                     if not _sp:
+                        continue
+                    # Round 2026-08-20T1229Z regression fix: a possession
+                    # disclosure like "i keep a sourdough starter i named doris"
+                    # leaves group(1) == "i" (a pronoun). Reject pronoun /
+                    # function-word species candidates so no bogus species slot
+                    # is learned and leaked on unknown-entity recall. The legit
+                    # "species named Name" case still resolves through the seed
+                    # vocabulary, so this does not narrow the capture.
+                    if _sp in _pet_slots._PRONOUN_STOP:
                         continue
                     _species = _pet_slots.species_of(_sp)
                     if _species is None and _sp.isalpha():
@@ -1432,6 +1443,11 @@ class UserModel:
                     _sp = (_m.group(1) or _m.group(3) or "").strip().lower()
                     _nm = _raw_nm.strip().strip(".,!?")
                     if not _sp or not _nm:
+                        continue
+                    # Round 2026-08-20T1229Z regression fix: reject pronoun /
+                    # function-word species candidates so no bogus slot is
+                    # learned (defense-in-depth; also handled at the chokepoint).
+                    if _sp in _pet_slots._PRONOUN_STOP:
                         continue
                     # GENERALIZE: a name is accepted if it is Capitalized OR
                     # (lowercase AND the species is a seed animal). This keeps the
@@ -1575,10 +1591,13 @@ class UserModel:
                         for _n in _names)
                     _species = _pet_slots.species_of(_attr)
                     if _species is None and _name_shaped and _attr.isalpha():
-                        # An unknown animal word in a "named/called" possession
-                        # frame is a species RAVANA has not met yet — learn it
-                        # so later recalls address the same slot.
-                        if re.search(r"\b(?:named|called)\b", _m.group(0), re.IGNORECASE):
+                        # Round 2026-08-20T1229Z regression fix: never learn a
+                        # pronoun / function word (e.g. "i" from "starter i named
+                        # doris") as a species — it would create a bogus slot
+                        # that leaks on unknown-entity recall. Rejected here and
+                        # at the chokepoint in pet_slots.learn_species.
+                        if (re.search(r"\b(?:named|called)\b", _m.group(0), re.IGNORECASE)
+                                and _attr not in _pet_slots._PRONOUN_STOP):
                             _species = _pet_slots.learn_species(_attr)
                     if _species is not None and _name_shaped:
                         for _i, _nm in enumerate(_names, 1):
