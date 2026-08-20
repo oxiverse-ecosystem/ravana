@@ -5298,12 +5298,36 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 r"^(who|what|when|where|which|why|how|did|do|does|is|are|"
                 r"was|were|had|has|have|will|would|could|can)\b", t):
             return False
-        # 1) Explicit recall markers: "what did you say about X",
-        #    "do you remember when I ...", "what do you know about me", etc.
-        if re.search(
-            r"\b(did you (say|tell|mention|write)|do you (remember|recall|know)|"
-            r"what (did|do) you|tell me (what|about)|remember when|recall when|"
-            r"have you (forgotten|forgot)|anything i (told|said|shared))\b", t):
+        # 1) Explicit recall markers. Two classes:
+        #    (a) ALWAYS autobiographical — the user is explicitly asking about
+        #        their OWN prior speech/disclosures ("what did you say about
+        #        X", "anything i told you", "have you forgotten"). These imply
+        #        the user by construction, so no extra personal-reference test.
+        #    (b) CONDITIONAL — "do you (remember|recall|know) / what (did|do)
+        #        you / tell me (what|about) / remember when / recall when".
+        #        These shapes ALSO match plain WORLD-knowledge questions
+        #        ("what do you know about mycoremediation", "tell me about the
+        #        library of alexandria", "do you know about polders"), which
+        #        must NOT reach the episodic echo. The confabulation root cause
+        #        (round 2026-08-20T1935Z, turn 12: "what do you know about
+        #        mycoremediation" echoed an unrelated "you keep grinning like"
+        #        fact) was exactly this: a bare conditional marker with NO
+        #        personal reference was treated as autobiographical recall, so
+        #        the broad stem-match in _try_hippocampal_retrieval surfaced a
+        #        random stored life-fact. Gate (b) therefore ALSO requires a
+        #        personal-possessive reference (my/mine/i/me/we/our/myself) —
+        #        only then is it genuinely about the user's disclosed life.
+        #        Structural (intent distribution, not a topic list); fail-open.
+        _EXPLICIT_SPEECH = re.search(
+            r"\b(did you (say|tell|mention|write)|anything i (told|said|shared)|"
+            r"have you (forgotten|forgot))\b", t)
+        if _EXPLICIT_SPEECH:
+            return True
+        _CONDITIONAL = re.search(
+            r"\b(do you (remember|recall|know)|what (did|do) you|"
+            r"tell me (what|about)|remember when|recall when)\b", t)
+        if _CONDITIONAL and re.search(
+                r"\b(my|mine|i|me|we|our|myself)\b", t):
             return True
         # 2) Personal-possessive reference to the user's OWN entity:
         #    "what is wrong with MY car", "when was MY sister born". This is a
