@@ -60,16 +60,29 @@ def _extract_user_affect_word(text: str) -> str:
         from .user_model import is_affect_term
     except Exception:
         is_affect_term = lambda w: False
+    # Hedge words that must NOT be returned as a felt-state (round
+    # 2026-08-20T1229Z, FIX A). "kind" is accidentally in the VAD seed lexicon
+    # (+0.55), so the affect-term scan matched "kind" in "i'm kind of wary" and
+    # the copula regex below grabbed it as the felt word -> RAVANA answered
+    # "i'm glad you feel good" to a user expressing wariness. A hedge is a
+    # dampener, never a feeling; reject it so the REAL felt word (the token
+    # AFTER the hedge) is what gets named. Structural stop-set (seed, not an
+    # answer table); generalizes to any hedged disclosure.
+    _HEDGE = {"kind", "sort", "pretty", "fairly", "rather", "quite",
+               "somewhat", "slightly", "bit", "little", "really", "very",
+               "so", "a", "little", "some", "such"}
+    def _is_real_affect(w: str) -> bool:
+        return bool(w) and w not in _HEDGE and is_affect_term(w)
     _m = re.search(
         r"\b(i\s*(?:feel|feeling|felt|am|'m|get|got|was|were|been)\s+"
         r"(?:so|really|very|quite|a\s+little\s+|kind\s+of\s+|pretty\s+)?)"
         r"([a-z]+(?:[-][a-z]+)?)", (text or "").lower())
     if _m:
         _w = _m.group(2).strip("'-")
-        if is_affect_term(_w):
+        if _is_real_affect(_w):
             return _w
     for _tok in re.findall(r"[a-z]+(?:[-][a-z]+)?", (text or "").lower()):
-        if is_affect_term(_tok):
+        if _is_real_affect(_tok):
             return _tok
     return ""
 

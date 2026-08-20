@@ -4571,6 +4571,42 @@ class ResponseGenMixin(ChainWalkerMixin):
                 # A noun-modifier affect word is not a self-report; skip it so
                 # it cannot flip the utterance's polarity or trigger empathy.
                 continue
+            # HEDGE-GOVERNED FELT-WORD REJECTION (round 2026-08-20T1229Z, FIX A).
+            # "i'm kind of wary" / "sort of scared" / "a bit creeped out" is a
+            # DAMPENED, non-committal disclosure, NOT a self-report of the
+            # felt state. The VAD lexicon scores the head word on its own
+            # ("kind" = +0.55), so a hedge like "kind of wary" was scored as a
+            # POSITIVE self-disclosure and RAVANA answered "i'm glad you feel
+            # good" to a user expressing wariness. A hedge immediately
+            # governing an affect word cancels its valence signal; skip the
+            # token so the utterance is treated as low/ambiguous affect (and
+            # routes to the honest "how are you feeling, really?" fallback) rather
+            # than a fabricated polarity. Structural: a small closed hedge
+            # vocabulary (seed, not an answer table); generalizes to any hedged
+            # affect word the user rotates in; no per-topic rule. The user can
+            # still be read correctly when they state the feeling plainly
+            # ("i'm wary" -> the hedge is absent, so the word scores).
+            _HEDGE_PRE = (
+                "kind", "sort", "pretty", "fairly", "rather", "quite",
+                "somewhat", "slightly", "a",
+            )
+            _hedged = False
+            # Hedge immediately BEFORE the word: "kind wary" / "a bit scared".
+            for j in range(max(0, i - 2), i):
+                _tw = tokens[j]
+                if _tw in _HEDGE_PRE:
+                    _hedged = True
+                    break
+                if _tw in ("bit", "little") and j > 0 and tokens[j - 1] == "a":
+                    _hedged = True
+                    break
+            # Hedge immediately AFTER the word: "kind of wary" / "sort of scared".
+            if not _hedged and i + 1 < len(tokens):
+                _nxt = tokens[i + 1]
+                if _nxt == "of" and tokens[i] in ("kind", "sort"):
+                    _hedged = True
+            if _hedged:
+                continue
             v, a, d = float(entry[0]), float(entry[1]), float(entry[2])
             if any(tokens[j] in _NEGATORS for j in range(max(0, i - 3), i)):
                 v = -v * 0.6
