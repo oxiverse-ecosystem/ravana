@@ -2218,6 +2218,39 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     r"are|was|were|had|has|have|will|would|could|can)\b",
                     _stripped.lower()):
                 return
+            # D1b (round 2026-08-19T1628Z): never ingest an IMPERATIVE
+            # REQUEST/recall-directive as an episodic fact. "tell me about X",
+            # "remind me what you know about X", "describe my X", "could you
+            # explain X" are the USER directing RAVANA to act/speak — they are
+            # PFC queries, not assertions of experienced content. Storing them
+            # keyed the directive under its content tokens (e.g. "tell me again
+            # what you know about mica the crow." keyed under mica/crow/tell/know),
+            # so a LATER semantically-overlapping query surfaced the user's OWN
+            # request verbatim as RAVANA's reply — a source-monitoring violation
+            # (measured T31/T57 this round: "what's the deal with narrowboats…"
+            # -> "tell me again what you know about mica the crow."). Structural
+            # regex over directive openers; no per-topic table. A genuine
+            # first-person disclosure ("i have a cat named X") is NOT a directive
+            # (it starts with "i"/"my", not a second-person imperative) and still
+            # ingests correctly. The regex is anchored at ^ so mid-sentence
+            # occurrences (e.g. "my brother tells me to quit") are unaffected.
+            if re.match(
+                    r"^\s*(tell|show|give|remind|describe|explain|list|find|"
+                    r"summari[sz]e|let\s+me\s+know)\b", _stripped.lower()):
+                # Imperative opener = a request directed at the agent, not an
+                # assertion of experienced content. A user discloses with "my
+                # sister is a marine biologist", never "describe my sister" — so
+                # blocking every imperative opener is safe and catches object
+                # wording ("describe my sister priya for me") the narrow form
+                # missed.
+                return
+            if re.match(
+                    r"^\s*(what\s+do\s+you\s+(know|think|remember|recall|have)\s+(about|of)|"
+                    r"do\s+you\s+(know|remember|recall)\s+(about|what|how)|"
+                    r"(could|can|would|will)\s+you\s+(tell|show|remind|"
+                    r"describe|explain|give|find|list|summari[sz]e))\b",
+                    _stripped.lower()):
+                return
             # D1 (round 2026-08-08b-d): a recall-scaffold query that is NOT a
             # question (no trailing '?', no interrogative opener) — e.g.
             # "you mentioned my tarantula before, remind me what i told you
