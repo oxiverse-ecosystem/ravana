@@ -3150,6 +3150,16 @@ class UserModel:
         "to", "in", "on", "at", "for", "with", "from", "by", "as", "into",
         "about", "over", "under", "how", "what", "why", "who", "where",
         "off", "onto", "upon", "than", "then", "till", "until", "since",
+        # Discourse connectors that terminate an opinion object phrase
+        # (round 2026-08-20T1229Z, FIX B). "i love small jazz clubs though"
+        # was mining a stance whose TOPIC was "small jazz clubs though" because
+        # the like/love pattern captured greedily up to the sentence end and
+        # _opinion_topic only cut at prepositions/conjunctions, not the
+        # connector "though". Adding these as stop-words makes the content head
+        # trim cleanly to "small jazz clubs". Structural closed-class set;
+        # generalizes to any connector the user rotates in, no per-topic rule.
+        "though", "although", "yet", "however", "nevertheless", "nonetheless",
+        "still", "anyway", "besides", "meanwhile", "otherwise",
 
         "really", "very", "just", "only", "also", "too", "quite", "more",
         "most", "much", "many", "such", "own", "same", "other", "another",
