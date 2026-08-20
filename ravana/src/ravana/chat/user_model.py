@@ -614,6 +614,16 @@ _CONJOINED_PET_PAT = (
     r"((?:(?:a|an|the|my|our|their|his|her)?\s*[\w'-]+\s+(?:named|called)\s+[\w'-]+"
     r"\s*(?:,?\s*(?:and|&|,)\s*(?:a|an|the)?\s*)?)+)"
 )
+# General 'species named/called Name' catch-all (round 2026-08-20T1229Z, FIX C).
+# Catches ANY "<species> named/called <Name>" span regardless of which verb
+# preceded it ("i got a dog... a border collie named Biscuit"), expanding
+# multi-name spans ("collie named Biscuit and Rex"). Identified by object
+# identity in the miner so the species->slot path runs. Seed + runtime-learned
+# species via pet_slots; no per-animal table, no authored reply.
+_PET_NAMED_CATCHALL_PAT = (
+    r"\b([\w'-]+)\s+(?:named|called|named\s+called)\s+"
+    r"([\w'-]+(?:\s+(?:and|,|&)\s*[\w'-]+)*)"
+)
 # Appositive pet disclosure (round 2026-08-17T1730Z, 6f generalization): a
 # species immediately followed by a Capitalized proper-noun NAME, with NO
 # "named"/"called" keyword. Two realizations of the SAME class:
@@ -1259,6 +1269,23 @@ class UserModel:
             # so common-noun objects ("my pet rock collection") never match.
             # Handled below in the pet-mining block (object-identity check).
             _APPOSITIVE_PET_PAT,
+            # GENERAL 'species named/called Name' CATCH-ALL (round
+            # 2026-08-20T1229Z, FIX C). Prior patterns only captured a pet when a
+            # possession verb ('have'/'keep'/'my') preceded the species, so
+            # "i got a dog last year, a border collie named Biscuit" MISSED the
+            # animal entirely — the appositive "border collie named Biscuit" sat
+            # after a different verb ('got') and no pattern reached it (confirmed:
+            # only a weak 'got dog last year' fact stored, no pet slot). This
+            # catches ANY "<species> named/called <Name>" / "<species>
+            # named/called <Name> and <Name2>" span regardless of which verb
+            # preceded it, and routes through the SAME pet_slots path
+            # (species_of / learn_species / slot_for) the other pet branches and
+            # the recaller use, so miner + recall agree on the key by construction.
+            # The species word is resolved through pet_slots (seed + runtime
+            # learned), so a dog/cat/border collie/axolotl all work; no
+            # per-animal table, no authored reply, no retraining. Multi-name spans
+            # (joined by 'and'/',') are expanded so each name gets its own slot.
+            _PET_NAMED_CATCHALL_PAT,
             # D2: "i am a/an <noun>" self-descriptions (vegetarian, pilot,
             # teacher, ...) captured as a durable identity/role fact. Generic
             # structural capture — the noun becomes the attribute value, no
@@ -1292,6 +1319,34 @@ class UserModel:
                             _species = _pet_slots.species_of(_sp) or _sp
                         if _species is not None:
                             # count existing slots for this species to append _2, _3
+                            _i = 1
+                            while _pet_slots.slot_for(_species, _i) in self.personal_facts.facts:
+                                _i += 1
+                            _put_fact(_pet_slots.slot_for(_species, _i), _nm, 0.6)
+                    continue
+                # GENERAL 'species named/called Name' CATCH-ALL (round
+                # 2026-08-20T1229Z, FIX C). group(1)=species, group(2)=name(s).
+                # Expand multi-name spans ("collie named Biscuit and Rex") so each
+                # name gets its own species-keyed slot. Routes through the SAME
+                # pet_slots path the conjoined/appositive branches use, so miner +
+                # recall agree on the key. Seed + runtime-learned species; no
+                # per-animal table, no authored reply, no retraining.
+                if _pat is _PET_NAMED_CATCHALL_PAT:
+                    _sp = (_m.group(1) or "").strip().lower()
+                    _names = re.split(r"\s+(?:and|,|&)\s*",
+                                      (_m.group(2) or "").strip())
+                    if not _sp:
+                        continue
+                    _species = _pet_slots.species_of(_sp)
+                    if _species is None and _sp.isalpha():
+                        _species = _pet_slots.learn_species(_sp)
+                    elif _species is None:
+                        _species = _sp
+                    if _species is not None:
+                        for _nm in _names:
+                            _nm = _nm.strip().strip(".,!?")
+                            if not _nm:
+                                continue
                             _i = 1
                             while _pet_slots.slot_for(_species, _i) in self.personal_facts.facts:
                                 _i += 1
