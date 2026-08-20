@@ -2451,8 +2451,22 @@ class UserModel:
                 elif abs(_p) <= 0.05 and abs(_v) >= 0.3:
                     _p = 0.6 if _v > 0 else -0.6
                 _p = max(-1.0, min(1.0, _p))
+                # PROVENANCE (round 2026-08-20T0701Z-followup, residual
+                # limitation #1). The keyed `_topic` ("silence") may be a
+                # SUBORDINATE concept while the utterance also names the
+                # SALIENT broader concept the user actually meant ("winter").
+                # Capture the salient content nouns of the FULL object phrase
+                # (`_raw`, before _opinion_topic collapsed it to the head), so
+                # the resolver + reversal miner can later bridge a co-mention
+                # of "winter"/"street art" to this stance even though the key
+                # differs. The set is GROWN ONLINE from the real utterance —
+                # seed is empty, nothing hardwired, RAVANA revises it by
+                # further talk. Generic: content-noun extraction reuses the
+                # same closed-class stop set the miner already routes through.
+                _prov = self._opinion_provenance(_raw)
                 self.opinions.express_stance(_topic, polarity=_p, confidence=_conf,
-                                            valence=_v, arousal=_a)
+                                            valence=_v, arousal=_a,
+                                            provenance=_prov)
 
         # Stance-reversal mining: "i take back X" / "i changed my mind about X" /
         # "i retract my stance on X" recodes the user's valuation of the topic to
@@ -3143,6 +3157,37 @@ class UserModel:
         "has", "have", "had", "not", "don't", "dont", "do", "does", "did", "can", "cannot", "cant",
         "it", "they're", "im", "i'm", "you're", "we're", "there",
     }
+
+    def _opinion_provenance(self, phrase: str) -> List[str]:
+        """Return the salient content nouns of an opinion-object phrase.
+
+        Companion to `_opinion_topic`: where that method returns the single
+        content HEAD the stance is keyed on, this returns ALL salient content
+        nouns of the phrase (the head plus any modifiers that survived the
+        closed-class strip). Used to seed a stance's PROVENANCE so the
+        resolver + reversal miner can bridge a later co-mention of a broader
+        concept (e.g. "winter", "street art") back to a stance keyed on a
+        subordinate word ("silence", "vandalism"). Generic and store-driven:
+        the nouns come from the user's actual words, nothing is hardwired, and
+        the set is merged online across encounters. Seed vocabulary = the
+        shared closed-class stop set already used by the opinion miners.
+        """
+        toks = [t for t in re.findall(r"[a-z'][a-z']*", (phrase or "").lower())]
+        if not toks:
+            return []
+        # Drop leading closed-class framers (determiners/prepositions/particles)
+        # and trailing modifiers using the SAME stop set the miner routes through,
+        # but keep INTERNAL content nouns (the salient concepts co-named with the
+        # head). We keep every token that is NOT a stop word — that yields the
+        # full salient concept set rather than only the head.
+        out = [t for t in toks if t not in self._OPINION_STOP]
+        # Also drop pure particles (so "up"/"down" never enter provenance).
+        _PARTICLES = {
+            "up", "down", "off", "out", "in", "on", "away", "back", "over",
+            "under", "around", "through", "along", "by", "past", "upon",
+        }
+        out = [t for t in out if t not in _PARTICLES]
+        return out
 
     def _opinion_topic(self, phrase: str) -> Optional[str]:
         """Resolve the salient CONTENT HEAD of an opinion-object phrase.
