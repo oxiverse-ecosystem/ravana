@@ -7,6 +7,22 @@ from .models import CorrectionType
 from .personal_fact_store import PersonalFactStore, UserStanceStore
 from . import pet_slots as _pet_slots
 from . import possession_attrs as _poss
+from .constants import STOP_WORDS
+
+# Filler / temporal / discourse tokens that must NEVER count as a topic overlap
+# when resolving a held stance from an utterance. constants.STOP_WORDS omits
+# temporal adverbs ("now", "still", "today") and a few discourse markers that
+# otherwise cause cross-topic misbinding: a held stance keyed "thunderstorms
+# now" would otherwise match ANY later utterance containing "now" (the
+# 2026-08-21T0843Z misattribution where a grass contradiction acked "you've
+# changed your mind about thunderstorms"). These are function words, not topic
+# content; dropping them from the overlap score leaves only real content tokens.
+_FILLER_TOKENS = frozenset({
+    "now", "still", "today", "tonight", "yesterday", "tomorrow", "already",
+    "yet", "again", "lately", "recently", "currently", "actually", "really",
+    "just", "though", "anyway", "anymore", "here", "there", "then", "soon",
+    "usually", "sometimes", "often", "always", "never", "ever",
+})
 
 # ── Dedicated user-model store ───────────────────────────────────────────────
 # The per-user model used to be pickled *inside* the engine weight snapshot,
@@ -2810,6 +2826,19 @@ class UserModel:
         if not text:
             return None
         _words = set(re.findall(r"[a-z']+", text.lower()))
+        # Filler-token guard: a held stance key may contain a function/filler
+        # word (e.g. "thunderstorms now" — "now" is a temporal filler). Without
+        # this, ANY utterance containing that filler token ("...the way i used
+        # to now") would bind the WRONG stance (the 2026-08-21T0843Z misattrib:
+        # a grass contradiction acked "you've changed your mind about
+        # thunderstorms" because both contained "now"). Score only on CONTENT
+        # tokens; stopwords + temporal/discourse fillers never count as an
+        # overlap. STOPS is broader than constants.STOP_WORDS (which omits
+        # temporal adverbs like "now") so the misbind is fully closed. Preserves
+        # the multiword match (a partial recant "letterpress" still binds
+        # "letterpress printing") — the set difference only drops filler words.
+        STOPS = STOP_WORDS | _FILLER_TOKENS
+        _words = {w for w in _words if w not in STOPS}
         if not _words:
             return None
         _best = None
@@ -2817,13 +2846,13 @@ class UserModel:
         for _k in self.opinions.stances:
             if not _k:
                 continue
-            _ktoks = [t for t in re.findall(r"[a-z']+", _k.lower()) if t]
+            _ktoks = [t for t in re.findall(r"[a-z']+", _k.lower()) if t and t not in STOPS]
             if not _ktoks:
                 continue
             # A partial recant names only part of a multiword key (e.g.
             # "letterpress" for the stored "letterpress printing"); match when
-            # ANY key token appears as a whole word, and prefer the key with
-            # the most tokens present (most specific match wins).
+            # ANY content key token appears as a whole word, and prefer the key
+            # with the most content tokens present (most specific match wins).
             _matched = sum(1 for t in _ktoks if t in _words)
             if _matched == 0:
                 continue
@@ -2846,7 +2875,8 @@ class UserModel:
         """
         if not text:
             return None
-        _words = [t for t in re.findall(r"[a-z']+", text.lower()) if len(t) >= 3]
+        _words = [t for t in re.findall(r"[a-z']+", text.lower())
+                  if len(t) >= 3 and t not in STOP_WORDS and t not in _FILLER_TOKENS]
         if not _words:
             return None
 
@@ -2868,7 +2898,13 @@ class UserModel:
         for _k in self.opinions.stances:
             if not _k:
                 continue
-            _ktoks = [t for t in re.findall(r"[a-z']+", _k.lower()) if len(t) >= 3]
+            # Score only CONTENT tokens of the key — drop filler words so a key
+            # like "thunderstorms now" cannot bind an utterance that merely
+            # shares the temporal filler "now" (the 2026-08-21T0843Z
+            # misattribution defect). Stem matching below still binds verb-stem
+            # variants ("hike"/"hiking"); only stopwords + fillers are excluded.
+            _ktoks = [t for t in re.findall(r"[a-z']+", _k.lower())
+                      if len(t) >= 3 and t not in STOP_WORDS and t not in _FILLER_TOKENS]
             if not _ktoks:
                 continue
             _score = 0

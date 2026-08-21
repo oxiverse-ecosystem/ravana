@@ -333,3 +333,30 @@ def test_humor_grammar_agreement():
             f"no valid connector in: {joke!r}"
     # All three templates should differ (rotation works).
     assert len(seen) >= 2, f"humor did not rotate: {seen!r}"
+
+
+# ── Fix: stance-reversal misattribution (2026-08-21T0843Z). A held stance keyed
+# on a temporal filler (e.g. "thunderstorms now") must NOT be reversed when an
+# UNRELATED later utterance merely shares that filler word. Previously the
+# reversal-topic resolver matched ANY shared token, so a grass contradiction
+# ("... fresh-cut grass now makes me sneeze ...") acked "you've changed your
+# mind about thunderstorms" — the wrong topic. The filler-token guard in the
+# three resolvers (_stance_key_in_text / _stance_key_in_text_stem /
+# resolve_topic) drops temporal/discourse fillers, so the grass contradiction
+# no longer binds the storm stance.
+def test_reversal_not_misattributed_via_filler():
+    d = tempfile.mkdtemp(prefix="ravana_rev_")
+    e = CognitiveChatEngine(dim=64, seed=42, baby_mode=True, data_dir=d)
+    e.process_turn("thunderstorms still make me feel safe, nothing beats that")
+    e.process_turn("actually i hate thunderstorms now, they keep me awake for hours and i feel raw")
+    # Establish a held grass stance too, so we exercise the multi-key case.
+    e.process_turn("i find the smell of cut grass really calming")
+    e.process_turn("actually no — fresh-cut grass now makes me sneeze and itch, i can't stand it in summer")
+    last = e._last_responses[-1].lower()
+    assert "thunderstorms" not in last, \
+        f"grass contradiction wrongly acked the storm stance: {last!r}"
+    # The held storm stance must remain intact (its polarity unchanged by the
+    # unrelated grass turn).
+    storm = e.user_model.opinions.stances.get("thunderstorms now")
+    assert storm is not None and storm.polarity < 0, \
+        f"storm stance corrupted by unrelated contradiction: {storm}"
