@@ -149,8 +149,41 @@ class SentenceTransformerEmbedder:
         self._projection = None
         self._seed = seed
         try:
+            import os
             from sentence_transformers import SentenceTransformer
-            self._model = SentenceTransformer(model_name)
+            # ROOT-CAUSE FIX (round 2026-08-16T1241Z, PRE-EXISTING defect):
+            # SentenceTransformer(model_name) pulls weights from the HF Hub on
+            # first use. When the model is NOT cached locally and the host is
+            # offline (RAVANA_OFFLINE=1 / HF_HUB_OFFLINE=1 / TRANSFORMERS_OFFLINE=1
+            # — the same contract as the chat engine's harm_intent_gate), it
+            # blocks FOREVER on the network download with no timeout. That hung
+            # tests/unit/test_embedder.py::TestSentenceTransformerEmbedder in CI.
+            # Fix: under offline mode, ask HF to use LOCAL FILES ONLY. A cached
+            # model still loads instantly (no regression to the healthy path);
+            # an uncached model raises OSError fast instead of stalling on the
+            # network, and we fail closed (available=False) so callers fall back
+            # to LearnedEmbedder. Online mode loads normally (real network use).
+            _offline = (
+                os.environ.get("RAVANA_OFFLINE") == "1"
+                or os.environ.get("HF_HUB_OFFLINE") == "1"
+                or os.environ.get("TRANSFORMERS_OFFLINE") == "1"
+            )
+            try:
+                if _offline:
+                    self._model = SentenceTransformer(
+                        model_name, local_files_only=True
+                    )
+                else:
+                    self._model = SentenceTransformer(model_name)
+            except Exception:
+                # Offline + uncached (or any load failure): fail closed.
+                # available stays False -> test skip path / LearnedEmbedder
+                # fallback. Online load errors still propagate (a misconfigured
+                # online setup should be visible), so only swallow when offline.
+                if not _offline:
+                    raise
+                self._model = None
+                return
             model_dim = self._model.get_sentence_embedding_dimension()
             rng = np.random.RandomState(seed)
             self._projection = rng.randn(model_dim, dim).astype(np.float32)

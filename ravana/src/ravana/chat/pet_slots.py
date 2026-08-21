@@ -48,18 +48,39 @@ _SPECIES_SEED: Dict[str, str] = {
 # Runtime-grown extension of the seed table.
 _SPECIES_LEARNED: Dict[str, str] = {}
 
+# Pronoun / function-word stop-set. A possession disclosure ("i named my dog
+# Rex") can leave the word immediately before "named"/"called" as a first-person
+# pronoun (e.g. "i keep a sourdough starter i named doris" -> group(1) == "i").
+# Such words are never animals, so learn_species must reject them outright —
+# otherwise a bogus species slot ("i" -> "doris") is created and can leak on an
+# UNKNOWN-entity cued recall, violating RAVANA's confabulation bar.
+_PRONOUN_STOP = frozenset({
+    "i", "me", "my", "mine", "you", "your", "yours", "we", "our", "us",
+    "it", "its", "they", "them", "their", "he", "she", "his", "her",
+    "this", "that", "these", "those", "what", "which", "who", "whom",
+    "a", "an", "the", "some", "any", "one",
+})
 
-def learn_species(word: str) -> str:
+
+def learn_species(word: str) -> Optional[str]:
     """Register an animal word seen in a live disclosure and return its canon.
 
     Growth path for the seed vocabulary: a species RAVANA has never heard of
     ("i have an axolotl named nyx") becomes addressable for later recall
     without any code change. A trailing plural "s" is folded onto the singular
-    so the plural form of the same word resolves to one slot.
+    so the plural form of the same word resolves to one slot. Returns None when
+    the word cannot be a species (empty or a pronoun / function word), so every
+    call site's ``if _species is not None`` guard refuses to store a bogus slot.
     """
     w = (word or "").strip().lower()
     if not w:
-        return ""
+        return None
+    # Defense-in-depth: never register a pronoun / function word as a species.
+    # The miner branches guard this too, but learn_species is the single
+    # chokepoint every pet-disclosure path routes through, so rejecting here
+    # guarantees no bogus slot (e.g. "i" -> "doris") can ever be learned.
+    if w in _PRONOUN_STOP:
+        return None
     known = species_of(w)
     if known:
         return known
