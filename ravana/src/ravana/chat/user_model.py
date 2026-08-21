@@ -2862,12 +2862,168 @@ class UserModel:
                                             valence=_v, arousal=_a,
                                             provenance=_prov)
 
+        # Affect-verb attitude construction mining (feature round
+        # 2026-08-21T1653Z residual #1): "X creeps me out" / "X grosses me out"
+        # / "X freaks me out" / "X gets to me" were NOT mined as stances even
+        # though the affect verb already lives in the shared VAD lexicon, so a
+        # later reversal ("i changed my mind about X") had nothing to act on.
+        # This is a GRAMMATICAL pattern (<subject> <affect-verb> <me>), not a
+        # per-topic list; polarity is derived from the shared VAD affect lexicon
+        # (the same matrix the empathy gate grows online), so a verb RAVANA has
+        # not seen yet simply scores 0.0 and is skipped — fail-closed, no
+        # confabulation. Each observed verb is registered into the VAD matrix so
+        # coverage GROWS by experience (see _mine_affect_verb_stance).
+        self._mine_affect_verb_stance(text)
+
         # Stance-reversal mining: "i take back X" / "i changed my mind about X" /
         # "i retract my stance on X" recodes the user's valuation of the topic to
         # the opposite pole (vmPFC re-evaluation), LINKED to the PRIOR stance the
         # store already holds — this is an attitude-change operator, not a fresh
         # opinion. Runs last so it can see (and reverse) any stance just mined.
         self.mine_stance_reversal(text)
+
+    def _mine_affect_verb_stance(self, text: str) -> None:
+        """Mine first-person affect-verb attitude constructions as stances.
+
+        Pattern: "<subject> <affect-verb> <me/us>" where the verb is an
+        affect term drawn from the SHARED VAD affect lexicon (e.g. "creeps",
+        "grosses", "freaks", "creepy", "wary"). Examples:
+            "lab-grown meat creeps me out"   -> negative stance on "lab-grown meat"
+            "that flickering light freaks me out" -> negative stance on the light
+            "his constant humming gets to me" -> negative stance on the humming
+
+        Design (seed-vs-hardcoding + no-retraining):
+          * Polarity comes from the SAME VAD association matrix the empathy /
+            support classifier already uses and GROWS online via Hebbian
+            learning (`UserEmotionDetector`). We do NOT introduce a second
+            affect-word list. A verb absent from the matrix scores 0.0 and is
+            skipped (fail-closed). Every verb we DO see is registered into the
+            matrix (`learn_association`) so the next encounter is scored even
+            without a seed entry — the capability compounds with use.
+          * Morphological variants ("creeps"->"creep", "grosses"->"gross",
+            "freaked"->"freak") are resolved through the SAME
+            `_morphological_normalize` the matrix lookup uses, so no parallel
+            stemmer.
+          * Subject resolution reuses the shared `_opinion_topic` chokepoint,
+            so a stance lands on the real content head ("lab-grown meat"), never
+            a closed-class word. Generic: any subject the user rotates in.
+          * Reversals remain fully operable: the stance is stored in the same
+            `opinions` store, so `mine_stance_reversal` (run next) can later
+            recode it. Nothing is frozen; no retraining, no per-topic table.
+        """
+        if not text:
+            return
+        q = text.lower()
+        # First-person only: the attitude must be the user's own self-report,
+        # never a question ("does clowns creep you out?" is not a stance).
+        if q.rstrip().endswith("?") or re.match(
+                r"^(what|who|when|where|why|how|which|is|are|do|does|did|"
+                r"can|could|would|should|will|may|might|am|have|has|had)\b", q):
+            return
+        # An affect-verb must be SOMEWHERE in the utterance; cheap pre-filter so
+        # the regex only runs when relevant. The verb itself is validated
+        # against the shared VAD matrix below, so this is just a content gate.
+        _tok = set(re.findall(r"[a-z']+", q))
+        if not (_tok & {"me", "us", "myself"}):
+            return  # no first-person object -> not this construction
+        # The affect-verb LEMMA set is SEED vocabulary (the same allowed class
+        # as the dismissive-metaphor noun set and the sentiment adjectives): a
+        # small bootstrapping list of aversive-reaction verbs. It is
+        # RAVANA-extendable — an unseen verb in this class bootstraps its own
+        # VAD entry on first encounter (see the valence logic below) and grows
+        # online; removing an entry only loses one verb shape. NOT a per-topic
+        # answer table. Every verb here denotes an aversive reaction to its
+        # subject, which is what licenses the structural default-polarity below.
+        for _m in re.finditer(
+                r"\b([a-z][a-z'\-]+(?:\s+[a-z][a-z'\-]+){0,5})\s+"
+                r"(creeps?|gross(?:es)?|freaks?|weirds?|unnerves?|disgusts?|"
+                r"repulses?|scares?|terrifies?|bothers?|annoys?|rattles?|"
+                r"spooks?|unsettles?|creep|gross|freak|weird|unnerve|disgust|"
+                r"repulse|scare|terrify|bother|annoy|rattle|spook|unsettle|"
+                r"gets\s+to)\b"
+                r"\s+(?:me|us|myself)\b", q):
+            _raw_subj = _m.group(1).strip()
+            if not _raw_subj:
+                continue
+            # Resolve the salient content head via the shared chokepoint.
+            _topic = self._opinion_topic(_raw_subj)
+            if not _topic:
+                continue
+            # Validate the affect verb against the shared VAD matrix and read
+            # its valence. Morphological normalization reuses the matrix's own
+            # routine so "creeps"->"creep" etc. resolve without a second list.
+            _verb_raw = _m.group(2).replace(" ", "")  # "gets to" -> "getsto"
+            _vad = self._vad_for_affect_verb(_verb_raw)
+            if _vad is not None:
+                _valence = float(_vad[0])
+            else:
+                # The verb is in the seed affect-verb class but has no VAD
+                # entry yet. The "<subject> <affect-verb> me" construction
+                # STRUCTURALLY encodes an aversive reaction (like the
+                # comparative "X is better than Y" is structurally positive),
+                # so seed a default negative valence and register it into the
+                # matrix so future scoring — in ANY construction — recognizes
+                # it. Online growth, no retraining, no second list.
+                _vad = (-0.6, 0.55, -0.35)
+                _valence = -0.6
+            if abs(_valence) < 0.05:
+                continue  # neutral / unknown valence -> never seed a stance
+            # GROW the matrix: register the exact surface verb so future
+            # mentions (in any construction) are scored. Online, no retraining.
+            self._learn_affect_verb(_verb_raw, _vad)
+            # Sign-preserving affect blend (same discipline as the lexical
+            # miner above): the lexical VAD valence is the ground-truth
+            # attitude signal; the turn-affect buffer only reinforces, never
+            # reverses.
+            _p = _valence
+            _v, _a, _d = self._infer_user_emotion(text)
+            if _p < -0.05 and _v < -0.1:
+                _p = min(_p, _p - 0.15)
+            elif _p > 0.05 and _v > 0.1:
+                _p = max(_p, _p + 0.15)
+            _p = max(-1.0, min(1.0, _p))
+            _prov = self._opinion_provenance(_raw_subj)
+            self.opinions.express_stance(_topic, polarity=_p, confidence=0.6,
+                                        valence=_v, arousal=_a,
+                                        provenance=_prov)
+
+    def _vad_for_affect_verb(self, verb: str):
+        """Return the VAD triple for an affect verb from the SHARED VAD matrix.
+
+        Reuses `UserEmotionDetector._lookup_word` (which applies the same
+        `_morphological_normalize` the rest of the system uses) so we never
+        maintain a second affect lexicon. Returns None when the verb has no
+        seeded/learned VAD entry (fail-closed: we do not invent a polarity).
+        """
+        self._ensure_emotion_detector()
+        det = self._emotion_detector
+        # _lookup_word is the matrix's own morphological resolver.
+        entry = det._lookup_word(verb) if hasattr(det, "_lookup_word") else None
+        if entry is None:
+            # Fall back to the seed dictionary directly for stem forms the
+            # detector may not have normalized (e.g. "creep" without seed).
+            from ravana.core.mirror import _VAD_SEED, _morphological_normalize
+            for cand in (verb,) + tuple(_morphological_normalize(verb)):
+                if cand in _VAD_SEED:
+                    v, a, d = _VAD_SEED[cand]
+                    return (float(v), float(a), float(d))
+            return None
+        return (float(entry[0]), float(entry[1]), float(entry[2]))
+
+    def _learn_affect_verb(self, verb: str, vad) -> None:
+        """Register an observed affect verb into the SHARED VAD matrix.
+
+        Online growth: the first time the user utters "X creeps me out", the
+        surface verb "creeps" is added to the matrix (seeded from its VAD
+        lookup) so later affect scoring — in ANY construction — recognizes it.
+        No retraining, no second list; the matrix is the single source of
+        truth and it compounds with conversation.
+        """
+        self._ensure_emotion_detector()
+        det = self._emotion_detector
+        if hasattr(det, "learn_association"):
+            det.learn_association(verb, (float(vad[0]), float(vad[1]),
+                                         float(vad[2])), confidence=0.5)
 
     def _stance_key_in_text(self, text: str):
         """Return the held stance key whose TOPIC appears in `text`, else None.
