@@ -3250,6 +3250,28 @@ class UserModel:
         # remainder is a strict subset of the held "acoustic music" topic.
         _scope_markers = {"only", "just", "really", "truly", "merely", "simply"}
         _topic_tokens = _raw_topic_tokens - _scope_markers
+        # A recant is a genuine SCOPE-NARROWING (the "acoustic-ONLY" corruption
+        # case: the user still likes the held attitude, just restricts its
+        # scope) ONLY when the recant phrase carries an explicit scope marker.
+        # A subset recant WITHOUT a scope marker ("i take it back about the
+        # cold", where "cold" is the salient head of the held "cold weather
+        # give" stance) is a WHOLE-ATTITUDE reversal — the user is inverting the
+        # evaluation of the object, not narrowing it. Treating the no-marker
+        # subset case as narrowing (the prior behavior) silently dropped real
+        # reversals (round 2026-08-21T1653Z: "i take it back about the cold"
+        # left the stance pinned at +0.95). So the narrowing guards below only
+        # fire when a scope marker is present. Generalizable: the marker is a
+        # structural scope signal, not a per-topic rule, so it separates the two
+        # operations for ANY topic (per opencode cognitive review: narrowing
+        # re-segments the object while keeping valence; reversal negates the
+        # object evaluation).
+        # NOTE: the scope marker must be read from the RAW tail text, NOT the
+        # extracted `topic` — _opinion_topic drops the "-only" qualifier (it
+        # returns the bare head "acoustic"), so testing `topic` would never see
+        # the marker and the narrowing guard would never fire. `tail` still
+        # contains "acoustic-only", so scan it for a scope marker token.
+        _recant_has_scope = bool(_scope_markers & set(
+            re.findall(r"[a-z']+", (tail or "").lower())))
         for _k in self.opinions.stances:
             _kt = set(re.findall(r"[a-z']+", _k.lower()))
             if not _kt:
@@ -3259,12 +3281,14 @@ class UserModel:
             if _topic_tokens and (_topic_tokens <= _kt
                                   or len(_topic_tokens & _kt) / max(1, len(_topic_tokens)) >= 0.5):
                 # REJECT a narrowing recant: when the recant's meaningful
-                # content is a STRICT subset of the held topic, the user is
+                # content is a STRICT subset of the held topic AND the recant
+                # carries a scope marker (e.g. "acoustic-ONLY"), the user is
                 # restricting scope (still likes acoustic, just not *only*
                 # acoustic), not reversing their attitude. Flipping the held
                 # stance would corrupt the store. Scope-widening is not a
-                # reversal. Detected generically from token containment.
-                if _topic_tokens and _topic_tokens < _kt:
+                # reversal. Without a scope marker the subset is a whole-attitude
+                # reversal (see _recant_has_scope above), so it is NOT rejected.
+                if _recant_has_scope and _topic_tokens and _topic_tokens < _kt:
                     continue
                 _target_candidates.append(_k)
         # Only honor a loose substring match when it is NOT a broad-held-topic
@@ -3289,7 +3313,8 @@ class UserModel:
                 _scope_markers = {"only", "just", "really", "truly", "merely", "simply"}
                 _recant_meaningful = _topic_tokens - _scope_markers
                 _is_narrowing = (
-                    _recant_meaningful
+                    _recant_has_scope
+                    and _recant_meaningful
                     and _recant_meaningful <= _loose_tokens
                     and _recant_meaningful != _loose_tokens)
                 if not _is_narrowing:
@@ -3313,7 +3338,10 @@ class UserModel:
         _recant_meaningful = set(re.findall(r"[a-z']+", (topic or "").lower()))
         _recant_meaningful = {t for tok in _recant_meaningful
                               for t in tok.split("-") if t} - _scope_markers
-        if _recant_meaningful and _recant_meaningful < _tgt_tokens:
+        # Only block as scope-widening when the recant actually carries a scope
+        # marker (see _recant_has_scope). A no-marker subset recant is a whole-
+        # attitude reversal and must NOT be dropped.
+        if _recant_has_scope and _recant_meaningful and _recant_meaningful < _tgt_tokens:
             return
         try:
             self.opinions._soft_reversal = _soft

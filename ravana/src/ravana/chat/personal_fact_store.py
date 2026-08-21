@@ -261,6 +261,20 @@ class Stance:
     # talk (express_stance merges provenance across encounters). No per-topic
     # table, no retraining.
     provenance: List[str] = field(default_factory=list)
+    # ATTRIBUTE-CHANGE HISTORY (feature round 2026-08-21T1653Z, Defect 2):
+    # the PREVIOUS polarity/confidence immediately BEFORE the last recode, plus
+    # the human-readable prior stance string. This is the episodic trace of the
+    # user's OWN opinion revisions (per opencode cognitive review: a revision
+    # writes an episodic trace alongside the live semantic value, the
+    # superseded flag keeps it from competing during normal inference, and the
+    # live slot is never clobbered). It lets RAVANA later answer "what was my
+    # original take / did i used to love X" from the USER's own stance store
+    # instead of world-knowledge, and render the prior value in a linked
+    # acknowledgment. Online + incremental: every recode (reverse_stance /
+    # recode_stance_toward) updates this from real user input; never authored,
+    # no per-topic table, no retraining. None until the stance has been revised.
+    prior_polarity: Optional[float] = None
+    prior_stance: Optional[str] = None
 
 
 class UserStanceStore:
@@ -473,6 +487,22 @@ class UserStanceStore:
             return existing
         old_polarity = existing.polarity
         old_confidence = existing.confidence
+        # Record the PRE-RECODE opinion as an episodic trace BEFORE mutating, so
+        # a later "what was my original take / did i used to love X" recall can
+        # read the user's OWN prior stance (feature round 2026-08-21T1653Z).
+        # The string is rendered from the live value, not authored prose.
+        if old_polarity >= 0.6:
+            _prior_word = "strongly for"
+        elif old_polarity > 0.1:
+            _prior_word = "for"
+        elif old_polarity <= -0.6:
+            _prior_word = "strongly against"
+        elif old_polarity < -0.1:
+            _prior_word = "against"
+        else:
+            _prior_word = "uncertain about"
+        existing.prior_polarity = old_polarity
+        existing.prior_stance = f"{_prior_word} {key}"
         # Softening relaxes toward neutral; hard recant flips decisively. A
         # partial reversal never crosses the pivot, so "olives aren't that bad"
         # lands near neutral instead of converting the user into an olive-lover.
@@ -515,6 +545,20 @@ class UserStanceStore:
         if self._reversed_utterance.get(key) == _guard_key:
             return existing
         old_polarity = existing.polarity
+        # Record the PRE-RECODE opinion as an episodic trace BEFORE mutating (see
+        # reverse_stance for the rationale: feature round 2026-08-21T1653Z).
+        if old_polarity >= 0.6:
+            _prior_word = "strongly for"
+        elif old_polarity > 0.1:
+            _prior_word = "for"
+        elif old_polarity <= -0.6:
+            _prior_word = "strongly against"
+        elif old_polarity < -0.1:
+            _prior_word = "against"
+        else:
+            _prior_word = "uncertain about"
+        existing.prior_polarity = old_polarity
+        existing.prior_stance = f"{_prior_word} {key}"
         # Decisive recode toward the newly-stated value (bounded blend).
         _b = max(0.0, min(1.0, blend))
         existing.polarity = old_polarity * (1.0 - _b) + float(new_polarity) * _b
