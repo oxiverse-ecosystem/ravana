@@ -169,15 +169,50 @@ def is_relation_verb(word: str) -> bool:
     return False
 
 
+# Auxiliary-verb seed lexicon (round 2026-08-21T0843Z feature card
+# t_16b15684). A relationship disclosure often states an activity through an
+# AUXILIARY verb instead of a bare activity/relation verb: "my cousin Jin DOES
+# competitive speedcubing", "my sister DID competitive debate", "my brother DOES
+# parkour". The earlier two verb classes (activity verbs, relation verbs) both
+# MISSED this shape — "does" is neither an activity verb nor a relation verb —
+# so the whole disclosure fell through to the name-only path and was dropped by
+# the degenerate-fact guard (the residual "cousin Jin's activity not recalled"
+# logged at the end of round 2026-08-21T0843Z). The auxiliary opens the SAME
+# capture path as the other two verb classes (name = tokens before it, value =
+# aux + activity noun-phrase resolved through _opinion_topic), so the disclosure
+# mines + recalls like any other. This is SEED vocabulary (a data set, not an
+# answer table) — RAVANA-expandable by the same PersonalFactStore the user can
+# correct; removing entries degrades gracefully (one fewer aux shape recognized).
+# NOT a per-relationship table and NOT authored prose.
+_AUX_VERB_LEXICON = {"do", "does", "did", "doing", "done"}
+
+
+def is_aux_verb(word: str) -> bool:
+    """True when `word` is an auxiliary verb that introduces an activity
+    noun-phrase in a relationship disclosure ("does"/"did"/"doing" + activity).
+    Recognized as a verb-phrase head for both mining and copula-free recall
+    rendering. Pure vocabulary lookup — no content."""
+    w = (word or "").strip().lower().strip(".,!?;:'\"")
+    if not w:
+        return False
+    if w in _AUX_VERB_LEXICON:
+        return True
+    # inflected forms not pre-listed
+    for suf in ("ing", "ed", "s", "es"):
+        if w.endswith(suf) and w[: -len(suf)] in _AUX_VERB_LEXICON:
+            return True
+    return False
+
+
 def is_verb_phrase(word: str) -> bool:
     """True when `word` heads a VERB-PHRASE personal fact (activity OR relation
-    verb). The single source of truth for the recall/ack grammar rule that drops
-    the copula for verb-phrase values (so "your grandmother yaya speaks three
-    languages" is grammatical, not "is speaks"). Superset of is_activity_verb;
-    callers that previously used is_activity_verb for the copula decision should
-    use this so relation-verb facts render correctly too. Pure vocabulary
-    lookup — no content."""
-    return is_activity_verb(word) or is_relation_verb(word)
+    OR auxiliary verb). The single source of truth for the recall/ack grammar
+    rule that drops the copula for verb-phrase values (so "your cousin jin does
+    competitive speedcubing" is grammatical, not "is does"). Superset of
+    is_activity_verb + is_relation_verb + is_aux_verb; callers that previously
+    used is_activity_verb for the copula decision should use this so every verb
+    class renders correctly. Pure vocabulary lookup — no content."""
+    return is_activity_verb(word) or is_relation_verb(word) or is_aux_verb(word)
 
 
 # real affect categories in brain_regions._CAUSE_SEEDS and
@@ -1910,6 +1945,29 @@ class UserModel:
                         _vidx = _i
                         _v_is_rel = True
                         break
+                    # GENERALIZE (feature t_16b15684, round 2026-08-21T0843Z
+                    # residual): also recognize an AUXILIARY verb (does/did/doing
+                    # + activity noun-phrase) as a verb-phrase head. The canonical
+                    # missed case was "my cousin Jin DOES competitive speedcubing"
+                    # — "does" is neither an activity verb nor a relation verb, so
+                    # the verb-scan found nothing, fell to the name-only path, and
+                    # the degenerate-fact guard dropped the whole disclosure. Now
+                    # the auxiliary opens the SAME capture path as the other two
+                    # verb classes; the value is mined as "aux + activity
+                    # noun-phrase" via the activity value-extraction branch below
+                    # (the object is resolved through _opinion_topic so it stays a
+                    # real concept, not a filler). Seed lexicon (is_aux_verb),
+                    # RAVANA-expandable; not a per-relationship table. The aux is
+                    # allowed to fire on its own token as long as a following
+                    # content token exists (the activity noun-phrase) — we do NOT
+                    # require a following activity VERB, because the disclosure is
+                    # "does competitive speedcubing", not "does climb".
+                    if is_aux_verb(_tw):
+                        _rest_toks = [t for t in _toks[_i + 1:]
+                                      if t.strip(".,!?")]
+                        if _rest_toks:
+                            _vidx = _i
+                            break
                 # GENERALIZE (round 2026-08-19T1026Z): a relationship disclosure
                 # establishes the RELATIONSHIP + NAME regardless of whether an
                 # activity verb is recognised. When NO activity/relation verb is

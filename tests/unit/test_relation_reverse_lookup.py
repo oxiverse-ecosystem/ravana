@@ -87,5 +87,43 @@ def test_relation_reverse_lookup():
     run()
 
 
+def test_aux_verb_relationship_mined_and_recalled():
+    """RED->GREEN: a relationship disclosure using an AUXILIARY verb
+    ("does/did/doing" + activity noun-phrase) must be mined AND recalled.
+
+    Residual from round 2026-08-21T0843Z: "my cousin Jin does competitive
+    speedcubing" was dropped because "does" is neither an activity verb nor a
+    relation verb, so the miner fell to the name-only path and the
+    degenerate-fact guard skipped the disclosure. A later "what does my cousin
+    jin do" returned "cousin is a bit outside what i know right now". After the
+    fix (is_aux_verb + aux capture path in the relationship miner), the
+    disclosure mines as ("cousin jin", "does competitive speedcubing") and
+    recall renders the copula-free verb phrase. Generalizes to "did parkour" /
+    "does debate" with no per-relationship branch.
+
+    Reply content is driven by REAL mined state, never authored prose.
+    """
+    eng = CognitiveChatEngine(dim=64, seed=42, baby_mode=True,
+                              user_suffix="test_auxrel_reg")
+    with contextlib.redirect_stdout(io.StringIO()):
+        eng.process_turn(
+            "my cousin Jin does competitive speedcubing and once solved it in 9 seconds")
+
+    rel_facts = [(a, f.value) for (s, a, _), f in
+                 eng.user_model.personal_facts.facts.items()
+                 if s == "i" and not f.superseded]
+    assert ("cousin jin", "does competitive speedcubing") in rel_facts, (
+        f"aux-verb disclosure not mined: {rel_facts}")
+
+    eng._last_strategy = None
+    with contextlib.redirect_stdout(io.StringIO()):
+        r = eng.process_turn("what does my cousin jin do, the fast thing with cubes")
+    reply = r if isinstance(r, str) else str(r)
+    eng.stop_background_learning()
+    assert eng._last_strategy == "structured_recall", reply
+    assert "speedcub" in reply.lower(), reply
+    assert "cousin is a bit outside" not in reply.lower(), reply
+
+
 if __name__ == "__main__":
     run()
